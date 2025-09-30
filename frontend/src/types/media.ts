@@ -1,26 +1,57 @@
 export interface Media {
   id: number;
   title: string;
-  type: string; // Allow any string to match API response
+  original_title?: string;
+  type: string; // "movie" or "episode"
   file_path?: string;
   file_size?: number;
   duration?: number;
+  
+  // Enhanced metadata fields matching media.json
+  tagline?: string;
+  short_desc?: string;
+  long_desc?: string;
   description?: string;
+  year?: number;
   release_date?: string;
   rating?: number;
+  country?: string;
+  language?: string;
+  quality?: string; // HD, 4K, SD, HDR
+  
+  // Cast and crew
+  stars?: string[];
+  director?: string[];
+  
+  // Genres
   genres?: Genre[];
+  genre_names?: string[];
+  
+  // Technical info
   resolution?: string;
   codec?: string;
   bitrate?: number;
+  
+  // Media assets
   thumbnail_path?: string;
   preview_path?: string;
   preview_clip_path?: string;
   poster_path?: string;
+  banner_path?: string;
+  trailer_path?: string;
+  
+  // Series info
   series_id?: number;
   series?: Series;
+  season?: number;
+  episode?: number;
   season_number?: number;
   episode_number?: number;
+  
+  // Tracking
   view_count?: number;
+  last_viewed?: string;
+  last_updated?: string;
   subtitles?: Subtitle[];
 }
 

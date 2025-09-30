@@ -1,0 +1,199 @@
+version: '3.8'
+
+services:
+  # Redis - Message broker for Celery
+  redis:
+    image: redis:7-alpine
+    container_name: homeflix_redis
+    ports:
+      - "6380:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    restart: unless-stopped
+    networks:
+      - homeflix_network
+
+  # Celery Worker - Metadata Queue (High Priority)
+  celery_metadata:
+    build:
+      context: .
+      dockerfile: Dockerfile.celery
+    container_name: homeflix_celery_metadata
+    command: celery -A celery_app worker -Q metadata -n metadata_worker@%h --loglevel=info --concurrency=4
+    volumes:
+      - ./:/app
+      - media_data:/media
+      - thumbnail_data:/thumbnails
+      - poster_data:/posters
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - API_URL=http://homeflix_backend:8251
+    depends_on:
+      - redis
+    restart: unless-stopped
+    networks:
+      - homeflix_network
+
+  # Celery Worker - Thumbnails Queue (High Priority)
+  celery_thumbnails:
+    build:
+      context: .
+      dockerfile: Dockerfile.celery
+    container_name: homeflix_celery_thumbnails
+    command: celery -A celery_app worker -Q thumbnails -n thumbnails_worker@%h --loglevel=info --concurrency=6
+    volumes:
+      - ./:/app
+      - media_data:/media
+      - thumbnail_data:/thumbnails
+      - preview_data:/previews
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - API_URL=http://homeflix_backend:8251
+      - THUMBNAIL_DIR=/thumbnails
+      - PREVIEW_DIR=/previews
+    depends_on:
+      - redis
+    restart: unless-stopped
+    networks:
+      - homeflix_network
+
+  # Celery Worker - Posters Queue (Medium Priority)
+  celery_posters:
+    build:
+      context: .
+      dockerfile: Dockerfile.celery
+    container_name: homeflix_celery_posters
+    command: celery -A celery_app worker -Q posters -n posters_worker@%h --loglevel=info --concurrency=3
+    volumes:
+      - ./:/app
+      - poster_data:/posters
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - TMDB_API_KEY=${TMDB_API_KEY}
+      - OMDB_API_KEY=${OMDB_API_KEY}
+      - API_URL=http://homeflix_backend:8251
+      - POSTER_DIR=/posters
+    depends_on:
+      - redis
+    restart: unless-stopped
+    networks:
+      - homeflix_network
+
+  # Celery Worker - Video Processing Queue (Medium Priority)
+  celery_video:
+    build:
+      context: .
+      dockerfile: Dockerfile.celery
+    container_name: homeflix_celery_video
+    command: celery -A celery_app worker -Q video_processing -n video_worker@%h --loglevel=info --concurrency=2
+    volumes:
+      - ./:/app
+      - media_data:/media
+      - optimized_data:/optimized
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - API_URL=http://homeflix_backend:8251
+      - OPTIMIZED_DIR=/optimized
+    depends_on:
+      - redis
+    restart: unless-stopped
+    networks:
+      - homeflix_network
+
+  # Celery Worker - Subtitles Queue (Low Priority)
+  celery_subtitles:
+    build:
+      context: .
+      dockerfile: Dockerfile.celery
+    container_name: homeflix_celery_subtitles
+    command: celery -A celery_app worker -Q subtitles -n subtitles_worker@%h --loglevel=info --concurrency=2
+    volumes:
+      - ./:/app
+      - media_data:/media
+      - subtitle_data:/subtitles
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - API_URL=http://homeflix_backend:8251
+      - SUBTITLE_DIR=/subtitles
+    depends_on:
+      - redis
+    restart: unless-stopped
+    networks:
+      - homeflix_network
+
+  # Celery Worker - Scanning Queue (Low Priority)
+  celery_scanning:
+    build:
+      context: .
+      dockerfile: Dockerfile.celery
+    container_name: homeflix_celery_scanning
+    command: celery -A celery_app worker -Q scanning -n scanning_worker@%h --loglevel=info --concurrency=1
+    volumes:
+      - ./:/app
+      - media_data:/media
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - API_URL=http://homeflix_backend:8251
+      - BATCH_SIZE=10
+    depends_on:
+      - redis
+    restart: unless-stopped
+    networks:
+      - homeflix_network
+
+  # Celery Flower - Monitoring Dashboard
+  celery_flower:
+    build:
+      context: .
+      dockerfile: Dockerfile.celery
+    container_name: homeflix_celery_flower
+    command: celery -A celery_app flower --port=5555
+    ports:
+      - "5555:5555"
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    depends_on:
+      - redis
+    restart: unless-stopped
+    networks:
+      - homeflix_network
+
+  # Celery Beat - Task Scheduler (Optional)
+  celery_beat:
+    build:
+      context: .
+      dockerfile: Dockerfile.celery
+    container_name: homeflix_celery_beat
+    command: celery -A celery_app beat --loglevel=info
+    volumes:
+      - ./:/app
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    depends_on:
+      - redis
+    restart: unless-stopped
+    networks:
+      - homeflix_network
+
+volumes:
+  redis_data:
+  media_data:
+  thumbnail_data:
+  poster_data:
+  preview_data:
+  optimized_data:
+  subtitle_data:
+
+networks:
+  homeflix_network:
+    driver: bridge

@@ -1,6 +1,10 @@
 package services
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"homeflix-backend/internal/models"
 
 	"gorm.io/gorm"
@@ -20,7 +24,14 @@ func (s *MediaService) CreateMedia(media *models.Media) error {
 
 func (s *MediaService) GetAllMedia() ([]models.Media, error) {
 	var media []models.Media
-	err := s.db.Preload("Genres").Preload("Series").Preload("Subtitles").Find(&media).Error
+	err := s.db.Preload("Genres").Preload("Series").Preload("Subtitles").
+		Order("created_at DESC").Find(&media).Error
+	
+	// Add fallback thumbnail paths for media without thumbnails
+	for i := range media {
+		s.ensureThumbnailFallback(&media[i])
+	}
+	
 	return media, err
 }
 
@@ -203,6 +214,60 @@ func (s *MediaService) GetRecommendedMedia(userID uint, limit int) ([]models.Med
 	return media, err
 }
 
+// ensureThumbnailFallback checks if media has thumbnails and creates fallback paths
+func (s *MediaService) ensureThumbnailFallback(media *models.Media) {
+	// Check if thumbnail exists, if not try to find one based on file path
+	if media.ThumbnailPath == "" {
+		// Try to find existing thumbnail files
+		baseDir := filepath.Dir(media.FilePath)
+		baseName := strings.TrimSuffix(filepath.Base(media.FilePath), filepath.Ext(media.FilePath))
+		
+		// Common thumbnail extensions and patterns
+		thumbnailPatterns := []string{
+			fmt.Sprintf("%s.jpg", baseName),
+			fmt.Sprintf("%s.jpeg", baseName),
+			fmt.Sprintf("%s.png", baseName),
+			fmt.Sprintf("%s-thumb.jpg", baseName),
+			fmt.Sprintf("%s_thumb.jpg", baseName),
+			"folder.jpg",
+			"poster.jpg",
+			"cover.jpg",
+		}
+		
+		for _, pattern := range thumbnailPatterns {
+			thumbnailPath := filepath.Join(baseDir, pattern)
+			if _, err := os.Stat(thumbnailPath); err == nil {
+				media.ThumbnailPath = thumbnailPath
+				// Update in database
+				s.db.Model(media).Update("thumbnail_path", thumbnailPath)
+				break
+			}
+		}
+	}
+	
+	// Similar logic for poster paths
+	if media.PosterPath == "" {
+		baseDir := filepath.Dir(media.FilePath)
+		baseName := strings.TrimSuffix(filepath.Base(media.FilePath), filepath.Ext(media.FilePath))
+		
+		posterPatterns := []string{
+			fmt.Sprintf("%s-poster.jpg", baseName),
+			fmt.Sprintf("%s_poster.jpg", baseName),
+			"poster.jpg",
+			"cover.jpg",
+		}
+		
+		for _, pattern := range posterPatterns {
+			posterPath := filepath.Join(baseDir, pattern)
+			if _, err := os.Stat(posterPath); err == nil {
+				media.PosterPath = posterPath
+				s.db.Model(media).Update("poster_path", posterPath)
+				break
+			}
+		}
+	}
+}
+
 // SearchMediaAdvanced provides advanced search with filters
 func (s *MediaService) SearchMediaAdvanced(query string, genreFilter string, typeFilter string, minRating float32) ([]models.Media, error) {
 	var media []models.Media
@@ -233,4 +298,60 @@ func (s *MediaService) SearchMediaAdvanced(query string, genreFilter string, typ
 	
 	err := tx.Order("view_count DESC, rating DESC").Find(&media).Error
 	return media, err
+}
+
+// GetRecentMedia returns recently added media
+func (s *MediaService) GetRecentMedia() ([]models.Media, error) {
+	var media []models.Media
+	err := s.db.Preload("Genres").Preload("Series").Preload("Subtitles").
+		Order("created_at DESC").Limit(20).Find(&media).Error
+	
+	// Add fallback thumbnail paths for media without thumbnails
+	for i := range media {
+		s.ensureThumbnailFallback(&media[i])
+	}
+	
+	return media, err
+}
+
+// GetPopularMedia returns popular media based on view count
+func (s *MediaService) GetPopularMedia() ([]models.Media, error) {
+	var media []models.Media
+	err := s.db.Preload("Genres").Preload("Series").Preload("Subtitles").
+		Order("view_count DESC").Limit(20).Find(&media).Error
+	
+	// Add fallback thumbnail paths for media without thumbnails
+	for i := range media {
+		s.ensureThumbnailFallback(&media[i])
+	}
+	
+	return media, err
+}
+
+// GetTVShows returns media of type "series"
+func (s *MediaService) GetTVShows() ([]models.Media, error) {
+	var media []models.Media
+	err := s.db.Preload("Genres").Preload("Series").Preload("Subtitles").
+		Where("type = ?", "series").Order("created_at DESC").Find(&media).Error
+	
+	// Add fallback thumbnail paths for media without thumbnails
+	for i := range media {
+		s.ensureThumbnailFallback(&media[i])
+	}
+	
+	return media, err
+}
+
+// UpdateAllMediaGenres updates genres for all media (placeholder implementation)
+func (s *MediaService) UpdateAllMediaGenres() error {
+	// This would typically involve analyzing media files and updating genres
+	// For now, return nil as a placeholder
+	return nil
+}
+
+// GetSubtitles returns subtitles for a media item
+func (s *MediaService) GetSubtitles(mediaID uint) ([]models.Subtitle, error) {
+	var subtitles []models.Subtitle
+	err := s.db.Where("media_id = ?", mediaID).Find(&subtitles).Error
+	return subtitles, err
 }

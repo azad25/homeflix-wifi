@@ -21,14 +21,18 @@ type MediaScanner struct {
 	mediaService     *services.MediaService
 	thumbnailService *services.ThumbnailService
 	posterService    *services.PosterService
+	geminiService    *services.GeminiService
+	celeryService    *services.CeleryService
 	mediaPath        string
 }
 
-func NewMediaScanner(mediaService *services.MediaService, thumbnailService *services.ThumbnailService, posterService *services.PosterService, mediaPath string) *MediaScanner {
+func NewMediaScanner(mediaService *services.MediaService, thumbnailService *services.ThumbnailService, posterService *services.PosterService, geminiService *services.GeminiService, celeryService *services.CeleryService, mediaPath string) *MediaScanner {
 	return &MediaScanner{
 		mediaService:     mediaService,
 		thumbnailService: thumbnailService,
 		posterService:    posterService,
+		geminiService:    geminiService,
+		celeryService:    celeryService,
 		mediaPath:        mediaPath,
 	}
 }
@@ -226,6 +230,12 @@ func (s *MediaScanner) processVideoFile(path string, info os.FileInfo) error {
 				}
 			}
 		}
+	}
+
+	// Queue AI metadata generation using Celery
+	if s.geminiService != nil {
+		log.Printf("Queueing AI metadata generation for: %s", media.Title)
+		go s.queueCeleryTasks(media, path)
 	}
 
 	log.Printf("Successfully added media: %s (Type: %s, Size: %d bytes)", media.Title, media.Type, media.FileSize)
@@ -547,4 +557,114 @@ func (s *MediaScanner) cleanTitle(title string) string {
 	cleaned = strings.TrimSpace(cleaned)
 
 	return cleaned
+}
+
+// queueCeleryTasks queues distributed tasks for media processing
+func (s *MediaScanner) queueCeleryTasks(media *models.Media, path string) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("Panic in queueCeleryTasks for %s: %v", media.Title, r)
+		}
+	}()
+
+	// Queue comprehensive media processing via Celery
+	if err := s.queueMediaProcessing(media, path); err != nil {
+		log.Printf("Failed to queue Celery tasks for %s: %v", media.Title, err)
+		// Fallback to direct processing
+		s.generateMetadataAsync(media, path)
+	}
+}
+
+// queueMediaProcessing sends media to Celery for distributed processing
+func (s *MediaScanner) queueMediaProcessing(media *models.Media, path string) error {
+	if s.celeryService == nil {
+		return fmt.Errorf("celery service not initialized")
+	}
+
+	// Queue comprehensive media processing directly
+	return s.celeryService.QueueMediaProcessing(media.ID, path, media.Title, media.Type)
+}
+
+// sendToCelery sends task to Celery via Redis
+func (s *MediaScanner) sendToCelery(taskName string, payload map[string]interface{}) error {
+	if s.celeryService == nil {
+		return fmt.Errorf("celery service not initialized")
+	}
+
+	// Use the CeleryService to queue the task
+	switch taskName {
+	case "process_new_media":
+		if mediaInfo, ok := payload["media_info"].(map[string]interface{}); ok {
+			mediaID := uint(mediaInfo["media_id"].(uint))
+			filePath := mediaInfo["file_path"].(string)
+			title := mediaInfo["title"].(string)
+			mediaType := mediaInfo["type"].(string)
+			
+			return s.celeryService.QueueMediaProcessing(mediaID, filePath, title, mediaType)
+		}
+	default:
+		log.Printf("⚠️ Unknown Celery task: %s", taskName)
+	}
+	
+	return fmt.Errorf("unsupported task: %s", taskName)
+}
+
+// generateMetadataAsync generates AI metadata in the background (fallback)
+func (s *MediaScanner) generateMetadataAsync(media *models.Media, path string) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("Panic in generateMetadataAsync for %s: %v", media.Title, r)
+		}
+	}()
+
+	// Generate metadata using Gemini
+	metadata, err := s.geminiService.GenerateMediaMetadata(path, media.Title)
+	if err != nil {
+		log.Printf("Failed to generate AI metadata for %s: %v", media.Title, err)
+		return
+	}
+
+	// Update media with AI-generated metadata
+	if metadata.Title != "" {
+		media.Title = metadata.Title
+	}
+	if metadata.Description != "" {
+		media.Description = metadata.Description
+	}
+	if metadata.Rating > 0 {
+		media.Rating = metadata.Rating
+	}
+
+	// Update genres if provided
+	if len(metadata.Genres) > 0 {
+		if err := s.mediaService.AssignGenresToMedia(media.ID, metadata.Genres); err != nil {
+			log.Printf("Failed to assign AI-generated genres to %s: %v", media.Title, err)
+		} else {
+			log.Printf("Assigned %d AI-generated genres to %s", len(metadata.Genres), media.Title)
+		}
+	}
+
+	// Save updated media
+	if err := s.mediaService.UpdateMedia(media); err != nil {
+		log.Printf("Failed to update media with AI metadata for %s: %v", media.Title, err)
+		return
+	}
+
+	log.Printf("✅ Successfully generated AI metadata for: %s", media.Title)
+	if metadata.Tagline != "" {
+		log.Printf("   📝 Tagline: %s", metadata.Tagline)
+	}
+	log.Printf("   📅 Year: %d | ⭐ Rating: %.1f", metadata.Year, metadata.Rating)
+	if len(metadata.Genres) > 0 {
+		log.Printf("   🎭 Genres: %v", metadata.Genres)
+	}
+	if len(metadata.Stars) > 0 {
+		log.Printf("   🎬 Stars: %v", metadata.Stars)
+	}
+	if len(metadata.Directors) > 0 {
+		log.Printf("   🎥 Directors: %v", metadata.Directors)
+	}
+	if metadata.Country != "" {
+		log.Printf("   🌍 Country: %s", metadata.Country)
+	}
 }

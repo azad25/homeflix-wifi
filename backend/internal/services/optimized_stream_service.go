@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -46,11 +47,17 @@ func (s *OptimizedStreamService) StreamVideo(w http.ResponseWriter, r *http.Requ
 
 	fileSize := fileInfo.Size()
 	
-	// Set headers for optimal streaming
-	w.Header().Set("Content-Type", "video/mp4")
+	// Detect content type based on file extension
+	contentType := s.getContentType(filePath)
+	
+	// Set headers for optimal streaming with better caching and performance
+	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Accept-Ranges", "bytes")
-	w.Header().Set("Cache-Control", "public, max-age=3600")
+	w.Header().Set("Cache-Control", "public, max-age=86400, immutable") // 24 hours cache
 	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no") // Disable nginx buffering for real-time streaming
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Headers", "Range")
 	
 	// Handle range requests for efficient streaming
 	rangeHeader := r.Header.Get("Range")
@@ -111,15 +118,30 @@ func (s *OptimizedStreamService) streamWithChunks(w http.ResponseWriter, file *o
 	}
 
 	remaining := end - start + 1
-	buffer := make([]byte, s.chunkSize)
+	
+	// Use adaptive buffer size based on remaining data
+	bufferSize := s.chunkSize
+	if remaining < s.chunkSize {
+		bufferSize = remaining
+	}
+	
+	// Increase buffer size for better performance on larger files
+	if remaining > 50*1024*1024 { // 50MB+
+		bufferSize = s.chunkSize * 4 // 4x chunk size for large files
+	} else if remaining > 10*1024*1024 { // 10MB+
+		bufferSize = s.chunkSize * 2 // 2x chunk size for medium files
+	}
+	
+	buffer := make([]byte, bufferSize)
+	bytesWritten := int64(0)
 
 	for remaining > 0 {
-		chunkSize := s.chunkSize
-		if remaining < chunkSize {
-			chunkSize = remaining
+		readSize := int64(bufferSize)
+		if remaining < readSize {
+			readSize = remaining
 		}
 
-		n, err := file.Read(buffer[:chunkSize])
+		n, err := file.Read(buffer[:readSize])
 		if err != nil && err != io.EOF {
 			return err
 		}
@@ -133,15 +155,23 @@ func (s *OptimizedStreamService) streamWithChunks(w http.ResponseWriter, file *o
 			return writeErr
 		}
 
-		// Flush data immediately for real-time streaming
-		if flusher, ok := w.(http.Flusher); ok {
-			flusher.Flush()
-		}
-
+		bytesWritten += int64(n)
 		remaining -= int64(n)
+
+		// Adaptive flushing - flush more frequently for smaller chunks
+		if bytesWritten%s.chunkSize == 0 || remaining == 0 {
+			if flusher, ok := w.(http.Flusher); ok {
+				flusher.Flush()
+			}
+		}
 
 		if err == io.EOF {
 			break
+		}
+		
+		// Small delay for very large transfers to prevent overwhelming the connection
+		if bytesWritten > 0 && bytesWritten%(10*s.chunkSize) == 0 {
+			time.Sleep(1 * time.Millisecond)
 		}
 	}
 
@@ -211,4 +241,30 @@ func (s *OptimizedStreamService) GetVideoInfo(filePath string) (map[string]inter
 	}
 
 	return info, nil
+}
+
+// getContentType determines the MIME type based on file extension
+func (s *OptimizedStreamService) getContentType(filePath string) string {
+	ext := filepath.Ext(strings.ToLower(filePath))
+	
+	switch ext {
+	case ".mp4":
+		return "video/mp4"
+	case ".webm":
+		return "video/webm"
+	case ".mkv":
+		return "video/x-matroska"
+	case ".avi":
+		return "video/x-msvideo"
+	case ".mov":
+		return "video/quicktime"
+	case ".wmv":
+		return "video/x-ms-wmv"
+	case ".flv":
+		return "video/x-flv"
+	case ".m4v":
+		return "video/x-m4v"
+	default:
+		return "video/mp4" // Default fallback
+	}
 }

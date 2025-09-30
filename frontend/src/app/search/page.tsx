@@ -1,13 +1,20 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { Search, Filter, Calendar, Play, Info, Plus, X, Film, Tv, Star, Clock } from "lucide-react";
+import { Search, Filter, X } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 import { Media } from "../../types/media";
 import VideoPlayer from "../../components/VideoPlayer";
 import Navbar from "../../components/Navbar";
 import { getApiUrl } from "../../lib/api";
-import { Button } from "@/components/ui/button";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { 
+  NetflixHorizontalRow, 
+  ParallaxSection, 
+  GradientBackground, 
+  ScrollReveal, 
+  MagneticButton,
+  FloatingElement
+} from '@/components/scrollx';
 
 interface SearchFilters {
   type: string;
@@ -18,6 +25,7 @@ interface SearchFilters {
 }
 
 export default function SearchPage() {
+  const router = useRouter();
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<Media[]>([]);
   const [allGenres, setAllGenres] = useState<string[]>([]);
@@ -103,7 +111,7 @@ export default function SearchPage() {
   };
 
   const handleInfo = (media: Media) => {
-    console.log("Show info for:", media.title);
+    router.push(`/movie/${media.id}`);
   };
 
   const clearFilters = () => {
@@ -125,281 +133,233 @@ export default function SearchPage() {
   const activeFiltersCount = Object.values(filters).filter(value => value !== "all" && value !== "relevance").length;
 
   return (
-    <div className="min-h-screen bg-black">
-      <Navbar />
-      
-      <div className="pt-20 px-4 md:px-8 lg:px-16">
-        {/* Search Header */}
-        <div className="mb-8">
-          <h1 className="text-4xl font-bold text-white mb-6 flex items-center gap-3">
-            <Search className="w-10 h-10" />
-            Search
-          </h1>
-          
-          {/* Search Bar */}
-          <div className="relative max-w-2xl">
-            <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-            <input
-              type="text"
-              placeholder="Search for movies, TV shows..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-gray-800 text-white pl-12 pr-4 py-4 rounded-lg border border-gray-700 focus:border-red-500 focus:outline-none text-lg"
-            />
-          </div>
-        </div>
+    <div className="min-h-screen bg-black text-white">
+      <Navbar onSearch={(query: string) => setSearchQuery(query)} />
 
-        {/* Filters Section */}
-        <div className="mb-6">
-          <div className="flex flex-wrap items-center gap-4 mb-4">
-            <Button
-              onClick={() => setShowFilters(!showFilters)}
-              variant="outline"
-              className="border-gray-600 text-white hover:bg-gray-800"
-            >
-              <Filter className="w-4 h-4 mr-2" />
-              Filters
-              {activeFiltersCount > 0 && (
-                <span className="ml-2 bg-red-600 text-white rounded-full px-2 py-1 text-xs">
-                  {activeFiltersCount}
-                </span>
-              )}
-            </Button>
-            
-            {activeFiltersCount > 0 && (
-              <Button
-                onClick={clearFilters}
-                variant="ghost"
-                className="text-gray-400 hover:text-white"
-              >
-                <X className="w-4 h-4 mr-2" />
-                Clear Filters
-              </Button>
-            )}
-          </div>
-
-          {/* Filter Controls */}
-          {showFilters && (
-            <div className="bg-gray-900 p-6 rounded-lg border border-gray-700">
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-                {/* Type Filter */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-2">Type</label>
-                  <Select value={filters.type} onValueChange={(value) => setFilters(prev => ({ ...prev, type: value }))}>
-                    <SelectTrigger className="bg-gray-800 border-gray-700 text-white">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent className="bg-gray-800 border-gray-700">
-                      <SelectItem value="all" className="text-white hover:bg-gray-700">All Types</SelectItem>
-                      <SelectItem value="movie" className="text-white hover:bg-gray-700">Movies</SelectItem>
-                      <SelectItem value="episode" className="text-white hover:bg-gray-700">TV Shows</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                {/* Genre Filter */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-2">Genre</label>
-                  <Select value={filters.genre} onValueChange={(value) => setFilters(prev => ({ ...prev, genre: value }))}>
-                    <SelectTrigger className="bg-gray-800 border-gray-700 text-white">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent className="bg-gray-800 border-gray-700">
-                      <SelectItem value="all" className="text-white hover:bg-gray-700">All Genres</SelectItem>
-                      {allGenres.map(genre => (
-                        <SelectItem key={genre} value={genre} className="text-white hover:bg-gray-700">
-                          {genre}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                {/* Rating Filter */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-2">Min Rating</label>
-                  <Select value={filters.rating} onValueChange={(value) => setFilters(prev => ({ ...prev, rating: value }))}>
-                    <SelectTrigger className="bg-gray-800 border-gray-700 text-white">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent className="bg-gray-800 border-gray-700">
-                      <SelectItem value="all" className="text-white hover:bg-gray-700">Any Rating</SelectItem>
-                      <SelectItem value="7" className="text-white hover:bg-gray-700">7+ Stars</SelectItem>
-                      <SelectItem value="8" className="text-white hover:bg-gray-700">8+ Stars</SelectItem>
-                      <SelectItem value="9" className="text-white hover:bg-gray-700">9+ Stars</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                {/* Year Filter */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-2">Year</label>
-                  <Select value={filters.year} onValueChange={(value) => setFilters(prev => ({ ...prev, year: value }))}>
-                    <SelectTrigger className="bg-gray-800 border-gray-700 text-white">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent className="bg-gray-800 border-gray-700">
-                      <SelectItem value="all" className="text-white hover:bg-gray-700">Any Year</SelectItem>
-                      <SelectItem value="2024" className="text-white hover:bg-gray-700">2024</SelectItem>
-                      <SelectItem value="2023" className="text-white hover:bg-gray-700">2023</SelectItem>
-                      <SelectItem value="2022" className="text-white hover:bg-gray-700">2022</SelectItem>
-                      <SelectItem value="2021" className="text-white hover:bg-gray-700">2021</SelectItem>
-                      <SelectItem value="2020" className="text-white hover:bg-gray-700">2020</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                {/* Sort Filter */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-2">Sort By</label>
-                  <Select value={filters.sortBy} onValueChange={(value) => setFilters(prev => ({ ...prev, sortBy: value }))}>
-                    <SelectTrigger className="bg-gray-800 border-gray-700 text-white">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent className="bg-gray-800 border-gray-700">
-                      <SelectItem value="relevance" className="text-white hover:bg-gray-700">Relevance</SelectItem>
-                      <SelectItem value="title" className="text-white hover:bg-gray-700">Title A-Z</SelectItem>
-                      <SelectItem value="rating" className="text-white hover:bg-gray-700">Highest Rated</SelectItem>
-                      <SelectItem value="year" className="text-white hover:bg-gray-700">Newest First</SelectItem>
-                      <SelectItem value="popular" className="text-white hover:bg-gray-700">Most Popular</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Results Section */}
-        {loading ? (
-          <div className="text-center py-16">
-            <div className="text-white text-xl">Searching...</div>
-          </div>
-        ) : hasSearched ? (
-          <div>
-            {/* Results Header */}
-            <div className="mb-6">
-              <p className="text-gray-400">
-                {searchResults.length} result{searchResults.length !== 1 ? 's' : ''} 
-                {searchQuery && ` for "${searchQuery}"`}
-              </p>
-            </div>
-
-            {/* Results Grid */}
-            {searchResults.length > 0 ? (
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-6">
-                {searchResults.map((media) => (
-                  <div
-                    key={media.id}
-                    className="group relative bg-gray-900 rounded-lg overflow-hidden hover:scale-105 transition-all duration-300"
-                  >
-                    {/* Thumbnail */}
-                    <div className="aspect-[2/3] bg-gradient-to-br from-gray-800 to-gray-900 flex items-center justify-center relative">
-                      <img
-                        src={`${getApiUrl()}/api/thumbnails/${media.id}`}
-                        alt={media.title}
-                        className="w-full h-full object-cover"
-                        onError={(e) => {
-                          const target = e.target as HTMLImageElement;
-                          target.src = '/placeholder-thumbnail.jpg';
-                        }}
-                      />
-                      <div className={`flex items-center justify-center w-full h-full ${media.thumbnail_path ? 'hidden' : ''}`}>
-                        {media.type === "movie" ? (
-                          <Film className="w-12 h-12 text-gray-600" />
-                        ) : (
-                          <Tv className="w-12 h-12 text-gray-600" />
-                        )}
-                      </div>
-                      
-                      {/* Type Badge */}
-                      <div className="absolute top-2 left-2">
-                        <span className={`px-2 py-1 rounded text-xs font-bold ${
-                          media.type === "movie" ? "bg-red-600" : "bg-blue-600"
-                        } text-white`}>
-                          {media.type === "movie" ? "MOVIE" : "TV"}
-                        </span>
-                      </div>
-                      
-                      {/* Hover Overlay */}
-                      <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-60 transition-all duration-300 flex items-center justify-center opacity-0 group-hover:opacity-100">
-                        <div className="flex gap-2">
-                          <Button
-                            onClick={() => handlePlay(media)}
-                            size="sm"
-                            className="bg-white text-black hover:bg-gray-200"
-                          >
-                            <span className="w-4 h-4 mr-1">▶</span>
-                            Play
-                          </Button>
-                        </div>
-                      </div>
-                    </div>
-                    
-                    {/* Content Info */}
-                    <div className="p-4">
-                      <h3 className="text-white font-semibold text-sm mb-2 line-clamp-2 leading-tight">
-                        {media.title}
-                      </h3>
-                      
-                      <div className="flex items-center justify-between text-xs text-gray-400 mb-2">
-                        <span>{media.type === "movie" ? "Movie" : "TV Show"}</span>
-                        {(media.rating || 0) > 0 && (
-                          <span className="flex items-center gap-1">
-                            <Star className="w-3 h-3 text-yellow-400 fill-current" />
-                            {(media.rating || 0).toFixed(1)}
-                          </span>
-                        )}
-                      </div>
-
-                      {(media.duration || 0) > 0 && (
-                        <div className="flex items-center text-xs text-gray-400 mb-2">
-                          <Clock className="w-3 h-3 mr-1" />
-                          {formatDuration(media.duration || 0)}
-                        </div>
-                      )}
-                      
-                      {/* Genres */}
-                      <div className="flex flex-wrap gap-1">
-                        {(media.genres || []).slice(0, 2).map((genre, index) => (
-                          <span
-                            key={index}
-                            className="text-xs bg-gray-800 text-gray-300 px-2 py-1 rounded"
-                          >
-                            {genre.name}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
+      {/* Main Content with Parallax Background */}
+      <GradientBackground variant="cosmic" animate={true} className="relative">
+        <div className="relative z-10 py-20">
+          {/* Search Header */}
+          <ParallaxSection speed={0.2}>
+            <ScrollReveal direction="up" delay={0.1}>
+              <div className="px-4 md:px-8 lg:px-16 mb-12">
+                <div className="text-center mb-8">
+                  <h1 className="text-4xl md:text-6xl font-bold text-white mb-6 flex items-center justify-center gap-4">
+                    <FloatingElement>
+                      <Search className="w-12 h-12" />
+                    </FloatingElement>
+                    Search Library
+                  </h1>
+                  
+                  {/* Search Bar */}
+                  <div className="relative max-w-3xl mx-auto">
+                    <Search className="absolute left-6 top-1/2 transform -translate-y-1/2 text-gray-400 w-6 h-6" />
+                    <input
+                      type="text"
+                      placeholder="Search for movies, TV shows, genres..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="w-full bg-black/50 backdrop-blur-md text-white pl-16 pr-6 py-6 rounded-2xl border border-white/20 focus:border-red-500 focus:outline-none text-xl placeholder-gray-400"
+                    />
                   </div>
-                ))}
+                </div>
+
+                {/* Filter Controls */}
+                <div className="flex flex-wrap justify-center gap-4 mb-8">
+                  <MagneticButton
+                    onClick={() => setShowFilters(!showFilters)}
+                    className={`px-6 py-3 rounded-lg font-semibold transition-all ${
+                      showFilters 
+                        ? 'bg-red-600 hover:bg-red-700 text-white' 
+                        : 'bg-black/50 backdrop-blur-md border border-white/20 text-white hover:bg-white/10'
+                    }`}
+                  >
+                    <Filter className="w-4 h-4 mr-2" />
+                    Filters
+                    {activeFiltersCount > 0 && (
+                      <span className="ml-2 bg-red-600 text-white rounded-full px-2 py-1 text-xs">
+                        {activeFiltersCount}
+                      </span>
+                    )}
+                  </MagneticButton>
+                  
+                  {activeFiltersCount > 0 && (
+                    <MagneticButton
+                      onClick={clearFilters}
+                      className="px-6 py-3 rounded-lg font-semibold bg-gray-600 hover:bg-gray-700 text-white"
+                    >
+                      <X className="w-4 h-4 mr-2" />
+                      Clear Filters
+                    </MagneticButton>
+                  )}
+                </div>
+
+                {/* Advanced Filters */}
+                {showFilters && (
+                  <ScrollReveal direction="up" delay={0.2}>
+                    <div className="bg-black/50 backdrop-blur-md p-8 rounded-2xl border border-white/20 max-w-4xl mx-auto">
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        {/* Type Filter */}
+                        <div>
+                          <label className="block text-sm font-medium text-gray-300 mb-3">Content Type</label>
+                          <select
+                            value={filters.type}
+                            onChange={(e) => setFilters(prev => ({ ...prev, type: e.target.value }))}
+                            className="w-full bg-black/50 backdrop-blur-md border border-white/20 text-white px-4 py-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
+                          >
+                            <option value="all">All Types</option>
+                            <option value="movie">Movies</option>
+                            <option value="episode">TV Shows</option>
+                          </select>
+                        </div>
+
+                        {/* Genre Filter */}
+                        <div>
+                          <label className="block text-sm font-medium text-gray-300 mb-3">Genre</label>
+                          <select
+                            value={filters.genre}
+                            onChange={(e) => setFilters(prev => ({ ...prev, genre: e.target.value }))}
+                            className="w-full bg-black/50 backdrop-blur-md border border-white/20 text-white px-4 py-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
+                          >
+                            <option value="all">All Genres</option>
+                            {allGenres.map(genre => (
+                              <option key={genre} value={genre}>{genre}</option>
+                            ))}
+                          </select>
+                        </div>
+
+                        {/* Rating Filter */}
+                        <div>
+                          <label className="block text-sm font-medium text-gray-300 mb-3">Min Rating</label>
+                          <select
+                            value={filters.rating}
+                            onChange={(e) => setFilters(prev => ({ ...prev, rating: e.target.value }))}
+                            className="w-full bg-black/50 backdrop-blur-md border border-white/20 text-white px-4 py-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
+                          >
+                            <option value="all">Any Rating</option>
+                            <option value="7">7+ Stars</option>
+                            <option value="8">8+ Stars</option>
+                            <option value="9">9+ Stars</option>
+                          </select>
+                        </div>
+
+                        {/* Year Filter */}
+                        <div>
+                          <label className="block text-sm font-medium text-gray-300 mb-3">Release Year</label>
+                          <select
+                            value={filters.year}
+                            onChange={(e) => setFilters(prev => ({ ...prev, year: e.target.value }))}
+                            className="w-full bg-black/50 backdrop-blur-md border border-white/20 text-white px-4 py-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
+                          >
+                            <option value="all">Any Year</option>
+                            <option value="2024">2024</option>
+                            <option value="2023">2023</option>
+                            <option value="2022">2022</option>
+                            <option value="2021">2021</option>
+                            <option value="2020">2020</option>
+                          </select>
+                        </div>
+
+                        {/* Sort Filter */}
+                        <div>
+                          <label className="block text-sm font-medium text-gray-300 mb-3">Sort By</label>
+                          <select
+                            value={filters.sortBy}
+                            onChange={(e) => setFilters(prev => ({ ...prev, sortBy: e.target.value }))}
+                            className="w-full bg-black/50 backdrop-blur-md border border-white/20 text-white px-4 py-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
+                          >
+                            <option value="relevance">Relevance</option>
+                            <option value="title">Title A-Z</option>
+                            <option value="rating">Highest Rated</option>
+                            <option value="year">Newest First</option>
+                            <option value="popular">Most Popular</option>
+                          </select>
+                        </div>
+                      </div>
+                    </div>
+                  </ScrollReveal>
+                )}
               </div>
-            ) : (
-              <div className="text-center py-16">
-                <Search className="w-16 h-16 text-gray-600 mx-auto mb-4" />
-                <h3 className="text-xl text-white mb-2">No results found</h3>
-                <p className="text-gray-400 mb-6">
-                  Try adjusting your search terms or filters
-                </p>
-                <Button
-                  onClick={clearFilters}
-                  className="bg-red-600 hover:bg-red-700 text-white"
-                >
-                  Clear Filters
-                </Button>
-              </div>
-            )}
-          </div>
-        ) : (
-          <div className="text-center py-16">
-            <Search className="w-16 h-16 text-gray-600 mx-auto mb-4" />
-            <h3 className="text-xl text-white mb-2">Search your library</h3>
-            <p className="text-gray-400">
-              Enter a search term above to find movies and TV shows
-            </p>
-          </div>
-        )}
-      </div>
+            </ScrollReveal>
+          </ParallaxSection>
+
+          {/* Results Section */}
+          <ParallaxSection speed={0.3}>
+            <div className="px-4 md:px-8 lg:px-16">
+              {loading ? (
+                <ScrollReveal direction="up" delay={0.2}>
+                  <div className="text-center py-16">
+                    <FloatingElement>
+                      <Search className="w-16 h-16 text-gray-400 mx-auto mb-4 animate-pulse" />
+                    </FloatingElement>
+                    <div className="text-white text-2xl">Searching...</div>
+                  </div>
+                </ScrollReveal>
+              ) : hasSearched ? (
+                <div>
+                  {/* Results Header */}
+                  <ScrollReveal direction="up" delay={0.2}>
+                    <div className="mb-8 text-center">
+                      <p className="text-gray-300 text-lg">
+                        {searchResults.length} result{searchResults.length !== 1 ? 's' : ''} 
+                        {searchQuery && ` for "${searchQuery}"`}
+                      </p>
+                    </div>
+                  </ScrollReveal>
+
+                  {/* Results Display */}
+                  {searchResults.length > 0 ? (
+                    <ScrollReveal direction="up" delay={0.3}>
+                      <NetflixHorizontalRow
+                        title="Search Results"
+                        media={searchResults}
+                        onPlay={handlePlay}
+                        onInfo={handleInfo}
+                        variant="portrait"
+                        size="medium"
+                        priority={true}
+                      />
+                    </ScrollReveal>
+                  ) : (
+                    <ScrollReveal direction="up" delay={0.3}>
+                      <div className="text-center py-16">
+                        <FloatingElement>
+                          <Search className="w-16 h-16 text-gray-600 mx-auto mb-4" />
+                        </FloatingElement>
+                        <h3 className="text-2xl text-white mb-4">No results found</h3>
+                        <p className="text-gray-400 mb-8">
+                          {searchQuery 
+                            ? `No results for "${searchQuery}". Try different search terms or adjust your filters.`
+                            : "Try adjusting your search terms or filters"
+                          }
+                        </p>
+                        <MagneticButton
+                          onClick={clearFilters}
+                          className="bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-lg font-semibold"
+                        >
+                          Clear Filters
+                        </MagneticButton>
+                      </div>
+                    </ScrollReveal>
+                  )}
+                </div>
+              ) : (
+                <ScrollReveal direction="up" delay={0.2}>
+                  <div className="text-center py-16">
+                    <FloatingElement>
+                      <Search className="w-20 h-20 text-gray-600 mx-auto mb-6" />
+                    </FloatingElement>
+                    <h3 className="text-3xl text-white mb-4">Search Your Library</h3>
+                    <p className="text-gray-400 text-lg max-w-md mx-auto">
+                      Enter a search term above to discover movies and TV shows in your collection
+                    </p>
+                  </div>
+                </ScrollReveal>
+              )}
+            </div>
+          </ParallaxSection>
+        </div>
+      </GradientBackground>
 
       {/* Video Player Modal */}
       {selectedMedia && (
@@ -407,6 +367,7 @@ export default function SearchPage() {
           media={selectedMedia}
           isOpen={isPlayerOpen}
           onClose={() => setIsPlayerOpen(false)}
+          startTime={0}
         />
       )}
     </div>

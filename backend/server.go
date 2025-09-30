@@ -36,12 +36,15 @@ func main() {
 	thumbnailService := services.NewThumbnailService()
 	userService := services.NewUserService(db)
 	recommendationService := services.NewRecommendationService(db)
+	playbackService := services.NewPlaybackService(db)
+	geminiService := services.NewGeminiService()
+	celeryService := services.NewCeleryService()
 
 	// Initialize poster service
 	posterService := services.NewPosterService("./posters")
 	
 	// Initialize media scanner
-	mediaScanner := scanner.NewMediaScanner(mediaService, thumbnailService, posterService, cfg.MediaPath)
+	mediaScanner := scanner.NewMediaScanner(mediaService, thumbnailService, posterService, geminiService, celeryService, cfg.MediaPath)
 
 	// Start background media scanning
 	go func() {
@@ -67,7 +70,7 @@ func main() {
 	}))
 
 	// Initialize API routes
-	api.SetupRoutes(r, mediaService, streamService, thumbnailService, userService, recommendationService)
+	api.SetupRoutes(r, mediaService, streamService, thumbnailService, userService, recommendationService, playbackService, geminiService, celeryService)
 
 	// Start server
 	port := os.Getenv("PORT")

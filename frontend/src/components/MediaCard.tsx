@@ -6,6 +6,7 @@ import Image from 'next/image';
 import { Play, Info, Plus, ThumbsUp, ChevronDown } from 'lucide-react';
 import { Media } from '../types/media';
 import { getApiUrl } from '../lib/api';
+import QualityBadge from './QualityBadge';
 
 interface MediaCardProps {
   media: Media;
@@ -145,12 +146,13 @@ const MediaCard: React.FC<MediaCardProps> = ({
         </span>
       </div>
       
-      {/* View count */}
-      <div className="absolute top-2 right-2">
-        <span className="bg-black/50 text-white text-xs px-2 py-1 rounded">
-          {media.view_count} views
-        </span>
-      </div>
+      {/* Quality Badge */}
+      {media.quality && (
+        <div className="absolute top-2 left-1/2 transform -translate-x-1/2">
+          <QualityBadge quality={media.quality} size="sm" />
+        </div>
+      )}
+      
     </motion.div>
   );
 };

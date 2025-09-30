@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import Image from 'next/image';
 import { Media } from '../types/media';
 import { getApiUrl } from '../lib/api';
+import DynamicTitle from './DynamicTitle';
 
 interface HeroSectionProps {
   featuredMedia?: Media[];
@@ -26,7 +27,10 @@ const HeroSection: React.FC<HeroSectionProps> = ({
   const currentMedia = featuredMedia[currentIndex] || featuredMedia[0];
 
   const getHeroImageUrl = (media: Media) => {
-    // Use poster for hero background if available, otherwise thumbnail
+    // Priority: banner -> poster -> thumbnail
+    if (media.banner_path) {
+      return `${getApiUrl()}/api/admin/assets/${media.banner_path.split('/').pop()}`;
+    }
     if (media.poster_path) {
       return `${getApiUrl()}/api/posters/${media.id}`;
     }
@@ -136,7 +140,7 @@ const HeroSection: React.FC<HeroSectionProps> = ({
       {/* Content */}
       <div className="relative z-10 flex flex-col justify-center h-full px-8 md:px-16 lg:px-24">
         <div className="max-w-2xl">
-          {/* Logo/Title */}
+          {/* Dynamic Title */}
           <AnimatePresence mode="wait">
             <motion.div
               key={`title-${currentIndex}`}
@@ -145,11 +149,25 @@ const HeroSection: React.FC<HeroSectionProps> = ({
               exit={{ opacity: 0, y: -30 }}
               transition={{ duration: 0.8, delay: 0.2 }}
             >
-              <h1 className="text-5xl md:text-7xl font-bold text-white mb-4">
-                {currentMedia.title}
-              </h1>
+              <DynamicTitle media={currentMedia} className="mb-4" />
             </motion.div>
           </AnimatePresence>
+
+          {/* Tagline */}
+          {currentMedia.tagline && (
+            <AnimatePresence mode="wait">
+              <motion.p
+                key={`tagline-${currentIndex}`}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                transition={{ duration: 0.8, delay: 0.3 }}
+                className="text-xl text-white/90 italic mb-4"
+              >
+                &ldquo;{currentMedia.tagline}&rdquo;
+              </motion.p>
+            </AnimatePresence>
+          )}
 
           {/* Metadata */}
           <AnimatePresence mode="wait">
@@ -164,12 +182,19 @@ const HeroSection: React.FC<HeroSectionProps> = ({
               <span className="bg-red-600 text-white px-2 py-1 rounded text-sm font-semibold">
                 {currentMedia.type.toUpperCase()}
               </span>
-              <span className="flex items-center gap-1">
-                ⭐ {currentMedia.rating || 8.5}
+              {currentMedia.quality && (
+                <span className="bg-blue-600 text-white px-2 py-1 rounded text-sm font-semibold">
+                  {currentMedia.quality}
+                </span>
+              )}
+              <span className="text-2xl font-bold text-white/90">
+                &ldquo;Experience cinema like never before&rdquo;
               </span>
               <span>{formatDuration(currentMedia.duration || 7200)}</span>
-              <span>{new Date().getFullYear()}</span>
-              <span className="text-green-400">• {currentMedia.view_count} views</span>
+              <span>{currentMedia.year || new Date().getFullYear()}</span>
+              {currentMedia.country && (
+                <span className="text-blue-400">• {currentMedia.country}</span>
+              )}
             </motion.div>
           </AnimatePresence>
 
@@ -183,12 +208,12 @@ const HeroSection: React.FC<HeroSectionProps> = ({
               transition={{ duration: 0.8, delay: 0.5 }}
               className="flex flex-wrap gap-2 mb-6"
             >
-              {(currentMedia.genres || []).slice(0, 3).map((genre, index) => (
+              {(currentMedia.genre_names || currentMedia.genres?.map(g => g.name) || []).slice(0, 3).map((genre, index) => (
                 <span
                   key={index}
                   className="text-white/70 text-sm border border-white/30 px-3 py-1 rounded-full"
                 >
-                  {genre.name}
+                  {typeof genre === 'string' ? genre : genre}
                 </span>
               ))}
             </motion.div>
@@ -204,7 +229,7 @@ const HeroSection: React.FC<HeroSectionProps> = ({
               transition={{ duration: 0.8, delay: 0.6 }}
               className="text-white/90 text-lg leading-relaxed mb-8 max-w-xl"
             >
-              {currentMedia.description || 
+              {currentMedia.long_desc || currentMedia.short_desc || currentMedia.description || 
                "Experience the ultimate entertainment with this amazing content. Watch now and immerse yourself in a world of endless possibilities."}
             </motion.p>
           </AnimatePresence>

@@ -175,7 +175,7 @@ func (s *RecommendationService) calculateRecommendationScore(media models.Media,
 
 	// Rating boost
 	if media.Rating > 7 {
-		score += (media.Rating - 7) * 2
+		score += float32(media.Rating - 7) * 2
 	}
 
 	return score

@@ -1,16 +1,18 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { Film, Play, Info, Plus, Check } from "lucide-react";
+import { Play, Info, Film } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 import Navbar from "@/components/Navbar";
 import { Media } from '../../types/media';
-import MediaCarousel from "@/components/MediaCarousel";
 import VideoPlayer from "@/components/VideoPlayer";
-import { Button } from "@/components/ui/button";
-import ParallaxCards from "@/components/ui/parallaxcards";
+import { getApiUrl } from '@/lib/api';
+import { ScrollXHero, NetflixHorizontalRow, ParallaxSection, GradientBackground, ScrollReveal } from '@/components/scrollx';
+import RecentlyWatched from '@/components/RecentlyWatched';
 
 export default function MoviesPage() {
-  const [featuredMovie, setFeaturedMovie] = useState<Media | null>(null);
+  const router = useRouter();
+  const [featuredMovies, setFeaturedMovies] = useState<Media[]>([]);
   const [actionMovies, setActionMovies] = useState<Media[]>([]);
   const [comedyMovies, setComedyMovies] = useState<Media[]>([]);
   const [dramaMovies, setDramaMovies] = useState<Media[]>([]);
@@ -20,7 +22,6 @@ export default function MoviesPage() {
   const [popularMovies, setPopularMovies] = useState<Media[]>([]);
   const [selectedMedia, setSelectedMedia] = useState<Media | null>(null);
   const [isPlayerOpen, setIsPlayerOpen] = useState(false);
-  const [isInWatchlist, setIsInWatchlist] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -29,19 +30,16 @@ export default function MoviesPage() {
 
   const fetchMoviesData = async () => {
     try {
-      const host = window.location.hostname === 'localhost' ? 'localhost' : window.location.hostname;
-      const apiUrl = `http://${host}:8251`;
+      const apiUrl = getApiUrl();
       
       // Fetch all movies
       const moviesResponse = await fetch(`${apiUrl}/api/media`);
       const allMedia = await moviesResponse.json();
       const movies = allMedia.filter((item: Media) => item.type === "movie");
       
-      // Set featured movie 
-      // Sort by rating (highest first)
+      // Set featured movies for hero section
       const sortedMovies = movies.sort((a: Media, b: Media) => (b.rating || 0) - (a.rating || 0));
-      const featured = sortedMovies[0];
-      setFeaturedMovie(featured);
+      setFeaturedMovies(sortedMovies.slice(0, 5));
 
       // Categorize movies by genre
       setActionMovies(movies.filter((m: Media) => 
@@ -75,32 +73,13 @@ export default function MoviesPage() {
     }
   };
 
-  const handlePlay = (media: Media) => {
+  const handlePlay = (media: Media, startTime?: number) => {
     setSelectedMedia(media);
     setIsPlayerOpen(true);
   };
 
   const handleInfo = (media: Media) => {
-    console.log("Show info for:", media.title);
-  };
-
-  const handleWatchlistToggle = async () => {
-    if (!featuredMovie) return;
-    
-    try {
-      const host = window.location.hostname === 'localhost' ? 'localhost' : window.location.hostname;
-      const apiUrl = `http://${host}:8251`;
-      
-      if (isInWatchlist) {
-        await fetch(`${apiUrl}/api/user/watchlist/${featuredMovie.id}`, { method: 'DELETE' });
-        setIsInWatchlist(false);
-      } else {
-        await fetch(`${apiUrl}/api/user/watchlist/${featuredMovie.id}`, { method: 'POST' });
-        setIsInWatchlist(true);
-      }
-    } catch (error) {
-      console.error("Error updating watchlist:", error);
-    }
+    router.push(`/movie/${media.id}`);
   };
 
   const formatDuration = (seconds: number) => {
@@ -145,175 +124,139 @@ export default function MoviesPage() {
   }
 
   return (
-    <div className="min-h-screen bg-black">
-      <Navbar />
-      
-      {/* Featured Movie Hero Section */}
-      {featuredMovie && (
-        <div className="relative h-[80vh] overflow-hidden">
-          {/* Background Image */}
-          <div className="absolute inset-0">
-            <div className="w-full h-full bg-gradient-to-r from-black via-black/50 to-transparent">
-              <img
-                src={`http://${window.location.hostname === 'localhost' ? 'localhost' : window.location.hostname}:8251/api/thumbnails/${featuredMovie.id}`}
-                alt={featuredMovie.title}
-                className="w-full h-full object-cover opacity-40"
-                onError={(e) => {
-                  e.currentTarget.style.display = 'none';
-                }}
-              />
-            </div>
-          </div>
+    <div className="min-h-screen bg-black text-white">
+      <Navbar onSearch={() => {}} />
 
-          {/* Content */}
-          <div className="relative z-10 flex items-center h-full px-4 md:px-8 lg:px-16">
-            <div className="max-w-2xl">
-              <h1 className="text-5xl md:text-7xl font-bold text-white mb-4 leading-tight">
-                {featuredMovie.title}
-              </h1>
-              
-              <div className="flex items-center gap-4 text-sm text-gray-300">
-                <span className="flex items-center gap-1">
-                  {featuredMovie.rating || 0}/10
-                </span>
-                <span className="flex items-center gap-1">
-                  {Array.from({ length: 5 }, (_, i) => i < (featuredMovie.rating || 0) / 2 ? '★' : '☆').join('')}
-                </span>
-                <span className="flex items-center gap-1">
-                  {Math.floor((featuredMovie.duration || 0) / 60)}h {(featuredMovie.duration || 0) % 60}m
-                </span>
-                <span>{new Date().getFullYear()}</span>
-              </div>
-
-              <p className="text-lg text-gray-300 mb-8 leading-relaxed max-w-xl">
-                {featuredMovie.description || "Experience this amazing movie from your personal collection."}
-              </p>
-
-              <div className="flex items-center gap-4">
-                <Button
-                  onClick={() => handlePlay(featuredMovie)}
-                  className="bg-white text-black hover:bg-gray-200 font-bold px-8 py-3 text-lg"
-                >
-                  <Play className="w-6 h-6 mr-2 fill-current" />
-                  Play
-                </Button>
-                
-                <Button
-                  onClick={handleWatchlistToggle}
-                  variant="outline"
-                  className="border-gray-400 text-white hover:bg-gray-800 font-bold px-8 py-3 text-lg"
-                >
-                  {isInWatchlist ? (
-                    <>
-                      <Check className="w-6 h-6 mr-2" />
-                      In List
-                    </>
-                  ) : (
-                    <>
-                      <Plus className="w-6 h-6 mr-2" />
-                      My List
-                    </>
-                  )}
-                </Button>
-                
-                <Button
-                  onClick={() => handleInfo(featuredMovie)}
-                  variant="outline"
-                  className="border-gray-400 text-white hover:bg-gray-800 font-bold px-8 py-3 text-lg"
-                >
-                  <Info className="w-6 h-6 mr-2" />
-                  More Info
-                </Button>
-              </div>
-
-              {/* Genres */}
-              <div className="flex flex-wrap gap-2 mb-6">
-                {featuredMovie.genres?.slice(0, 3).map((genre, index) => (
-                  <span
-                    key={index}
-                    className="px-3 py-1 bg-red-600 text-white text-sm rounded-full"
-                  >
-                    {genre.name}
-                  </span>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          {/* Gradient Overlay */}
-          <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-black to-transparent"></div>
-        </div>
+      {/* Hero Section */}
+      {featuredMovies.length > 0 && (
+        <ScrollXHero
+          featuredMedia={featuredMovies}
+          onPlay={handlePlay}
+          onInfo={handleInfo}
+        />
       )}
 
-      {/* Movie Categories */}
-      <div className="relative z-10 -mt-32 space-y-8 px-4 md:px-8 lg:px-16">
-        {recentMovies.length > 0 && (
-          <MediaCarousel
-            title="Recently Added Movies"
-            media={recentMovies}
-            onPlay={handlePlay}
-            onInfo={handleInfo}
-          />
-        )}
+      {/* Main Content with Parallax Background */}
+      <div className="relative bg-gradient-to-b from-red-900/20 via-black to-black">
+        <div className="relative z-10 py-20">
+          {/* Recently Watched Movies */}
+          <ParallaxSection speed={0.3}>
+            <ScrollReveal direction="up" delay={0.2}>
+              <RecentlyWatched
+                onPlay={handlePlay}
+                onInfo={handleInfo}
+              />
+            </ScrollReveal>
+          </ParallaxSection>
 
-        {popularMovies.length > 0 && (
-          <MediaCarousel
-            title="Popular Movies"
-            media={popularMovies}
-            onPlay={handlePlay}
-            onInfo={handleInfo}
-          />
-        )}
+          {/* Popular Movies */}
+          <ParallaxSection speed={0.4}>
+            <ScrollReveal direction="up" delay={0.4}>
+              <NetflixHorizontalRow
+                title="Popular Movies"
+                media={popularMovies}
+                onPlay={handlePlay}
+                onInfo={handleInfo}
+                variant="portrait"
+                size="medium"
+              />
+            </ScrollReveal>
+          </ParallaxSection>
 
-        {actionMovies.length > 0 && (
-          <MediaCarousel
-            title="Action & Adventure"
-            media={actionMovies}
-            onPlay={handlePlay}
-            onInfo={handleInfo}
-          />
-        )}
+          {/* Recent Movies */}
+          <ParallaxSection speed={0.5}>
+            <ScrollReveal direction="up" delay={0.6}>
+              <NetflixHorizontalRow
+                title="Recently Added"
+                media={recentMovies}
+                onPlay={handlePlay}
+                onInfo={handleInfo}
+                variant="portrait"
+                size="medium"
+              />
+            </ScrollReveal>
+          </ParallaxSection>
 
-        {comedyMovies.length > 0 && (
-          <MediaCarousel
-            title="Comedy Movies"
-            media={comedyMovies}
-            onPlay={handlePlay}
-            onInfo={handleInfo}
-          />
-        )}
+          {/* Action Movies */}
+          {actionMovies.length > 0 && (
+            <ParallaxSection speed={0.6}>
+              <ScrollReveal direction="up" delay={0.8}>
+                <NetflixHorizontalRow
+                  title="Action & Adventure"
+                  media={actionMovies}
+                  onPlay={handlePlay}
+                  onInfo={handleInfo}
+                  variant="portrait"
+                  size="medium"
+                />
+              </ScrollReveal>
+            </ParallaxSection>
+          )}
 
-        {dramaMovies.length > 0 && (
-          <MediaCarousel
-            title="Drama Movies"
-            media={dramaMovies}
-            onPlay={handlePlay}
-            onInfo={handleInfo}
-          />
-        )}
+          {/* Comedy Movies */}
+          {comedyMovies.length > 0 && (
+            <ParallaxSection speed={0.7}>
+              <ScrollReveal direction="up" delay={1.0}>
+                <NetflixHorizontalRow
+                  title="Comedy Movies"
+                  media={comedyMovies}
+                  onPlay={handlePlay}
+                  onInfo={handleInfo}
+                  variant="portrait"
+                  size="medium"
+                />
+              </ScrollReveal>
+            </ParallaxSection>
+          )}
 
-        {sciFiMovies.length > 0 && (
-          <MediaCarousel
-            title="Sci-Fi & Fantasy"
-            media={sciFiMovies}
-            onPlay={handlePlay}
-            onInfo={handleInfo}
-          />
-        )}
+          {/* Drama Movies */}
+          {dramaMovies.length > 0 && (
+            <ParallaxSection speed={0.8}>
+              <ScrollReveal direction="up" delay={1.2}>
+                <NetflixHorizontalRow
+                  title="Drama Movies"
+                  media={dramaMovies}
+                  onPlay={handlePlay}
+                  onInfo={handleInfo}
+                  variant="portrait"
+                  size="medium"
+                />
+              </ScrollReveal>
+            </ParallaxSection>
+          )}
 
-        {horrorMovies.length > 0 && (
-          <MediaCarousel
-            title="Horror & Thriller"
-            media={horrorMovies}
-            onPlay={handlePlay}
-            onInfo={handleInfo}
-          />
-        )}
-      </div>
+          {/* Sci-Fi Movies */}
+          {sciFiMovies.length > 0 && (
+            <ParallaxSection speed={0.9}>
+              <ScrollReveal direction="up" delay={1.4}>
+                <NetflixHorizontalRow
+                  title="Sci-Fi & Fantasy"
+                  media={sciFiMovies}
+                  onPlay={handlePlay}
+                  onInfo={handleInfo}
+                  variant="portrait"
+                  size="medium"
+                />
+              </ScrollReveal>
+            </ParallaxSection>
+          )}
 
-      {/* ScrollX UI Parallax Cards Section */}
-      <div className="mt-16">
-        <ParallaxCards cards={parallaxCards} />
+          {/* Horror Movies */}
+          {horrorMovies.length > 0 && (
+            <ParallaxSection speed={1.0}>
+              <ScrollReveal direction="up" delay={1.6}>
+                <NetflixHorizontalRow
+                  title="Horror & Thriller"
+                  media={horrorMovies}
+                  onPlay={handlePlay}
+                  onInfo={handleInfo}
+                  variant="portrait"
+                  size="medium"
+                />
+              </ScrollReveal>
+            </ParallaxSection>
+          )}
+        </div>
       </div>
 
       {/* Video Player Modal */}
@@ -322,6 +265,7 @@ export default function MoviesPage() {
           media={selectedMedia}
           isOpen={isPlayerOpen}
           onClose={() => setIsPlayerOpen(false)}
+          startTime={0}
         />
       )}
     </div>

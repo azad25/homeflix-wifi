@@ -1,26 +1,20 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { Heart, Trash2, Play, Info, Film, Tv } from "lucide-react";
+import { Play, Info, Plus, Check, Trash2, Heart, Film, Tv } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import Image from 'next/image';
 import Navbar from "@/components/Navbar";
+import { Media } from '../../types/media';
 import VideoPlayer from "@/components/VideoPlayer";
-import { Button } from "@/components/ui/button";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-
-interface Media {
-  id: number;
-  title: string;
-  description: string;
-  type: string;
-  rating: number;
-  duration: number;
-  genres: Array<{ name: string }>;
-  thumbnail_path?: string;
-  view_count: number;
-  subtitles?: Array<{ language: string; file_path: string }>;
-}
+import { getApiUrl } from '@/lib/api';
+import { ScrollXCarousel, ParallaxSection, GradientBackground, ScrollReveal, MagneticButton } from '@/components/scrollx';
+import RecentlyWatched from '@/components/RecentlyWatched';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Button } from '@/components/ui/button';
 
 export default function MyListPage() {
+  const router = useRouter();
   const [watchlist, setWatchlist] = useState<Media[]>([]);
   const [filteredList, setFilteredList] = useState<Media[]>([]);
   const [filterType, setFilterType] = useState<string>("all");
@@ -39,8 +33,7 @@ export default function MyListPage() {
 
   const fetchWatchlist = async () => {
     try {
-      const host = window.location.hostname === 'localhost' ? 'localhost' : window.location.hostname;
-      const apiUrl = `http://${host}:8251`;
+      const apiUrl = getApiUrl();
       
       const response = await fetch(`${apiUrl}/api/user/watchlist`);
       const data = await response.json();
@@ -69,7 +62,7 @@ export default function MyListPage() {
         filtered.sort((a, b) => a.title.localeCompare(b.title));
         break;
       case "rating":
-        filtered.sort((a, b) => b.rating - a.rating);
+        filtered.sort((a, b) => (b.rating || 0) - (a.rating || 0));
         break;
       case "year":
         filtered.sort((a, b) => b.id - a.id); // Assuming newer IDs = newer content
@@ -90,8 +83,7 @@ export default function MyListPage() {
 
   const handleRemoveFromList = async (mediaId: number) => {
     try {
-      const host = window.location.hostname === 'localhost' ? 'localhost' : window.location.hostname;
-      const apiUrl = `http://${host}:8251`;
+      const apiUrl = getApiUrl();
       
       await fetch(`${apiUrl}/api/user/watchlist/${mediaId}`, { method: 'DELETE' });
       setWatchlist(prev => prev.filter(item => item.id !== mediaId));
@@ -176,10 +168,11 @@ export default function MyListPage() {
                 {/* Thumbnail */}
                 <div className="aspect-[2/3] bg-gradient-to-br from-gray-800 to-gray-900 flex items-center justify-center relative">
                   {media.thumbnail_path ? (
-                    <img
+                    <Image
                       src={`http://${window.location.hostname === 'localhost' ? 'localhost' : window.location.hostname}:8251/api/thumbnails/${media.id}`}
                       alt={media.title}
-                      className="w-full h-full object-cover"
+                      fill
+                      className="object-cover"
                       onError={(e) => {
                         e.currentTarget.style.display = 'none';
                         e.currentTarget.nextElementSibling?.classList.remove('hidden');
@@ -242,23 +235,23 @@ export default function MyListPage() {
                   
                   <div className="flex items-center justify-between text-xs text-gray-400 mb-2">
                     <span>{media.type === "movie" ? "Movie" : "TV Show"}</span>
-                    {media.rating > 0 && (
+                    {(media.rating || 0) > 0 && (
                       <span className="flex items-center gap-1">
                         <span className="text-yellow-400">★</span>
-                        {media.rating.toFixed(1)}
+                        {(media.rating || 0).toFixed(1)}
                       </span>
                     )}
                   </div>
 
-                  {media.duration > 0 && (
+                  {(media.duration || 0) > 0 && (
                     <div className="text-xs text-gray-400 mb-2">
-                      {formatDuration(media.duration)}
+                      {formatDuration(media.duration || 0)}
                     </div>
                   )}
                   
                   {/* Genres */}
                   <div className="flex flex-wrap gap-1">
-                    {media.genres.slice(0, 2).map((genre, index) => (
+                    {(media.genres || []).slice(0, 2).map((genre, index) => (
                       <span
                         key={index}
                         className="text-xs bg-gray-800 text-gray-300 px-2 py-1 rounded"
@@ -281,12 +274,12 @@ export default function MyListPage() {
                 : "Add movies and TV shows to your list to see them here"
               }
             </p>
-            <Button
-              onClick={() => window.location.href = '/browse'}
-              className="bg-red-600 hover:bg-red-700 text-white"
+            <MagneticButton
+              onClick={() => router.push('/browse')}
+              className="bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-lg font-semibold"
             >
               Browse Content
-            </Button>
+            </MagneticButton>
           </div>
         )}
       </div>

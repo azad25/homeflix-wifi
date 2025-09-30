@@ -1,0 +1,19 @@
+# Python dependencies for Celery task queue system
+celery==5.3.4
+redis==5.0.1
+kombu==5.3.4
+billiard==4.2.0
+vine==5.1.0
+
+# Additional dependencies for media processing
+Pillow==10.1.0
+requests==2.31.0
+python-dotenv==1.0.0
+
+# For API communication
+httpx==0.25.2
+aiohttp==3.9.1
+
+# Flask for bridge service
+flask==3.0.0
+flower==2.0.1

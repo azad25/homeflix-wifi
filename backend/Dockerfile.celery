@@ -1,0 +1,31 @@
+FROM python:3.11-slim
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    ffmpeg \
+    ffprobe \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set working directory
+WORKDIR /app
+
+# Copy Python requirements
+COPY requirements.txt .
+
+# Install Python dependencies
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy application code
+COPY . .
+
+# Create directories for media processing
+RUN mkdir -p /thumbnails /posters /previews /subtitles /optimized
+
+# Set environment variables
+ENV PYTHONPATH=/app
+ENV CELERY_BROKER_URL=redis://redis:6379/0
+ENV CELERY_RESULT_BACKEND=redis://redis:6379/0
+
+# Default command (overridden in docker-compose)
+CMD ["celery", "-A", "celery_app", "worker", "--loglevel=info"]

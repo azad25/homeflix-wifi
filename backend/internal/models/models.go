@@ -13,42 +13,64 @@ type Media struct {
 	UpdatedAt   time.Time      `json:"updated_at"`
 	DeletedAt   gorm.DeletedAt `json:"-" gorm:"index"`
 	
-	// Basic info
-	Title       string `json:"title" gorm:"not null"`
-	Type        string `json:"type" gorm:"not null"` // "movie" or "episode"
-	FilePath    string `json:"file_path" gorm:"unique;not null"`
-	FileSize    int64  `json:"file_size"`
-	Duration    int    `json:"duration"` // in seconds
+	// Basic info - matching media.json structure
+	Title         string `json:"title" gorm:"not null"`
+	OriginalTitle string `json:"original_title"`
+	Type          string `json:"type" gorm:"not null"` // "movie" or "episode"
+	FilePath      string `json:"file_path" gorm:"unique;not null"`
+	FileSize      int64  `json:"file_size"`
+	Duration      int    `json:"duration"` // in seconds
 	
-	// Metadata
+	// Metadata - matching media.json structure
+	Tagline     string    `json:"tagline"`
+	ShortDesc   string    `json:"short_desc"`
+	LongDesc    string    `json:"long_desc"`
 	Description string    `json:"description"`
+	Year        int       `json:"year,omitempty"`
 	ReleaseDate time.Time `json:"release_date"`
-	Rating      float32   `json:"rating"`
-	Genres      []Genre   `json:"genres" gorm:"many2many:media_genres;"`
+	Rating      float64   `json:"rating"`
+	Country     string    `json:"country"`
+	Language    string    `json:"language"`
+	Quality     string    `json:"quality"` // HD, 4K, SD, HDR
+	
+	// Cast and crew - matching media.json structure
+	Stars    []string `json:"stars" gorm:"type:json"`
+	Director []string `json:"director" gorm:"type:json"`
+	
+	// Genres - keeping both relationship and JSON for flexibility
+	Genres     []Genre  `json:"genres" gorm:"many2many:media_genres;"`
+	GenreNames []string `json:"genre_names" gorm:"type:json"` // For JSON compatibility
 	
 	// Video info
-	Resolution  string `json:"resolution"`
-	Codec       string `json:"codec"`
-	Bitrate     int    `json:"bitrate"`
+	Resolution string `json:"resolution"`
+	Codec      string `json:"codec"`
+	Bitrate    int    `json:"bitrate"`
 	
 	// Thumbnails and previews
-	ThumbnailPath string `json:"thumbnail_path"`
-	PreviewPath   string `json:"preview_path"`
+	ThumbnailPath   string `json:"thumbnail_path"`
+	PreviewPath     string `json:"preview_path"`
 	PreviewClipPath string `json:"preview_clip_path"` // Short video clip for hover preview
-	PosterPath    string `json:"poster_path"`         // HD movie poster
+	PosterPath      string `json:"poster_path"`       // HD movie poster
+	BannerPath      string `json:"banner_path"`       // HD banner for hero section
+	TrailerPath     string `json:"trailer_path"`      // Trailer video file
 	
 	// Series info (for episodes)
-	SeriesID     *uint  `json:"series_id,omitempty"`
-	Series       *Series `json:"series,omitempty"`
-	SeasonNumber *int   `json:"season_number,omitempty"`
-	EpisodeNumber *int  `json:"episode_number,omitempty"`
+	SeriesID      *uint   `json:"series_id,omitempty"`
+	Series        *Series `json:"series,omitempty"`
+	Season        *int    `json:"season,omitempty"`
+	Episode       *int    `json:"episode,omitempty"`
+	SeasonNumber  *int    `json:"season_number,omitempty"`
+	EpisodeNumber *int    `json:"episode_number,omitempty"`
 	
 	// Subtitles
 	Subtitles []Subtitle `json:"subtitles"`
 	
 	// View tracking
-	ViewCount int `json:"view_count"`
+	ViewCount  int        `json:"view_count"`
 	LastViewed *time.Time `json:"last_viewed,omitempty"`
+	
+	// Metadata tracking
+	LastUpdated string `json:"last_updated"`
 }
 
 // Series represents a TV series

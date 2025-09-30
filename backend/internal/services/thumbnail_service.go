@@ -53,6 +53,37 @@ func (s *ThumbnailService) GenerateThumbnail(videoPath string, mediaID uint) (st
 	return thumbnailPath, nil
 }
 
+// ServeThumbnail serves a thumbnail file
+func (s *ThumbnailService) ServeThumbnail(mediaID uint) (string, error) {
+	filename := fmt.Sprintf("thumb_%d.jpg", mediaID)
+	thumbnailPath := filepath.Join(s.thumbnailPath, filename)
+	
+	// Check if thumbnail exists
+	if _, err := os.Stat(thumbnailPath); err != nil {
+		return "", fmt.Errorf("thumbnail not found for media ID %d", mediaID)
+	}
+	
+	return thumbnailPath, nil
+}
+
+// ServePreviewClip serves a preview clip file
+func (s *ThumbnailService) ServePreviewClip(mediaID uint) (string, error) {
+	filename := fmt.Sprintf("preview_%d.mp4", mediaID)
+	previewPath := filepath.Join(s.thumbnailPath, filename)
+	
+	// Check if preview exists
+	if _, err := os.Stat(previewPath); err != nil {
+		return "", fmt.Errorf("preview clip not found for media ID %d", mediaID)
+	}
+	
+	return previewPath, nil
+}
+
+// ServePreview serves a preview file (alias for ServePreviewClip)
+func (s *ThumbnailService) ServePreview(mediaID uint) (string, error) {
+	return s.ServePreviewClip(mediaID)
+}
+
 func (s *ThumbnailService) GeneratePreviewClip(videoPath string, mediaID uint) (string, error) {
 	// Create filename for preview clip
 	filename := fmt.Sprintf("preview_%d.mp4", mediaID)

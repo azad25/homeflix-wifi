@@ -2,18 +2,25 @@
 
 import React, { useState, useEffect } from "react";
 import { Film, Tv, Star, Clock } from "lucide-react";
+import { useRouter } from 'next/navigation';
 import Navbar from "@/components/Navbar";
-import MediaCarousel from '@/components/MediaCarousel';
-import HeroSection from '@/components/HeroSection';
 import VideoPlayer from '@/components/VideoPlayer';
 import { getApiUrl } from '@/lib/api';
 import { Media } from '@/types/media';
+import { ScrollXHero, NetflixHorizontalRow, ParallaxSection, GradientBackground, ParticleField, ScrollReveal } from '@/components/scrollx';
+import RecentlyWatched from '@/components/RecentlyWatched';
 
 export default function Home() {
+  const router = useRouter();
   const [featuredMedia, setFeaturedMedia] = useState<Media[]>([]);
   const [recentMovies, setRecentMovies] = useState<Media[]>([]);
   const [popularMovies, setPopularMovies] = useState<Media[]>([]);
   const [popularSeries, setPopularSeries] = useState<Media[]>([]);
+  const [trendingNow, setTrendingNow] = useState<Media[]>([]);
+  const [actionMovies, setActionMovies] = useState<Media[]>([]);
+  const [comedyMovies, setComedyMovies] = useState<Media[]>([]);
+  const [dramaMovies, setDramaMovies] = useState<Media[]>([]);
+  const [horrorMovies, setHorrorMovies] = useState<Media[]>([]);
   const [searchResults, setSearchResults] = useState<Media[]>([]);
   const [selectedMedia, setSelectedMedia] = useState<Media | null>(null);
   const [isPlayerOpen, setIsPlayerOpen] = useState(false);
@@ -27,30 +34,88 @@ export default function Home() {
     try {
       const { getApiUrl, API_ENDPOINTS, apiCall } = await import('../lib/api');
       
-      // Fetch latest movies for hero section (sorted by ID descending for newest first)
+      // Fetch all media
       const allMedia = await apiCall(API_ENDPOINTS.media);
       
-      // Get latest movies (highest IDs = most recently added)
-      const latestMovies = allMedia
-        .filter((item: Media) => item.type === "movie")
-        .sort((a: Media, b: Media) => b.id - a.id)
+      // Get random high-quality movies and TV shows for hero section
+      const highQualityMedia = allMedia
+        .filter((item: Media) => (item.rating || 0) >= 6.0) // Only show content with decent ratings
+        .sort(() => Math.random() - 0.5) // Randomize the order
+        .slice(0, 10); // Get more items to choose from
+      
+      // Mix movies and TV shows, prioritize higher rated content
+      const featuredSelection = highQualityMedia
+        .sort((a: Media, b: Media) => (b.rating || 0) - (a.rating || 0))
         .slice(0, 5);
       
-      setFeaturedMedia(latestMovies.length > 0 ? latestMovies : [allMedia[0]]);
+      setFeaturedMedia(featuredSelection.length > 0 ? featuredSelection : allMedia.slice(0, 5));
       
-      // Fetch recent movies (latest movies by ID)
+      // Recent movies (latest by ID)
       const recentMovies = allMedia
         .filter((item: Media) => item.type === "movie")
         .sort((a: Media, b: Media) => b.id - a.id)
         .slice(0, 20);
       setRecentMovies(recentMovies);
       
-      // Fetch popular series (most viewed TV shows)
+      // Popular movies (most viewed)
+      const popularMovies = allMedia
+        .filter((item: Media) => item.type === "movie")
+        .sort((a: Media, b: Media) => (b.view_count || 0) - (a.view_count || 0))
+        .slice(0, 20);
+      setPopularMovies(popularMovies);
+      
+      // Popular series (most viewed TV shows)
       const popularSeries = allMedia
         .filter((item: Media) => item.type === "episode")
         .sort((a: Media, b: Media) => (b.view_count || 0) - (a.view_count || 0))
         .slice(0, 20);
       setPopularSeries(popularSeries);
+      
+      // Trending now (highest rated recent content)
+      const trendingNow = allMedia
+        .sort((a: Media, b: Media) => (b.rating || 0) - (a.rating || 0))
+        .slice(0, 20);
+      setTrendingNow(trendingNow);
+      
+      // Genre-based collections
+      const actionMovies = allMedia
+        .filter((item: Media) => 
+          item.type === "movie" && 
+          (item.genres || []).some(genre => genre.name.toLowerCase().includes('action'))
+        )
+        .sort((a: Media, b: Media) => (b.rating || 0) - (a.rating || 0))
+        .slice(0, 20);
+      setActionMovies(actionMovies);
+      
+      const comedyMovies = allMedia
+        .filter((item: Media) => 
+          item.type === "movie" && 
+          (item.genres || []).some(genre => genre.name.toLowerCase().includes('comedy'))
+        )
+        .sort((a: Media, b: Media) => (b.rating || 0) - (a.rating || 0))
+        .slice(0, 20);
+      setComedyMovies(comedyMovies);
+      
+      const dramaMovies = allMedia
+        .filter((item: Media) => 
+          item.type === "movie" && 
+          (item.genres || []).some(genre => genre.name.toLowerCase().includes('drama'))
+        )
+        .sort((a: Media, b: Media) => (b.rating || 0) - (a.rating || 0))
+        .slice(0, 20);
+      setDramaMovies(dramaMovies);
+      
+      const horrorMovies = allMedia
+        .filter((item: Media) => 
+          item.type === "movie" && 
+          (item.genres || []).some(genre => 
+            genre.name.toLowerCase().includes('horror') || 
+            genre.name.toLowerCase().includes('thriller')
+          )
+        )
+        .sort((a: Media, b: Media) => (b.rating || 0) - (a.rating || 0))
+        .slice(0, 20);
+      setHorrorMovies(horrorMovies);
       
       setLoading(false);
     } catch (error) {
@@ -109,14 +174,13 @@ export default function Home() {
     }
   };
 
-  const handlePlay = (media: Media) => {
+  const handlePlay = (media: Media, startTime?: number) => {
     setSelectedMedia(media);
     setIsPlayerOpen(true);
   };
 
   const handleInfo = (media: Media) => {
-    // TODO: Implement media info modal
-    console.log("Show info for:", media.title);
+    router.push(`/movie/${media.id}`);
   };
 
   const parallaxCards = [
@@ -166,61 +230,134 @@ export default function Home() {
     <div className="min-h-screen bg-black">
       <Navbar onSearch={handleSearch} />
       
+      {/* ScrollX Hero Section */}
       {featuredMedia.length > 0 && (
-        <HeroSection
+        <ScrollXHero
           featuredMedia={featuredMedia}
           onPlay={handlePlay}
           onInfo={handleInfo}
         />
       )}
 
-      <div className="relative z-10 -mt-32">
+      {/* Main Content - Netflix Style */}
+      <div className="relative bg-black">
         {searchResults.length > 0 ? (
-          <MediaCarousel
-            title="Search Results"
-            media={searchResults as any}
-            onPlay={handlePlay as any}
-            onInfo={handleInfo as any}
-          />
+          <div className="py-8">
+            <NetflixHorizontalRow
+              title="Search Results"
+              media={searchResults}
+              onPlay={handlePlay}
+              onInfo={handleInfo}
+              priority={true}
+              variant="portrait"
+              size="medium"
+            />
+          </div>
         ) : (
-          <>
-            <MediaCarousel
-              title="Recent Movies"
-              media={recentMovies as any}
-              onPlay={handlePlay as any}
-              onInfo={handleInfo as any}
+          <div className="space-y-8 pb-20">
+            {/* Recently Watched */}
+            <RecentlyWatched
+              onPlay={handlePlay}
+              onInfo={handleInfo}
             />
 
-            <MediaCarousel
-              title="Popular Movies"
-              media={popularMovies as any}
-              onPlay={handlePlay as any}
-              onInfo={handleInfo as any}
-            />
-
-            {popularSeries.length > 0 && (
-              <MediaCarousel
-                title="Popular TV Shows"
-                media={popularSeries as any}
-                onPlay={handlePlay as any}
-                onInfo={handleInfo as any}
+            {/* Trending Now */}
+            {trendingNow.length > 0 && (
+              <NetflixHorizontalRow
+                title="Trending Now"
+                media={trendingNow}
+                onPlay={handlePlay}
+                onInfo={handleInfo}
+                variant="portrait"
+                size="large"
+                priority={true}
               />
             )}
 
-            <MediaCarousel
-              title="Action & Adventure"
-              media={featuredMedia as any}
-              onPlay={handlePlay as any}
-              onInfo={handleInfo as any}
-            />
+            {/* Popular Movies */}
+            {popularMovies.length > 0 && (
+              <NetflixHorizontalRow
+                title="Popular Movies"
+                media={popularMovies}
+                onPlay={handlePlay}
+                onInfo={handleInfo}
+                variant="portrait"
+                size="medium"
+              />
+            )}
 
-            <MediaCarousel
-              title="Trending Now"
-              media={popularSeries as any}
-              onPlay={handlePlay as any}
-              onInfo={handleInfo as any}
-            />
-          </>
+            {/* Popular TV Shows */}
+            {popularSeries.length > 0 && (
+              <NetflixHorizontalRow
+                title="Popular TV Shows"
+                media={popularSeries}
+                onPlay={handlePlay}
+                onInfo={handleInfo}
+                variant="portrait"
+                size="medium"
+              />
+            )}
+
+            {/* Action Movies */}
+            {actionMovies.length > 0 && (
+              <NetflixHorizontalRow
+                title="Action & Adventure"
+                media={actionMovies}
+                onPlay={handlePlay}
+                onInfo={handleInfo}
+                variant="portrait"
+                size="medium"
+              />
+            )}
+
+            {/* Comedy Movies */}
+            {comedyMovies.length > 0 && (
+              <NetflixHorizontalRow
+                title="Comedy Movies"
+                media={comedyMovies}
+                onPlay={handlePlay}
+                onInfo={handleInfo}
+                variant="portrait"
+                size="medium"
+              />
+            )}
+
+            {/* Drama Movies */}
+            {dramaMovies.length > 0 && (
+              <NetflixHorizontalRow
+                title="Drama Movies"
+                media={dramaMovies}
+                onPlay={handlePlay}
+                onInfo={handleInfo}
+                variant="portrait"
+                size="medium"
+              />
+            )}
+
+            {/* Horror & Thriller */}
+            {horrorMovies.length > 0 && (
+              <NetflixHorizontalRow
+                title="Horror & Thriller"
+                media={horrorMovies}
+                onPlay={handlePlay}
+                onInfo={handleInfo}
+                variant="portrait"
+                size="medium"
+              />
+            )}
+
+            {/* Recently Added */}
+            {recentMovies.length > 0 && (
+              <NetflixHorizontalRow
+                title="Recently Added"
+                media={recentMovies}
+                onPlay={handlePlay}
+                onInfo={handleInfo}
+                variant="portrait"
+                size="medium"
+              />
+            )}
+          </div>
         )}
       </div>
 
@@ -232,6 +369,7 @@ export default function Home() {
           media={selectedMedia}
           isOpen={isPlayerOpen}
           onClose={() => setIsPlayerOpen(false)}
+          startTime={0}
         />
       )}
     </div>

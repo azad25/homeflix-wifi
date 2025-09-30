@@ -62,6 +62,8 @@ homeflix/
 cd backend
 go mod init homeflix-backend
 go run cmd/server/main.go
+
+export REDIS_URL=redis://localhost:6380/0 && ./start-celery.sh
 ```
 
 ### Frontend Setup

@@ -1,28 +1,22 @@
 "use client";
 
 import React, { useRef, useEffect, useState, useCallback } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { 
-  Play, 
-  Pause, 
-  Volume2, 
-  VolumeX, 
-  Maximize, 
-  Minimize, 
-  X,
-  RotateCcw,
-  RotateCw
-} from "lucide-react";
-import { Media } from '../types/media';
-import { getApiUrl } from '../lib/api';
+import { Play, Pause, Volume2, VolumeX, Maximize, RotateCcw, RotateCw, X, Minimize, Subtitles } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { getApiUrl } from '@/lib/api';
+import { Media } from '@/types/media';
+import { updatePlaybackProgress, getPlaybackProgress, trackView } from '@/lib/playback';
+import NextEpisodePreview from './NextEpisodePreview';
 
 interface VideoPlayerProps {
   media: Media;
   isOpen: boolean;
   onClose: () => void;
+  startTime?: number;
+  onPlayNext?: (nextMedia: Media) => void;
 }
 
-const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose }) => {
+const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, startTime = 0, onPlayNext }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -35,9 +29,92 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose }) => 
   const [showControls, setShowControls] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  const [nextEpisode, setNextEpisode] = useState<Media | null>(null);
+  const [showNextEpisode, setShowNextEpisode] = useState(false);
+  const [subtitlesEnabled, setSubtitlesEnabled] = useState(true);
+  const [availableSubtitles, setAvailableSubtitles] = useState<Array<{language: string, url: string}>>([]);
+  const [currentSubtitle, setCurrentSubtitle] = useState<string | null>(null);
 
   const getStreamUrl = (mediaId: number) => {
     return `${getApiUrl()}/api/stream/${mediaId}`;
+  };
+
+  // Load subtitles
+  useEffect(() => {
+    const loadSubtitles = async () => {
+      if (media.subtitles && media.subtitles.length > 0) {
+        const subs = media.subtitles.map(sub => ({
+          language: sub.language,
+          url: `${getApiUrl()}/api/subtitles/${media.id}?lang=${sub.language}`
+        }));
+        setAvailableSubtitles(subs);
+        if (subs.length > 0) {
+          setCurrentSubtitle(subs[0].url);
+        }
+      }
+    };
+    
+    if (isOpen) {
+      loadSubtitles();
+    }
+  }, [media, isOpen]);
+
+  // Fetch next episode for TV series
+  useEffect(() => {
+    const fetchNextEpisode = async () => {
+      if (media.type === 'episode' && media.series_id && media.season_number && media.episode_number) {
+        try {
+          const response = await fetch(`${getApiUrl()}/api/media`);
+          const allMedia: Media[] = await response.json();
+          
+          // Find next episode
+          const next = allMedia.find((m: Media) => 
+            m.series_id === media.series_id &&
+            m.season_number === media.season_number &&
+            m.episode_number === (media.episode_number || 0) + 1
+          );
+          
+          // If no next episode in current season, try first episode of next season
+          if (!next) {
+            const nextSeason = allMedia.find((m: Media) => 
+              m.series_id === media.series_id &&
+              m.season_number === (media.season_number || 0) + 1 &&
+              m.episode_number === 1
+            );
+            setNextEpisode(nextSeason || null);
+          } else {
+            setNextEpisode(next);
+          }
+        } catch (error) {
+          console.error('Error fetching next episode:', error);
+        }
+      }
+    };
+    
+    if (isOpen) {
+      fetchNextEpisode();
+    }
+  }, [media, isOpen]);
+
+  const handlePlayNext = () => {
+    if (nextEpisode && onPlayNext) {
+      onPlayNext(nextEpisode);
+    }
+  };
+
+  const handleCancelNext = () => {
+    setShowNextEpisode(false);
+  };
+
+  const toggleSubtitles = () => {
+    setSubtitlesEnabled(!subtitlesEnabled);
+    const video = videoRef.current;
+    if (video) {
+      const tracks = video.textTracks;
+      for (let i = 0; i < tracks.length; i++) {
+        tracks[i].mode = subtitlesEnabled ? 'hidden' : 'showing';
+      }
+    }
   };
 
   const togglePlay = () => {
@@ -186,27 +263,57 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose }) => 
     const video = videoRef.current;
     if (!video) return;
 
+    const handleLoadedMetadata = () => {
+      setDuration(video.duration);
+      // Set start time if provided
+      if (startTime > 0) {
+        video.currentTime = startTime;
+        setCurrentTime(startTime);
+      }
+    };
+
     const handleTimeUpdate = () => {
       if (!isDragging) {
         setCurrentTime(video.currentTime);
+        // Update playback progress every 10 seconds
+        if (Math.floor(video.currentTime) % 10 === 0) {
+          updatePlaybackProgress(media.id, video.currentTime, video.duration);
+        }
       }
     };
-    const handleDurationChange = () => setDuration(video.duration);
-    const handlePlay = () => setIsPlaying(true);
-    const handlePause = () => setIsPlaying(false);
 
+    const handlePlay = () => {
+      setIsPlaying(true);
+      // Track view when playback starts
+      trackView(media.id);
+    };
+    
+    const handlePause = () => {
+      setIsPlaying(false);
+      // Update progress when paused
+      updatePlaybackProgress(media.id, video.currentTime, video.duration);
+    };
+    
+    const handleEnded = () => {
+      setIsPlaying(false);
+      // Mark as completed when ended
+      updatePlaybackProgress(media.id, video.duration, video.duration);
+    };
+
+    video.addEventListener('loadedmetadata', handleLoadedMetadata);
     video.addEventListener('timeupdate', handleTimeUpdate);
-    video.addEventListener('durationchange', handleDurationChange);
     video.addEventListener('play', handlePlay);
     video.addEventListener('pause', handlePause);
+    video.addEventListener('ended', handleEnded);
 
     return () => {
+      video.removeEventListener('loadedmetadata', handleLoadedMetadata);
       video.removeEventListener('timeupdate', handleTimeUpdate);
-      video.removeEventListener('durationchange', handleDurationChange);
       video.removeEventListener('play', handlePlay);
       video.removeEventListener('pause', handlePause);
+      video.removeEventListener('ended', handleEnded);
     };
-  }, [isDragging]);
+  }, [isDragging, media.id, startTime]);
 
   // Keyboard event listener
   useEffect(() => {
@@ -446,21 +553,21 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose }) => 
                           <Volume2 className="w-6 h-6" />
                         )}
                       </button>
-                      
-                      <input
-                        type="range"
-                        min="0"
-                        max="100"
-                        value={isMuted ? 0 : volume * 100}
-                        onChange={handleVolumeChange}
-                        className="w-20 h-1 bg-white/30 rounded-lg appearance-none cursor-pointer"
-                        title="Volume"
-                      />
-                    </div>
 
-                    <span className="text-white text-sm">
-                      {formatTime(currentTime)} / {formatTime(duration)}
-                    </span>
+                      <button
+                        onClick={toggleSubtitles}
+                        className={`text-white hover:text-white/70 transition-colors ${
+                          subtitlesEnabled ? 'text-blue-400' : ''
+                        }`}
+                        title={subtitlesEnabled ? "Disable Subtitles (c)" : "Enable Subtitles (c)"}
+                      >
+                        <Subtitles className="w-6 h-6" />
+                      </button>
+
+                      <span className="text-white text-sm">
+                        {formatTime(currentTime)} / {formatTime(duration)}
+                      </span>
+                    </div>
                   </div>
 
                   <div className="flex items-center gap-4">
@@ -481,6 +588,17 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose }) => 
             </motion.div>
           )}
         </AnimatePresence>
+
+        {/* Next Episode Preview */}
+        {nextEpisode && (
+          <NextEpisodePreview
+            nextEpisode={nextEpisode}
+            currentTime={currentTime}
+            duration={duration}
+            onPlayNext={handlePlayNext}
+            onCancel={handleCancelNext}
+          />
+        )}
       </motion.div>
     </AnimatePresence>
   );

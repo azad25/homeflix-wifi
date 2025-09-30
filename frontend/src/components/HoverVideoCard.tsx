@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Play, Info, Plus, ThumbsUp } from 'lucide-react';
+import { Play, Info, Plus, Volume2, VolumeX, ThumbsUp } from 'lucide-react';
+import Image from 'next/image';
 import { Media } from '../types/media';
 import { getApiUrl } from '../lib/api';
 
@@ -94,16 +95,25 @@ export default function HoverVideoCard({
       {/* Base Card */}
       <div className="relative w-full aspect-video bg-gray-900 rounded-lg overflow-hidden">
         {/* Thumbnail */}
-        <img
+        <Image
           src={thumbnailUrl}
           alt={media.title}
-          className={`w-full h-full object-cover transition-opacity duration-300 ${
+          fill
+          className={`object-cover transition-opacity duration-300 ${
             showVideo && isVideoLoaded ? 'opacity-0' : 'opacity-100'
           }`}
           loading="lazy"
           onError={(e) => {
             const target = e.target as HTMLImageElement;
-            target.src = '/placeholder-thumbnail.jpg';
+            // Create a gradient background as fallback
+            target.style.display = 'none';
+            const parent = target.parentElement;
+            if (parent && !parent.querySelector('.fallback-bg')) {
+              const fallback = document.createElement('div');
+              fallback.className = 'fallback-bg absolute inset-0 bg-gradient-to-br from-gray-700 via-gray-800 to-gray-900 flex items-center justify-center';
+              fallback.innerHTML = `<div class="text-white text-center"><div class="text-2xl mb-2">🎬</div><div class="text-sm">${media.title}</div></div>`;
+              parent.appendChild(fallback);
+            }
           }}
         />
 
@@ -137,64 +147,64 @@ export default function HoverVideoCard({
         </div>
       </div>
 
-      {/* Expanded Info Panel (Netflix-style) */}
-      {isHovered && (
-        <div className="absolute top-full left-0 right-0 bg-gray-900 rounded-b-lg shadow-2xl p-4 z-20 transform transition-all duration-300 opacity-0 group-hover:opacity-100">
-          <h3 className="text-white font-semibold text-lg mb-2 line-clamp-1">
-            {media.title}
-          </h3>
+      {/* Expanded Info Panel (Netflix-style) - Always show on hover */}
+      <div className={`absolute top-full left-0 right-0 bg-gray-900 rounded-b-lg shadow-2xl p-4 z-20 transform transition-all duration-300 ${
+        isHovered ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2 pointer-events-none'
+      }`}>
+        <h3 className="text-white font-semibold text-lg mb-2 line-clamp-1">
+          {media.title}
+        </h3>
+        
+        <div className="flex items-center gap-2 mb-3">
+          <span className="text-green-500 font-semibold">
+            {Math.round(((media.view_count || 0) / 1000) * 10) / 10}K views
+          </span>
+          <span className="text-gray-400">•</span>
+          <span className="text-gray-400 capitalize">{media.type}</span>
+        </div>
+
+        {/* Action Buttons */}
+        <div className="flex items-center gap-2 mb-3">
+          <button
+            onClick={() => onPlay(media)}
+            className="bg-white text-black px-4 py-2 rounded-md font-semibold hover:bg-gray-200 transition-colors duration-200 flex items-center gap-2"
+          >
+            <Play className="w-4 h-4 fill-current" />
+            Play
+          </button>
           
-          <div className="flex items-center gap-2 mb-3">
-            <span className="text-green-500 font-semibold">
-              {Math.round(((media.view_count || 0) / 1000) * 10) / 10}K views
-            </span>
-            <span className="text-gray-400">•</span>
-            <span className="text-gray-400 capitalize">{media.type}</span>
-          </div>
-
-          {/* Action Buttons */}
-          <div className="flex items-center gap-2 mb-3">
+          <button className="bg-gray-700 text-white p-2 rounded-full hover:bg-gray-600 transition-colors duration-200">
+            <Plus className="w-4 h-4" />
+          </button>
+          
+          <button className="bg-gray-700 text-white p-2 rounded-full hover:bg-gray-600 transition-colors duration-200">
+            <ThumbsUp className="w-4 h-4" />
+          </button>
+          
+          {onInfo && (
             <button
-              onClick={() => onPlay(media)}
-              className="bg-white text-black px-4 py-2 rounded-md font-semibold hover:bg-gray-200 transition-colors duration-200 flex items-center gap-2"
+              onClick={() => onInfo(media)}
+              className="bg-gray-700 text-white p-2 rounded-full hover:bg-gray-600 transition-colors duration-200 ml-auto"
             >
-              <Play className="w-4 h-4 fill-current" />
-              Play
+              <Info className="w-4 h-4" />
             </button>
-            
-            <button className="bg-gray-700 text-white p-2 rounded-full hover:bg-gray-600 transition-colors duration-200">
-              <Plus className="w-4 h-4" />
-            </button>
-            
-            <button className="bg-gray-700 text-white p-2 rounded-full hover:bg-gray-600 transition-colors duration-200">
-              <ThumbsUp className="w-4 h-4" />
-            </button>
-            
-            {onInfo && (
-              <button
-                onClick={() => onInfo(media)}
-                className="bg-gray-700 text-white p-2 rounded-full hover:bg-gray-600 transition-colors duration-200 ml-auto"
-              >
-                <Info className="w-4 h-4" />
-              </button>
-            )}
-          </div>
-
-          {/* Genres */}
-          {media.genres && media.genres.length > 0 && (
-            <div className="flex flex-wrap gap-1">
-              {media.genres.slice(0, 3).map((genre) => (
-                <span
-                  key={genre.id}
-                  className="text-xs text-gray-400 bg-gray-800 px-2 py-1 rounded"
-                >
-                  {genre.name}
-                </span>
-              ))}
-            </div>
           )}
         </div>
-      )}
+
+        {/* Genres */}
+        {media.genres && media.genres.length > 0 && (
+          <div className="flex flex-wrap gap-1">
+            {media.genres.slice(0, 3).map((genre) => (
+              <span
+                key={genre.id}
+                className="text-xs text-gray-400 bg-gray-800 px-2 py-1 rounded"
+              >
+                {genre.name}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

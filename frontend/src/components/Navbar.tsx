@@ -132,7 +132,7 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
                 <a href="#" className="block px-4 py-2 text-white/80 hover:text-white hover:bg-white/10">
                   Profile
                 </a>
-                <a href="#" className="block px-4 py-2 text-white/80 hover:text-white hover:bg-white/10">
+                <a href="/settings" className="block px-4 py-2 text-white/80 hover:text-white hover:bg-white/10">
                   Settings
                 </a>
                 <a href="#" className="block px-4 py-2 text-white/80 hover:text-white hover:bg-white/10">
