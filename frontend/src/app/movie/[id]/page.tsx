@@ -240,17 +240,93 @@ export default function MoviePage() {
       
       {/* Hero Section */}
       <div className="relative h-screen overflow-hidden">
-        {/* Static Background Image */}
+        {/* Background Image */}
         <div className="absolute inset-0" style={{ zIndex: 1 }}>
           <Image
             src={getBackgroundImageUrl(media)}
             alt={media.title}
             fill
-            className="object-cover"
+            className={`object-cover transition-opacity duration-1000 ${
+              isVideoLoaded && isVideoPlaying ? 'opacity-0' : 'opacity-100'
+            }`}
             priority
             style={{ zIndex: 1 }}
+            sizes="100vw"
           />
         </div>
+        
+        {/* Background Video with ALAC Audio */}
+        <video
+          ref={videoRef}
+          className="absolute inset-0 w-full h-full object-cover opacity-100"
+          autoPlay
+          muted={false}
+          loop
+          playsInline
+          preload="auto"
+          controls={false}
+          style={{ 
+            zIndex: 5, 
+            position: 'absolute', 
+            top: 0, 
+            left: 0, 
+            width: '100%', 
+            height: '100%',
+            objectFit: 'cover'
+          }}
+          onLoadedData={() => {
+            console.log('Media info video loaded successfully with ALAC audio');
+            setIsVideoLoaded(true);
+            if (videoRef.current) {
+              videoRef.current.currentTime = 0;
+              videoRef.current.volume = 0.8;
+              videoRef.current.muted = false;
+              videoRef.current.play().then(() => {
+                console.log('Media info video playing successfully with ALAC audio');
+                setIsVideoPlaying(true);
+              }).catch((error) => {
+                console.log('Video play failed, trying muted:', error);
+                // Fallback to muted if autoplay fails
+                if (videoRef.current) {
+                  videoRef.current.muted = true;
+                  videoRef.current.play().then(() => {
+                    setIsVideoPlaying(true);
+                  }).catch(() => {
+                    setIsVideoLoaded(false);
+                    setIsVideoPlaying(false);
+                  });
+                }
+              });
+            }
+          }}
+          onError={() => {
+            console.log('Video error occurred');
+            setIsVideoLoaded(false);
+            setIsVideoPlaying(false);
+          }}
+          onCanPlay={() => {
+            console.log('Video can play');
+          }}
+          onPlay={() => {
+            console.log('Video started playing');
+          }}
+          onPause={() => {
+            console.log('Video paused');
+          }}
+          onLoadStart={() => {
+            console.log('Video load started');
+          }}
+          onLoadedMetadata={() => {
+            console.log('Video metadata loaded');
+          }}
+        >
+          <source src={`${getApiUrl()}/api/stream/${media.id}`} type="video/mp4" />
+          <source src={`${getApiUrl()}/api/stream/${media.id}?format=webm`} type="video/webm" />
+          <source src={`${getApiUrl()}/api/stream/${media.id}?format=mov`} type="video/quicktime" />
+          <source src={`${getApiUrl()}/api/stream/${media.id}?format=avi`} type="video/x-msvideo" />
+          <source src={`${getApiUrl()}/api/stream/${media.id}?format=mkv`} type="video/x-matroska" />
+          Your browser does not support the video tag.
+        </video>
 
         {/* Overlay Gradient */}
         <div className="absolute inset-0 bg-gradient-to-t from-black via-black/80 to-transparent z-10" />
@@ -263,6 +339,23 @@ export default function MoviePage() {
           >
             <ArrowLeft className="w-6 h-6" />
           </MagneticButton>
+          
+          {/* Volume Control */}
+          {isVideoLoaded && isVideoPlaying && (
+            <MagneticButton
+              onClick={() => {
+                const newMutedState = !isMuted;
+                setIsMuted(newMutedState);
+                if (videoRef.current) {
+                  videoRef.current.muted = newMutedState;
+                  videoRef.current.volume = newMutedState ? 0 : 0.8;
+                }
+              }}
+              className="bg-black/50 backdrop-blur-md text-white p-3 rounded-full hover:bg-black/70 transition-all duration-300"
+            >
+              {isMuted ? <VolumeX className="w-6 h-6" /> : <Volume2 className="w-6 h-6" />}
+            </MagneticButton>
+          )}
         </div>
 
         {/* Hero Content */}
