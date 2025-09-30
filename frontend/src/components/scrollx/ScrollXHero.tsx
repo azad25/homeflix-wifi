@@ -2,10 +2,10 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, useScroll, useTransform, useSpring } from 'framer-motion';
-import { Play, Info, ChevronLeft, ChevronRight, Volume2, VolumeX } from 'lucide-react';
+import { Play, Info, ChevronLeft, ChevronRight, Volume2, VolumeX, Film, Tv } from 'lucide-react';
 import { Media } from '@/types/media';
 import { getApiUrl } from '@/lib/api';
-import { MagneticButton, GradientBackground, ParallaxSection, ParticleField } from './index';
+import { MagneticButton, GradientBackground, ParallaxSection, ParticleField, ScrollReveal } from './index';
 import { useAudio } from '@/contexts/AudioContext';
 
 interface ScrollXHeroProps {
@@ -122,6 +122,57 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
         setCurrentAudioElement(videoRef.current);
       }
     }
+  };
+
+  // Netflix-style helper functions
+  const getQualityBadge = () => {
+    if (currentMedia.rating && currentMedia.rating >= 8.5) return { text: '4K', color: 'bg-green-600' };
+    if (currentMedia.rating && currentMedia.rating >= 7.5) return { text: 'HD', color: 'bg-blue-600' };
+    return { text: 'SD', color: 'bg-gray-600' };
+  };
+
+  const getAgeRating = () => {
+    if (currentMedia.rating && currentMedia.rating >= 8.0) return '18+';
+    if (currentMedia.rating && currentMedia.rating >= 7.0) return '16+';
+    if (currentMedia.rating && currentMedia.rating >= 6.0) return '13+';
+    return 'PG';
+  };
+
+  const formatDuration = (seconds: number) => {
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
+  };
+
+  const getTitleSizeClass = () => {
+    const titleLength = currentMedia.title.length;
+    if (titleLength > 30) return 'text-3xl md:text-5xl lg:text-6xl';
+    if (titleLength > 20) return 'text-4xl md:text-6xl lg:text-7xl';
+    return 'text-5xl md:text-7xl lg:text-8xl';
+  };
+
+  const getGenreBasedStyling = () => {
+    const genres = currentMedia.genres?.map(g => g.name.toLowerCase()) || [];
+    if (genres.includes('horror') || genres.includes('thriller')) return 'font-black tracking-wider';
+    if (genres.includes('comedy') || genres.includes('family')) return 'font-extrabold tracking-wide';
+    if (genres.includes('drama') || genres.includes('romance')) return 'font-bold tracking-normal';
+    if (genres.includes('action') || genres.includes('adventure')) return 'font-black tracking-widest';
+    return 'font-bold tracking-wide';
+  };
+
+  const getGenreGradient = () => {
+    const genres = currentMedia.genres?.map(g => g.name.toLowerCase()) || [];
+    if (genres.includes('horror') || genres.includes('thriller')) 
+      return 'linear-gradient(135deg, #ff0000, #8b0000, #ffffff)';
+    if (genres.includes('comedy') || genres.includes('family')) 
+      return 'linear-gradient(135deg, #ffd700, #ff6b35, #ffffff)';
+    if (genres.includes('drama') || genres.includes('romance')) 
+      return 'linear-gradient(135deg, #ff69b4, #8a2be2, #ffffff)';
+    if (genres.includes('action') || genres.includes('adventure')) 
+      return 'linear-gradient(135deg, #ff4500, #dc143c, #ffffff)';
+    if (genres.includes('sci-fi') || genres.includes('fantasy')) 
+      return 'linear-gradient(135deg, #00bfff, #4169e1, #ffffff)';
+    return 'linear-gradient(135deg, #e50914, #ffffff, #ffffff)';
   };
 
   const goToSlide = (index: number) => {
@@ -371,127 +422,144 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
         </motion.div>
       )}
 
-      {/* Content */}
-      <div className="relative z-10 flex flex-col justify-center h-full px-8 md:px-16 lg:px-24">
-        <div className="max-w-4xl">
-          {/* Title */}
-          <motion.h1
-            key={currentMedia.id}
-            className="text-5xl md:text-7xl lg:text-8xl font-bold text-white mb-6 drop-shadow-2xl bg-gradient-to-r from-white via-gray-100 to-gray-300 bg-clip-text text-transparent"
-            initial={{ opacity: 0, y: 100 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 1, delay: 0.2, ease: "easeOut" }}
-          >
-            {currentMedia.title}
-          </motion.h1>
+      {/* Content - Netflix-style left positioning */}
+      <div className="absolute inset-0 z-20 flex items-center">
+        <div className="w-full max-w-none px-8 md:px-16 lg:px-24">
+          <div className="max-w-2xl">
+          {/* Netflix-style metadata */}
+          <ScrollReveal delay={0.1}>
+            <motion.div 
+              key={`metadata-${currentMedia.id}`}
+              className="flex items-center gap-4 mb-4"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.6, delay: 0.1 }}
+            >
+              {/* Quality Badge */}
+              <div className={`px-2 py-1 text-xs font-bold rounded ${getQualityBadge().color} text-white`}>
+                {getQualityBadge().text}
+              </div>
+              
+              {/* Year */}
+              {currentMedia.release_date && (
+                <span className="text-white font-medium">
+                  {new Date(currentMedia.release_date).getFullYear()}
+                </span>
+              )}
+              
+              {/* Age Rating */}
+              <div className="border border-gray-400 px-1 text-xs text-gray-300 font-medium">
+                {getAgeRating()}
+              </div>
+              
+              {/* Duration */}
+              {currentMedia.duration && (
+                <span className="text-gray-300 text-sm">
+                  {formatDuration(currentMedia.duration)}
+                </span>
+              )}
+              
+              {/* Type indicator */}
+              <div className="flex items-center gap-1">
+                {currentMedia.type === 'movie' ? (
+                  <Film className="w-4 h-4 text-gray-400" />
+                ) : (
+                  <Tv className="w-4 h-4 text-gray-400" />
+                )}
+                <span className="text-gray-400 text-sm capitalize">
+                  {currentMedia.type === 'episode' ? 'Series' : currentMedia.type}
+                </span>
+              </div>
+            </motion.div>
+          </ScrollReveal>
 
-          {/* Metadata */}
-          <motion.div
-            className="flex items-center gap-4 text-white/90 mb-6"
-            initial={{ opacity: 0, y: 50 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.8, delay: 0.4 }}
-          >
-            <span className="bg-red-600 text-white px-3 py-1 rounded text-sm font-bold">
-              {currentMedia.type.toUpperCase()}
-            </span>
-            <span className="flex items-center gap-1 text-green-400 font-semibold">
-              ⭐ {currentMedia.rating || 8.5}
-            </span>
-            <span className="text-white/80">{new Date().getFullYear()}</span>
-            <span className="text-green-400 font-medium">
-              {(currentMedia.view_count || 0).toLocaleString()} views
-            </span>
-          </motion.div>
+          {/* Dynamic Title with Genre-based styling */}
+          <ScrollReveal delay={0.2}>
+            <motion.h1 
+              key={`title-${currentMedia.id}`}
+              className={`font-bold text-white mb-4 leading-tight ${getTitleSizeClass()} ${getGenreBasedStyling()}`}
+              initial={{ opacity: 0, y: 30 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.8, delay: 0.2 }}
+              style={{
+                textShadow: '2px 2px 4px rgba(0,0,0,0.8), 0 0 20px rgba(0,0,0,0.5)'
+              }}
+            >
+              {currentMedia.title}
+            </motion.h1>
+          </ScrollReveal>
 
           {/* Genres */}
-          <motion.div
-            className="flex flex-wrap gap-2 mb-6"
-            initial={{ opacity: 0, y: 30 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.8, delay: 0.6 }}
-          >
-            {(currentMedia.genres || []).slice(0, 4).map((genre, index) => (
-              <span
-                key={index}
-                className="text-white/80 text-sm border border-white/40 px-3 py-1 rounded-full backdrop-blur-sm bg-white/10"
-              >
-                {genre.name}
-              </span>
-            ))}
-          </motion.div>
+          <ScrollReveal delay={0.3}>
+            <motion.div 
+              key={`genres-${currentMedia.id}`}
+              className="flex flex-wrap gap-2 mb-4"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.6, delay: 0.3 }}
+            >
+              {currentMedia.genres?.slice(0, 3).map((genre, index) => (
+                <span 
+                  key={genre.id}
+                  className="text-gray-300 text-sm bg-black/30 backdrop-blur-sm px-3 py-1 rounded-full border border-white/20"
+                >
+                  {genre.name}
+                </span>
+              ))}
+            </motion.div>
+          </ScrollReveal>
 
           {/* Description */}
-          <motion.p
-            className="text-white/90 text-lg md:text-xl leading-relaxed mb-8 max-w-3xl drop-shadow-lg"
-            initial={{ opacity: 0, y: 30 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.8, delay: 0.8 }}
-          >
-            {currentMedia.description || "Experience the ultimate entertainment with this amazing content. Watch now and immerse yourself in a world of endless possibilities."}
-          </motion.p>
+          <ScrollReveal delay={0.4}>
+            <motion.p 
+              key={`desc-${currentMedia.id}`}
+              className="text-lg md:text-xl text-gray-200 mb-8 max-w-2xl leading-relaxed bg-black/20 backdrop-blur-sm p-4 rounded-lg border border-white/10"
+              initial={{ opacity: 0, y: 30 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.8, delay: 0.4 }}
+            >
+              {currentMedia.description || "Experience premium entertainment with stunning visuals and immersive storytelling."}
+            </motion.p>
+          </ScrollReveal>
 
-          {/* Action buttons */}
-          <motion.div
-            className="flex flex-wrap gap-4"
-            initial={{ opacity: 0, y: 30 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.8, delay: 1 }}
-          >
-            <MagneticButton
-              onClick={handlePlay}
-              disabled={isPlayButtonLoading}
-              className={`flex items-center gap-3 px-8 py-4 rounded-xl font-bold transition-all duration-300 shadow-2xl ${
-                isPlayButtonLoading 
-                  ? 'bg-gray-200 text-gray-600 cursor-wait' 
-                  : 'bg-white text-black hover:bg-white/90 hover:cursor-pointer cursor-pointer'
-              }`}
+          {/* Action Buttons */}
+          <ScrollReveal delay={0.5}>
+            <motion.div 
+              className="flex items-center gap-4 mb-6"
+              initial={{ opacity: 0, y: 30 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.8, delay: 0.5 }}
             >
-              {isPlayButtonLoading ? (
-                <>
-                  <div className="w-6 h-6 animate-spin">
-                    <svg className="w-6 h-6" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"/>
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
-                    </svg>
-                  </div>
-                  Loading...
-                </>
-              ) : (
-                <>
-                  <Play className="w-6 h-6 fill-current" />
-                  Play Now
-                </>
-              )}
-            </MagneticButton>
-            
-            <MagneticButton
-              onClick={handleInfo}
-              disabled={isInfoButtonLoading}
-              className={`flex items-center gap-3 px-8 py-4 rounded-xl font-bold transition-all duration-300 border border-white/20 ${
-                isInfoButtonLoading 
-                  ? 'bg-gray-700 text-gray-400 cursor-wait' 
-                  : 'bg-gray-600/80 backdrop-blur-md text-white hover:bg-gray-600 hover:cursor-pointer cursor-pointer'
-              }`}
-            >
-              {isInfoButtonLoading ? (
-                <>
-                  <div className="w-6 h-6 animate-spin">
-                    <svg className="w-6 h-6" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"/>
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
-                    </svg>
-                  </div>
-                  Loading...
-                </>
-              ) : (
-                <>
-                  <Info className="w-6 h-6" />
-                  More Info
-                </>
-              )}
-            </MagneticButton>
-          </motion.div>
+              <MagneticButton
+                onClick={() => {
+                  setIsPlayButtonLoading(true);
+                  setTimeout(() => {
+                    onPlay(currentMedia);
+                    setIsPlayButtonLoading(false);
+                  }, 300);
+                }}
+                className="bg-white text-black px-8 py-3 rounded-md font-bold text-lg hover:bg-gray-200 transition-all duration-300 flex items-center gap-2"
+              >
+                <Play className="w-6 h-6 fill-current" />
+                Play
+              </MagneticButton>
+
+              <MagneticButton
+                onClick={() => {
+                  setIsInfoButtonLoading(true);
+                  setTimeout(() => {
+                    onInfo(currentMedia);
+                    setIsInfoButtonLoading(false);
+                  }, 300);
+                }}
+                className="bg-gray-600/80 text-white px-8 py-3 rounded-md font-bold text-lg hover:bg-gray-500/80 transition-all duration-300 flex items-center gap-2"
+              >
+                <Info className="w-6 h-6" />
+                More Info
+              </MagneticButton>
+            </motion.div>
+          </ScrollReveal>
+          </div>
         </div>
       </div>
 
