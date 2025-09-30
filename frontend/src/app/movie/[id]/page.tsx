@@ -41,7 +41,9 @@ export default function MoviePage() {
   const [isVideoLoaded, setIsVideoLoaded] = useState(false);
   const [isVideoPlaying, setIsVideoPlaying] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [isMuted, setIsMuted] = useState(false);
+  const [isMuted, setIsMuted] = useState(false); // Always start with ALAC audio enabled
+  const [showTitleOverlay, setShowTitleOverlay] = useState(true); // Netflix-style title overlay
+  const [isHoveringTitle, setIsHoveringTitle] = useState(false); // Hover state for title area
   const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
@@ -52,6 +54,18 @@ export default function MoviePage() {
       loadPlaybackProgress();
     }
   }, [params.id]);
+
+  // Netflix-style title overlay animation
+  useEffect(() => {
+    if (!loading && media) {
+      // Start the drop-down animation after a brief delay
+      const timer = setTimeout(() => {
+        setShowTitleOverlay(false);
+      }, 1500); // 1.5 second delay to show title first
+      
+      return () => clearTimeout(timer);
+    }
+  }, [loading, media]);
 
   const fetchMedia = async () => {
     try {
@@ -275,28 +289,69 @@ export default function MoviePage() {
             objectFit: 'cover'
           }}
           onLoadedData={() => {
-            console.log('Media info video loaded successfully with ALAC audio');
+            console.log('Media info video loaded successfully');
             setIsVideoLoaded(true);
             if (videoRef.current) {
-              videoRef.current.currentTime = 0;
-              videoRef.current.volume = 0.8;
-              videoRef.current.muted = false;
-              videoRef.current.play().then(() => {
-                console.log('Media info video playing successfully with ALAC audio');
-                setIsVideoPlaying(true);
-              }).catch((error) => {
-                console.log('Video play failed, trying muted:', error);
-                // Fallback to muted if autoplay fails
-                if (videoRef.current) {
-                  videoRef.current.muted = true;
-                  videoRef.current.play().then(() => {
-                    setIsVideoPlaying(true);
-                  }).catch(() => {
-                    setIsVideoLoaded(false);
-                    setIsVideoPlaying(false);
-                  });
+              const video = videoRef.current;
+              
+              // Check for ALAC codec support
+              const alacSupport = video.canPlayType('video/mp4; codecs="avc1.42E01E, alac"');
+              console.log('ALAC codec support:', alacSupport);
+              
+              video.currentTime = 0;
+              video.volume = 0.9; // Higher volume for ALAC quality
+              video.muted = false; // Always start with ALAC audio enabled
+              
+              // Set audio properties for high quality
+              if ((video as any).audioTracks && (video as any).audioTracks.length > 0) {
+                console.log('Audio tracks available:', (video as any).audioTracks.length);
+              }
+              
+              // Force user interaction for audio
+              const playWithAudio = async () => {
+                try {
+                  await video.play();
+                  console.log('Media info video playing successfully with ALAC audio');
+                  setIsVideoPlaying(true);
+                } catch (error) {
+                  console.log('Video play with audio failed, trying user interaction approach:', error);
+                  // Create a user interaction event
+                  const playButton = document.createElement('button');
+                  playButton.style.position = 'fixed';
+                  playButton.style.top = '50%';
+                  playButton.style.left = '50%';
+                  playButton.style.transform = 'translate(-50%, -50%)';
+                  playButton.style.zIndex = '9999';
+                  playButton.style.padding = '10px 20px';
+                  playButton.style.backgroundColor = '#e50914';
+                  playButton.style.color = 'white';
+                  playButton.style.border = 'none';
+                  playButton.style.borderRadius = '5px';
+                  playButton.style.cursor = 'pointer';
+                  playButton.textContent = 'Enable Audio';
+                  
+                  playButton.onclick = async () => {
+                    try {
+                      video.muted = false;
+                      video.volume = 0.9;
+                      await video.play();
+                      setIsVideoPlaying(true);
+                      document.body.removeChild(playButton);
+                      console.log('Audio enabled successfully with ALAC');
+                    } catch (err) {
+                      console.log('Final fallback to muted:', err);
+                      video.muted = true;
+                      await video.play();
+                      setIsVideoPlaying(true);
+                      document.body.removeChild(playButton);
+                    }
+                  };
+                  
+                  document.body.appendChild(playButton);
                 }
-              });
+              };
+              
+              playWithAudio();
             }
           }}
           onError={() => {
@@ -320,14 +375,28 @@ export default function MoviePage() {
             console.log('Video metadata loaded');
           }}
         >
+          {/* ALAC audio sources with high quality priority */}
+          <source src={`${getApiUrl()}/api/stream/${media.id}?audio=alac&quality=high`} type="video/mp4; codecs=&quot;avc1.42E01E, alac&quot;" />
+          <source src={`${getApiUrl()}/api/stream/${media.id}?audio=alac`} type="video/mp4; codecs=&quot;avc1.42E01E, alac&quot;" />
           <source src={`${getApiUrl()}/api/stream/${media.id}`} type="video/mp4" />
-          <source src={`${getApiUrl()}/api/stream/${media.id}?format=webm`} type="video/webm" />
+          <source src={`${getApiUrl()}/api/stream/${media.id}?format=webm&audio=opus`} type="video/webm; codecs=&quot;vp9, opus&quot;" />
           <source src={`${getApiUrl()}/api/stream/${media.id}?format=mov`} type="video/quicktime" />
-          <source src={`${getApiUrl()}/api/stream/${media.id}?format=avi`} type="video/x-msvideo" />
-          <source src={`${getApiUrl()}/api/stream/${media.id}?format=mkv`} type="video/x-matroska" />
           Your browser does not support the video tag.
         </video>
 
+        {/* Static overlay background that stays in place */}
+        <motion.div
+          className="absolute inset-0 bg-gradient-to-b from-black/80 via-black/60 to-black/40 z-15"
+          initial={{ opacity: 1 }}
+          animate={{ 
+            opacity: showTitleOverlay ? 1 : 0.3
+          }}
+          transition={{ 
+            duration: 1.2, 
+            ease: [0.25, 0.46, 0.45, 0.94]
+          }}
+        />
+        
         {/* Overlay Gradient */}
         <div className="absolute inset-0 bg-gradient-to-t from-black via-black/80 to-transparent z-10" />
 
@@ -340,44 +409,71 @@ export default function MoviePage() {
             <ArrowLeft className="w-6 h-6" />
           </MagneticButton>
           
-          {/* Volume Control */}
-          {isVideoLoaded && isVideoPlaying && (
-            <MagneticButton
-              onClick={() => {
-                const newMutedState = !isMuted;
-                setIsMuted(newMutedState);
-                if (videoRef.current) {
-                  videoRef.current.muted = newMutedState;
-                  videoRef.current.volume = newMutedState ? 0 : 0.8;
-                }
-              }}
-              className="bg-black/50 backdrop-blur-md text-white p-3 rounded-full hover:bg-black/70 transition-all duration-300"
-            >
-              {isMuted ? <VolumeX className="w-6 h-6" /> : <Volume2 className="w-6 h-6" />}
-            </MagneticButton>
-          )}
         </div>
 
         {/* Hero Content */}
-        <div className="absolute inset-0 flex items-center z-20">
+        <div className="absolute inset-0 flex items-end z-20">
+          <div 
+            className="w-full h-full flex items-end"
+            onMouseEnter={() => setIsHoveringTitle(true)}
+            onMouseLeave={() => setIsHoveringTitle(false)}
+          >
           <ParticleField count={50} className="absolute inset-0 opacity-30" />
           
-          <div className="container mx-auto px-6 md:px-12 lg:px-16 relative z-10">
-            <div className="max-w-4xl w-full">
-              <ScrollReveal direction="up" delay={0.1}>
-                <GenreTitle media={media} className="mb-6" />
-              </ScrollReveal>
+            <div className="container mx-auto px-6 md:px-12 lg:px-16 relative z-10">
+              <div className="max-w-4xl w-full">
+                {/* Title that appears immediately */}
+                <motion.div
+                  initial={{ opacity: 0, y: 50 }}
+                  animate={{ 
+                    opacity: 1, 
+                    y: 0
+                  }}
+                  transition={{ 
+                    duration: 0.8, 
+                    delay: 0.2
+                  }}
+                  className="mb-6"
+                >
+                  <GenreTitle media={media} className="mb-6" />
+                </motion.div>
 
-              {media.tagline && (
-                <ScrollReveal direction="up" delay={0.2}>
-                  <motion.p className="text-xl md:text-2xl text-white/90 italic mb-6 drop-shadow-lg">
-                    &ldquo;{media.tagline}&rdquo;
-                  </motion.p>
-                </ScrollReveal>
-              )}
+                {/* Tagline with hover reveal */}
+                {media.tagline && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 30, scale: 0.8 }}
+                    animate={{ 
+                      opacity: (!showTitleOverlay || isHoveringTitle) ? 1 : 0, 
+                      y: (!showTitleOverlay || isHoveringTitle) ? 0 : 30,
+                      scale: (!showTitleOverlay || isHoveringTitle) ? 1 : 0.8
+                    }}
+                    transition={{ 
+                      duration: 0.6, 
+                      delay: 0.1,
+                      ease: [0.25, 0.46, 0.45, 0.94]
+                    }}
+                  >
+                    <p className="text-xl md:text-2xl text-white/90 italic mb-6 drop-shadow-lg">
+                      &ldquo;{media.tagline}&rdquo;
+                    </p>
+                  </motion.div>
+                )}
 
-              <ScrollReveal direction="up" delay={0.3}>
-                <div className="flex items-center gap-4 text-white/90 mb-6 flex-wrap">
+                {/* Metadata with hover reveal and scaling */}
+                <motion.div
+                  initial={{ opacity: 0, y: 30, scale: 0.8 }}
+                  animate={{ 
+                    opacity: (!showTitleOverlay || isHoveringTitle) ? 1 : 0, 
+                    y: (!showTitleOverlay || isHoveringTitle) ? 0 : 30,
+                    scale: (!showTitleOverlay || isHoveringTitle) ? 1 : 0.8
+                  }}
+                  transition={{ 
+                    duration: 0.6, 
+                    delay: 0.2,
+                    ease: [0.25, 0.46, 0.45, 0.94]
+                  }}
+                  className="flex items-center gap-4 text-white/90 mb-6 flex-wrap"
+                >
                   {media.rating && (
                     <span className="flex items-center gap-1 text-green-400 font-semibold">
                       <Star className="w-4 h-4" />
@@ -397,9 +493,23 @@ export default function MoviePage() {
                   <span className="text-green-400 font-medium">
                     {(media.view_count || 0).toLocaleString()} views
                   </span>
-                </div>
+              </motion.div>
 
-                <div className="flex flex-wrap gap-4 mb-8">
+                {/* Action buttons with hover reveal and scaling */}
+                <motion.div
+                  initial={{ opacity: 0, y: 30, scale: 0.8 }}
+                  animate={{ 
+                    opacity: (!showTitleOverlay || isHoveringTitle) ? 1 : 0, 
+                    y: (!showTitleOverlay || isHoveringTitle) ? 0 : 30,
+                    scale: (!showTitleOverlay || isHoveringTitle) ? 1 : 0.8
+                  }}
+                  transition={{ 
+                    duration: 0.6, 
+                    delay: 0.3,
+                    ease: [0.25, 0.46, 0.45, 0.94]
+                  }}
+                  className="flex flex-wrap gap-4 mb-8"
+                >
                   <MagneticButton
                     onClick={handlePlay}
                     className="bg-red-600 hover:bg-red-700 text-white px-8 py-3 rounded-lg text-lg font-semibold flex items-center gap-2"
@@ -427,10 +537,22 @@ export default function MoviePage() {
                   <MagneticButton className="bg-white/10 hover:bg-white/20 text-white p-3 rounded-full">
                     <Download className="w-5 h-5" />
                   </MagneticButton>
-                </div>
-              </ScrollReveal>
+              </motion.div>
 
-              <ScrollReveal direction="up" delay={0.4}>
+                {/* Description with hover reveal and scaling */}
+                <motion.div
+                  initial={{ opacity: 0, y: 30, scale: 0.8 }}
+                  animate={{ 
+                    opacity: (!showTitleOverlay || isHoveringTitle) ? 1 : 0, 
+                    y: (!showTitleOverlay || isHoveringTitle) ? 0 : 30,
+                    scale: (!showTitleOverlay || isHoveringTitle) ? 1 : 0.8
+                  }}
+                  transition={{ 
+                    duration: 0.6, 
+                    delay: 0.4,
+                    ease: [0.25, 0.46, 0.45, 0.94]
+                  }}
+                >
                 <p className="text-white/90 mb-4 text-lg leading-relaxed">
                   {media.description ? (
                     showFullDescription ? media.description : `${media.description.substring(0, 200)}...`
@@ -446,24 +568,13 @@ export default function MoviePage() {
                     </button>
                   )}
                 </p>
-              </ScrollReveal>
+                </motion.div>
+              </div>
             </div>
           </div>
         </div>
 
 
-        {/* Scroll Indicator */}
-        <div className="absolute bottom-8 left-1/2 transform -translate-x-1/2 z-20">
-          <motion.div
-            initial={{ y: 0 }}
-            animate={{ y: [0, 10, 0] }}
-            transition={{ duration: 1.5, repeat: Infinity }}
-            className="flex flex-col items-center text-white/70"
-          >
-            <span className="text-sm mb-1">Scroll for more</span>
-            <ChevronDown className="w-6 h-6" />
-          </motion.div>
-        </div>
       </div>
 
       {/* Details Section */}

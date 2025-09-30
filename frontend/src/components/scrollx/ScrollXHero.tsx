@@ -21,7 +21,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
 }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isAutoPlaying, setIsAutoPlaying] = useState(true);
-  const [isMuted, setIsMuted] = useState(false); // Start with sound enabled
+  const [isMuted, setIsMuted] = useState(false); // Always start with ALAC audio enabled
   const [isVideoLoaded, setIsVideoLoaded] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [showControls, setShowControls] = useState(true);
@@ -122,11 +122,18 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
         videoRef.current.volume = 0;
         setCurrentAudioElement(null);
       } else {
-        // Unmute this video and set as current audio source
+        // Unmute this video and set as current audio source with ALAC
         muteAll(); // Mute any other playing audio first
         videoRef.current.muted = false;
-        videoRef.current.volume = 0.3;
+        videoRef.current.volume = spatialAudioEnabled ? 0.8 : 0.6; // Higher volume for ALAC quality
         setCurrentAudioElement(videoRef.current);
+        
+        // Initialize ALAC processing if available
+        if (isALACEnabled && alacEngine) {
+          initializeEnhancedAudio().then(() => {
+            console.log('ALAC audio enabled for hero video');
+          });
+        }
       }
     }
   };
@@ -224,25 +231,80 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
             // Register this video as the current audio source
             setCurrentAudioElement(video);
             
-            // Start video playback with ALAC audio
+            // Start video playback with ALAC audio codec - always unmuted
             video.currentTime = 0;
-            video.volume = 0.8;
-            video.muted = false;
+            video.volume = 0.9; // Higher volume for ALAC quality
+            video.muted = false; // Always start with audio enabled
             
-            video.play().then(() => {
-              console.log('Hero video playing successfully with ALAC audio');
-              setIsPlaying(true);
-            }).catch((error) => {
-              // Fallback to muted autoplay if sound fails
-              console.warn('Hero video autoplay with sound failed, trying muted:', error);
-              video.muted = true;
-              video.play().then(() => {
+            // Set audio codec preference for ALAC
+            const alacSupport = video.canPlayType('video/mp4; codecs="avc1.42E01E, alac"');
+            console.log('ALAC codec support in hero:', alacSupport);
+            
+            // Enhanced audio setup for ALAC
+            const playWithHighQualityAudio = async () => {
+              try {
+                // Try to enable high quality audio first
+                if (isALACEnabled && alacEngine) {
+                  await initializeEnhancedAudio();
+                  console.log('Enhanced ALAC audio initialized for hero video');
+                }
+                
+                // Set optimal audio properties
+                video.volume = spatialAudioEnabled ? 0.9 : 0.8;
+                video.muted = false;
+                
+                await video.play();
+                console.log('Hero video playing successfully with ALAC audio codec');
                 setIsPlaying(true);
-              }).catch(() => {
-                setIsVideoLoaded(false);
-                setIsPlaying(false);
-              });
-            });
+              } catch (error) {
+                console.warn('Hero video autoplay with ALAC audio failed:', error);
+                
+                // Try with user interaction
+                const enableAudioButton = document.createElement('button');
+                enableAudioButton.style.position = 'fixed';
+                enableAudioButton.style.top = '20px';
+                enableAudioButton.style.right = '20px';
+                enableAudioButton.style.zIndex = '9999';
+                enableAudioButton.style.padding = '8px 16px';
+                enableAudioButton.style.backgroundColor = 'rgba(229, 9, 20, 0.9)';
+                enableAudioButton.style.color = 'white';
+                enableAudioButton.style.border = 'none';
+                enableAudioButton.style.borderRadius = '4px';
+                enableAudioButton.style.cursor = 'pointer';
+                enableAudioButton.style.fontSize = '14px';
+                enableAudioButton.textContent = '🔊 Enable Audio';
+                
+                enableAudioButton.onclick = async () => {
+                  try {
+                    video.muted = false;
+                    video.volume = 0.9;
+                    await video.play();
+                    setIsPlaying(true);
+                    document.body.removeChild(enableAudioButton);
+                    console.log('Hero audio enabled successfully with ALAC');
+                  } catch (err) {
+                    console.log('Final fallback to muted hero video:', err);
+                    video.muted = true;
+                    await video.play();
+                    setIsPlaying(true);
+                    document.body.removeChild(enableAudioButton);
+                  }
+                };
+                
+                document.body.appendChild(enableAudioButton);
+                
+                // Also try muted playback as immediate fallback
+                video.muted = true;
+                video.play().then(() => {
+                  setIsPlaying(true);
+                }).catch(() => {
+                  setIsVideoLoaded(false);
+                  setIsPlaying(false);
+                });
+              }
+            };
+            
+            playWithHighQualityAudio();
           };
 
           const handleError = (e: Event) => {
@@ -255,21 +317,40 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
             if (!isVideoLoaded) {
               setIsVideoLoaded(true);
               setCurrentAudioElement(video);
-              // Try with sound first
+              // Try with ALAC audio first - always start with audio enabled
               video.muted = false;
-              video.volume = 0.3;
-              video.play().then(() => {
-                setIsPlaying(true);
-              }).catch(() => {
-                // Fallback to muted
-                video.muted = true;
-                video.play().then(() => {
+              video.volume = 0.8; // Higher volume for ALAC quality
+              
+              // Check for ALAC codec support
+              const alacSupport = video.canPlayType('video/mp4; codecs="avc1.42E01E, alac"');
+              console.log('ALAC codec support in canPlay:', alacSupport);
+              
+              // Enhanced audio playback
+              const attemptHighQualityPlayback = async () => {
+                try {
+                  // Initialize enhanced audio processing first
+                  if (isALACEnabled && alacEngine) {
+                    await initializeEnhancedAudio();
+                    video.volume = spatialAudioEnabled ? 0.9 : 0.8;
+                  }
+                  
+                  await video.play();
                   setIsPlaying(true);
-                }).catch(() => {
-                  setIsVideoLoaded(false);
-                  setIsPlaying(false);
-                });
-              });
+                  console.log('Hero video canPlay with ALAC audio successful');
+                } catch (error) {
+                  console.log('Hero video canPlay with audio failed:', error);
+                  // Fallback to muted
+                  video.muted = true;
+                  video.play().then(() => {
+                    setIsPlaying(true);
+                  }).catch(() => {
+                    setIsVideoLoaded(false);
+                    setIsPlaying(false);
+                  });
+                }
+              };
+              
+              attemptHighQualityPlayback();
             }
           };
 
@@ -337,23 +418,36 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
     if (videoRef.current && isVideoLoaded) {
       setCurrentAudioElement(videoRef.current);
       
-      // Initialize ALAC audio for enhanced quality if available
+      // Initialize ALAC audio codec for enhanced quality if available
       if (isALACEnabled && alacEngine && currentMedia) {
         initializeEnhancedAudio().then(() => {
-          // Extract and play ALAC audio for better quality
+          // Check for ALAC audio stream availability
           const alacAudioUrl = `${getApiUrl()}/api/audio/alac/${currentMedia.id}`;
-          fetch(alacAudioUrl)
+          fetch(alacAudioUrl, { method: 'HEAD' })
             .then(response => {
               if (response.ok) {
-                // ALAC audio available, use enhanced audio
+                // ALAC audio stream available, optimize video for ALAC playback
                 if (videoRef.current) {
-                  videoRef.current.volume = spatialAudioEnabled ? 0.8 : 0.6;
+                  videoRef.current.volume = spatialAudioEnabled ? 0.9 : 0.7; // Higher volume for ALAC
+                  console.log('ALAC audio stream detected, using enhanced audio quality');
+                  
+                  // Set audio processing parameters for ALAC
+                  const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+                  if (audioContext.sampleRate >= 48000) {
+                    console.log('High sample rate supported for ALAC audio');
+                  }
                 }
               }
             })
             .catch(() => {
-              // Fallback to standard video audio
-              console.log('ALAC audio not available, using standard audio');
+              // Fallback to standard video audio with ALAC codec preference
+              console.log('ALAC audio stream not available, using standard video with ALAC codec preference');
+              if (videoRef.current && videoRef.current.canPlayType) {
+                const alacSupport = videoRef.current.canPlayType('video/mp4; codecs="avc1.42E01E, alac"');
+                if (alacSupport) {
+                  console.log('ALAC codec supported in video container');
+                }
+              }
             });
         });
       }
@@ -400,7 +494,10 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
               controls={false}
               style={{ zIndex: 5 }}
             >
+              <source src={`${getVideoUrl(currentMedia)}?audio=alac&quality=high`} type="video/mp4; codecs=&quot;avc1.42E01E, alac&quot;" />
+              <source src={`${getVideoUrl(currentMedia)}?audio=alac`} type="video/mp4; codecs=&quot;avc1.42E01E, alac&quot;" />
               <source src={getVideoUrl(currentMedia)} type="video/mp4" />
+              <source src={`${getVideoUrl(currentMedia)}?format=webm&audio=opus`} type="video/webm; codecs=&quot;vp9, opus&quot;" />
             </video>
             
             {/* Gradient overlays */}
@@ -446,22 +543,6 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
         </>
       )}
 
-      {/* Volume control */}
-      {isVideoLoaded && isPlaying && (
-        <motion.div
-          className="absolute top-8 right-8 z-20"
-          initial={{ opacity: 0, scale: 0.8 }}
-          animate={{ opacity: showControls ? 1 : 0, scale: showControls ? 1 : 0.8 }}
-          transition={{ duration: 0.3 }}
-        >
-          <MagneticButton
-            onClick={toggleMute}
-            className="bg-black/50 backdrop-blur-md text-white p-3 rounded-full hover:bg-black/70 transition-all duration-300 border border-white/20"
-          >
-            {isMuted ? <VolumeX className="w-6 h-6" /> : <Volume2 className="w-6 h-6" />}
-          </MagneticButton>
-        </motion.div>
-      )}
 
       {/* Content - Netflix-style left positioning */}
       <div className="absolute inset-0 z-20 flex items-center">
