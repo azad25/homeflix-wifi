@@ -143,6 +143,7 @@ const EpisodeList: React.FC<EpisodeListProps> = ({
                       src={`${getApiUrl()}/api/thumbnails/${episode.id}`}
                       alt={episode.title}
                       fill
+                      sizes="160px"
                       className="object-cover"
                       onError={(e) => {
                         e.currentTarget.style.display = 'none';

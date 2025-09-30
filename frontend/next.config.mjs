@@ -12,9 +12,12 @@ const nextConfig = {
   },
   // Allow cross-origin requests from network devices
   allowedDevOrigins: [
+    '192.168.0.109',   // Specific IP address
     '192.168.0.0/16',  // Allow all 192.168.x.x addresses
     '10.0.0.0/8',      // Allow all 10.x.x.x addresses  
     '172.16.0.0/12',   // Allow all 172.16-31.x.x addresses
+    'localhost',       // Allow localhost
+    '127.0.0.1',       // Allow loopback
   ],
   images: {
     remotePatterns: [

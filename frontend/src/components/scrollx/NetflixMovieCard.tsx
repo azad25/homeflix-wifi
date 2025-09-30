@@ -1,13 +1,14 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from 'react';
+import { Play, Info, Plus, Check, ChevronDown, Volume2, VolumeX, Clock, Star, ThumbsUp } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Play, Info, Star, Clock, Volume2, VolumeX, Plus, ThumbsUp, ChevronDown } from 'lucide-react';
 import Image from 'next/image';
 import { Media } from '@/types/media';
 import { getApiUrl } from '@/lib/api';
-import { MagneticButton } from './index';
-import { useAudio } from '@/contexts/AudioContext';
+import { useRouter } from 'next/navigation';
+import { useAudio } from '@/contexts/EnhancedAudioContext';
+import { cleanMovieTitle } from '@/lib/titleUtils';
 
 interface NetflixMovieCardProps {
   media: Media;
@@ -28,6 +29,7 @@ const NetflixMovieCard: React.FC<NetflixMovieCardProps> = ({
   variant = 'portrait',
   size = 'medium'
 }) => {
+  const router = useRouter();
   const [isHovered, setIsHovered] = useState(false);
   const [isVideoLoaded, setIsVideoLoaded] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -168,7 +170,11 @@ const NetflixMovieCard: React.FC<NetflixMovieCardProps> = ({
 
   const handleInfoClick = (e: React.MouseEvent) => {
     e.stopPropagation();
-    onInfo(media);
+    router.push(`/movie/${media.id}`);
+  };
+
+  const handleCardClick = () => {
+    router.push(`/movie/${media.id}`);
   };
 
   const handleImageError = () => {
@@ -217,6 +223,7 @@ const NetflixMovieCard: React.FC<NetflixMovieCardProps> = ({
       className="relative group cursor-pointer"
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
+      onClick={handleCardClick}
     >
       {/* Base Card */}
       <motion.div
@@ -235,8 +242,9 @@ const NetflixMovieCard: React.FC<NetflixMovieCardProps> = ({
         {!fallbackError ? (
           <Image
             src={imageError ? getFallbackThumbnailUrl() : getThumbnailUrl()}
-            alt={media.title}
+            alt={cleanMovieTitle(media.title)}
             fill
+            sizes="(max-width: 768px) 50vw, (max-width: 1200px) 33vw, 25vw"
             className={`object-cover transition-opacity duration-300 ${
               showPreview && isVideoLoaded ? 'opacity-0' : 'opacity-100'
             }`}
@@ -247,7 +255,7 @@ const NetflixMovieCard: React.FC<NetflixMovieCardProps> = ({
           <div className="w-full h-full bg-gradient-to-br from-gray-700 via-gray-800 to-gray-900 flex items-center justify-center">
             <div className="text-white text-center p-2">
               <div className="text-2xl mb-2">🎬</div>
-              <div className="text-xs font-medium line-clamp-2">{media.title}</div>
+              <div className="text-xs font-medium line-clamp-2">{cleanMovieTitle(media.title)}</div>
             </div>
           </div>
         )}
@@ -331,7 +339,7 @@ const NetflixMovieCard: React.FC<NetflixMovieCardProps> = ({
         {/* Title Overlay (bottom) */}
         <div className="absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-black/90 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300">
           <h3 className="text-white font-bold text-sm line-clamp-2 mb-1">
-            {media.title}
+            {cleanMovieTitle(media.title)}
           </h3>
           <div className="flex items-center gap-2 text-xs text-gray-300">
             <span className="text-green-400 font-semibold">

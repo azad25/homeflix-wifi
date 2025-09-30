@@ -155,6 +155,11 @@ export default function SearchPage() {
     router.push(`/movie/${media.id}`);
   };
 
+  const handleSearch = (query: string) => {
+    setSearchQuery(query);
+    setHasSearched(true);
+  };
+
   const clearFilters = () => {
     setFilters({
       type: "all",
@@ -174,8 +179,8 @@ export default function SearchPage() {
   const activeFiltersCount = Object.values(filters).filter(value => value !== "all" && value !== "relevance").length;
 
   return (
-    <div className="min-h-screen bg-black text-white">
-      <Navbar onSearch={(query: string) => setSearchQuery(query)} />
+    <div className="min-h-screen bg-gradient-to-b from-red-900/20 via-black to-black text-white">
+      <Navbar onSearch={handleSearch} />
 
       {/* Main Content with Parallax Background */}
       <div className="relative bg-gradient-to-b from-red-900/20 via-black to-black">
@@ -185,11 +190,11 @@ export default function SearchPage() {
             <ScrollReveal direction="up" delay={0.1}>
               <div className="px-4 md:px-8 lg:px-16 mb-12">
                 <div className="text-center mb-8">
-                  <h1 className="text-4xl md:text-6xl font-bold text-white mb-6 flex items-center justify-center gap-4">
+                  <h1 className="text-4xl md:text-6xl font-bold text-white mb-6 flex items-center justify-center gap-4 tracking-wider">
                     <FloatingElement>
                       <Search className="w-12 h-12" />
                     </FloatingElement>
-                    Search Library
+                    S E A R C H   L I B R A R Y
                   </h1>
                   
                   {/* Search Bar */}

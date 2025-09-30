@@ -157,7 +157,7 @@ export default function BrowsePage() {
   }
 
   return (
-    <div className="min-h-screen bg-black text-white">
+    <div className="min-h-screen bg-gradient-to-b from-red-900/20 via-black to-black text-white">
       <Navbar onSearch={handleSearch} />
 
       {/* Hero Section */}
@@ -178,8 +178,8 @@ export default function BrowsePage() {
               <div className="px-4 md:px-8 lg:px-16 mb-12">
                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
                   <div>
-                    <h1 className="text-4xl md:text-6xl font-bold text-white mb-4">
-                      Browse Collection
+                    <h1 className="text-4xl md:text-6xl font-bold text-white mb-4 tracking-wider">
+                      B R O W S E   C O L L E C T I O N
                     </h1>
                     <p className="text-gray-300 text-lg">
                       Discover your next favorite from {allMedia.length} titles

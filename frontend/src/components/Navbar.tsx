@@ -4,12 +4,14 @@ import React, { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { Search, Bell, User, Menu, X } from "lucide-react";
 import Image from "next/image";
+import { useRouter } from "next/navigation";
 
 interface NavbarProps {
   onSearch?: (query: string) => void;
 }
 
 const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
+  const router = useRouter();
   const [isScrolled, setIsScrolled] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -31,7 +33,7 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
         onSearch(searchQuery.trim());
       } else {
         // Navigate to search page if no onSearch handler provided
-        window.location.href = `/search?q=${encodeURIComponent(searchQuery.trim())}`;
+        router.push(`/search?q=${encodeURIComponent(searchQuery.trim())}`);
       }
       setIsSearchOpen(false);
     }

@@ -6,7 +6,7 @@ import (
 	"homeflix-backend/internal/services"
 )
 
-func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamService *services.OptimizedStreamService, thumbnailService *services.ThumbnailService, userService *services.UserService, recommendationService *services.RecommendationService, playbackService *services.PlaybackService, geminiService *services.GeminiService, celeryService *services.CeleryService) {
+func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamService *services.OptimizedStreamService, thumbnailService *services.ThumbnailService, userService *services.UserService, recommendationService *services.RecommendationService, playbackService *services.PlaybackService, geminiService *services.GeminiService, celeryService *services.CeleryService, alacService *services.ALACAudioService) {
 	api := r.Group("/api")
 	{
 		// Media endpoints
@@ -31,6 +31,13 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		
 		// Subtitles
 		api.GET("/subtitles/:id", handlers.GetSubtitles(mediaService))
+		
+		// ALAC Audio endpoints
+		api.GET("/audio/alac/:id", handlers.GetALACAudio(alacService))
+		api.POST("/audio/alac/:id/extract", handlers.ExtractALACAudio(alacService, mediaService))
+		api.GET("/audio/alac/:id/metadata", handlers.GetALACAudioMetadata(alacService))
+		api.POST("/audio/alac/:id/spatial/:layout", handlers.ConvertToSpatialAudio(alacService, mediaService))
+		api.GET("/audio/formats", handlers.GetSupportedAudioFormats(alacService))
 		
 		// Analytics and Playback
 		api.POST("/track-view/:id", handlers.TrackView(mediaService, playbackService))

@@ -39,6 +39,7 @@ func main() {
 	playbackService := services.NewPlaybackService(db)
 	geminiService := services.NewGeminiService()
 	celeryService := services.NewCeleryService()
+	alacService := services.NewALACAudioService("./alac_audio")
 
 	// Initialize poster service
 	posterService := services.NewPosterService("./posters")
@@ -64,13 +65,13 @@ func main() {
 	r.Use(cors.New(cors.Config{
 		AllowOrigins:     []string{"*"},
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization", "X-User-ID", "x-user-id"},
 		ExposeHeaders:    []string{"Content-Length"},
 		AllowCredentials: true,
 	}))
 
 	// Initialize API routes
-	api.SetupRoutes(r, mediaService, streamService, thumbnailService, userService, recommendationService, playbackService, geminiService, celeryService)
+	api.SetupRoutes(r, mediaService, streamService, thumbnailService, userService, recommendationService, playbackService, geminiService, celeryService, alacService)
 
 	// Start server
 	port := os.Getenv("PORT")

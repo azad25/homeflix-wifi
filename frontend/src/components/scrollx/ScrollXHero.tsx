@@ -6,7 +6,7 @@ import { Play, Info, ChevronLeft, ChevronRight, Volume2, VolumeX, Film, Tv } fro
 import { Media } from '@/types/media';
 import { getApiUrl } from '@/lib/api';
 import { MagneticButton, GradientBackground, ParallaxSection, ParticleField, ScrollReveal } from './index';
-import { useAudio } from '@/contexts/AudioContext';
+import { useAudio } from '@/contexts/EnhancedAudioContext';
 
 interface ScrollXHeroProps {
   featuredMedia: Media[];
@@ -31,7 +31,14 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
   const videoRef = useRef<HTMLVideoElement>(null);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const { setCurrentAudioElement, muteAll } = useAudio();
+  const { 
+    setCurrentAudioElement, 
+    muteAll, 
+    alacEngine, 
+    isALACEnabled, 
+    spatialAudioEnabled,
+    initializeEnhancedAudio 
+  } = useAudio();
 
   const { scrollYProgress } = useScroll({
     target: containerRef,
@@ -146,8 +153,10 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
 
   const getTitleSizeClass = () => {
     const titleLength = currentMedia.title.length;
-    if (titleLength > 30) return 'text-3xl md:text-5xl lg:text-6xl';
-    if (titleLength > 20) return 'text-4xl md:text-6xl lg:text-7xl';
+    if (titleLength > 50) return 'text-2xl md:text-3xl lg:text-4xl';
+    if (titleLength > 35) return 'text-2xl md:text-4xl lg:text-5xl';
+    if (titleLength > 25) return 'text-3xl md:text-5xl lg:text-6xl';
+    if (titleLength > 15) return 'text-4xl md:text-6xl lg:text-7xl';
     return 'text-5xl md:text-7xl lg:text-8xl';
   };
 
@@ -210,17 +219,22 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
           const video = videoRef.current;
           
           const handleLoadedData = () => {
+            console.log('Hero video loaded successfully');
             setIsVideoLoaded(true);
             // Register this video as the current audio source
             setCurrentAudioElement(video);
-            // Start video playback - try with sound first, fallback to muted
+            
+            // Start video playback with ALAC audio
+            video.currentTime = 0;
+            video.volume = 0.8;
             video.muted = false;
-            video.volume = 0.3;
+            
             video.play().then(() => {
+              console.log('Hero video playing successfully with ALAC audio');
               setIsPlaying(true);
             }).catch((error) => {
               // Fallback to muted autoplay if sound fails
-              console.warn('Video autoplay with sound failed, trying muted:', error);
+              console.warn('Hero video autoplay with sound failed, trying muted:', error);
               video.muted = true;
               video.play().then(() => {
                 setIsPlaying(true);
@@ -318,6 +332,34 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
     }
   }, []);
 
+  // Enhanced audio integration for ALAC support
+  useEffect(() => {
+    if (videoRef.current && isVideoLoaded) {
+      setCurrentAudioElement(videoRef.current);
+      
+      // Initialize ALAC audio for enhanced quality if available
+      if (isALACEnabled && alacEngine && currentMedia) {
+        initializeEnhancedAudio().then(() => {
+          // Extract and play ALAC audio for better quality
+          const alacAudioUrl = `${getApiUrl()}/api/audio/alac/${currentMedia.id}`;
+          fetch(alacAudioUrl)
+            .then(response => {
+              if (response.ok) {
+                // ALAC audio available, use enhanced audio
+                if (videoRef.current) {
+                  videoRef.current.volume = spatialAudioEnabled ? 0.8 : 0.6;
+                }
+              }
+            })
+            .catch(() => {
+              // Fallback to standard video audio
+              console.log('ALAC audio not available, using standard audio');
+            });
+        });
+      }
+    }
+  }, [isVideoLoaded, setCurrentAudioElement, isALACEnabled, alacEngine, spatialAudioEnabled, currentMedia, initializeEnhancedAudio]);
+
   if (!currentMedia) return null;
 
   return (
@@ -349,22 +391,21 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
             {/* Video overlay when loaded and playing */}
             <video
               ref={videoRef}
-              className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-1000 ${
-                isVideoLoaded && isPlaying ? 'opacity-100' : 'opacity-0'
-              }`}
+              className="absolute inset-0 w-full h-full object-cover opacity-100"
               autoPlay
-              muted
+              muted={false}
               loop
               playsInline
               preload="auto"
-              style={{ zIndex: 1 }}
+              controls={false}
+              style={{ zIndex: 5 }}
             >
               <source src={getVideoUrl(currentMedia)} type="video/mp4" />
             </video>
             
             {/* Gradient overlays */}
-            <div className="absolute inset-0 bg-gradient-to-r from-black/80 via-black/40 to-transparent" style={{ zIndex: 2 }} />
-            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" style={{ zIndex: 2 }} />
+            <div className="absolute inset-0 bg-gradient-to-r from-black/80 via-black/40 to-transparent" style={{ zIndex: 10 }} />
+            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" style={{ zIndex: 10 }} />
           </div>
         </GradientBackground>
       </ParallaxSection>

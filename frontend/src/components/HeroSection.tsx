@@ -105,6 +105,7 @@ const HeroSection: React.FC<HeroSectionProps> = ({
               src={getHeroImageUrl(currentMedia)}
               alt={currentMedia.title}
               fill
+              sizes="100vw"
               className="object-cover"
               priority={currentIndex === 0}
               onError={() => setImageError(prev => ({ ...prev, [currentMedia.id]: true }))}

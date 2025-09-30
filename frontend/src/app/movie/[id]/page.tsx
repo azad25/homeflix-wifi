@@ -5,9 +5,13 @@ import { useParams, useRouter } from "next/navigation";
 import { ArrowLeft, Play, Plus, Check, Share, Download, Info, Star, Clock, Calendar, Globe, Users, Award, Film, Tv, User, Mic, ChevronDown, ChevronUp, Volume2, VolumeX } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import Image from 'next/image';
-import { Media } from '../../../types/media';
-import VideoPlayer from '../../../components/VideoPlayer';
-import { getApiUrl } from '../../../lib/api';
+import { Media } from '@/types/media';
+import { getApiUrl } from '@/lib/api';
+import { updatePlaybackProgress, getPlaybackProgress } from '@/lib/playback';
+import Navbar from '@/components/Navbar';
+import { cleanMovieTitle, findSimilarMovies } from '@/lib/titleUtils';
+import VideoPlayer from '@/components/VideoPlayer';
+import GenreTitle from '@/components/GenreTitle';
 import QualityBadge from '../../../components/QualityBadge';
 import {
   NetflixHorizontalRow,
@@ -27,15 +31,16 @@ export default function MoviePage() {
   const router = useRouter();
   const [media, setMedia] = useState<Media | null>(null);
   const [similarMedia, setSimilarMedia] = useState<Media[]>([]);
-  const [isInMyList, setIsInMyList] = useState(false);
+  const [allMedia, setAllMedia] = useState<Media[]>([]);
   const [isPlayerOpen, setIsPlayerOpen] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [isInMyList, setIsInMyList] = useState(false);
   const [playbackProgress, setPlaybackProgress] = useState(0);
-  const [lastWatched, setLastWatched] = useState<string | null>(null);
   const [showFullDescription, setShowFullDescription] = useState(false);
+  const [lastWatched, setLastWatched] = useState<string | null>(null);
   const [showMoreInfo, setShowMoreInfo] = useState(false);
   const [isVideoLoaded, setIsVideoLoaded] = useState(false);
   const [isVideoPlaying, setIsVideoPlaying] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [isMuted, setIsMuted] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
 
@@ -63,10 +68,22 @@ export default function MoviePage() {
 
   const fetchSimilarMedia = async () => {
     try {
-      const apiUrl = getApiUrl();
-      const response = await fetch(`${apiUrl}/api/media/${params.id}/similar`);
-      const data = await response.json();
-      setSimilarMedia(data);
+      const response = await fetch(`${getApiUrl()}/api/media`);
+      if (response.ok) {
+        const data = await response.json();
+        setAllMedia(data);
+        
+        if (media) {
+          // Use smart similarity matching
+          const similar = findSimilarMovies(media.title, data, 8);
+          setSimilarMedia(similar);
+        } else {
+          // Fallback to random selection
+          const filtered = data.filter((item: Media) => item.id !== parseInt(params.id as string));
+          const shuffled = filtered.sort(() => 0.5 - Math.random());
+          setSimilarMedia(shuffled.slice(0, 6));
+        }
+      }
     } catch (error) {
       console.error('Error fetching similar media:', error);
     }
@@ -217,56 +234,23 @@ export default function MoviePage() {
   }
 
   const renderMediaContent = (media: Media) => (
-    <div className="min-h-screen bg-black text-white">
+    <div className="min-h-screen bg-gradient-to-b from-red-900/20 via-black to-black text-white">
+      <Navbar />
       <GradientBackground variant="cosmic" animate={true} className="fixed inset-0 -z-10" />
       
       {/* Hero Section */}
       <div className="relative h-screen overflow-hidden">
-        {/* Background Image with Parallax */}
-        <ParallaxSection speed={0.5}>
-          <div className="absolute inset-0">
-            {/* Always show background image first */}
-            <Image
-              src={getBackgroundImageUrl(media)}
-              alt={media.title}
-              fill
-              className={`object-cover transition-opacity duration-1000 ${
-                isVideoLoaded && isVideoPlaying ? 'opacity-0' : 'opacity-100'
-              }`}
-              priority
-            />
-            
-            {/* Background Video */}
-            <video
-              ref={videoRef}
-              className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-1000 ${
-                isVideoLoaded && isVideoPlaying ? 'opacity-100' : 'opacity-0'
-              }`}
-              autoPlay
-              muted={isMuted}
-              loop
-              playsInline
-              preload="auto"
-              onLoadedData={() => {
-                setIsVideoLoaded(true);
-                if (videoRef.current) {
-                  videoRef.current.volume = 0.4; // Set moderate volume
-                  videoRef.current.play().then(() => {
-                    setIsVideoPlaying(true);
-                  }).catch(() => {
-                    setIsVideoLoaded(false);
-                  });
-                }
-              }}
-              onError={() => {
-                setIsVideoLoaded(false);
-                setIsVideoPlaying(false);
-              }}
-            >
-              <source src={getBackgroundVideoUrl(media)} type="video/mp4" />
-            </video>
-          </div>
-        </ParallaxSection>
+        {/* Static Background Image */}
+        <div className="absolute inset-0" style={{ zIndex: 1 }}>
+          <Image
+            src={getBackgroundImageUrl(media)}
+            alt={media.title}
+            fill
+            className="object-cover"
+            priority
+            style={{ zIndex: 1 }}
+          />
+        </div>
 
         {/* Overlay Gradient */}
         <div className="absolute inset-0 bg-gradient-to-t from-black via-black/80 to-transparent z-10" />
@@ -274,28 +258,11 @@ export default function MoviePage() {
         {/* Navigation */}
         <div className="absolute top-0 left-0 right-0 z-20 p-6 flex justify-between items-center">
           <MagneticButton
-            onClick={() => router.back()}
+            onClick={() => router.push('/')}
             className="bg-black/50 backdrop-blur-md text-white p-3 rounded-full hover:bg-black/70 transition-all duration-300"
           >
             <ArrowLeft className="w-6 h-6" />
           </MagneticButton>
-          
-          {/* Volume Control */}
-          {isVideoLoaded && isVideoPlaying && (
-            <MagneticButton
-              onClick={() => {
-                const newMutedState = !isMuted;
-                setIsMuted(newMutedState);
-                if (videoRef.current) {
-                  videoRef.current.muted = newMutedState;
-                  videoRef.current.volume = newMutedState ? 0 : 0.4;
-                }
-              }}
-              className="bg-black/50 backdrop-blur-md text-white p-3 rounded-full hover:bg-black/70 transition-all duration-300"
-            >
-              {isMuted ? <VolumeX className="w-6 h-6" /> : <Volume2 className="w-6 h-6" />}
-            </MagneticButton>
-          )}
         </div>
 
         {/* Hero Content */}
@@ -303,9 +270,9 @@ export default function MoviePage() {
           <ParticleField count={50} className="absolute inset-0 opacity-30" />
           
           <div className="container mx-auto px-6 md:px-12 lg:px-16 relative z-10">
-            <div className="max-w-2xl">
+            <div className="max-w-4xl w-full">
               <ScrollReveal direction="up" delay={0.1}>
-                <DynamicTitle media={media} className="mb-6" />
+                <GenreTitle media={media} className="mb-6" />
               </ScrollReveal>
 
               {media.tagline && (
@@ -371,27 +338,26 @@ export default function MoviePage() {
               </ScrollReveal>
 
               <ScrollReveal direction="up" delay={0.4}>
-                <div className="max-w-2xl">
-                  <p className="text-white/90 mb-4">
-                    {media.description ? (
-                      showFullDescription ? media.description : `${media.description.substring(0, 200)}...`
-                    ) : (
-                      "Experience the ultimate entertainment with this amazing content. Watch now and immerse yourself in a world of endless possibilities."
-                    )}
-                    {media.description && media.description.length > 200 && (
-                      <button
-                        onClick={() => setShowFullDescription(!showFullDescription)}
-                        className="text-red-400 hover:text-red-300 ml-2 font-medium"
-                      >
-                        {showFullDescription ? 'Show less' : 'Read more'}
-                      </button>
-                    )}
-                  </p>
-                </div>
+                <p className="text-white/90 mb-4 text-lg leading-relaxed">
+                  {media.description ? (
+                    showFullDescription ? media.description : `${media.description.substring(0, 200)}...`
+                  ) : (
+                    "Experience the ultimate entertainment with this amazing content. Watch now and immerse yourself in a world of endless possibilities."
+                  )}
+                  {media.description && media.description.length > 200 && (
+                    <button
+                      onClick={() => setShowFullDescription(!showFullDescription)}
+                      className="text-red-400 hover:text-red-300 ml-2 font-medium"
+                    >
+                      {showFullDescription ? 'Show less' : 'Read more'}
+                    </button>
+                  )}
+                </p>
               </ScrollReveal>
             </div>
           </div>
         </div>
+
 
         {/* Scroll Indicator */}
         <div className="absolute bottom-8 left-1/2 transform -translate-x-1/2 z-20">
@@ -414,7 +380,7 @@ export default function MoviePage() {
             <div className="lg:col-span-2">
               {/* Media Info */}
               <div className="mb-12">
-                <h2 className="text-2xl font-bold text-white mb-6">About {media.title}</h2>
+                <h2 className="text-2xl font-bold text-white mb-6">About {cleanMovieTitle(media.title)}</h2>
                 <div className="space-y-4">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div>
@@ -442,26 +408,75 @@ export default function MoviePage() {
                     </div>
 
                     <div>
-                      <h3 className="text-lg font-semibold text-white mb-3">Stats</h3>
+                      <h3 className="text-lg font-semibold text-white mb-3">Production</h3>
                       <div className="space-y-2">
-                        {media.rating && (
+                        {media.director && (
                           <div className="flex">
-                            <span className="w-32 text-white/60">Rating</span>
-                            <span className="text-white flex items-center gap-1">
-                              <Star className="w-4 h-4 text-yellow-400" />
-                              {media.rating}
-                            </span>
+                            <span className="w-32 text-white/60">Director</span>
+                            <span className="text-white">{media.director}</span>
                           </div>
                         )}
-                        <div className="flex">
-                          <span className="w-32 text-white/60">Views</span>
-                          <span className="text-white">{(media.view_count || 0).toLocaleString()}</span>
-                        </div>
-                        <div className="flex">
-                          <span className="w-32 text-white/60">Added</span>
-                          <span className="text-white">{new Date().getFullYear()}</span>
-                        </div>
+                        {media.description && (
+                          <div className="flex">
+                            <span className="w-32 text-white/60">Studio</span>
+                            <span className="text-white">HomeFlix Studios</span>
+                          </div>
+                        )}
+                        {media.release_date && (
+                          <div className="flex">
+                            <span className="w-32 text-white/60">Release Date</span>
+                            <span className="text-white">{formatDate(media.release_date)}</span>
+                          </div>
+                        )}
+                        {media.country && (
+                          <div className="flex">
+                            <span className="w-32 text-white/60">Country</span>
+                            <span className="text-white">{media.country}</span>
+                          </div>
+                        )}
+                        {media.language && (
+                          <div className="flex">
+                            <span className="w-32 text-white/60">Language</span>
+                            <span className="text-white">{media.language}</span>
+                          </div>
+                        )}
                       </div>
+                    </div>
+                  </div>
+
+                  {/* Additional Stats Section */}
+                  <div className="mt-8">
+                    <h3 className="text-lg font-semibold text-white mb-3">Statistics</h3>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                      {media.rating && (
+                        <div className="bg-gray-800/50 p-4 rounded-lg text-center">
+                          <div className="flex items-center justify-center gap-1 text-yellow-400 mb-1">
+                            <Star className="w-4 h-4" />
+                            <span className="text-xl font-bold">{media.rating}</span>
+                          </div>
+                          <span className="text-white/60 text-sm">Rating</span>
+                        </div>
+                      )}
+                      <div className="bg-gray-800/50 p-4 rounded-lg text-center">
+                        <div className="text-xl font-bold text-white mb-1">
+                          {(media.view_count || 0).toLocaleString()}
+                        </div>
+                        <span className="text-white/60 text-sm">Views</span>
+                      </div>
+                      <div className="bg-gray-800/50 p-4 rounded-lg text-center">
+                        <div className="text-xl font-bold text-white mb-1">
+                          {new Date().getFullYear()}
+                        </div>
+                        <span className="text-white/60 text-sm">Year</span>
+                      </div>
+                      {media.genres && media.genres.length > 0 && (
+                        <div className="bg-gray-800/50 p-4 rounded-lg text-center">
+                          <div className="text-xl font-bold text-white mb-1">
+                            {media.genres.length}
+                          </div>
+                          <span className="text-white/60 text-sm">Genres</span>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -497,7 +512,10 @@ export default function MoviePage() {
             <h2 className="text-2xl font-bold text-white mb-8">More Like This</h2>
             <NetflixHorizontalRow
               title="More Like This"
-              media={similarMedia}
+              media={similarMedia.map(item => ({
+                ...item,
+                title: cleanMovieTitle(item.title)
+              }))}
               onPlay={(m: Media) => {
                 setMedia(m);
                 setIsPlayerOpen(true);

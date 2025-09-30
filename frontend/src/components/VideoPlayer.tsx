@@ -4,9 +4,11 @@ import React, { useRef, useEffect, useState, useCallback } from "react";
 import { Play, Pause, Volume2, VolumeX, Maximize, RotateCcw, RotateCw, X, Minimize, Subtitles } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { getApiUrl } from '@/lib/api';
-import { Media } from '@/types/media';
+import { useEnhancedAudio } from '../contexts/EnhancedAudioContext';
+import AudioQualityIndicator from './AudioQualityIndicator';
 import { updatePlaybackProgress, getPlaybackProgress, trackView } from '@/lib/playback';
 import NextEpisodePreview from './NextEpisodePreview';
+import { Media } from '@/types/media';
 
 interface VideoPlayerProps {
   media: Media;
@@ -20,6 +22,21 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // Enhanced audio integration
+  const { 
+    alacEngine, 
+    spatialProcessor, 
+    isALACEnabled, 
+    spatialAudioEnabled, 
+    dolbyAtmosEnabled,
+    audioQuality,
+    getMasterVolume,
+    setMasterVolume,
+    initializeEnhancedAudio,
+    toggleSpatialAudio,
+    toggleDolbyAtmos
+  } = useEnhancedAudio();
   
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -43,7 +60,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
   useEffect(() => {
     const loadSubtitles = async () => {
       if (media.subtitles && media.subtitles.length > 0) {
-        const subs = media.subtitles.map(sub => ({
+        const subs = media.subtitles.map((sub: any) => ({
           language: sub.language,
           url: `${getApiUrl()}/api/subtitles/${media.id}?lang=${sub.language}`
         }));
@@ -365,8 +382,11 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
         <video
           ref={videoRef}
           src={getStreamUrl(media.id)}
-          className="w-full h-full object-contain"
+          className="w-full h-full object-contain bg-black"
           onPlay={() => setIsPlaying(true)}
+          autoPlay
+          controls={false}
+          playsInline
           onPause={() => setIsPlaying(false)}
           onEnded={() => setIsPlaying(false)}
           onError={(e) => {
@@ -375,23 +395,10 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
           }}
           onLoadStart={() => console.log('Video loading started')}
           onCanPlay={() => console.log('Video can play')}
-          controls={false}
-          autoPlay={false}
           preload="metadata"
+          muted={false}
         />
 
-        {/* Fixed Close Button - Always Visible */}
-        <button
-          onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            onClose();
-          }}
-          className="absolute top-4 right-4 z-50 text-white hover:text-red-500 transition-colors p-3 bg-black/70 rounded-full hover:bg-black/90 border border-white/30 hover:border-red-500/50"
-          title="Close (Esc)"
-        >
-          <X className="w-6 h-6" />
-        </button>
 
         {/* Controls Overlay */}
         <AnimatePresence>
@@ -412,26 +419,10 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                 
                 <div className="flex items-center gap-4">
                   <button
-                    onClick={toggleFullscreen}
-                    className="p-2 rounded-full bg-black/50 hover:bg-black/70 transition-colors"
-                    title={isFullscreen ? "Exit Fullscreen (f)" : "Enter Fullscreen (f)"}
-                  >
-                    {isFullscreen ? (
-                      <Minimize className="w-5 h-5" />
-                    ) : (
-                      <Maximize className="w-5 h-5" />
-                    )}
-                  </button>
-                  
-                  <button
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      console.log('Close button clicked'); // Debug log
-                      onClose();
-                    }}
-                    className="text-white hover:text-red-500 transition-colors p-3 bg-black/50 rounded-full hover:bg-black/70 border border-white/20 hover:border-red-500/50"
+                    onClick={() => onClose()}
+                    className="text-white hover:text-red-500 transition-colors p-3 bg-black/50 rounded-full hover:bg-black/70 border border-white/20 hover:border-red-500/50 z-50"
                     title="Close (Esc)"
+                    type="button"
                   >
                     <X className="w-6 h-6" />
                   </button>
@@ -453,8 +444,9 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                   {/* Play/Pause */}
                   <button
                     onClick={togglePlay}
-                    className="bg-black/50 text-white rounded-full p-4 hover:bg-black/70 transition-all duration-200 hover:scale-110"
+                    className="bg-black/50 text-white rounded-full p-4 hover:bg-black/70 transition-all duration-200 hover:scale-110 z-40"
                     title={isPlaying ? "Pause (Space)" : "Play (Space)"}
+                    type="button"
                   >
                     {isPlaying ? (
                       <Pause className="w-12 h-12" />
@@ -571,6 +563,9 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                   </div>
 
                   <div className="flex items-center gap-4">
+                    {/* Audio Quality Indicator */}
+                    <AudioQualityIndicator />
+                    
                     <button
                       onClick={toggleFullscreen}
                       className="text-white hover:text-white/70 transition-colors"

@@ -33,14 +33,28 @@ export default function MyListPage() {
 
   const fetchWatchlist = async () => {
     try {
-      const apiUrl = getApiUrl();
-      
-      const response = await fetch(`${apiUrl}/api/user/watchlist`);
-      const data = await response.json();
-      setWatchlist(data);
+      // For now, use localStorage to simulate watchlist functionality
+      const savedWatchlist = localStorage.getItem('homeflix_watchlist');
+      if (savedWatchlist) {
+        const watchlistIds = JSON.parse(savedWatchlist);
+        
+        // Fetch media details for watchlist items
+        const apiUrl = getApiUrl();
+        const response = await fetch(`${apiUrl}/api/media`);
+        const allMedia = await response.json();
+        
+        const watchlistMedia = allMedia.filter((media: Media) => 
+          watchlistIds.includes(media.id)
+        );
+        
+        setWatchlist(watchlistMedia);
+      } else {
+        setWatchlist([]);
+      }
       setLoading(false);
     } catch (error) {
       console.error("Error fetching watchlist:", error);
+      setWatchlist([]);
       setLoading(false);
     }
   };
@@ -78,14 +92,19 @@ export default function MyListPage() {
   };
 
   const handleInfo = (media: Media) => {
-    console.log("Show info for:", media.title);
+    router.push(`/movie/${media.id}`);
   };
 
   const handleRemoveFromList = async (mediaId: number) => {
     try {
-      const apiUrl = getApiUrl();
+      // Update localStorage watchlist
+      const savedWatchlist = localStorage.getItem('homeflix_watchlist');
+      if (savedWatchlist) {
+        const watchlistIds = JSON.parse(savedWatchlist);
+        const updatedIds = watchlistIds.filter((id: number) => id !== mediaId);
+        localStorage.setItem('homeflix_watchlist', JSON.stringify(updatedIds));
+      }
       
-      await fetch(`${apiUrl}/api/user/watchlist/${mediaId}`, { method: 'DELETE' });
       setWatchlist(prev => prev.filter(item => item.id !== mediaId));
     } catch (error) {
       console.error("Error removing from watchlist:", error);
@@ -107,16 +126,16 @@ export default function MyListPage() {
   }
 
   return (
-    <div className="min-h-screen bg-black">
+    <div className="min-h-screen bg-gradient-to-b from-red-900/20 via-black to-black">
       <Navbar />
       
       {/* Header Section */}
       <div className="pt-20 px-4 md:px-8 lg:px-16">
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
           <div>
-            <h1 className="text-4xl font-bold text-white mb-2 flex items-center gap-3">
+            <h1 className="text-4xl font-bold text-white mb-2 flex items-center gap-3 tracking-wider">
               <Heart className="w-10 h-10 text-red-500" />
-              My List
+              M Y   L I S T
             </h1>
             <p className="text-gray-400">Your personal collection of favorites</p>
           </div>
