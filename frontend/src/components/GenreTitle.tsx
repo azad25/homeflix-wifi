@@ -4,25 +4,22 @@ import React from 'react';
 import { motion } from 'framer-motion';
 import { Media } from '@/types/media';
 import { cleanMovieTitle } from '@/lib/titleUtils';
+import { getFontStyleForMedia, generateFontClasses, getTitleSizeByLength } from '@/lib/fontStyles';
 
 interface GenreTitleProps {
   media: Media;
   className?: string;
+  pageType?: 'home' | 'movies' | 'tv-series';
 }
 
-const GenreTitle: React.FC<GenreTitleProps> = ({ media, className = "" }) => {
+const GenreTitle: React.FC<GenreTitleProps> = ({ media, className = "", pageType = 'home' }) => {
   const title = cleanMovieTitle(media.title);
   const primaryGenre = media.genres?.[0]?.name?.toLowerCase() || 'drama';
   
-  // Calculate responsive font size based on title length
-  const getTitleSize = (titleLength: number) => {
-    if (titleLength > 30) return 'text-2xl md:text-4xl lg:text-5xl xl:text-6xl';
-    if (titleLength > 20) return 'text-3xl md:text-5xl lg:text-6xl xl:text-7xl';
-    if (titleLength > 15) return 'text-4xl md:text-6xl lg:text-7xl xl:text-8xl';
-    return 'text-4xl md:text-6xl lg:text-7xl xl:text-8xl';
-  };
-  
-  const titleSizeClass = getTitleSize(title.length);
+  // Get dynamic font styling based on genre and page type
+  const fontStyle = getFontStyleForMedia(media, pageType);
+  const titleSizeClass = getTitleSizeByLength(title, fontStyle);
+  const fontClasses = generateFontClasses(fontStyle, title.length);
 
   const getGenreStyle = (genre: string) => {
     switch (genre) {
@@ -137,7 +134,7 @@ const GenreTitle: React.FC<GenreTitleProps> = ({ media, className = "" }) => {
     >
       {/* Background Glow Effect */}
       <div 
-        className={`absolute inset-0 bg-gradient-to-r ${style.gradient} opacity-20 blur-3xl ${style.glow}`}
+        className={`absolute inset-0 ${fontStyle.color.replace('bg-gradient-to-r', 'bg-gradient-to-r')} opacity-20 blur-3xl ${style.glow}`}
         style={{ transform: 'scale(1.2)' }}
       />
       
@@ -147,17 +144,15 @@ const GenreTitle: React.FC<GenreTitleProps> = ({ media, className = "" }) => {
         animate={{ scale: 1 }}
         transition={{ duration: 1, ease: "easeOut", delay: 0.2 }}
         className={`
-          relative ${titleSizeClass}
-          font-black text-transparent bg-clip-text 
-          bg-gradient-to-r ${style.gradient}
+          relative ${fontClasses}
           ${style.shadow}
-          tracking-tight leading-none
           ${style.border}
           break-words hyphens-auto
           max-w-full overflow-hidden
         `}
         style={{ 
-          textShadow: style.textShadow,
+          fontFamily: fontStyle.fontFamily,
+          textShadow: fontStyle.textShadow,
           WebkitTextStroke: '1px rgba(255,255,255,0.1)',
           wordBreak: 'break-word',
           overflowWrap: 'break-word'

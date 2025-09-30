@@ -8,7 +8,8 @@ import { Media } from '@/types/media';
 import { getApiUrl } from '@/lib/api';
 import { useRouter } from 'next/navigation';
 import { useAudio } from '@/contexts/EnhancedAudioContext';
-import { cleanMovieTitle } from '@/lib/titleUtils';
+import { cleanMovieTitle, extractNiceTitle } from '@/lib/titleUtils';
+import { TextureEffects } from '../TextureEffects';
 
 interface NetflixMovieCardProps {
   media: Media;
@@ -242,7 +243,7 @@ const NetflixMovieCard: React.FC<NetflixMovieCardProps> = ({
         {!fallbackError ? (
           <Image
             src={imageError ? getFallbackThumbnailUrl() : getThumbnailUrl()}
-            alt={cleanMovieTitle(media.title)}
+            alt={extractNiceTitle(media.title)}
             fill
             sizes="(max-width: 768px) 50vw, (max-width: 1200px) 33vw, 25vw"
             className={`object-cover transition-opacity duration-300 ${
@@ -252,10 +253,16 @@ const NetflixMovieCard: React.FC<NetflixMovieCardProps> = ({
             onError={handleImageError}
           />
         ) : (
-          <div className="w-full h-full bg-gradient-to-br from-gray-700 via-gray-800 to-gray-900 flex items-center justify-center">
-            <div className="text-white text-center p-2">
+          <div className="w-full h-full bg-gradient-to-br from-black/80 via-gray-900/60 to-black/80 flex items-center justify-center">
+            <div className="text-center p-2">
               <div className="text-2xl mb-2">🎬</div>
-              <div className="text-xs font-medium line-clamp-2">{cleanMovieTitle(media.title)}</div>
+              <TextureEffects 
+                genre={media.genres?.[0]?.name || 'drama'} 
+                effectType="both"
+                className="text-xs font-medium line-clamp-2"
+              >
+                {extractNiceTitle(media.title)}
+              </TextureEffects>
             </div>
           </div>
         )}
@@ -336,11 +343,15 @@ const NetflixMovieCard: React.FC<NetflixMovieCardProps> = ({
           </button>
         )}
 
-        {/* Title Overlay (bottom) */}
-        <div className="absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-black/90 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-          <h3 className="text-white font-bold text-sm line-clamp-2 mb-1">
-            {cleanMovieTitle(media.title)}
-          </h3>
+        {/* Title Overlay (bottom) - Enhanced with Texture Effects */}
+        <div className="absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-black/95 via-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+          <TextureEffects 
+            genre={media.genres?.[0]?.name || 'drama'} 
+            effectType="both"
+            className="font-bold text-sm line-clamp-2 mb-1 drop-shadow-[0_2px_8px_rgba(0,0,0,0.9)]"
+          >
+            {extractNiceTitle(media.title)}
+          </TextureEffects>
           <div className="flex items-center gap-2 text-xs text-gray-300">
             <span className="text-green-400 font-semibold">
               {getMatchPercentage()}% Match

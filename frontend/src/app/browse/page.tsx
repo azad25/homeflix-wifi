@@ -17,6 +17,9 @@ import {
   MagneticButton,
   FloatingElement
 } from '@/components/scrollx';
+import { useRecommendations } from '@/contexts/RecommendationContext';
+import RecommendedContent from '@/components/RecommendedContent';
+import ContinueWatching from '@/components/ContinueWatching';
 
 interface Genre {
   id: number;
@@ -26,6 +29,7 @@ interface Genre {
 
 export default function BrowsePage() {
   const router = useRouter();
+  const { refreshRecommendations, trackClick, getRecommendationsByCategory } = useRecommendations();
   const [allMedia, setAllMedia] = useState<Media[]>([]);
   const [filteredMedia, setFilteredMedia] = useState<Media[]>([]);
   const [featuredMedia, setFeaturedMedia] = useState<Media[]>([]);
@@ -36,6 +40,7 @@ export default function BrowsePage() {
   const [selectedMedia, setSelectedMedia] = useState<Media | null>(null);
   const [isPlayerOpen, setIsPlayerOpen] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [recommendationCategories, setRecommendationCategories] = useState<any>(null);
 
   useEffect(() => {
     fetchData();
@@ -65,6 +70,11 @@ export default function BrowsePage() {
         .sort((a, b) => (b.rating || 0) - (a.rating || 0))
         .slice(0, 5);
       setFeaturedMedia(featured);
+      
+      // Initialize recommendations
+      refreshRecommendations(mediaData);
+      const categories = getRecommendationsByCategory();
+      setRecommendationCategories(categories);
       
       setLoading(false);
     } catch (error) {
@@ -232,9 +242,19 @@ export default function BrowsePage() {
             </ScrollReveal>
           </ParallaxSection>
 
-          {/* Recently Watched */}
+          {/* Continue Watching */}
           <ParallaxSection speed={0.3}>
             <ScrollReveal direction="up" delay={0.2}>
+              <ContinueWatching
+                onPlay={handlePlay}
+                onInfo={handleInfo}
+              />
+            </ScrollReveal>
+          </ParallaxSection>
+
+          {/* Recently Watched */}
+          <ParallaxSection speed={0.3}>
+            <ScrollReveal direction="up" delay={0.25}>
               <RecentlyWatched
                 onPlay={handlePlay}
                 onInfo={handleInfo}
@@ -242,11 +262,80 @@ export default function BrowsePage() {
             </ScrollReveal>
           </ParallaxSection>
 
+          {/* Personalized Recommendations */}
+          {recommendationCategories && (
+            <>
+              {/* For You */}
+              {recommendationCategories.for_you.length > 0 && (
+                <ParallaxSection speed={0.35}>
+                  <ScrollReveal direction="up" delay={0.3}>
+                    <NetflixHorizontalRow
+                      title="Recommended For You"
+                      media={recommendationCategories.for_you.map((rec: any) => rec.media)}
+                      onPlay={handlePlay}
+                      onInfo={handleInfo}
+                      variant="portrait"
+                      size="medium"
+                    />
+                  </ScrollReveal>
+                </ParallaxSection>
+              )}
+
+              {/* Trending Now */}
+              {recommendationCategories.trending.length > 0 && (
+                <ParallaxSection speed={0.4}>
+                  <ScrollReveal direction="up" delay={0.35}>
+                    <NetflixHorizontalRow
+                      title="Trending Now"
+                      media={recommendationCategories.trending.map((rec: any) => rec.media)}
+                      onPlay={handlePlay}
+                      onInfo={handleInfo}
+                      variant="landscape"
+                      size="large"
+                    />
+                  </ScrollReveal>
+                </ParallaxSection>
+              )}
+
+              {/* Because You Watched */}
+              {recommendationCategories.because_you_watched.length > 0 && (
+                <ParallaxSection speed={0.45}>
+                  <ScrollReveal direction="up" delay={0.4}>
+                    <NetflixHorizontalRow
+                      title="Because You Watched Similar Content"
+                      media={recommendationCategories.because_you_watched.map((rec: any) => rec.media)}
+                      onPlay={handlePlay}
+                      onInfo={handleInfo}
+                      variant="portrait"
+                      size="medium"
+                    />
+                  </ScrollReveal>
+                </ParallaxSection>
+              )}
+
+              {/* New Releases */}
+              {recommendationCategories.new_releases.length > 0 && (
+                <ParallaxSection speed={0.5}>
+                  <ScrollReveal direction="up" delay={0.45}>
+                    <NetflixHorizontalRow
+                      title="New Releases"
+                      media={recommendationCategories.new_releases.map((rec: any) => rec.media)}
+                      onPlay={handlePlay}
+                      onInfo={handleInfo}
+                      variant="portrait"
+                      size="medium"
+                    />
+                  </ScrollReveal>
+                </ParallaxSection>
+              )}
+            </>
+          )}
+
           {/* Content by Genre */}
           <div className="space-y-8">
             {Object.entries(groupedByGenre()).map(([genreName, genreMedia], index) => (
               <ParallaxSection key={genreName} speed={0.4 + index * 0.1}>
-                <ScrollReveal direction="up" delay={0.3 + index * 0.1}>
+                <ScrollReveal direction="up" delay={0.5 + index * 0.1}>
                   <NetflixHorizontalRow
                     title={genreName}
                     media={genreMedia}

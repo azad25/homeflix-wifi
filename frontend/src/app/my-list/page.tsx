@@ -8,15 +8,20 @@ import Navbar from "@/components/Navbar";
 import { Media } from '../../types/media';
 import VideoPlayer from "@/components/VideoPlayer";
 import { getApiUrl } from '@/lib/api';
-import { ScrollXCarousel, ParallaxSection, GradientBackground, ScrollReveal, MagneticButton } from '@/components/scrollx';
+import { ScrollXCarousel, ScrollXHero, ParallaxSection, GradientBackground, ScrollReveal, MagneticButton } from '@/components/scrollx';
 import RecentlyWatched from '@/components/RecentlyWatched';
+import { useRecommendations } from '@/contexts/RecommendationContext';
+import RecommendedContent from '@/components/RecommendedContent';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
 
 export default function MyListPage() {
   const router = useRouter();
+  const { refreshRecommendations } = useRecommendations();
   const [watchlist, setWatchlist] = useState<Media[]>([]);
   const [filteredList, setFilteredList] = useState<Media[]>([]);
+  const [featuredMedia, setFeaturedMedia] = useState<Media[]>([]);
+  const [allMedia, setAllMedia] = useState<Media[]>([]);
   const [filterType, setFilterType] = useState<string>("all");
   const [sortBy, setSortBy] = useState<string>("added");
   const [selectedMedia, setSelectedMedia] = useState<Media | null>(null);
@@ -42,6 +47,16 @@ export default function MyListPage() {
         const apiUrl = getApiUrl();
         const response = await fetch(`${apiUrl}/api/media`);
         const allMedia = await response.json();
+        
+        // Initialize recommendations and featured content
+        refreshRecommendations(allMedia);
+        setAllMedia(allMedia);
+        
+        // Set featured media for hero section (top rated content)
+        const featured = [...allMedia]
+          .sort((a: Media, b: Media) => (b.rating || 0) - (a.rating || 0))
+          .slice(0, 5);
+        setFeaturedMedia(featured);
         
         const watchlistMedia = allMedia.filter((media: Media) => 
           watchlistIds.includes(media.id)
@@ -126,11 +141,21 @@ export default function MyListPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-red-900/20 via-black to-black">
+    <div className="min-h-screen bg-black">
       <Navbar />
       
-      {/* Header Section */}
-      <div className="pt-20 px-4 md:px-8 lg:px-16">
+      {/* ScrollX Hero Section */}
+      {featuredMedia.length > 0 && (
+        <ScrollXHero
+          featuredMedia={featuredMedia}
+          onPlay={handlePlay}
+          onInfo={handleInfo}
+          pageType="my-list"
+        />
+      )}
+      
+      <GradientBackground variant="netflix" className="min-h-screen">
+        <div className="relative z-10 px-4 md:px-8 lg:px-16 py-20">
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
           <div>
             <h1 className="text-4xl font-bold text-white mb-2 flex items-center gap-3 tracking-wider">
@@ -301,7 +326,8 @@ export default function MyListPage() {
             </MagneticButton>
           </div>
         )}
-      </div>
+        </div>
+      </GradientBackground>
 
       {/* Video Player Modal */}
       {selectedMedia && (

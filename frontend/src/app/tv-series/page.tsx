@@ -8,9 +8,13 @@ import { getApiUrl } from '@/lib/api';
 import { Media } from '@/types/media';
 import { ScrollXHero, ScrollXCarousel, ParallaxSection, GradientBackground, ScrollReveal } from '@/components/scrollx';
 import RecentlyWatched from '@/components/RecentlyWatched';
+import ContinueWatching from '@/components/ContinueWatching';
+import RecommendedContent from '@/components/RecommendedContent';
+import { useRecommendations } from '@/contexts/RecommendationContext';
 
 export default function TVSeries() {
   const router = useRouter();
+  const { refreshRecommendations, trackClick } = useRecommendations();
   const [featuredSeries, setFeaturedSeries] = useState<Media[]>([]);
   const [popularSeries, setPopularSeries] = useState<Media[]>([]);
   const [trendingSeries, setTrendingSeries] = useState<Media[]>([]);
@@ -55,6 +59,9 @@ export default function TVSeries() {
       setDramaSeries(allSeries.filter((item: Media) => 
         item.genres?.some(genre => genre.name.toLowerCase().includes('drama'))
       ).slice(0, 20));
+      
+      // Refresh recommendations with TV series data
+      refreshRecommendations([...allSeries, ...popularSeriesData]);
 
     } catch (error) {
       console.error("Error fetching TV series data:", error);
@@ -64,12 +71,14 @@ export default function TVSeries() {
   };
 
   const handlePlay = (media: Media, startTime?: number) => {
+    trackClick(media.id, 'play', 'tv-series');
     setSelectedMedia(media);
     setIsPlayerOpen(true);
   };
 
   const handleInfo = (media: Media) => {
-    router.push(`/movie/${media.id}`);
+    trackClick(media.id, 'info', 'tv-series');
+    router.push(`/tv-show/${media.id}`);
   };
 
   if (loading) {
@@ -90,12 +99,34 @@ export default function TVSeries() {
           featuredMedia={featuredSeries}
           onPlay={handlePlay}
           onInfo={handleInfo}
+          pageType="tv-series"
         />
       )}
 
       {/* Main Content with Parallax Background */}
       <GradientBackground variant="aurora" animate={true} className="relative">
         <div className="relative z-10 py-20">
+          {/* Continue Watching TV Series */}
+          <ParallaxSection speed={0.2}>
+            <ScrollReveal direction="up" delay={0.1}>
+              <ContinueWatching
+                onPlay={handlePlay}
+                onInfo={handleInfo}
+              />
+            </ScrollReveal>
+          </ParallaxSection>
+          
+          {/* Recommended TV Series */}
+          <ParallaxSection speed={0.25}>
+            <ScrollReveal direction="up" delay={0.15}>
+              <RecommendedContent
+                allMedia={[...popularSeries, ...trendingSeries, ...comedySeries, ...dramaSeries]}
+                onPlay={handlePlay}
+                onInfo={handleInfo}
+              />
+            </ScrollReveal>
+          </ParallaxSection>
+
           {/* Recently Watched TV Series */}
           <ParallaxSection speed={0.3}>
             <ScrollReveal direction="up" delay={0.2}>

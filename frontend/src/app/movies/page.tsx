@@ -9,9 +9,13 @@ import VideoPlayer from "@/components/VideoPlayer";
 import { getApiUrl } from '@/lib/api';
 import { ScrollXHero, NetflixHorizontalRow, ParallaxSection, GradientBackground, ScrollReveal } from '@/components/scrollx';
 import RecentlyWatched from '@/components/RecentlyWatched';
+import ContinueWatching from '@/components/ContinueWatching';
+import RecommendedContent from '@/components/RecommendedContent';
+import { useRecommendations } from '@/contexts/RecommendationContext';
 
 export default function MoviesPage() {
   const router = useRouter();
+  const { refreshRecommendations, trackClick } = useRecommendations();
   const [featuredMovies, setFeaturedMovies] = useState<Media[]>([]);
   const [actionMovies, setActionMovies] = useState<Media[]>([]);
   const [comedyMovies, setComedyMovies] = useState<Media[]>([]);
@@ -23,6 +27,7 @@ export default function MoviesPage() {
   const [selectedMedia, setSelectedMedia] = useState<Media | null>(null);
   const [isPlayerOpen, setIsPlayerOpen] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [allMovies, setAllMovies] = useState<Media[]>([]);
 
   useEffect(() => {
     fetchMoviesData();
@@ -36,6 +41,10 @@ export default function MoviesPage() {
       const moviesResponse = await fetch(`${apiUrl}/api/media`);
       const allMedia = await moviesResponse.json();
       const movies = allMedia.filter((item: Media) => item.type === "movie");
+      
+      // Initialize recommendations with movies
+      refreshRecommendations(movies);
+      setAllMovies(movies);
       
       // Set featured movies for hero section
       const sortedMovies = movies.sort((a: Media, b: Media) => (b.rating || 0) - (a.rating || 0));
@@ -67,6 +76,9 @@ export default function MoviesPage() {
       setPopularMovies(movies.sort((a: Media, b: Media) => (b.view_count ?? 0) - (a.view_count ?? 0)).slice(0, 20));
       
       setLoading(false);
+      
+      // Refresh recommendations with movie data
+      refreshRecommendations(movies);
     } catch (error) {
       console.error("Error fetching movies:", error);
       setLoading(false);
@@ -74,11 +86,13 @@ export default function MoviesPage() {
   };
 
   const handlePlay = (media: Media, startTime?: number) => {
+    trackClick(media.id, 'play', 'movies');
     setSelectedMedia(media);
     setIsPlayerOpen(true);
   };
 
   const handleInfo = (media: Media) => {
+    trackClick(media.id, 'info', 'movies');
     router.push(`/movie/${media.id}`);
   };
 
@@ -133,12 +147,34 @@ export default function MoviesPage() {
           featuredMedia={featuredMovies}
           onPlay={handlePlay}
           onInfo={handleInfo}
+          pageType="movies"
         />
       )}
 
       {/* Main Content with Parallax Background */}
       <div className="relative bg-gradient-to-b from-red-900/20 via-black to-black">
         <div className="relative z-10 py-20">
+          {/* Continue Watching Movies */}
+          <ParallaxSection speed={0.2}>
+            <ScrollReveal direction="up" delay={0.1}>
+              <ContinueWatching
+                onPlay={handlePlay}
+                onInfo={handleInfo}
+              />
+            </ScrollReveal>
+          </ParallaxSection>
+          
+          {/* Recommended Movies */}
+          <ParallaxSection speed={0.25}>
+            <ScrollReveal direction="up" delay={0.15}>
+              <RecommendedContent
+                allMedia={allMovies}
+                onPlay={handlePlay}
+                onInfo={handleInfo}
+              />
+            </ScrollReveal>
+          </ParallaxSection>
+
           {/* Recently Watched Movies */}
           <ParallaxSection speed={0.3}>
             <ScrollReveal direction="up" delay={0.2}>

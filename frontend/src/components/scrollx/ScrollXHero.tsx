@@ -7,17 +7,20 @@ import { Media } from '@/types/media';
 import { getApiUrl } from '@/lib/api';
 import { MagneticButton, GradientBackground, ParallaxSection, ParticleField, ScrollReveal } from './index';
 import { useAudio } from '@/contexts/EnhancedAudioContext';
+import DynamicTitle from '@/components/DynamicTitle';
 
 interface ScrollXHeroProps {
   featuredMedia: Media[];
   onPlay: (media: Media) => void;
   onInfo: (media: Media) => void;
+  pageType?: string;
 }
 
 const ScrollXHero: React.FC<ScrollXHeroProps> = ({
   featuredMedia,
   onPlay,
   onInfo,
+  pageType = 'home',
 }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isAutoPlaying, setIsAutoPlaying] = useState(true);
@@ -68,21 +71,34 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
     }
   };
 
-  const getVideoUrl = (media: Media) => {
-    const host = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
-    const apiUrl = `http://${host === 'localhost' ? 'localhost' : host}:8251`;
+  const getVideoUrl = (media: Media): string | null => {
+    if (!media) return null;
     
-    // For hero section, prioritize trailers and preview clips over full files
-    // Full files might be too large for background video
-    if (media.trailer_path) {
-      return `${apiUrl}/api/admin/assets/${media.trailer_path.split('/').pop()}`;
+    try {
+      const host = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
+      const protocol = window?.location?.protocol === 'https:' ? 'https:' : 'http:';
+      const apiUrl = `${protocol}//${host === 'localhost' ? 'localhost' : host}:8251`;
+      
+      // For hero section, prioritize trailers and preview clips over full files
+      if (media.trailer_path) {
+        return `${apiUrl}/api/admin/assets/${media.trailer_path.split('/').pop()}`;
+      }
+      
+      // Use preview clips as they're optimized for this purpose
+      if (media.id) {
+        return `${apiUrl}/api/preview-clips/${media.id}`;
+      }
+      
+      // Last resort: try streaming endpoint
+      if (media.id) {
+        return `${apiUrl}/api/stream/${media.id}`;
+      }
+      
+      return null;
+    } catch (error) {
+      console.error('Error generating video URL:', error);
+      return null;
     }
-    // Use preview clips as they're optimized for this purpose
-    if (media.id) {
-      return `${apiUrl}/api/preview-clips/${media.id}`;
-    }
-    // Last resort: try streaming endpoint
-    return `${apiUrl}/api/stream/${media.id}`;
   };
 
   const getBackgroundImageUrl = (media: Media) => {
@@ -158,14 +174,6 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
     return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
   };
 
-  const getTitleSizeClass = () => {
-    const titleLength = currentMedia.title.length;
-    if (titleLength > 50) return 'text-2xl md:text-3xl lg:text-4xl';
-    if (titleLength > 35) return 'text-2xl md:text-4xl lg:text-5xl';
-    if (titleLength > 25) return 'text-3xl md:text-5xl lg:text-6xl';
-    if (titleLength > 15) return 'text-4xl md:text-6xl lg:text-7xl';
-    return 'text-5xl md:text-7xl lg:text-8xl';
-  };
 
   const getGenreBasedStyling = () => {
     const genres = currentMedia.genres?.map(g => g.name.toLowerCase()) || [];
@@ -231,16 +239,17 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
             // Register this video as the current audio source
             setCurrentAudioElement(video);
             
-            // Start video playback with ALAC audio codec - always unmuted
+            // Start video playback with ALAC audio codec - ALWAYS FULL SOUND
             video.currentTime = 0;
-            video.volume = 0.9; // Higher volume for ALAC quality
+            video.volume = 1.0; // Maximum volume for full sound experience
             video.muted = false; // Always start with audio enabled
+            setIsMuted(false); // Update state to reflect unmuted status
             
             // Set audio codec preference for ALAC
             const alacSupport = video.canPlayType('video/mp4; codecs="avc1.42E01E, alac"');
             console.log('ALAC codec support in hero:', alacSupport);
             
-            // Enhanced audio setup for ALAC
+            // Enhanced audio setup for ALAC with aggressive unmuting
             const playWithHighQualityAudio = async () => {
               try {
                 // Try to enable high quality audio first
@@ -249,13 +258,68 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
                   console.log('Enhanced ALAC audio initialized for hero video');
                 }
                 
-                // Set optimal audio properties
-                video.volume = spatialAudioEnabled ? 0.9 : 0.8;
+                // Set optimal audio properties for full sound
+                video.volume = 1.0; // Always maximum volume
                 video.muted = false;
                 
-                await video.play();
-                console.log('Hero video playing successfully with ALAC audio codec');
-                setIsPlaying(true);
+                // Multiple strategies to ensure audio plays
+                const audioStrategies = [
+                  // Strategy 1: Direct unmuted play
+                  async () => {
+                    video.muted = false;
+                    video.volume = 1.0;
+                    await video.play();
+                    console.log('Hero video playing with full sound (direct)');
+                    return true;
+                  },
+                  // Strategy 2: Muted start then immediate unmute
+                  async () => {
+                    video.muted = true;
+                    await video.play();
+                    // Immediately unmute after play starts
+                    setTimeout(() => {
+                      video.muted = false;
+                      video.volume = 1.0;
+                      setIsMuted(false);
+                      console.log('Hero video unmuted after play start');
+                    }, 100);
+                    return true;
+                  },
+                  // Strategy 3: User interaction trigger with immediate response
+                  async () => {
+                    video.muted = true;
+                    await video.play();
+                    
+                    // Immediate unmute on ANY user interaction
+                    const enableFullAudio = () => {
+                      video.muted = false;
+                      video.volume = 1.0;
+                      setIsMuted(false);
+                      console.log('Hero full audio enabled via user interaction');
+                    };
+                    
+                    // Listen for multiple interaction types
+                    ['click', 'touchstart', 'keydown', 'scroll', 'mousemove', 'mouseenter'].forEach(event => {
+                      document.addEventListener(event, enableFullAudio, { once: true });
+                    });
+                    
+                    // Also try to unmute after a short delay
+                    setTimeout(enableFullAudio, 500);
+                    return true;
+                  }
+                ];
+                
+                // Execute strategies in order until one succeeds
+                for (const strategy of audioStrategies) {
+                  try {
+                    await strategy();
+                    setIsPlaying(true);
+                    break; // Success, exit loop
+                  } catch (error) {
+                    console.warn('Audio strategy failed, trying next:', error);
+                    continue;
+                  }
+                }
               } catch (error) {
                 console.warn('Hero video autoplay with ALAC audio failed:', error);
                 
@@ -483,22 +547,61 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
             />
             
             {/* Video overlay when loaded and playing */}
-            <video
-              ref={videoRef}
-              className="absolute inset-0 w-full h-full object-cover opacity-100"
-              autoPlay
-              muted={false}
-              loop
-              playsInline
-              preload="auto"
-              controls={false}
-              style={{ zIndex: 5 }}
-            >
-              <source src={`${getVideoUrl(currentMedia)}?audio=alac&quality=high`} type="video/mp4; codecs=&quot;avc1.42E01E, alac&quot;" />
-              <source src={`${getVideoUrl(currentMedia)}?audio=alac`} type="video/mp4; codecs=&quot;avc1.42E01E, alac&quot;" />
-              <source src={getVideoUrl(currentMedia)} type="video/mp4" />
-              <source src={`${getVideoUrl(currentMedia)}?format=webm&audio=opus`} type="video/webm; codecs=&quot;vp9, opus&quot;" />
-            </video>
+            {(() => {
+              const videoUrl = getVideoUrl(currentMedia);
+              if (!videoUrl) return null;
+              
+              return (
+                <video
+                  ref={videoRef}
+                  className="absolute inset-0 w-full h-full object-cover opacity-100"
+                  autoPlay
+                  muted={false}
+                  loop
+                  playsInline
+                  preload="auto"
+                  controls={false}
+                  style={{ zIndex: 5 }}
+                  onError={(e) => {
+                    console.error('Video playback error:', e);
+                    setIsVideoLoaded(false);
+                    setIsPlaying(false);
+                  }}
+                >
+                  {/* ALAC High Quality */}
+                  <source 
+                    key="alac-high"
+                    src={`${videoUrl}?audio=alac&quality=high`} 
+                    type="video/mp4"
+                    // @ts-ignore - codecs parameter is valid but not in TypeScript types
+                    codecs="avc1.42E01E, alac"
+                  />
+                  {/* ALAC Standard */}
+                  <source 
+                    key="alac"
+                    src={`${videoUrl}?audio=alac`} 
+                    type="video/mp4"
+                    // @ts-ignore - codecs parameter is valid but not in TypeScript types
+                    codecs="avc1.42E01E, alac"
+                  />
+                  {/* Standard MP4 Fallback */}
+                  <source 
+                    key="mp4"
+                    src={videoUrl} 
+                    type="video/mp4"
+                  />
+                  {/* WebM Fallback */}
+                  <source 
+                    key="webm"
+                    src={`${videoUrl}?format=webm&audio=opus`} 
+                    type="video/webm"
+                    // @ts-ignore - codecs parameter is valid but not in TypeScript types
+                    codecs="vp9, opus"
+                  />
+                  Your browser does not support the video tag.
+                </video>
+              );
+            })()}
             
             {/* Gradient overlays */}
             <div className="absolute inset-0 bg-gradient-to-r from-black/80 via-black/40 to-transparent" style={{ zIndex: 10 }} />
@@ -595,20 +698,20 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
             </motion.div>
           </ScrollReveal>
 
-          {/* Dynamic Title with Genre-based styling */}
+          {/* Enhanced Dynamic Title with Genre-based styling */}
           <ScrollReveal delay={0.2}>
-            <motion.h1 
+            <DynamicTitle
               key={`title-${currentMedia.id}`}
-              className={`font-bold text-white mb-4 leading-tight ${getTitleSizeClass()} ${getGenreBasedStyling()}`}
-              initial={{ opacity: 0, y: 30 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.8, delay: 0.2 }}
-              style={{
-                textShadow: '2px 2px 4px rgba(0,0,0,0.8), 0 0 20px rgba(0,0,0,0.5)'
-              }}
-            >
-              {currentMedia.title}
-            </motion.h1>
+              media={currentMedia}
+              variant="hero"
+              pageType={pageType}
+              showGenreIndicator={true}
+              animated={true}
+              enable3D={true}
+              enableParticles={true}
+              particleIntensity="high"
+              className="mb-4"
+            />
           </ScrollReveal>
 
           {/* Genres */}

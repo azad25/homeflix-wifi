@@ -1,14 +1,11 @@
 "use client";
 
-import React, { useRef, useEffect, useState, useCallback } from "react";
-import { Play, Pause, Volume2, VolumeX, Maximize, RotateCcw, RotateCw, X, Minimize, Subtitles } from 'lucide-react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { X, Play, Pause, Volume2, VolumeX, SkipBack, SkipForward, Maximize, RotateCcw, RotateCw, Subtitles, Minimize } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { getApiUrl } from '@/lib/api';
-import { useEnhancedAudio } from '../contexts/EnhancedAudioContext';
-import AudioQualityIndicator from './AudioQualityIndicator';
-import { updatePlaybackProgress, getPlaybackProgress, trackView } from '@/lib/playback';
-import NextEpisodePreview from './NextEpisodePreview';
 import { Media } from '@/types/media';
+import { getApiUrl } from '@/lib/api';
+import { useRecommendations } from '@/contexts/RecommendationContext';
 
 interface VideoPlayerProps {
   media: Media;
@@ -23,20 +20,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
   const containerRef = useRef<HTMLDivElement>(null);
   const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   
-  // Enhanced audio integration
-  const { 
-    alacEngine, 
-    spatialProcessor, 
-    isALACEnabled, 
-    spatialAudioEnabled, 
-    dolbyAtmosEnabled,
-    audioQuality,
-    getMasterVolume,
-    setMasterVolume,
-    initializeEnhancedAudio,
-    toggleSpatialAudio,
-    toggleDolbyAtmos
-  } = useEnhancedAudio();
+  // Recommendation tracking
+  const { trackView, trackClick, updateProgress } = useRecommendations();
   
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -293,8 +278,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
       if (!isDragging) {
         setCurrentTime(video.currentTime);
         // Update playback progress every 10 seconds
-        if (Math.floor(video.currentTime) % 10 === 0) {
-          updatePlaybackProgress(media.id, video.currentTime, video.duration);
+        if (Math.floor(video.currentTime) % 10 === 0 && media?.id && video.duration > 0) {
+          updateProgress(media.id, video.currentTime, video.duration);
         }
       }
     };
@@ -302,19 +287,25 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
     const handlePlay = () => {
       setIsPlaying(true);
       // Track view when playback starts
-      trackView(media.id);
+      if (media?.id && video.duration > 0) {
+        trackView(media.id, video.duration, 0);
+      }
     };
     
     const handlePause = () => {
       setIsPlaying(false);
       // Update progress when paused
-      updatePlaybackProgress(media.id, video.currentTime, video.duration);
+      if (media?.id && video.duration > 0) {
+        updateProgress(media.id, video.currentTime, video.duration);
+      }
     };
     
     const handleEnded = () => {
       setIsPlaying(false);
       // Mark as completed when ended
-      updatePlaybackProgress(media.id, video.duration, video.duration);
+      if (media?.id && duration > 0) {
+        updateProgress(media.id, currentTime, duration);
+      }
     };
 
     video.addEventListener('loadedmetadata', handleLoadedMetadata);
@@ -563,8 +554,10 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                   </div>
 
                   <div className="flex items-center gap-4">
-                    {/* Audio Quality Indicator */}
-                    <AudioQualityIndicator />
+                    {/* Media Type Indicator */}
+                    <div className="text-xs text-gray-400">
+                      {media.type === 'movie' ? 'Movie' : 'TV Show'}
+                    </div>
                     
                     <button
                       onClick={toggleFullscreen}
@@ -585,14 +578,30 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
         </AnimatePresence>
 
         {/* Next Episode Preview */}
-        {nextEpisode && (
-          <NextEpisodePreview
-            nextEpisode={nextEpisode}
-            currentTime={currentTime}
-            duration={duration}
-            onPlayNext={handlePlayNext}
-            onCancel={handleCancelNext}
-          />
+        {showNextEpisode && nextEpisode && (
+          <motion.div
+            initial={{ opacity: 0, x: 300 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 300 }}
+            className="absolute bottom-20 right-4 bg-black/90 p-4 rounded-lg max-w-sm"
+          >
+            <h3 className="text-white font-semibold mb-2">Next Episode</h3>
+            <p className="text-gray-300 text-sm mb-3">{nextEpisode.title}</p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => onPlayNext?.(nextEpisode)}
+                className="bg-red-600 text-white px-3 py-1 rounded text-sm hover:bg-red-700"
+              >
+                Play Now
+              </button>
+              <button
+                onClick={() => setShowNextEpisode(false)}
+                className="bg-gray-600 text-white px-3 py-1 rounded text-sm hover:bg-gray-700"
+              >
+                Dismiss
+              </button>
+            </div>
+          </motion.div>
         )}
       </motion.div>
     </AnimatePresence>

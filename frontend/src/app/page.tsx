@@ -9,9 +9,13 @@ import { getApiUrl } from '@/lib/api';
 import { Media } from '@/types/media';
 import { ScrollXHero, NetflixHorizontalRow, ParallaxSection, GradientBackground, ParticleField, ScrollReveal } from '@/components/scrollx';
 import RecentlyWatched from '@/components/RecentlyWatched';
+import ContinueWatching from '@/components/ContinueWatching';
+import RecommendedContent from '@/components/RecommendedContent';
+import { useRecommendations } from '@/contexts/RecommendationContext';
 
 export default function Home() {
   const router = useRouter();
+  const { refreshRecommendations, trackClick } = useRecommendations();
   const [featuredMedia, setFeaturedMedia] = useState<Media[]>([]);
   const [recentMovies, setRecentMovies] = useState<Media[]>([]);
   const [popularMovies, setPopularMovies] = useState<Media[]>([]);
@@ -36,6 +40,9 @@ export default function Home() {
       
       // Fetch all media
       const allMedia = await apiCall(API_ENDPOINTS.media);
+      
+      // Initialize recommendations with all media
+      refreshRecommendations(allMedia);
       
       // Get random high-quality movies and TV shows for hero section
       const highQualityMedia = allMedia
@@ -118,6 +125,9 @@ export default function Home() {
       setHorrorMovies(horrorMovies);
       
       setLoading(false);
+      
+      // Refresh recommendations with all media
+      refreshRecommendations(allMedia);
     } catch (error) {
       console.error("Error fetching data:", error);
       setLoading(false);
@@ -175,12 +185,18 @@ export default function Home() {
   };
 
   const handlePlay = (media: Media, startTime?: number) => {
+    trackClick(media.id, 'play', 'home');
     setSelectedMedia(media);
     setIsPlayerOpen(true);
   };
 
   const handleInfo = (media: Media) => {
-    router.push(`/movie/${media.id}`);
+    trackClick(media.id, 'info', 'home');
+    if (media.type === 'episode' || media.type === 'tv') {
+      router.push(`/tv-show/${media.id}`);
+    } else {
+      router.push(`/movie/${media.id}`);
+    }
   };
 
   const parallaxCards = [
@@ -236,6 +252,7 @@ export default function Home() {
           featuredMedia={featuredMedia}
           onPlay={handlePlay}
           onInfo={handleInfo}
+          pageType="home"
         />
       )}
 
@@ -255,6 +272,19 @@ export default function Home() {
           </div>
         ) : (
           <div className="space-y-8 pb-20">
+            {/* Continue Watching */}
+            <ContinueWatching
+              onPlay={handlePlay}
+              onInfo={handleInfo}
+            />
+            
+            {/* Recommended Content */}
+            <RecommendedContent
+              allMedia={[...popularMovies, ...popularSeries, ...trendingNow, ...actionMovies, ...comedyMovies, ...dramaMovies, ...horrorMovies, ...recentMovies]}
+              onPlay={handlePlay}
+              onInfo={handleInfo}
+            />
+
             {/* Recently Watched */}
             <RecentlyWatched
               onPlay={handlePlay}

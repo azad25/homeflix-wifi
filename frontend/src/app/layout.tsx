@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
+import { getGoogleFontsUrl } from '@/lib/fontStyles';
 import { EnhancedAudioProvider } from "@/contexts/EnhancedAudioContext";
+import { RecommendationProvider } from "@/contexts/RecommendationContext";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -17,9 +19,14 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
+      <head>
+        <link href={getGoogleFontsUrl()} rel="stylesheet" />
+      </head>
       <body className={inter.className}>
         <EnhancedAudioProvider>
-          {children}
+          <RecommendationProvider>
+            {children}
+          </RecommendationProvider>
         </EnhancedAudioProvider>
       </body>
     </html>

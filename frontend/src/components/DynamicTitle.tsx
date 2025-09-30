@@ -3,159 +3,177 @@
 import React, { useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { Media } from '../types/media';
+import { 
+  getFontStyleForMedia, 
+  getTitleSizeByLength, 
+  generateFontClasses,
+  getGenreFontStyle,
+  GENRE_FONTS 
+} from '../lib/fontStyles';
+import { cleanMovieTitle, extractNiceTitle, isSingleWordTitle } from '../lib/titleUtils';
+import ParticleSystem from './ParticleSystem';
+import { getTextureEffect, TextureCSS, TextureEffects } from './TextureEffects';
 
 interface DynamicTitleProps {
   media: Media;
   className?: string;
+  variant?: 'hero' | 'card' | 'info' | 'section';
+  pageType?: string;
+  showGenreIndicator?: boolean;
+  animated?: boolean;
+  enable3D?: boolean;
+  enableParticles?: boolean;
+  particleIntensity?: 'low' | 'medium' | 'high';
 }
 
-const DynamicTitle: React.FC<DynamicTitleProps> = ({ media, className = "" }) => {
+const DynamicTitle: React.FC<DynamicTitleProps> = ({ 
+  media, 
+  className = "", 
+  variant = 'hero',
+  pageType = 'home',
+  showGenreIndicator = true,
+  animated = false,
+  enable3D = true,
+  enableParticles = false,
+  particleIntensity = 'medium'
+}) => {
   const titleStyle = useMemo(() => {
     const genres = media.genre_names || media.genres?.map(g => g.name) || [];
-    const primaryGenre = genres[0]?.toLowerCase() || 'default';
-    const title = media.title || '';
-    const titleLength = title.length;
+    const primaryGenre = genres[0] || 'drama';
+    const cleanTitle = extractNiceTitle(media.title || '');
+    const titleLength = cleanTitle.length;
+    const isSingleWord = isSingleWordTitle(media.title || '');
     
-    // Define style configurations based on genre and title characteristics
-    const styleConfigs = {
+    // Get font style from the comprehensive font system
+    const fontStyle = getFontStyleForMedia(media, pageType);
+    const responsiveSize = getTitleSizeByLength(cleanTitle, fontStyle);
+    
+    // Get 3D texture effect
+    const textureEffect = enable3D ? getTextureEffect(primaryGenre, 'both') : null;
+    
+    // Generate additional effects based on genre
+    const genreEffects = {
       action: {
-        gradient: 'from-red-500 via-orange-500 to-yellow-500',
-        shadow: 'drop-shadow-[0_0_20px_rgba(255,69,0,0.8)]',
         animation: 'pulse',
-        letterSpacing: 'tracking-wider',
-        transform: 'skew-x-[-5deg]',
-        border: 'border-2 border-red-500/50',
-        glow: 'shadow-[0_0_30px_rgba(255,69,0,0.6)]'
+        transform: 'skew-x-[-2deg]',
+        glow: 'drop-shadow-[0_0_30px_rgba(239,68,68,0.8)]',
+        border: 'border-2 border-red-500/30'
       },
       horror: {
-        gradient: 'from-red-900 via-black to-red-900',
-        shadow: 'drop-shadow-[0_0_25px_rgba(139,0,0,1)]',
         animation: 'flicker',
-        letterSpacing: 'tracking-widest',
         transform: '',
-        border: 'border border-red-900',
-        glow: 'shadow-[0_0_40px_rgba(139,0,0,0.8)]'
+        glow: 'drop-shadow-[0_0_40px_rgba(127,29,29,0.9)]',
+        border: 'border border-red-900/50'
       },
       'sci-fi': {
-        gradient: 'from-cyan-400 via-blue-500 to-purple-600',
-        shadow: 'drop-shadow-[0_0_20px_rgba(0,255,255,0.8)]',
-        animation: 'neon-flicker',
-        letterSpacing: 'tracking-wide',
+        animation: 'neon-pulse',
         transform: '',
-        border: 'border border-cyan-400/70',
-        glow: 'shadow-[0_0_35px_rgba(0,255,255,0.7)]'
+        glow: 'drop-shadow-[0_0_35px_rgba(34,211,238,0.8)]',
+        border: 'border border-cyan-400/50'
       },
       fantasy: {
-        gradient: 'from-purple-500 via-pink-500 to-gold-400',
-        shadow: 'drop-shadow-[0_0_25px_rgba(147,51,234,0.8)]',
         animation: 'magical-glow',
-        letterSpacing: 'tracking-wide',
         transform: '',
-        border: 'border border-purple-500/60',
-        glow: 'shadow-[0_0_30px_rgba(147,51,234,0.6)]'
+        glow: 'drop-shadow-[0_0_30px_rgba(147,51,234,0.8)]',
+        border: 'border border-purple-500/40'
       },
       comedy: {
-        gradient: 'from-yellow-400 via-orange-400 to-pink-500',
-        shadow: 'drop-shadow-[0_0_15px_rgba(255,193,7,0.8)]',
-        animation: 'bounce',
-        letterSpacing: 'tracking-normal',
+        animation: 'bounce-subtle',
         transform: 'rotate-1',
-        border: 'border border-yellow-400/50',
-        glow: 'shadow-[0_0_25px_rgba(255,193,7,0.5)]'
-      },
-      drama: {
-        gradient: 'from-slate-300 via-white to-slate-300',
-        shadow: 'drop-shadow-[0_0_20px_rgba(255,255,255,0.6)]',
-        animation: 'subtle-glow',
-        letterSpacing: 'tracking-wide',
-        transform: '',
-        border: 'border border-white/40',
-        glow: 'shadow-[0_0_20px_rgba(255,255,255,0.4)]'
+        glow: 'drop-shadow-[0_0_25px_rgba(251,191,36,0.8)]',
+        border: 'border border-yellow-400/40'
       },
       thriller: {
-        gradient: 'from-gray-800 via-red-800 to-black',
-        shadow: 'drop-shadow-[0_0_20px_rgba(220,38,127,0.8)]',
         animation: 'thriller-pulse',
-        letterSpacing: 'tracking-wider',
         transform: '',
-        border: 'border border-red-800/60',
-        glow: 'shadow-[0_0_30px_rgba(220,38,127,0.6)]'
+        glow: 'drop-shadow-[0_0_30px_rgba(55,65,81,0.9)]',
+        border: 'border border-gray-800/60'
       },
       romance: {
-        gradient: 'from-pink-400 via-rose-400 to-red-400',
-        shadow: 'drop-shadow-[0_0_20px_rgba(244,114,182,0.8)]',
         animation: 'heart-beat',
-        letterSpacing: 'tracking-wide',
         transform: '',
-        border: 'border border-pink-400/50',
-        glow: 'shadow-[0_0_25px_rgba(244,114,182,0.5)]'
+        glow: 'drop-shadow-[0_0_25px_rgba(236,72,153,0.8)]',
+        border: 'border border-pink-400/40'
+      },
+      documentary: {
+        animation: 'subtle-glow',
+        transform: '',
+        glow: 'drop-shadow-[0_0_20px_rgba(34,197,94,0.6)]',
+        border: 'border border-green-600/40'
       },
       animation: {
-        gradient: 'from-blue-400 via-purple-500 to-pink-500',
-        shadow: 'drop-shadow-[0_0_20px_rgba(168,85,247,0.8)]',
         animation: 'rainbow-shift',
-        letterSpacing: 'tracking-normal',
         transform: '',
-        border: 'border border-purple-500/50',
-        glow: 'shadow-[0_0_30px_rgba(168,85,247,0.6)]'
+        glow: 'drop-shadow-[0_0_30px_rgba(99,102,241,0.8)]',
+        border: 'border border-indigo-500/40'
       },
-      default: {
-        gradient: 'from-white via-gray-100 to-white',
-        shadow: 'drop-shadow-[0_0_15px_rgba(255,255,255,0.5)]',
-        animation: 'default-glow',
-        letterSpacing: 'tracking-wide',
+      crime: {
+        animation: 'crime-flicker',
         transform: '',
-        border: 'border border-white/30',
-        glow: 'shadow-[0_0_20px_rgba(255,255,255,0.3)]'
+        glow: 'drop-shadow-[0_0_30px_rgba(17,24,39,0.9)]',
+        border: 'border border-gray-900/60'
+      },
+      mystery: {
+        animation: 'mystery-fade',
+        transform: '',
+        glow: 'drop-shadow-[0_0_25px_rgba(55,48,163,0.8)]',
+        border: 'border border-indigo-900/50'
+      },
+      drama: {
+        animation: 'subtle-glow',
+        transform: '',
+        glow: 'drop-shadow-[0_0_25px_rgba(37,99,235,0.8)]',
+        border: 'border border-blue-600/40'
       }
     };
 
-    // Select style based on primary genre
-    const selectedStyle = styleConfigs[primaryGenre as keyof typeof styleConfigs] || styleConfigs.default;
-
-    // Adjust font size based on title length
-    let fontSize = 'text-5xl md:text-7xl';
-    if (titleLength > 20) fontSize = 'text-4xl md:text-6xl';
-    if (titleLength > 30) fontSize = 'text-3xl md:text-5xl';
-    if (titleLength > 40) fontSize = 'text-2xl md:text-4xl';
+    const normalizedGenre = primaryGenre.toLowerCase().replace(/\s+/g, '-');
+    const effects = genreEffects[normalizedGenre as keyof typeof genreEffects] || genreEffects.drama;
+    
+    // Adjust size based on variant
+    let variantSize = responsiveSize;
+    switch (variant) {
+      case 'card':
+        variantSize = titleLength > 30 ? 'text-sm md:text-base' : 
+                     titleLength > 20 ? 'text-base md:text-lg' : 'text-lg md:text-xl';
+        break;
+      case 'info':
+        variantSize = titleLength > 30 ? 'text-2xl md:text-3xl' : 
+                     titleLength > 20 ? 'text-3xl md:text-4xl' : 'text-4xl md:text-5xl';
+        break;
+      case 'section':
+        variantSize = 'text-xl md:text-2xl lg:text-3xl';
+        break;
+    }
 
     return {
-      ...selectedStyle,
-      fontSize,
-      primaryGenre
+      primaryGenre,
+      cleanTitle,
+      titleLength,
+      isSingleWord,
+      fontStyle,
+      responsiveSize,
+      textureEffect,
+      effects: genreEffects[primaryGenre.toLowerCase() as keyof typeof genreEffects] || genreEffects.drama
     };
-  }, [media]);
+  }, [media, pageType, enable3D]);
 
   const getAnimationProps = () => {
-    return {
-      initial: { opacity: 0, y: 50, scale: 0.9 },
-      animate: { opacity: 1, y: 0, scale: 1 },
-      exit: { opacity: 0, y: -30, scale: 0.95 },
-      transition: { duration: 0.8 }
-    };
+    // No animations - static display only
+    return {};
   };
 
   const getAnimationStyle = () => {
-    switch (titleStyle.animation) {
-      case 'pulse':
-        return {
-          animation: 'pulse 2s ease-in-out infinite'
-        };
-      case 'flicker':
-        return {
-          animation: 'flicker 3s ease-in-out infinite'
-        };
-      case 'bounce':
-        return {
-          animation: 'bounce 2s ease-in-out infinite'
-        };
-      default:
-        return {};
-    }
+    // No animations - static display only
+    return {};
   };
 
   const renderStyledTitle = () => {
-    const words = media.title.split(' ');
+    const words = titleStyle.cleanTitle.split(' ');
+    
+    if (!animated) {
+      return <span>{titleStyle.cleanTitle}</span>;
+    }
     
     // For action movies, create a more dramatic split effect
     if (titleStyle.primaryGenre === 'action' && words.length > 1) {
@@ -167,7 +185,7 @@ const DynamicTitle: React.FC<DynamicTitleProps> = ({ media, className = "" }) =>
               initial={{ opacity: 0, x: index % 2 === 0 ? -50 : 50 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ delay: index * 0.1, duration: 0.8 }}
-              className={`block ${index === 0 ? 'text-6xl md:text-8xl' : 'text-4xl md:text-6xl'} ${titleStyle.transform}`}
+              className={`block ${titleStyle.effects.transform}`}
             >
               {word}
             </motion.span>
@@ -180,7 +198,7 @@ const DynamicTitle: React.FC<DynamicTitleProps> = ({ media, className = "" }) =>
     if (titleStyle.primaryGenre === 'horror') {
       return (
         <div className="flex flex-wrap">
-          {media.title.split('').map((char, index) => (
+          {titleStyle.cleanTitle.split('').map((char, index) => (
             <motion.span
               key={index}
               initial={{ opacity: 0, y: 20 }}
@@ -196,12 +214,89 @@ const DynamicTitle: React.FC<DynamicTitleProps> = ({ media, className = "" }) =>
     }
 
     // Default single title rendering
-    return <span>{media.title}</span>;
+    return <span>{titleStyle.cleanTitle}</span>;
   };
+
+  const containerRef = React.useRef<HTMLDivElement>(null);
+  const [containerSize, setContainerSize] = React.useState({ width: 800, height: 200 });
+
+  React.useEffect(() => {
+    const updateSize = () => {
+      if (containerRef.current) {
+        const rect = containerRef.current.getBoundingClientRect();
+        setContainerSize({ width: rect.width || 800, height: rect.height || 200 });
+      }
+    };
+
+    updateSize();
+    window.addEventListener('resize', updateSize);
+    return () => window.removeEventListener('resize', updateSize);
+  }, []);
 
   return (
     <>
-      {/* CSS Animations */}
+      <TextureCSS />
+      
+      <div ref={containerRef} className={`relative ${className}`}>
+      
+        {/* Main title with transparent texture effects and deep/light colors for readability */}
+        {enable3D ? (
+          <TextureEffects 
+            genre={titleStyle.primaryGenre} 
+            effectType="both"
+            isSingleWord={titleStyle.isSingleWord}
+            className={`
+              relative z-20 font-bold
+              ${titleStyle.responsiveSize} ${titleStyle.fontStyle.letterSpacing}
+              leading-tight max-w-full
+              ${variant === 'hero' ? 'line-clamp-2' : 'line-clamp-2'}
+              drop-shadow-[0_2px_8px_rgba(0,0,0,0.8)]
+              filter contrast-125 brightness-110
+            `}
+          >
+            <span
+              style={{
+                fontFamily: titleStyle.fontStyle.fontFamily.replace(/"/g, ''),
+                fontWeight: titleStyle.fontStyle.fontWeight,
+                lineHeight: titleStyle.fontStyle.lineHeight.replace('leading-', ''),
+                textTransform: (titleStyle.fontStyle.textTransform as any) || 'none',
+                ...getAnimationStyle()
+              }}
+            >
+              {renderStyledTitle()}
+            </span>
+          </TextureEffects>
+        ) : (
+          <h1
+            className={`
+              relative z-20 font-bold
+              bg-gradient-to-r ${titleStyle.fontStyle.color.replace('bg-gradient-to-r ', '')} bg-clip-text text-transparent
+              ${titleStyle.responsiveSize} ${titleStyle.fontStyle.letterSpacing}
+              ${titleStyle.effects.glow}
+              ${titleStyle.effects.transform} 
+              leading-tight max-w-full
+              ${variant === 'hero' ? 'line-clamp-2' : 'line-clamp-2'}
+              drop-shadow-[0_2px_8px_rgba(0,0,0,0.8)]
+              filter contrast-125 brightness-110
+            `}
+            style={{
+              fontFamily: titleStyle.fontStyle.fontFamily.replace(/"/g, ''),
+              fontWeight: titleStyle.fontStyle.fontWeight,
+              lineHeight: titleStyle.fontStyle.lineHeight.replace('leading-', ''),
+              textTransform: (titleStyle.fontStyle.textTransform as any) || 'none',
+              ...getAnimationStyle()
+            }}
+          >
+            {renderStyledTitle()}
+          </h1>
+        )}
+
+        {/* Removed genre indicator badge */}
+
+        {/* Removed all decorative animations for cleaner static look */}
+      </div>
+      
+      {/* Enhanced CSS Animations with 3D transforms */}
       <style jsx>{`
         @keyframes flicker {
           0%, 100% { opacity: 1; }
@@ -217,87 +312,64 @@ const DynamicTitle: React.FC<DynamicTitleProps> = ({ media, className = "" }) =>
           0%, 100% { transform: translateY(0); }
           50% { transform: translateY(-5px); }
         }
+        @keyframes neon-pulse {
+          0%, 100% { filter: brightness(1) drop-shadow(0 0 20px currentColor); }
+          50% { filter: brightness(1.2) drop-shadow(0 0 30px currentColor); }
+        }
+        @keyframes magical-glow {
+          0%, 100% { filter: hue-rotate(0deg) brightness(1); }
+          33% { filter: hue-rotate(120deg) brightness(1.1); }
+          66% { filter: hue-rotate(240deg) brightness(1.1); }
+        }
+        @keyframes thriller-pulse {
+          0%, 100% { opacity: 1; transform: scale(1); }
+          50% { opacity: 0.9; transform: scale(1.01); }
+        }
+        @keyframes heart-beat {
+          0%, 100% { transform: scale(1); }
+          25% { transform: scale(1.05); }
+          50% { transform: scale(1); }
+          75% { transform: scale(1.02); }
+        }
+        @keyframes rainbow-shift {
+          0% { filter: hue-rotate(0deg); }
+          100% { filter: hue-rotate(360deg); }
+        }
+        @keyframes crime-flicker {
+          0%, 100% { opacity: 1; }
+          10% { opacity: 0.9; }
+          20% { opacity: 1; }
+          30% { opacity: 0.8; }
+          40% { opacity: 1; }
+        }
+        @keyframes mystery-fade {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.7; }
+        }
+        @keyframes subtle-glow {
+          0%, 100% { filter: brightness(1); }
+          50% { filter: brightness(1.1); }
+        }
+        
+        /* 3D Transform enhancements */
+        .text-3d-depth {
+          text-shadow: 
+            1px 1px 0px rgba(0,0,0,0.8),
+            2px 2px 0px rgba(0,0,0,0.7),
+            3px 3px 0px rgba(0,0,0,0.6),
+            4px 4px 0px rgba(0,0,0,0.5),
+            5px 5px 0px rgba(0,0,0,0.4);
+        }
+        
+        .text-3d-extrude {
+          transform-style: preserve-3d;
+        }
+        
+        .particle-container {
+          transform-style: preserve-3d;
+          perspective: 1000px;
+        }
       `}</style>
-      
-      <div className={`relative ${className}`}>
-        {/* Background glow effect */}
-        <div 
-          className={`absolute inset-0 bg-gradient-to-r ${titleStyle.gradient} opacity-20 blur-xl rounded-lg ${titleStyle.glow}`}
-        />
-      
-      {/* Main title */}
-      <motion.h1
-        {...getAnimationProps()}
-        className={`
-          relative z-10 font-bold bg-gradient-to-r ${titleStyle.gradient} bg-clip-text text-transparent
-          ${titleStyle.fontSize} ${titleStyle.letterSpacing} ${titleStyle.shadow}
-          ${titleStyle.transform} ${titleStyle.border} p-4 rounded-lg backdrop-blur-sm
-        `}
-        style={{
-          fontFamily: titleStyle.primaryGenre === 'horror' ? 'serif' : 
-                     titleStyle.primaryGenre === 'sci-fi' ? 'monospace' :
-                     titleStyle.primaryGenre === 'fantasy' ? 'serif' : 'sans-serif',
-          ...getAnimationStyle()
-        }}
-      >
-        {renderStyledTitle()}
-      </motion.h1>
-
-      {/* Genre indicator */}
-      <motion.div
-        initial={{ opacity: 0, scale: 0.8 }}
-        animate={{ opacity: 1, scale: 1 }}
-        transition={{ delay: 0.5 }}
-        className="absolute -top-2 -right-2 z-20"
-      >
-        <span className={`
-          px-2 py-1 text-xs font-bold rounded-full bg-gradient-to-r ${titleStyle.gradient}
-          text-black shadow-lg
-        `}>
-          {titleStyle.primaryGenre.toUpperCase()}
-        </span>
-      </motion.div>
-
-      {/* Decorative elements based on genre */}
-      {titleStyle.primaryGenre === 'action' && (
-        <motion.div
-          className="absolute -inset-4 border-2 border-red-500/30 rounded-lg"
-          animate={{
-            borderColor: ['rgba(239,68,68,0.3)', 'rgba(239,68,68,0.6)', 'rgba(239,68,68,0.3)']
-          }}
-          transition={{ duration: 2, repeat: Infinity }}
-        />
-      )}
-
-      {titleStyle.primaryGenre === 'sci-fi' && (
-        <>
-          <motion.div
-            className="absolute -top-1 -left-1 w-4 h-4 bg-cyan-400 rounded-full"
-            animate={{ scale: [1, 1.2, 1], opacity: [1, 0.7, 1] }}
-            transition={{ duration: 2, repeat: Infinity }}
-          />
-          <motion.div
-            className="absolute -bottom-1 -right-1 w-3 h-3 bg-blue-500 rounded-full"
-            animate={{ scale: [1, 1.3, 1], opacity: [1, 0.6, 1] }}
-            transition={{ duration: 2.5, repeat: Infinity, delay: 0.5 }}
-          />
-        </>
-      )}
-
-      {titleStyle.primaryGenre === 'fantasy' && (
-        <motion.div
-          className="absolute inset-0 pointer-events-none"
-          animate={{
-            background: [
-              'radial-gradient(circle at 20% 20%, rgba(147,51,234,0.1) 0%, transparent 50%)',
-              'radial-gradient(circle at 80% 80%, rgba(236,72,153,0.1) 0%, transparent 50%)',
-              'radial-gradient(circle at 20% 20%, rgba(147,51,234,0.1) 0%, transparent 50%)'
-            ]
-          }}
-          transition={{ duration: 4, repeat: Infinity }}
-        />
-      )}
-      </div>
     </>
   );
 };

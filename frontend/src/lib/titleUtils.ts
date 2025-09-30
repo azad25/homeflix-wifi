@@ -1,4 +1,9 @@
-export function cleanMovieTitle(title: string): string {
+export function cleanMovieTitle(title: string | undefined | null): string {
+  // Handle null/undefined titles
+  if (!title || typeof title !== 'string') {
+    return 'Unknown Movie';
+  }
+  
   // Remove garbage characters from recycle bin files
   if (title.startsWith('$') && title.length < 10 && /^[$][A-Z0-9]+$/.test(title)) {
     return 'Unknown Movie';
@@ -8,13 +13,13 @@ export function cleanMovieTitle(title: string): string {
   let cleaned = title.replace(/^\d+-\d+-/, '');
   
   // Remove file extensions and quality indicators
-  cleaned = cleaned.replace(/\.(mkv|mp4|avi|mov)$/i, '');
+  cleaned = cleaned.replace(/\.(mkv|mp4|avi|mov|wmv|flv|webm)$/i, '');
   cleaned = cleaned.replace(/\s*\(?\d{3,4}p\)?$/i, '');
   cleaned = cleaned.replace(/\s*\[.*?\]$/g, '');
   cleaned = cleaned.replace(/\s*\(.*?Collection.*?\)/gi, '');
   
-  // Clean up common patterns
-  cleaned = cleaned.replace(/BrRip|BRRip|WEB-DL|HEVC|x264|YIFY|AAC/gi, '');
+  // Clean up common patterns and encoding info
+  cleaned = cleaned.replace(/BrRip|BRRip|WEB-DL|HEVC|x264|x265|YIFY|AAC|DTS|AC3|BluRay|DVDRip|HDRip/gi, '');
   cleaned = cleaned.replace(/\s+/g, ' ').trim();
   
   // Extract year if present and clean format
@@ -27,12 +32,73 @@ export function cleanMovieTitle(title: string): string {
   return cleaned || 'Unknown Movie';
 }
 
-export function extractMovieYear(title: string): number | null {
+export function extractNiceTitle(title: string | undefined | null): string {
+  const cleaned = cleanMovieTitle(title);
+  
+  // Handle episode formats like "S01E01" or "Season 1 Episode 1"
+  const episodeMatch = cleaned.match(/^(.*?)\s*[Ss](\d+)[Ee](\d+)(.*)$/);
+  if (episodeMatch) {
+    const [, showName, season, episode, extra] = episodeMatch;
+    return `${showName.trim()} - Season ${parseInt(season)} Episode ${parseInt(episode)}`;
+  }
+  
+  // Handle season formats like "Season 1" or "S01"
+  const seasonMatch = cleaned.match(/^(.*?)\s*[Ss]eason\s*(\d+)(.*)$/i);
+  if (seasonMatch) {
+    const [, showName, season, extra] = seasonMatch;
+    return `${showName.trim()} - Season ${parseInt(season)}`;
+  }
+  
+  // Handle simple S01 format
+  const simpleSeasonMatch = cleaned.match(/^(.*?)\s*[Ss](\d+)(.*)$/);
+  if (simpleSeasonMatch) {
+    const [, showName, season, extra] = simpleSeasonMatch;
+    return `${showName.trim()} - Season ${parseInt(season)}`;
+  }
+  
+  // Add proper spacing for camelCase or PascalCase titles
+  let spaced = cleaned.replace(/([a-z])([A-Z])/g, '$1 $2');
+  
+  // Add spaces before numbers that follow letters
+  spaced = spaced.replace(/([a-zA-Z])(\d)/g, '$1 $2');
+  
+  // Add spaces after numbers that precede letters
+  spaced = spaced.replace(/(\d)([a-zA-Z])/g, '$1 $2');
+  
+  // Clean up multiple spaces
+  spaced = spaced.replace(/\s+/g, ' ').trim();
+  
+  // Capitalize first letter of each word for better presentation
+  return spaced.replace(/\b\w/g, l => l.toUpperCase());
+}
+
+export function isSingleWordTitle(title: string | undefined | null): boolean {
+  if (!title || typeof title !== 'string') {
+    return false;
+  }
+  
+  const cleaned = extractNiceTitle(title);
+  // Remove common words and check if it's essentially one main word
+  const words = cleaned.split(' ').filter(word => 
+    word.length > 2 && 
+    !['The', 'A', 'An', 'Of', 'In', 'On', 'At', 'To', 'For', 'With', 'By'].includes(word)
+  );
+  
+  return words.length === 1;
+}
+
+export function extractMovieYear(title: string | undefined | null): number | null {
+  if (!title || typeof title !== 'string') {
+    return null;
+  }
   const yearMatch = title.match(/\((\d{4})\)/);
   return yearMatch ? parseInt(yearMatch[1]) : null;
 }
 
-export function getMovieGenre(title: string, description?: string): string[] {
+export function getMovieGenre(title: string | undefined | null, description?: string): string[] {
+  if (!title || typeof title !== 'string') {
+    return ['Drama'];
+  }
   const lowerTitle = title.toLowerCase();
   const lowerDesc = description?.toLowerCase() || '';
   
@@ -53,7 +119,10 @@ export function getMovieGenre(title: string, description?: string): string[] {
   return genres.length > 0 ? genres : ['Drama'];
 }
 
-export function findSimilarMovies(currentTitle: string, allMovies: any[], limit: number = 6): any[] {
+export function findSimilarMovies(currentTitle: string | undefined | null, allMovies: any[], limit: number = 6): any[] {
+  if (!currentTitle || typeof currentTitle !== 'string') {
+    return allMovies.slice(0, limit);
+  }
   const cleanedCurrent = cleanMovieTitle(currentTitle).toLowerCase();
   const currentYear = extractMovieYear(currentTitle);
   

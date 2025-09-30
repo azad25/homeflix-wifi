@@ -9,6 +9,9 @@ import VideoPlayer from "@/components/VideoPlayer";
 import { getApiUrl } from '@/lib/api';
 import { ScrollXHero, NetflixHorizontalRow, ParallaxSection, GradientBackground, ScrollReveal } from '@/components/scrollx';
 import { Button } from "@/components/ui/button";
+import { useRecommendations } from '@/contexts/RecommendationContext';
+import RecommendedContent from '@/components/RecommendedContent';
+import ContinueWatching from '@/components/ContinueWatching';
 
 interface Series {
   id: number;
@@ -23,6 +26,7 @@ interface Series {
 
 export default function TVShowsPage() {
   const router = useRouter();
+  const { refreshRecommendations, trackClick } = useRecommendations();
   const [featuredSeries, setFeaturedSeries] = useState<Media[]>([]);
   const [continueWatching, setContinueWatching] = useState<Media[]>([]);
   const [recentEpisodes, setRecentEpisodes] = useState<Media[]>([]);
@@ -33,6 +37,7 @@ export default function TVShowsPage() {
   const [selectedMedia, setSelectedMedia] = useState<Media | null>(null);
   const [isPlayerOpen, setIsPlayerOpen] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [allEpisodes, setAllEpisodes] = useState<Media[]>([]);
 
   useEffect(() => {
     fetchTVShowsData();
@@ -47,8 +52,16 @@ export default function TVShowsPage() {
       const allMedia = await mediaResponse.json();
       const episodes = allMedia.filter((item: Media) => item.type === "episode");
       
-      // Set featured episodes for hero section
-      const sortedEpisodes = episodes.sort((a: Media, b: Media) => (b.rating || 0) - (a.rating || 0));
+      // Initialize recommendations with TV episodes
+      refreshRecommendations(episodes);
+      setAllEpisodes(episodes);
+      
+      // Set featured episodes for hero section - ensure we have valid episodes with video URLs
+      const sortedEpisodes = episodes
+        .filter((episode: Media) => episode.title && episode.description) // Ensure basic data exists
+        .sort((a: Media, b: Media) => (b.rating || 0) - (a.rating || 0));
+      
+      console.log('TV Shows - Featured episodes found:', sortedEpisodes.length);
       setFeaturedSeries(sortedEpisodes.slice(0, 5));
 
       // Recent episodes
@@ -139,12 +152,34 @@ export default function TVShowsPage() {
           featuredMedia={featuredSeries}
           onPlay={handlePlay}
           onInfo={handleInfo}
+          pageType="tv-shows"
         />
       )}
 
       {/* Main Content with Parallax Background */}
       <div className="relative bg-gradient-to-b from-red-900/20 via-black to-black">
         <div className="relative z-10 py-20">
+          {/* Continue Watching TV Shows */}
+          <ParallaxSection speed={0.3}>
+            <ScrollReveal direction="up" delay={0.2}>
+              <ContinueWatching
+                onPlay={handlePlay}
+                onInfo={handleInfo}
+              />
+            </ScrollReveal>
+          </ParallaxSection>
+
+          {/* Recommended TV Content */}
+          <ParallaxSection speed={0.35}>
+            <ScrollReveal direction="up" delay={0.3}>
+              <RecommendedContent
+                allMedia={allEpisodes}
+                onPlay={handlePlay}
+                onInfo={handleInfo}
+              />
+            </ScrollReveal>
+          </ParallaxSection>
+
           {/* Popular TV Shows */}
           <ParallaxSection speed={0.4}>
             <ScrollReveal direction="up" delay={0.4}>

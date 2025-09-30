@@ -9,12 +9,15 @@ import Navbar from "../../components/Navbar";
 import { getApiUrl } from "../../lib/api";
 import { 
   NetflixHorizontalRow, 
+  ScrollXHero,
   ParallaxSection, 
   GradientBackground, 
   ScrollReveal, 
   MagneticButton,
   FloatingElement
 } from '@/components/scrollx';
+import { useRecommendations } from '@/contexts/RecommendationContext';
+import RecommendedContent from '@/components/RecommendedContent';
 
 interface SearchFilters {
   type: string;
@@ -26,9 +29,12 @@ interface SearchFilters {
 
 export default function SearchPage() {
   const router = useRouter();
+  const { refreshRecommendations } = useRecommendations();
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<Media[]>([]);
   const [allGenres, setAllGenres] = useState<string[]>([]);
+  const [featuredMedia, setFeaturedMedia] = useState<Media[]>([]);
+  const [allMedia, setAllMedia] = useState<Media[]>([]);
   const [filters, setFilters] = useState<SearchFilters>({
     type: "all",
     genre: "all",
@@ -86,6 +92,16 @@ export default function SearchPage() {
       // Fetch all media and perform client-side filtering
       const response = await fetch(`${apiUrl}/api/media`);
       const allMedia = await response.json();
+      
+      // Initialize recommendations and featured content
+      refreshRecommendations(allMedia);
+      setAllMedia(allMedia);
+      
+      // Set featured media for hero section (top rated content)
+      const featured = [...allMedia]
+        .sort((a: Media, b: Media) => (b.rating || 0) - (a.rating || 0))
+        .slice(0, 5);
+      setFeaturedMedia(featured);
       
       let results = [...allMedia];
       
@@ -179,8 +195,18 @@ export default function SearchPage() {
   const activeFiltersCount = Object.values(filters).filter(value => value !== "all" && value !== "relevance").length;
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-red-900/20 via-black to-black text-white">
-      <Navbar onSearch={handleSearch} />
+    <div className="min-h-screen bg-black">
+      <Navbar onSearch={(query) => setSearchQuery(query)} />
+
+      {/* ScrollX Hero Section */}
+      {featuredMedia.length > 0 && !hasSearched && (
+        <ScrollXHero
+          featuredMedia={featuredMedia}
+          onPlay={handlePlay}
+          onInfo={handleInfo}
+          pageType="search"
+        />
+      )}
 
       {/* Main Content with Parallax Background */}
       <div className="relative bg-gradient-to-b from-red-900/20 via-black to-black">
