@@ -1,12 +1,13 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Play, Plus, ThumbsUp, ChevronDown, Volume2, VolumeX, Star, Clock } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { Play, Info, Star, Clock, Volume2, VolumeX, Plus, ThumbsUp, ChevronDown } from 'lucide-react';
 import Image from 'next/image';
-import { Media } from '../../types/media';
-import { getApiUrl } from '../../lib/api';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../ui/card';
+import { Media } from '@/types/media';
+import { getApiUrl } from '@/lib/api';
+import { MagneticButton } from './index';
+import { useAudio } from '@/contexts/AudioContext';
 
 interface NetflixMovieCardProps {
   media: Media;
@@ -18,26 +19,29 @@ interface NetflixMovieCardProps {
   size?: 'small' | 'medium' | 'large';
 }
 
-const NetflixMovieCard: React.FC<NetflixMovieCardProps> = ({ 
-  media, 
-  onPlay, 
-  onInfo, 
+const NetflixMovieCard: React.FC<NetflixMovieCardProps> = ({
+  media,
+  onPlay,
+  onInfo,
   priority = false,
   delay = 0,
   variant = 'portrait',
   size = 'medium'
 }) => {
   const [isHovered, setIsHovered] = useState(false);
-  const [showPreview, setShowPreview] = useState(false);
   const [isVideoLoaded, setIsVideoLoaded] = useState(false);
-  const [isMuted, setIsMuted] = useState(true);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
+  const [showControls, setShowControls] = useState(true);
+  const [isPlayButtonLoading, setIsPlayButtonLoading] = useState(false);
+  const [isInfoButtonLoading, setIsInfoButtonLoading] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
   const [imageError, setImageError] = useState(false);
   const [fallbackError, setFallbackError] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
-  
   const videoRef = useRef<HTMLVideoElement>(null);
   const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const { setCurrentAudioElement, muteAll } = useAudio();
   const hideTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const apiUrl = getApiUrl();
@@ -59,9 +63,15 @@ const NetflixMovieCard: React.FC<NetflixMovieCardProps> = ({
   };
 
   const getPreviewUrl = () => {
+    // First try to get the actual media file for full experience
+    if (media.file_path) {
+      return `${apiUrl}/api/stream/${media.id}`;
+    }
+    // Fallback to trailer if available
     if (media.trailer_path) {
       return `${apiUrl}/api/admin/assets/${media.trailer_path.split('/').pop()}`;
     }
+    // Final fallback to preview clips
     return `${apiUrl}/api/preview-clips/${media.id}`;
   };
 
@@ -88,6 +98,43 @@ const NetflixMovieCard: React.FC<NetflixMovieCardProps> = ({
     // Netflix-like delay before showing preview
     hoverTimeoutRef.current = setTimeout(() => {
       setShowPreview(true);
+      
+      // Start video preview
+      if (videoRef.current && isHovered) {
+        const video = videoRef.current;
+        
+        const handleLoadedData = () => {
+          setIsVideoLoaded(true);
+          // Register as current audio source and mute others
+          muteAll();
+          setCurrentAudioElement(video);
+          
+          // Try to play with sound first
+          video.muted = false;
+          video.volume = 0.3;
+          video.play().then(() => {
+            setIsPlaying(true);
+          }).catch(() => {
+            // Fallback to muted if autoplay with sound fails
+            video.muted = true;
+            video.play().then(() => {
+              setIsPlaying(true);
+            }).catch(() => {
+              setIsVideoLoaded(false);
+              setIsPlaying(false);
+            });
+          });
+        };
+
+        const handleVideoError = () => {
+          setIsVideoLoaded(false);
+          setIsPlaying(false);
+        };
+
+        video.addEventListener('loadeddata', handleLoadedData);
+        video.addEventListener('error', handleVideoError);
+        video.load();
+      }
     }, 800);
   };
 
@@ -105,32 +152,17 @@ const NetflixMovieCard: React.FC<NetflixMovieCardProps> = ({
       if (videoRef.current) {
         videoRef.current.pause();
         videoRef.current.currentTime = 0;
+        setCurrentAudioElement(null);
       }
     }, 300);
   };
 
-  const handleVideoLoad = () => {
-    setIsVideoLoaded(true);
-    if (videoRef.current && showPreview) {
-      videoRef.current.play().then(() => {
-        setIsPlaying(true);
-      }).catch(() => {
-        setIsVideoLoaded(false);
-      });
-    }
-  };
-
-  const handleVideoError = () => {
-    setIsVideoLoaded(false);
-    setShowPreview(false);
-  };
-
   const handlePlayClick = (e: React.MouseEvent) => {
     e.stopPropagation();
-    setIsLoading(true);
+    setIsPlayButtonLoading(true);
     setTimeout(() => {
       onPlay(media);
-      setIsLoading(false);
+      setIsPlayButtonLoading(false);
     }, 300);
   };
 
@@ -142,9 +174,18 @@ const NetflixMovieCard: React.FC<NetflixMovieCardProps> = ({
   const handleImageError = () => {
     if (!imageError) {
       setImageError(true);
-    } else {
+    } else if (!fallbackError) {
       setFallbackError(true);
     }
+  };
+
+  const handleVideoLoad = () => {
+    setIsVideoLoaded(true);
+  };
+
+  const handleVideoError = () => {
+    setIsVideoLoaded(false);
+    setIsPlaying(false);
   };
 
   const formatDuration = (seconds: number) => {
@@ -181,10 +222,11 @@ const NetflixMovieCard: React.FC<NetflixMovieCardProps> = ({
       <motion.div
         className={`relative ${sizeClasses[size]} bg-gray-900 rounded-lg overflow-hidden shadow-lg`}
         animate={{ 
-          scale: isHovered ? 1.05 : 1,
+          scale: isHovered ? 1.3 : 1,
           zIndex: isHovered ? 50 : 1,
+          y: isHovered ? -20 : 0,
         }}
-        transition={{ duration: 0.3, ease: "easeOut" }}
+        transition={{ duration: 0.4, ease: "easeOut" }}
         style={{
           transformOrigin: 'center center',
         }}
@@ -308,16 +350,16 @@ const NetflixMovieCard: React.FC<NetflixMovieCardProps> = ({
         </div>
       </motion.div>
 
-      {/* Expanded Info Panel (Netflix-style) - Only for larger sizes */}
+      {/* Expanded Info Panel (Netflix-style) */}
       <AnimatePresence>
-        {isHovered && size !== 'small' && (
+        {isHovered && (
           <motion.div
-            initial={{ opacity: 0, y: 10, scale: 0.95 }}
+            initial={{ opacity: 0, y: 10, scale: 0.8 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 10, scale: 0.95 }}
-            transition={{ duration: 0.2, ease: "easeOut" }}
-            className="absolute top-full left-0 right-0 bg-gray-900/95 backdrop-blur-md rounded-b-lg shadow-2xl p-4 z-30 border border-gray-700/50"
-            style={{ marginTop: '4px' }}
+            exit={{ opacity: 0, y: 10, scale: 0.8 }}
+            transition={{ duration: 0.3, ease: "easeOut" }}
+            className="absolute top-full left-0 right-0 bg-black/90 backdrop-blur-xl rounded-b-xl shadow-2xl p-6 z-40 border border-red-900/30"
+            style={{ marginTop: '8px', minWidth: '320px' }}
           >
             {/* Action Buttons */}
             <div className="flex items-center gap-2 mb-3">

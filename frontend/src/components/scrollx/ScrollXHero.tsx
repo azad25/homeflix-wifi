@@ -1,13 +1,12 @@
 "use client";
 
-import React, { useState, useRef, useEffect } from 'react';
-import { motion, useScroll, useTransform } from 'framer-motion';
-import { Play, Info, Volume2, VolumeX, ChevronLeft, ChevronRight } from 'lucide-react';
-import { Media } from '../../types/media';
-import ParallaxSection from './ParallaxSection';
-import GradientBackground from './GradientBackground';
-import MagneticButton from './MagneticButton';
-import { ParticleField } from './FloatingElements';
+import React, { useState, useEffect, useRef } from 'react';
+import { motion, useScroll, useTransform, useSpring } from 'framer-motion';
+import { Play, Info, ChevronLeft, ChevronRight, Volume2, VolumeX } from 'lucide-react';
+import { Media } from '@/types/media';
+import { getApiUrl } from '@/lib/api';
+import { MagneticButton, GradientBackground, ParallaxSection, ParticleField } from './index';
+import { useAudio } from '@/contexts/AudioContext';
 
 interface ScrollXHeroProps {
   featuredMedia: Media[];
@@ -22,15 +21,17 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
 }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isAutoPlaying, setIsAutoPlaying] = useState(true);
-  const [isMuted, setIsMuted] = useState(true);
+  const [isMuted, setIsMuted] = useState(false); // Start with sound enabled
   const [isVideoLoaded, setIsVideoLoaded] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [showControls, setShowControls] = useState(true);
   const [isPlayButtonLoading, setIsPlayButtonLoading] = useState(false);
   const [isInfoButtonLoading, setIsInfoButtonLoading] = useState(false);
+  const [isMouseOver, setIsMouseOver] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const { setCurrentAudioElement, muteAll } = useAudio();
 
   const { scrollYProgress } = useScroll({
     target: containerRef,
@@ -63,10 +64,18 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
   const getVideoUrl = (media: Media) => {
     const host = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
     const apiUrl = `http://${host === 'localhost' ? 'localhost' : host}:8251`;
+    
+    // For hero section, prioritize trailers and preview clips over full files
+    // Full files might be too large for background video
     if (media.trailer_path) {
       return `${apiUrl}/api/admin/assets/${media.trailer_path.split('/').pop()}`;
     }
-    return `${apiUrl}/api/preview-clips/${media.id}`;
+    // Use preview clips as they're optimized for this purpose
+    if (media.id) {
+      return `${apiUrl}/api/preview-clips/${media.id}`;
+    }
+    // Last resort: try streaming endpoint
+    return `${apiUrl}/api/stream/${media.id}`;
   };
 
   const getBackgroundImageUrl = (media: Media) => {
@@ -87,16 +96,31 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
   const nextSlide = () => {
     if (featuredMedia.length > 1) {
       setCurrentIndex((prev) => (prev + 1) % featuredMedia.length);
-      setIsVideoLoaded(false);
-      setIsPlaying(false);
     }
   };
 
   const prevSlide = () => {
     if (featuredMedia.length > 1) {
       setCurrentIndex((prev) => (prev - 1 + featuredMedia.length) % featuredMedia.length);
-      setIsVideoLoaded(false);
-      setIsPlaying(false);
+    }
+  };
+
+  const toggleMute = () => {
+    if (videoRef.current) {
+      const newMutedState = !isMuted;
+      setIsMuted(newMutedState);
+      if (newMutedState) {
+        // Mute this video and remove from audio context
+        videoRef.current.muted = true;
+        videoRef.current.volume = 0;
+        setCurrentAudioElement(null);
+      } else {
+        // Unmute this video and set as current audio source
+        muteAll(); // Mute any other playing audio first
+        videoRef.current.muted = false;
+        videoRef.current.volume = 0.3;
+        setCurrentAudioElement(videoRef.current);
+      }
     }
   };
 
@@ -122,57 +146,105 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
     return () => clearInterval(interval);
   }, [isAutoPlaying, featuredMedia.length, currentIndex, isVideoLoaded, isPlaying]);
 
-  // Enhanced video loading and playback with better audio handling
+  // Enhanced video loading and playback with better error handling
   useEffect(() => {
-    if (videoRef.current && currentMedia) {
-      const video = videoRef.current;
+    if (currentMedia) {
+      // Reset video states when media changes
+      setIsVideoLoaded(false);
+      setIsPlaying(false);
       
-      const handleLoadedData = () => {
-        setIsVideoLoaded(true);
-        // Start video playback after a shorter delay for better UX
-        setTimeout(() => {
-          if (video && !video.paused) return;
-          video.play().then(() => {
-            setIsPlaying(true);
-            // Ensure audio is properly managed
-            video.muted = isMuted;
-          }).catch((error) => {
-            console.warn('Video autoplay failed:', error);
+      // Try to load video after a short delay
+      const loadVideo = async () => {
+        if (videoRef.current) {
+          const video = videoRef.current;
+          
+          const handleLoadedData = () => {
+            setIsVideoLoaded(true);
+            // Register this video as the current audio source
+            setCurrentAudioElement(video);
+            // Start video playback - try with sound first, fallback to muted
+            video.muted = false;
+            video.volume = 0.3;
+            video.play().then(() => {
+              setIsPlaying(true);
+            }).catch((error) => {
+              // Fallback to muted autoplay if sound fails
+              console.warn('Video autoplay with sound failed, trying muted:', error);
+              video.muted = true;
+              video.play().then(() => {
+                setIsPlaying(true);
+              }).catch(() => {
+                setIsVideoLoaded(false);
+                setIsPlaying(false);
+              });
+            });
+          };
+
+          const handleError = (e: Event) => {
+            console.warn('Video loading failed for:', currentMedia.title, e);
             setIsVideoLoaded(false);
-          });
-        }, 1500);
+            setIsPlaying(false);
+          };
+
+          const handleCanPlay = () => {
+            if (!isVideoLoaded) {
+              setIsVideoLoaded(true);
+              setCurrentAudioElement(video);
+              // Try with sound first
+              video.muted = false;
+              video.volume = 0.3;
+              video.play().then(() => {
+                setIsPlaying(true);
+              }).catch(() => {
+                // Fallback to muted
+                video.muted = true;
+                video.play().then(() => {
+                  setIsPlaying(true);
+                }).catch(() => {
+                  setIsVideoLoaded(false);
+                  setIsPlaying(false);
+                });
+              });
+            }
+          };
+
+          const handleEnded = () => {
+            video.currentTime = 0;
+            video.play().catch(() => {
+              setIsVideoLoaded(false);
+              setIsPlaying(false);
+            });
+          };
+
+          // Clean up previous listeners
+          video.removeEventListener('loadeddata', handleLoadedData);
+          video.removeEventListener('error', handleError);
+          video.removeEventListener('canplay', handleCanPlay);
+          video.removeEventListener('ended', handleEnded);
+
+          // Add new listeners
+          video.addEventListener('loadeddata', handleLoadedData);
+          video.addEventListener('error', handleError);
+          video.addEventListener('canplay', handleCanPlay);
+          video.addEventListener('ended', handleEnded);
+
+          // Force reload the video source
+          video.load();
+        }
       };
 
-      const handleError = () => {
-        console.warn('Video loading failed for:', currentMedia.title);
-        setIsVideoLoaded(false);
-        setIsPlaying(false);
-      };
-
-      const handleEnded = () => {
-        // Loop the video seamlessly
-        video.currentTime = 0;
-        video.play().catch(() => {
-          setIsVideoLoaded(false);
-          setIsPlaying(false);
-        });
-      };
-
-      const handleCanPlay = () => {
-        // Preload and prepare for smooth playback
-        video.volume = isMuted ? 0 : 0.3; // Set reasonable volume when unmuted
-      };
-
-      video.addEventListener('loadeddata', handleLoadedData);
-      video.addEventListener('error', handleError);
-      video.addEventListener('ended', handleEnded);
-      video.addEventListener('canplay', handleCanPlay);
-
+      // Load video after a short delay to ensure DOM is ready
+      const timeoutId = setTimeout(loadVideo, 1000);
+      
       return () => {
-        video.removeEventListener('loadeddata', handleLoadedData);
-        video.removeEventListener('error', handleError);
-        video.removeEventListener('ended', handleEnded);
-        video.removeEventListener('canplay', handleCanPlay);
+        clearTimeout(timeoutId);
+        if (videoRef.current) {
+          const video = videoRef.current;
+          video.removeEventListener('loadeddata', () => {});
+          video.removeEventListener('error', () => {});
+          video.removeEventListener('canplay', () => {});
+          video.removeEventListener('ended', () => {});
+        }
       };
     }
   }, [currentMedia, isMuted]);
@@ -204,11 +276,14 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
       style={{ y, opacity }}
     >
       {/* Background with parallax */}
-      <ParallaxSection speed={0.3} className="absolute inset-0">
-        <GradientBackground variant="netflix" animate={true}>
-          {/* Background Image/Video */}
-          <div className="absolute inset-0">
-            {/* Always show background image first */}
+      <ParallaxSection speed={0.5} className="relative">
+        <GradientBackground variant="netflix" className="relative">
+          <div 
+            ref={containerRef}
+            className="relative h-screen w-full overflow-hidden"
+            onMouseEnter={() => setIsMouseOver(true)}
+            onMouseLeave={() => setIsMouseOver(false)}
+          >  {/* Always show background image first */}
             <motion.div
               key={`bg-${currentMedia.id}`}
               className="w-full h-full bg-cover bg-center bg-no-repeat"
@@ -220,39 +295,25 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
               transition={{ duration: 1.5, ease: "easeOut" }}
             />
             
-            {/* Video overlay when loaded */}
-            {isVideoLoaded && isPlaying && (
-              <motion.video
-                ref={videoRef}
-                src={getVideoUrl(currentMedia)}
-                className="absolute inset-0 w-full h-full object-cover"
-                autoPlay
-                muted={isMuted}
-                loop
-                playsInline
-                preload="metadata"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ duration: 0.5 }}
-              />
-            )}
-            
-            {/* Hidden video for preloading */}
-            {!isVideoLoaded && (
-              <video
-                ref={videoRef}
-                src={getVideoUrl(currentMedia)}
-                className="hidden"
-                muted
-                preload="metadata"
-                onLoadedData={() => setIsVideoLoaded(true)}
-                onError={() => setIsVideoLoaded(false)}
-              />
-            )}
+            {/* Video overlay when loaded and playing */}
+            <video
+              ref={videoRef}
+              className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-1000 ${
+                isVideoLoaded && isPlaying ? 'opacity-100' : 'opacity-0'
+              }`}
+              autoPlay
+              muted
+              loop
+              playsInline
+              preload="auto"
+              style={{ zIndex: 1 }}
+            >
+              <source src={getVideoUrl(currentMedia)} type="video/mp4" />
+            </video>
             
             {/* Gradient overlays */}
-            <div className="absolute inset-0 bg-gradient-to-r from-black/80 via-black/40 to-transparent" />
-            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
+            <div className="absolute inset-0 bg-gradient-to-r from-black/80 via-black/40 to-transparent" style={{ zIndex: 2 }} />
+            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" style={{ zIndex: 2 }} />
           </div>
         </GradientBackground>
       </ParallaxSection>
@@ -302,14 +363,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
           transition={{ duration: 0.3 }}
         >
           <MagneticButton
-            onClick={() => {
-              const newMutedState = !isMuted;
-              setIsMuted(newMutedState);
-              if (videoRef.current) {
-                videoRef.current.muted = newMutedState;
-                videoRef.current.volume = newMutedState ? 0 : 0.3;
-              }
-            }}
+            onClick={toggleMute}
             className="bg-black/50 backdrop-blur-md text-white p-3 rounded-full hover:bg-black/70 transition-all duration-300 border border-white/20"
           >
             {isMuted ? <VolumeX className="w-6 h-6" /> : <Volume2 className="w-6 h-6" />}

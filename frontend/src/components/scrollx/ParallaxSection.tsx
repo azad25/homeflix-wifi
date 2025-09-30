@@ -39,7 +39,7 @@ export const ParallaxSection: React.FC<ParallaxSectionProps> = ({
   };
 
   return (
-    <div ref={ref} className={`relative overflow-hidden ${className}`}>
+    <div ref={ref} className={`relative overflow-hidden ${className}`} style={{ position: 'relative' }}>
       <motion.div style={getMotionStyle()}>
         {children}
       </motion.div>

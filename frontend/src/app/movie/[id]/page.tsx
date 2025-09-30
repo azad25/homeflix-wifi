@@ -1,8 +1,8 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowLeft, Play, Plus, Check, Share, Download, Info, Star, Clock, Calendar, Globe, Users, Award, Film, Tv, User, Mic, ChevronDown, ChevronUp } from "lucide-react";
+import { ArrowLeft, Play, Plus, Check, Share, Download, Info, Star, Clock, Calendar, Globe, Users, Award, Film, Tv, User, Mic, ChevronDown, ChevronUp, Volume2, VolumeX } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import Image from 'next/image';
 import { Media } from '../../../types/media';
@@ -34,6 +34,10 @@ export default function MoviePage() {
   const [lastWatched, setLastWatched] = useState<string | null>(null);
   const [showFullDescription, setShowFullDescription] = useState(false);
   const [showMoreInfo, setShowMoreInfo] = useState(false);
+  const [isVideoLoaded, setIsVideoLoaded] = useState(false);
+  const [isVideoPlaying, setIsVideoPlaying] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
     if (params.id) {
@@ -169,6 +173,20 @@ export default function MoviePage() {
     return `${apiUrl}/api/thumbnails/${media.id}`;
   };
 
+  const getBackgroundVideoUrl = (media: Media) => {
+    const apiUrl = getApiUrl();
+    // First try to get the actual media file for full experience
+    if (media.file_path) {
+      return `${apiUrl}/api/stream/${media.id}`;
+    }
+    // Fallback to trailer if available
+    if (media.trailer_path) {
+      return `${apiUrl}/api/admin/assets/${media.trailer_path.split('/').pop()}`;
+    }
+    // Final fallback to preview clips
+    return `${apiUrl}/api/preview-clips/${media.id}`;
+  };
+
   if (loading) {
     return (
       <GradientBackground variant="cosmic" animate={true}>
@@ -207,13 +225,46 @@ export default function MoviePage() {
         {/* Background Image with Parallax */}
         <ParallaxSection speed={0.5}>
           <div className="absolute inset-0">
+            {/* Always show background image first */}
             <Image
               src={getBackgroundImageUrl(media)}
               alt={media.title}
               fill
-              className="object-cover"
+              className={`object-cover transition-opacity duration-1000 ${
+                isVideoLoaded && isVideoPlaying ? 'opacity-0' : 'opacity-100'
+              }`}
               priority
             />
+            
+            {/* Background Video */}
+            <video
+              ref={videoRef}
+              className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-1000 ${
+                isVideoLoaded && isVideoPlaying ? 'opacity-100' : 'opacity-0'
+              }`}
+              autoPlay
+              muted={isMuted}
+              loop
+              playsInline
+              preload="auto"
+              onLoadedData={() => {
+                setIsVideoLoaded(true);
+                if (videoRef.current) {
+                  videoRef.current.volume = 0.4; // Set moderate volume
+                  videoRef.current.play().then(() => {
+                    setIsVideoPlaying(true);
+                  }).catch(() => {
+                    setIsVideoLoaded(false);
+                  });
+                }
+              }}
+              onError={() => {
+                setIsVideoLoaded(false);
+                setIsVideoPlaying(false);
+              }}
+            >
+              <source src={getBackgroundVideoUrl(media)} type="video/mp4" />
+            </video>
           </div>
         </ParallaxSection>
 
@@ -228,6 +279,23 @@ export default function MoviePage() {
           >
             <ArrowLeft className="w-6 h-6" />
           </MagneticButton>
+          
+          {/* Volume Control */}
+          {isVideoLoaded && isVideoPlaying && (
+            <MagneticButton
+              onClick={() => {
+                const newMutedState = !isMuted;
+                setIsMuted(newMutedState);
+                if (videoRef.current) {
+                  videoRef.current.muted = newMutedState;
+                  videoRef.current.volume = newMutedState ? 0 : 0.4;
+                }
+              }}
+              className="bg-black/50 backdrop-blur-md text-white p-3 rounded-full hover:bg-black/70 transition-all duration-300"
+            >
+              {isMuted ? <VolumeX className="w-6 h-6" /> : <Volume2 className="w-6 h-6" />}
+            </MagneticButton>
+          )}
         </div>
 
         {/* Hero Content */}

@@ -83,17 +83,58 @@ export default function SearchPage() {
     try {
       const apiUrl = getApiUrl();
       
-      // Build search URL with filters
-      const params = new URLSearchParams();
-      if (searchQuery.trim()) params.append('q', searchQuery);
-      if (filters.type !== 'all') params.append('type', filters.type);
-      if (filters.genre !== 'all') params.append('genre', filters.genre);
-      if (filters.rating !== 'all') params.append('min_rating', filters.rating);
-      if (filters.year !== 'all') params.append('year', filters.year);
-      if (filters.sortBy !== 'relevance') params.append('sort', filters.sortBy);
+      // Fetch all media and perform client-side filtering
+      const response = await fetch(`${apiUrl}/api/media`);
+      const allMedia = await response.json();
       
-      const response = await fetch(`${apiUrl}/api/search/advanced?${params.toString()}`);
-      const results = await response.json();
+      let results = [...allMedia];
+      
+      // Filter by search query
+      if (searchQuery.trim()) {
+        const query = searchQuery.toLowerCase();
+        results = results.filter(media => 
+          media.title.toLowerCase().includes(query) ||
+          (media.description || '').toLowerCase().includes(query) ||
+          (media.genres || []).some((genre: any) => 
+            genre.name.toLowerCase().includes(query)
+          )
+        );
+      }
+      
+      // Apply filters
+      if (filters.type !== 'all') {
+        results = results.filter(media => media.type === filters.type);
+      }
+      
+      if (filters.genre !== 'all') {
+        results = results.filter(media => 
+          (media.genres || []).some((genre: any) => genre.name === filters.genre)
+        );
+      }
+      
+      if (filters.rating !== 'all') {
+        const minRating = parseFloat(filters.rating);
+        results = results.filter(media => (media.rating || 0) >= minRating);
+      }
+      
+      // Sort results
+      switch (filters.sortBy) {
+        case 'title':
+          results.sort((a, b) => a.title.localeCompare(b.title));
+          break;
+        case 'rating':
+          results.sort((a, b) => (b.rating || 0) - (a.rating || 0));
+          break;
+        case 'year':
+          results.sort((a, b) => b.id - a.id); // Assuming newer IDs = newer content
+          break;
+        case 'popular':
+          results.sort((a, b) => (b.view_count || 0) - (a.view_count || 0));
+          break;
+        default: // relevance
+          // Keep original order for relevance
+          break;
+      }
       
       setSearchResults(results);
       setHasSearched(true);
@@ -137,7 +178,7 @@ export default function SearchPage() {
       <Navbar onSearch={(query: string) => setSearchQuery(query)} />
 
       {/* Main Content with Parallax Background */}
-      <GradientBackground variant="cosmic" animate={true} className="relative">
+      <div className="relative bg-gradient-to-b from-red-900/20 via-black to-black">
         <div className="relative z-10 py-20">
           {/* Search Header */}
           <ParallaxSection speed={0.2}>
@@ -359,7 +400,7 @@ export default function SearchPage() {
             </div>
           </ParallaxSection>
         </div>
-      </GradientBackground>
+      </div>
 
       {/* Video Player Modal */}
       {selectedMedia && (

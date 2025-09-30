@@ -170,7 +170,7 @@ export default function BrowsePage() {
       )}
 
       {/* Main Content with Parallax Background */}
-      <GradientBackground variant="ocean" animate={true} className="relative">
+      <div className="relative bg-gradient-to-b from-red-900/20 via-black to-black">
         <div className="relative z-10 py-20">
           {/* Search and Filter Controls */}
           <ParallaxSection speed={0.2}>
@@ -289,7 +289,7 @@ export default function BrowsePage() {
             </ParallaxSection>
           )}
         </div>
-      </GradientBackground>
+      </div>
 
       {/* Video Player Modal */}
       {selectedMedia && (
