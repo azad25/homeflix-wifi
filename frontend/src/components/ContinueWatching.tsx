@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { motion } from 'framer-motion';
-import { Play, Clock } from 'lucide-react';
+import { Play, Info } from 'lucide-react';
 import { Media } from '@/types/media';
 import { useRecommendations } from '@/contexts/RecommendationContext';
 import { getApiUrl } from '@/lib/api';
@@ -47,79 +47,58 @@ const ContinueWatching: React.FC<ContinueWatchingProps> = ({ onPlay, onInfo }) =
       <h2 className="text-2xl font-bold text-white mb-6">Continue Watching</h2>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
         {continueWatching.map((media, index) => {
-          const progressPercentage = getProgressPercentage(media.id);
-          const progressTime = getProgressTime(media.id);
+          const progressPercentage = getProgressPercentage(media.mediaId);
+          const progressTime = getProgressTime(media.mediaId);
           
           return (
             <motion.div
-              key={media.id}
+              key={media.mediaId}
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.5, delay: index * 0.1 }}
               className="group cursor-pointer"
             >
               <div className="relative">
-                {/* Thumbnail */}
-                <div className="relative aspect-video bg-gray-800 rounded-lg overflow-hidden">
-                  <img
-                    src={`${getApiUrl()}/api/thumbnail/${media.id}`}
-                    alt={cleanMovieTitle(media.title)}
-                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                    onError={(e) => {
-                      e.currentTarget.src = '/placeholder-thumbnail.jpg';
-                    }}
-                  />
-                  
-                  {/* Progress Bar */}
-                  <div className="absolute bottom-0 left-0 right-0 h-1 bg-gray-600">
+                <img
+                  src={`${getApiUrl()}/api/thumbnail/${media.mediaId}`}
+                  alt={media.title}
+                  className="w-full aspect-video object-cover rounded-lg group-hover:scale-105 transition-transform duration-300"
+                  onError={(e) => {
+                    e.currentTarget.src = '/placeholder-thumbnail.jpg';
+                  }}
+                />
+                
+                {/* Progress Bar */}
+                <div className="absolute bottom-0 left-0 right-0 bg-gray-900/80 p-3 rounded-b-lg">
+                  <div className="flex items-center justify-between mb-2">
+                    <h3 className="text-white font-semibold text-sm truncate">{media.title}</h3>
+                    <span className="text-gray-300 text-xs">{formatTime(progressTime)}</span>
+                  </div>
+                  <div className="w-full bg-gray-700 rounded-full h-1">
                     <div 
-                      className="h-full bg-red-600 transition-all duration-300"
+                      className="bg-red-600 h-1 rounded-full transition-all duration-300" 
                       style={{ width: `${progressPercentage}%` }}
                     />
                   </div>
-                  
-                  {/* Play Button Overlay */}
-                  <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center">
-                    <motion.button
-                      whileHover={{ scale: 1.1 }}
-                      whileTap={{ scale: 0.95 }}
-                      onClick={() => onPlay(media, progressTime)}
-                      className="bg-white/90 text-black rounded-full p-3 hover:bg-white transition-colors"
-                    >
-                      <Play className="w-6 h-6 ml-1" />
-                    </motion.button>
-                  </div>
                 </div>
-                
-                {/* Media Info */}
-                <div className="mt-3">
-                  <h3 
-                    className="text-white font-medium text-sm mb-1 line-clamp-2 cursor-pointer hover:text-gray-300 transition-colors"
-                    onClick={() => onInfo(media)}
+
+                {/* Play Button Overlay */}
+                <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300 bg-black/50 rounded-lg">
+                  <button
+                    onClick={() => onPlay({ ...media, id: media.mediaId } as Media)}
+                    className="bg-white/20 backdrop-blur-sm text-white p-3 rounded-full hover:bg-white/30 transition-colors duration-200"
                   >
-                    {cleanMovieTitle(media.title)}
-                  </h3>
-                  
-                  <div className="flex items-center gap-2 text-xs text-gray-400">
-                    <Clock className="w-3 h-3" />
-                    <span>{formatTime(progressTime)} watched</span>
-                    <span>•</span>
-                    <span>{Math.round(progressPercentage)}% complete</span>
-                  </div>
-                  
-                  {media.genres && media.genres.length > 0 && (
-                    <div className="flex flex-wrap gap-1 mt-2">
-                      {media.genres.slice(0, 2).map((genre) => (
-                        <span
-                          key={genre.name}
-                          className="text-xs bg-gray-700 text-gray-300 px-2 py-1 rounded"
-                        >
-                          {genre.name}
-                        </span>
-                      ))}
-                    </div>
-                  )}
+                    <Play className="w-6 h-6 fill-current" />
+                  </button>
                 </div>
+
+                {/* More Info Button */}
+                <button
+                  onClick={() => onInfo({ ...media, id: media.mediaId } as Media)}
+                  className="absolute top-2 right-2 bg-black/50 backdrop-blur-sm text-white p-2 rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-300 hover:bg-black/70"
+                >
+                  <Info className="w-4 h-4" />
+                </button>
               </div>
             </motion.div>
           );

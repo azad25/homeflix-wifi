@@ -9,7 +9,9 @@ export type RecommendationCategory =
   | 'recent'
   | 'interaction'
   | 'info_click'
-  | 'unknown';
+  | 'unknown'
+  | 'trending'
+  | 'because_you_watched';
 
 export interface RecommendationBase {
   _score: number;
@@ -27,8 +29,8 @@ export interface ScoredMedia extends Omit<Media, 'id'>, RecommendationBase {
 
 export interface RecommendationResponse {
   items: ScoredMedia[];
-  type: RecommendationCategory;
-  timestamp: number;
+  category: RecommendationCategory;
+  total: number;
 }
 
 export interface RecommendationSectionProps {

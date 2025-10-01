@@ -79,6 +79,12 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		api.GET("/celery/queues/status", celeryHandlers.GetQueueStatus)
 		api.GET("/celery/queues/:queue/length", celeryHandlers.GetQueueLength)
 		api.DELETE("/celery/queues/:queue/purge", celeryHandlers.PurgeQueue)
+		
+		// Recommendation endpoints
+		api.GET("/recommendations", handlers.GetRecommendations(recommendationService))
+		api.GET("/recommendations/similar/:id", handlers.GetSimilarMediaHandler(recommendationService))
+		api.GET("/recommendations/continue-watching", handlers.GetContinueWatchingHandler(recommendationService))
+		api.POST("/recommendations/track-click", handlers.TrackRecommendationClickHandler(recommendationService))
 	}
 	api.PUT("/admin/media/:id/metadata", handlers.UpdateMediaMetadata(mediaService))
 }

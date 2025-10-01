@@ -125,7 +125,24 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
     if (isPlaying) {
       video.pause();
     } else {
-      video.play();
+      // Enhanced play for Safari
+      const ua = navigator.userAgent;
+      const isSafari = /^((?!chrome|android).)*safari/i.test(ua) || /iPhone|iPad|iPod/i.test(ua);
+      
+      if (isSafari) {
+        video.load(); // Force reload for Safari
+        setTimeout(() => {
+          video.play().catch((error) => {
+            console.log('VideoPlayer Safari play error:', error);
+            // Fallback: try muted play
+            video.muted = true;
+            setIsMuted(true);
+            video.play().catch(console.error);
+          });
+        }, 100);
+      } else {
+        video.play().catch(console.error);
+      }
     }
   };
 
@@ -272,6 +289,22 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
         video.currentTime = startTime;
         setCurrentTime(startTime);
       }
+      
+      // Safari-specific initialization
+      const ua = navigator.userAgent;
+      const isSafari = /^((?!chrome|android).)*safari/i.test(ua) || /iPhone|iPad|iPod/i.test(ua);
+      
+      if (isSafari) {
+        // Ensure proper video setup for Safari
+        video.load();
+        setTimeout(() => {
+          if (!isPlaying) {
+            video.play().catch((error) => {
+              console.log('VideoPlayer Safari metadata play error:', error);
+            });
+          }
+        }, 200);
+      }
     };
 
     const handleTimeUpdate = () => {
@@ -378,16 +411,67 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
           autoPlay
           controls={false}
           playsInline
+          webkit-playsinline="true"
+          disablePictureInPicture
+          disableRemotePlayback
           onPause={() => setIsPlaying(false)}
           onEnded={() => setIsPlaying(false)}
           onError={(e) => {
-            console.error('Video error:', e);
-            console.log('Video src:', getStreamUrl(media.id));
+            console.error('VideoPlayer: Video error:', e);
+            console.log('VideoPlayer: Video src:', getStreamUrl(media.id));
+            // Try to reload on error
+            const video = videoRef.current;
+            if (video) {
+              setTimeout(() => {
+                video.load();
+                video.play().catch(console.error);
+              }, 1000);
+            }
           }}
-          onLoadStart={() => console.log('Video loading started')}
-          onCanPlay={() => console.log('Video can play')}
+          onLoadStart={() => console.log('VideoPlayer: Video loading started')}
+          onCanPlay={() => {
+            console.log('VideoPlayer: Video can play');
+            const video = videoRef.current;
+            if (!video) return;
+            
+            // Browser detection for Safari
+            const ua = navigator.userAgent;
+            const isSafari = /^((?!chrome|android).)*safari/i.test(ua) || /iPhone|iPad|iPod/i.test(ua);
+            const isMac = /Macintosh|MacIntel|MacPPC|Mac68K/i.test(ua);
+            
+            if (isSafari || isMac) {
+              // Safari-specific handling
+              video.muted = false; // VideoPlayer can start unmuted since it's user-initiated
+              video.volume = volume;
+              video.play().catch((error) => {
+                console.log('VideoPlayer Safari: Unmuted play failed, trying muted:', error);
+                video.muted = true;
+                setIsMuted(true);
+                video.play().catch(console.error);
+              });
+            } else {
+              // Other browsers
+              video.muted = isMuted;
+              video.volume = volume;
+              video.play().catch(console.error);
+            }
+          }}
+          onStalled={() => {
+            console.log('VideoPlayer: Video stalled, attempting recovery');
+            const video = videoRef.current;
+            if (video) {
+              video.load();
+            }
+          }}
+          onSuspend={() => {
+            console.log('VideoPlayer: Video suspended, attempting recovery');
+            const video = videoRef.current;
+            if (video) {
+              setTimeout(() => video.load(), 500);
+            }
+          }}
           preload="metadata"
-          muted={false}
+          muted={isMuted}
         />
 
 

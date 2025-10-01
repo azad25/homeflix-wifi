@@ -20,36 +20,44 @@ const handleResponse = async <T>(response: Response): Promise<T> => {
 const RECOMMENDATION_ENDPOINT = `${getApiUrl()}/api/recommendations`;
 
 /**
- * Fetch recommendations for a user
- * @param userId - The user ID
- * @param type - The type of recommendations to fetch
- * @param limit - Maximum number of recommendations to return (default: 20)
+ * Fetch personalized recommendations for a user
  */
 export async function fetchRecommendations(
   userId: string,
-  type: RecommendationCategory,
+  category: RecommendationCategory = 'for_you',
   limit: number = 20
 ): Promise<RecommendationResponse> {
-  const url = new URL(RECOMMENDATION_ENDPOINT);
-  url.searchParams.append('userId', userId);
-  url.searchParams.append('type', type);
-  url.searchParams.append('limit', limit.toString());
-
   try {
-    const response = await fetch(url.toString(), {
-      headers: {
-        'Content-Type': 'application/json',
-        'Cache-Control': 'no-cache',
-      },
-    });
+    const apiUrl = getApiUrl();
+    const response = await fetch(
+      `${apiUrl}/api/recommendations?user_id=${userId}&category=${category}&limit=${limit}`,
+      {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      }
+    );
 
-    return handleResponse<RecommendationResponse>(response);
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const data = await response.json();
+    
+    // Ensure the response has the expected structure
+    return {
+      items: data.items || [],
+      category: data.category || category,
+      total: data.total || 0,
+    };
   } catch (error) {
-    console.error(`Error fetching ${type} recommendations:`, error);
+    console.error('Error fetching recommendations:', error);
+    // Return empty response on error
     return {
       items: [],
-      type,
-      timestamp: Date.now(),
+      category: 'continue_watching',
+      total: 0,
     };
   }
 }
@@ -118,8 +126,8 @@ export async function getSimilarMedia(
     console.error('Error fetching similar media:', error);
     return {
       items: [],
-      type: 'similar',
-      timestamp: Date.now(),
+      category: 'similar',
+      total: 0,
     };
   }
 }

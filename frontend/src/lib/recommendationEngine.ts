@@ -1,5 +1,7 @@
 import { Media } from '@/types/media';
-import { ScoredMedia } from '@/types/recommendation';
+import type { ScoredMedia as BaseScoredMedia, RecommendationCategory } from '@/types/recommendation';
+
+type ScoredMedia = BaseScoredMedia; // Local alias to avoid naming conflicts
 
 export interface UserPreferences {
   favoriteGenres: string[];
@@ -45,14 +47,16 @@ export interface MediaRelationship {
   strength: number; // 0-1, how strong the relationship is
 }
 
-// Re-export ScoredMedia from recommendation types
-export { ScoredMedia } from '@/types/recommendation';
+// Export types
+export type { RecommendationCategory };
 
-export interface RecommendationScore extends Omit<ScoredMedia, 'mediaId'> {
+export interface RecommendationScore extends Omit<ScoredMedia, 'mediaId' | '_category'> {
   mediaId: number;
   reasons: string[];
-  _category?: 'trending' | 'continue_watching' | 'for_you' | 'new_releases' | 'similar' | 'popular' | 'recent';
+  _category: RecommendationCategory;
 }
+
+export type { ScoredMedia };
 
 export class RecommendationEngine {
   userPreferences: UserPreferences;
@@ -204,7 +208,7 @@ export class RecommendationEngine {
   private scoreMedia(media: Media): ScoredMedia {
     let score = 0;
     const reasons: string[] = [];
-    let category: RecommendationScore['category'] = 'for_you';
+    let category: RecommendationScore['_category'] = 'for_you';
     
     // 1. Check for in-progress content (highest priority)
     const progress = this.userPreferences.playbackProgress.find(p => p.mediaId === media.id);
@@ -468,11 +472,11 @@ export class RecommendationEngine {
 // Utility functions for recommendation categories
 export const getRecommendationCategories = (recommendations: RecommendationScore[]) => {
   const categories = {
-    continue_watching: recommendations.filter(r => r.category === 'continue_watching'),
-    trending: recommendations.filter(r => r.category === 'trending'),
-    for_you: recommendations.filter(r => r.category === 'for_you'),
-    because_you_watched: recommendations.filter(r => r.category === 'because_you_watched'),
-    new_releases: recommendations.filter(r => r.category === 'new_releases')
+    continue_watching: recommendations.filter(r => r._category === 'continue_watching'),
+    trending: recommendations.filter(r => r._category === 'trending'),
+    for_you: recommendations.filter(r => r._category === 'for_you'),
+    because_you_watched: recommendations.filter(r => r._category === 'because_you_watched'),
+    new_releases: recommendations.filter(r => r._category === 'new_releases')
   };
   
   return categories;

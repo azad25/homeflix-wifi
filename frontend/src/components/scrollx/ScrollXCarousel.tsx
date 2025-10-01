@@ -31,6 +31,12 @@ const ScrollXCarousel: React.FC<ScrollXCarouselProps> = ({
   const [canScrollRight, setCanScrollRight] = useState(true);
   const [isHovered, setIsHovered] = useState(false);
   const [isCardHovered, setIsCardHovered] = useState(false);
+  const [isClient, setIsClient] = useState(false);
+
+  // Ensure client-side rendering for Framer Motion
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
 
   const { scrollYProgress } = useScroll({
     target: containerRef,
@@ -74,6 +80,29 @@ const ScrollXCarousel: React.FC<ScrollXCarouselProps> = ({
   }, [media]);
 
   if (!media || media.length === 0) return null;
+
+  if (!isClient) {
+    return (
+      <div className="relative mb-16">
+        <div className="text-2xl md:text-3xl font-bold text-white mb-6 px-4 md:px-12 bg-gradient-to-r from-white to-gray-300 bg-clip-text text-transparent">
+          {title}
+        </div>
+        <div className="flex gap-4 overflow-x-auto scrollbar-hide px-4 md:px-12 pb-4">
+          {media.slice(0, 6).map((mediaItem, index) => (
+            <div key={mediaItem.id} className="flex-shrink-0" style={{ width: `${itemWidth}px` }}>
+              <ScrollXMediaCard
+                media={mediaItem}
+                onPlay={onPlay}
+                onInfo={onInfo}
+                priority={priority && index < 4}
+                variant={variant}
+              />
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <motion.div 

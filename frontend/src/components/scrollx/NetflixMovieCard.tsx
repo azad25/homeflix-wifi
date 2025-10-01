@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Play, Info, Plus, Check, ChevronDown, Volume2, VolumeX, Clock, Star, ThumbsUp } from 'lucide-react';
+import { Play, Plus, Clock, VolumeX, Volume2, Star, ThumbsUp, ChevronDown } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import Image from 'next/image';
 import { Media } from '@/types/media';
@@ -24,7 +24,6 @@ interface NetflixMovieCardProps {
 const NetflixMovieCard: React.FC<NetflixMovieCardProps> = ({
   media,
   onPlay,
-  onInfo,
   priority = false,
   delay = 0,
   variant = 'portrait',
@@ -35,10 +34,10 @@ const NetflixMovieCard: React.FC<NetflixMovieCardProps> = ({
   const [isVideoLoaded, setIsVideoLoaded] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
-  const [showControls, setShowControls] = useState(true);
-  const [isPlayButtonLoading, setIsPlayButtonLoading] = useState(false);
-  const [isInfoButtonLoading, setIsInfoButtonLoading] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
+  const [, setShowControls] = useState(false);
+  const [, setIsPlayButtonLoading] = useState(false);
+  const [, setIsInfoButtonLoading] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [imageError, setImageError] = useState(false);
   const [fallbackError, setFallbackError] = useState(false);

@@ -1,8 +1,8 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from 'react';
-import { motion, useScroll, useTransform, useSpring } from 'framer-motion';
-import { Play, Info, ChevronLeft, ChevronRight, Volume2, VolumeX, Film, Tv } from 'lucide-react';
+import { motion, useScroll, useTransform } from 'framer-motion';
+import { Play, Info, ChevronLeft, ChevronRight, Film, Tv, Volume2, VolumeX } from 'lucide-react';
 import { Media } from '@/types/media';
 import { getApiUrl } from '@/lib/api';
 import { MagneticButton, GradientBackground, ParallaxSection, ParticleField, ScrollReveal } from './index';
@@ -24,16 +24,18 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
 }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isAutoPlaying, setIsAutoPlaying] = useState(true);
-  const [isMuted, setIsMuted] = useState(false); // Always start with ALAC audio enabled
+  const [isMuted, setIsMuted] = useState(true);
   const [isVideoLoaded, setIsVideoLoaded] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [showControls, setShowControls] = useState(true);
-  const [isPlayButtonLoading, setIsPlayButtonLoading] = useState(false);
-  const [isInfoButtonLoading, setIsInfoButtonLoading] = useState(false);
-  const [isMouseOver, setIsMouseOver] = useState(false);
+  const [, setIsPlayButtonLoading] = useState(false);
+  const [, setIsInfoButtonLoading] = useState(false);
+  const [, setIsMouseOver] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const safariStallTimerRef = useRef<NodeJS.Timeout | null>(null);
+  
   const { 
     setCurrentAudioElement, 
     muteAll, 
@@ -47,6 +49,13 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
     target: containerRef,
     offset: ["start start", "end start"]
   });
+
+  // Browser detection at component level
+  const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
+  const isSafari = /^((?!chrome|android).)*safari/i.test(ua) || /iPhone|iPad|iPod/i.test(ua);
+  const isChrome = /chrome/i.test(ua) && !/edg/i.test(ua);
+  const isFirefox = /firefox/i.test(ua);
+  const isMobile = /iPhone|iPad|iPod|Android/i.test(ua);
 
   const y = useTransform(scrollYProgress, [0, 1], [0, -200]);
   const opacity = useTransform(scrollYProgress, [0, 0.5], [1, 0]);
@@ -130,26 +139,20 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
 
   const toggleMute = () => {
     if (videoRef.current) {
-      const newMutedState = !isMuted;
-      setIsMuted(newMutedState);
-      if (newMutedState) {
-        // Mute this video and remove from audio context
-        videoRef.current.muted = true;
-        videoRef.current.volume = 0;
-        setCurrentAudioElement(null);
-      } else {
-        // Unmute this video and set as current audio source with ALAC
-        muteAll(); // Mute any other playing audio first
-        videoRef.current.muted = false;
-        videoRef.current.volume = spatialAudioEnabled ? 0.8 : 0.6; // Higher volume for ALAC quality
-        setCurrentAudioElement(videoRef.current);
-        
-        // Initialize ALAC processing if available
-        if (isALACEnabled && alacEngine) {
-          initializeEnhancedAudio().then(() => {
-            console.log('ALAC audio enabled for hero video');
-          });
-        }
+      // Force unmuted state - video should always play with full sound
+      videoRef.current.muted = false;
+      videoRef.current.volume = 1.0; // Always full volume for ALAC quality
+      setIsMuted(false);
+      
+      // Mute any other playing audio first
+      muteAll();
+      setCurrentAudioElement(videoRef.current);
+      
+      // Initialize ALAC processing if available
+      if (isALACEnabled && alacEngine) {
+        initializeEnhancedAudio().then(() => {
+          console.log('ALAC audio enabled for hero video');
+        });
       }
     }
   };
@@ -221,243 +224,385 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
     return () => clearInterval(interval);
   }, [isAutoPlaying, featuredMedia.length, currentIndex, isVideoLoaded, isPlaying]);
 
-  // Enhanced video loading and playback with better error handling
+  // Universal video loading with audio support for all browsers
   useEffect(() => {
-    if (currentMedia) {
-      // Reset video states when media changes
-      setIsVideoLoaded(false);
-      setIsPlaying(false);
+    if (!currentMedia) return;
+    
+    const video = videoRef.current;
+    if (!video) return;
+    
+    console.log('ScrollXHero: Loading video for media:', currentMedia.title);
+    
+    // Reset states
+    setIsVideoLoaded(false);
+    setIsPlaying(false);
+    setIsMuted(true);
+    
+    const videoUrl = getVideoUrl(currentMedia);
+    console.log('ScrollXHero: Video URL:', videoUrl);
+    
+    if (!videoUrl) {
+      console.log('ScrollXHero: No video URL available, using background image only');
+      return;
+    }
+    
+    console.log('ScrollXHero: Browser detection', { isSafari, isChrome, isFirefox, isMobile });
+    
+    let hasTriedPlay = false;
+    let audioEnabled = false;
+    let safariStallTimer: NodeJS.Timeout | null = null;
+    let safariRecoveryCount = 0;
+    const maxSafariRecovery = 3;
+    
+    // Universal stall detection and recovery for all browsers
+    const handleSafariStall = () => {
+      // Clear any existing timer
+      if (safariStallTimer) {
+        clearTimeout(safariStallTimer);
+      }
       
-      // Try to load video after a short delay
-      const loadVideo = async () => {
-        if (videoRef.current) {
-          const video = videoRef.current;
+      safariStallTimer = setTimeout(() => {
+        if (video && (video.readyState < 3 || video.paused) && safariRecoveryCount < maxSafariRecovery) {
+          console.log('ScrollXHero: Video stalled, attempting recovery');
           
-          const handleLoadedData = () => {
-            console.log('Hero video loaded successfully');
-            setIsVideoLoaded(true);
-            // Register this video as the current audio source
-            setCurrentAudioElement(video);
-            
-            // Start video playback with ALAC audio codec - ALWAYS FULL SOUND
-            video.currentTime = 0;
-            video.volume = 1.0; // Maximum volume for full sound experience
-            video.muted = false; // Always start with audio enabled
-            setIsMuted(false); // Update state to reflect unmuted status
-            
-            // Set audio codec preference for ALAC
-            const alacSupport = video.canPlayType('video/mp4; codecs="avc1.42E01E, alac"');
-            console.log('ALAC codec support in hero:', alacSupport);
-            
-            // Enhanced audio setup for ALAC with aggressive unmuting
-            const playWithHighQualityAudio = async () => {
-              try {
-                // Try to enable high quality audio first
-                if (isALACEnabled && alacEngine) {
-                  await initializeEnhancedAudio();
-                  console.log('Enhanced ALAC audio initialized for hero video');
-                }
-                
-                // Set optimal audio properties for full sound
-                video.volume = 1.0; // Always maximum volume
-                video.muted = false;
-                
-                // Multiple strategies to ensure audio plays
-                const audioStrategies = [
-                  // Strategy 1: Direct unmuted play
-                  async () => {
-                    video.muted = false;
-                    video.volume = 1.0;
-                    await video.play();
-                    console.log('Hero video playing with full sound (direct)');
-                    return true;
-                  },
-                  // Strategy 2: Muted start then immediate unmute
-                  async () => {
-                    video.muted = true;
-                    await video.play();
-                    // Immediately unmute after play starts
-                    setTimeout(() => {
-                      video.muted = false;
-                      video.volume = 1.0;
-                      setIsMuted(false);
-                      console.log('Hero video unmuted after play start');
-                    }, 100);
-                    return true;
-                  },
-                  // Strategy 3: User interaction trigger with immediate response
-                  async () => {
-                    video.muted = true;
-                    await video.play();
-                    
-                    // Immediate unmute on ANY user interaction
-                    const enableFullAudio = () => {
-                      video.muted = false;
-                      video.volume = 1.0;
-                      setIsMuted(false);
-                      console.log('Hero full audio enabled via user interaction');
-                    };
-                    
-                    // Listen for multiple interaction types
-                    ['click', 'touchstart', 'keydown', 'scroll', 'mousemove', 'mouseenter'].forEach(event => {
-                      document.addEventListener(event, enableFullAudio, { once: true });
-                    });
-                    
-                    // Also try to unmute after a short delay
-                    setTimeout(enableFullAudio, 500);
-                    return true;
-                  }
-                ];
-                
-                // Execute strategies in order until one succeeds
-                for (const strategy of audioStrategies) {
-                  try {
-                    await strategy();
-                    setIsPlaying(true);
-                    break; // Success, exit loop
-                  } catch (error) {
-                    console.warn('Audio strategy failed, trying next:', error);
-                    continue;
-                  }
-                }
-              } catch (error) {
-                console.warn('Hero video autoplay with ALAC audio failed:', error);
-                
-                // Try with user interaction
-                const enableAudioButton = document.createElement('button');
-                enableAudioButton.style.position = 'fixed';
-                enableAudioButton.style.top = '20px';
-                enableAudioButton.style.right = '20px';
-                enableAudioButton.style.zIndex = '9999';
-                enableAudioButton.style.padding = '8px 16px';
-                enableAudioButton.style.backgroundColor = 'rgba(229, 9, 20, 0.9)';
-                enableAudioButton.style.color = 'white';
-                enableAudioButton.style.border = 'none';
-                enableAudioButton.style.borderRadius = '4px';
-                enableAudioButton.style.cursor = 'pointer';
-                enableAudioButton.style.fontSize = '14px';
-                enableAudioButton.textContent = '🔊 Enable Audio';
-                
-                enableAudioButton.onclick = async () => {
-                  try {
-                    video.muted = false;
-                    video.volume = 0.9;
-                    await video.play();
-                    setIsPlaying(true);
-                    document.body.removeChild(enableAudioButton);
-                    console.log('Hero audio enabled successfully with ALAC');
-                  } catch (err) {
-                    console.log('Final fallback to muted hero video:', err);
-                    video.muted = true;
-                    await video.play();
-                    setIsPlaying(true);
-                    document.body.removeChild(enableAudioButton);
-                  }
-                };
-                
-                document.body.appendChild(enableAudioButton);
-                
-                // Also try muted playback as immediate fallback
-                video.muted = true;
-                video.play().then(() => {
-                  setIsPlaying(true);
+          safariRecoveryCount++;
+          
+          // Force video restart
+          video.currentTime = 0;
+          video.load();
+          
+          setTimeout(async () => {
+            try {
+              await video.play();
+              console.log('ScrollXHero: Stall recovery successful');
+              setIsVideoLoaded(true);
+              setIsPlaying(true);
+              
+              // Continue monitoring
+              handleSafariStall();
+            } catch (e) {
+              console.log('ScrollXHero: Stall recovery failed:', e);
+              if (safariRecoveryCount < maxSafariRecovery) {
+                handleSafariStall(); // Try again
+              }
+            }
+          }, 500);
+        } else if (video && !video.paused && video.readyState >= 3) {
+          // Video is playing fine, continue monitoring
+          handleSafariStall();
+        }
+      }, 3000); // Check every 3 seconds
+    };
+    
+    const clearSafariStallTimer = () => {
+      if (safariStallTimer) {
+        clearTimeout(safariStallTimer);
+        safariStallTimer = null;
+      }
+    };
+    
+    // Universal audio enabler
+    const enableAudio = () => {
+      if (video && !audioEnabled && !video.paused) {
+        try {
+          video.muted = false;
+          video.volume = 1.0;
+          setIsMuted(false);
+          audioEnabled = true;
+          console.log('ScrollXHero: Audio enabled via user interaction');
+          
+          // Initialize ALAC audio if available
+          if (isALACEnabled && alacEngine) {
+            initializeEnhancedAudio().then(() => {
+              console.log('ScrollXHero: ALAC audio initialized');
+            }).catch(() => {
+              console.log('ScrollXHero: ALAC fallback to standard audio');
+            });
+          }
+        } catch (error) {
+          console.log('ScrollXHero: Audio enable failed:', error);
+        }
+      }
+    };
+    
+    // Safari-specific video play handler
+    const safariPlayVideo = async () => {
+      if (isSafari && !hasTriedPlay) {
+        try {
+          console.log('ScrollXHero: Safari attempting video play via user interaction');
+          video.muted = true;
+          video.volume = 1.0;
+          video.currentTime = 0;
+          
+          await video.play();
+          console.log('ScrollXHero: Safari video started via interaction');
+          
+          setIsVideoLoaded(true);
+          setIsPlaying(true);
+          setIsMuted(true);
+          setCurrentAudioElement(video);
+          hasTriedPlay = true;
+          
+          // Start monitoring
+          handleSafariStall();
+          
+          // Enable audio after video starts
+          setTimeout(() => {
+            if (!audioEnabled && !video.paused) {
+              video.muted = false;
+              setIsMuted(false);
+              audioEnabled = true;
+              console.log('ScrollXHero: Safari audio enabled after interaction');
+            }
+          }, 500);
+          
+        } catch (error) {
+          console.log('ScrollXHero: Safari interaction play failed:', error);
+        }
+      }
+    };
+    
+    // Add universal interaction listeners for audio and Safari video
+    const interactionEvents = ['click', 'touchstart', 'keydown', 'mousemove', 'scroll'];
+    interactionEvents.forEach(event => {
+      document.addEventListener(event, () => {
+        enableAudio();
+        safariPlayVideo();
+      }, { once: true, passive: true });
+    });
+    
+    const handleCanPlay = async () => {
+      if (hasTriedPlay) return;
+      
+      console.log('ScrollXHero: Video can play, attempting playback');
+      
+      // Safari requires user interaction - don't auto-play
+      if (isSafari) {
+        console.log('ScrollXHero: Safari detected - waiting for user interaction');
+        
+        // Set up video but don't play
+        video.muted = true;
+        video.volume = 1.0;
+        video.currentTime = 0;
+        video.playbackRate = 1.0;
+        video.setAttribute('webkit-playsinline', 'true');
+        video.setAttribute('playsinline', 'true');
+        
+        // Show background image until user interacts
+        setIsVideoLoaded(false);
+        setIsPlaying(false);
+        return;
+      }
+      
+      // Non-Safari browsers can auto-play
+      hasTriedPlay = true;
+      
+      try {
+        // Reset video state
+        video.muted = true;
+        video.volume = 1.0;
+        video.currentTime = 0;
+        video.playbackRate = 1.0;
+        
+        // Set required attributes
+        video.setAttribute('webkit-playsinline', 'true');
+        video.setAttribute('playsinline', 'true');
+        
+        // Start playback
+        const playPromise = video.play();
+        await playPromise;
+        
+        console.log('ScrollXHero: Video playing successfully');
+        
+        setIsVideoLoaded(true);
+        setIsPlaying(true);
+        setIsMuted(true);
+        setCurrentAudioElement(video);
+        
+        // Start monitoring
+        handleSafariStall();
+        
+        // Enable audio after short delay
+        setTimeout(() => {
+          if (!audioEnabled && !video.paused) {
+            try {
+              video.muted = false;
+              setIsMuted(false);
+              audioEnabled = true;
+              console.log('ScrollXHero: Audio enabled automatically');
+              
+              if (isALACEnabled && alacEngine) {
+                initializeEnhancedAudio().then(() => {
+                  console.log('ScrollXHero: ALAC audio initialized');
                 }).catch(() => {
-                  setIsVideoLoaded(false);
-                  setIsPlaying(false);
+                  console.log('ScrollXHero: ALAC fallback to standard audio');
                 });
               }
-            };
-            
-            playWithHighQualityAudio();
-          };
-
-          const handleError = (e: Event) => {
-            console.warn('Video loading failed for:', currentMedia.title, e);
-            setIsVideoLoaded(false);
-            setIsPlaying(false);
-          };
-
-          const handleCanPlay = () => {
-            if (!isVideoLoaded) {
-              setIsVideoLoaded(true);
-              setCurrentAudioElement(video);
-              // Try with ALAC audio first - always start with audio enabled
-              video.muted = false;
-              video.volume = 0.8; // Higher volume for ALAC quality
-              
-              // Check for ALAC codec support
-              const alacSupport = video.canPlayType('video/mp4; codecs="avc1.42E01E, alac"');
-              console.log('ALAC codec support in canPlay:', alacSupport);
-              
-              // Enhanced audio playback
-              const attemptHighQualityPlayback = async () => {
-                try {
-                  // Initialize enhanced audio processing first
-                  if (isALACEnabled && alacEngine) {
-                    await initializeEnhancedAudio();
-                    video.volume = spatialAudioEnabled ? 0.9 : 0.8;
-                  }
-                  
-                  await video.play();
-                  setIsPlaying(true);
-                  console.log('Hero video canPlay with ALAC audio successful');
-                } catch (error) {
-                  console.log('Hero video canPlay with audio failed:', error);
-                  // Fallback to muted
-                  video.muted = true;
-                  video.play().then(() => {
-                    setIsPlaying(true);
-                  }).catch(() => {
-                    setIsVideoLoaded(false);
-                    setIsPlaying(false);
-                  });
-                }
-              };
-              
-              attemptHighQualityPlayback();
+            } catch (error) {
+              console.log('ScrollXHero: Audio enable failed:', error);
             }
-          };
-
-          const handleEnded = () => {
+          }
+        }, 100);
+        
+      } catch (playError) {
+        console.error('ScrollXHero: Video play failed:', playError);
+        
+        if (isSafari && safariRecoveryCount < maxSafariRecovery) {
+          safariRecoveryCount++;
+          console.log(`ScrollXHero: Safari retry ${safariRecoveryCount}/${maxSafariRecovery}`);
+          
+          setTimeout(() => {
             video.currentTime = 0;
-            video.play().catch(() => {
-              setIsVideoLoaded(false);
-              setIsPlaying(false);
-            });
-          };
-
-          // Clean up previous listeners
-          video.removeEventListener('loadeddata', handleLoadedData);
-          video.removeEventListener('error', handleError);
-          video.removeEventListener('canplay', handleCanPlay);
-          video.removeEventListener('ended', handleEnded);
-
-          // Add new listeners
-          video.addEventListener('loadeddata', handleLoadedData);
-          video.addEventListener('error', handleError);
-          video.addEventListener('canplay', handleCanPlay);
-          video.addEventListener('ended', handleEnded);
-
-          // Force reload the video source
-          video.load();
+            video.load();
+            
+            setTimeout(async () => {
+              try {
+                await video.play();
+                console.log('ScrollXHero: Safari retry successful');
+                setIsVideoLoaded(true);
+                setIsPlaying(true);
+                setIsMuted(true);
+                setCurrentAudioElement(video);
+                handleSafariStall();
+              } catch (retryError) {
+                console.log('ScrollXHero: Safari retry failed');
+              }
+            }, 500);
+          }, 200);
+        } else {
+          console.log('ScrollXHero: Video requires user interaction');
+          setIsVideoLoaded(false);
+          setIsPlaying(false);
         }
-      };
-
-      // Load video after a short delay to ensure DOM is ready
-      const timeoutId = setTimeout(loadVideo, 1000);
+      }
+    };
+    
+    const handleError = (e: Event) => {
+      console.error('ScrollXHero: Video error:', e);
+      clearSafariStallTimer();
       
-      return () => {
-        clearTimeout(timeoutId);
-        if (videoRef.current) {
-          const video = videoRef.current;
-          video.removeEventListener('loadeddata', () => {});
-          video.removeEventListener('error', () => {});
-          video.removeEventListener('canplay', () => {});
-          video.removeEventListener('ended', () => {});
+      if (isSafari && safariRecoveryCount < maxSafariRecovery) {
+        safariRecoveryCount++;
+        console.log(`ScrollXHero: Safari error recovery attempt ${safariRecoveryCount}`);
+        
+        setTimeout(() => {
+          video.load();
+          setTimeout(() => {
+            video.play().catch(err => {
+              console.log('ScrollXHero: Safari error recovery failed:', err);
+              if (safariRecoveryCount >= maxSafariRecovery) {
+                setIsVideoLoaded(false);
+                setIsPlaying(false);
+              }
+            });
+          }, 1000);
+        }, 2000);
+      } else {
+        setIsVideoLoaded(false);
+        setIsPlaying(false);
+      }
+    };
+    
+    const handleStalled = () => {
+      console.log('ScrollXHero: Video stalled event detected');
+      clearSafariStallTimer();
+      
+      if (safariRecoveryCount < maxSafariRecovery) {
+        safariRecoveryCount++;
+        console.log(`ScrollXHero: Stall recovery attempt ${safariRecoveryCount}`);
+        
+        setTimeout(() => {
+          video.currentTime = 0;
+          video.load();
+          
+          setTimeout(async () => {
+            try {
+              await video.play();
+              console.log('ScrollXHero: Stall event recovery successful');
+              setIsVideoLoaded(true);
+              setIsPlaying(true);
+              handleSafariStall(); // Resume monitoring
+            } catch (e) {
+              console.log('ScrollXHero: Stall event recovery failed:', e);
+            }
+          }, 300);
+        }, 200);
+      }
+    };
+    
+    const handleSuspend = () => {
+      console.log('ScrollXHero: Video suspended');
+      clearSafariStallTimer();
+      
+      setTimeout(() => {
+        if (video && video.readyState === 0) {
+          console.log('ScrollXHero: Reloading suspended video');
+          video.load();
+          
+          setTimeout(async () => {
+            try {
+              await video.play();
+              console.log('ScrollXHero: Suspend recovery successful');
+              setIsVideoLoaded(true);
+              setIsPlaying(true);
+              handleSafariStall(); // Resume monitoring
+            } catch (e) {
+              console.log('ScrollXHero: Suspend recovery failed:', e);
+            }
+          }, 500);
         }
-      };
-    }
-  }, [currentMedia, isMuted]);
+      }, 1000);
+    };
+    
+    const handleLoadStart = () => {
+      console.log('ScrollXHero: Video load started');
+    };
+    
+    const handleLoadedMetadata = () => {
+      console.log('ScrollXHero: Video metadata loaded');
+    };
+    
+    const handleLoadedData = () => {
+      console.log('ScrollXHero: Video data loaded');
+    };
+    
+    // Clean up function
+    const cleanup = () => {
+      clearSafariStallTimer();
+      
+      video.removeEventListener('canplay', handleCanPlay);
+      video.removeEventListener('error', handleError);
+      video.removeEventListener('stalled', handleStalled);
+      video.removeEventListener('suspend', handleSuspend);
+      video.removeEventListener('loadstart', handleLoadStart);
+      video.removeEventListener('loadedmetadata', handleLoadedMetadata);
+      video.removeEventListener('loadeddata', handleLoadedData);
+      
+      // Remove interaction listeners
+      interactionEvents.forEach(event => {
+        document.removeEventListener(event, enableAudio);
+      });
+    };
+    
+    // Add event listeners
+    video.addEventListener('canplay', handleCanPlay, { once: true });
+    video.addEventListener('error', handleError);
+    video.addEventListener('stalled', handleStalled);
+    video.addEventListener('suspend', handleSuspend);
+    video.addEventListener('loadstart', handleLoadStart);
+    video.addEventListener('loadedmetadata', handleLoadedMetadata);
+    video.addEventListener('loadeddata', handleLoadedData);
+    
+    // Immediate video loading for all browsers
+    video.currentTime = 0;
+    video.playbackRate = 1.0;
+    video.preload = 'auto';
+    video.load();
+    
+    console.log('ScrollXHero: Video loading initiated for', isSafari ? 'Safari' : 'other browser');
+    
+    return cleanup;
+  }, [currentMedia, setCurrentAudioElement, isALACEnabled, alacEngine, initializeEnhancedAudio]);
 
   // Hide controls after inactivity
   useEffect(() => {
@@ -477,46 +622,12 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
     }
   }, []);
 
-  // Enhanced audio integration for ALAC support
+  // Simple audio integration
   useEffect(() => {
     if (videoRef.current && isVideoLoaded) {
       setCurrentAudioElement(videoRef.current);
-      
-      // Initialize ALAC audio codec for enhanced quality if available
-      if (isALACEnabled && alacEngine && currentMedia) {
-        initializeEnhancedAudio().then(() => {
-          // Check for ALAC audio stream availability
-          const alacAudioUrl = `${getApiUrl()}/api/audio/alac/${currentMedia.id}`;
-          fetch(alacAudioUrl, { method: 'HEAD' })
-            .then(response => {
-              if (response.ok) {
-                // ALAC audio stream available, optimize video for ALAC playback
-                if (videoRef.current) {
-                  videoRef.current.volume = spatialAudioEnabled ? 0.9 : 0.7; // Higher volume for ALAC
-                  console.log('ALAC audio stream detected, using enhanced audio quality');
-                  
-                  // Set audio processing parameters for ALAC
-                  const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-                  if (audioContext.sampleRate >= 48000) {
-                    console.log('High sample rate supported for ALAC audio');
-                  }
-                }
-              }
-            })
-            .catch(() => {
-              // Fallback to standard video audio with ALAC codec preference
-              console.log('ALAC audio stream not available, using standard video with ALAC codec preference');
-              if (videoRef.current && videoRef.current.canPlayType) {
-                const alacSupport = videoRef.current.canPlayType('video/mp4; codecs="avc1.42E01E, alac"');
-                if (alacSupport) {
-                  console.log('ALAC codec supported in video container');
-                }
-              }
-            });
-        });
-      }
     }
-  }, [isVideoLoaded, setCurrentAudioElement, isALACEnabled, alacEngine, spatialAudioEnabled, currentMedia, initializeEnhancedAudio]);
+  }, [isVideoLoaded, setCurrentAudioElement]);
 
   if (!currentMedia) return null;
 
@@ -554,50 +665,52 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
               return (
                 <video
                   ref={videoRef}
-                  className="absolute inset-0 w-full h-full object-cover opacity-100"
-                  autoPlay
-                  muted={false}
+                  className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-700 ease-out ${
+                    isVideoLoaded && isPlaying ? 'opacity-100' : 'opacity-0'
+                  }`}
+                  autoPlay={false}
+                  muted={true}
                   loop
                   playsInline
-                  preload="auto"
+                  preload="metadata"
                   controls={false}
-                  style={{ zIndex: 5 }}
-                  onError={(e) => {
-                    console.error('Video playback error:', e);
-                    setIsVideoLoaded(false);
-                    setIsPlaying(false);
+                  disablePictureInPicture
+                  disableRemotePlayback
+                  crossOrigin="anonymous"
+                  onClick={() => {
+                    // Safari click-to-play fallback
+                    if (isSafari && !isPlaying) {
+                      const video = videoRef.current;
+                      if (video) {
+                        video.muted = true;
+                        video.play().then(() => {
+                          console.log('ScrollXHero: Safari video started via click');
+                          setIsVideoLoaded(true);
+                          setIsPlaying(true);
+                          setCurrentAudioElement(video);
+                          
+                          // Enable audio after video starts
+                          setTimeout(() => {
+                            video.muted = false;
+                            setIsMuted(false);
+                            console.log('ScrollXHero: Safari audio enabled via click');
+                          }, 200);
+                        }).catch(e => {
+                          console.log('ScrollXHero: Safari click play failed:', e);
+                        });
+                      }
+                    }
+                  }}
+                  style={{ 
+                    zIndex: isVideoLoaded && isPlaying ? 5 : 1,
+                    backfaceVisibility: 'hidden',
+                    WebkitBackfaceVisibility: 'hidden',
+                    transform: 'translateZ(0)',
+                    WebkitTransform: 'translateZ(0)',
+                    cursor: isSafari && !isPlaying ? 'pointer' : 'default'
                   }}
                 >
-                  {/* ALAC High Quality */}
-                  <source 
-                    key="alac-high"
-                    src={`${videoUrl}?audio=alac&quality=high`} 
-                    type="video/mp4"
-                    // @ts-ignore - codecs parameter is valid but not in TypeScript types
-                    codecs="avc1.42E01E, alac"
-                  />
-                  {/* ALAC Standard */}
-                  <source 
-                    key="alac"
-                    src={`${videoUrl}?audio=alac`} 
-                    type="video/mp4"
-                    // @ts-ignore - codecs parameter is valid but not in TypeScript types
-                    codecs="avc1.42E01E, alac"
-                  />
-                  {/* Standard MP4 Fallback */}
-                  <source 
-                    key="mp4"
-                    src={videoUrl} 
-                    type="video/mp4"
-                  />
-                  {/* WebM Fallback */}
-                  <source 
-                    key="webm"
-                    src={`${videoUrl}?format=webm&audio=opus`} 
-                    type="video/webm"
-                    // @ts-ignore - codecs parameter is valid but not in TypeScript types
-                    codecs="vp9, opus"
-                  />
+                  <source src={videoUrl} type="video/mp4" />
                   Your browser does not support the video tag.
                 </video>
               );
@@ -645,7 +758,6 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
           </motion.div>
         </>
       )}
-
 
       {/* Content - Netflix-style left positioning */}
       <div className="absolute inset-0 z-20 flex items-center">
@@ -757,6 +869,29 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
             >
               <MagneticButton
                 onClick={() => {
+                  // Enable video playback on Safari first
+                  if (isSafari && !isPlaying) {
+                    const video = videoRef.current;
+                    if (video) {
+                      video.muted = true;
+                      video.play().then(() => {
+                        console.log('ScrollXHero: Safari video started via Play button');
+                        setIsVideoLoaded(true);
+                        setIsPlaying(true);
+                        setCurrentAudioElement(video);
+                        
+                        // Enable audio immediately
+                        setTimeout(() => {
+                          video.muted = false;
+                          setIsMuted(false);
+                          console.log('ScrollXHero: Safari audio enabled via Play button');
+                        }, 100);
+                      }).catch(e => {
+                        console.log('ScrollXHero: Safari Play button failed:', e);
+                      });
+                    }
+                  }
+                  
                   setIsPlayButtonLoading(true);
                   setTimeout(() => {
                     onPlay(currentMedia);
@@ -766,7 +901,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
                 className="bg-white text-black px-8 py-3 rounded-md font-bold text-lg hover:bg-gray-200 transition-all duration-300 flex items-center gap-2"
               >
                 <Play className="w-6 h-6 fill-current" />
-                Play
+                {isSafari && !isPlaying ? 'Start Video' : 'Play'}
               </MagneticButton>
 
               <MagneticButton
@@ -781,6 +916,27 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
               >
                 <Info className="w-6 h-6" />
                 More Info
+              </MagneticButton>
+              
+              {/* Audio Toggle Button */}
+              <MagneticButton
+                onClick={() => {
+                  const video = videoRef.current;
+                  if (video) {
+                    if (video.muted) {
+                      video.muted = false;
+                      setIsMuted(false);
+                      console.log('ScrollXHero: Audio unmuted via button');
+                    } else {
+                      video.muted = true;
+                      setIsMuted(true);
+                      console.log('ScrollXHero: Audio muted via button');
+                    }
+                  }
+                }}
+                className="bg-black/50 text-white p-3 rounded-full hover:bg-black/70 transition-all duration-300 border border-white/20"
+              >
+                {isMuted ? <VolumeX className="w-6 h-6" /> : <Volume2 className="w-6 h-6" />}
               </MagneticButton>
             </motion.div>
           </ScrollReveal>

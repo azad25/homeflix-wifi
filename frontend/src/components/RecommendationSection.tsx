@@ -5,12 +5,7 @@ import { Media } from '@/types/media';
 import { ScoredMedia, RecommendationSectionProps, RecommendationCategory, RecommendationResponse } from '@/types/recommendation';
 import { Button } from '@/components/ui/button';
 import { ScrollXCarousel } from './scrollx';
-import {
-  fetchRecommendations,
-  getSimilarMedia,
-  trackRecommendationClick,
-  getContinueWatching,
-} from '@/lib/api/recommendations';
+import * as recommendationsApi from '@/lib/api/recommendations';
 import { getApiUrl } from '@/lib/api';
 import { findSimilarMovies, sortByFreshness, ensureDiversity, deduplicateMedia } from '@/lib/mediaUtils';
 
@@ -37,8 +32,8 @@ const RecommendationSection: React.FC<RecommendationSectionProps> = ({
       // Helper function to safely extract items from API response
       const extractItems = (response: unknown): ScoredMedia[] => {
         if (response && typeof response === 'object' && 'items' in response) {
-          const items = (response as { items: unknown }).items;
-          return Array.isArray(items) ? items : [];
+          const typedResponse = response as RecommendationResponse;
+          return Array.isArray(typedResponse.items) ? typedResponse.items : [];
         }
         return [];
       };
@@ -51,8 +46,7 @@ const RecommendationSection: React.FC<RecommendationSectionProps> = ({
         // Get continue watching items
         (async (): Promise<ScoredMedia[]> => {
           try {
-            const response = await getContinueWatching(userId);
-            // The API returns a RecommendationResponse with an items array
+            const response = await recommendationsApi.getContinueWatching(userId);
             return response?.items || [];
           } catch (error) {
             console.error('Error fetching continue watching:', error);
@@ -63,8 +57,8 @@ const RecommendationSection: React.FC<RecommendationSectionProps> = ({
         // Get similar media
         (async (): Promise<ScoredMedia[]> => {
           try {
-            const response = await getSimilarMedia(currentMedia.id, userId);
-            return extractItems(response);
+            const response = await recommendationsApi.getSimilarMedia(currentMedia.id, userId);
+            return (response as RecommendationResponse)?.items || [];
           } catch (error) {
             console.error('Error fetching similar media:', error);
             return [];
@@ -74,8 +68,8 @@ const RecommendationSection: React.FC<RecommendationSectionProps> = ({
         // Get general recommendations
         (async (): Promise<ScoredMedia[]> => {
           try {
-            const response = await fetchRecommendations(userId, 'for_you');
-            return extractItems(response);
+            const response = await recommendationsApi.fetchRecommendations(userId, 'for_you', 10);
+            return (response as RecommendationResponse)?.items || [];
           } catch (error) {
             console.error('Error fetching recommendations:', error);
             return [];
@@ -93,7 +87,7 @@ const RecommendationSection: React.FC<RecommendationSectionProps> = ({
       allItems.forEach(item => {
         if (item?.mediaId) {
           // Don't await to avoid blocking
-          trackRecommendationClick('current-user', item.mediaId, item._category || 'unknown')
+          recommendationsApi.trackRecommendationClick('current-user', item.mediaId, item._category || 'unknown')
             .catch(error => console.error('Error tracking click:', error));
         }
       });
@@ -122,14 +116,14 @@ const RecommendationSection: React.FC<RecommendationSectionProps> = ({
 
   // Handle play button click
   const handlePlay = useCallback((media: Media) => {
+    recommendationsApi.trackRecommendationClick('current-user', media.id, 'interaction');
     onPlay(media);
-    trackRecommendationClick('current-user', media.id, 'interaction');
   }, [onPlay]);
-  
+
   // Handle info button click
   const handleInfo = useCallback((media: Media) => {
+    recommendationsApi.trackRecommendationClick('current-user', media.id, 'info_click');
     onInfo(media);
-    trackRecommendationClick('current-user', media.id, 'info_click');
   }, [onInfo]);
 
   const createScoredMedia = (
