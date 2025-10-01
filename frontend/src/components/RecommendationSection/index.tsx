@@ -1,0 +1,175 @@
+"use client";
+
+import React, { useState, useEffect, useCallback } from 'react';
+import { Media } from '@/types/media';
+import { ScoredMedia, RecommendationSectionProps, RecommendationCategory } from '@/types/recommendation';
+import { Button } from '@/components/ui/button';
+import { ScrollXCarousel } from '../scrollx';
+import {
+  fetchRecommendations,
+  getContinueWatching,
+  getSimilarMedia,
+  trackRecommendationClick,
+} from '@/lib/api/recommendations';
+
+// Helper to convert ScoredMedia to Media
+export const scoredToMedia = (scored: ScoredMedia): Media => ({
+  ...scored,
+  id: scored.mediaId,
+});
+
+// Helper to convert Media to ScoredMedia
+export const mediaToScored = (media: Media, category: RecommendationCategory): ScoredMedia => ({
+  ...media,
+  mediaId: media.id,
+  _score: 1.0,
+  _source: 'local',
+  _reasons: [`Recommended because you watched ${media.title}`],
+  _category: category,
+});
+
+const RecommendationSection: React.FC<RecommendationSectionProps> = ({
+  currentMedia,
+  onPlay,
+  onInfo,
+}) => {
+  const [recommendations, setRecommendations] = useState<ScoredMedia[]>([]);
+  const [recentlyWatched, setRecentlyWatched] = useState<ScoredMedia[]>([]);
+  const [similarByGenre, setSimilarByGenre] = useState<ScoredMedia[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [lastUpdated, setLastUpdated] = useState<number>(0);
+  const [error, setError] = useState<string | null>(null);
+
+  // Fetch all recommendations
+  const fetchAllRecommendations = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      // Fetch data in parallel
+      const [continueWatching, similar, recs] = await Promise.all([
+        getContinueWatching('current-user').catch(() => ({ items: [] as ScoredMedia[] })),
+        getSimilarMedia(currentMedia.id).catch(() => ({ items: [] as ScoredMedia[] })),
+        fetchRecommendations('current-user', 'for_you').catch(() => ({ items: [] as ScoredMedia[] }))
+      ]);
+      
+      // Convert ScoredMedia to Media for the carousel
+      setRecentlyWatched(continueWatching.items || []);
+      setSimilarByGenre(similar.items || []);
+      setRecommendations(recs.items || []);
+      
+      // Track that recommendations were shown
+      const allItems = [
+        ...(continueWatching.items || []), 
+        ...(similar.items || []), 
+        ...(recs.items || [])
+      ];
+      
+      allItems.forEach(item => {
+        if (item && item.mediaId) {
+          // Use 'unknown' as a fallback category for tracking
+          trackRecommendationClick('current-user', item.mediaId, 'unknown');
+        }
+      });
+      
+    } catch (err) {
+      console.error('Error fetching recommendations:', err);
+      setError('Failed to load recommendations. Please try again later.');
+    } finally {
+      setLoading(false);
+      setLastUpdated(Date.now());
+    }
+  }, [currentMedia.id]);
+  
+  // Refresh recommendations every 30 minutes or when media changes
+  useEffect(() => {
+    const now = Date.now();
+    if (now - lastUpdated > 30 * 60 * 1000 || lastUpdated === 0) {
+      fetchAllRecommendations();
+    }
+  }, [fetchAllRecommendations, lastUpdated]);
+
+  // Handle play button click
+  const handlePlay = useCallback((media: Media) => {
+    onPlay(media);
+    // Use 'interaction' as the category for play actions
+    trackRecommendationClick('current-user', media.id, 'interaction');
+  }, [onPlay]);
+  
+  // Handle info button click
+  const handleInfo = useCallback((media: Media) => {
+    onInfo(media);
+    // Use 'info_click' as the category for info actions
+    trackRecommendationClick('current-user', media.id, 'info_click');
+  }, [onInfo]);
+
+  if (error) {
+    return (
+      <div className="p-4 text-center text-red-500">
+        {error}
+        <Button 
+          onClick={fetchAllRecommendations}
+          className="mt-2"
+          variant="default"
+        >
+          Retry
+        </Button>
+      </div>
+    );
+  }
+
+  if (loading && !recommendations.length && !recentlyWatched.length && !similarByGenre.length) {
+    return (
+      <div className="p-8 text-center">
+        <div className="animate-pulse space-y-4">
+          <div className="h-6 bg-gray-700 rounded w-1/3 mx-auto"></div>
+          <div className="flex space-x-4 overflow-hidden">
+            {[...Array(5)].map((_, i) => (
+              <div key={i} className="w-48 h-72 bg-gray-700 rounded-lg"></div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-12">
+      {/* Continue Watching */}
+      {recentlyWatched.length > 0 && (
+        <ScrollXCarousel
+          title="Continue Watching"
+          media={recentlyWatched.map(scoredToMedia)}
+          onPlay={handlePlay}
+          onInfo={handleInfo}
+          variant="gradient"
+          priority={true}
+        />
+      )}
+      
+      {/* Similar by Genre */}
+      {similarByGenre.length > 0 && (
+        <ScrollXCarousel
+          title={`More Like ${currentMedia.title}`}
+          media={similarByGenre.map(scoredToMedia)}
+          onPlay={handlePlay}
+          onInfo={handleInfo}
+          variant="glass"
+        />
+      )}
+      
+      {/* Recommended For You */}
+      {recommendations.length > 0 && (
+        <ScrollXCarousel
+          title="Recommended For You"
+          media={recommendations.map(scoredToMedia)}
+          onPlay={handlePlay}
+          onInfo={handleInfo}
+          variant="solid"
+        />
+      )}
+    </div>
+  );
+};
+
+export default RecommendationSection;

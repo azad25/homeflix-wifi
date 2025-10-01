@@ -9,7 +9,7 @@ import { Media } from '@/types/media';
 import { getApiUrl } from '@/lib/api';
 import { updatePlaybackProgress, getPlaybackProgress } from '@/lib/playback';
 import Navbar from '@/components/Navbar';
-import { cleanMovieTitle, findSimilarMovies } from '@/lib/titleUtils';
+import { cleanMovieTitle } from '@/lib/titleUtils';
 import VideoPlayer from '@/components/VideoPlayer';
 import GenreTitle from '@/components/GenreTitle';
 import QualityBadge from '../../../components/QualityBadge';
@@ -30,8 +30,7 @@ export default function MoviePage() {
   const params = useParams();
   const router = useRouter();
   const [media, setMedia] = useState<Media | null>(null);
-  const [similarMedia, setSimilarMedia] = useState<Media[]>([]);
-  const [allMedia, setAllMedia] = useState<Media[]>([]);
+  const [similarMedia] = useState<Media[]>([]);
   const [isPlayerOpen, setIsPlayerOpen] = useState(false);
   const [isInMyList, setIsInMyList] = useState(false);
   const [playbackProgress, setPlaybackProgress] = useState(0);
@@ -80,7 +79,6 @@ export default function MoviePage() {
   useEffect(() => {
     if (params.id) {
       fetchMedia();
-      fetchSimilarMedia();
       checkMyList();
       loadPlaybackProgress();
     }
@@ -111,28 +109,7 @@ export default function MoviePage() {
     }
   };
 
-  const fetchSimilarMedia = async () => {
-    try {
-      const response = await fetch(`${getApiUrl()}/api/media`);
-      if (response.ok) {
-        const data = await response.json();
-        setAllMedia(data);
-        
-        if (media) {
-          // Use smart similarity matching
-          const similar = findSimilarMovies(media.title, data, 8);
-          setSimilarMedia(similar);
-        } else {
-          // Fallback to random selection
-          const filtered = data.filter((item: Media) => item.id !== parseInt(params.id as string));
-          const shuffled = filtered.sort(() => 0.5 - Math.random());
-          setSimilarMedia(shuffled.slice(0, 6));
-        }
-      }
-    } catch (error) {
-      console.error('Error fetching similar media:', error);
-    }
-  };
+  // Similar media is now handled by the RecommendationSection component
 
   const checkMyList = async () => {
     // Implementation for checking if media is in user's list

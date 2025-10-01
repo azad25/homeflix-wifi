@@ -22,10 +22,14 @@ const RecommendedContent: React.FC<RecommendedContentProps> = ({
   const { getRecommendationsByCategory } = useRecommendations();
   const categories = getRecommendationsByCategory();
 
-  const getMediaFromRecommendations = (recommendations: any[]) => {
+  const getMediaFromRecommendations = (recommendations: any[] | undefined): Media[] => {
+    if (!recommendations || !Array.isArray(recommendations)) {
+      return [];
+    }
     return recommendations
-      .map(rec => allMedia.find(media => media.id === rec.mediaId))
-      .filter(Boolean) as Media[];
+      .filter(rec => rec && typeof rec.mediaId !== 'undefined')
+      .map(rec => allMedia.find(media => media && media.id === rec.mediaId))
+      .filter((media): media is Media => Boolean(media));
   };
 
   const categoryConfigs = [

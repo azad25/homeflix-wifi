@@ -119,24 +119,46 @@ export function getMovieGenre(title: string | undefined | null, description?: st
   return genres.length > 0 ? genres : ['Drama'];
 }
 
-export function findSimilarMovies(currentTitle: string | undefined | null, allMovies: any[], limit: number = 6): any[] {
-  if (!currentTitle || typeof currentTitle !== 'string') {
-    return allMovies.slice(0, limit);
-  }
-  const cleanedCurrent = cleanMovieTitle(currentTitle).toLowerCase();
+import { Media } from '@/types/media';
+import { ScoredMedia } from '@/types/recommendation';
+
+type MediaWithTitle = (Media | ScoredMedia) & { title?: string };
+
+export function findSimilarMovies(
+  currentTitle: string | undefined | null, 
+  allMovies: MediaWithTitle[], 
+  limit: number = 6
+): MediaWithTitle[] {
+  if (!currentTitle || !allMovies?.length) return [];
+
   const currentYear = extractMovieYear(currentTitle);
   
-  return allMovies
-    .filter(movie => movie.title !== currentTitle)
-    .map(movie => ({
+  // Filter out movies without a title
+  const moviesWithTitles = allMovies.filter(movie => {
+    const title = 'title' in movie ? movie.title : '';
+    return title && typeof title === 'string';
+  });
+  
+  // Calculate similarity scores for all movies
+  const moviesWithScores = moviesWithTitles.map(movie => {
+    const title = 'title' in movie ? movie.title : '';
+    return {
       ...movie,
-      similarity: calculateSimilarity(cleanedCurrent, currentYear, movie)
-    }))
-    .sort((a, b) => b.similarity - a.similarity)
+      similarity: calculateSimilarity(currentTitle, currentYear, movie)
+    };
+  });
+  
+  // Sort by similarity score (descending) and take top N
+  return moviesWithScores
+    .sort((a, b) => (b.similarity || 0) - (a.similarity || 0))
     .slice(0, limit);
 }
 
-function calculateSimilarity(currentTitle: string, currentYear: number | null, movie: any): number {
+export function calculateSimilarity(
+  currentTitle: string, 
+  currentYear: number | null, 
+  movie: MediaWithTitle
+): number {
   const movieTitle = cleanMovieTitle(movie.title).toLowerCase();
   const movieYear = extractMovieYear(movie.title);
   

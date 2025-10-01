@@ -1,8 +1,16 @@
+export interface CastMember {
+  id: number;
+  name: string;
+  character?: string;
+  profile_path?: string;
+  order?: number;
+}
+
 export interface Media {
   id: number;
   title: string;
   original_title?: string;
-  type: string; // "movie" or "episode"
+  type: 'movie' | 'tv' | 'episode';
   file_path?: string;
   file_size?: number;
   duration?: number;
@@ -13,19 +21,25 @@ export interface Media {
   long_desc?: string;
   description?: string;
   year?: number;
+  release_year?: number;
   release_date?: string;
   rating?: number;
+  vote_average?: number;
+  vote_count?: number;
+  popularity?: number;
   country?: string;
   language?: string;
   quality?: string; // HD, 4K, SD, HDR
   
   // Cast and crew
+  cast?: CastMember[];
   stars?: string[];
-  director?: string[];
+  director?: string | string[];
   
   // Genres
   genres?: Genre[];
   genre_names?: string[];
+  genre_ids?: number[];
   
   // Technical info
   resolution?: string;
@@ -37,6 +51,7 @@ export interface Media {
   preview_path?: string;
   preview_clip_path?: string;
   poster_path?: string;
+  backdrop_path?: string;
   banner_path?: string;
   trailer_path?: string;
   
@@ -47,6 +62,16 @@ export interface Media {
   episode?: number;
   season_number?: number;
   episode_number?: number;
+  
+  // Additional metadata
+  imdb_id?: string;
+  tmdb_id?: number;
+  adult?: boolean;
+  original_language?: string;
+  
+  // For recommendations
+  recommendations?: Media[];
+  similar?: Media[];
   
   // Tracking
   view_count?: number;
