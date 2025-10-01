@@ -58,7 +58,7 @@ export default function TVShowsPage() {
       
       // Set featured episodes for hero section - ensure we have valid episodes with video URLs
       const sortedEpisodes = episodes
-        .filter((episode: Media) => episode.title && episode.description) // Ensure basic data exists
+        .filter((episode: Media) => episode.title) // Only require title, description is optional
         .sort((a: Media, b: Media) => (b.rating || 0) - (a.rating || 0));
       
       console.log('TV Shows - Featured episodes found:', sortedEpisodes.length);

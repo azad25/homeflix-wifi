@@ -134,9 +134,9 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
         setTimeout(() => {
           video.play().catch((error) => {
             console.log('VideoPlayer Safari play error:', error);
-            // Fallback: try muted play
-            video.muted = true;
-            setIsMuted(true);
+            // Fallback: try again with sound
+            video.muted = false;
+            setIsMuted(false);
             video.play().catch(console.error);
           });
         }, 100);
@@ -154,8 +154,9 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
       video.volume = volume > 0 ? volume : 0.5;
       setIsMuted(false);
     } else {
-      video.muted = true;
-      setIsMuted(true);
+      // Don't allow muting - keep sound on
+      video.muted = false;
+      setIsMuted(false);
     }
   };
 
@@ -206,8 +207,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
     const newVolume = parseFloat(e.target.value) / 100;
     video.volume = newVolume;
     setVolume(newVolume);
-    setIsMuted(newVolume === 0);
-    video.muted = newVolume === 0;
+    setIsMuted(false);
+    video.muted = false;
   };
 
   const handleProgressClick = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -441,17 +442,17 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
             
             if (isSafari || isMac) {
               // Safari-specific handling
-              video.muted = false; // VideoPlayer can start unmuted since it's user-initiated
+              video.muted = false; // VideoPlayer always starts with sound
               video.volume = volume;
               video.play().catch((error) => {
-                console.log('VideoPlayer Safari: Unmuted play failed, trying muted:', error);
-                video.muted = true;
-                setIsMuted(true);
+                console.log('VideoPlayer Safari: Play failed, retrying with sound:', error);
+                video.muted = false;
+                setIsMuted(false);
                 video.play().catch(console.error);
               });
             } else {
               // Other browsers
-              video.muted = isMuted;
+              video.muted = false;
               video.volume = volume;
               video.play().catch(console.error);
             }
@@ -471,7 +472,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
             }
           }}
           preload="metadata"
-          muted={isMuted}
+          muted={false}
         />
 
 

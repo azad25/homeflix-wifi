@@ -13,6 +13,7 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		api.GET("/media", handlers.GetAllMedia(mediaService))
 		api.GET("/media/:id", handlers.GetMediaByID(mediaService))
 		api.GET("/movies", handlers.GetMovies(mediaService))
+		api.GET("/media/tv-shows", handlers.GetTVShows(mediaService))
 		api.GET("/genre/:genre", handlers.GetMediaByGenre(mediaService))
 		api.GET("/search", handlers.SearchMedia(mediaService))
 		
