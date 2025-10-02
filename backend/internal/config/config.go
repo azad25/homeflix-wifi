@@ -14,6 +14,7 @@ type Config struct {
 	ChunkSize    int
 	CacheEnabled bool
 	CacheSize    int
+	ScanInterval int // Scan interval in minutes
 }
 
 func Load() *Config {
@@ -26,6 +27,7 @@ func Load() *Config {
 		ChunkSize:    getEnvInt("CHUNK_SIZE", 1048576), // 1MB chunks
 		CacheEnabled: getEnvBool("CACHE_ENABLED", true),
 		CacheSize:    getEnvInt("CACHE_SIZE", 100),
+		ScanInterval: getEnvInt("SCAN_INTERVAL_MINUTES", 30), // Default 30 minutes
 	}
 }
 

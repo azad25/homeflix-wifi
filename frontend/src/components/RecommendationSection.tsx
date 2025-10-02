@@ -29,24 +29,15 @@ const RecommendationSection: React.FC<RecommendationSectionProps> = ({
       setLoading(true);
       setError(null);
       
-      // Helper function to safely extract items from API response
-      const extractItems = (response: unknown): ScoredMedia[] => {
-        if (response && typeof response === 'object' && 'items' in response) {
-          const typedResponse = response as RecommendationResponse;
-          return Array.isArray(typedResponse.items) ? typedResponse.items : [];
-        }
-        return [];
-      };
-
       // Define a default user ID
       const userId = 'current-user';
 
-      // Fetch data in parallel with proper typing
-      const [continueWatching, similar, recs] = await Promise.all([
-        // Get continue watching items
+      // Fetch Netflix-style recommendation categories in parallel
+      const [continueWatching, becauseYouWatched, topPicks, trending, newReleases, forYou] = await Promise.all([
+        // Continue watching
         (async (): Promise<ScoredMedia[]> => {
           try {
-            const response = await recommendationsApi.getContinueWatching(userId);
+            const response = await recommendationsApi.fetchRecommendations(userId, 'continue_watching', 10);
             return response?.items || [];
           } catch (error) {
             console.error('Error fetching continue watching:', error);
@@ -54,43 +45,71 @@ const RecommendationSection: React.FC<RecommendationSectionProps> = ({
           }
         })(),
         
-        // Get similar media
+        // Because you watched
         (async (): Promise<ScoredMedia[]> => {
           try {
-            const response = await recommendationsApi.getSimilarMedia(currentMedia.id, userId);
-            return (response as RecommendationResponse)?.items || [];
+            const response = await recommendationsApi.fetchRecommendations(userId, 'because_you_watched', 12);
+            return response?.items || [];
           } catch (error) {
-            console.error('Error fetching similar media:', error);
+            console.error('Error fetching because you watched:', error);
             return [];
           }
         })(),
         
-        // Get general recommendations
+        // Top picks for your genres
         (async (): Promise<ScoredMedia[]> => {
           try {
-            const response = await recommendationsApi.fetchRecommendations(userId, 'for_you', 10);
-            return (response as RecommendationResponse)?.items || [];
+            const response = await recommendationsApi.fetchRecommendations(userId, 'top_picks', 15);
+            return response?.items || [];
           } catch (error) {
-            console.error('Error fetching recommendations:', error);
+            console.error('Error fetching top picks:', error);
+            return [];
+          }
+        })(),
+        
+        // Trending now
+        (async (): Promise<ScoredMedia[]> => {
+          try {
+            const response = await recommendationsApi.fetchRecommendations(userId, 'trending', 12);
+            return response?.items || [];
+          } catch (error) {
+            console.error('Error fetching trending:', error);
+            return [];
+          }
+        })(),
+        
+        // New releases
+        (async (): Promise<ScoredMedia[]> => {
+          try {
+            const response = await recommendationsApi.fetchRecommendations(userId, 'new_releases', 10);
+            return response?.items || [];
+          } catch (error) {
+            console.error('Error fetching new releases:', error);
+            return [];
+          }
+        })(),
+        
+        // General recommendations
+        (async (): Promise<ScoredMedia[]> => {
+          try {
+            const response = await recommendationsApi.fetchRecommendations(userId, 'for_you', 15);
+            return response?.items || [];
+          } catch (error) {
+            console.error('Error fetching for you:', error);
             return [];
           }
         })()
       ]);
       
-      // Update state with the fetched data
+      // Update state with Netflix-style categories
       setRecentlyWatched(continueWatching);
-      setSimilarByGenre(similar);
-      setRecommendations(recs);
-      
-      // Track that recommendations were shown - don't await to avoid blocking
-      const allItems = [...continueWatching, ...similar, ...recs];
-      allItems.forEach(item => {
-        if (item?.mediaId) {
-          // Don't await to avoid blocking
-          recommendationsApi.trackRecommendationClick('current-user', item.mediaId, item._category || 'unknown')
-            .catch(error => console.error('Error tracking click:', error));
-        }
-      });
+      setSimilarByGenre(becauseYouWatched);
+      setRecommendations([
+        ...topPicks,
+        ...trending, 
+        ...newReleases,
+        ...forYou
+      ]);
       
     } catch (err) {
       console.error('Error in fetchAllRecommendations:', err);
@@ -302,9 +321,55 @@ const RecommendationSection: React.FC<RecommendationSectionProps> = ({
     }
   };
 
+  // Separate recommendations by category for Netflix-style display
+  const categorizeRecommendations = () => {
+    const categories = {
+      trending: [] as ScoredMedia[],
+      topPicks: [] as ScoredMedia[],
+      newReleases: [] as ScoredMedia[],
+      forYou: [] as ScoredMedia[]
+    };
+    
+    recommendations.forEach(item => {
+      switch (item._category) {
+        case 'trending':
+          categories.trending.push(item);
+          break;
+        case 'top_picks':
+          categories.topPicks.push(item);
+          break;
+        case 'new_releases':
+          categories.newReleases.push(item);
+          break;
+        default:
+          categories.forYou.push(item);
+      }
+    });
+    
+    return categories;
+  };
+  
+  const categories = categorizeRecommendations();
+  
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <div className="text-white/70">Loading recommendations...</div>
+      </div>
+    );
+  }
+  
+  if (error) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <div className="text-red-400">{error}</div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-12">
-      {/* Continue Watching */}
+      {/* Continue Watching - Highest Priority */}
       {recentlyWatched.length > 0 && (
         <ScrollXCarousel
           title="Continue Watching"
@@ -316,10 +381,10 @@ const RecommendationSection: React.FC<RecommendationSectionProps> = ({
         />
       )}
       
-      {/* Similar by Genre */}
+      {/* Because You Watched - Netflix's signature feature */}
       {similarByGenre.length > 0 && (
         <ScrollXCarousel
-          title={`More Like ${currentMedia.title}`}
+          title="Because You Watched"
           media={similarByGenre as unknown as Media[]}
           onPlay={handlePlay}
           onInfo={handleInfo}
@@ -327,24 +392,46 @@ const RecommendationSection: React.FC<RecommendationSectionProps> = ({
         />
       )}
       
-      {/* Recommended For You */}
-      {recommendations.length > 0 && (
+      {/* Trending Now */}
+      {categories.trending.length > 0 && (
         <ScrollXCarousel
-          title="Recommended For You"
-          media={recommendations as unknown as Media[]}
+          title="Trending Now"
+          media={categories.trending as unknown as Media[]}
+          onPlay={handlePlay}
+          onInfo={handleInfo}
+          variant="gradient"
+        />
+      )}
+      
+      {/* Top Picks for You */}
+      {categories.topPicks.length > 0 && (
+        <ScrollXCarousel
+          title="Top Picks for You"
+          media={categories.topPicks as unknown as Media[]}
           onPlay={handlePlay}
           onInfo={handleInfo}
           variant="solid"
         />
       )}
-
-      {/* Because You Watched */}
-      {recentlyWatched.length > 0 && (
+      
+      {/* New Releases */}
+      {categories.newReleases.length > 0 && (
         <ScrollXCarousel
-          title="Because You Watched"
-          media={recentlyWatched as unknown as Media[]}
-          onPlay={onPlay}
-          onInfo={onInfo}
+          title="New Releases"
+          media={categories.newReleases as unknown as Media[]}
+          onPlay={handlePlay}
+          onInfo={handleInfo}
+          variant="glass"
+        />
+      )}
+      
+      {/* Recommended For You */}
+      {categories.forYou.length > 0 && (
+        <ScrollXCarousel
+          title="Recommended For You"
+          media={categories.forYou as unknown as Media[]}
+          onPlay={handlePlay}
+          onInfo={handleInfo}
           variant="solid"
         />
       )}

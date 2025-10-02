@@ -96,7 +96,7 @@ export default function TVShowsPage() {
   };
 
   const handleInfo = (media: Media) => {
-    router.push(`/tv-show/${media.id}`);
+    router.push(`/tv-show/${media.uuid}`);
   };
 
 

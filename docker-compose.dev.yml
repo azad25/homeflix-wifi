@@ -1,0 +1,72 @@
+# Development Docker Compose Override
+# Use with: docker-compose -f docker-compose.yml -f docker-compose.dev.yml up
+
+version: '3.8'
+
+services:
+  backend:
+    build:
+      target: development
+    volumes:
+      - ./backend:/app:cached
+      - /app/tmp
+    environment:
+      - BUILD_TARGET=development
+      - HOT_RELOAD=true
+    command: ["/bin/sh", "-c", "air -c .air.toml"]
+
+  frontend:
+    volumes:
+      - ./frontend:/app:cached
+      - /app/node_modules
+      - /app/.next
+    environment:
+      - NODE_ENV=development
+      - FAST_REFRESH=true
+
+  # Override Celery workers to use development target
+  celery-metadata:
+    build:
+      target: development
+    volumes:
+      - ./backend:/app:cached
+
+  celery-thumbnails:
+    build:
+      target: development
+    volumes:
+      - ./backend:/app:cached
+      - ${MEDIA_PATH:-./media}:${MEDIA_PATH:-/media}:ro
+      - backend_thumbnails:/app/thumbnails
+      - backend_previews:/app/previews
+
+  celery-posters:
+    build:
+      target: development
+    volumes:
+      - ./backend:/app:cached
+
+  celery-video:
+    build:
+      target: development
+    volumes:
+      - ./backend:/app:cached
+      - ${MEDIA_PATH:-./media}:${MEDIA_PATH:-/media}:ro
+
+  celery-subtitles:
+    build:
+      target: development
+    volumes:
+      - ./backend:/app:cached
+      - ${MEDIA_PATH:-./media}:${MEDIA_PATH:-/media}:ro
+
+  celery-scanning:
+    build:
+      target: development
+    volumes:
+      - ./backend:/app:cached
+      - ${MEDIA_PATH:-./media}:${MEDIA_PATH:-/media}:ro
+
+  celery-flower:
+    build:
+      target: development

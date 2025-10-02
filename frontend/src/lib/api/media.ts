@@ -1,12 +1,12 @@
 import { Media } from '@/types/media';
 import { getApiUrl } from '@/lib/api';
 
-export async function getMediaById(id: number): Promise<Media> {
+export async function getMediaById(uuid: string): Promise<Media> {
   const apiUrl = getApiUrl();
-  const response = await fetch(`${apiUrl}/api/media/${id}`);
+  const response = await fetch(`${apiUrl}/api/media/${uuid}`);
   
   if (!response.ok) {
-    throw new Error(`Failed to fetch media with id ${id}: ${response.statusText}`);
+    throw new Error(`Failed to fetch media with uuid ${uuid}: ${response.statusText}`);
   }
   
   return response.json();

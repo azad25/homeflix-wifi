@@ -12,9 +12,9 @@ import (
 
 func TrackView(mediaService *services.MediaService, playbackService *services.PlaybackService) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		mediaID, err := strconv.Atoi(c.Param("id"))
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid media ID"})
+		uuid := c.Param("id")
+		if uuid == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid media UUID"})
 			return
 		}
 
@@ -23,16 +23,16 @@ func TrackView(mediaService *services.MediaService, playbackService *services.Pl
 			userID = "anonymous"
 		}
 
-		// Add to recently watched
-		if err := playbackService.AddToRecentlyWatched(userID, uint(mediaID)); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to track view"})
+		// Get media by UUID
+		media, err := mediaService.GetMediaByUUID(uuid)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Media not found"})
 			return
 		}
 
-		// Increment view count
-		media, err := mediaService.GetMediaByID(uint(mediaID))
-		if err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "Media not found"})
+		// Add to recently watched
+		if err := playbackService.AddToRecentlyWatched(userID, media.ID); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to track view"})
 			return
 		}
 
@@ -73,11 +73,11 @@ func UpdatePlaybackProgress(playbackService *services.PlaybackService) gin.Handl
 	}
 }
 
-func GetPlaybackProgress(playbackService *services.PlaybackService) gin.HandlerFunc {
+func GetPlaybackProgress(playbackService *services.PlaybackService, mediaService *services.MediaService) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		mediaID, err := strconv.Atoi(c.Param("id"))
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid media ID"})
+		uuid := c.Param("id")
+		if uuid == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid media UUID"})
 			return
 		}
 
@@ -86,7 +86,14 @@ func GetPlaybackProgress(playbackService *services.PlaybackService) gin.HandlerF
 			userID = "anonymous"
 		}
 
-		progress, err := playbackService.GetPlaybackProgress(userID, uint(mediaID))
+		// Get media by UUID
+		media, err := mediaService.GetMediaByUUID(uuid)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Media not found"})
+			return
+		}
+
+		progress, err := playbackService.GetPlaybackProgress(userID, media.ID)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get progress"})
 			return

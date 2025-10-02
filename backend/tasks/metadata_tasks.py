@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Metadata Generation Tasks
-High-priority queue for AI-powered metadata generation using Gemini
+High-priority queue for AI-powered metadata generation using Gemini with media.json fallback
 """
 
 import os
@@ -23,6 +23,9 @@ OLLAMA_URL = os.getenv('OLLAMA_URL', 'http://localhost:11434')
 OLLAMA_MODEL = os.getenv('OLLAMA_MODEL', 'llama3.2:3b')
 API_URL = os.getenv('API_URL', 'http://localhost:8251')
 GEMINI_API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
+
+# Media.json fallback configuration
+MEDIA_JSON_PATH = os.getenv('MEDIA_JSON_PATH', '/app/media.json')
 
 @current_app.task(bind=True, queue='metadata', priority=9, max_retries=3)
 def generate_metadata(self, media_id: int, file_path: str, existing_title: str) -> Dict[str, Any]:
@@ -124,11 +127,46 @@ Return ONLY valid JSON in this exact format:
                 else:
                     raise Exception(f"Ollama API error: {ollama_response.status_code} - {ollama_response.text}")
             except Exception as e:
-                logger.error(f"Both Gemini and Ollama failed for media_id {media_id}: {str(e)}")
-                raise Exception(f"Both AI services failed: {str(e)}")
+                logger.warning(f"Both Gemini and Ollama failed for media_id {media_id}: {str(e)}")
+                logger.info(f"Trying media.json fallback for media_id {media_id}")
+                
+                # Try media.json fallback
+                fallback_metadata = get_metadata_from_json(file_path)
+                if fallback_metadata:
+                    logger.info(f"✅ Using media.json metadata for {fallback_metadata['title']}")
+                    
+                    # Update database with fallback metadata
+                    update_result = update_media_in_database(media_id, fallback_metadata)
+                    
+                    return {
+                        'status': 'success',
+                        'media_id': media_id,
+                        'metadata': fallback_metadata,
+                        'database_updated': update_result,
+                        'source': 'media.json'
+                    }
+                else:
+                    raise Exception(f"All metadata sources failed: AI services and media.json")
         
         if not content:
-            raise Exception("No response from any AI service")
+            # Final fallback to media.json
+            logger.info(f"No AI content, trying media.json fallback for media_id {media_id}")
+            fallback_metadata = get_metadata_from_json(file_path)
+            if fallback_metadata:
+                logger.info(f"✅ Using media.json metadata for {fallback_metadata['title']}")
+                
+                # Update database with fallback metadata
+                update_result = update_media_in_database(media_id, fallback_metadata)
+                
+                return {
+                    'status': 'success',
+                    'media_id': media_id,
+                    'metadata': fallback_metadata,
+                    'database_updated': update_result,
+                    'source': 'media.json'
+                }
+            else:
+                raise Exception("No response from any metadata source")
         
         # Extract JSON from response
         metadata = extract_json_from_response(content)
@@ -148,7 +186,8 @@ Return ONLY valid JSON in this exact format:
             'status': 'success',
             'media_id': media_id,
             'metadata': validated_metadata,
-            'database_updated': update_result
+            'database_updated': update_result,
+            'source': 'ai_generated'
         }
         
     except Exception as exc:
@@ -255,6 +294,68 @@ def validate_metadata(metadata: Dict[str, Any], fallback_title: str) -> Dict[str
     validated['year'] = max(1900, min(2030, validated['year']))
     
     return validated
+
+def get_metadata_from_json(file_path: str) -> Optional[Dict[str, Any]]:
+    """
+    Extract metadata from media.json file based on file path
+    
+    Args:
+        file_path: Path to the media file
+        
+    Returns:
+        Dict containing metadata from media.json or None if not found
+    """
+    try:
+        if not os.path.exists(MEDIA_JSON_PATH):
+            logger.warning(f"Media.json file not found at {MEDIA_JSON_PATH}")
+            return None
+        
+        with open(MEDIA_JSON_PATH, 'r', encoding='utf-8') as f:
+            media_data = json.load(f)
+        
+        # Look for exact file path match
+        if file_path in media_data:
+            json_metadata = media_data[file_path]
+            
+            # Convert media.json format to our metadata format
+            metadata = {
+                'title': json_metadata.get('title', '').strip(),
+                'tagline': json_metadata.get('tagline', '').strip(),
+                'description': json_metadata.get('long_desc', json_metadata.get('short_desc', '')).strip(),
+                'year': int(json_metadata.get('year', 2024)) if json_metadata.get('year') else 2024,
+                'rating': float(json_metadata.get('rating', 7.0)) if json_metadata.get('rating') else 7.0,
+                'country': json_metadata.get('country', 'USA').strip(),
+                'stars': json_metadata.get('stars', []) if isinstance(json_metadata.get('stars'), list) else [],
+                'directors': json_metadata.get('director', []) if isinstance(json_metadata.get('director'), list) else [],
+                'genres': json_metadata.get('genres', []) if isinstance(json_metadata.get('genres'), list) else []
+            }
+            
+            # Clean up empty or placeholder values
+            if not metadata['title'] or metadata['title'] == 'Unknown':
+                # Extract title from filename as fallback
+                filename = os.path.basename(file_path)
+                metadata['title'] = os.path.splitext(filename)[0]
+            
+            if not metadata['description'] or metadata['description'] == 'Metadata extracted from filename':
+                metadata['description'] = f"A {metadata.get('genres', ['Unknown'])[0].lower()} movie"
+            
+            # Filter out placeholder values
+            if metadata['stars'] == ['Cast information not available']:
+                metadata['stars'] = []
+            if metadata['directors'] == ['Director information not available']:
+                metadata['directors'] = []
+            if metadata['genres'] == ['Unknown']:
+                metadata['genres'] = ['Drama']  # Default genre
+            
+            logger.info(f"📄 Found metadata in media.json for: {metadata['title']}")
+            return metadata
+        else:
+            logger.warning(f"File path not found in media.json: {file_path}")
+            return None
+            
+    except Exception as e:
+        logger.error(f"Error reading media.json: {e}")
+        return None
 
 def update_media_in_database(media_id: int, metadata: Dict[str, Any]) -> bool:
     """Update media metadata in Go backend database"""

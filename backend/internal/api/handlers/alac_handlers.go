@@ -2,23 +2,28 @@ package handlers
 
 import (
 	"net/http"
-	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"homeflix-backend/internal/services"
 )
 
 // GetALACAudio serves ALAC audio files for a media item
-func GetALACAudio(alacService *services.ALACAudioService) gin.HandlerFunc {
+func GetALACAudio(alacService *services.ALACAudioService, mediaService *services.MediaService) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		idStr := c.Param("id")
-		mediaID, err := strconv.Atoi(idStr)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid media ID"})
+		uuid := c.Param("id")
+		if uuid == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid media UUID"})
 			return
 		}
 
-		audioPath := alacService.GetAudioPath(mediaID)
+		// Get media by UUID
+		media, err := mediaService.GetMediaByUUID(uuid)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Media not found"})
+			return
+		}
+
+		audioPath := alacService.GetAudioPath(int(media.ID))
 		if audioPath == "" {
 			c.JSON(http.StatusNotFound, gin.H{"error": "ALAC audio not found"})
 			return
@@ -36,22 +41,21 @@ func GetALACAudio(alacService *services.ALACAudioService) gin.HandlerFunc {
 // ExtractALACAudio extracts ALAC audio from a video file
 func ExtractALACAudio(alacService *services.ALACAudioService, mediaService *services.MediaService) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		idStr := c.Param("id")
-		mediaID, err := strconv.Atoi(idStr)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid media ID"})
+		uuid := c.Param("id")
+		if uuid == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid media UUID"})
 			return
 		}
 
 		// Get media file path
-		media, err := mediaService.GetMediaByID(uint(mediaID))
+		media, err := mediaService.GetMediaByUUID(uuid)
 		if err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Media not found"})
 			return
 		}
 
 		// Extract ALAC audio
-		audioPath, err := alacService.ExtractALACAudio(media.FilePath, mediaID)
+		audioPath, err := alacService.ExtractALACAudio(media.FilePath, int(media.ID))
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to extract ALAC audio", "details": err.Error()})
 			return
@@ -73,16 +77,22 @@ func ExtractALACAudio(alacService *services.ALACAudioService, mediaService *serv
 }
 
 // GetALACAudioMetadata returns metadata for ALAC audio
-func GetALACAudioMetadata(alacService *services.ALACAudioService) gin.HandlerFunc {
+func GetALACAudioMetadata(alacService *services.ALACAudioService, mediaService *services.MediaService) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		idStr := c.Param("id")
-		mediaID, err := strconv.Atoi(idStr)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid media ID"})
+		uuid := c.Param("id")
+		if uuid == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid media UUID"})
 			return
 		}
 
-		audioPath := alacService.GetAudioPath(mediaID)
+		// Get media by UUID
+		media, err := mediaService.GetMediaByUUID(uuid)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Media not found"})
+			return
+		}
+
+		audioPath := alacService.GetAudioPath(int(media.ID))
 		if audioPath == "" {
 			c.JSON(http.StatusNotFound, gin.H{"error": "ALAC audio not found"})
 			return
@@ -101,10 +111,16 @@ func GetALACAudioMetadata(alacService *services.ALACAudioService) gin.HandlerFun
 // ConvertToSpatialAudio converts audio to spatial format
 func ConvertToSpatialAudio(alacService *services.ALACAudioService, mediaService *services.MediaService) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		idStr := c.Param("id")
-		mediaID, err := strconv.Atoi(idStr)
+		uuid := c.Param("id")
+		if uuid == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid media UUID"})
+			return
+		}
+
+		// Get media by UUID
+		media, err := mediaService.GetMediaByUUID(uuid)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid media ID"})
+			c.JSON(http.StatusNotFound, gin.H{"error": "Media not found"})
 			return
 		}
 
@@ -128,15 +144,8 @@ func ConvertToSpatialAudio(alacService *services.ALACAudioService, mediaService 
 			return
 		}
 
-		// Get media file path
-		media, err := mediaService.GetMediaByID(uint(mediaID))
-		if err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "Media not found"})
-			return
-		}
-
 		// Convert to spatial audio
-		spatialPath, err := alacService.ConvertToSpatialAudio(media.FilePath, mediaID, layout)
+		spatialPath, err := alacService.ConvertToSpatialAudio(media.FilePath, int(media.ID), layout)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to convert to spatial audio", "details": err.Error()})
 			return

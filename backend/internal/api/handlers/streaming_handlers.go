@@ -3,7 +3,6 @@ package handlers
 import (
 	"net/http"
 	"os"
-	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"homeflix-backend/internal/services"
@@ -13,17 +12,16 @@ import (
 
 func StreamMedia(streamService *services.OptimizedStreamService, mediaService *services.MediaService) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		mediaID := c.Param("id")
+		uuid := c.Param("id")
 		
-		// Parse media ID
-		id, err := strconv.ParseUint(mediaID, 10, 32)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid media ID"})
+		// Validate UUID
+		if uuid == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid media UUID"})
 			return
 		}
 		
 		// Get media information from database
-		media, err := mediaService.GetMediaByID(uint(id))
+		media, err := mediaService.GetMediaByUUID(uuid)
 		if err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Media not found"})
 			return
@@ -58,13 +56,19 @@ func StreamMedia(streamService *services.OptimizedStreamService, mediaService *s
 
 func GetSubtitles(mediaService *services.MediaService) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		id, err := strconv.ParseUint(c.Param("id"), 10, 32)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID"})
+		uuid := c.Param("id")
+		if uuid == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid UUID"})
 			return
 		}
 
-		subtitles, err := mediaService.GetSubtitles(uint(id))
+		media, err := mediaService.GetMediaByUUID(uuid)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Media not found"})
+			return
+		}
+
+		subtitles, err := mediaService.GetSubtitles(media.ID)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return

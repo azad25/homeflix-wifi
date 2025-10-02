@@ -51,30 +51,30 @@ const NetflixMovieCard: React.FC<NetflixMovieCardProps> = ({
   const getThumbnailUrl = () => {
     // Try poster first for portrait variant, fallback to thumbnail
     if (variant === 'portrait') {
-      return `${apiUrl}/api/posters/${media.id}`;
+      return `${apiUrl}/api/posters/${media.uuid}`;
     }
-    return `${apiUrl}/api/thumbnails/${media.id}`;
+    return `${apiUrl}/api/thumbnails/${media.uuid}`;
   };
 
   const getFallbackThumbnailUrl = () => {
     // If poster fails, try thumbnail, and vice versa
     if (variant === 'portrait') {
-      return `${apiUrl}/api/thumbnails/${media.id}`;
+      return `${apiUrl}/api/thumbnails/${media.uuid}`;
     }
-    return `${apiUrl}/api/posters/${media.id}`;
+    return `${apiUrl}/api/posters/${media.uuid}`;
   };
 
   const getPreviewUrl = () => {
     // First try to get the actual media file for full experience
     if (media.file_path) {
-      return `${apiUrl}/api/stream/${media.id}`;
+      return `${apiUrl}/api/stream/${media.uuid}`;
     }
     // Fallback to trailer if available
     if (media.trailer_path) {
       return `${apiUrl}/api/admin/assets/${media.trailer_path.split('/').pop()}`;
     }
     // Final fallback to preview clips
-    return `${apiUrl}/api/preview-clips/${media.id}`;
+    return `${apiUrl}/api/preview-clips/${media.uuid}`;
   };
 
   const sizeClasses = {
@@ -170,11 +170,11 @@ const NetflixMovieCard: React.FC<NetflixMovieCardProps> = ({
 
   const handleInfoClick = (e: React.MouseEvent) => {
     e.stopPropagation();
-    router.push(`/movie/${media.id}`);
+    router.push(`/movie/${media.uuid}`);
   };
 
   const handleCardClick = () => {
-    router.push(`/movie/${media.id}`);
+    router.push(`/movie/${media.uuid}`);
   };
 
   const handleImageError = () => {

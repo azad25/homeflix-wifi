@@ -129,7 +129,7 @@ export default function BrowsePage() {
   };
 
   const handleInfo = (media: Media) => {
-    router.push(`/movie/${media.id}`);
+    router.push(`/movie/${media.uuid}`);
   };
 
   const handleSearch = (query: string) => {

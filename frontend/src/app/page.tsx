@@ -8,9 +8,7 @@ import VideoPlayer from '@/components/VideoPlayer';
 import { getApiUrl } from '@/lib/api';
 import { Media } from '@/types/media';
 import { ScrollXHero, NetflixHorizontalRow, ParallaxSection, GradientBackground, ParticleField, ScrollReveal } from '@/components/scrollx';
-import RecentlyWatched from '@/components/RecentlyWatched';
-import ContinueWatching from '@/components/ContinueWatching';
-import RecommendedContent from '@/components/RecommendedContent';
+import RecommendationSection from '@/components/RecommendationSection';
 import { useRecommendations } from '@/contexts/RecommendationContext';
 
 export default function Home() {
@@ -31,10 +29,10 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetchInitialData();
+    fetchData();
   }, []);
 
-  const fetchInitialData = async () => {
+  const fetchData = async () => {
     try {
       const { getApiUrl, API_ENDPOINTS, apiCall } = await import('../lib/api');
       
@@ -122,55 +120,22 @@ export default function Home() {
         )
         .sort((a: Media, b: Media) => (b.rating || 0) - (a.rating || 0))
         .slice(0, 20);
-      setHorrorMovies(horrorMovies);
-      
+      setHorrorMovies([]);
       setLoading(false);
-      
-      // Refresh recommendations with all media
-      refreshRecommendations(allMedia);
     } catch (error) {
       console.error("Error fetching data:", error);
+      // Don't fall back to mock data - show empty state instead
+      setFeaturedMedia([]);
+      setRecentMovies([]);
+      setPopularMovies([]);
+      setPopularSeries([]);
+      setTrendingNow([]);
+      setActionMovies([]);
+      setComedyMovies([]);
+      setDramaMovies([]);
+      setHorrorMovies([]);
       setLoading(false);
     }
-  };
-
-  const setMockData = () => {
-    const mockMediaList: Media[] = [
-      {
-        id: 1,
-        title: "Epic Adventure",
-        description: "Experience the ultimate entertainment with this amazing content. Watch now and immerse yourself in a world of endless possibilities.",
-        type: "movie",
-        rating: 8.5,
-        duration: 7200,
-        genres: [{ name: "Action" }, { name: "Adventure" }, { name: "Sci-Fi" }],
-        view_count: 1250,
-      },
-      {
-        id: 2,
-        title: "Thrilling Drama",
-        description: "A captivating story that will keep you on the edge of your seat from start to finish.",
-        type: "movie",
-        rating: 9.1,
-        duration: 6900,
-        genres: [{ name: "Drama" }, { name: "Thriller" }, { name: "Mystery" }],
-        view_count: 2100,
-      },
-      {
-        id: 3,
-        title: "Comedy Gold",
-        description: "Laugh out loud with this hilarious comedy that brings joy and entertainment to your screen.",
-        type: "movie",
-        rating: 7.8,
-        duration: 5400,
-        genres: [{ name: "Comedy" }, { name: "Romance" }, { name: "Family" }],
-        view_count: 890,
-      }
-    ];
-
-    setFeaturedMedia(mockMediaList);
-    setRecentMovies(mockMediaList);
-    setPopularSeries(mockMediaList);
   };
 
   const handleSearch = async (query: string) => {
@@ -193,9 +158,9 @@ export default function Home() {
   const handleInfo = (media: Media) => {
     trackClick(media.id, 'info', 'home');
     if (media.type === 'episode' || media.type === 'tv') {
-      router.push(`/tv-show/${media.id}`);
+      router.push(`/tv-show/${media.uuid}`);
     } else {
-      router.push(`/movie/${media.id}`);
+      router.push(`/movie/${media.uuid}`);
     }
   };
 
@@ -272,38 +237,16 @@ export default function Home() {
           </div>
         ) : (
           <div className="space-y-8 pb-20">
-            {/* Continue Watching */}
-            <ContinueWatching
-              onPlay={handlePlay}
-              onInfo={handleInfo}
-            />
-            
-            {/* Recommended Content */}
-            <RecommendedContent
-              allMedia={[...popularMovies, ...popularSeries, ...trendingNow, ...actionMovies, ...comedyMovies, ...dramaMovies, ...horrorMovies, ...recentMovies]}
-              onPlay={handlePlay}
-              onInfo={handleInfo}
-            />
-
-            {/* Recently Watched */}
-            <RecentlyWatched
-              onPlay={handlePlay}
-              onInfo={handleInfo}
-            />
-
-            {/* Trending Now */}
-            {trendingNow.length > 0 && (
-              <NetflixHorizontalRow
-                title="Trending Now"
-                media={trendingNow}
+            {/* Netflix-style Recommendations */}
+            {featuredMedia.length > 0 && (
+              <RecommendationSection
+                currentMedia={featuredMedia[0]}
                 onPlay={handlePlay}
                 onInfo={handleInfo}
-                variant="portrait"
-                size="large"
-                priority={true}
               />
             )}
 
+            {/* Fallback: Traditional Genre-based Rows */}
             {/* Popular Movies */}
             {popularMovies.length > 0 && (
               <NetflixHorizontalRow
@@ -345,42 +288,6 @@ export default function Home() {
               <NetflixHorizontalRow
                 title="Comedy Movies"
                 media={comedyMovies}
-                onPlay={handlePlay}
-                onInfo={handleInfo}
-                variant="portrait"
-                size="medium"
-              />
-            )}
-
-            {/* Drama Movies */}
-            {dramaMovies.length > 0 && (
-              <NetflixHorizontalRow
-                title="Drama Movies"
-                media={dramaMovies}
-                onPlay={handlePlay}
-                onInfo={handleInfo}
-                variant="portrait"
-                size="medium"
-              />
-            )}
-
-            {/* Horror & Thriller */}
-            {horrorMovies.length > 0 && (
-              <NetflixHorizontalRow
-                title="Horror & Thriller"
-                media={horrorMovies}
-                onPlay={handlePlay}
-                onInfo={handleInfo}
-                variant="portrait"
-                size="medium"
-              />
-            )}
-
-            {/* Recently Added */}
-            {recentMovies.length > 0 && (
-              <NetflixHorizontalRow
-                title="Recently Added"
-                media={recentMovies}
                 onPlay={handlePlay}
                 onInfo={handleInfo}
                 variant="portrait"

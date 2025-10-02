@@ -32,9 +32,9 @@ const HeroSection: React.FC<HeroSectionProps> = ({
       return `${getApiUrl()}/api/admin/assets/${media.banner_path.split('/').pop()}`;
     }
     if (media.poster_path) {
-      return `${getApiUrl()}/api/posters/${media.id}`;
+      return `${getApiUrl()}/api/posters/${media.uuid}`;
     }
-    return `${getApiUrl()}/api/thumbnails/${media.id}`;
+    return `${getApiUrl()}/api/thumbnails/${media.uuid}`;
   };
 
   const formatDuration = (seconds: number) => {

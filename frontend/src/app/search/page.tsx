@@ -168,7 +168,7 @@ export default function SearchPage() {
   };
 
   const handleInfo = (media: Media) => {
-    router.push(`/movie/${media.id}`);
+    router.push(`/movie/${media.uuid}`);
   };
 
   const handleSearch = (query: string) => {

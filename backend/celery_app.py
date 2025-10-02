@@ -16,8 +16,8 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from dotenv import load_dotenv
 load_dotenv()
 
-# Redis configuration
-REDIS_URL = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
+# Redis configuration - Using container name for Docker networking
+REDIS_URL = os.getenv('REDIS_URL', 'redis://redis:6379/0')
 CELERY_BROKER_URL = os.getenv('CELERY_BROKER_URL', REDIS_URL)
 CELERY_RESULT_BACKEND = os.getenv('CELERY_RESULT_BACKEND', REDIS_URL)
 
@@ -85,9 +85,37 @@ app.conf.update(
     worker_concurrency=None,  # Auto-detect CPU cores
     worker_max_tasks_per_child=1000,
     
-    # Monitoring
+    # Monitoring and inspection settings
     worker_send_task_events=True,
     task_send_sent_event=True,
+    
+    # Enhanced connection retry settings for Docker
+    broker_connection_retry_on_startup=True,
+    broker_connection_retry=True,
+    broker_connection_max_retries=20,
+    broker_heartbeat=30,
+    broker_pool_limit=20,
+    
+    # Enhanced broker transport options combining Docker networking and Redis optimization
+    broker_transport_options={
+        'visibility_timeout': 3600,
+        'socket_connect_timeout': 30,
+        'socket_keepalive': True,
+        'retry_on_timeout': True,
+        'max_connections': 20,
+        'health_check_interval': 30,
+        'connection_errors_retry_delay': 5.0,
+        'connection_errors_retry_max': 10,
+        'fanout_prefix': True,
+        'fanout_patterns': True,
+        'priority_steps': list(range(10)),
+        'sep': ':',
+        'queue_order_strategy': 'priority',
+    },
+    
+    # Control settings for inspection
+    control_exchange='celery.pidbox',
+    control_exchange_type='fanout',
 )
 
 # Import task modules

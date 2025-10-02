@@ -11,11 +11,15 @@ import (
 )
 
 type MediaService struct {
-	db *gorm.DB
+	db    *gorm.DB
+	redis *RedisService
 }
 
 func NewMediaService(db *gorm.DB) *MediaService {
-	return &MediaService{db: db}
+	return &MediaService{
+		db:    db,
+		redis: NewRedisService(),
+	}
 }
 
 func (s *MediaService) CreateMedia(media *models.Media) error {
@@ -23,9 +27,21 @@ func (s *MediaService) CreateMedia(media *models.Media) error {
 }
 
 func (s *MediaService) GetAllMedia() ([]models.Media, error) {
+	// Try to get from cache first
+	if s.redis != nil {
+		if cachedMedia, err := s.redis.GetCachedMediaList("all_media"); err == nil {
+			return cachedMedia, nil
+		}
+	}
+
 	var media []models.Media
 	err := s.db.Preload("Genres").Preload("Series").Preload("Subtitles").
 		Order("created_at DESC").Find(&media).Error
+	
+	// Cache the result
+	if err == nil && s.redis != nil {
+		s.redis.CacheMediaList("all_media", media)
+	}
 	
 	// Add fallback thumbnail paths for media without thumbnails
 	for i := range media {
@@ -38,6 +54,25 @@ func (s *MediaService) GetAllMedia() ([]models.Media, error) {
 func (s *MediaService) GetMediaByID(id uint) (*models.Media, error) {
 	var media models.Media
 	err := s.db.Preload("Genres").Preload("Series").Preload("Subtitles").First(&media, id).Error
+	return &media, err
+}
+
+func (s *MediaService) GetMediaByUUID(uuid string) (*models.Media, error) {
+	// Try to get from cache first
+	if s.redis != nil {
+		if cachedMedia, err := s.redis.GetCachedMedia(uuid); err == nil {
+			return cachedMedia, nil
+		}
+	}
+
+	var media models.Media
+	err := s.db.Preload("Genres").Preload("Series").Preload("Subtitles").Where("uuid = ?", uuid).First(&media).Error
+	
+	// Cache the result
+	if err == nil && s.redis != nil {
+		s.redis.CacheMedia(&media)
+	}
+	
 	return &media, err
 }
 
@@ -54,8 +89,21 @@ func (s *MediaService) MediaExists(path string) (bool, error) {
 }
 
 func (s *MediaService) GetMovies() ([]models.Media, error) {
+	// Try to get from cache first
+	if s.redis != nil {
+		if cachedMovies, err := s.redis.GetCachedMediaList("movies"); err == nil {
+			return cachedMovies, nil
+		}
+	}
+
 	var movies []models.Media
 	err := s.db.Preload("Genres").Preload("Subtitles").Where("type = ?", "movie").Find(&movies).Error
+	
+	// Cache the result
+	if err == nil && s.redis != nil {
+		s.redis.CacheMediaList("movies", movies)
+	}
+	
 	return movies, err
 }
 
@@ -65,10 +113,28 @@ func (s *MediaService) GetSeries() ([]models.Series, error) {
 	return series, err
 }
 
+func (s *MediaService) GetSeriesWithSeasons() ([]models.Series, error) {
+	var series []models.Series
+	err := s.db.Preload("Seasons.Episodes").Preload("Seasons.Episodes.Subtitles").Preload("Episodes").Preload("Genres").Find(&series).Error
+	return series, err
+}
+
 func (s *MediaService) GetSeriesByID(id uint) (*models.Series, error) {
 	var series models.Series
 	err := s.db.Preload("Episodes").Preload("Episodes.Subtitles").Preload("Genres").First(&series, id).Error
 	return &series, err
+}
+
+func (s *MediaService) GetSeriesByIDWithSeasons(id uint) (*models.Series, error) {
+	var series models.Series
+	err := s.db.Preload("Seasons.Episodes").Preload("Seasons.Episodes.Subtitles").Preload("Episodes").Preload("Genres").First(&series, id).Error
+	return &series, err
+}
+
+func (s *MediaService) GetSeasonsBySeriesID(seriesID uint) ([]models.Season, error) {
+	var seasons []models.Season
+	err := s.db.Preload("Episodes").Preload("Episodes.Subtitles").Where("series_id = ?", seriesID).Order("season_number ASC").Find(&seasons).Error
+	return seasons, err
 }
 
 func (s *MediaService) FindOrCreateSeries(title string) (*models.Series, error) {
@@ -86,6 +152,28 @@ func (s *MediaService) FindOrCreateSeries(title string) (*models.Series, error) 
 	return &series, err
 }
 
+func (s *MediaService) FindOrCreateSeason(seriesID uint, seasonNumber int) (*models.Season, error) {
+	var season models.Season
+	err := s.db.Where("series_id = ? AND season_number = ?", seriesID, seasonNumber).First(&season).Error
+	
+	if err == gorm.ErrRecordNotFound {
+		// Get series info for season title
+		var series models.Series
+		if err := s.db.First(&series, seriesID).Error; err != nil {
+			return nil, err
+		}
+		
+		season = models.Season{
+			SeriesID:     seriesID,
+			SeasonNumber: seasonNumber,
+			Title:        fmt.Sprintf("Season %d", seasonNumber),
+		}
+		err = s.db.Create(&season).Error
+	}
+	
+	return &season, err
+}
+
 func (s *MediaService) CreateSubtitle(subtitle *models.Subtitle) error {
 	return s.db.Create(subtitle).Error
 }
@@ -93,11 +181,16 @@ func (s *MediaService) CreateSubtitle(subtitle *models.Subtitle) error {
 func (s *MediaService) SearchMedia(query string) ([]models.Media, error) {
 	var media []models.Media
 	
-	// Enhanced search with multiple fields and better ranking
+	// Enhanced search with multiple fields and better ranking using proper ORM
+	subQuery := s.db.Table("media_genres").
+		Select("media_id").
+		Joins("JOIN genres ON media_genres.genre_id = genres.id").
+		Where("genres.name ILIKE ?", "%"+query+"%")
+	
 	err := s.db.Preload("Genres").Preload("Series").Preload("Subtitles").
 		Where("title ILIKE ? OR description ILIKE ?", "%"+query+"%", "%"+query+"%").
-		Or("EXISTS (SELECT 1 FROM media_genres mg JOIN genres g ON mg.genre_id = g.id WHERE mg.media_id = media.id AND g.name ILIKE ?)", "%"+query+"%").
-		Order("CASE WHEN title ILIKE '" + query + "%' THEN 1 WHEN description ILIKE '%" + query + "%' THEN 2 ELSE 3 END, view_count DESC").
+		Or("id IN (?)", subQuery).
+		Order("view_count DESC").
 		Find(&media).Error
 	
 	return media, err
@@ -328,11 +421,11 @@ func (s *MediaService) GetPopularMedia() ([]models.Media, error) {
 	return media, err
 }
 
-// GetTVShows returns media of type "series"
+// GetTVShows returns media of type "episode" (for backward compatibility)
 func (s *MediaService) GetTVShows() ([]models.Media, error) {
 	var media []models.Media
 	err := s.db.Preload("Genres").Preload("Series").Preload("Subtitles").
-		Where("type = ?", "series").Order("created_at DESC").Find(&media).Error
+		Where("type = ?", "episode").Order("created_at DESC").Find(&media).Error
 	
 	// Add fallback thumbnail paths for media without thumbnails
 	for i := range media {
@@ -340,6 +433,62 @@ func (s *MediaService) GetTVShows() ([]models.Media, error) {
 	}
 	
 	return media, err
+}
+
+// GetTVSeriesForHero returns unique TV series with random episode previews for hero sections
+func (s *MediaService) GetTVSeriesForHero() ([]models.Media, error) {
+	// Get all unique series titles from episodes
+	var seriesTitles []string
+	err := s.db.Model(&models.Media{}).
+		Select("DISTINCT series.title").
+		Joins("JOIN series ON media.series_id = series.id").
+		Where("media.type = ?", "episode").
+		Pluck("title", &seriesTitles).Error
+	
+	if err != nil {
+		return nil, err
+	}
+	
+	var heroSeries []models.Media
+	
+	for _, seriesTitle := range seriesTitles {
+		// Get a random episode from this series for preview
+		var randomEpisode models.Media
+		err := s.db.Preload("Genres").Preload("Series").Preload("Subtitles").
+			Joins("JOIN series ON media.series_id = series.id").
+			Where("series.title = ? AND media.type = ?", seriesTitle, "episode").
+			Order("RANDOM()").
+			First(&randomEpisode).Error
+		
+		if err != nil {
+			continue // Skip this series if no episodes found
+		}
+		
+		// Create a series representation using the random episode's data
+		seriesMedia := models.Media{
+			ID:              randomEpisode.ID, // Use episode ID for preview/thumbnail paths
+			UUID:            randomEpisode.UUID,
+			Title:           seriesTitle, // Use series title instead of episode title
+			Type:            "series",    // Mark as series for frontend
+			FilePath:        randomEpisode.FilePath, // Use episode file for preview
+			ThumbnailPath:   randomEpisode.ThumbnailPath,
+			PreviewPath:     randomEpisode.PreviewPath,
+			PreviewClipPath: randomEpisode.PreviewClipPath,
+			PosterPath:      randomEpisode.PosterPath,
+			Description:     randomEpisode.Description,
+			Year:            randomEpisode.Year,
+			Rating:          randomEpisode.Rating,
+			Genres:          randomEpisode.Genres,
+			Series:          randomEpisode.Series,
+			ViewCount:       randomEpisode.ViewCount,
+			CreatedAt:       randomEpisode.CreatedAt,
+		}
+		
+		s.ensureThumbnailFallback(&seriesMedia)
+		heroSeries = append(heroSeries, seriesMedia)
+	}
+	
+	return heroSeries, nil
 }
 
 // UpdateAllMediaGenres updates genres for all media (placeholder implementation)

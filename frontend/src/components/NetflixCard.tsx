@@ -38,16 +38,16 @@ const NetflixCard: React.FC<NetflixCardProps> = ({
   
   const getThumbnailUrl = () => {
     if (media.poster_path) {
-      return `${apiUrl}/api/posters/${media.id}`;
+      return `${apiUrl}/api/posters/${media.uuid}`;
     }
-    return `${apiUrl}/api/thumbnails/${media.id}`;
+    return `${apiUrl}/api/thumbnails/${media.uuid}`;
   };
 
   const getPreviewUrl = () => {
     if (media.trailer_path) {
       return `${apiUrl}/api/admin/assets/${media.trailer_path.split('/').pop()}`;
     }
-    return `${apiUrl}/api/preview-clips/${media.id}`;
+    return `${apiUrl}/api/preview-clips/${media.uuid}`;
   };
 
   useEffect(() => {

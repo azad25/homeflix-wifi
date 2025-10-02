@@ -12,12 +12,15 @@ const nextConfig = {
   },
   // Allow cross-origin requests from network devices
   allowedDevOrigins: [
-    '192.168.0.109',   // Specific IP address
-    '192.168.0.0/16',  // Allow all 192.168.x.x addresses
-    '10.0.0.0/8',      // Allow all 10.x.x.x addresses  
-    '172.16.0.0/12',   // Allow all 172.16-31.x.x addresses
-    'localhost',       // Allow localhost
-    '127.0.0.1',       // Allow loopback
+    'http://192.168.0.109:3000',
+    'https://192.168.0.109:3000',
+    '192.168.0.109:3000',
+    '192.168.0.109',
+    '192.168.0.0/16',
+    '10.0.0.0/8',
+    '172.16.0.0/12',
+    'localhost',
+    '127.0.0.1',
   ],
   images: {
     remotePatterns: [
@@ -30,6 +33,30 @@ const nextConfig = {
       {
         protocol: 'http',
         hostname: 'localhost',
+        port: '8251',
+        pathname: '/api/posters/**',
+      },
+      {
+        protocol: 'http',
+        hostname: 'backend',
+        port: '8251',
+        pathname: '/api/thumbnails/**',
+      },
+      {
+        protocol: 'http',
+        hostname: 'backend',
+        port: '8251',
+        pathname: '/api/posters/**',
+      },
+      {
+        protocol: 'http',
+        hostname: '192.168.0.109',
+        port: '8251',
+        pathname: '/api/thumbnails/**',
+      },
+      {
+        protocol: 'http',
+        hostname: '192.168.0.109',
         port: '8251',
         pathname: '/api/posters/**',
       },
@@ -51,7 +78,7 @@ const nextConfig = {
     return [
       {
         source: '/api/:path*',
-        destination: `http://localhost:8251/api/:path*`,
+        destination: 'http://backend:8251/api/:path*',
       },
     ];
   },

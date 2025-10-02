@@ -98,7 +98,7 @@ func (mfs *MetadataFallbackService) ExtractMetadataFromFilename(filePath string)
 		FilePath:    filePath,
 		FileSize:    fileInfo.Size(),
 		LastUpdated: time.Now().Format("2006-01-02 15:04:05"),
-		Genres:      []string{"Unknown"},
+		Genres:      []string{"Movie"},
 		Description: "Metadata extracted from filename",
 	}
 
@@ -209,7 +209,7 @@ func (mfs *MetadataFallbackService) guessGenresFromTitle(title string) []string 
 	}
 
 	if len(genres) == 0 {
-		genres = []string{"Unknown"}
+		genres = []string{"Movie"}
 	}
 
 	return genres

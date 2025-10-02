@@ -55,10 +55,10 @@ func (m *MediaMetadataJSON) ToMedia() *Media {
 
 	// Handle series info
 	if m.Season > 0 {
-		media.Season = &m.Season
+		media.SeasonNumber = &m.Season
 	}
 	if m.Episode > 0 {
-		media.Episode = &m.Episode
+		media.EpisodeNumber = &m.Episode
 	}
 
 	// Set release date from year if available
@@ -93,11 +93,11 @@ func (m *Media) ToMediaMetadataJSON() *MediaMetadataJSON {
 	}
 
 	// Handle series info
-	if m.Season != nil {
-		json.Season = *m.Season
+	if m.SeasonNumber != nil {
+		json.Season = *m.SeasonNumber
 	}
-	if m.Episode != nil {
-		json.Episode = *m.Episode
+	if m.EpisodeNumber != nil {
+		json.Episode = *m.EpisodeNumber
 	}
 
 	// Extract year from release date if not set
@@ -121,11 +121,11 @@ func (m *Media) SyncGenres() {
 
 // GetDisplayTitle returns a formatted title for display
 func (m *Media) GetDisplayTitle() string {
-	if m.Type == "episode" && m.Season != nil && m.Episode != nil {
+	if m.Type == "episode" && m.SeasonNumber != nil && m.EpisodeNumber != nil {
 		if m.OriginalTitle != "" {
-			return fmt.Sprintf("%s S%dE%d", m.OriginalTitle, *m.Season, *m.Episode)
+			return fmt.Sprintf("%s S%dE%d", m.OriginalTitle, *m.SeasonNumber, *m.EpisodeNumber)
 		}
-		return fmt.Sprintf("%s S%dE%d", m.Title, *m.Season, *m.Episode)
+		return fmt.Sprintf("%s S%dE%d", m.Title, *m.SeasonNumber, *m.EpisodeNumber)
 	}
 	return m.Title
 }

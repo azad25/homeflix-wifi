@@ -33,9 +33,9 @@ const MediaCard: React.FC<MediaCardProps> = ({
   const getImageUrl = (media: Media) => {
     // Prefer poster for movies, thumbnail for episodes/series
     if (media.poster_path && media.type === 'movie') {
-      return `${getApiUrl()}/api/posters/${media.id}`;
+      return `${getApiUrl()}/api/posters/${media.uuid}`;
     }
-    return `${getApiUrl()}/api/thumbnails/${media.id}`;
+    return `${getApiUrl()}/api/thumbnails/${media.uuid}`;
   };
 
   const formatDuration = (seconds: number) => {

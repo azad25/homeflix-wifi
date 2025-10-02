@@ -1,6 +1,6 @@
 # Python dependencies for Celery task queue system
 celery==5.3.4
-redis==5.0.1
+redis==4.6.0
 kombu==5.3.4
 billiard==4.2.0
 vine==5.1.0

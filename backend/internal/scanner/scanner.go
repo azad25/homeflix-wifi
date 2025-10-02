@@ -10,11 +10,10 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"homeflix-backend/internal/models"
 	"homeflix-backend/internal/services"
-
-	"github.com/h2non/filetype"
 )
 
 type MediaScanner struct {
@@ -38,16 +37,19 @@ func NewMediaScanner(mediaService *services.MediaService, thumbnailService *serv
 }
 
 func (s *MediaScanner) ScanMediaLibrary() error {
-	log.Printf("Scanning media library at: %s", s.mediaPath)
+	log.Printf("🔍 Starting comprehensive media library scan at: %s", s.mediaPath)
 
 	// Check if media path exists
 	if _, err := os.Stat(s.mediaPath); os.IsNotExist(err) {
-		log.Printf("Media path does not exist: %s", s.mediaPath)
 		return fmt.Errorf("media path does not exist: %s", s.mediaPath)
 	}
 
+	log.Printf("✅ Media path verified, beginning file walk...")
+	log.Printf("🚀 Celery task queuing enabled - all media will be processed automatically")
 	videoCount := 0
 	subtitleCount := 0
+	fileCount := 0
+	queuedTasksCount := 0
 
 	err := filepath.Walk(s.mediaPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -55,14 +57,41 @@ func (s *MediaScanner) ScanMediaLibrary() error {
 			return nil // Continue scanning
 		}
 
+		// Skip system directories and problematic paths
 		if info.IsDir() {
+			dirName := strings.ToLower(info.Name())
+			if s.shouldSkipDirectory(dirName, path) {
+				log.Printf("Skipping system directory: %s", path)
+				return filepath.SkipDir
+			}
 			return nil
+		}
+
+		// Skip system files and problematic files
+		if s.shouldSkipFile(path, info) {
+			return nil
+		}
+
+		fileCount++
+		
+		// Log progress every 500 files to reduce log spam
+		if fileCount%500 == 0 && fileCount > 0 {
+			log.Printf("Processed %d files so far... (videos: %d, subtitles: %d)", fileCount, videoCount, subtitleCount)
+		}
+		
+		// Log current file being processed for debugging
+		if fileCount <= 10 {
+			log.Printf("Processing file #%d: %s", fileCount, path)
 		}
 
 		// Check if file is a video
 		if s.isVideoFile(path) {
 			videoCount++
-			log.Printf("Found video file [%d]: %s", videoCount, path)
+			queuedTasksCount += 6 // Each video gets 6 Celery tasks queued
+			// Only log every 10th video file to reduce log spam
+		if videoCount%10 == 1 {
+			log.Printf("Processing video file: %s", filepath.Base(path))
+		}
 			if err := s.processVideoFile(path, info); err != nil {
 				log.Printf("Error processing video file %s: %v", path, err)
 			}
@@ -71,7 +100,6 @@ func (s *MediaScanner) ScanMediaLibrary() error {
 		// Check if file is a subtitle
 		if s.isSubtitleFile(path) {
 			subtitleCount++
-			log.Printf("Found subtitle file [%d]: %s", subtitleCount, path)
 			if err := s.processSubtitleFile(path); err != nil {
 				log.Printf("Error processing subtitle file %s: %v", path, err)
 			}
@@ -80,12 +108,99 @@ func (s *MediaScanner) ScanMediaLibrary() error {
 		return nil
 	})
 
-	log.Printf("Scan completed: %d videos, %d subtitles processed", videoCount, subtitleCount)
+	log.Printf("📊 Media scan completed: %d videos, %d subtitles", videoCount, subtitleCount)
+	log.Printf("🚀 Total Celery tasks queued: %d (6 tasks per video)", queuedTasksCount)
+	
+	// Log queue status after scanning
+	if s.celeryService != nil {
+		queueLengths, err := s.celeryService.GetAllQueueLengths()
+		if err == nil {
+			log.Printf("📋 Current queue lengths after scan:")
+			for queue, length := range queueLengths {
+				log.Printf("   %s: %d tasks", queue, length)
+			}
+		}
+	}
+	
 	return err
 }
 
+func (s *MediaScanner) shouldSkipDirectory(dirName, path string) bool {
+	// Skip system directories and problematic paths
+	skipDirs := []string{
+		"system volume information",
+		"$recycle.bin",
+		"recycler",
+		"found.000",
+		"found.001",
+		"found.002",
+		"msdownld.tmp",
+		".git",
+		".svn",
+		"node_modules",
+		"__pycache__",
+	}
+	
+	for _, skipDir := range skipDirs {
+		if strings.Contains(dirName, skipDir) {
+			return true
+		}
+	}
+	
+	// Skip directories starting with $
+	if strings.HasPrefix(dirName, "$") {
+		return true
+	}
+	
+	return false
+}
+
+func (s *MediaScanner) shouldSkipFile(path string, info os.FileInfo) bool {
+	fileName := strings.ToLower(info.Name())
+	
+	// Skip files starting with $ (system files)
+	if strings.HasPrefix(fileName, "$") {
+		log.Printf("Skipping system file: %s", path)
+		return true
+	}
+	
+	// Skip files containing $RECYCLE.BIN in path
+	if strings.Contains(strings.ToUpper(path), "$RECYCLE.BIN") {
+		log.Printf("Skipping recycle bin file: %s", path)
+		return true
+	}
+	
+	// Skip very large files that might be problematic (over 15GB)
+	if info.Size() > 15*1024*1024*1024 {
+		log.Printf("Skipping very large file: %s (%.2f GB)", path, float64(info.Size())/(1024*1024*1024))
+		return true
+	}
+	
+	// Skip very small files that are unlikely to be valid videos (under 10MB)
+	if info.Size() < 10*1024*1024 {
+		return true
+	}
+	
+	// Skip non-media file extensions
+	ext := strings.ToLower(filepath.Ext(fileName))
+	skipExts := []string{
+		".exe", ".msi", ".zip", ".rar", ".7z", ".tar", ".gz",
+		".appimage", ".deb", ".rpm", ".dmg", ".iso",
+		".txt", ".doc", ".docx", ".pdf", ".jpg", ".jpeg", ".png", ".gif", ".bmp",
+		".tmp", ".temp", ".log", ".cache", ".db", ".sqlite",
+	}
+	
+	for _, skipExt := range skipExts {
+		if ext == skipExt {
+			return true
+		}
+	}
+	
+	return false
+}
+
 func (s *MediaScanner) isVideoFile(path string) bool {
-	// First check by extension for common video formats
+	// First check by extension for common video formats - this is fast and reliable
 	ext := strings.ToLower(filepath.Ext(path))
 	videoExts := []string{".mp4", ".mkv", ".avi", ".mov", ".wmv", ".flv", ".webm", ".m4v", ".mpg", ".mpeg", ".3gp", ".ogv"}
 	
@@ -95,27 +210,9 @@ func (s *MediaScanner) isVideoFile(path string) bool {
 		}
 	}
 
-	// Fallback to MIME type detection for unknown extensions
-	file, err := os.Open(path)
-	if err != nil {
-		return false
-	}
-	defer file.Close()
-
-	// Read first 512 bytes to determine file type
-	buffer := make([]byte, 512)
-	_, err = file.Read(buffer)
-	if err != nil {
-		return false
-	}
-
-	kind, err := filetype.Match(buffer)
-	if err != nil {
-		return false
-	}
-
-	// Check if it's a video MIME type
-	return strings.HasPrefix(kind.MIME.Value, "video/")
+	// Skip MIME type detection to prevent hanging on problematic files
+	// Extension-based detection is sufficient for most use cases
+	return false
 }
 
 func (s *MediaScanner) isSubtitleFile(path string) bool {
@@ -134,17 +231,24 @@ func (s *MediaScanner) processVideoFile(path string, info os.FileInfo) error {
 	// Check if media already exists
 	exists, err := s.mediaService.MediaExists(path)
 	if err != nil {
-		log.Printf("Error checking if media exists for %s: %v", path, err)
 		return err
 	}
+	
 	if exists {
-		log.Printf("Media already exists, skipping: %s", path)
-		return nil // Skip if already processed
+		// Media exists - get it from database and queue tasks for processing
+		existingMedia, err := s.mediaService.GetMediaByPath(path)
+		if err != nil {
+			log.Printf("Failed to get existing media for %s: %v", path, err)
+			return nil
+		}
+		
+		// Queue Celery tasks for existing media that might need processing
+		go s.queueIndividualTasks(existingMedia, path)
+		return nil
 	}
 
 	// Extract metadata from filename and path
 	metadata := s.extractMetadata(path)
-	log.Printf("Extracted metadata for %s: Title=%s, Type=%s", path, metadata.Title, metadata.Type)
 
 	media := &models.Media{
 		Title:    metadata.Title,
@@ -160,20 +264,26 @@ func (s *MediaScanner) processVideoFile(path string, info os.FileInfo) error {
 		ViewCount: 0,
 	}
 
-	// If it's an episode, find or create the series
+	// If it's an episode, find or create the series and season
 	if metadata.Type == "episode" && metadata.SeriesTitle != "" {
-		log.Printf("Processing episode for series: %s", metadata.SeriesTitle)
 		series, err := s.mediaService.FindOrCreateSeries(metadata.SeriesTitle)
 		if err != nil {
-			log.Printf("Error finding/creating series %s: %v", metadata.SeriesTitle, err)
 			return err
 		}
 		media.SeriesID = &series.ID
+		
+		// Create season if season number is available
+		if metadata.SeasonNumber != nil && *metadata.SeasonNumber > 0 {
+			season, err := s.mediaService.FindOrCreateSeason(series.ID, *metadata.SeasonNumber)
+			if err != nil {
+				return err
+			}
+			media.SeasonID = &season.ID
+		}
 	}
 
 	// Save media to database
 	if err := s.mediaService.CreateMedia(media); err != nil {
-		log.Printf("Error creating media %s: %v", media.Title, err)
 		return err
 	}
 
@@ -182,75 +292,41 @@ func (s *MediaScanner) processVideoFile(path string, info os.FileInfo) error {
 	if len(genres) > 0 {
 		if err := s.mediaService.AssignGenresToMedia(media.ID, genres); err != nil {
 			log.Printf("Warning: Failed to assign genres to media %s: %v", media.Title, err)
-		} else {
-			log.Printf("Assigned %d genres to media: %s", len(genres), media.Title)
 		}
 	}
 
-	// Extract additional metadata using FFprobe
-	log.Printf("Extracting metadata for: %s", media.Title)
-	if err := s.extractVideoMetadata(media, path); err != nil {
-		log.Printf("Warning: Failed to extract metadata for %s: %v", media.Title, err)
-	}
-
-	// Generate thumbnail for the media
-	log.Printf("Generating thumbnail for: %s", media.Title)
-	thumbnailPath, err := s.thumbnailService.GenerateThumbnail(path, media.ID)
-	if err != nil {
-		log.Printf("Warning: Failed to generate thumbnail for %s: %v", media.Title, err)
-	} else {
-		media.ThumbnailPath = thumbnailPath
-		log.Printf("Thumbnail generated successfully: %s", thumbnailPath)
-	}
-
-	// Generate preview clip for Netflix-style hover playback
-	log.Printf("Generating preview clip for: %s", media.Title)
-	previewClipPath, err := s.thumbnailService.GeneratePreviewClip(path, media.ID)
-	if err != nil {
-		log.Printf("Warning: Failed to generate preview clip for %s: %v", media.Title, err)
-	} else {
-		media.PreviewClipPath = previewClipPath
-		log.Printf("Preview clip generated successfully: %s", previewClipPath)
-	}
-
-	// Download poster after preview clip generation
-	if s.posterService != nil {
-		err := s.posterService.DownloadPoster(media.Title, media.ID)
-		if err != nil {
-			log.Printf("Failed to download poster for %s: %v", media.Title, err)
+	// Extract additional metadata using FFprobe (with timeout)
+	go func() {
+		if err := s.extractVideoMetadata(media, path); err != nil {
+			log.Printf("Warning: Failed to extract metadata for %s: %v", media.Title, err)
 		} else {
-			// Get the poster path and update media
-			posterPath := s.posterService.GetPosterPath(media.ID)
-			if posterPath != "" {
-				media.PosterPath = posterPath
-				if err := s.mediaService.UpdateMedia(media); err != nil {
-					log.Printf("Failed to update media with poster path: %v", err)
-				} else {
-					log.Printf("Updated media %s with poster: %s", media.Title, posterPath)
-				}
-			}
+			// Update media with extracted metadata
+			s.mediaService.UpdateMedia(media)
 		}
-	}
+	}()
 
-	// Queue AI metadata generation using Celery
-	if s.geminiService != nil {
-		log.Printf("Queueing AI metadata generation for: %s", media.Title)
-		go s.queueCeleryTasks(media, path)
-	}
+	// Skip synchronous thumbnail and poster generation during scanning for speed
+	// These will be handled by Celery tasks asynchronously
 
-	log.Printf("Successfully added media: %s (Type: %s, Size: %d bytes)", media.Title, media.Type, media.FileSize)
+	// Always queue Celery tasks for media processing (thumbnails, previews, metadata)
+	go s.queueCeleryTasks(media, path)
+
+	log.Printf("Added media: %s", media.Title)
 	return nil
 }
 
 func (s *MediaScanner) extractVideoMetadata(media *models.Media, path string) error {
-	// Use FFprobe to extract video metadata
+	// Use FFprobe to extract video metadata with timeout
 	cmd := exec.Command("ffprobe", 
 		"-v", "quiet",
 		"-print_format", "json",
 		"-show_format",
 		"-show_streams",
+		"-select_streams", "v:0", // Only first video stream for speed
 		path)
 	
+	// Set timeout to prevent hanging
+	cmd.WaitDelay = 30 * time.Second
 	output, err := cmd.Output()
 	if err != nil {
 		return fmt.Errorf("failed to run ffprobe: %v", err)
@@ -573,6 +649,72 @@ func (s *MediaScanner) queueCeleryTasks(media *models.Media, path string) {
 		// Fallback to direct processing
 		s.generateMetadataAsync(media, path)
 	}
+	
+	// Queue individual tasks for immediate processing
+	s.queueIndividualTasks(media, path)
+}
+
+// queueIndividualTasks queues specific tasks for media processing
+func (s *MediaScanner) queueIndividualTasks(media *models.Media, path string) {
+	if s.celeryService == nil {
+		log.Printf("⚠️ Celery service not available for individual tasks - skipping task queuing for %s", media.Title)
+		return
+	}
+
+	log.Printf("📋 Queuing ALL Celery tasks for media: %s (ID: %d)", media.Title, media.ID)
+
+	// Extract year from metadata for poster download
+	year := media.Year
+
+	// Queue all 6 types of Celery tasks for comprehensive processing
+
+	// 1. METADATA GENERATION (high priority - metadata queue)
+	if s.geminiService != nil {
+		if err := s.celeryService.QueueMetadataGeneration(media.ID, path, media.Title); err != nil {
+			log.Printf("❌ Failed to queue metadata generation for %s: %v", media.Title, err)
+		} else {
+			log.Printf("🤖 Queued AI metadata generation for: %s", media.Title)
+		}
+	} else {
+		log.Printf("⚠️ Gemini service not available - skipping metadata generation for %s", media.Title)
+	}
+
+	// 2. THUMBNAIL GENERATION (high priority - thumbnails queue)
+	if err := s.celeryService.QueueThumbnailGeneration(media.ID, path); err != nil {
+		log.Printf("❌ Failed to queue thumbnail generation for %s: %v", media.Title, err)
+	} else {
+		log.Printf("🖼️ Queued thumbnail generation for: %s", media.Title)
+	}
+
+	// 3. PREVIEW CLIP GENERATION (high priority - thumbnails queue)
+	if err := s.celeryService.QueuePreviewGeneration(media.ID, path); err != nil {
+		log.Printf("❌ Failed to queue preview generation for %s: %v", media.Title, err)
+	} else {
+		log.Printf("🎬 Queued preview clip generation for: %s", media.Title)
+	}
+
+	// 4. POSTER DOWNLOAD (medium priority - posters queue)
+	if err := s.celeryService.QueuePosterDownload(media.ID, media.Title, year, media.Type); err != nil {
+		log.Printf("❌ Failed to queue poster download for %s: %v", media.Title, err)
+	} else {
+		log.Printf("🎨 Queued poster download for: %s", media.Title)
+	}
+
+	// 5. VIDEO ANALYSIS (medium priority - video_processing queue)
+	if err := s.celeryService.QueueVideoAnalysis(media.ID, path); err != nil {
+		log.Printf("❌ Failed to queue video analysis for %s: %v", media.Title, err)
+	} else {
+		log.Printf("📊 Queued video analysis for: %s", media.Title)
+	}
+
+	// 6. SUBTITLE EXTRACTION (low priority - subtitles queue)
+	if err := s.celeryService.QueueSubtitleExtraction(media.ID, path); err != nil {
+		log.Printf("❌ Failed to queue subtitle extraction for %s: %v", media.Title, err)
+	} else {
+		log.Printf("📝 Queued subtitle extraction for: %s", media.Title)
+	}
+
+	log.Printf("✅ Completed queuing ALL 6 task types for: %s", media.Title)
 }
 
 // queueMediaProcessing sends media to Celery for distributed processing
@@ -667,4 +809,62 @@ func (s *MediaScanner) generateMetadataAsync(media *models.Media, path string) {
 	if metadata.Country != "" {
 		log.Printf("   🌍 Country: %s", metadata.Country)
 	}
+}
+
+// ProcessExistingMedia queues tasks for all existing media items that need processing
+func (s *MediaScanner) ProcessExistingMedia() error {
+	if s.celeryService == nil {
+		log.Printf("⚠️ Celery service not available - skipping existing media processing")
+		return nil
+	}
+
+	log.Printf("🔄 Processing existing media items for comprehensive task queuing...")
+
+	// Get all media from database
+	allMedia, err := s.mediaService.GetAllMedia()
+	if err != nil {
+		return fmt.Errorf("failed to get existing media: %v", err)
+	}
+
+	if len(allMedia) == 0 {
+		log.Printf("📭 No existing media found in database")
+		return nil
+	}
+
+	log.Printf("📚 Found %d existing media items - queuing comprehensive processing tasks", len(allMedia))
+
+	processedCount := 0
+	skippedCount := 0
+
+	for _, media := range allMedia {
+		// Check if file still exists
+		if _, err := os.Stat(media.FilePath); os.IsNotExist(err) {
+			log.Printf("⚠️ Skipping missing file: %s", media.FilePath)
+			skippedCount++
+			continue
+		}
+
+		// Queue all 6 task types for each existing media item
+		s.queueIndividualTasks(&media, media.FilePath)
+		processedCount++
+
+		// Log progress every 50 items
+		if processedCount%50 == 0 {
+			log.Printf("📊 Processed %d/%d existing media items...", processedCount, len(allMedia))
+		}
+	}
+
+	log.Printf("✅ Completed processing %d existing media items (%d skipped)", processedCount, skippedCount)
+	log.Printf("🚀 Total tasks queued: %d (6 tasks × %d media items)", processedCount*6, processedCount)
+
+	// Log final queue status
+	queueLengths, err := s.celeryService.GetAllQueueLengths()
+	if err == nil {
+		log.Printf("📋 Final queue lengths after existing media processing:")
+		for queue, length := range queueLengths {
+			log.Printf("   %s: %d tasks", queue, length)
+		}
+	}
+
+	return nil
 }

@@ -5,89 +5,44 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
-	"homeflix-backend/internal/models"
 	"homeflix-backend/internal/services"
 )
 
 // GetRecommendations returns personalized recommendations for a user
 func GetRecommendations(recommendationService *services.RecommendationService) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		userID := c.Query("user_id")
-		category := c.Query("category")
-		limitStr := c.DefaultQuery("limit", "20")
+		userID := uint(1) // Default user ID for now
+		limit := 20
 
-		limit, err := strconv.Atoi(limitStr)
+		recommendations, err := recommendationService.GetRecommendationsForUser(userID, limit)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid limit parameter"})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
 
-		var userIDUint uint = 1 // Default user ID
-		if userID != "" {
-			if id, err := strconv.ParseUint(userID, 10, 32); err == nil {
-				userIDUint = uint(id)
+		c.JSON(http.StatusOK, gin.H{"recommendations": recommendations})
+	}
+}
+
+func GetTVSeriesRecommendations(recommendationService *services.RecommendationService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userID := uint(1) // Default user ID for now
+		limit := 20
+
+		// Parse limit from query parameter if provided
+		if limitStr := c.Query("limit"); limitStr != "" {
+			if parsedLimit, err := strconv.Atoi(limitStr); err == nil && parsedLimit > 0 {
+				limit = parsedLimit
 			}
 		}
 
-		var media []models.Media
-		var responseCategory string
-
-		switch category {
-		case "continue_watching":
-			media, err = recommendationService.GetContinueWatching(userIDUint)
-			responseCategory = "continue_watching"
-		case "trending":
-			media, err = recommendationService.GetTrendingRecommendations(limit)
-			responseCategory = "trending"
-		case "similar":
-			media, err = recommendationService.GetSimilarMedia(userIDUint, limit)
-			responseCategory = "similar"
-		default:
-			media, err = recommendationService.GetRecommendationsForUser(userIDUint, limit)
-			responseCategory = "for_you"
-		}
-
+		recommendations, err := recommendationService.GetTVSeriesRecommendations(userID, limit)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get recommendations", "details": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
 
-		// Convert to ScoredMedia format for frontend compatibility
-		var scoredMedia []map[string]interface{}
-		for i, m := range media {
-			scored := map[string]interface{}{
-				"id":          m.ID,
-				"title":       m.Title,
-				"description": m.Description,
-				"type":        m.Type,
-				"rating":      m.Rating,
-				"duration":    m.Duration,
-				"file_path":   m.FilePath,
-				"poster_path": m.PosterPath,
-				"banner_path": m.BannerPath,
-				"trailer_path": m.TrailerPath,
-				"release_date": m.ReleaseDate,
-				"genres":      m.Genres,
-				"series":      m.Series,
-				"view_count":  m.ViewCount,
-				"last_viewed": m.LastViewed,
-				"created_at":  m.CreatedAt,
-				"updated_at":  m.UpdatedAt,
-				// Scoring metadata
-				"mediaId":    m.ID,
-				"_score":     float64(100 - i), // Simple scoring based on order
-				"_source":    "backend_api",
-				"_category":  responseCategory,
-				"_reasons":   []string{"Recommended for you"},
-			}
-			scoredMedia = append(scoredMedia, scored)
-		}
-
-		c.JSON(http.StatusOK, gin.H{
-			"items":    scoredMedia,
-			"category": responseCategory,
-			"total":    len(scoredMedia),
-		})
+		c.JSON(http.StatusOK, gin.H{"recommendations": recommendations})
 	}
 }
 
@@ -98,7 +53,7 @@ func GetSimilarMediaHandler(recommendationService *services.RecommendationServic
 		userID := c.DefaultQuery("user_id", "1")
 		limitStr := c.DefaultQuery("limit", "10")
 
-		mediaID, err := strconv.ParseUint(mediaIDStr, 10, 32)
+		_, err := strconv.ParseUint(mediaIDStr, 10, 32)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid media ID"})
 			return
@@ -177,7 +132,7 @@ func GetContinueWatchingHandler(recommendationService *services.RecommendationSe
 
 		// Convert to ScoredMedia format
 		var scoredMedia []map[string]interface{}
-		for i, m := range media {
+		for _, m := range media {
 			scored := map[string]interface{}{
 				"id":          m.ID,
 				"title":       m.Title,

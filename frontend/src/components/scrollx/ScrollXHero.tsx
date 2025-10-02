@@ -8,40 +8,42 @@ import { getApiUrl } from '@/lib/api';
 import { MagneticButton, GradientBackground, ParallaxSection, ParticleField, ScrollReveal } from './index';
 import { useAudio } from '@/contexts/EnhancedAudioContext';
 import DynamicTitle from '@/components/DynamicTitle';
+import { fetchRecommendations } from '@/lib/api/recommendations';
 
 interface ScrollXHeroProps {
-  featuredMedia: Media[];
+  featuredMedia?: Media[];
   onPlay: (media: Media) => void;
   onInfo: (media: Media) => void;
   pageType?: string;
 }
 
 const ScrollXHero: React.FC<ScrollXHeroProps> = ({
-  featuredMedia,
+  featuredMedia: propsFeaturedMedia,
   onPlay,
   onInfo,
   pageType = 'home',
 }) => {
+  const [featuredMedia, setFeaturedMedia] = useState<Media[]>(propsFeaturedMedia || []);
+  const [isLoading, setIsLoading] = useState(false);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isAutoPlaying, setIsAutoPlaying] = useState(true);
-  const [isMuted, setIsMuted] = useState(false);
+  const [isMuted, setIsMuted] = useState(true);
   const [isVideoLoaded, setIsVideoLoaded] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [showControls, setShowControls] = useState(true);
+  const [hasUserInteracted, setHasUserInteracted] = useState(false);
   const [, setIsPlayButtonLoading] = useState(false);
   const [, setIsInfoButtonLoading] = useState(false);
   const [, setIsMouseOver] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const safariStallTimerRef = useRef<NodeJS.Timeout | null>(null);
   
   const { 
     setCurrentAudioElement, 
     muteAll, 
     alacEngine, 
     isALACEnabled, 
-    spatialAudioEnabled,
     initializeEnhancedAudio 
   } = useAudio();
 
@@ -50,15 +52,110 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
     offset: ["start start", "end start"]
   });
 
-  // Browser detection at component level
-  const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
-  const isSafari = /^((?!chrome|android).)*safari/i.test(ua) || /iPhone|iPad|iPod/i.test(ua);
-  const isChrome = /chrome/i.test(ua) && !/edg/i.test(ua);
-  const isFirefox = /firefox/i.test(ua);
-  const isMobile = /iPhone|iPad|iPod|Android/i.test(ua);
-
   const y = useTransform(scrollYProgress, [0, 1], [0, -200]);
   const opacity = useTransform(scrollYProgress, [0, 0.5], [1, 0]);
+
+  // Fetch recommended media for hero section
+  useEffect(() => {
+    const fetchHeroMedia = async () => {
+      if (propsFeaturedMedia && propsFeaturedMedia.length > 0) {
+        setFeaturedMedia(propsFeaturedMedia);
+        return;
+      }
+
+      setIsLoading(true);
+      try {
+        // Get different recommendation categories based on page type
+        let heroMedia: any[] = [];
+        
+        const defaultUserId = '1'; // Default user ID for recommendations
+        
+        if (pageType === 'movies') {
+          // For movies page, get popular movies and top picks
+          const [popularResponse, topPicksResponse] = await Promise.all([
+            fetch(`${getApiUrl()}/api/media/movies?limit=5`),
+            fetchRecommendations(defaultUserId, 'top_picks', 3)
+          ]);
+          
+          const popularMovies = popularResponse.ok ? await popularResponse.json() : [];
+          const topPicks = topPicksResponse.items || [];
+          
+          heroMedia = [...topPicks, ...popularMovies.slice(0, 3)].slice(0, 5);
+        } else if (pageType === 'tv-series') {
+          // For TV series page, get series titles with random episode previews
+          const [seriesHeroResponse, tvSeriesRecommendationsResponse] = await Promise.all([
+            fetch(`${getApiUrl()}/api/media/tv-series-hero?limit=5`),
+            fetch(`${getApiUrl()}/api/recommendations/tv-series?limit=3`)
+          ]);
+          
+          const seriesHero = seriesHeroResponse.ok ? await seriesHeroResponse.json() : [];
+          const tvRecommendations = tvSeriesRecommendationsResponse.ok ? 
+            (await tvSeriesRecommendationsResponse.json()).recommendations || [] : [];
+          
+          heroMedia = [...seriesHero, ...tvRecommendations].slice(0, 5);
+        } else {
+          // For home page, get personalized recommendations
+          const [forYouResponse, trendingResponse, topPicksResponse] = await Promise.all([
+            fetchRecommendations(defaultUserId, 'for_you', 3),
+            fetchRecommendations(defaultUserId, 'trending', 2),
+            fetchRecommendations(defaultUserId, 'top_picks', 2)
+          ]);
+          
+          const forYou = forYouResponse.items || [];
+          const trending = trendingResponse.items || [];
+          const topPicks = topPicksResponse.items || [];
+          
+          heroMedia = [...forYou, ...trending, ...topPicks].slice(0, 5);
+        }
+        
+        // Convert API response to Media format if needed
+        const processedMedia: Media[] = heroMedia.map((item: any) => ({
+          ...item,
+          id: item.id || item.mediaId || Math.floor(Math.random() * 10000),
+          uuid: item.uuid || `hero-${item.id || item.mediaId || Math.floor(Math.random() * 10000)}`,
+          genres: item.genres || [],
+          title: item.title || 'Untitled',
+          description: item.description || 'No description available',
+          type: item.type || 'movie',
+          rating: item.rating || 0,
+          duration: item.duration || 0,
+          view_count: item.view_count || 0,
+        }));
+        
+        setFeaturedMedia(processedMedia.length > 0 ? processedMedia : [
+          {
+            id: 1,
+            uuid: "550e8400-e29b-41d4-a716-446655440001",
+            title: "Discover Amazing Content",
+            description: "Experience premium entertainment with stunning visuals and immersive storytelling tailored just for you.",
+            type: "movie",
+            rating: 8.5,
+            duration: 7200,
+            genres: [{ id: 1, name: "Entertainment" }],
+            view_count: 1250,
+          }
+        ]);
+      } catch (error) {
+        console.error('Error fetching hero media:', error);
+        // Fallback to default content
+        setFeaturedMedia([{
+          id: 1,
+          uuid: "550e8400-e29b-41d4-a716-446655440001",
+          title: "Welcome to HomeFlix",
+          description: "Your personalized entertainment experience awaits. Discover movies and shows tailored to your taste.",
+          type: "movie",
+          rating: 8.5,
+          duration: 7200,
+          genres: [{ id: 1, name: "Entertainment" }],
+          view_count: 1250,
+        }]);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchHeroMedia();
+  }, [pageType, propsFeaturedMedia]);
 
   const currentMedia = featuredMedia[currentIndex] || featuredMedia[0];
 
@@ -84,23 +181,16 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
     if (!media) return null;
     
     try {
-      const host = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
-      const protocol = window?.location?.protocol === 'https:' ? 'https:' : 'http:';
-      const apiUrl = `${protocol}//${host === 'localhost' ? 'localhost' : host}:8251`;
-      
-      // For hero section, prioritize trailers and preview clips over full files
       if (media.trailer_path) {
-        return `${apiUrl}/api/admin/assets/${media.trailer_path.split('/').pop()}`;
+        return `/api/admin/assets/${media.trailer_path.split('/').pop()}`;
       }
       
-      // Use preview clips as they're optimized for this purpose
-      if (media.id) {
-        return `${apiUrl}/api/preview-clips/${media.id}`;
+      if (media.uuid) {
+        return `/api/preview-clips/${media.uuid}`;
       }
       
-      // Last resort: try streaming endpoint
-      if (media.id) {
-        return `${apiUrl}/api/stream/${media.id}`;
+      if (media.uuid) {
+        return `/api/stream/${media.uuid}`;
       }
       
       return null;
@@ -111,18 +201,13 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
   };
 
   const getBackgroundImageUrl = (media: Media) => {
-    const host = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
-    const apiUrl = `http://${host === 'localhost' ? 'localhost' : host}:8251`;
-    // Try banner first for hero backgrounds
     if (media.banner_path) {
-      return `${apiUrl}/api/admin/assets/${media.banner_path.split('/').pop()}`;
+      return `/api/admin/assets/${media.banner_path.split('/').pop()}`;
     }
-    // Fallback to poster
     if (media.poster_path) {
-      return `${apiUrl}/api/posters/${media.id}`;
+      return `/api/posters/${media.uuid}`;
     }
-    // Final fallback to thumbnail
-    return `${apiUrl}/api/thumbnails/${media.id}`;
+    return `/api/thumbnails/${media.uuid}`;
   };
 
   const nextSlide = () => {
@@ -140,32 +225,29 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
   const toggleMute = () => {
     if (videoRef.current) {
       if (videoRef.current.muted) {
-        // Unmute and enable full audio
         videoRef.current.muted = false;
         videoRef.current.volume = 1.0;
         setIsMuted(false);
         
-        // Mute any other playing audio first
+        if (videoRef.current.paused) {
+          videoRef.current.play().catch(e => {
+            console.log('ScrollXHero: Video resume failed:', e);
+          });
+        }
+        
         muteAll();
         setCurrentAudioElement(videoRef.current);
         
-        // Initialize ALAC processing if available
         if (isALACEnabled && alacEngine) {
-          initializeEnhancedAudio().then(() => {
-            console.log('ALAC audio enabled for hero video');
-          });
+          initializeEnhancedAudio();
         }
-        console.log('ScrollXHero: Audio unmuted via toggle');
       } else {
-        // Mute audio
         videoRef.current.muted = true;
         setIsMuted(true);
-        console.log('ScrollXHero: Audio muted via toggle');
       }
     }
   };
 
-  // Netflix-style helper functions
   const getQualityBadge = () => {
     if (currentMedia.rating && currentMedia.rating >= 8.5) return { text: '4K', color: 'bg-green-600' };
     if (currentMedia.rating && currentMedia.rating >= 7.5) return { text: 'HD', color: 'bg-blue-600' };
@@ -185,31 +267,6 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
     return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
   };
 
-
-  const getGenreBasedStyling = () => {
-    const genres = currentMedia.genres?.map(g => g.name.toLowerCase()) || [];
-    if (genres.includes('horror') || genres.includes('thriller')) return 'font-black tracking-wider';
-    if (genres.includes('comedy') || genres.includes('family')) return 'font-extrabold tracking-wide';
-    if (genres.includes('drama') || genres.includes('romance')) return 'font-bold tracking-normal';
-    if (genres.includes('action') || genres.includes('adventure')) return 'font-black tracking-widest';
-    return 'font-bold tracking-wide';
-  };
-
-  const getGenreGradient = () => {
-    const genres = currentMedia.genres?.map(g => g.name.toLowerCase()) || [];
-    if (genres.includes('horror') || genres.includes('thriller')) 
-      return 'linear-gradient(135deg, #ff0000, #8b0000, #ffffff)';
-    if (genres.includes('comedy') || genres.includes('family')) 
-      return 'linear-gradient(135deg, #ffd700, #ff6b35, #ffffff)';
-    if (genres.includes('drama') || genres.includes('romance')) 
-      return 'linear-gradient(135deg, #ff69b4, #8a2be2, #ffffff)';
-    if (genres.includes('action') || genres.includes('adventure')) 
-      return 'linear-gradient(135deg, #ff4500, #dc143c, #ffffff)';
-    if (genres.includes('sci-fi') || genres.includes('fantasy')) 
-      return 'linear-gradient(135deg, #00bfff, #4169e1, #ffffff)';
-    return 'linear-gradient(135deg, #e50914, #ffffff, #ffffff)';
-  };
-
   const goToSlide = (index: number) => {
     setCurrentIndex(index);
     setIsAutoPlaying(false);
@@ -218,11 +275,31 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
     setTimeout(() => setIsAutoPlaying(true), 5000);
   };
 
-  // Auto-slide functionality with enhanced timing
+  // Global interaction detector - enables audio across the entire app
+  useEffect(() => {
+    const enableAudioOnInteraction = () => {
+      if (!hasUserInteracted) {
+        setHasUserInteracted(true);
+        console.log('ScrollXHero: User interaction detected - audio enabled globally');
+      }
+    };
+
+    const events = ['click', 'touchstart', 'keydown'];
+    events.forEach(event => {
+      document.addEventListener(event, enableAudioOnInteraction, { once: true, passive: true });
+    });
+
+    return () => {
+      events.forEach(event => {
+        document.removeEventListener(event, enableAudioOnInteraction);
+      });
+    };
+  }, [hasUserInteracted]);
+
+  // Auto-slide functionality
   useEffect(() => {
     if (!isAutoPlaying || featuredMedia.length <= 1) return;
 
-    // Longer duration for video content, shorter for images
     const slideDuration = isVideoLoaded && isPlaying ? 20000 : 12000;
     
     const interval = setInterval(() => {
@@ -232,7 +309,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
     return () => clearInterval(interval);
   }, [isAutoPlaying, featuredMedia.length, currentIndex, isVideoLoaded, isPlaying]);
 
-  // Universal video loading with audio support for all browsers
+  // Video loading and playback
   useEffect(() => {
     if (!currentMedia) return;
     
@@ -241,546 +318,120 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
     
     console.log('ScrollXHero: Loading video for media:', currentMedia.title);
     
-    // Reset states
     setIsVideoLoaded(false);
     setIsPlaying(false);
-    setIsMuted(false);
+    setIsMuted(true);
     
     const videoUrl = getVideoUrl(currentMedia);
-    console.log('ScrollXHero: Video URL:', videoUrl);
     
     if (!videoUrl) {
-      console.log('ScrollXHero: No video URL available, using background image only');
+      console.log('ScrollXHero: No video URL available');
       return;
     }
     
-    console.log('ScrollXHero: Browser detection', { isSafari, isChrome, isFirefox, isMobile });
-    
     let hasTriedPlay = false;
-    let audioEnabled = false;
-    let safariStallTimer: NodeJS.Timeout | null = null;
-    let safariRecoveryCount = 0;
-    const maxSafariRecovery = 3;
-    
-    // Universal stall detection and recovery for all browsers
-    const handleSafariStall = () => {
-      // Clear any existing timer
-      if (safariStallTimer) {
-        clearTimeout(safariStallTimer);
-      }
-      
-      safariStallTimer = setTimeout(() => {
-        if (video && (video.readyState < 3 || video.paused) && safariRecoveryCount < maxSafariRecovery) {
-          console.log('ScrollXHero: Video stalled, attempting recovery');
-          
-          safariRecoveryCount++;
-          
-          // Force video restart
-          video.currentTime = 0;
-          video.load();
-          
-          setTimeout(async () => {
-            try {
-              await video.play();
-              console.log('ScrollXHero: Stall recovery successful');
-              setIsVideoLoaded(true);
-              setIsPlaying(true);
-              
-              // Continue monitoring
-              handleSafariStall();
-            } catch (e) {
-              console.log('ScrollXHero: Stall recovery failed:', e);
-              if (safariRecoveryCount < maxSafariRecovery) {
-                handleSafariStall(); // Try again
-              }
-            }
-          }, 500);
-        } else if (video && !video.paused && video.readyState >= 3) {
-          // Video is playing fine, continue monitoring
-          handleSafariStall();
-        }
-      }, 3000); // Check every 3 seconds
-    };
-    
-    const clearSafariStallTimer = () => {
-      if (safariStallTimer) {
-        clearTimeout(safariStallTimer);
-        safariStallTimer = null;
-      }
-    };
-    
-    // Universal audio enabler - force unmute on any interaction with Chromium optimization
-    const enableAudio = () => {
-      if (video && !video.paused) {
-        try {
-          // For Chromium, ensure we have a proper user gesture context
-          if (isChrome) {
-            // Force play to establish user gesture context
-            video.play().then(() => {
-              video.muted = false;
-              video.volume = 1.0;
-              setIsMuted(false);
-              audioEnabled = true;
-              console.log('ScrollXHero: Chromium audio force-enabled via user interaction');
-              
-              // Mute other audio sources
-              muteAll();
-              setCurrentAudioElement(video);
-              
-              // Initialize ALAC audio if available
-              if (isALACEnabled && alacEngine) {
-                initializeEnhancedAudio().then(() => {
-                  console.log('ScrollXHero: Chromium ALAC audio initialized via interaction');
-                }).catch(() => {
-                  console.log('ScrollXHero: Chromium ALAC fallback to standard audio');
-                });
-              }
-            }).catch(e => {
-              console.log('ScrollXHero: Chromium play failed during audio enable:', e);
-            });
-          } else {
-            // For other browsers, direct unmute
-            video.muted = false;
-            video.volume = 1.0;
-            setIsMuted(false);
-            audioEnabled = true;
-            console.log('ScrollXHero: Audio force-enabled via user interaction');
-            
-            // Mute other audio sources
-            muteAll();
-            setCurrentAudioElement(video);
-            
-            // Initialize ALAC audio if available
-            if (isALACEnabled && alacEngine) {
-              initializeEnhancedAudio().then(() => {
-                console.log('ScrollXHero: ALAC audio initialized via interaction');
-              }).catch(() => {
-                console.log('ScrollXHero: ALAC fallback to standard audio');
-              });
-            }
-          }
-        } catch (error) {
-          console.log('ScrollXHero: Audio enable failed:', error);
-        }
-      }
-    };
-    
-    // Safari-specific video play handler with audio priority
-    const safariPlayVideo = async () => {
-      if (isSafari && !hasTriedPlay) {
-        try {
-          console.log('ScrollXHero: Safari attempting video play with audio via user interaction');
-          
-          // Try with audio first
-          video.muted = false;
-          video.volume = 1.0;
-          video.currentTime = 0;
-          
-          await video.play();
-          console.log('ScrollXHero: Safari video with audio started via interaction');
-          
-          setIsVideoLoaded(true);
-          setIsPlaying(true);
-          setIsMuted(false);
-          setCurrentAudioElement(video);
-          hasTriedPlay = true;
-          audioEnabled = true;
-          
-          // Mute other audio
-          muteAll();
-          
-          // Start monitoring
-          handleSafariStall();
-          
-          // Initialize ALAC if available
-          if (isALACEnabled && alacEngine) {
-            initializeEnhancedAudio().then(() => {
-              console.log('ScrollXHero: Safari ALAC audio initialized');
-            }).catch(() => {
-              console.log('ScrollXHero: Safari ALAC fallback to standard audio');
-            });
-          }
-          
-        } catch (error) {
-          console.log('ScrollXHero: Safari interaction play with audio failed, trying muted:', error);
-          
-          // Fallback to muted play
-          try {
-            video.muted = true;
-            await video.play();
-            console.log('ScrollXHero: Safari muted video started via interaction');
-            
-            setIsVideoLoaded(true);
-            setIsPlaying(true);
-            setIsMuted(true);
-            setCurrentAudioElement(video);
-            hasTriedPlay = true;
-            
-            handleSafariStall();
-          } catch (mutedError) {
-            console.log('ScrollXHero: Safari muted interaction play also failed:', mutedError);
-          }
-        }
-      }
-    };
-    
-    // Add universal interaction listeners for audio and Safari video
-    const interactionEvents = ['click', 'touchstart', 'keydown', 'mousemove', 'scroll'];
-    interactionEvents.forEach(event => {
-      document.addEventListener(event, () => {
-        enableAudio();
-        safariPlayVideo();
-      }, { once: true, passive: true });
-    });
     
     const handleCanPlay = async () => {
       if (hasTriedPlay) return;
-      
-      console.log('ScrollXHero: Video can play, attempting playback');
-      
-      // For Safari, try autoplay with sound first, fallback to muted if needed
-      if (isSafari) {
-        console.log('ScrollXHero: Safari detected - attempting autoplay with audio');
-        
-        // Set up video with audio enabled
-        video.muted = false;
-        video.volume = 1.0;
-        video.currentTime = 0;
-        video.playbackRate = 1.0;
-        video.setAttribute('webkit-playsinline', 'true');
-        video.setAttribute('playsinline', 'true');
-        
-        // Try to play with audio first
-        try {
-          const playPromise = video.play();
-          await playPromise;
-          
-          console.log('ScrollXHero: Safari autoplay with audio successful');
-          setIsVideoLoaded(true);
-          setIsPlaying(true);
-          setIsMuted(false);
-          setCurrentAudioElement(video);
-          handleSafariStall();
-          return;
-        } catch (error) {
-          console.log('ScrollXHero: Safari autoplay with audio failed, trying muted:', error);
-          
-          // Fallback to muted autoplay
-          video.muted = true;
-          try {
-            await video.play();
-            console.log('ScrollXHero: Safari muted autoplay successful');
-            setIsVideoLoaded(true);
-            setIsPlaying(true);
-            setIsMuted(true);
-            setCurrentAudioElement(video);
-            handleSafariStall();
-            return;
-          } catch (mutedError) {
-            console.log('ScrollXHero: Safari muted autoplay also failed:', mutedError);
-            setIsVideoLoaded(false);
-            setIsPlaying(false);
-            return;
-          }
-        }
-      }
-      
-      // Non-Safari browsers - Chromium has strict autoplay policies
       hasTriedPlay = true;
       
+      console.log('ScrollXHero: Video can play, starting muted autoplay');
+      
+      // Always start muted for autoplay - this is required by browsers
+      video.muted = true;
+      video.volume = 1.0;
+      video.currentTime = 0;
+      video.playbackRate = 1.0;
+      video.setAttribute('webkit-playsinline', 'true');
+      video.setAttribute('playsinline', 'true');
+      
       try {
-        // Set up video attributes first
-        video.currentTime = 0;
-        video.playbackRate = 1.0;
-        video.setAttribute('webkit-playsinline', 'true');
-        video.setAttribute('playsinline', 'true');
+        await video.play();
+        console.log('ScrollXHero: Muted autoplay successful');
         
-        // For Chromium browsers, start muted to ensure autoplay works
-        if (isChrome) {
-          console.log('ScrollXHero: Chromium detected - starting muted for autoplay compliance');
-          video.muted = true;
-          video.volume = 1.0;
-          
-          try {
-            const playPromise = video.play();
-            await playPromise;
-            
-            console.log('ScrollXHero: Chromium muted autoplay successful');
-            
-            setIsVideoLoaded(true);
-            setIsPlaying(true);
-            setIsMuted(true);
-            setCurrentAudioElement(video);
-            
-            // Start monitoring
-            handleSafariStall();
-            
-            // Immediately try to unmute for Chromium
-            setTimeout(() => {
-              if (video && !video.paused) {
-                try {
-                  video.muted = false;
-                  setIsMuted(false);
-                  audioEnabled = true;
-                  console.log('ScrollXHero: Chromium audio enabled after autoplay');
-                  
-                  // Mute other audio sources
-                  muteAll();
-                  setCurrentAudioElement(video);
-                  
-                  // Initialize ALAC if available
-                  if (isALACEnabled && alacEngine) {
-                    initializeEnhancedAudio().then(() => {
-                      console.log('ScrollXHero: Chromium ALAC audio initialized');
-                    }).catch(() => {
-                      console.log('ScrollXHero: Chromium ALAC fallback to standard audio');
-                    });
-                  }
-                } catch (error) {
-                  console.log('ScrollXHero: Chromium audio enable failed, waiting for interaction:', error);
-                }
-              }
-            }, 100);
-            
-          } catch (chromiumPlayError) {
-            console.log('ScrollXHero: Chromium muted autoplay failed:', chromiumPlayError);
-            throw chromiumPlayError;
-          }
-        } else {
-          // For other non-Safari browsers, try audio first
-          video.muted = false;
-          video.volume = 1.0;
-          
-          try {
-            // Attempt autoplay with audio
-            const playPromise = video.play();
-            await playPromise;
-            
-            console.log('ScrollXHero: Video playing with audio successfully');
-            
-            setIsVideoLoaded(true);
-            setIsPlaying(true);
-            setIsMuted(false);
-            setCurrentAudioElement(video);
-            audioEnabled = true;
-            
-            // Initialize ALAC if available
-            if (isALACEnabled && alacEngine) {
-              initializeEnhancedAudio().then(() => {
-                console.log('ScrollXHero: ALAC audio initialized');
-              }).catch(() => {
-                console.log('ScrollXHero: ALAC fallback to standard audio');
-              });
-            }
-            
-            // Start monitoring
-            handleSafariStall();
-            
-          } catch (audioPlayError) {
-            console.log('ScrollXHero: Autoplay with audio failed, trying muted:', audioPlayError);
-            
-            // Fallback to muted autoplay
-            video.muted = true;
-            try {
-              await video.play();
-              console.log('ScrollXHero: Muted autoplay successful');
+        setIsVideoLoaded(true);
+        setIsPlaying(true);
+        setIsMuted(true);
+        setCurrentAudioElement(video);
+        
+        // Unmute if user has already interacted
+        if (hasUserInteracted) {
+          setTimeout(() => {
+            if (video && !video.paused) {
+              video.muted = false;
+              setIsMuted(false);
+              console.log('ScrollXHero: Audio enabled (user already interacted)');
               
-              setIsVideoLoaded(true);
-              setIsPlaying(true);
-              setIsMuted(true);
+              muteAll();
               setCurrentAudioElement(video);
               
-              // Start monitoring
-              handleSafariStall();
-              
-              // Try to enable audio after user interaction
-              setTimeout(() => {
-                if (!audioEnabled && !video.paused) {
-                  try {
-                    video.muted = false;
-                    setIsMuted(false);
-                    audioEnabled = true;
-                    console.log('ScrollXHero: Audio enabled after delay');
-                    
-                    if (isALACEnabled && alacEngine) {
-                      initializeEnhancedAudio().then(() => {
-                        console.log('ScrollXHero: ALAC audio initialized after delay');
-                      }).catch(() => {
-                        console.log('ScrollXHero: ALAC fallback to standard audio');
-                      });
-                    }
-                  } catch (error) {
-                    console.log('ScrollXHero: Audio enable after delay failed:', error);
-                  }
-                }
-              }, 1000);
-              
-            } catch (mutedPlayError) {
-              console.log('ScrollXHero: Even muted autoplay failed:', mutedPlayError);
-              throw mutedPlayError;
+              if (isALACEnabled && alacEngine) {
+                initializeEnhancedAudio().catch(() => {
+                  console.log('ScrollXHero: ALAC fallback');
+                });
+              }
             }
-          }
+          }, 100);
         }
         
-      } catch (playError) {
-        console.error('ScrollXHero: Video play failed:', playError);
-        
-        if (isSafari && safariRecoveryCount < maxSafariRecovery) {
-          safariRecoveryCount++;
-          console.log(`ScrollXHero: Safari retry ${safariRecoveryCount}/${maxSafariRecovery}`);
-          
-          setTimeout(() => {
-            video.currentTime = 0;
-            video.load();
-            
-            setTimeout(async () => {
-              try {
-                await video.play();
-                console.log('ScrollXHero: Safari retry successful');
-                setIsVideoLoaded(true);
-                setIsPlaying(true);
-                setIsMuted(true);
-                setCurrentAudioElement(video);
-                handleSafariStall();
-              } catch (retryError) {
-                console.log('ScrollXHero: Safari retry failed');
-              }
-            }, 500);
-          }, 200);
-        } else {
-          console.log('ScrollXHero: Video requires user interaction');
-          setIsVideoLoaded(false);
-          setIsPlaying(false);
-        }
-      }
-    };
-    
-    const handleError = (e: Event) => {
-      console.error('ScrollXHero: Video error:', e);
-      clearSafariStallTimer();
-      
-      if (isSafari && safariRecoveryCount < maxSafariRecovery) {
-        safariRecoveryCount++;
-        console.log(`ScrollXHero: Safari error recovery attempt ${safariRecoveryCount}`);
-        
-        setTimeout(() => {
-          video.load();
-          setTimeout(() => {
-            video.play().catch(err => {
-              console.log('ScrollXHero: Safari error recovery failed:', err);
-              if (safariRecoveryCount >= maxSafariRecovery) {
-                setIsVideoLoaded(false);
-                setIsPlaying(false);
-              }
-            });
-          }, 1000);
-        }, 2000);
-      } else {
+      } catch (error) {
+        console.error('ScrollXHero: Autoplay failed:', error);
         setIsVideoLoaded(false);
         setIsPlaying(false);
       }
     };
     
-    const handleStalled = () => {
-      console.log('ScrollXHero: Video stalled event detected');
-      clearSafariStallTimer();
-      
-      if (safariRecoveryCount < maxSafariRecovery) {
-        safariRecoveryCount++;
-        console.log(`ScrollXHero: Stall recovery attempt ${safariRecoveryCount}`);
-        
+    const handleError = (e: Event) => {
+      console.error('ScrollXHero: Video error:', e);
+      setIsVideoLoaded(false);
+      setIsPlaying(false);
+    };
+    
+    // Interaction listener to unmute
+    const enableAudioOnInteraction = () => {
+      if (video && !video.paused && video.muted && hasUserInteracted) {
         setTimeout(() => {
-          video.currentTime = 0;
-          video.load();
-          
-          setTimeout(async () => {
-            try {
-              await video.play();
-              console.log('ScrollXHero: Stall event recovery successful');
-              setIsVideoLoaded(true);
-              setIsPlaying(true);
-              handleSafariStall(); // Resume monitoring
-            } catch (e) {
-              console.log('ScrollXHero: Stall event recovery failed:', e);
+          if (video && !video.paused) {
+            video.muted = false;
+            setIsMuted(false);
+            console.log('ScrollXHero: Audio enabled via interaction');
+            
+            muteAll();
+            setCurrentAudioElement(video);
+            
+            if (isALACEnabled && alacEngine) {
+              initializeEnhancedAudio().catch(() => {
+                console.log('ScrollXHero: ALAC fallback');
+              });
             }
-          }, 300);
-        }, 200);
+          }
+        }, 50);
       }
     };
     
-    const handleSuspend = () => {
-      console.log('ScrollXHero: Video suspended');
-      clearSafariStallTimer();
-      
-      setTimeout(() => {
-        if (video && video.readyState === 0) {
-          console.log('ScrollXHero: Reloading suspended video');
-          video.load();
-          
-          setTimeout(async () => {
-            try {
-              await video.play();
-              console.log('ScrollXHero: Suspend recovery successful');
-              setIsVideoLoaded(true);
-              setIsPlaying(true);
-              handleSafariStall(); // Resume monitoring
-            } catch (e) {
-              console.log('ScrollXHero: Suspend recovery failed:', e);
-            }
-          }, 500);
-        }
-      }, 1000);
-    };
+    const interactionEvents = ['click', 'touchstart', 'keydown'];
+    interactionEvents.forEach(event => {
+      document.addEventListener(event, enableAudioOnInteraction, { passive: true });
+    });
     
-    const handleLoadStart = () => {
-      console.log('ScrollXHero: Video load started');
-    };
-    
-    const handleLoadedMetadata = () => {
-      console.log('ScrollXHero: Video metadata loaded');
-    };
-    
-    const handleLoadedData = () => {
-      console.log('ScrollXHero: Video data loaded');
-    };
-    
-    // Clean up function
-    const cleanup = () => {
-      clearSafariStallTimer();
-      
-      video.removeEventListener('canplay', handleCanPlay);
-      video.removeEventListener('error', handleError);
-      video.removeEventListener('stalled', handleStalled);
-      video.removeEventListener('suspend', handleSuspend);
-      video.removeEventListener('loadstart', handleLoadStart);
-      video.removeEventListener('loadedmetadata', handleLoadedMetadata);
-      video.removeEventListener('loadeddata', handleLoadedData);
-      
-      // Remove interaction listeners
-      interactionEvents.forEach(event => {
-        document.removeEventListener(event, enableAudio);
-      });
-    };
-    
-    // Add event listeners
+    // Setup video
     video.addEventListener('canplay', handleCanPlay, { once: true });
     video.addEventListener('error', handleError);
-    video.addEventListener('stalled', handleStalled);
-    video.addEventListener('suspend', handleSuspend);
-    video.addEventListener('loadstart', handleLoadStart);
-    video.addEventListener('loadedmetadata', handleLoadedMetadata);
-    video.addEventListener('loadeddata', handleLoadedData);
     
-    // Immediate video loading for all browsers
     video.currentTime = 0;
     video.playbackRate = 1.0;
     video.preload = 'auto';
+    video.volume = 1.0;
     video.load();
     
-    console.log('ScrollXHero: Video loading initiated for', isSafari ? 'Safari' : 'other browser');
-    
-    return cleanup;
-  }, [currentMedia, setCurrentAudioElement, isALACEnabled, alacEngine, initializeEnhancedAudio]);
+    return () => {
+      video.removeEventListener('canplay', handleCanPlay);
+      video.removeEventListener('error', handleError);
+      interactionEvents.forEach(event => {
+        document.removeEventListener(event, enableAudioOnInteraction);
+      });
+    };
+  }, [currentMedia, setCurrentAudioElement, isALACEnabled, alacEngine, initializeEnhancedAudio, hasUserInteracted, muteAll]);
 
   // Hide controls after inactivity
   useEffect(() => {
@@ -800,12 +451,13 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
     }
   }, []);
 
-  // Simple audio integration
-  useEffect(() => {
-    if (videoRef.current && isVideoLoaded) {
-      setCurrentAudioElement(videoRef.current);
-    }
-  }, [isVideoLoaded, setCurrentAudioElement]);
+  if (isLoading) {
+    return (
+      <div className="relative h-screen overflow-hidden bg-black flex items-center justify-center">
+        <div className="text-white text-xl">Loading amazing content...</div>
+      </div>
+    );
+  }
 
   if (!currentMedia) return null;
 
@@ -815,17 +467,15 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
       className="relative h-screen overflow-hidden"
       style={{ y, opacity }}
     >
-      {/* Background with parallax */}
       <ParallaxSection speed={0.5} className="relative">
         <GradientBackground variant="netflix" className="relative">
           <div 
-            ref={containerRef}
             className="relative h-screen w-full overflow-hidden"
             onMouseEnter={() => setIsMouseOver(true)}
             onMouseLeave={() => setIsMouseOver(false)}
-          >  {/* Always show background image first */}
+          >
             <motion.div
-              key={`bg-${currentMedia.id}`}
+              key={`bg-${currentMedia.uuid}`}
               className="w-full h-full bg-cover bg-center bg-no-repeat"
               style={{
                 backgroundImage: `url(${getBackgroundImageUrl(currentMedia)})`,
@@ -835,7 +485,6 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
               transition={{ duration: 1.5, ease: "easeOut" }}
             />
             
-            {/* Video overlay when loaded and playing */}
             {(() => {
               const videoUrl = getVideoUrl(currentMedia);
               if (!videoUrl) return null;
@@ -843,120 +492,50 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
               return (
                 <video
                   ref={videoRef}
-                  className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-700 ease-out ${
+                  className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-700 ${
                     isVideoLoaded && isPlaying ? 'opacity-100' : 'opacity-0'
                   }`}
-                  autoPlay={false}
-                  muted={false}
+                  autoPlay
+                  muted={isMuted}
                   loop
                   playsInline
-                  preload="metadata"
+                  preload="auto"
                   controls={false}
                   disablePictureInPicture
                   disableRemotePlayback
                   crossOrigin="anonymous"
-                  onClick={() => {
-                    // Browser-specific click-to-play with audio priority
-                    if ((isSafari || isChrome) && !isPlaying) {
-                      const video = videoRef.current;
-                      if (video) {
-                        if (isChrome) {
-                          // Chromium: Start muted then unmute immediately
-                          video.muted = true;
-                          video.volume = 1.0;
-                          video.play().then(() => {
-                            console.log('ScrollXHero: Chromium video started via click');
-                            setIsVideoLoaded(true);
-                            setIsPlaying(true);
-                            setCurrentAudioElement(video);
-                            
-                            // Immediately unmute for Chromium
-                            setTimeout(() => {
-                              video.muted = false;
-                              setIsMuted(false);
-                              console.log('ScrollXHero: Chromium audio enabled via click');
-                              
-                              // Mute other audio
-                              muteAll();
-                              setCurrentAudioElement(video);
-                              
-                              // Initialize ALAC if available
-                              if (isALACEnabled && alacEngine) {
-                                initializeEnhancedAudio().then(() => {
-                                  console.log('ScrollXHero: Chromium ALAC audio initialized via click');
-                                }).catch(() => {
-                                  console.log('ScrollXHero: Chromium ALAC fallback via click');
-                                });
-                              }
-                            }, 50);
-                          }).catch(e => {
-                            console.log('ScrollXHero: Chromium click play failed:', e);
-                          });
-                        } else {
-                          // Safari: Try with audio first
-                          video.muted = false;
-                          video.volume = 1.0;
-                          video.play().then(() => {
-                            console.log('ScrollXHero: Safari video with audio started via click');
-                            setIsVideoLoaded(true);
-                            setIsPlaying(true);
-                            setIsMuted(false);
-                            setCurrentAudioElement(video);
-                            
-                            // Mute other audio
-                            muteAll();
-                            
-                            // Initialize ALAC if available
-                            if (isALACEnabled && alacEngine) {
-                              initializeEnhancedAudio().then(() => {
-                                console.log('ScrollXHero: Safari ALAC audio initialized via click');
-                              }).catch(() => {
-                                console.log('ScrollXHero: Safari ALAC fallback via click');
-                              });
-                            }
-                          }).catch(e => {
-                            console.log('ScrollXHero: Safari click play with audio failed, trying muted:', e);
-                            
-                            // Fallback to muted
-                            video.muted = true;
-                            video.play().then(() => {
-                              console.log('ScrollXHero: Safari muted video started via click');
-                              setIsVideoLoaded(true);
-                              setIsPlaying(true);
-                              setIsMuted(true);
-                              setCurrentAudioElement(video);
-                            }).catch(mutedError => {
-                              console.log('ScrollXHero: Safari muted click play also failed:', mutedError);
-                            });
-                          });
-                        }
-                      }
-                    }
-                  }}
                   style={{ 
                     zIndex: isVideoLoaded && isPlaying ? 5 : 1,
-                    backfaceVisibility: 'hidden',
-                    WebkitBackfaceVisibility: 'hidden',
-                    transform: 'translateZ(0)',
-                    WebkitTransform: 'translateZ(0)',
-                    cursor: isSafari && !isPlaying ? 'pointer' : 'default'
                   }}
                 >
                   <source src={videoUrl} type="video/mp4" />
-                  Your browser does not support the video tag.
                 </video>
               );
             })()}
             
-            {/* Gradient overlays */}
             <div className="absolute inset-0 bg-gradient-to-r from-black/80 via-black/40 to-transparent" style={{ zIndex: 10 }} />
             <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" style={{ zIndex: 10 }} />
           </div>
         </GradientBackground>
       </ParallaxSection>
 
-      {/* Particle field */}
       <ParticleField count={30} className="opacity-30" />
+
+      {/* Audio indicator */}
+      {isVideoLoaded && isMuted && !hasUserInteracted && (
+        <motion.div
+          className="absolute top-24 right-8 z-30"
+          initial={{ opacity: 0, x: 20 }}
+          animate={{ opacity: 1, x: 0 }}
+          exit={{ opacity: 0, x: 20 }}
+          transition={{ duration: 0.5, delay: 1 }}
+        >
+          <div className="bg-black/80 backdrop-blur-md text-white px-4 py-3 rounded-lg border border-white/20 flex items-center gap-3 shadow-xl">
+            <VolumeX className="w-5 h-5 text-red-500" />
+            <span className="text-sm font-medium">Click anywhere to enable audio</span>
+          </div>
+        </motion.div>
+      )}
 
       {/* Navigation arrows */}
       {featuredMedia.length > 1 && (
@@ -991,241 +570,128 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
         </>
       )}
 
-      {/* Content - Netflix-style left positioning */}
+      {/* Content */}
       <div className="absolute inset-0 z-20 flex items-center">
         <div className="w-full max-w-none px-8 md:px-16 lg:px-24">
           <div className="max-w-2xl">
-          {/* Netflix-style metadata */}
-          <ScrollReveal delay={0.1}>
-            <motion.div 
-              key={`metadata-${currentMedia.id}`}
-              className="flex items-center gap-4 mb-4"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.6, delay: 0.1 }}
-            >
-              {/* Quality Badge */}
-              <div className={`px-2 py-1 text-xs font-bold rounded ${getQualityBadge().color} text-white`}>
-                {getQualityBadge().text}
-              </div>
-              
-              {/* Year */}
-              {currentMedia.release_date && (
-                <span className="text-white font-medium">
-                  {new Date(currentMedia.release_date).getFullYear()}
-                </span>
-              )}
-              
-              {/* Age Rating */}
-              <div className="border border-gray-400 px-1 text-xs text-gray-300 font-medium">
-                {getAgeRating()}
-              </div>
-              
-              {/* Duration */}
-              {currentMedia.duration && (
-                <span className="text-gray-300 text-sm">
-                  {formatDuration(currentMedia.duration)}
-                </span>
-              )}
-              
-              {/* Type indicator */}
-              <div className="flex items-center gap-1">
-                {currentMedia.type === 'movie' ? (
-                  <Film className="w-4 h-4 text-gray-400" />
-                ) : (
-                  <Tv className="w-4 h-4 text-gray-400" />
+            <ScrollReveal delay={0.1}>
+              <motion.div 
+                key={`metadata-${currentMedia.uuid}`}
+                className="flex items-center gap-4 mb-4"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.6, delay: 0.1 }}
+              >
+                <div className={`px-2 py-1 text-xs font-bold rounded ${getQualityBadge().color} text-white`}>
+                  {getQualityBadge().text}
+                </div>
+                
+                {currentMedia.release_date && (
+                  <span className="text-white font-medium">
+                    {new Date(currentMedia.release_date).getFullYear()}
+                  </span>
                 )}
-                <span className="text-gray-400 text-sm capitalize">
-                  {currentMedia.type === 'episode' ? 'Series' : currentMedia.type}
-                </span>
-              </div>
-            </motion.div>
-          </ScrollReveal>
+                
+                <div className="border border-gray-400 px-1 text-xs text-gray-300 font-medium">
+                  {getAgeRating()}
+                </div>
+                
+                {currentMedia.duration && (
+                  <span className="text-gray-300 text-sm">
+                    {formatDuration(currentMedia.duration)}
+                  </span>
+                )}
+                
+                <div className="flex items-center gap-1">
+                  {currentMedia.type === 'movie' ? (
+                    <Film className="w-4 h-4 text-gray-400" />
+                  ) : (
+                    <Tv className="w-4 h-4 text-gray-400" />
+                  )}
+                  <span className="text-gray-400 text-sm capitalize">
+                    {currentMedia.type === 'episode' ? 'Series' : currentMedia.type}
+                  </span>
+                </div>
+              </motion.div>
+            </ScrollReveal>
 
-          {/* Enhanced Dynamic Title with Genre-based styling */}
-          <ScrollReveal delay={0.2}>
-            <DynamicTitle
-              key={`title-${currentMedia.id}`}
-              media={currentMedia}
-              variant="hero"
-              pageType={pageType}
-              showGenreIndicator={true}
-              animated={true}
-              enable3D={true}
-              enableParticles={true}
-              particleIntensity="high"
-              className="mb-4"
-            />
-          </ScrollReveal>
+            <ScrollReveal delay={0.2}>
+              <DynamicTitle
+                key={`title-${currentMedia.uuid}`}
+                media={currentMedia}
+                variant="hero"
+                pageType={pageType}
+                showGenreIndicator={true}
+                animated={true}
+                enable3D={true}
+                enableParticles={true}
+                particleIntensity="high"
+                className="mb-4"
+              />
+            </ScrollReveal>
 
-          {/* Genres */}
-          <ScrollReveal delay={0.3}>
-            <motion.div 
-              key={`genres-${currentMedia.id}`}
-              className="flex flex-wrap gap-2 mb-4"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.6, delay: 0.3 }}
-            >
-              {currentMedia.genres?.slice(0, 3).map((genre, index) => (
-                <span 
-                  key={genre.id}
-                  className="text-gray-300 text-sm bg-black/30 backdrop-blur-sm px-3 py-1 rounded-full border border-white/20"
+            <ScrollReveal delay={0.3}>
+              <motion.div 
+                key={`genres-${currentMedia.uuid}`}
+                className="flex flex-wrap gap-2 mb-4"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.6, delay: 0.3 }}
+              >
+                {currentMedia.genres?.slice(0, 3).map((genre) => (
+                  <span 
+                    key={genre.id}
+                    className="text-gray-300 text-sm bg-black/30 backdrop-blur-sm px-3 py-1 rounded-full border border-white/20"
+                  >
+                    {genre.name}
+                  </span>
+                ))}
+              </motion.div>
+            </ScrollReveal>
+
+            <ScrollReveal delay={0.4}>
+              <motion.p 
+                key={`desc-${currentMedia.uuid}`}
+                className="text-lg md:text-xl text-gray-200 mb-8 max-w-2xl leading-relaxed px-4 py-2"
+                initial={{ opacity: 0, y: 30 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.8, delay: 0.4 }}
+              >
+                {currentMedia.description || "Experience premium entertainment with stunning visuals and immersive storytelling."}
+              </motion.p>
+            </ScrollReveal>
+
+            <ScrollReveal delay={0.5}>
+              <motion.div 
+                className="flex items-center gap-4 mb-6"
+                initial={{ opacity: 0, y: 30 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.8, delay: 0.5 }}
+              >
+                <MagneticButton
+                  onClick={handlePlay}
+                  className="bg-white text-black px-8 py-3 rounded-md font-bold text-lg hover:bg-gray-200 transition-all duration-300 flex items-center gap-2"
                 >
-                  {genre.name}
-                </span>
-              ))}
-            </motion.div>
-          </ScrollReveal>
+                  <Play className="w-6 h-6 fill-current" />
+                  Play
+                </MagneticButton>
 
-          {/* Description */}
-          <ScrollReveal delay={0.4}>
-            <motion.p 
-              key={`desc-${currentMedia.id}`}
-              className="text-lg md:text-xl text-gray-200 mb-8 max-w-2xl leading-relaxed bg-black/20 backdrop-blur-sm p-4 rounded-lg border border-white/10"
-              initial={{ opacity: 0, y: 30 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.8, delay: 0.4 }}
-            >
-              {currentMedia.description || "Experience premium entertainment with stunning visuals and immersive storytelling."}
-            </motion.p>
-          </ScrollReveal>
-
-          {/* Action Buttons */}
-          <ScrollReveal delay={0.5}>
-            <motion.div 
-              className="flex items-center gap-4 mb-6"
-              initial={{ opacity: 0, y: 30 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.8, delay: 0.5 }}
-            >
-              <MagneticButton
-                onClick={() => {
-                  // Enable video playback with browser-specific audio handling
-                  if ((isSafari || isChrome) && !isPlaying) {
-                    const video = videoRef.current;
-                    if (video) {
-                      if (isChrome) {
-                        // Chromium: Start muted then unmute with user gesture
-                        video.muted = true;
-                        video.volume = 1.0;
-                        video.play().then(() => {
-                          console.log('ScrollXHero: Chromium video started via Play button');
-                          setIsVideoLoaded(true);
-                          setIsPlaying(true);
-                          setCurrentAudioElement(video);
-                          
-                          // Immediately unmute for Chromium with user gesture
-                          setTimeout(() => {
-                            video.muted = false;
-                            setIsMuted(false);
-                            console.log('ScrollXHero: Chromium audio enabled via Play button');
-                            
-                            // Mute other audio
-                            muteAll();
-                            setCurrentAudioElement(video);
-                            
-                            // Initialize ALAC if available
-                            if (isALACEnabled && alacEngine) {
-                              initializeEnhancedAudio().then(() => {
-                                console.log('ScrollXHero: Chromium ALAC audio enabled via Play button');
-                              }).catch(() => {
-                                console.log('ScrollXHero: Chromium ALAC fallback via Play button');
-                              });
-                            }
-                          }, 50);
-                        }).catch(e => {
-                          console.log('ScrollXHero: Chromium Play button failed:', e);
-                        });
-                      } else {
-                        // Safari: Try with audio first
-                        video.muted = false;
-                        video.volume = 1.0;
-                        video.play().then(() => {
-                          console.log('ScrollXHero: Safari video with audio started via Play button');
-                          setIsVideoLoaded(true);
-                          setIsPlaying(true);
-                          setIsMuted(false);
-                          setCurrentAudioElement(video);
-                          
-                          // Mute other audio
-                          muteAll();
-                          
-                          // Initialize ALAC if available
-                          if (isALACEnabled && alacEngine) {
-                            initializeEnhancedAudio().then(() => {
-                              console.log('ScrollXHero: Safari ALAC audio enabled via Play button');
-                            }).catch(() => {
-                              console.log('ScrollXHero: Safari ALAC fallback via Play button');
-                            });
-                          }
-                        }).catch(e => {
-                          console.log('ScrollXHero: Safari Play button with audio failed, trying muted:', e);
-                          
-                          // Fallback to muted
-                          video.muted = true;
-                          video.play().then(() => {
-                            console.log('ScrollXHero: Safari muted video started via Play button');
-                            setIsVideoLoaded(true);
-                            setIsPlaying(true);
-                            setIsMuted(true);
-                            setCurrentAudioElement(video);
-                          }).catch(mutedError => {
-                            console.log('ScrollXHero: Safari muted Play button also failed:', mutedError);
-                          });
-                        });
-                      }
-                    }
-                  }
-                  
-                  setIsPlayButtonLoading(true);
-                  setTimeout(() => {
-                    onPlay(currentMedia);
-                    setIsPlayButtonLoading(false);
-                  }, 300);
-                }}
-                className="bg-white text-black px-8 py-3 rounded-md font-bold text-lg hover:bg-gray-200 transition-all duration-300 flex items-center gap-2"
-              >
-                <Play className="w-6 h-6 fill-current" />
-                {isSafari && !isPlaying ? 'Start Video' : 'Play'}
-              </MagneticButton>
-
-              <MagneticButton
-                onClick={() => {
-                  setIsInfoButtonLoading(true);
-                  setTimeout(() => {
-                    onInfo(currentMedia);
-                    setIsInfoButtonLoading(false);
-                  }, 300);
-                }}
-                className="bg-gray-600/80 text-white px-8 py-3 rounded-md font-bold text-lg hover:bg-gray-500/80 transition-all duration-300 flex items-center gap-2"
-              >
-                <Info className="w-6 h-6" />
-                More Info
-              </MagneticButton>
-              
-              {/* Audio Toggle Button */}
-              <MagneticButton
-                onClick={() => {
-                  const video = videoRef.current;
-                  if (video) {
-                    if (video.muted) {
-                      video.muted = false;
-                      setIsMuted(false);
-                      console.log('ScrollXHero: Audio unmuted via button');
-                    } else {
-                      video.muted = true;
-                      setIsMuted(true);
-                      console.log('ScrollXHero: Audio muted via button');
-                    }
-                  }
-                }}
-                className="bg-black/50 text-white p-3 rounded-full hover:bg-black/70 transition-all duration-300 border border-white/20"
-              >
-                {isMuted ? <VolumeX className="w-6 h-6" /> : <Volume2 className="w-6 h-6" />}
-              </MagneticButton>
-            </motion.div>
-          </ScrollReveal>
+                <MagneticButton
+                  onClick={handleInfo}
+                  className="bg-gray-600/80 text-white px-8 py-3 rounded-md font-bold text-lg hover:bg-gray-500/80 transition-all duration-300 flex items-center gap-2"
+                >
+                  <Info className="w-6 h-6" />
+                  More Info
+                </MagneticButton>
+                
+                <MagneticButton
+                  onClick={toggleMute}
+                  className="bg-black/50 text-white p-3 rounded-full hover:bg-black/70 transition-all duration-300 border border-white/20"
+                >
+                  {isMuted ? <VolumeX className="w-6 h-6" /> : <Volume2 className="w-6 h-6" />}
+                </MagneticButton>
+              </motion.div>
+            </ScrollReveal>
           </div>
         </div>
       </div>

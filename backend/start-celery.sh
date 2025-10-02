@@ -5,35 +5,28 @@
 
 echo "🚀 Starting HomeFlix Celery Task Queue System..."
 
-# Check if Redis is running on port 6380
-echo "🔍 Checking Redis connection on port 6380..."
-if ! docker run --rm --network host redis:7-alpine redis-cli -p 6380 ping > /dev/null 2>&1; then
-    echo "❌ Redis not running on port 6380. Starting Redis container..."
-    docker rm -f homeflix_redis 2>/dev/null || true
-    docker run -d --name homeflix_redis -p 6380:6379 redis:7-alpine
-    sleep 3
-    if ! docker run --rm --network host redis:7-alpine redis-cli -p 6380 ping > /dev/null 2>&1; then
-        echo "❌ Failed to start Redis container."
+# Check if running inside Docker Compose
+if [ -n "$COMPOSE_PROJECT_NAME" ]; then
+    # Running inside Docker Compose - use service name
+    export REDIS_URL="redis://redis:6379/0"
+    export CELERY_BROKER_URL="redis://redis:6379/0"
+    export CELERY_RESULT_BACKEND="redis://redis:6379/0"
+    echo "🔍 Using Docker Compose Redis service at redis:6379"
+else
+    # Running locally - check if Docker Compose is running
+    if docker compose ps redis 2>/dev/null | grep -q "Up"; then
+        echo "🔍 Using Docker Compose Redis service at localhost:6380"
+        export REDIS_URL="redis://localhost:6380/0"
+        export CELERY_BROKER_URL="redis://localhost:6380/0"
+        export CELERY_RESULT_BACKEND="redis://localhost:6380/0"
+    else
+        echo "❌ Redis is not running. Please start the services with 'docker compose up -d'"
         exit 1
     fi
 fi
 
-echo "✅ Redis is running on port 6380"
-
-# Install Python dependencies if needed
-if [ ! -d "venv" ]; then
-    echo "📦 Creating Python virtual environment..."
-    python3 -m venv venv
-    source venv/bin/activate
-    pip install -r requirements.txt
-else
-    source venv/bin/activate
-fi
-
-# Set environment variables
-export REDIS_URL="redis://localhost:6380/0"
-export CELERY_BROKER_URL="redis://localhost:6380/0"
-export CELERY_RESULT_BACKEND="redis://localhost:6380/0"
+# Set other environment variables
+export CELERY_BRIDGE_PORT="5001"
 export PYTHONPATH="$(pwd)"
 
 # Create necessary directories
@@ -86,7 +79,7 @@ echo ""
 echo "✅ HomeFlix Celery Task Queue System Started!"
 echo ""
 echo "🌐 Monitoring Dashboard: http://localhost:5555"
-echo "🌉 Bridge Service: http://localhost:5000"
+echo "🌉 Bridge Service: http://localhost:5001"
 echo "📊 Queue Status:"
 echo "   • metadata (High Priority): AI metadata generation"
 echo "   • thumbnails (High Priority): Thumbnail & preview generation"

@@ -112,7 +112,7 @@ export default function TVShowPage() {
   };
 
   const handleInfo = (mediaItem: Media) => {
-    router.push(`/tv-show/${mediaItem.id}`);
+    router.push(`/tv-show/${mediaItem.uuid}`);
   };
 
   const formatDuration = (seconds: number) => {

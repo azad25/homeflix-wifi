@@ -3,12 +3,14 @@ package models
 import (
 	"time"
 
+	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
 // Media represents a media file (movie or TV episode)
 type Media struct {
 	ID          uint           `json:"id" gorm:"primarykey"`
+	UUID        string         `json:"uuid" gorm:"type:varchar(36);unique;not null;index"`
 	CreatedAt   time.Time      `json:"created_at"`
 	UpdatedAt   time.Time      `json:"updated_at"`
 	DeletedAt   gorm.DeletedAt `json:"-" gorm:"index"`
@@ -57,8 +59,8 @@ type Media struct {
 	// Series info (for episodes)
 	SeriesID      *uint   `json:"series_id,omitempty"`
 	Series        *Series `json:"series,omitempty"`
-	Season        *int    `json:"season,omitempty"`
-	Episode       *int    `json:"episode,omitempty"`
+	SeasonID      *uint   `json:"season_id,omitempty"`
+	Season        *Season `json:"season,omitempty"`
 	SeasonNumber  *int    `json:"season_number,omitempty"`
 	EpisodeNumber *int    `json:"episode_number,omitempty"`
 	
@@ -71,6 +73,14 @@ type Media struct {
 	
 	// Metadata tracking
 	LastUpdated string `json:"last_updated"`
+}
+
+// BeforeCreate hook to generate UUID for new media items
+func (m *Media) BeforeCreate(tx *gorm.DB) error {
+	if m.UUID == "" {
+		m.UUID = uuid.New().String()
+	}
+	return nil
 }
 
 // Series represents a TV series
@@ -87,14 +97,38 @@ type Series struct {
 	Status      string    `json:"status"` // "ongoing", "completed", "cancelled"
 	
 	// Relationships
-	Episodes []Media `json:"episodes" gorm:"foreignKey:SeriesID"`
-	Genres   []Genre `json:"genres" gorm:"many2many:series_genres;"`
+	Seasons  []Season `json:"seasons" gorm:"foreignKey:SeriesID"`
+	Episodes []Media  `json:"episodes" gorm:"foreignKey:SeriesID"` // Keep for backward compatibility
+	Genres   []Genre  `json:"genres" gorm:"many2many:series_genres;"`
 	
 	// Metadata
-	TotalSeasons int    `json:"total_seasons"`
-	TotalEpisodes int   `json:"total_episodes"`
+	TotalSeasons  int    `json:"total_seasons"`
+	TotalEpisodes int    `json:"total_episodes"`
 	PosterPath    string `json:"poster_path"`
 	BackdropPath  string `json:"backdrop_path"`
+}
+
+// Season represents a season within a TV series
+type Season struct {
+	ID          uint           `json:"id" gorm:"primarykey"`
+	CreatedAt   time.Time      `json:"created_at"`
+	UpdatedAt   time.Time      `json:"updated_at"`
+	DeletedAt   gorm.DeletedAt `json:"-" gorm:"index"`
+	
+	SeriesID     uint   `json:"series_id" gorm:"not null"`
+	Series       Series `json:"series"`
+	SeasonNumber int    `json:"season_number" gorm:"not null"`
+	Title        string `json:"title"`        // e.g., "Season 1", "The Beginning"
+	Description  string `json:"description"`
+	ReleaseDate  time.Time `json:"release_date"`
+	
+	// Relationships
+	Episodes []Media `json:"episodes" gorm:"foreignKey:SeasonID"`
+	
+	// Metadata
+	EpisodeCount int    `json:"episode_count"`
+	PosterPath   string `json:"poster_path"`
+	BackdropPath string `json:"backdrop_path"`
 }
 
 // Genre represents a media genre

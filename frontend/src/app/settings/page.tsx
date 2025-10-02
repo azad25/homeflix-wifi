@@ -77,7 +77,7 @@ export default function SettingsPage() {
     setSelectedMedia(media);
     // Fetch existing assets for this media
     try {
-      const response = await fetch(`${getApiUrl()}/api/admin/media/${media.id}/assets`);
+      const response = await fetch(`${getApiUrl()}/api/admin/media/${media.uuid}/assets`);
       if (response.ok) {
         const assets = await response.json();
         setMediaAssets(assets);

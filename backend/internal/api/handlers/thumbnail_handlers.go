@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"net/http"
-	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"homeflix-backend/internal/services"
@@ -12,13 +11,13 @@ import (
 
 func GetThumbnail(mediaService *services.MediaService, thumbnailService *services.ThumbnailService) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		id, err := strconv.ParseUint(c.Param("id"), 10, 32)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID"})
+		uuid := c.Param("id")
+		if uuid == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid UUID"})
 			return
 		}
 
-		media, err := mediaService.GetMediaByID(uint(id))
+		media, err := mediaService.GetMediaByUUID(uuid)
 		if err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Media not found"})
 			return
@@ -35,13 +34,13 @@ func GetThumbnail(mediaService *services.MediaService, thumbnailService *service
 
 func GetPreviewClip(mediaService *services.MediaService, thumbnailService *services.ThumbnailService) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		id, err := strconv.ParseUint(c.Param("id"), 10, 32)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID"})
+		uuid := c.Param("id")
+		if uuid == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid UUID"})
 			return
 		}
 
-		media, err := mediaService.GetMediaByID(uint(id))
+		media, err := mediaService.GetMediaByUUID(uuid)
 		if err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Media not found"})
 			return
@@ -58,13 +57,13 @@ func GetPreviewClip(mediaService *services.MediaService, thumbnailService *servi
 
 func GenerateThumbnail(mediaService *services.MediaService, thumbnailService *services.ThumbnailService) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		id, err := strconv.ParseUint(c.Param("id"), 10, 32)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID"})
+		uuid := c.Param("id")
+		if uuid == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid UUID"})
 			return
 		}
 
-		media, err := mediaService.GetMediaByID(uint(id))
+		media, err := mediaService.GetMediaByUUID(uuid)
 		if err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Media not found"})
 			return
@@ -82,13 +81,13 @@ func GenerateThumbnail(mediaService *services.MediaService, thumbnailService *se
 
 func GetPreview(mediaService *services.MediaService, thumbnailService *services.ThumbnailService) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		id, err := strconv.ParseUint(c.Param("id"), 10, 32)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID"})
+		uuid := c.Param("id")
+		if uuid == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid UUID"})
 			return
 		}
 
-		media, err := mediaService.GetMediaByID(uint(id))
+		media, err := mediaService.GetMediaByUUID(uuid)
 		if err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Media not found"})
 			return
@@ -105,13 +104,13 @@ func GetPreview(mediaService *services.MediaService, thumbnailService *services.
 
 func GetPoster(mediaService *services.MediaService) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		id, err := strconv.ParseUint(c.Param("id"), 10, 32)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID"})
+		uuid := c.Param("id")
+		if uuid == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid UUID"})
 			return
 		}
 
-		media, err := mediaService.GetMediaByID(uint(id))
+		media, err := mediaService.GetMediaByUUID(uuid)
 		if err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Media not found"})
 			return

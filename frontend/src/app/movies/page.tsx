@@ -93,7 +93,7 @@ export default function MoviesPage() {
 
   const handleInfo = (media: Media) => {
     trackClick(media.id, 'info', 'movies');
-    router.push(`/movie/${media.id}`);
+    router.push(`/movie/${media.uuid}`);
   };
 
   const formatDuration = (seconds: number) => {

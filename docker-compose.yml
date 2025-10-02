@@ -1,24 +1,340 @@
 services:
+  # Redis - Message broker and cache
+  redis:
+    image: redis:7-alpine
+    container_name: homeflix-redis
+    ports:
+      - "6380:6379"
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru --tcp-keepalive 60
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    networks:
+      - homeflix-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+
+  # Backend API Server
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
+      target: ${BUILD_TARGET:-development}
     ports:
       - "8251:8251"
     environment:
-      - PORT=8251
       - DATABASE_URL=./homeflix.db
-      - MEDIA_PATH=/media/azad/Movies
-      - THUMBNAIL_PATH=./thumbnails
+      - MEDIA_PATH=${MEDIA_PATH:-/media}
+      - THUMBNAIL_PATH=/app/thumbnails
+      - POSTER_PATH=/app/posters
+      - PREVIEW_PATH=/app/previews
+      - SUBTITLE_PATH=/app/subtitles
+      - OPTIMIZED_PATH=/app/optimized
+      - PORT=8251
       - LOG_LEVEL=info
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - TMDB_API_KEY=${TMDB_API_KEY:-}
+      - OMDB_API_KEY=${OMDB_API_KEY:-}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - OLLAMA_URL=${OLLAMA_URL:-http://host.docker.internal:11434}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3.1:8b}
+      - API_URL=http://backend:8251
     volumes:
-      - /media/azad/Movies:/media/azad/Movies:ro
-      - ./backend/thumbnails:/app/thumbnails
-      - ./backend/posters:/app/posters
+      - ${MEDIA_PATH:-./media}:${MEDIA_PATH:-/media}:ro
+      - ./backend:/app:cached
+      - backend_thumbnails:/app/thumbnails
+      - backend_posters:/app/posters
+      - backend_previews:/app/previews
+      - backend_subtitles:/app/subtitles
+      - backend_optimized:/app/optimized
+      - backend_logs:/app/logs
+    depends_on:
+      redis:
+        condition: service_healthy
     restart: unless-stopped
     networks:
       - homeflix-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8251/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
 
+  # Celery Worker - Metadata Generation (High Priority)
+  celery-metadata:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: ${BUILD_TARGET:-production}
+    container_name: homeflix-celery-metadata
+    command: sh -c "sleep 15 && celery -A celery_app worker -Q metadata -n metadata_worker@%h --loglevel=info --concurrency=4 --pool=prefork"
+    environment:
+      - C_FORCE_ROOT=1
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - MEDIA_PATH=${MEDIA_PATH:-/media}
+      - PYTHONUNBUFFERED=1
+      - PYTHONPATH=/app
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - OLLAMA_URL=${OLLAMA_URL:-http://host.docker.internal:11434}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3.1:8b}
+      - API_URL=http://backend:8251
+      - CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP=true
+      - CELERY_BROKER_CONNECTION_RETRY=true
+    volumes:
+      - ${MEDIA_PATH:-./media}:${MEDIA_PATH:-/media}:ro
+      - backend_thumbnails:/app/thumbnails
+      - backend_posters:/app/posters
+      - backend_logs:/app/logs
+    depends_on:
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - homeflix-network
+    healthcheck:
+      test: ["CMD", "celery", "-A", "celery_app", "inspect", "active", "-d", "metadata_worker@homeflix-celery-metadata"]
+      interval: 60s
+      timeout: 15s
+      retries: 5
+      start_period: 45s
+
+  # Celery Worker - Thumbnails & Previews (High Priority)
+  celery-thumbnails:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: ${BUILD_TARGET:-production}
+    container_name: homeflix-celery-thumbnails
+    command: sh -c "sleep 20 && celery -A celery_app worker -Q thumbnails -n thumbnails_worker@%h --loglevel=info --concurrency=6 --pool=prefork"
+    environment:
+      - C_FORCE_ROOT=1
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - MEDIA_PATH=${MEDIA_PATH:-/media}
+      - PYTHONUNBUFFERED=1
+      - PYTHONPATH=/app
+      - API_URL=http://backend:8251
+      - THUMBNAIL_DIR=/app/thumbnails
+      - PREVIEW_DIR=/app/previews
+      - CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP=true
+      - CELERY_BROKER_CONNECTION_RETRY=true
+    volumes:
+      - ${MEDIA_PATH:-./media}:${MEDIA_PATH:-/media}:ro
+      - backend_thumbnails:/app/thumbnails
+      - backend_previews:/app/previews
+      - backend_logs:/app/logs
+    depends_on:
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - homeflix-network
+    healthcheck:
+      test: ["CMD", "celery", "-A", "celery_app", "inspect", "active", "-d", "thumbnails_worker@homeflix-celery-thumbnails"]
+      interval: 60s
+      timeout: 15s
+      retries: 5
+      start_period: 50s
+
+  # Celery Worker - Posters (Medium Priority)
+  celery-posters:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: ${BUILD_TARGET:-production}
+    container_name: homeflix-celery-posters
+    command: sh -c "sleep 25 && celery -A celery_app worker -Q posters -n posters_worker@%h --loglevel=info --concurrency=3 --pool=prefork"
+    environment:
+      - C_FORCE_ROOT=1
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - PYTHONUNBUFFERED=1
+      - PYTHONPATH=/app
+      - TMDB_API_KEY=${TMDB_API_KEY:-}
+      - OMDB_API_KEY=${OMDB_API_KEY:-}
+      - API_URL=http://backend:8251
+      - POSTER_DIR=/app/posters
+      - CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP=true
+      - CELERY_BROKER_CONNECTION_RETRY=true
+    volumes:
+      - backend_posters:/app/posters
+      - backend_logs:/app/logs
+    depends_on:
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - homeflix-network
+    healthcheck:
+      test: ["CMD", "celery", "-A", "celery_app", "inspect", "active", "-d", "posters_worker@homeflix-celery-posters"]
+      interval: 60s
+      timeout: 15s
+      retries: 5
+      start_period: 55s
+
+  # Celery Worker - Video Processing (Medium Priority)
+  celery-video:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: ${BUILD_TARGET:-production}
+    container_name: homeflix-celery-video
+    command: sh -c "sleep 30 && celery -A celery_app worker -Q video_processing -n video_worker@%h --loglevel=info --concurrency=2 --pool=prefork"
+    environment:
+      - C_FORCE_ROOT=1
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - MEDIA_PATH=${MEDIA_PATH:-/media}
+      - PYTHONUNBUFFERED=1
+      - PYTHONPATH=/app
+      - API_URL=http://backend:8251
+      - OPTIMIZED_DIR=/app/optimized
+      - CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP=true
+      - CELERY_BROKER_CONNECTION_RETRY=true
+    volumes:
+      - ${MEDIA_PATH:-./media}:${MEDIA_PATH:-/media}:ro
+      - backend_optimized:/app/optimized
+      - backend_logs:/app/logs
+    depends_on:
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - homeflix-network
+    healthcheck:
+      test: ["CMD", "celery", "-A", "celery_app", "inspect", "active", "-d", "video_worker@homeflix-celery-video"]
+      interval: 60s
+      timeout: 15s
+      retries: 5
+      start_period: 60s
+
+  # Celery Worker - Subtitles (Low Priority)
+  celery-subtitles:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: ${BUILD_TARGET:-production}
+    container_name: homeflix-celery-subtitles
+    command: sh -c "sleep 35 && celery -A celery_app worker -Q subtitles -n subtitles_worker@%h --loglevel=info --concurrency=2 --pool=prefork"
+    environment:
+      - C_FORCE_ROOT=1
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - MEDIA_PATH=${MEDIA_PATH:-/media}
+      - PYTHONUNBUFFERED=1
+      - PYTHONPATH=/app
+      - API_URL=http://backend:8251
+      - SUBTITLE_DIR=/app/subtitles
+      - CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP=true
+      - CELERY_BROKER_CONNECTION_RETRY=true
+    volumes:
+      - ${MEDIA_PATH:-./media}:${MEDIA_PATH:-/media}:ro
+      - backend_subtitles:/app/subtitles
+      - backend_logs:/app/logs
+    depends_on:
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - homeflix-network
+    healthcheck:
+      test: ["CMD", "celery", "-A", "celery_app", "inspect", "active", "-d", "subtitles_worker@homeflix-celery-subtitles"]
+      interval: 60s
+      timeout: 15s
+      retries: 5
+      start_period: 65s
+
+  # Celery Worker - Scanning (Low Priority)
+  celery-scanning:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: ${BUILD_TARGET:-production}
+    container_name: homeflix-celery-scanning
+    command: sh -c "sleep 40 && celery -A celery_app worker -Q scanning -n scanning_worker@%h --loglevel=info --concurrency=1 --pool=prefork"
+    environment:
+      - C_FORCE_ROOT=1
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - MEDIA_PATH=${MEDIA_PATH:-/media}
+      - PYTHONUNBUFFERED=1
+      - PYTHONPATH=/app
+      - API_URL=http://backend:8251
+      - BATCH_SIZE=10
+      - CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP=true
+      - CELERY_BROKER_CONNECTION_RETRY=true
+    volumes:
+      - ${MEDIA_PATH:-./media}:${MEDIA_PATH:-/media}:ro
+      - backend_logs:/app/logs
+    depends_on:
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - homeflix-network
+    healthcheck:
+      test: ["CMD", "celery", "-A", "celery_app", "inspect", "active", "-d", "scanning_worker@homeflix-celery-scanning"]
+      interval: 60s
+      timeout: 15s
+      retries: 5
+      start_period: 70s
+
+  # Celery Flower - Monitoring Dashboard
+  celery-flower:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: ${BUILD_TARGET:-production}
+    container_name: homeflix-celery-flower
+    command: sh -c "sleep 45 && celery -A celery_app flower --port=5555 --broker=redis://redis:6379/0"
+    ports:
+      - "5555:5555"
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - FLOWER_PORT=5555
+      - CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP=true
+      - CELERY_BROKER_CONNECTION_RETRY=true
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - homeflix-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5555"]
+      interval: 60s
+      timeout: 15s
+      retries: 5
+      start_period: 75s
+
+  # Frontend Next.js Application
   frontend:
     build:
       context: ./frontend
@@ -28,7 +344,11 @@ services:
     environment:
       - PORT=3006
       - HOSTNAME=0.0.0.0
-    volumes: []
+      - NEXT_PUBLIC_API_URL=http://backend:8251
+    volumes:
+      - ./frontend:/app:cached
+      - /app/node_modules
+      - /app/.next
     depends_on:
       - backend
     restart: unless-stopped
@@ -38,3 +358,22 @@ services:
 networks:
   homeflix-network:
     driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+volumes:
+  redis_data:
+    driver: local
+  backend_thumbnails:
+    driver: local
+  backend_posters:
+    driver: local
+  backend_previews:
+    driver: local
+  backend_subtitles:
+    driver: local
+  backend_optimized:
+    driver: local
+  backend_logs:
+    driver: local

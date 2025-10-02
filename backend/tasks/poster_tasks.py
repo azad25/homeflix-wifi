@@ -150,10 +150,22 @@ def search_tmdb_poster(title: str, year: int = None, media_type: str = 'movie') 
         
         # Search for the media
         search_url = f"{TMDB_BASE_URL}/search/{media_type}"
-        params = {
-            'api_key': TMDB_API_KEY,
-            'query': title
-        }
+        
+        # Check if it's a v4 read access token (JWT format) or v3 API key
+        if TMDB_API_KEY.startswith('eyJ'):
+            # v4 Read Access Token - use Authorization header
+            headers = {
+                'Authorization': f'Bearer {TMDB_API_KEY}',
+                'Content-Type': 'application/json'
+            }
+            params = {'query': title}
+        else:
+            # v3 API Key - use api_key parameter
+            headers = {}
+            params = {
+                'api_key': TMDB_API_KEY,
+                'query': title
+            }
         
         if year:
             if media_type == 'movie':
@@ -161,7 +173,7 @@ def search_tmdb_poster(title: str, year: int = None, media_type: str = 'movie') 
             else:
                 params['first_air_date_year'] = year
         
-        response = requests.get(search_url, params=params, timeout=15)
+        response = requests.get(search_url, params=params, headers=headers, timeout=15)
         response.raise_for_status()
         
         data = response.json()

@@ -23,7 +23,7 @@ export default function MovieInfoPage() {
       try {
         setLoading(true);
         setError(null);
-        const mediaData = await getMediaById(parseInt(id));
+        const mediaData = await getMediaById(id);
         setMedia(mediaData);
       } catch (err) {
         console.error('Error fetching media:', err);

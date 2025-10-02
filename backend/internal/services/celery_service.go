@@ -26,25 +26,33 @@ type CeleryTask struct {
 }
 
 type CeleryMessage struct {
-	Body            string            `json:"body"`
-	ContentType     string            `json:"content-type"`
-	ContentEncoding string            `json:"content-encoding"`
-	Headers         map[string]string `json:"headers"`
-	Properties      map[string]string `json:"properties"`
+	Body            string                 `json:"body"`
+	ContentType     string                 `json:"content-type"`
+	ContentEncoding string                 `json:"content-encoding"`
+	Headers         map[string]interface{} `json:"headers"`
+	Properties      CeleryProperties       `json:"properties"`
+}
+
+type CeleryProperties struct {
+	CorrelationID string `json:"correlation_id"`
+	ReplyTo       string `json:"reply_to"`
+	DeliveryMode  int    `json:"delivery_mode"`
+	DeliveryTag   string `json:"delivery_tag"`
+	DeliveryInfo  string `json:"delivery_info"`
 }
 
 func NewCeleryService() *CeleryService {
 	redisURL := os.Getenv("REDIS_URL")
 	if redisURL == "" {
-		redisURL = "redis://localhost:6380/0"
+		redisURL = "redis://redis:6379/0"
 	}
 
 	opt, err := redis.ParseURL(redisURL)
 	if err != nil {
 		log.Printf("Failed to parse Redis URL: %v", err)
-		// Fallback to default configuration
+		// Fallback to default configuration using Docker service name
 		opt = &redis.Options{
-			Addr: "localhost:6380",
+			Addr: "redis:6379",
 			DB:   0,
 		}
 	}
@@ -67,16 +75,24 @@ func NewCeleryService() *CeleryService {
 }
 
 func (c *CeleryService) QueueTask(taskName string, args []interface{}, kwargs map[string]interface{}, queue string) error {
-	// Generate unique task ID
+	// Generate unique task ID using UUID format
 	taskID := fmt.Sprintf("%s-%d", taskName, time.Now().UnixNano())
 
-	// Create Celery task
-	task := CeleryTask{
-		ID:      taskID,
-		Task:    taskName,
-		Args:    args,
-		Kwargs:  kwargs,
-		Retries: 0,
+	// Ensure kwargs is never nil - Celery requires it to be an empty object if no kwargs
+	if kwargs == nil {
+		kwargs = make(map[string]interface{})
+	}
+
+	// Create Celery task in the format expected by Python Celery
+	task := map[string]interface{}{
+		"id":      taskID,
+		"task":    taskName,
+		"args":    args,
+		"kwargs":  kwargs,
+		"retries": 0,
+		"eta":     nil,
+		"expires": nil,
+		"utc":     true,
 	}
 
 	// Serialize task to JSON
@@ -85,23 +101,27 @@ func (c *CeleryService) QueueTask(taskName string, args []interface{}, kwargs ma
 		return fmt.Errorf("failed to marshal task: %v", err)
 	}
 
-	// Create Celery message
-	message := CeleryMessage{
-		Body:            string(taskBody),
-		ContentType:     "application/json",
-		ContentEncoding: "utf-8",
-		Headers: map[string]string{
-			"lang":     "go",
-			"task":     taskName,
-			"id":       taskID,
-			"retries":  "0",
-			"timelimit": "[null, null]",
+	// Create message in Celery protocol format
+	message := map[string]interface{}{
+		"body":             string(taskBody),
+		"content-type":     "application/json",
+		"content-encoding": "utf-8",
+		"headers": map[string]interface{}{
+			"lang":      "go",
+			"task":      taskName,
+			"id":        taskID,
+			"retries":   0,
+			"timelimit": []interface{}{nil, nil},
 		},
-		Properties: map[string]string{
+		"properties": map[string]interface{}{
 			"correlation_id": taskID,
 			"reply_to":       "",
-			"delivery_mode":  "2",
-			"delivery_info": fmt.Sprintf(`{"exchange":"","routing_key":"%s"}`, queue),
+			"delivery_mode":  2,
+			"delivery_tag":   taskID,
+			"delivery_info": map[string]interface{}{
+				"exchange":    "",
+				"routing_key": queue,
+			},
 		},
 	}
 

@@ -54,7 +54,7 @@ yarn-error.log*
 
 # Local development
 .env*.local
-.env
+
 
 # Editor directories and files
 .idea/
@@ -66,8 +66,8 @@ yarn-error.log*
 *.sw?
 
 # Database
-*.db
-*.sqlite
+# *.db
+# *.sqlite
 
 # Media files (you might want to track these, but excluding by default)
 /backend/thumbnails/

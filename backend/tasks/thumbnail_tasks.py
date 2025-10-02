@@ -7,11 +7,55 @@ High-priority queue for generating video thumbnails and preview clips
 import os
 import subprocess
 import logging
-from typing import Dict, Any, List
+import random
+from typing import Dict, Any, Optional
 from celery import current_app
 from celery.utils.log import get_task_logger
+import requests
+from urllib.parse import urljoin
 
 logger = get_task_logger(__name__)
+
+def is_valid_video_file(file_path: str) -> bool:
+    """
+    Check if video file is valid and not problematic
+    
+    Args:
+        file_path: Path to the video file
+        
+    Returns:
+        True if file is valid for processing, False otherwise
+    """
+    try:
+        # Skip files containing $RECYCLE.BIN in path
+        if "$RECYCLE.BIN" in file_path.upper():
+            logging.warning(f"Skipping recycle bin file: {file_path}")
+            return False
+        
+        # Skip files starting with $
+        filename = os.path.basename(file_path)
+        if filename.startswith("$"):
+            logging.warning(f"Skipping system file: {file_path}")
+            return False
+        
+        # Check if file exists and is readable
+        if not os.path.exists(file_path):
+            logging.warning(f"File does not exist: {file_path}")
+            return False
+        
+        # Check file size (skip very large files > 15GB)
+        file_size = os.path.getsize(file_path)
+        if file_size > 15 * 1024 * 1024 * 1024:  # 15GB
+            logging.warning(f"Skipping very large file: {file_path} ({file_size / (1024**3):.1f}GB)")
+            return False
+        
+        return True
+        
+    except Exception as e:
+        logging.error(f"Error validating video file {file_path}: {e}")
+        return False
+
+# Logger already defined above
 
 @current_app.task(bind=True, queue='thumbnails', priority=8, max_retries=2)
 def generate_thumbnail(self, media_id: int, file_path: str, output_dir: str = None) -> Dict[str, Any]:
@@ -38,28 +82,90 @@ def generate_thumbnail(self, media_id: int, file_path: str, output_dir: str = No
         
         os.makedirs(output_dir, exist_ok=True)
         
-        # Generate thumbnail filename
-        thumbnail_filename = f"thumb_{media_id}.jpg"
+        # Get media title for better filename
+        media_title = get_media_title_from_api(media_id)
+        if media_title:
+            # Clean title for filename (remove invalid characters)
+            clean_title = sanitize_filename(media_title)
+            thumbnail_filename = f"{clean_title}_thumb.jpg"
+        else:
+            # Fallback to media_id if title not available
+            thumbnail_filename = f"thumb_{media_id}.jpg"
+        
         thumbnail_path = os.path.join(output_dir, thumbnail_filename)
         
-        # FFmpeg command for thumbnail generation
+        # Inline validation to avoid NameError issues
+        def validate_video_file_inline(file_path: str) -> bool:
+            try:
+                if "$RECYCLE.BIN" in file_path.upper():
+                    logger.warning(f"Skipping recycle bin file: {file_path}")
+                    return False
+                filename = os.path.basename(file_path)
+                if filename.startswith("$"):
+                    logger.warning(f"Skipping system file: {file_path}")
+                    return False
+                if not os.path.exists(file_path):
+                    logger.warning(f"File does not exist: {file_path}")
+                    return False
+                file_size = os.path.getsize(file_path)
+                if file_size > 15 * 1024 * 1024 * 1024:
+                    logger.warning(f"Skipping very large file: {file_path} ({file_size / (1024**3):.1f}GB)")
+                    return False
+                return True
+            except Exception as e:
+                logger.error(f"Error validating video file {file_path}: {e}")
+                return False
+        
+        # Validate file before processing
+        if not validate_video_file_inline(file_path):
+            logger.warning(f"⚠️ Skipping invalid/problematic file: {file_path}")
+            return {
+                'status': 'skipped',
+                'media_id': media_id,
+                'message': 'Invalid or problematic video file'
+            }
+        
+        # Get video duration for random timestamp selection
+        duration = get_video_duration(file_path)
+        if duration is None or duration < 30:
+            # Fallback to fixed timestamp for very short videos
+            seek_time = '00:00:10'
+            logger.warning(f"Using fallback timestamp for short/unknown duration video: {file_path}")
+        else:
+            # Generate random timestamp between 10% and 70% of video duration
+            min_time = duration * 0.10  # 10% into video
+            max_time = duration * 0.70  # 70% into video
+            random_time = random.uniform(min_time, max_time)
+            
+            # Convert to HH:MM:SS format
+            hours = int(random_time // 3600)
+            minutes = int((random_time % 3600) // 60)
+            seconds = int(random_time % 60)
+            seek_time = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+            
+            logger.info(f"🎯 Generating thumbnail at random timestamp {seek_time} ({random_time:.1f}s / {duration:.1f}s)")
+        
+        # FFmpeg command for HD thumbnail generation with random timestamp
         cmd = [
             'ffmpeg',
+            '-threads', '0',  # Use all available threads
+            '-ss', seek_time,  # Seek to random timestamp (10-70%)
+            '-noaccurate_seek',  # Faster seeking
             '-i', file_path,
-            '-ss', '00:01:00',  # Seek to 1 minute
             '-vframes', '1',    # Extract 1 frame
-            '-vf', 'scale=320:180',  # Resize to 320x180
-            '-q:v', '2',        # High quality
+            '-vf', 'scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2',
+            '-q:v', '2',        # High quality (1-31, lower is better)
+            '-update', '1',     # Fix for single image output
             '-y',               # Overwrite existing
             thumbnail_path
         ]
         
-        # Execute FFmpeg
+        # Execute FFmpeg command with increased timeout
         result = subprocess.run(
             cmd,
             capture_output=True,
             text=True,
-            timeout=60
+            timeout=120  # Increased timeout to 120 seconds
         )
         
         if result.returncode != 0:
@@ -87,7 +193,7 @@ def generate_thumbnail(self, media_id: int, file_path: str, output_dir: str = No
         logger.error(f"❌ Thumbnail generation failed for media ID {media_id}: {str(exc)}")
         
         if self.request.retries < self.max_retries:
-            retry_delay = 30 * (self.request.retries + 1)
+            retry_delay = 45 * (self.request.retries + 1)  # Increased base delay
             logger.info(f"🔄 Retrying thumbnail generation in {retry_delay} seconds")
             raise self.retry(countdown=retry_delay, exc=exc)
         
@@ -113,6 +219,59 @@ def generate_preview_clip(self, media_id: int, file_path: str, output_dir: str =
     try:
         logger.info(f"🎬 Generating preview clip for media ID {media_id}")
         
+        # Inline validation to avoid NameError issues
+        def validate_video_file(file_path: str) -> bool:
+            try:
+                if "$RECYCLE.BIN" in file_path.upper():
+                    logger.warning(f"Skipping recycle bin file: {file_path}")
+                    return False
+                filename = os.path.basename(file_path)
+                if filename.startswith("$"):
+                    logger.warning(f"Skipping system file: {file_path}")
+                    return False
+                if not os.path.exists(file_path):
+                    logger.warning(f"File does not exist: {file_path}")
+                    return False
+                file_size = os.path.getsize(file_path)
+                if file_size > 15 * 1024 * 1024 * 1024:
+                    logger.warning(f"Skipping very large file: {file_path} ({file_size / (1024**3):.1f}GB)")
+                    return False
+                return True
+            except Exception as e:
+                logger.error(f"Error validating video file {file_path}: {e}")
+                return False
+        
+        # Inline validation to avoid NameError issues
+        def validate_video_file_inline(file_path: str) -> bool:
+            try:
+                if "$RECYCLE.BIN" in file_path.upper():
+                    logger.warning(f"Skipping recycle bin file: {file_path}")
+                    return False
+                filename = os.path.basename(file_path)
+                if filename.startswith("$"):
+                    logger.warning(f"Skipping system file: {file_path}")
+                    return False
+                if not os.path.exists(file_path):
+                    logger.warning(f"File does not exist: {file_path}")
+                    return False
+                file_size = os.path.getsize(file_path)
+                if file_size > 15 * 1024 * 1024 * 1024:
+                    logger.warning(f"Skipping very large file: {file_path} ({file_size / (1024**3):.1f}GB)")
+                    return False
+                return True
+            except Exception as e:
+                logger.error(f"Error validating video file {file_path}: {e}")
+                return False
+        
+        # Validate file before processing
+        if not validate_video_file_inline(file_path):
+            logger.warning(f"⚠️ Skipping invalid/problematic file: {file_path}")
+            return {
+                'status': 'skipped',
+                'media_id': media_id,
+                'message': 'Invalid or problematic video file'
+            }
+        
         if not os.path.exists(file_path):
             raise FileNotFoundError(f"Video file not found: {file_path}")
         
@@ -122,35 +281,125 @@ def generate_preview_clip(self, media_id: int, file_path: str, output_dir: str =
         
         os.makedirs(output_dir, exist_ok=True)
         
-        # Generate preview clip filename
-        preview_filename = f"preview_{media_id}.mp4"
+        # Get media title for better filename
+        media_title = get_media_title_from_api(media_id)
+        if media_title:
+            # Clean title for filename (remove invalid characters)
+            clean_title = sanitize_filename(media_title)
+            preview_filename = f"{clean_title}_preview.mp4"
+        else:
+            # Fallback to media_id if title not available
+            preview_filename = f"preview_{media_id}.mp4"
+        
         preview_path = os.path.join(output_dir, preview_filename)
         
-        # FFmpeg command for preview clip (10 seconds from 2 minutes in)
+        # Get video duration
+        duration = get_video_duration(file_path)
+        if duration is None:
+            raise Exception("Could not determine video duration")
+            
+        # Adaptive preview duration based on video length
+        if duration < 60:
+            preview_duration = min(10, duration - 5)  # Short clips get 10s preview
+            # For short videos, use random start between 10-70% but ensure minimum 5s buffer
+            min_start = max(5, duration * 0.10)
+            max_start = min(duration * 0.70, duration - preview_duration - 5)
+            start_time = random.uniform(min_start, max_start) if max_start > min_start else min_start
+        elif duration < 300:  # Less than 5 minutes
+            preview_duration = 15
+            # Random start between 10-70% of video duration
+            min_start = duration * 0.10
+            max_start = duration * 0.70
+            start_time = random.uniform(min_start, max_start)
+        else:
+            preview_duration = 30
+            # Random start between 10-70% of video duration
+            min_start = duration * 0.10
+            max_start = duration * 0.70
+            start_time = random.uniform(min_start, max_start)
+            
+        # Ensure we don't go past the end
+        if start_time + preview_duration > duration:
+            start_time = max(0, duration - preview_duration - 5)
+        
+        # Format start time for FFmpeg
+        hours = int(start_time // 3600)
+        minutes = int((start_time % 3600) // 60)
+        seconds = int(start_time % 60)
+        start_time_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}.000"
+        
+        logger.info(f"🎥 Generating {preview_duration}s HD preview from random timestamp {start_time_str} ({start_time:.1f}s / {duration:.1f}s)")
+        
+        # FFmpeg command for HD preview clip with optimizations and random timestamp
         cmd = [
             'ffmpeg',
+            '-threads', '0',       # Use all available threads
+            '-ss', start_time_str, # Start at random position (10-70%)
+            '-noaccurate_seek',    # Faster seeking
             '-i', file_path,
-            '-ss', '00:02:00',      # Start at 2 minutes
-            '-t', '00:00:10',       # Duration 10 seconds
-            '-vf', 'scale=640:360', # Resize for web
-            '-c:v', 'libx264',      # H.264 codec
-            '-preset', 'fast',      # Fast encoding
-            '-crf', '28',           # Compression
-            '-an',                  # No audio
-            '-y',                   # Overwrite existing
+            '-t', str(preview_duration),
+            '-vf', 'scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2',
+            '-c:v', 'libx264',
+            '-preset', 'faster',   # Balance between speed and quality
+            '-crf', '20',          # Higher quality for HD preview (18-23 is good range)
+            '-pix_fmt', 'yuv420p', # Compatibility
+            '-movflags', '+faststart', # Fast web playback
+            '-an',                 # No audio for preview clips
+            '-avoid_negative_ts', 'make_zero',
+            '-y',
             preview_path
         ]
         
-        # Execute FFmpeg
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=120
-        )
-        
-        if result.returncode != 0:
-            raise Exception(f"FFmpeg error: {result.stderr}")
+        # Execute FFmpeg with robust error handling
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=180,  # Increased timeout for preview clips to 180 seconds
+                cwd=os.path.dirname(output_dir) if output_dir else None
+            )
+            
+            if result.returncode != 0:
+                logger.error(f"FFmpeg failed for {file_path}: {result.stderr}")
+                # Try simpler command as fallback with random timestamp
+                fallback_start = random.uniform(duration * 0.10, duration * 0.70) if duration > 60 else 10
+                fallback_hours = int(fallback_start // 3600)
+                fallback_minutes = int((fallback_start % 3600) // 60)
+                fallback_seconds = int(fallback_start % 60)
+                fallback_time_str = f"{fallback_hours:02d}:{fallback_minutes:02d}:{fallback_seconds:02d}"
+                
+                logger.info(f"🔄 Fallback: Generating lower quality preview from {fallback_time_str}")
+                
+                simple_cmd = [
+                    'ffmpeg',
+                    '-threads', '0',
+                    '-ss', fallback_time_str,  # Random fallback timestamp
+                    '-noaccurate_seek',
+                    '-i', file_path,
+                    '-t', '10',
+                    '-vf', 'scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2',  # 720p fallback
+                    '-c:v', 'libx264',
+                    '-preset', 'ultrafast',
+                    '-crf', '25',  # Slightly better quality than 28
+                    '-an',
+                    '-y',
+                    preview_path
+                ]
+                
+                result = subprocess.run(
+                    simple_cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=240  # Increased timeout for fallback
+                )
+                
+                if result.returncode != 0:
+                    raise Exception(f"Both FFmpeg attempts failed: {result.stderr}")
+                    
+        except subprocess.TimeoutExpired:
+            logger.error(f"FFmpeg timeout for {file_path}")
+            raise Exception("FFmpeg process timed out")
         
         if not os.path.exists(preview_path):
             raise Exception("Preview clip was not created")
@@ -174,7 +423,7 @@ def generate_preview_clip(self, media_id: int, file_path: str, output_dir: str =
         logger.error(f"❌ Preview clip generation failed for media ID {media_id}: {str(exc)}")
         
         if self.request.retries < self.max_retries:
-            retry_delay = 60 * (self.request.retries + 1)
+            retry_delay = 90 * (self.request.retries + 1)  # Increased base delay
             logger.info(f"🔄 Retrying preview generation in {retry_delay} seconds")
             raise self.retry(countdown=retry_delay, exc=exc)
         
@@ -208,13 +457,21 @@ def generate_multiple_thumbnails(media_id: int, file_path: str, count: int = 5) 
     if not duration:
         return {'status': 'failed', 'error': 'Could not determine video duration'}
     
-    # Generate thumbnails at evenly spaced intervals
+    # Generate thumbnails at random intervals within 10-70% range
     for i in range(count):
         try:
-            # Calculate timestamp (skip first 10% and last 10%)
-            timestamp = int((duration * 0.1) + (i * (duration * 0.8) / count))
+            # Calculate random timestamp within 10-70% range for each thumbnail
+            min_time = duration * 0.10
+            max_time = duration * 0.70
+            timestamp = random.uniform(min_time, max_time)
             
-            thumbnail_filename = f"thumb_{media_id}_{i+1}.jpg"
+            # Get media title for better filename
+            media_title = get_media_title_from_api(media_id)
+            if media_title:
+                clean_title = sanitize_filename(media_title)
+                thumbnail_filename = f"{clean_title}_thumb_{i+1}.jpg"
+            else:
+                thumbnail_filename = f"thumb_{media_id}_{i+1}.jpg"
             thumbnail_path = os.path.join(output_dir, thumbnail_filename)
             
             cmd = [
@@ -222,13 +479,13 @@ def generate_multiple_thumbnails(media_id: int, file_path: str, count: int = 5) 
                 '-i', file_path,
                 '-ss', str(timestamp),
                 '-vframes', '1',
-                '-vf', 'scale=320:180',
+                '-vf', 'scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2',
                 '-q:v', '2',
                 '-y',
                 thumbnail_path
             ]
             
-            result = subprocess.run(cmd, capture_output=True, timeout=30)
+            result = subprocess.run(cmd, capture_output=True, timeout=60)
             
             if result.returncode == 0 and os.path.exists(thumbnail_path):
                 file_size = os.path.getsize(thumbnail_path)
@@ -266,29 +523,53 @@ def generate_multiple_thumbnails(media_id: int, file_path: str, count: int = 5) 
         'results': results
     }
 
-def get_video_duration(file_path: str) -> int:
-    """Get video duration in seconds using FFprobe"""
-    try:
-        cmd = [
-            'ffprobe',
-            '-v', 'quiet',
-            '-print_format', 'json',
-            '-show_format',
-            file_path
-        ]
-        
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-        
-        if result.returncode == 0:
-            import json
-            data = json.loads(result.stdout)
-            duration = float(data['format']['duration'])
-            return int(duration)
-            
-    except Exception as e:
-        logger.error(f"Failed to get video duration: {e}")
+def get_video_duration(file_path: str) -> float:
+    """
+    Get video duration in seconds using FFprobe
     
-    return None
+    Args:
+        file_path: Path to the video file
+        
+    Returns:
+        Duration in seconds as float, or None if could not determine
+    """
+    try:
+        result = subprocess.run(
+            ['ffprobe', 
+             '-v', 'error', 
+             '-show_entries', 'format=duration',
+             '-of', 'default=noprint_wrappers=1:nokey=1', 
+             file_path],
+            capture_output=True,
+            text=True,
+            timeout=30  # Add timeout to prevent hanging
+        )
+        
+        if result.returncode != 0:
+            logger.error(f"FFprobe error: {result.stderr}")
+            return None
+            
+        duration_str = result.stdout.strip()
+        if not duration_str:
+            logger.error("Empty duration string from FFprobe")
+            return None
+            
+        duration = float(duration_str)
+        if duration <= 0:
+            logger.error(f"Invalid duration: {duration}")
+            return None
+            
+        return duration
+        
+    except subprocess.TimeoutExpired:
+        logger.error("FFprobe timed out while getting video duration")
+        return None
+    except ValueError as e:
+        logger.error(f"Failed to parse duration: {e}")
+        return None
+    except Exception as e:
+        logger.error(f"Unexpected error getting video duration: {e}")
+        return None
 
 def update_thumbnail_in_database(media_id: int, thumbnail_path: str) -> bool:
     """Update media thumbnail path in database"""
@@ -307,6 +588,41 @@ def update_thumbnail_in_database(media_id: int, thumbnail_path: str) -> bool:
     except Exception as e:
         logger.error(f"Database thumbnail update error: {e}")
         return False
+
+
+def get_media_title_from_api(media_id: int) -> str:
+    """Get media title from API using UUID lookup"""
+    try:
+        import requests
+        api_url = os.getenv('API_URL', 'http://localhost:8251')
+        
+        # First get the media UUID from the admin endpoint
+        admin_response = requests.get(
+            f"{api_url}/api/admin/media/{media_id}",
+            timeout=5
+        )
+        
+        if admin_response.status_code == 200:
+            media_data = admin_response.json()
+            return media_data.get('title', '')
+        
+        return ''
+        
+    except Exception as e:
+        logger.error(f"API title fetch error: {e}")
+        return ''
+
+
+def sanitize_filename(filename: str) -> str:
+    """Remove invalid characters from filename"""
+    import re
+    # Remove invalid characters for filenames
+    sanitized = re.sub(r'[<>:"/\\|?*]', '', filename)
+    # Replace spaces with underscores
+    sanitized = sanitized.replace(' ', '_')
+    # Limit length to 100 characters
+    sanitized = sanitized[:100]
+    return sanitized
 
 def update_preview_in_database(media_id: int, preview_path: str) -> bool:
     """Update media preview clip path in database"""

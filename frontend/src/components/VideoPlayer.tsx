@@ -47,7 +47,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
       if (media.subtitles && media.subtitles.length > 0) {
         const subs = media.subtitles.map((sub: any) => ({
           language: sub.language,
-          url: `${getApiUrl()}/api/subtitles/${media.id}?lang=${sub.language}`
+          url: `${getApiUrl()}/api/subtitles/${media.uuid}?lang=${sub.language}`
         }));
         setAvailableSubtitles(subs);
         if (subs.length > 0) {
@@ -151,7 +151,11 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
     if (!video) return;
     if (isMuted) {
       video.muted = false;
-      video.volume = volume > 0 ? volume : 0.5;
+      video.volume = volume;
+      // Ensure video plays with audio
+      if (video.paused) {
+        video.play().catch(e => console.log('VideoPlayer: Play failed:', e));
+      }
       setIsMuted(false);
     } else {
       // Don't allow muting - keep sound on

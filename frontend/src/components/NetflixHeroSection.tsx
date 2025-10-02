@@ -34,7 +34,7 @@ const NetflixHeroSection: React.FC<NetflixHeroSectionProps> = ({
     return `${apiUrl}/api/admin/assets/${media.trailer_path.split('/').pop()}`;
     }
     const apiUrl = getApiUrl();
-    return `${apiUrl}/api/preview-clips/${media.id}`;
+    return `${apiUrl}/api/preview-clips/${media.uuid}`;
   };
 
   const getBackgroundImageUrl = (media: Media) => {
@@ -48,9 +48,9 @@ const NetflixHeroSection: React.FC<NetflixHeroSectionProps> = ({
   const getThumbnailUrl = (media: Media) => {
     const apiUrl = getApiUrl();
     if (media.poster_path) {
-      return `${apiUrl}/api/posters/${media.id}`;
+      return `${apiUrl}/api/posters/${media.uuid}`;
     }
-    return `${apiUrl}/api/thumbnails/${media.id}`;
+    return `${apiUrl}/api/thumbnails/${media.uuid}`;
   };
 
   const nextSlide = () => {

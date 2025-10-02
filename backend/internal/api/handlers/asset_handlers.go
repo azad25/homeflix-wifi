@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -17,13 +16,13 @@ import (
 
 func GetMediaAssets(mediaService *services.MediaService) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		id, err := strconv.ParseUint(c.Param("id"), 10, 32)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID"})
+		uuid := c.Param("id")
+		if uuid == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid UUID"})
 			return
 		}
 
-		media, err := mediaService.GetMediaByID(uint(id))
+		media, err := mediaService.GetMediaByUUID(uuid)
 		if err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Media not found"})
 			return
@@ -31,6 +30,7 @@ func GetMediaAssets(mediaService *services.MediaService) gin.HandlerFunc {
 
 		assets := gin.H{
 			"id":           media.ID,
+			"uuid":         media.UUID,
 			"title":        media.Title,
 			"banner_path":  media.BannerPath,
 			"poster_path":  media.PosterPath,
@@ -44,13 +44,13 @@ func GetMediaAssets(mediaService *services.MediaService) gin.HandlerFunc {
 
 func UploadMediaAsset(mediaService *services.MediaService) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		id, err := strconv.ParseUint(c.Param("id"), 10, 32)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID"})
+		uuid := c.Param("id")
+		if uuid == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid UUID"})
 			return
 		}
 
-		media, err := mediaService.GetMediaByID(uint(id))
+		media, err := mediaService.GetMediaByUUID(uuid)
 		if err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Media not found"})
 			return
@@ -76,9 +76,9 @@ func UploadMediaAsset(mediaService *services.MediaService) gin.HandlerFunc {
 			return
 		}
 
-		// Generate filename
+		// Generate filename using UUID
 		ext := filepath.Ext(header.Filename)
-		filename := fmt.Sprintf("%d_%s%s", media.ID, assetType, ext)
+		filename := fmt.Sprintf("%s_%s%s", media.UUID, assetType, ext)
 		filePath := filepath.Join(assetsDir, filename)
 
 		// Save file
@@ -124,13 +124,13 @@ func UploadMediaAsset(mediaService *services.MediaService) gin.HandlerFunc {
 
 func DeleteMediaAsset(mediaService *services.MediaService) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		id, err := strconv.ParseUint(c.Param("id"), 10, 32)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID"})
+		uuid := c.Param("id")
+		if uuid == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid UUID"})
 			return
 		}
 
-		media, err := mediaService.GetMediaByID(uint(id))
+		media, err := mediaService.GetMediaByUUID(uuid)
 		if err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Media not found"})
 			return

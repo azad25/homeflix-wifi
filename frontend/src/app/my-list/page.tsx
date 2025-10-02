@@ -107,7 +107,7 @@ export default function MyListPage() {
   };
 
   const handleInfo = (media: Media) => {
-    router.push(`/movie/${media.id}`);
+    router.push(`/movie/${media.uuid}`);
   };
 
   const handleRemoveFromList = async (mediaId: number) => {
@@ -213,7 +213,7 @@ export default function MyListPage() {
                 <div className="aspect-[2/3] bg-gradient-to-br from-gray-800 to-gray-900 flex items-center justify-center relative">
                   {media.thumbnail_path ? (
                     <Image
-                      src={`http://${window.location.hostname === 'localhost' ? 'localhost' : window.location.hostname}:8251/api/thumbnails/${media.id}`}
+                      src={`/api/thumbnails/${media.uuid}`}
                       alt={media.title}
                       fill
                       className="object-cover"

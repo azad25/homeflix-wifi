@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"os"
+	"time"
 
 	"homeflix-backend/internal/api"
 	"homeflix-backend/internal/config"
@@ -35,7 +36,7 @@ func main() {
 	streamService := services.NewOptimizedStreamService(cfg.CacheSize, cfg.ChunkSize)
 	thumbnailService := services.NewThumbnailService()
 	userService := services.NewUserService(db)
-	recommendationService := services.NewRecommendationService(db)
+	recommendationService := services.NewRecommendationService(db, mediaService)
 	playbackService := services.NewPlaybackService(db)
 	geminiService := services.NewGeminiService()
 	celeryService := services.NewCeleryService()
@@ -47,14 +48,53 @@ func main() {
 	// Initialize media scanner
 	mediaScanner := scanner.NewMediaScanner(mediaService, thumbnailService, posterService, geminiService, celeryService, cfg.MediaPath)
 
-	// Start background media scanning
+	// Start continuous background media scanning
 	go func() {
-		log.Println("Starting media scanner...")
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("Media scanner panic recovered: %v", r)
+			}
+		}()
+		
+		log.Println("Starting continuous media scanner...")
 		log.Printf("Scanning media path: %s", cfg.MediaPath)
-		if err := mediaScanner.ScanMediaLibrary(); err != nil {
-			log.Printf("Media scanning error: %v", err)
+		
+		// Check if media path exists and is accessible
+		if _, err := os.Stat(cfg.MediaPath); os.IsNotExist(err) {
+			log.Printf("Media path does not exist: %s", cfg.MediaPath)
+			return
+		}
+		
+		// Process existing media items first (queue tasks for already discovered media)
+		log.Println("🔄 Processing existing media items for comprehensive task queuing...")
+		if err := mediaScanner.ProcessExistingMedia(); err != nil {
+			log.Printf("Existing media processing error: %v", err)
 		} else {
-			log.Println("Media scanning completed successfully")
+			log.Println("✅ Existing media processing completed successfully")
+		}
+
+		// Initial scan on startup (discover new media and queue tasks)
+		log.Println("🔍 Media path exists, starting initial scan for new media...")
+		if err := mediaScanner.ScanMediaLibrary(); err != nil {
+			log.Printf("Initial media scanning error: %v", err)
+		} else {
+			log.Println("✅ Initial media scanning completed successfully")
+		}
+		
+		// Set up periodic scanning using configurable interval
+		scanInterval := time.Duration(cfg.ScanInterval) * time.Minute
+		ticker := time.NewTicker(scanInterval)
+		defer ticker.Stop()
+		
+		log.Printf("Starting periodic media scanning (every %d minutes)...", cfg.ScanInterval)
+		
+		for range ticker.C {
+			log.Println("Starting periodic media scan...")
+			if err := mediaScanner.ScanMediaLibrary(); err != nil {
+				log.Printf("Periodic media scanning error: %v", err)
+			} else {
+				log.Println("Periodic media scanning completed successfully")
+			}
 		}
 	}()
 

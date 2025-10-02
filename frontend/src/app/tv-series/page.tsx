@@ -78,7 +78,7 @@ export default function TVSeries() {
 
   const handleInfo = (media: Media) => {
     trackClick(media.id, 'info', 'tv-series');
-    router.push(`/tv-show/${media.id}`);
+    router.push(`/tv-show/${media.uuid}`);
   };
 
   if (loading) {

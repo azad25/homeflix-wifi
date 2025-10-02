@@ -11,7 +11,9 @@ export type RecommendationCategory =
   | 'info_click'
   | 'unknown'
   | 'trending'
-  | 'because_you_watched';
+  | 'because_you_watched'
+  | 'top_picks'
+  | 'popular_now';
 
 export interface RecommendationBase {
   _score: number;
