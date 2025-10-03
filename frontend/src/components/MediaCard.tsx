@@ -1,12 +1,13 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import Image from 'next/image';
 import { Play, Info, Plus, ThumbsUp, ChevronDown } from 'lucide-react';
 import { Media } from '../types/media';
 import { getApiUrl } from '../lib/api';
 import QualityBadge from './QualityBadge';
+import { NetflixImage } from '@/components';
+import { useNetflixPreloader } from '@/hooks/useNetflixPreloader';
 
 interface MediaCardProps {
   media: Media;
@@ -37,16 +38,38 @@ const MediaCard: React.FC<MediaCardProps> = ({
     }
     return `${getApiUrl()}/api/thumbnails/${media.uuid}`;
   };
+  
+  // Netflix-style preloading for media card
+  const { observeElement } = useNetflixPreloader([
+    {
+      src: getImageUrl(media),
+      type: 'image',
+      priority: 'medium'
+    }
+  ], {
+    enabled: true,
+    maxConcurrent: 1,
+    preloadDistance: 1
+  });
 
   const formatDuration = (seconds: number) => {
     const hours = Math.floor(seconds / 3600);
     const minutes = Math.floor((seconds % 3600) / 60);
     return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
   };
+  
+  useEffect(() => {
+    // Setup intersection observer for preloading
+    const cardElement = document.querySelector(`[data-media-uuid="${media.uuid}"]`);
+    if (cardElement) {
+      observeElement(cardElement as HTMLElement, 0);
+    }
+  }, [media.uuid, observeElement]);
 
   return (
     <motion.div
       className={`relative ${sizeClasses[size]} rounded-lg overflow-hidden cursor-pointer group`}
+      data-media-uuid={media.uuid}
       onHoverStart={() => setIsHovered(true)}
       onHoverEnd={() => setIsHovered(false)}
       whileHover={{ scale: 1.05 }}
@@ -55,11 +78,13 @@ const MediaCard: React.FC<MediaCardProps> = ({
       {/* Thumbnail */}
       <div className="relative w-full h-full">
         {!imageError ? (
-          <Image
+          <NetflixImage
             src={getImageUrl(media)}
             alt={media.title}
-            fill
             className="object-cover"
+            priority="medium"
+            progressive={true}
+            preload={false}
             onError={() => setImageError(true)}
           />
         ) : (

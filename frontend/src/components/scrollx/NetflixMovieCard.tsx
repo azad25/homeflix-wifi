@@ -3,13 +3,16 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Play, Plus, Clock, VolumeX, Volume2, Star, ThumbsUp, ChevronDown } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import Image from 'next/image';
 import { Media } from '@/types/media';
 import { getApiUrl } from '@/lib/api';
 import { useRouter } from 'next/navigation';
-import { useAudio } from '@/contexts/EnhancedAudioContext';
+import { useEnhancedAudio } from '@/contexts/EnhancedAudioContext';
 import { cleanMovieTitle, extractNiceTitle } from '@/lib/titleUtils';
-import { TextureEffects } from '../TextureEffects';
+import { TextureEffects } from '@/components/TextureEffects';
+import { NetflixImage } from '@/components/NetflixImage';
+import { MyListButton } from '@/components/MyListButton';
+import { setupCrossBrowserVideo } from '@/lib/audio/crossBrowserAudio';
+import { useNetflixPreloader } from '@/hooks/useNetflixPreloader';
 
 interface NetflixMovieCardProps {
   media: Media;
@@ -43,12 +46,23 @@ const NetflixMovieCard: React.FC<NetflixMovieCardProps> = ({
   const [fallbackError, setFallbackError] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const { setCurrentAudioElement, muteAll } = useAudio();
+  const {
+    alacEngine,
+    isALACEnabled,
+    initializeEnhancedAudio,
+    setCurrentAudioElement,
+    muteAll
+  } = useEnhancedAudio();
   const hideTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const apiUrl = getApiUrl();
   
   const getThumbnailUrl = () => {
+    if (!media.uuid) {
+      console.warn('No UUID for media:', media.title);
+      return '/images/placeholder.jpg';
+    }
+    
     // Try poster first for portrait variant, fallback to thumbnail
     if (variant === 'portrait') {
       return `${apiUrl}/api/posters/${media.uuid}`;
@@ -57,7 +71,11 @@ const NetflixMovieCard: React.FC<NetflixMovieCardProps> = ({
   };
 
   const getFallbackThumbnailUrl = () => {
-    // If poster fails, try thumbnail, and vice versa
+    if (!media.uuid) {
+      return '/images/placeholder.jpg';
+    }
+    
+    // If poster fails, try thumbnail; if thumbnail fails, try poster
     if (variant === 'portrait') {
       return `${apiUrl}/api/thumbnails/${media.uuid}`;
     }
@@ -65,17 +83,30 @@ const NetflixMovieCard: React.FC<NetflixMovieCardProps> = ({
   };
 
   const getPreviewUrl = () => {
-    // First try to get the actual media file for full experience
-    if (media.file_path) {
-      return `${apiUrl}/api/stream/${media.uuid}`;
+    if (!media.uuid) {
+      console.warn('No UUID for preview:', media.title);
+      return '';
     }
-    // Fallback to trailer if available
-    if (media.trailer_path) {
-      return `${apiUrl}/api/admin/assets/${media.trailer_path.split('/').pop()}`;
-    }
-    // Final fallback to preview clips
     return `${apiUrl}/api/preview-clips/${media.uuid}`;
   };
+  
+  // Netflix-style preloading for card assets
+  const { observeElement } = useNetflixPreloader([
+    {
+      src: getThumbnailUrl(),
+      type: 'image',
+      priority: priority ? 'high' : 'medium'
+    },
+    {
+      src: getPreviewUrl(),
+      type: 'video',
+      priority: 'low'
+    }
+  ], {
+    enabled: true,
+    maxConcurrent: 2,
+    preloadDistance: 1
+  });
 
   const sizeClasses = {
     small: variant === 'portrait' ? 'w-50 h-72' : 'w-70 h-40',
@@ -84,11 +115,17 @@ const NetflixMovieCard: React.FC<NetflixMovieCardProps> = ({
   };
 
   useEffect(() => {
+    // Setup intersection observer for preloading
+    const cardElement = document.querySelector(`[data-media-uuid="${media.uuid}"]`);
+    if (cardElement) {
+      observeElement(cardElement as HTMLElement, 0);
+    }
+    
     return () => {
       if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
       if (hideTimeoutRef.current) clearTimeout(hideTimeoutRef.current);
     };
-  }, []);
+  }, [media.uuid, observeElement]);
 
   const handleMouseEnter = () => {
     setIsHovered(true);
@@ -100,43 +137,6 @@ const NetflixMovieCard: React.FC<NetflixMovieCardProps> = ({
     // Netflix-like delay before showing preview
     hoverTimeoutRef.current = setTimeout(() => {
       setShowPreview(true);
-      
-      // Start video preview
-      if (videoRef.current && isHovered) {
-        const video = videoRef.current;
-        
-        const handleLoadedData = () => {
-          setIsVideoLoaded(true);
-          // Register as current audio source and mute others
-          muteAll();
-          setCurrentAudioElement(video);
-          
-          // Try to play with sound first
-          video.muted = false;
-          video.volume = 0.3;
-          video.play().then(() => {
-            setIsPlaying(true);
-          }).catch(() => {
-            // Fallback to muted if autoplay with sound fails
-            video.muted = true;
-            video.play().then(() => {
-              setIsPlaying(true);
-            }).catch(() => {
-              setIsVideoLoaded(false);
-              setIsPlaying(false);
-            });
-          });
-        };
-
-        const handleVideoError = () => {
-          setIsVideoLoaded(false);
-          setIsPlaying(false);
-        };
-
-        video.addEventListener('loadeddata', handleLoadedData);
-        video.addEventListener('error', handleVideoError);
-        video.load();
-      }
     }, 800);
   };
 
@@ -178,18 +178,73 @@ const NetflixMovieCard: React.FC<NetflixMovieCardProps> = ({
   };
 
   const handleImageError = () => {
+    console.log('Image error for:', media.title, 'trying fallback');
     if (!imageError) {
       setImageError(true);
     } else if (!fallbackError) {
       setFallbackError(true);
+      console.log('All image sources failed for:', media.title);
     }
   };
 
-  const handleVideoLoad = () => {
+  const handleVideoLoad = async () => {
+    console.log('Video loaded for card:', media.title);
     setIsVideoLoaded(true);
+    
+    // Setup cross-browser audio with ALAC support
+    const video = videoRef.current;
+    if (video) {
+      try {
+        const audioSuccess = await setupCrossBrowserVideo(video, media.uuid, {
+          enableALAC: isALACEnabled,
+          fallbackToAAC: true,
+          spatialAudio: false, // Disable for card previews to avoid conflicts
+          quality: 'lossless',
+          maxRetries: 2,
+          retryDelay: 500
+        });
+        
+        if (audioSuccess) {
+          setIsPlaying(true);
+          setIsMuted(false);
+          
+          // Set as current audio element
+          muteAll();
+          setCurrentAudioElement(video);
+          
+          // Initialize enhanced audio if available
+          if (isALACEnabled && alacEngine) {
+            try {
+              await initializeEnhancedAudio();
+              console.log('🎵 Enhanced ALAC audio initialized for card preview');
+            } catch (error) {
+              console.log('Enhanced audio fallback for card preview');
+            }
+          }
+          
+          console.log('🎵 Cross-browser preview video playing for:', media.title);
+        } else {
+          // Fallback to basic playback
+          muteAll();
+          setCurrentAudioElement(video);
+          video.muted = false;
+          video.volume = 0.3;
+          
+          await video.play();
+          setIsPlaying(true);
+          setIsMuted(false);
+          console.log('Preview video playing (fallback) for:', media.title);
+        }
+      } catch (error) {
+        console.log('Preview video play failed for:', media.title, error);
+        setIsVideoLoaded(false);
+        setIsPlaying(false);
+      }
+    }
   };
 
-  const handleVideoError = () => {
+  const handleVideoError = (error?: any) => {
+    console.log('Video error for card:', media.title, error);
     setIsVideoLoaded(false);
     setIsPlaying(false);
   };
@@ -207,13 +262,12 @@ const NetflixMovieCard: React.FC<NetflixMovieCardProps> = ({
   };
 
   const getMatchPercentage = () => {
-    // Calculate match percentage based on rating and view count
-    const rating = media.rating || 5;
-    const viewCount = media.view_count || 0;
-    const baseMatch = Math.min(95, Math.max(65, (rating / 10) * 100));
-    const popularityBonus = Math.min(10, viewCount / 1000);
-    return Math.round(baseMatch + popularityBonus);
+    // Simple algorithm based on rating and popularity
+    const baseMatch = 75;
+    const ratingBoost = media.rating ? Math.min(media.rating * 5, 20) : 0;
+    return Math.min(baseMatch + ratingBoost, 99);
   };
+
 
   return (
     <motion.div
@@ -224,62 +278,98 @@ const NetflixMovieCard: React.FC<NetflixMovieCardProps> = ({
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
       onClick={handleCardClick}
+      data-media-uuid={media.uuid}
+      style={{
+        // Ensure hover cards can overflow their containers
+        zIndex: isHovered ? 50 : 1,
+      }}
     >
       {/* Base Card */}
       <motion.div
-        className={`relative ${sizeClasses[size]} bg-gray-900 rounded-lg overflow-hidden shadow-lg`}
+        className={`relative ${sizeClasses[size]} bg-gray-900 rounded-lg overflow-hidden shadow-2xl`}
         animate={{ 
-          scale: isHovered ? 1.3 : 1,
-          zIndex: isHovered ? 50 : 1,
-          y: isHovered ? -20 : 0,
+          scale: isHovered ? 1.5 : 1,
+          y: isHovered ? -30 : 0,
         }}
         transition={{ duration: 0.4, ease: "easeOut" }}
         style={{
           transformOrigin: 'center center',
+          zIndex: isHovered ? 50 : 1,
         }}
       >
-        {/* Thumbnail Image */}
-        {!fallbackError ? (
-          <Image
-            src={imageError ? getFallbackThumbnailUrl() : getThumbnailUrl()}
-            alt={extractNiceTitle(media.title)}
-            fill
-            sizes="(max-width: 768px) 50vw, (max-width: 1200px) 33vw, 25vw"
-            className={`object-cover transition-opacity duration-300 ${
-              showPreview && isVideoLoaded ? 'opacity-0' : 'opacity-100'
-            }`}
-            loading={priority ? "eager" : "lazy"}
-            onError={handleImageError}
-          />
-        ) : (
-          <div className="w-full h-full bg-gradient-to-br from-black/80 via-gray-900/60 to-black/80 flex items-center justify-center">
-            <div className="text-center p-2">
-              <div className="text-2xl mb-2">🎬</div>
-              <TextureEffects 
-                genre={media.genres?.[0]?.name || 'drama'} 
-                effectType="both"
-                className="text-xs font-medium line-clamp-2"
-              >
-                {extractNiceTitle(media.title)}
-              </TextureEffects>
+        {/* Netflix-optimized Thumbnail Image */}
+        <motion.div
+          className="absolute inset-0"
+          animate={{ 
+            opacity: showPreview && isVideoLoaded ? 0 : 1,
+            scale: showPreview && isVideoLoaded ? 1.05 : 1
+          }}
+          transition={{ duration: 0.5 }}
+        >
+          {!fallbackError ? (
+            <NetflixImage
+              src={imageError ? getFallbackThumbnailUrl() : getThumbnailUrl()}
+              alt={extractNiceTitle(media.title)}
+              className="w-full h-full object-cover"
+              priority={priority ? 'high' : 'medium'}
+              progressive={false}
+              preload={priority}
+              fallbackSrc={imageError ? undefined : getFallbackThumbnailUrl()}
+              onError={() => handleImageError()}
+              onLoad={() => {
+                console.log('Thumbnail loaded for:', media.title);
+              }}
+            />
+          ) : (
+            <div className="w-full h-full bg-gradient-to-br from-black/80 via-gray-900/60 to-black/80 flex items-center justify-center">
+              <div className="text-center p-2">
+                <div className="text-2xl mb-2">🎬</div>
+                <TextureEffects 
+                  genre={media.genres?.[0]?.name || 'drama'} 
+                  effectType="both"
+                  className="text-xs font-medium line-clamp-2"
+                >
+                  {extractNiceTitle(media.title)}
+                </TextureEffects>
+              </div>
             </div>
-          </div>
-        )}
+          )}
+        </motion.div>
 
-        {/* Preview Video */}
+        {/* Netflix-optimized Preview Video */}
         {showPreview && (
-          <video
-            ref={videoRef}
-            src={getPreviewUrl()}
-            className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-300 ${
-              isVideoLoaded ? 'opacity-100' : 'opacity-0'
-            }`}
-            muted={isMuted}
-            loop
-            playsInline
-            onLoadedData={handleVideoLoad}
-            onError={handleVideoError}
-          />
+          <motion.div
+            className="absolute inset-0"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: isVideoLoaded ? 1 : 0 }}
+            transition={{ duration: 0.5 }}
+          >
+            <video
+              ref={videoRef}
+              src={getPreviewUrl()}
+              className="w-full h-full object-cover"
+              muted={isMuted}
+              loop
+              autoPlay={false}
+              playsInline
+              preload="metadata"
+              poster={getThumbnailUrl()}
+              onLoadedData={handleVideoLoad}
+              onError={handleVideoError}
+              onCanPlay={() => {
+                const video = videoRef.current;
+                if (video && isHovered) {
+                  video.play().catch(() => {
+                    console.log('Preview video autoplay failed for:', media.title);
+                    setIsVideoLoaded(false);
+                  });
+                }
+              }}
+              onLoadStart={() => {
+                console.log('Loading preview for:', media.title);
+              }}
+            />
+          </motion.div>
         )}
 
         {/* Gradient Overlay */}
@@ -327,45 +417,121 @@ const NetflixMovieCard: React.FC<NetflixMovieCardProps> = ({
         </AnimatePresence>
 
         {/* Volume Control for Preview */}
-        {showPreview && isPlaying && (
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              setIsMuted(!isMuted);
-              if (videoRef.current) {
-                videoRef.current.muted = !isMuted;
-              }
-            }}
-            className="absolute top-2 right-2 bg-black/50 text-white p-1.5 rounded-full hover:bg-black/70 transition-colors cursor-pointer z-20"
-          >
-            {isMuted ? <VolumeX className="w-3 h-3" /> : <Volume2 className="w-3 h-3" />}
-          </button>
-        )}
+        <AnimatePresence>
+          {showPreview && isVideoLoaded && (
+            <motion.button
+              initial={{ opacity: 0, scale: 0.8 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.8 }}
+              onClick={(e) => {
+                e.stopPropagation();
+                const newMuted = !isMuted;
+                setIsMuted(newMuted);
+                if (videoRef.current) {
+                  videoRef.current.muted = newMuted;
+                  if (!newMuted) {
+                    videoRef.current.volume = 0.3;
+                    muteAll();
+                    setCurrentAudioElement(videoRef.current);
+                  }
+                }
+              }}
+              className="absolute top-2 right-2 bg-black/50 text-white p-1.5 rounded-full hover:bg-black/70 transition-all duration-200 cursor-pointer z-20 border border-white/20"
+            >
+              {isMuted ? <VolumeX className="w-3 h-3" /> : <Volume2 className="w-3 h-3" />}
+            </motion.button>
+          )}
+        </AnimatePresence>
 
-        {/* Title Overlay (bottom) - Enhanced with Texture Effects */}
-        <div className="absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-black/95 via-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-          <TextureEffects 
-            genre={media.genres?.[0]?.name || 'drama'} 
-            effectType="both"
-            className="font-bold text-sm line-clamp-2 mb-1 drop-shadow-[0_2px_8px_rgba(0,0,0,0.9)]"
-          >
-            {extractNiceTitle(media.title)}
-          </TextureEffects>
-          <div className="flex items-center gap-2 text-xs text-gray-300">
-            <span className="text-green-400 font-semibold">
-              {getMatchPercentage()}% Match
-            </span>
-            {media.rating && (
-              <>
-                <span>•</span>
-                <div className="flex items-center gap-1">
-                  <Star className="w-3 h-3 text-yellow-400 fill-current" />
-                  <span>{media.rating}</span>
+        {/* Netflix-style Title Overlay with Enhanced Gradient */}
+        <AnimatePresence>
+          {isHovered && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 20 }}
+              transition={{ duration: 0.3, ease: "easeOut" }}
+              className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/100 via-black/80 to-transparent"
+            >
+              <TextureEffects 
+                genre={media.genres?.[0]?.name || 'drama'} 
+                effectType="both"
+                className="font-bold text-base line-clamp-2 mb-2 drop-shadow-[0_2px_12px_rgba(0,0,0,1)]"
+              >
+                {extractNiceTitle(media.title)}
+              </TextureEffects>
+              
+              {/* Netflix-style metadata row */}
+              <div className="flex items-center gap-2 text-sm text-gray-200 mb-3">
+                <span className="text-green-400 font-bold">
+                  {getMatchPercentage()}% Match
+                </span>
+                {media.rating && (
+                  <>
+                    <span className="text-gray-500">•</span>
+                    <div className="flex items-center gap-1">
+                      <Star className="w-4 h-4 text-yellow-400 fill-current" />
+                      <span className="font-semibold">{media.rating}</span>
+                    </div>
+                  </>
+                )}
+                <span className="text-gray-500">•</span>
+                <span className="capitalize font-medium">{media.type}</span>
+                {media.duration && (
+                  <>
+                    <span className="text-gray-500">•</span>
+                    <span className="font-medium">{formatDuration(media.duration)}</span>
+                  </>
+                )}
+              </div>
+
+              {/* Action buttons row */}
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handlePlayClick}
+                  disabled={isLoading}
+                  className="bg-white text-black px-4 py-2 rounded-md font-bold hover:bg-gray-200 transition-colors duration-200 flex items-center gap-2 cursor-pointer text-sm"
+                >
+                  {isLoading ? (
+                    <div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <Play className="w-4 h-4 fill-current" />
+                  )}
+                  Play
+                </button>
+                
+                <button className="bg-gray-700/80 text-white p-2 rounded-full hover:bg-gray-600 transition-colors duration-200 cursor-pointer backdrop-blur-sm">
+                  <Plus className="w-4 h-4" />
+                </button>
+                
+                <button className="bg-gray-700/80 text-white p-2 rounded-full hover:bg-gray-600 transition-colors duration-200 cursor-pointer backdrop-blur-sm">
+                  <ThumbsUp className="w-4 h-4" />
+                </button>
+                
+                <button
+                  onClick={handleInfoClick}
+                  className="bg-gray-700/80 text-white p-2 rounded-full hover:bg-gray-600 transition-colors duration-200 ml-auto cursor-pointer backdrop-blur-sm"
+                >
+                  <ChevronDown className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Genres */}
+              {media.genres && media.genres.length > 0 && (
+                <div className="flex flex-wrap gap-1 mt-3">
+                  {media.genres.slice(0, 3).map((genre, index) => (
+                    <span
+                      key={genre.id || index}
+                      className="text-xs text-gray-200 bg-gray-800/60 backdrop-blur-sm px-2 py-1 rounded-full border border-gray-700/50"
+                    >
+                      {genre.name}
+                    </span>
+                  ))}
                 </div>
-              </>
-            )}
-          </div>
-        </div>
+              )}
+            </motion.div>
+          )}
+        </AnimatePresence>
       </motion.div>
 
       {/* Expanded Info Panel (Netflix-style) */}
@@ -384,38 +550,23 @@ const NetflixMovieCard: React.FC<NetflixMovieCardProps> = ({
               <button
                 onClick={handlePlayClick}
                 disabled={isLoading}
-                className="bg-white text-black px-3 py-1.5 rounded-md font-bold hover:bg-gray-200 transition-colors duration-200 flex items-center gap-2 cursor-pointer text-sm"
+                className="bg-white text-black rounded-full p-2 hover:bg-gray-200 transition-colors duration-200 flex items-center gap-2"
               >
-                {isLoading ? (
-                  <div className="w-3 h-3 border-2 border-black border-t-transparent rounded-full animate-spin" />
-                ) : (
-                  <Play className="w-3 h-3 fill-current" />
-                )}
-                Play
+                <Play className="w-4 h-4 fill-current" />
+                <span className="text-sm font-medium">Play</span>
               </button>
               
-              <button className="bg-gray-700 text-white p-1.5 rounded-full hover:bg-gray-600 transition-colors duration-200 cursor-pointer">
-                <Plus className="w-3 h-3" />
-              </button>
-              
-              <button className="bg-gray-700 text-white p-1.5 rounded-full hover:bg-gray-600 transition-colors duration-200 cursor-pointer">
-                <ThumbsUp className="w-3 h-3" />
-              </button>
-              
-              <button
-                onClick={handleInfoClick}
-                className="bg-gray-700 text-white p-1.5 rounded-full hover:bg-gray-600 transition-colors duration-200 ml-auto cursor-pointer"
-              >
-                <ChevronDown className="w-3 h-3" />
-              </button>
+              <MyListButton 
+                media={media}
+                variant="ghost"
+                size="sm"
+                showText={false}
+                className="bg-gray-800/80 text-white rounded-full"
+              />
             </div>
 
-            {/* Metadata */}
-            <div className="flex items-center gap-2 mb-2 text-xs">
-              <span className="text-green-500 font-semibold">
-                {getMatchPercentage()}% Match
-              </span>
-              <span className="text-gray-400">•</span>
+            {/* Media Info */}
+            <div className="flex items-center gap-2 text-sm mb-3">
               <span className="text-gray-400 capitalize">{media.type}</span>
               {media.duration && (
                 <>

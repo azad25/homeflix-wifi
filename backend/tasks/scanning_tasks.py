@@ -16,6 +16,7 @@ from tasks.thumbnail_tasks import generate_thumbnail, generate_preview_clip
 from tasks.poster_tasks import download_poster
 from tasks.video_tasks import analyze_video_metadata
 from tasks.subtitle_tasks import extract_embedded_subtitles, scan_external_subtitles
+from tasks.resource_manager import sleep_after_task, resource_manager
 
 logger = get_task_logger(__name__)
 
@@ -94,6 +95,7 @@ def process_new_media(media_info: Dict[str, Any]) -> Dict[str, Any]:
         }
 
 @current_app.task(queue='scanning', priority=1)
+@sleep_after_task('batch_process_media_library')
 def batch_process_media_library(media_list: List[Dict[str, Any]]) -> Dict[str, Any]:
     """
     Process entire media library in batches for maximum efficiency

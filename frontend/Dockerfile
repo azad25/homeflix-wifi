@@ -20,4 +20,4 @@ ENV PORT 3006
 ENV HOSTNAME "0.0.0.0"
 
 # Start the application
-CMD ["npm", "run", "start"]
+CMD ["npm", "run", "dev"]

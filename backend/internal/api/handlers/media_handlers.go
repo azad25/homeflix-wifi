@@ -5,6 +5,7 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
+	"homeflix-backend/internal/models"
 	"homeflix-backend/internal/services"
 )
 
@@ -23,13 +24,23 @@ func GetAllMedia(mediaService *services.MediaService) gin.HandlerFunc {
 
 func GetMediaByID(mediaService *services.MediaService) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		uuid := c.Param("id")
-		if uuid == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid UUID"})
+		idParam := c.Param("id")
+		if idParam == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID"})
 			return
 		}
 
-		media, err := mediaService.GetMediaByUUID(uuid)
+		var media *models.Media
+		var err error
+
+		// Try to parse as numeric ID first
+		if id, parseErr := strconv.ParseUint(idParam, 10, 32); parseErr == nil {
+			media, err = mediaService.GetMediaByID(uint(id))
+		} else {
+			// If not numeric, treat as UUID
+			media, err = mediaService.GetMediaByUUID(idParam)
+		}
+
 		if err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Media not found"})
 			return

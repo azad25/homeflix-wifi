@@ -157,7 +157,7 @@ export default function TVShowsPage() {
       )}
 
       {/* Main Content with Parallax Background */}
-      <div className="relative bg-gradient-to-b from-red-900/20 via-black to-black">
+      <GradientBackground variant="netflix" className="min-h-screen">
         <div className="relative z-10 py-20">
           {/* Continue Watching TV Shows */}
           <ParallaxSection speed={0.3}>
@@ -256,7 +256,7 @@ export default function TVShowsPage() {
             </ParallaxSection>
           )}
         </div>
-      </div>
+      </GradientBackground>
 
       {/* Video Player Modal */}
       {selectedMedia && (

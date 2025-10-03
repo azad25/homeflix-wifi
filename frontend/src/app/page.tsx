@@ -4,12 +4,15 @@ import React, { useState, useEffect } from "react";
 import { Film, Tv, Star, Clock } from "lucide-react";
 import { useRouter } from 'next/navigation';
 import Navbar from "@/components/Navbar";
+import ContinueWatching from '@/components/ContinueWatching';
 import VideoPlayer from '@/components/VideoPlayer';
 import { getApiUrl } from '@/lib/api';
+import { trackClick } from '@/lib/analytics';
+import { useRecommendations } from '@/contexts/RecommendationContext';
+import { cachedFetch } from '@/lib/cache';
 import { Media } from '@/types/media';
 import { ScrollXHero, NetflixHorizontalRow, ParallaxSection, GradientBackground, ParticleField, ScrollReveal } from '@/components/scrollx';
 import RecommendationSection from '@/components/RecommendationSection';
-import { useRecommendations } from '@/contexts/RecommendationContext';
 
 export default function Home() {
   const router = useRouter();
@@ -30,107 +33,101 @@ export default function Home() {
 
   useEffect(() => {
     fetchData();
+    
+    // Set up recommendation refresh timer (every 5 minutes)
+    const refreshInterval = setInterval(() => {
+      console.log('Refreshing recommendations...');
+      fetchData();
+    }, 5 * 60 * 1000); // 5 minutes
+
+    return () => clearInterval(refreshInterval);
   }, []);
 
   const fetchData = async () => {
     try {
-      const { getApiUrl, API_ENDPOINTS, apiCall } = await import('../lib/api');
+      const apiUrl = getApiUrl();
+      const defaultUserId = '1';
       
-      // Fetch all media
-      const allMedia = await apiCall(API_ENDPOINTS.media);
+      // Fetch recommendations from backend using cache
+      const [
+        forYouData,
+        trendingData,
+        popularMoviesData,
+        popularSeriesData
+      ] = await Promise.all([
+        cachedFetch(`${apiUrl}/api/recommendations?user_id=${defaultUserId}&category=for_you&limit=20`).catch(() => ({ items: [] })),
+        cachedFetch(`${apiUrl}/api/recommendations?user_id=${defaultUserId}&category=trending&limit=20`).catch(() => ({ items: [] })),
+        cachedFetch(`${apiUrl}/api/media/movies?limit=20`).catch(() => []),
+        cachedFetch(`${apiUrl}/api/media/tv-shows?limit=20`).catch(() => [])
+      ]);
+
+      // Set featured media from recommendations
+      setFeaturedMedia(forYouData.items || []);
       
-      // Initialize recommendations with all media
-      refreshRecommendations(allMedia);
+      // Set trending content
+      setTrendingNow(trendingData.items || []);
       
-      // Get random high-quality movies and TV shows for hero section
-      const highQualityMedia = allMedia
-        .filter((item: Media) => (item.rating || 0) >= 6.0) // Only show content with decent ratings
-        .sort(() => Math.random() - 0.5) // Randomize the order
-        .slice(0, 10); // Get more items to choose from
+      // Set popular content
+      setPopularMovies(popularMoviesData.slice(0, 20));
+      setPopularSeries(popularSeriesData.slice(0, 20));
       
-      // Mix movies and TV shows, prioritize higher rated content
-      const featuredSelection = highQualityMedia
-        .sort((a: Media, b: Media) => (b.rating || 0) - (a.rating || 0))
-        .slice(0, 5);
+      // Set genre-based content from popular movies
+      setActionMovies(popularMoviesData.filter((m: Media) => 
+        m.genres?.some(g => g.name.toLowerCase().includes('action'))
+      ).slice(0, 20));
       
-      setFeaturedMedia(featuredSelection.length > 0 ? featuredSelection : allMedia.slice(0, 5));
+      setComedyMovies(popularMoviesData.filter((m: Media) => 
+        m.genres?.some(g => g.name.toLowerCase().includes('comedy'))
+      ).slice(0, 20));
       
-      // Recent movies (latest by ID)
-      const recentMovies = allMedia
-        .filter((item: Media) => item.type === "movie")
-        .sort((a: Media, b: Media) => b.id - a.id)
-        .slice(0, 20);
-      setRecentMovies(recentMovies);
+      setDramaMovies(popularMoviesData.filter((m: Media) => 
+        m.genres?.some(g => g.name.toLowerCase().includes('drama'))
+      ).slice(0, 20));
       
-      // Popular movies (most viewed)
-      const popularMovies = allMedia
-        .filter((item: Media) => item.type === "movie")
-        .sort((a: Media, b: Media) => (b.view_count || 0) - (a.view_count || 0))
-        .slice(0, 20);
-      setPopularMovies(popularMovies);
+      // Set recent movies
+      setRecentMovies(popularMoviesData.slice(0, 20));
+
+      // Initialize recommendations with all data
       
-      // Popular series (most viewed TV shows)
-      const popularSeries = allMedia
-        .filter((item: Media) => item.type === "episode")
-        .sort((a: Media, b: Media) => (b.view_count || 0) - (a.view_count || 0))
-        .slice(0, 20);
-      setPopularSeries(popularSeries);
+      // Initialize recommendations context
+      const allRecommendations = [
+        ...(forYouData.items || []),
+        ...(trendingData.items || []),
+        ...popularMoviesData,
+        ...popularSeriesData
+      ];
+      refreshRecommendations(allRecommendations);
       
-      // Trending now (highest rated recent content)
-      const trendingNow = allMedia
-        .sort((a: Media, b: Media) => (b.rating || 0) - (a.rating || 0))
-        .slice(0, 20);
-      setTrendingNow(trendingNow);
-      
-      // Genre-based collections
-      const actionMovies = allMedia
-        .filter((item: Media) => 
-          item.type === "movie" && 
-          (item.genres || []).some(genre => genre.name.toLowerCase().includes('action'))
-        )
-        .sort((a: Media, b: Media) => (b.rating || 0) - (a.rating || 0))
-        .slice(0, 20);
-      setActionMovies(actionMovies);
-      
-      const comedyMovies = allMedia
-        .filter((item: Media) => 
-          item.type === "movie" && 
-          (item.genres || []).some(genre => genre.name.toLowerCase().includes('comedy'))
-        )
-        .sort((a: Media, b: Media) => (b.rating || 0) - (a.rating || 0))
-        .slice(0, 20);
-      setComedyMovies(comedyMovies);
-      
-      const dramaMovies = allMedia
-        .filter((item: Media) => 
-          item.type === "movie" && 
-          (item.genres || []).some(genre => genre.name.toLowerCase().includes('drama'))
-        )
-        .sort((a: Media, b: Media) => (b.rating || 0) - (a.rating || 0))
-        .slice(0, 20);
-      setDramaMovies(dramaMovies);
-      
-      const horrorMovies = allMedia
-        .filter((item: Media) => 
-          item.type === "movie" && 
-          (item.genres || []).some(genre => 
-            genre.name.toLowerCase().includes('horror') || 
-            genre.name.toLowerCase().includes('thriller')
-          )
-        )
-        .sort((a: Media, b: Media) => (b.rating || 0) - (a.rating || 0))
-        .slice(0, 20);
-      setHorrorMovies([]);
       setLoading(false);
     } catch (error) {
-      console.error("Error fetching data:", error);
-      // Don't fall back to mock data - show empty state instead
-      setFeaturedMedia([]);
-      setRecentMovies([]);
-      setPopularMovies([]);
-      setPopularSeries([]);
-      setTrendingNow([]);
-      setActionMovies([]);
+      console.error("Error fetching recommendations:", error);
+      
+      // Fallback to basic media fetch if recommendations fail
+      try {
+        const apiUrl = getApiUrl();
+        const fallbackResponse = await fetch(`${apiUrl}/api/media`);
+        if (fallbackResponse.ok) {
+          const allMedia = await fallbackResponse.json();
+          const movies = allMedia.filter((item: Media) => item.type === "movie");
+          const series = allMedia.filter((item: Media) => item.type === "tv");
+          
+          // Set fallback data
+          setFeaturedMedia(movies.slice(0, 5));
+          setTrendingNow(movies.slice(5, 15));
+          setActionMovies(movies.slice(15, 25));
+          setComedyMovies(movies.slice(25, 35));
+          setDramaMovies(movies.slice(35, 45));
+          setHorrorMovies([]);
+          setPopularMovies(movies.slice(0, 20));
+          setPopularSeries(series.slice(0, 20));
+          setRecentMovies(movies.slice(0, 20));
+          
+          refreshRecommendations([...movies, ...series]);
+        }
+      } catch (fallbackError) {
+        console.error("Fallback data fetch also failed:", fallbackError);
+      }
+      
       setComedyMovies([]);
       setDramaMovies([]);
       setHorrorMovies([]);
@@ -141,9 +138,9 @@ export default function Home() {
   const handleSearch = async (query: string) => {
     try {
       const apiUrl = getApiUrl();
-      const response = await fetch(`${apiUrl}/api/search?q=${encodeURIComponent(query)}`);
+      const response = await fetch(`${apiUrl}/api/media/search?q=${encodeURIComponent(query)}`);
       const data = await response.json();
-      setSearchResults(data.media || []);
+      setSearchResults(data || []);
     } catch (error) {
       console.error("Error searching:", error);
     }
@@ -222,7 +219,8 @@ export default function Home() {
       )}
 
       {/* Main Content - Netflix Style */}
-      <div className="relative bg-black">
+      <GradientBackground variant="netflix" className="min-h-screen">
+        <div className="relative z-10">
         {searchResults.length > 0 ? (
           <div className="py-8">
             <NetflixHorizontalRow
@@ -296,7 +294,8 @@ export default function Home() {
             )}
           </div>
         )}
-      </div>
+        </div>
+      </GradientBackground>
 
       {/* Additional content sections can be added here */}
 

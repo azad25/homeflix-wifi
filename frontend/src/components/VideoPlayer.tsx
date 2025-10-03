@@ -6,6 +6,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Media } from '@/types/media';
 import { getApiUrl } from '@/lib/api';
 import { useRecommendations } from '@/contexts/RecommendationContext';
+import { usePlaybackProgress } from '@/hooks/usePlaybackProgress';
+import { useEnhancedAudio } from '@/contexts/EnhancedAudioContext';
 
 interface VideoPlayerProps {
   media: Media;
@@ -21,8 +23,59 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
   const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   
   // Recommendation tracking
-  const { trackView, trackClick, updateProgress } = useRecommendations();
+  const { trackClick } = useRecommendations();
   
+  // Playback progress tracking
+  const { updateProgress, getProgress, trackView } = usePlaybackProgress();
+  
+  // Enhanced ALAC audio system
+  const { 
+    setCurrentAudioElement, 
+    isALACEnabled, 
+    audioQuality, 
+    spatialAudioEnabled, 
+    dolbyAtmosEnabled,
+    setAudioQuality,
+    toggleSpatialAudio,
+    toggleDolbyAtmos,
+    setMasterVolume,
+    getMasterVolume,
+    isLosslessPlayback,
+    initializeEnhancedAudio
+  } = useEnhancedAudio();
+  
+  useEffect(() => {
+    setVolume(getMasterVolume());
+    
+    // Initialize enhanced audio system if not already done
+    if (!isALACEnabled) {
+      initializeEnhancedAudio();
+    }
+  }, [getMasterVolume, isALACEnabled, initializeEnhancedAudio]);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (video && isOpen) {
+      // Set crossOrigin to allow audio processing
+      video.crossOrigin = "anonymous";
+      
+      // Register with enhanced audio system
+      setCurrentAudioElement(video);
+      
+      console.log('🎵 VideoPlayer: Registered with ALAC audio system');
+      console.log('🎵 Audio Quality:', audioQuality);
+      console.log('🎵 Spatial Audio:', spatialAudioEnabled ? 'Enabled' : 'Disabled');
+      console.log('🎵 Dolby Atmos:', dolbyAtmosEnabled ? 'Enabled' : 'Disabled');
+      console.log('🎵 Lossless Playback:', isLosslessPlayback() ? 'Active' : 'Standard');
+    }
+    
+    return () => {
+      if (video) {
+        setCurrentAudioElement(null);
+      }
+    };
+  }, [isOpen, setCurrentAudioElement, audioQuality, spatialAudioEnabled, dolbyAtmosEnabled, isLosslessPlayback]);
+
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -36,12 +89,57 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
   const [subtitlesEnabled, setSubtitlesEnabled] = useState(true);
   const [availableSubtitles, setAvailableSubtitles] = useState<Array<{language: string, url: string}>>([]);
   const [currentSubtitle, setCurrentSubtitle] = useState<string | null>(null);
+  const [streamQuality, setStreamQuality] = useState<'auto' | '4K' | '1080p' | '720p' | '480p'>('auto');
+  const [availableQualities, setAvailableQualities] = useState<string[]>([]);
 
-  const getStreamUrl = (mediaId: number) => {
-    return `${getApiUrl()}/api/stream/${mediaId}`;
+  const getStreamUrl = (media: Media, quality: string = 'auto') => {
+    if (!media.uuid) {
+      console.error('VideoPlayer: No UUID available for media:', media.title);
+      return '';
+    }
+    
+    const baseUrl = `${getApiUrl()}/api/stream/${media.uuid}`;
+    console.log('VideoPlayer: Stream URL generated:', baseUrl);
+    
+    if (quality === 'auto') {
+      return baseUrl;
+    }
+    return `${baseUrl}?quality=${quality}`;
   };
 
-  // Load subtitles
+  // Detect optimal quality based on network and device capabilities
+  const detectOptimalQuality = useCallback(() => {
+    const connection = (navigator as any).connection;
+    const screenWidth = window.screen.width;
+    const screenHeight = window.screen.height;
+    
+    // Check for 4K display capability
+    const supports4K = screenWidth >= 3840 || screenHeight >= 2160;
+    
+    // Check network conditions
+    if (connection) {
+      const effectiveType = connection.effectiveType;
+      const downlink = connection.downlink; // Mbps
+      
+      if (supports4K && (effectiveType === '4g' || downlink > 10)) {
+        return '4K';
+      } else if (effectiveType === '4g' || downlink > 5) {
+        return '1080p';
+      } else if (effectiveType === '3g' || downlink > 2) {
+        return '720p';
+      } else {
+        return '480p';
+      }
+    }
+    
+    // Fallback based on screen size
+    if (supports4K) return '4K';
+    if (screenWidth >= 1920) return '1080p';
+    if (screenWidth >= 1280) return '720p';
+    return '480p';
+  }, []);
+
+  // Load subtitles, detect quality, and restore progress
   useEffect(() => {
     const loadSubtitles = async () => {
       if (media.subtitles && media.subtitles.length > 0) {
@@ -53,20 +151,72 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
         if (subs.length > 0) {
           setCurrentSubtitle(subs[0].url);
         }
+      } else {
+        // Try to detect subtitles from common paths
+        const commonSubtitleLangs = ['en', 'es', 'fr', 'de'];
+        const detectedSubs = commonSubtitleLangs.map(lang => ({
+          language: lang,
+          url: `${getApiUrl()}/api/subtitles/${media.uuid}?lang=${lang}`
+        }));
+        setAvailableSubtitles(detectedSubs);
+      }
+    };
+    
+    const initializeQuality = () => {
+      // Set available qualities based on media metadata
+      const qualities = ['480p', '720p', '1080p'];
+      if (media.quality === '4K' || media.resolution?.includes('4K')) {
+        qualities.push('4K');
+      }
+      setAvailableQualities(['auto', ...qualities]);
+      
+      // Auto-detect optimal quality
+      if (streamQuality === 'auto') {
+        const optimal = detectOptimalQuality();
+        console.log('VideoPlayer: Auto-detected optimal quality:', optimal);
+      }
+    };
+
+    const loadSavedProgress = async () => {
+      if (media.id && startTime === 0) {
+        const savedProgress = await getProgress(media.id);
+        if (savedProgress && savedProgress.progress_time > 30) { // Only restore if more than 30 seconds
+          setCurrentTime(savedProgress.progress_time);
+          console.log('VideoPlayer: Restored progress:', savedProgress.progress_time);
+        }
       }
     };
     
     if (isOpen) {
       loadSubtitles();
+      initializeQuality();
+      loadSavedProgress();
     }
-  }, [media, isOpen]);
+  }, [media, isOpen, detectOptimalQuality, streamQuality, startTime, getProgress]);
 
   // Fetch next episode for TV series
   useEffect(() => {
     const fetchNextEpisode = async () => {
       if (media.type === 'episode' && media.series_id && media.season_number && media.episode_number) {
         try {
+          // Try specific API endpoint for next episode first
+          const nextEpisodeResponse = await fetch(
+            `${getApiUrl()}/api/media/series/${media.series_id}/next-episode?season=${media.season_number}&episode=${media.episode_number}`
+          );
+          
+          if (nextEpisodeResponse.ok) {
+            const nextEpisodeData = await nextEpisodeResponse.json();
+            setNextEpisode(nextEpisodeData);
+            return;
+          }
+          
+          // Fallback to fetching all media
           const response = await fetch(`${getApiUrl()}/api/media`);
+          if (!response.ok) {
+            console.error('Failed to fetch media list:', response.statusText);
+            return;
+          }
+          
           const allMedia: Media[] = await response.json();
           
           // Find next episode
@@ -211,8 +361,9 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
     const newVolume = parseFloat(e.target.value) / 100;
     video.volume = newVolume;
     setVolume(newVolume);
-    setIsMuted(false);
-    video.muted = false;
+    setIsMuted(newVolume === 0);
+    // Update enhanced audio system volume
+    setMasterVolume(newVolume);
   };
 
   const handleProgressClick = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -280,7 +431,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
         togglePlay();
         break;
     }
-  }, [isOpen, isFullscreen, onClose]);
+  }, [isOpen, isFullscreen, onClose, toggleFullscreen, exitFullscreen, seekForward, seekBackward, toggleMute, togglePlay]);
 
   // Video event handlers
   useEffect(() => {
@@ -289,10 +440,13 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
 
     const handleLoadedMetadata = () => {
       setDuration(video.duration);
-      // Set start time if provided
+      
+      // Set start time if provided, otherwise use saved progress
       if (startTime > 0) {
         video.currentTime = startTime;
         setCurrentTime(startTime);
+      } else if (currentTime > 0) {
+        video.currentTime = currentTime;
       }
       
       // Safari-specific initialization
@@ -315,8 +469,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
     const handleTimeUpdate = () => {
       if (!isDragging) {
         setCurrentTime(video.currentTime);
-        // Update playback progress every 10 seconds
-        if (Math.floor(video.currentTime) % 10 === 0 && media?.id && video.duration > 0) {
+        // Update playback progress every 30 seconds to avoid too frequent API calls
+        if (Math.floor(video.currentTime) % 30 === 0 && media?.id && video.duration > 0) {
           updateProgress(media.id, video.currentTime, video.duration);
         }
       }
@@ -332,7 +486,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
     
     const handlePause = () => {
       setIsPlaying(false);
-      // Update progress when paused
+      // Save progress when paused
       if (media?.id && video.duration > 0) {
         updateProgress(media.id, video.currentTime, video.duration);
       }
@@ -341,8 +495,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
     const handleEnded = () => {
       setIsPlaying(false);
       // Mark as completed when ended
-      if (media?.id && duration > 0) {
-        updateProgress(media.id, currentTime, duration);
+      if (media?.id && video.duration > 0) {
+        updateProgress(media.id, video.duration, video.duration);
       }
     };
 
@@ -404,13 +558,13 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
-        className="fixed inset-0 z-50 bg-black"
+        className="fixed inset-0 z-50 bg-black overflow-hidden"
         ref={containerRef}
       >
         {/* Video */}
         <video
           ref={videoRef}
-          src={getStreamUrl(media.id)}
+          src={getStreamUrl(media, streamQuality)}
           className="w-full h-full object-contain bg-black"
           onPlay={() => setIsPlaying(true)}
           autoPlay
@@ -422,151 +576,186 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
           onPause={() => setIsPlaying(false)}
           onEnded={() => setIsPlaying(false)}
           onError={(e) => {
-            console.error('VideoPlayer: Video error:', e);
-            console.log('VideoPlayer: Video src:', getStreamUrl(media.id));
-            // Try to reload on error
+            // Try different stream URL formats
+            const video = videoRef.current;
+            if (video && media.uuid) {
+              const fallbackUrls = [
+                `${getApiUrl()}/api/stream/${media.id}`, // Try with ID
+                `${getApiUrl()}/api/preview-clips/${media.uuid}`, // Try preview clip
+                `${getApiUrl()}/api/media/${media.uuid}/stream` // Alternative endpoint
+              ];
+              
+              let urlIndex = 0;
+              const tryNextUrl = () => {
+                if (urlIndex < fallbackUrls.length) {
+                  video.src = fallbackUrls[urlIndex];
+                  video.load();
+                  urlIndex++;
+                }
+              };
+              
+              setTimeout(tryNextUrl, 1000);
+            }
+          }}
+          onCanPlay={() => {
+            const video = videoRef.current;
+            if (!video) return;
+            
+            // Always start with sound enabled in VideoPlayer
+            video.muted = false;
+            video.volume = volume;
+            
+            video.play().catch((error) => {
+              // Fallback to muted if autoplay with sound fails
+              video.muted = true;
+              setIsMuted(true);
+              video.play().catch(console.error);
+            });
+          }}
+          onStalled={() => {
             const video = videoRef.current;
             if (video) {
               setTimeout(() => {
                 video.load();
-                video.play().catch(console.error);
+                if (!video.paused) {
+                  video.play().catch(console.error);
+                }
               }, 1000);
             }
           }}
-          onLoadStart={() => console.log('VideoPlayer: Video loading started')}
-          onCanPlay={() => {
-            console.log('VideoPlayer: Video can play');
-            const video = videoRef.current;
-            if (!video) return;
-            
-            // Browser detection for Safari
-            const ua = navigator.userAgent;
-            const isSafari = /^((?!chrome|android).)*safari/i.test(ua) || /iPhone|iPad|iPod/i.test(ua);
-            const isMac = /Macintosh|MacIntel|MacPPC|Mac68K/i.test(ua);
-            
-            if (isSafari || isMac) {
-              // Safari-specific handling
-              video.muted = false; // VideoPlayer always starts with sound
-              video.volume = volume;
-              video.play().catch((error) => {
-                console.log('VideoPlayer Safari: Play failed, retrying with sound:', error);
-                video.muted = false;
-                setIsMuted(false);
-                video.play().catch(console.error);
-              });
-            } else {
-              // Other browsers
-              video.muted = false;
-              video.volume = volume;
-              video.play().catch(console.error);
-            }
-          }}
-          onStalled={() => {
-            console.log('VideoPlayer: Video stalled, attempting recovery');
-            const video = videoRef.current;
-            if (video) {
-              video.load();
-            }
-          }}
           onSuspend={() => {
-            console.log('VideoPlayer: Video suspended, attempting recovery');
             const video = videoRef.current;
             if (video) {
-              setTimeout(() => video.load(), 500);
+              setTimeout(() => {
+                video.load();
+                if (!video.paused) {
+                  video.play().catch(console.error);
+                }
+              }, 2000);
             }
           }}
           preload="metadata"
-          muted={false}
+          muted={isMuted}
         />
 
 
-        {/* Controls Overlay */}
+        {/* Netflix Controls Overlay */}
         <AnimatePresence>
           {showControls && (
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/50 pointer-events-none"
+              transition={{ duration: 0.3 }}
+              className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-black/60 pointer-events-none"
               onClick={(e) => e.stopPropagation()}
             >
-              {/* Top Controls */}
-              <div className="absolute top-0 left-0 right-0 p-6 flex justify-between items-center pointer-events-auto">
-                <div>
-                  <h1 className="text-white text-2xl font-bold">{media.title}</h1>
-                  <p className="text-white/70">{media.type} • {formatTime(duration)}</p>
-                </div>
+              {/* Netflix Top Bar */}
+              <div className="absolute top-0 left-0 right-0 p-8 flex justify-between items-start pointer-events-auto">
+                <motion.div
+                  initial={{ opacity: 0, y: -20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.2 }}
+                >
+                  <h1 className="text-white text-3xl font-bold mb-2 drop-shadow-lg">{media.title}</h1>
+                  <div className="flex items-center gap-4 text-white/80">
+                    <span className="bg-red-600 px-2 py-1 text-xs font-bold rounded">{media.type?.toUpperCase()}</span>
+                    <span>{formatTime(duration)}</span>
+                    {media.rating && <span className="flex items-center gap-1">⭐ {media.rating}</span>}
+                  </div>
+                </motion.div>
                 
-                <div className="flex items-center gap-4">
-                  <button
-                    onClick={() => onClose()}
-                    className="text-white hover:text-red-500 transition-colors p-3 bg-black/50 rounded-full hover:bg-black/70 border border-white/20 hover:border-red-500/50 z-50"
-                    title="Close (Esc)"
-                    type="button"
-                  >
-                    <X className="w-6 h-6" />
-                  </button>
-                </div>
+                <motion.button
+                  initial={{ opacity: 0, scale: 0.8 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  whileHover={{ scale: 1.1 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={onClose}
+                  className="text-white hover:text-red-500 transition-all duration-200 p-3 bg-black/60 backdrop-blur-sm rounded-full hover:bg-red-600/20 border border-white/10 hover:border-red-500/30"
+                  title="Close (Esc)"
+                >
+                  <X className="w-7 h-7" />
+                </motion.button>
               </div>
 
-              {/* Center Controls */}
+              {/* Netflix Center Controls */}
               <div className="absolute inset-0 flex items-center justify-center pointer-events-auto">
-                <div className="flex items-center gap-8">
-                  {/* Skip Back 10s */}
-                  <button
+                <motion.div 
+                  className="flex items-center gap-12"
+                  initial={{ opacity: 0, scale: 0.8 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ delay: 0.1 }}
+                >
+                  {/* Skip Back */}
+                  <motion.button
                     onClick={() => seekBackward(10)}
-                    className="bg-black/50 text-white rounded-full p-3 hover:bg-black/70 transition-all duration-200 hover:scale-110"
+                    whileHover={{ scale: 1.2 }}
+                    whileTap={{ scale: 0.9 }}
+                    className="bg-black/60 backdrop-blur-sm text-white rounded-full p-4 hover:bg-red-600/30 transition-all duration-300 border border-white/10 hover:border-red-500/50 shadow-lg"
                     title="Skip back 10 seconds (←)"
                   >
-                    <RotateCcw className="w-8 h-8" />
-                  </button>
+                    <RotateCcw className="w-10 h-10" />
+                  </motion.button>
 
-                  {/* Play/Pause */}
-                  <button
+                  {/* Netflix Play/Pause */}
+                  <motion.button
                     onClick={togglePlay}
-                    className="bg-black/50 text-white rounded-full p-4 hover:bg-black/70 transition-all duration-200 hover:scale-110 z-40"
+                    whileHover={{ scale: 1.15 }}
+                    whileTap={{ scale: 0.95 }}
+                    className="text-white rounded-full p-4 hover:text-red-500 transition-all duration-300"
                     title={isPlaying ? "Pause (Space)" : "Play (Space)"}
-                    type="button"
                   >
                     {isPlaying ? (
                       <Pause className="w-12 h-12" />
                     ) : (
-                      <Play className="w-12 h-12 fill-current" />
+                      <Play className="w-12 h-12 fill-current ml-1" />
                     )}
-                  </button>
+                  </motion.button>
 
-                  {/* Skip Forward 10s */}
-                  <button
+                  {/* Skip Forward */}
+                  <motion.button
                     onClick={() => seekForward(10)}
-                    className="bg-black/50 text-white rounded-full p-3 hover:bg-black/70 transition-all duration-200 hover:scale-110"
+                    whileHover={{ scale: 1.2 }}
+                    whileTap={{ scale: 0.9 }}
+                    className="bg-black/60 backdrop-blur-sm text-white rounded-full p-4 hover:bg-red-600/30 transition-all duration-300 border border-white/10 hover:border-red-500/50 shadow-lg"
                     title="Skip forward 10 seconds (→)"
                   >
-                    <RotateCw className="w-8 h-8" />
-                  </button>
-                </div>
+                    <RotateCw className="w-10 h-10" />
+                  </motion.button>
+                </motion.div>
               </div>
 
-              {/* Bottom Controls */}
-              <div className="absolute bottom-0 left-0 right-0 p-6 pointer-events-auto">
-                {/* Progress Bar */}
-                <div className="mb-4 group">
+              {/* Netflix Bottom Controls */}
+              <motion.div 
+                className="absolute bottom-0 left-0 right-0 p-8 pointer-events-auto"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.3 }}
+              >
+                {/* Netflix Progress Bar */}
+                <div className="mb-6 group">
                   <div 
-                    className="relative w-full h-1 bg-white/30 rounded-lg cursor-pointer group-hover:h-2 transition-all duration-200"
+                    className="relative w-full h-1 bg-white/20 rounded-full cursor-pointer group-hover:h-2 transition-all duration-300"
                     onClick={handleProgressClick}
                   >
-                    {/* Progress Fill */}
-                    <div 
-                      className="absolute top-0 left-0 h-full bg-red-600 rounded-lg transition-all duration-200"
+                    {/* Background Track */}
+                    <div className="absolute inset-0 bg-white/20 rounded-full" />
+                    
+                    {/* Progress Fill with Netflix Red */}
+                    <motion.div 
+                      className="absolute top-0 left-0 h-full bg-red-600 rounded-full shadow-lg"
                       style={{ width: `${duration > 0 ? (currentTime / duration) * 100 : 0}%` }}
+                      transition={{ type: "spring", stiffness: 400, damping: 40 }}
                     />
                     
                     {/* Progress Handle */}
-                    <div 
-                      className="absolute top-1/2 transform -translate-y-1/2 w-3 h-3 bg-red-600 rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-200"
+                    <motion.div 
+                      className="absolute top-1/2 transform -translate-y-1/2 w-4 h-4 bg-red-600 rounded-full shadow-lg opacity-0 group-hover:opacity-100 transition-all duration-300 border-2 border-white"
                       style={{ left: `${duration > 0 ? (currentTime / duration) * 100 : 0}%` }}
+                      whileHover={{ scale: 1.2 }}
                     />
                     
-                    {/* Hidden Range Input for Accessibility and Dragging */}
+                    {/* Invisible Range Input */}
                     <input
                       type="range"
                       min="0"
@@ -578,90 +767,151 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                   </div>
                 </div>
 
-                {/* Control Buttons */}
+                {/* Netflix Control Buttons */}
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-4">
-                    <button
+                  <div className="flex items-center gap-6">
+                    {/* Play/Pause */}
+                    <motion.button
                       onClick={togglePlay}
-                      className="text-white hover:text-white/70 transition-colors"
+                      whileHover={{ scale: 1.1 }}
+                      whileTap={{ scale: 0.95 }}
+                      className="text-white hover:text-red-500 transition-all duration-200"
                       title={isPlaying ? "Pause (Space)" : "Play (Space)"}
                     >
                       {isPlaying ? (
-                        <Pause className="w-8 h-8" />
+                        <Pause className="w-10 h-10" />
                       ) : (
-                        <Play className="w-8 h-8 fill-current" />
+                        <Play className="w-10 h-10 fill-current" />
                       )}
-                    </button>
+                    </motion.button>
 
-                    <div className="flex items-center gap-2">
-                      <button
+                    {/* Skip Controls */}
+                    <div className="flex items-center gap-4">
+                      <motion.button
                         onClick={() => seekBackward(10)}
-                        className="text-white hover:text-red-500 transition-colors flex items-center gap-1"
+                        whileHover={{ scale: 1.1 }}
+                        whileTap={{ scale: 0.95 }}
+                        className="text-white hover:text-red-500 transition-all duration-200 flex items-center gap-1 bg-black/30 px-3 py-2 rounded-full backdrop-blur-sm"
                         title="Skip back 10 seconds (←)"
                       >
-                        <RotateCcw className="w-5 h-5" />
-                        <span className="text-xs">10</span>
-                      </button>
+                        <RotateCcw className="w-6 h-6" />
+                        <span className="text-sm font-medium">10</span>
+                      </motion.button>
 
-                      <button
+                      <motion.button
                         onClick={() => seekForward(10)}
-                        className="text-white hover:text-red-500 transition-colors flex items-center gap-1"
+                        whileHover={{ scale: 1.1 }}
+                        whileTap={{ scale: 0.95 }}
+                        className="text-white hover:text-red-500 transition-all duration-200 flex items-center gap-1 bg-black/30 px-3 py-2 rounded-full backdrop-blur-sm"
                         title="Skip forward 10 seconds (→)"
                       >
-                        <RotateCw className="w-5 h-5" />
-                        <span className="text-xs">10</span>
-                      </button>
+                        <RotateCw className="w-6 h-6" />
+                        <span className="text-sm font-medium">10</span>
+                      </motion.button>
                     </div>
 
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={toggleMute}
-                        className="text-white hover:text-white/70 transition-colors"
-                        title={isMuted ? "Unmute (m)" : "Mute (m)"}
-                      >
-                        {isMuted ? (
-                          <VolumeX className="w-6 h-6" />
-                        ) : (
-                          <Volume2 className="w-6 h-6" />
-                        )}
-                      </button>
+                    {/* Volume & Subtitle Controls */}
+                    <div className="flex items-center gap-4">
+                      {/* Volume Control */}
+                      <div className="flex items-center gap-3">
+                        <motion.button
+                          onClick={toggleMute}
+                          whileHover={{ scale: 1.1 }}
+                          whileTap={{ scale: 0.95 }}
+                          className="text-white hover:text-red-500 transition-all duration-200 bg-black/30 p-3 rounded-full backdrop-blur-sm"
+                          title={isMuted ? "Unmute (m)" : "Mute (m)"}
+                        >
+                          {isMuted ? (
+                            <VolumeX className="w-7 h-7" />
+                          ) : (
+                            <Volume2 className="w-7 h-7" />
+                          )}
+                        </motion.button>
+                        
+                        {/* Volume Slider */}
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="range"
+                            min="0"
+                            max="100"
+                            value={volume * 100}
+                            onChange={handleVolumeChange}
+                            className="w-20 h-1 bg-white/20 rounded-lg appearance-none cursor-pointer slider"
+                            style={{
+                              background: `linear-gradient(to right, #dc2626 0%, #dc2626 ${volume * 100}%, rgba(255,255,255,0.2) ${volume * 100}%, rgba(255,255,255,0.2) 100%)`
+                            }}
+                          />
+                        </div>
+                      </div>
 
-                      <button
+                      <motion.button
                         onClick={toggleSubtitles}
-                        className={`text-white hover:text-white/70 transition-colors ${
-                          subtitlesEnabled ? 'text-blue-400' : ''
+                        whileHover={{ scale: 1.1 }}
+                        whileTap={{ scale: 0.95 }}
+                        className={`transition-all duration-200 bg-black/30 p-3 rounded-full backdrop-blur-sm ${
+                          subtitlesEnabled ? 'text-red-500' : 'text-white hover:text-red-500'
                         }`}
                         title={subtitlesEnabled ? "Disable Subtitles (c)" : "Enable Subtitles (c)"}
                       >
-                        <Subtitles className="w-6 h-6" />
-                      </button>
+                        <Subtitles className="w-7 h-7" />
+                      </motion.button>
 
-                      <span className="text-white text-sm">
-                        {formatTime(currentTime)} / {formatTime(duration)}
-                      </span>
+                      {/* Netflix Quality Selector */}
+                      <div className="relative group">
+                        <motion.button 
+                          whileHover={{ scale: 1.05 }}
+                          className="text-white hover:text-red-500 transition-all duration-200 text-sm px-4 py-2 rounded-full bg-black/30 backdrop-blur-sm border border-white/20 hover:border-red-500/50 font-medium"
+                        >
+                          {streamQuality === 'auto' ? 'AUTO' : streamQuality}
+                        </motion.button>
+                        <div className="absolute bottom-full left-0 mb-3 bg-black/95 backdrop-blur-lg rounded-xl p-3 opacity-0 group-hover:opacity-100 transition-all duration-300 pointer-events-none group-hover:pointer-events-auto border border-white/10 shadow-2xl">
+                          {availableQualities.map((quality) => (
+                            <motion.button
+                              key={quality}
+                              whileHover={{ scale: 1.05, x: 5 }}
+                              onClick={() => {
+                                setStreamQuality(quality as any);
+                                const video = videoRef.current;
+                                if (video) {
+                                  const currentTime = video.currentTime;
+                                  video.src = getStreamUrl(media, quality);
+                                  video.load();
+                                  video.currentTime = currentTime;
+                                  if (isPlaying) {
+                                    video.play().catch(console.error);
+                                  }
+                                }
+                              }}
+                              className={`block w-full text-left px-4 py-2 text-sm rounded-lg hover:bg-red-600/20 transition-all duration-200 ${
+                                streamQuality === quality ? 'text-red-500 bg-red-600/10' : 'text-white'
+                              }`}
+                            >
+                              {quality === 'auto' ? 'AUTO' : quality}
+                            </motion.button>
+                          ))}
+                        </div>
+                      </div>
                     </div>
                   </div>
 
                   <div className="flex items-center gap-4">
-                    {/* Media Type Indicator */}
-                    <div className="text-xs text-gray-400">
-                      {media.type === 'movie' ? 'Movie' : 'TV Show'}
-                    </div>
-                    
-                    <button
+                    {/* Fullscreen */}
+                    <motion.button
                       onClick={toggleFullscreen}
-                      className="text-white hover:text-white/70 transition-colors"
+                      whileHover={{ scale: 1.1 }}
+                      whileTap={{ scale: 0.95 }}
+                      className="text-white hover:text-red-500 transition-all duration-200 bg-black/30 p-3 rounded-full backdrop-blur-sm"
                       title={isFullscreen ? "Exit Fullscreen (f)" : "Enter Fullscreen (f)"}
                     >
                       {isFullscreen ? (
-                        <Minimize className="w-6 h-6" />
+                        <Minimize className="w-7 h-7" />
                       ) : (
-                        <Maximize className="w-6 h-6" />
+                        <Maximize className="w-7 h-7" />
                       )}
-                    </button>
+                    </motion.button>
                   </div>
                 </div>
-              </div>
+              </motion.div>
             </motion.div>
           )}
         </AnimatePresence>

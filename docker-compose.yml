@@ -74,7 +74,7 @@ services:
       dockerfile: Dockerfile
       target: ${BUILD_TARGET:-production}
     container_name: homeflix-celery-metadata
-    command: sh -c "sleep 15 && celery -A celery_app worker -Q metadata -n metadata_worker@%h --loglevel=info --concurrency=4 --pool=prefork"
+    command: sh -c "sleep 15 && celery -A celery_app worker -Q metadata -n metadata_worker@%h --loglevel=info --concurrency=2 --pool=prefork --max-tasks-per-child=50"
     environment:
       - C_FORCE_ROOT=1
       - REDIS_URL=redis://redis:6379/0
@@ -89,11 +89,13 @@ services:
       - API_URL=http://backend:8251
       - CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP=true
       - CELERY_BROKER_CONNECTION_RETRY=true
+      - CELERY_TASK_REJECT_ON_WORKER_LOST=true
+      - CELERY_TASK_ACKS_LATE=true
     volumes:
       - ${MEDIA_PATH:-./media}:${MEDIA_PATH:-/media}:ro
-      - backend_thumbnails:/app/thumbnails
-      - backend_posters:/app/posters
-      - backend_logs:/app/logs
+      - backend_thumbnails:/app/thumbnails:rw
+      - backend_posters:/app/posters:rw
+      - backend_logs:/app/logs:rw
     depends_on:
       redis:
         condition: service_healthy
@@ -108,6 +110,14 @@ services:
       timeout: 15s
       retries: 5
       start_period: 45s
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1.0'
+        reservations:
+          memory: 512M
+          cpus: '0.5'
 
   # Celery Worker - Thumbnails & Previews (High Priority)
   celery-thumbnails:
@@ -116,7 +126,7 @@ services:
       dockerfile: Dockerfile
       target: ${BUILD_TARGET:-production}
     container_name: homeflix-celery-thumbnails
-    command: sh -c "sleep 20 && celery -A celery_app worker -Q thumbnails -n thumbnails_worker@%h --loglevel=info --concurrency=6 --pool=prefork"
+    command: sh -c "sleep 20 && celery -A celery_app worker -Q thumbnails -n thumbnails_worker@%h --loglevel=info --concurrency=3 --pool=prefork --max-tasks-per-child=25"
     environment:
       - C_FORCE_ROOT=1
       - REDIS_URL=redis://redis:6379/0
@@ -130,11 +140,13 @@ services:
       - PREVIEW_DIR=/app/previews
       - CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP=true
       - CELERY_BROKER_CONNECTION_RETRY=true
+      - CELERY_TASK_REJECT_ON_WORKER_LOST=true
+      - CELERY_TASK_ACKS_LATE=true
     volumes:
       - ${MEDIA_PATH:-./media}:${MEDIA_PATH:-/media}:ro
-      - backend_thumbnails:/app/thumbnails
-      - backend_previews:/app/previews
-      - backend_logs:/app/logs
+      - backend_thumbnails:/app/thumbnails:rw
+      - backend_previews:/app/previews:rw
+      - backend_logs:/app/logs:rw
     depends_on:
       redis:
         condition: service_healthy
@@ -149,6 +161,14 @@ services:
       timeout: 15s
       retries: 5
       start_period: 50s
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '2.0'
+        reservations:
+          memory: 1G
+          cpus: '1.0'
 
   # Celery Worker - Posters (Medium Priority)
   celery-posters:
@@ -157,7 +177,7 @@ services:
       dockerfile: Dockerfile
       target: ${BUILD_TARGET:-production}
     container_name: homeflix-celery-posters
-    command: sh -c "sleep 25 && celery -A celery_app worker -Q posters -n posters_worker@%h --loglevel=info --concurrency=3 --pool=prefork"
+    command: sh -c "sleep 25 && celery -A celery_app worker -Q posters -n posters_worker@%h --loglevel=info --concurrency=2 --pool=prefork --max-tasks-per-child=50"
     environment:
       - C_FORCE_ROOT=1
       - REDIS_URL=redis://redis:6379/0
@@ -171,9 +191,11 @@ services:
       - POSTER_DIR=/app/posters
       - CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP=true
       - CELERY_BROKER_CONNECTION_RETRY=true
+      - CELERY_TASK_REJECT_ON_WORKER_LOST=true
+      - CELERY_TASK_ACKS_LATE=true
     volumes:
-      - backend_posters:/app/posters
-      - backend_logs:/app/logs
+      - backend_posters:/app/posters:rw
+      - backend_logs:/app/logs:rw
     depends_on:
       redis:
         condition: service_healthy
@@ -188,6 +210,14 @@ services:
       timeout: 15s
       retries: 5
       start_period: 55s
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1.0'
+        reservations:
+          memory: 512M
+          cpus: '0.5'
 
   # Celery Worker - Video Processing (Medium Priority)
   celery-video:
@@ -274,7 +304,7 @@ services:
       dockerfile: Dockerfile
       target: ${BUILD_TARGET:-production}
     container_name: homeflix-celery-scanning
-    command: sh -c "sleep 40 && celery -A celery_app worker -Q scanning -n scanning_worker@%h --loglevel=info --concurrency=1 --pool=prefork"
+    command: sh -c "sleep 40 && celery -A celery_app worker -Q scanning -n scanning_worker@%h --loglevel=info --concurrency=1 --pool=prefork --max-tasks-per-child=100"
     environment:
       - C_FORCE_ROOT=1
       - REDIS_URL=redis://redis:6379/0
@@ -284,12 +314,14 @@ services:
       - PYTHONUNBUFFERED=1
       - PYTHONPATH=/app
       - API_URL=http://backend:8251
-      - BATCH_SIZE=10
+      - BATCH_SIZE=5
       - CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP=true
       - CELERY_BROKER_CONNECTION_RETRY=true
+      - CELERY_TASK_REJECT_ON_WORKER_LOST=true
+      - CELERY_TASK_ACKS_LATE=true
     volumes:
       - ${MEDIA_PATH:-./media}:${MEDIA_PATH:-/media}:ro
-      - backend_logs:/app/logs
+      - backend_logs:/app/logs:rw
     depends_on:
       redis:
         condition: service_healthy
@@ -304,6 +336,63 @@ services:
       timeout: 15s
       retries: 5
       start_period: 70s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+          cpus: '0.25'
+
+  # File watcher service for automatic media detection
+  file-watcher:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: ${BUILD_TARGET:-production}
+    container_name: homeflix-file-watcher
+    command: python3 /app/start_file_watcher.py
+    volumes:
+      - ${MEDIA_PATH:-./media}:${MEDIA_PATH:-/media}:ro
+      - backend_logs:/app/logs:rw
+      - backend_thumbnails:/app/thumbnails:rw
+      - backend_posters:/app/posters:rw
+      - backend_previews:/app/previews:rw
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - API_URL=http://backend:8251
+      - MEDIA_DIRECTORIES=${MEDIA_PATH:-/media}
+      - FILE_WATCHER_DEBOUNCE=5
+      - PYTHONPATH=/app
+      - PYTHONUNBUFFERED=1
+      - C_FORCE_ROOT=1
+    depends_on:
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+      celery-scanning:
+        condition: service_started
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.25'
+        reservations:
+          memory: 128M
+          cpus: '0.1'
+    restart: unless-stopped
+    networks:
+      - homeflix-network
+    healthcheck:
+      test: ["CMD", "pgrep", "-f", "start_file_watcher.py"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
 
   # Celery Flower - Monitoring Dashboard
   celery-flower:

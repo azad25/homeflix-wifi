@@ -192,15 +192,26 @@ def generate_thumbnail(self, media_id: int, file_path: str, output_dir: str = No
     except Exception as exc:
         logger.error(f"❌ Thumbnail generation failed for media ID {media_id}: {str(exc)}")
         
-        if self.request.retries < self.max_retries:
-            retry_delay = 45 * (self.request.retries + 1)  # Increased base delay
-            logger.info(f"🔄 Retrying thumbnail generation in {retry_delay} seconds")
+        # Don't retry on certain permanent failures
+        permanent_failures = [
+            'FileNotFoundError',
+            'Invalid or problematic video file',
+            'No such file or directory',
+            'Permission denied'
+        ]
+        
+        should_retry = not any(failure in str(exc) for failure in permanent_failures)
+        
+        if should_retry and self.request.retries < self.max_retries:
+            retry_delay = 60 * (2 ** self.request.retries)  # Exponential backoff: 60s, 120s, 240s
+            logger.info(f"🔄 Retrying thumbnail generation in {retry_delay} seconds (attempt {self.request.retries + 1})")
             raise self.retry(countdown=retry_delay, exc=exc)
         
         return {
             'status': 'failed',
             'media_id': media_id,
-            'error': str(exc)
+            'error': str(exc),
+            'permanent_failure': not should_retry
         }
 
 @current_app.task(bind=True, queue='thumbnails', priority=7, max_retries=2)
@@ -422,15 +433,26 @@ def generate_preview_clip(self, media_id: int, file_path: str, output_dir: str =
     except Exception as exc:
         logger.error(f"❌ Preview clip generation failed for media ID {media_id}: {str(exc)}")
         
-        if self.request.retries < self.max_retries:
-            retry_delay = 90 * (self.request.retries + 1)  # Increased base delay
-            logger.info(f"🔄 Retrying preview generation in {retry_delay} seconds")
+        # Don't retry on certain permanent failures
+        permanent_failures = [
+            'FileNotFoundError',
+            'Invalid or problematic video file',
+            'No such file or directory',
+            'Permission denied'
+        ]
+        
+        should_retry = not any(failure in str(exc) for failure in permanent_failures)
+        
+        if should_retry and self.request.retries < self.max_retries:
+            retry_delay = 120 * (2 ** self.request.retries)  # Exponential backoff: 120s, 240s, 480s
+            logger.info(f"🔄 Retrying preview generation in {retry_delay} seconds (attempt {self.request.retries + 1})")
             raise self.retry(countdown=retry_delay, exc=exc)
         
         return {
             'status': 'failed',
             'media_id': media_id,
-            'error': str(exc)
+            'error': str(exc),
+            'permanent_failure': not should_retry
         }
 
 @current_app.task(queue='thumbnails', priority=6)
@@ -572,7 +594,7 @@ def get_video_duration(file_path: str) -> float:
         return None
 
 def update_thumbnail_in_database(media_id: int, thumbnail_path: str) -> bool:
-    """Update media thumbnail path in database"""
+    """Update media thumbnail path in database using admin API"""
     try:
         import requests
         api_url = os.getenv('API_URL', 'http://localhost:8251')
@@ -583,10 +605,15 @@ def update_thumbnail_in_database(media_id: int, thumbnail_path: str) -> bool:
             timeout=10
         )
         
-        return response.status_code == 200
+        if response.status_code == 200:
+            logger.info(f"✅ Database updated: thumbnail path for media {media_id}")
+            return True
+        else:
+            logger.error(f"❌ Database update failed: {response.status_code} - {response.text}")
+            return False
         
     except Exception as e:
-        logger.error(f"Database thumbnail update error: {e}")
+        logger.error(f"❌ Database thumbnail update error: {e}")
         return False
 
 
@@ -625,7 +652,7 @@ def sanitize_filename(filename: str) -> str:
     return sanitized
 
 def update_preview_in_database(media_id: int, preview_path: str) -> bool:
-    """Update media preview clip path in database"""
+    """Update media preview clip path in database using admin API"""
     try:
         import requests
         api_url = os.getenv('API_URL', 'http://localhost:8251')
@@ -636,8 +663,13 @@ def update_preview_in_database(media_id: int, preview_path: str) -> bool:
             timeout=10
         )
         
-        return response.status_code == 200
+        if response.status_code == 200:
+            logger.info(f"✅ Database updated: preview path for media {media_id}")
+            return True
+        else:
+            logger.error(f"❌ Database update failed: {response.status_code} - {response.text}")
+            return False
         
     except Exception as e:
-        logger.error(f"Database preview update error: {e}")
+        logger.error(f"❌ Database preview update error: {e}")
         return False

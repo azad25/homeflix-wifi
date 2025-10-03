@@ -2,14 +2,13 @@ package services
 
 import (
 	"fmt"
-	"math/rand"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
+	"homeflix-backend/internal/models"
 )
 
 // Scene represents a potential preview scene with engagement metrics
@@ -102,36 +101,69 @@ func (s *ThumbnailService) GenerateThumbnail(videoPath string, mediaID uint) (st
 	return thumbnailPath, nil
 }
 
-// ServeThumbnail serves a thumbnail file
-func (s *ThumbnailService) ServeThumbnail(mediaID uint) (string, error) {
-	filename := fmt.Sprintf("thumb_%d.jpg", mediaID)
+// ServeThumbnail serves a thumbnail file using the path from database
+func (s *ThumbnailService) ServeThumbnail(media *models.Media) (string, error) {
+	// Use the thumbnail path from database if available
+	if media.ThumbnailPath != "" {
+		// Check if the file exists at the database path
+		if _, err := os.Stat(media.ThumbnailPath); err == nil {
+			return media.ThumbnailPath, nil
+		}
+	}
+	
+	// Fallback to old naming convention for backwards compatibility
+	filename := fmt.Sprintf("thumb_%d.jpg", media.ID)
 	thumbnailPath := filepath.Join(s.thumbnailPath, filename)
 	
-	// Check if thumbnail exists, if not try to generate it
-	if _, err := os.Stat(thumbnailPath); err != nil {
-		// Try to find the media and generate thumbnail
-		return "", fmt.Errorf("thumbnail not found for media ID %d - use POST /thumbnails/%d to generate", mediaID, mediaID)
+	// Check if thumbnail exists with old naming
+	if _, err := os.Stat(thumbnailPath); err == nil {
+		return thumbnailPath, nil
 	}
 	
-	return thumbnailPath, nil
+	// Try absolute path if relative path fails
+	if !filepath.IsAbs(s.thumbnailPath) {
+		absThumbnailPath := filepath.Join("/app", s.thumbnailPath, filename)
+		if _, err := os.Stat(absThumbnailPath); err == nil {
+			return absThumbnailPath, nil
+		}
+	}
+	
+	return "", fmt.Errorf("thumbnail not found for media ID %d - use POST /thumbnails/%s to generate", media.ID, media.UUID)
 }
 
-// ServePreviewClip serves a preview clip file
-func (s *ThumbnailService) ServePreviewClip(mediaID uint) (string, error) {
-	filename := fmt.Sprintf("preview_%d.mp4", mediaID)
-	previewPath := filepath.Join(s.thumbnailPath, filename)
-	
-	// Check if preview exists
-	if _, err := os.Stat(previewPath); err != nil {
-		return "", fmt.Errorf("preview clip not found for media ID %d - files need to be generated via Celery tasks", mediaID)
+// ServePreviewClip serves a preview clip file using the path from database
+func (s *ThumbnailService) ServePreviewClip(media *models.Media) (string, error) {
+	// Use the preview path from database if available
+	if media.PreviewClipPath != "" {
+		// Check if the file exists at the database path
+		if _, err := os.Stat(media.PreviewClipPath); err == nil {
+			return media.PreviewClipPath, nil
+		}
 	}
 	
-	return previewPath, nil
+	// Fallback to old naming convention for backwards compatibility
+	filename := fmt.Sprintf("preview_%d.mp4", media.ID)
+	previewPath := filepath.Join(s.thumbnailPath, filename)
+	
+	// Check if preview exists with old naming
+	if _, err := os.Stat(previewPath); err == nil {
+		return previewPath, nil
+	}
+	
+	// Try absolute path if relative path fails
+	if !filepath.IsAbs(s.thumbnailPath) {
+		absPreviewPath := filepath.Join("/app", s.thumbnailPath, filename)
+		if _, err := os.Stat(absPreviewPath); err == nil {
+			return absPreviewPath, nil
+		}
+	}
+	
+	return "", fmt.Errorf("preview clip not found for media ID %d - files need to be generated via Celery tasks", media.ID)
 }
 
 // ServePreview serves a preview file (alias for ServePreviewClip)
-func (s *ThumbnailService) ServePreview(mediaID uint) (string, error) {
-	return s.ServePreviewClip(mediaID)
+func (s *ThumbnailService) ServePreview(media *models.Media) (string, error) {
+	return s.ServePreviewClip(media)
 }
 
 func (s *ThumbnailService) GeneratePreviewClip(videoPath string, mediaID uint) (string, error) {
@@ -357,37 +389,6 @@ func (s *ThumbnailService) secondsToTimeFormat(seconds int) string {
 	return fmt.Sprintf("%02d:%02d:%02d", hours, minutes, secs)
 }
 
-// findEngagingScenes uses FFmpeg to analyze video and find engaging scenes
-func (s *ThumbnailService) findEngagingScenes(videoPath string, duration int) ([]Scene, error) {
-	var scenes []Scene
-	
-	// Analyze video in segments to find engaging parts
-	segmentDuration := 60 // Analyze in 60-second segments
-	numSegments := (duration + segmentDuration - 1) / segmentDuration
-	
-	for i := 0; i < numSegments; i++ {
-		startTime := i * segmentDuration
-		endTime := startTime + segmentDuration
-		if endTime > duration {
-			endTime = duration
-		}
-		
-		// Analyze this segment for engagement metrics
-		scene, err := s.analyzeSegment(videoPath, startTime, endTime-startTime)
-		if err != nil {
-			continue // Skip failed segments
-		}
-		
-		scenes = append(scenes, scene)
-	}
-	
-	// Sort scenes by engagement score
-	sort.Slice(scenes, func(i, j int) bool {
-		return scenes[i].Score > scenes[j].Score
-	})
-	
-	return scenes, nil
-}
 
 // analyzeSegment analyzes a video segment for engagement metrics
 func (s *ThumbnailService) analyzeSegment(videoPath string, startTime, duration int) (Scene, error) {
@@ -483,95 +484,4 @@ func (s *ThumbnailService) calculateEngagementScore(scene Scene) float64 {
 	return score
 }
 
-// generateFallbackScenes creates fallback scenes when analysis fails
-func (s *ThumbnailService) generateFallbackScenes(duration int) []Scene {
-	var scenes []Scene
-	
-	// Generate multiple candidate scenes from different parts of the movie
-	candidates := []struct {
-		start    float64 // Percentage of movie duration
-		priority float64 // Priority score
-		name     string  // Description
-	}{
-		{0.25, 80.0, "First quarter (setup complete)"},
-		{0.35, 90.0, "Early middle (rising action)"},
-		{0.45, 95.0, "Mid-point (peak engagement)"},
-		{0.55, 85.0, "Late middle (climax approach)"},
-		{0.65, 75.0, "Third quarter (climax)"},
-		{0.15, 60.0, "Early setup (fallback)"},
-		{0.75, 70.0, "Resolution (fallback)"},
-	}
-	
-	rand.Seed(time.Now().UnixNano())
-	
-	for _, candidate := range candidates {
-		startTime := int(float64(duration) * candidate.start)
-		
-		// Ensure we have enough time for a 30-second clip
-		if startTime+30 > duration {
-			startTime = duration - 30
-		}
-		if startTime < 0 {
-			startTime = 0
-		}
-		
-		// Add some randomness to avoid predictable clips
-		randomOffset := rand.Intn(120) - 60 // ±60 seconds
-		startTime += randomOffset
-		if startTime < 0 {
-			startTime = 0
-		}
-		if startTime+30 > duration {
-			startTime = duration - 30
-		}
-		
-		scene := Scene{
-			StartTime:       startTime,
-			Duration:        30,
-			Score:           candidate.priority + rand.Float64()*10, // Add randomness
-			AudioLevel:      50.0,                                   // Assume moderate audio
-			MotionLevel:     3.0,                                    // Assume moderate motion
-			SceneChange:     true,                                   // Assume scene changes
-			DialoguePresent: true,                                   // Assume dialogue
-		}
-		
-		scenes = append(scenes, scene)
-	}
-	
-	// Sort by score
-	sort.Slice(scenes, func(i, j int) bool {
-		return scenes[i].Score > scenes[j].Score
-	})
-	
-	return scenes
-}
 
-// selectBestScene chooses the most engaging scene from candidates
-func (s *ThumbnailService) selectBestScene(scenes []Scene, duration int) Scene {
-	if len(scenes) == 0 {
-		// Ultimate fallback: middle of the movie
-		startTime := duration / 3 // Start at 1/3 point
-		return Scene{
-			StartTime:       startTime,
-			Duration:        30,
-			Score:           50.0,
-			AudioLevel:      40.0,
-			MotionLevel:     2.0,
-			SceneChange:     true,
-			DialoguePresent: true,
-		}
-	}
-	
-	// Return the highest-scoring scene
-	bestScene := scenes[0]
-	
-	// Ensure the scene has enough duration
-	if bestScene.StartTime+30 > duration {
-		bestScene.StartTime = duration - 30
-		if bestScene.StartTime < 0 {
-			bestScene.StartTime = 0
-		}
-	}
-	
-	return bestScene
-}

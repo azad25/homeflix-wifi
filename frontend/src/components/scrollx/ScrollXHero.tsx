@@ -9,6 +9,9 @@ import { MagneticButton, GradientBackground, ParallaxSection, ParticleField, Scr
 import { useAudio } from '@/contexts/EnhancedAudioContext';
 import DynamicTitle from '@/components/DynamicTitle';
 import { fetchRecommendations } from '@/lib/api/recommendations';
+import { NetflixImage, NetflixVideo } from '@/components';
+import { useNetflixPreloader } from '@/hooks/useNetflixPreloader';
+import { crossBrowserAudio, setupCrossBrowserVideo } from '@/lib/audio/crossBrowserAudio';
 
 interface ScrollXHeroProps {
   featuredMedia?: Media[];
@@ -27,7 +30,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isAutoPlaying, setIsAutoPlaying] = useState(true);
-  const [isMuted, setIsMuted] = useState(true);
+  const [isMuted, setIsMuted] = useState(false);
   const [isVideoLoaded, setIsVideoLoaded] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [showControls, setShowControls] = useState(true);
@@ -38,6 +41,26 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
   const videoRef = useRef<HTMLVideoElement>(null);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  
+  // Netflix-style preloading
+  const preloadItems = featuredMedia.map((media, index) => ([
+    {
+      src: `${getApiUrl()}/api/thumbnails/${media.uuid}`,
+      type: 'image' as const,
+      priority: index === currentIndex ? 'high' as const : 'medium' as const
+    },
+    {
+      src: `${getApiUrl()}/api/preview-clips/${media.uuid}`,
+      type: 'video' as const,
+      priority: index === currentIndex ? 'high' as const : 'low' as const
+    }
+  ])).flat();
+  
+  const { observeElement, preloadNearbyItems } = useNetflixPreloader(preloadItems, {
+    enabled: true,
+    maxConcurrent: 4,
+    preloadDistance: 2
+  });
   
   const { 
     setCurrentAudioElement, 
@@ -60,6 +83,8 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
     const fetchHeroMedia = async () => {
       if (propsFeaturedMedia && propsFeaturedMedia.length > 0) {
         setFeaturedMedia(propsFeaturedMedia);
+        // Preload assets for provided media
+        setTimeout(() => preloadNearbyItems(0), 100);
         return;
       }
 
@@ -74,36 +99,42 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
           // For movies page, get popular movies and top picks
           const [popularResponse, topPicksResponse] = await Promise.all([
             fetch(`${getApiUrl()}/api/media/movies?limit=5`),
-            fetchRecommendations(defaultUserId, 'top_picks', 3)
+            fetch(`${getApiUrl()}/api/recommendations?user_id=${defaultUserId}&category=top_picks&limit=3`)
           ]);
           
           const popularMovies = popularResponse.ok ? await popularResponse.json() : [];
-          const topPicks = topPicksResponse.items || [];
+          const topPicksData = topPicksResponse.ok ? await topPicksResponse.json() : { items: [] };
+          const topPicks = topPicksData.items || [];
           
           heroMedia = [...topPicks, ...popularMovies.slice(0, 3)].slice(0, 5);
         } else if (pageType === 'tv-series') {
           // For TV series page, get series titles with random episode previews
           const [seriesHeroResponse, tvSeriesRecommendationsResponse] = await Promise.all([
             fetch(`${getApiUrl()}/api/media/tv-series-hero?limit=5`),
-            fetch(`${getApiUrl()}/api/recommendations/tv-series?limit=3`)
+            fetch(`${getApiUrl()}/api/recommendations/tv-series?user_id=${defaultUserId}&limit=3`)
           ]);
           
           const seriesHero = seriesHeroResponse.ok ? await seriesHeroResponse.json() : [];
-          const tvRecommendations = tvSeriesRecommendationsResponse.ok ? 
-            (await tvSeriesRecommendationsResponse.json()).recommendations || [] : [];
+          const tvRecommendationsData = tvSeriesRecommendationsResponse.ok ? 
+            await tvSeriesRecommendationsResponse.json() : { items: [] };
+          const tvRecommendations = tvRecommendationsData.items || [];
           
           heroMedia = [...seriesHero, ...tvRecommendations].slice(0, 5);
         } else {
           // For home page, get personalized recommendations
           const [forYouResponse, trendingResponse, topPicksResponse] = await Promise.all([
-            fetchRecommendations(defaultUserId, 'for_you', 3),
-            fetchRecommendations(defaultUserId, 'trending', 2),
-            fetchRecommendations(defaultUserId, 'top_picks', 2)
+            fetch(`${getApiUrl()}/api/recommendations?user_id=${defaultUserId}&category=for_you&limit=3`),
+            fetch(`${getApiUrl()}/api/recommendations?user_id=${defaultUserId}&category=trending&limit=2`),
+            fetch(`${getApiUrl()}/api/recommendations?user_id=${defaultUserId}&category=top_picks&limit=2`)
           ]);
           
-          const forYou = forYouResponse.items || [];
-          const trending = trendingResponse.items || [];
-          const topPicks = topPicksResponse.items || [];
+          const forYouData = forYouResponse.ok ? await forYouResponse.json() : { items: [] };
+          const trendingData = trendingResponse.ok ? await trendingResponse.json() : { items: [] };
+          const topPicksData = topPicksResponse.ok ? await topPicksResponse.json() : { items: [] };
+          
+          const forYou = forYouData.items || [];
+          const trending = trendingData.items || [];
+          const topPicks = topPicksData.items || [];
           
           heroMedia = [...forYou, ...trending, ...topPicks].slice(0, 5);
         }
@@ -112,7 +143,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
         const processedMedia: Media[] = heroMedia.map((item: any) => ({
           ...item,
           id: item.id || item.mediaId || Math.floor(Math.random() * 10000),
-          uuid: item.uuid || `hero-${item.id || item.mediaId || Math.floor(Math.random() * 10000)}`,
+          uuid: item.uuid || item.mediaId || `550e8400-e29b-41d4-a716-${String(item.id || Math.floor(Math.random() * 10000)).padStart(12, '0')}`,
           genres: item.genres || [],
           title: item.title || 'Untitled',
           description: item.description || 'No description available',
@@ -181,16 +212,19 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
     if (!media) return null;
     
     try {
+      // First try trailer path if available
       if (media.trailer_path) {
         return `/api/admin/assets/${media.trailer_path.split('/').pop()}`;
       }
       
+      // Then try preview clips (shorter videos for hero section)
       if (media.uuid) {
         return `/api/preview-clips/${media.uuid}`;
       }
       
-      if (media.uuid) {
-        return `/api/stream/${media.uuid}`;
+      // Fallback to full stream if no preview available
+      if (media.id) {
+        return `/api/stream/${media.id}`;
       }
       
       return null;
@@ -201,24 +235,42 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
   };
 
   const getBackgroundImageUrl = (media: Media) => {
+    if (!media) return '/api/thumbnails/default';
+    
+    // Try banner path first (best quality for hero background)
     if (media.banner_path) {
       return `/api/admin/assets/${media.banner_path.split('/').pop()}`;
     }
-    if (media.poster_path) {
+    
+    // Try poster with UUID
+    if (media.uuid && media.poster_path) {
       return `/api/posters/${media.uuid}`;
     }
-    return `/api/thumbnails/${media.uuid}`;
+    
+    // Try thumbnail with UUID
+    if (media.uuid) {
+      return `/api/thumbnails/${media.uuid}`;
+    }
+    
+    // Fallback to ID-based paths
+    if (media.id) {
+      return `/api/thumbnails/${media.id}`;
+    }
+    
+    return '/api/thumbnails/default';
   };
 
   const nextSlide = () => {
     if (featuredMedia.length > 1) {
-      setCurrentIndex((prev) => (prev + 1) % featuredMedia.length);
+      const nextIndex = (currentIndex + 1) % featuredMedia.length;
+      goToSlide(nextIndex);
     }
   };
 
   const prevSlide = () => {
     if (featuredMedia.length > 1) {
-      setCurrentIndex((prev) => (prev - 1 + featuredMedia.length) % featuredMedia.length);
+      const prevIndex = (currentIndex - 1 + featuredMedia.length) % featuredMedia.length;
+      goToSlide(prevIndex);
     }
   };
 
@@ -268,11 +320,22 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
   };
 
   const goToSlide = (index: number) => {
+    if (index === currentIndex) return;
+    
+    // Pause current video before switching
+    const video = videoRef.current;
+    if (video) {
+      video.pause();
+      video.currentTime = 0;
+    }
+    
     setCurrentIndex(index);
     setIsAutoPlaying(false);
     setIsVideoLoaded(false);
     setIsPlaying(false);
-    setTimeout(() => setIsAutoPlaying(true), 5000);
+    
+    // Resume autoplay after transition
+    setTimeout(() => setIsAutoPlaying(true), 3000);
   };
 
   // Global interaction detector - enables audio across the entire app
@@ -309,129 +372,62 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
     return () => clearInterval(interval);
   }, [isAutoPlaying, featuredMedia.length, currentIndex, isVideoLoaded, isPlaying]);
 
-  // Video loading and playback
+  // Cross-browser video and audio setup
   useEffect(() => {
     if (!currentMedia) return;
     
-    const video = videoRef.current;
-    if (!video) return;
+    console.log('ScrollXHero: Setting up cross-browser media for:', currentMedia.title);
     
-    console.log('ScrollXHero: Loading video for media:', currentMedia.title);
-    
+    // Reset states for new media
     setIsVideoLoaded(false);
     setIsPlaying(false);
-    setIsMuted(true);
+    setIsMuted(false);
     
     const videoUrl = getVideoUrl(currentMedia);
     
     if (!videoUrl) {
-      console.log('ScrollXHero: No video URL available');
+      console.log('ScrollXHero: No video URL available for:', currentMedia.title);
       return;
     }
     
-    let hasTriedPlay = false;
-    
-    const handleCanPlay = async () => {
-      if (hasTriedPlay) return;
-      hasTriedPlay = true;
-      
-      console.log('ScrollXHero: Video can play, starting muted autoplay');
-      
-      // Always start muted for autoplay - this is required by browsers
-      video.muted = true;
-      video.volume = 1.0;
-      video.currentTime = 0;
-      video.playbackRate = 1.0;
-      video.setAttribute('webkit-playsinline', 'true');
-      video.setAttribute('playsinline', 'true');
+    // Setup cross-browser audio when video element is ready
+    const setupAudio = async () => {
+      const video = videoRef.current;
+      if (!video) return;
       
       try {
-        await video.play();
-        console.log('ScrollXHero: Muted autoplay successful');
+        const audioSuccess = await setupCrossBrowserVideo(video, currentMedia.uuid, {
+          enableALAC: isALACEnabled,
+          fallbackToAAC: true,
+          spatialAudio: true,
+          quality: 'lossless',
+          maxRetries: 3,
+          retryDelay: 1000
+        });
         
-        setIsVideoLoaded(true);
-        setIsPlaying(true);
-        setIsMuted(true);
-        setCurrentAudioElement(video);
-        
-        // Unmute if user has already interacted
-        if (hasUserInteracted) {
-          setTimeout(() => {
-            if (video && !video.paused) {
-              video.muted = false;
-              setIsMuted(false);
-              console.log('ScrollXHero: Audio enabled (user already interacted)');
-              
-              muteAll();
-              setCurrentAudioElement(video);
-              
-              if (isALACEnabled && alacEngine) {
-                initializeEnhancedAudio().catch(() => {
-                  console.log('ScrollXHero: ALAC fallback');
-                });
-              }
-            }
-          }, 100);
-        }
-        
-      } catch (error) {
-        console.error('ScrollXHero: Autoplay failed:', error);
-        setIsVideoLoaded(false);
-        setIsPlaying(false);
-      }
-    };
-    
-    const handleError = (e: Event) => {
-      console.error('ScrollXHero: Video error:', e);
-      setIsVideoLoaded(false);
-      setIsPlaying(false);
-    };
-    
-    // Interaction listener to unmute
-    const enableAudioOnInteraction = () => {
-      if (video && !video.paused && video.muted && hasUserInteracted) {
-        setTimeout(() => {
-          if (video && !video.paused) {
-            video.muted = false;
-            setIsMuted(false);
-            console.log('ScrollXHero: Audio enabled via interaction');
-            
-            muteAll();
-            setCurrentAudioElement(video);
-            
-            if (isALACEnabled && alacEngine) {
-              initializeEnhancedAudio().catch(() => {
-                console.log('ScrollXHero: ALAC fallback');
-              });
-            }
+        if (audioSuccess) {
+          console.log('🎵 Cross-browser audio setup successful for:', currentMedia.title);
+          muteAll();
+          setCurrentAudioElement(video);
+          
+          if (isALACEnabled && alacEngine) {
+            initializeEnhancedAudio().catch(() => {
+              console.log('ScrollXHero: ALAC fallback');
+            });
           }
-        }, 50);
+        }
+      } catch (error) {
+        console.warn('Cross-browser audio setup failed:', error);
       }
     };
     
-    const interactionEvents = ['click', 'touchstart', 'keydown'];
-    interactionEvents.forEach(event => {
-      document.addEventListener(event, enableAudioOnInteraction, { passive: true });
-    });
-    
-    // Setup video
-    video.addEventListener('canplay', handleCanPlay, { once: true });
-    video.addEventListener('error', handleError);
-    
-    video.currentTime = 0;
-    video.playbackRate = 1.0;
-    video.preload = 'auto';
-    video.volume = 1.0;
-    video.load();
+    // Setup audio after a short delay to ensure video element is ready
+    const timeoutId = setTimeout(setupAudio, 100);
     
     return () => {
-      video.removeEventListener('canplay', handleCanPlay);
-      video.removeEventListener('error', handleError);
-      interactionEvents.forEach(event => {
-        document.removeEventListener(event, enableAudioOnInteraction);
-      });
+      clearTimeout(timeoutId);
     };
-  }, [currentMedia, setCurrentAudioElement, isALACEnabled, alacEngine, initializeEnhancedAudio, hasUserInteracted, muteAll]);
+  }, [currentMedia, setCurrentAudioElement, isALACEnabled, alacEngine, initializeEnhancedAudio, muteAll]);
 
   // Hide controls after inactivity
   useEffect(() => {
@@ -474,42 +470,101 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
             onMouseEnter={() => setIsMouseOver(true)}
             onMouseLeave={() => setIsMouseOver(false)}
           >
+            {/* Background Image with Netflix-style zoom animation */}
             <motion.div
               key={`bg-${currentMedia.uuid}`}
-              className="w-full h-full bg-cover bg-center bg-no-repeat"
-              style={{
-                backgroundImage: `url(${getBackgroundImageUrl(currentMedia)})`,
+              className="absolute inset-0 w-full h-full"
+              initial={{ scale: 1.05, opacity: 0 }}
+              animate={{ 
+                scale: isVideoLoaded && isPlaying ? 1.02 : 1.05, 
+                opacity: isVideoLoaded && isPlaying ? 0 : 1 
               }}
-              initial={{ scale: 1.1, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              transition={{ duration: 1.5, ease: "easeOut" }}
-            />
+              transition={{ duration: 2, ease: "easeOut" }}
+            >
+              <NetflixImage
+                src={getBackgroundImageUrl(currentMedia)}
+                alt={currentMedia.title}
+                className="w-full h-full object-cover"
+                priority="high"
+                progressive={false}
+                preload={true}
+                fallbackSrc={`/api/thumbnails/${currentMedia.uuid}`}
+                onLoad={() => {
+                  // Preload next/previous items when background loads
+                  preloadNearbyItems(currentIndex);
+                }}
+                onError={() => {
+                  console.log('Background image failed to load for:', currentMedia.title);
+                }}
+              />
+            </motion.div>
             
+            {/* Background Video with Netflix-style fade in */}
             {(() => {
               const videoUrl = getVideoUrl(currentMedia);
               if (!videoUrl) return null;
               
               return (
-                <video
-                  ref={videoRef}
-                  className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-700 ${
-                    isVideoLoaded && isPlaying ? 'opacity-100' : 'opacity-0'
-                  }`}
-                  autoPlay
-                  muted={isMuted}
-                  loop
-                  playsInline
-                  preload="auto"
-                  controls={false}
-                  disablePictureInPicture
-                  disableRemotePlayback
-                  crossOrigin="anonymous"
-                  style={{ 
-                    zIndex: isVideoLoaded && isPlaying ? 5 : 1,
-                  }}
+                <motion.div
+                  key={`video-${currentMedia.uuid}`}
+                  className="absolute inset-0 w-full h-full"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: isVideoLoaded && isPlaying ? 1 : 0 }}
+                  transition={{ duration: 1, ease: "easeInOut" }}
                 >
-                  <source src={videoUrl} type="video/mp4" />
-                </video>
+                  <video
+                    ref={videoRef}
+                    src={videoUrl}
+                    className="w-full h-full object-cover"
+                    autoPlay
+                    muted={false}
+                    loop
+                    playsInline
+                    preload="metadata"
+                    poster={getBackgroundImageUrl(currentMedia)}
+                    onLoadedData={() => {
+                      console.log('ScrollXHero: Video loaded data for:', currentMedia.title);
+                      setIsVideoLoaded(true);
+                    }}
+                    onCanPlay={() => {
+                      console.log('ScrollXHero: Video can play for:', currentMedia.title);
+                      const video = videoRef.current;
+                      if (video && !isPlaying) {
+                        video.muted = false;
+                        video.volume = 1.0;
+                        video.play().then(() => {
+                          setIsPlaying(true);
+                          console.log('ScrollXHero: Video playing with audio for:', currentMedia.title);
+                          
+                          // Set as current audio element
+                          muteAll();
+                          setCurrentAudioElement(video);
+                          
+                          if (isALACEnabled && alacEngine) {
+                            initializeEnhancedAudio().catch(() => {
+                              console.log('ScrollXHero: ALAC fallback');
+                            });
+                          }
+                        }).catch((error) => {
+                          console.error('ScrollXHero: Video play failed:', error);
+                          setIsVideoLoaded(false);
+                        });
+                      }
+                    }}
+                    onError={(e) => {
+                      console.error('ScrollXHero: Video error for:', currentMedia.title, e);
+                      setIsVideoLoaded(false);
+                      setIsPlaying(false);
+                    }}
+                    onLoadStart={() => {
+                      console.log('ScrollXHero: Video load start for:', currentMedia.title);
+                    }}
+                    style={{
+                      transform: isVideoLoaded && isPlaying ? 'scale(1)' : 'scale(1.02)',
+                      transition: 'transform 2s ease-out'
+                    }}
+                  />
+                </motion.div>
               );
             })()}
             
@@ -521,21 +576,6 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
 
       <ParticleField count={30} className="opacity-30" />
 
-      {/* Audio indicator */}
-      {isVideoLoaded && isMuted && !hasUserInteracted && (
-        <motion.div
-          className="absolute top-24 right-8 z-30"
-          initial={{ opacity: 0, x: 20 }}
-          animate={{ opacity: 1, x: 0 }}
-          exit={{ opacity: 0, x: 20 }}
-          transition={{ duration: 0.5, delay: 1 }}
-        >
-          <div className="bg-black/80 backdrop-blur-md text-white px-4 py-3 rounded-lg border border-white/20 flex items-center gap-3 shadow-xl">
-            <VolumeX className="w-5 h-5 text-red-500" />
-            <span className="text-sm font-medium">Click anywhere to enable audio</span>
-          </div>
-        </motion.div>
-      )}
 
       {/* Navigation arrows */}
       {featuredMedia.length > 1 && (
@@ -586,9 +626,9 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
                   {getQualityBadge().text}
                 </div>
                 
-                {currentMedia.release_date && (
+                {(currentMedia.release_date || currentMedia.year) && (
                   <span className="text-white font-medium">
-                    {new Date(currentMedia.release_date).getFullYear()}
+                    {currentMedia.year || new Date(currentMedia.release_date).getFullYear()}
                   </span>
                 )}
                 
@@ -616,18 +656,15 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
             </ScrollReveal>
 
             <ScrollReveal delay={0.2}>
-              <DynamicTitle
-                key={`title-${currentMedia.uuid}`}
-                media={currentMedia}
-                variant="hero"
-                pageType={pageType}
-                showGenreIndicator={true}
-                animated={true}
-                enable3D={true}
-                enableParticles={true}
-                particleIntensity="high"
-                className="mb-4"
-              />
+              <div className="py-2">
+                <DynamicTitle 
+                  key={`title-${currentMedia.uuid}`}
+                  media={currentMedia}
+                  variant="hero"
+                  pageType={pageType}
+                  className="py-4 ml-4"
+                />
+              </div>
             </ScrollReveal>
 
             <ScrollReveal delay={0.3}>
@@ -668,28 +705,22 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.8, delay: 0.5 }}
               >
-                <MagneticButton
+                <button
                   onClick={handlePlay}
-                  className="bg-white text-black px-8 py-3 rounded-md font-bold text-lg hover:bg-gray-200 transition-all duration-300 flex items-center gap-2"
+                  className="bg-transparent border-2 border-white text-white px-8 py-3 rounded-md font-bold text-lg hover:bg-white/10 transition-colors duration-300 flex items-center gap-2 backdrop-blur-sm"
                 >
                   <Play className="w-6 h-6 fill-current" />
                   Play
-                </MagneticButton>
+                </button>
 
-                <MagneticButton
+                <button
                   onClick={handleInfo}
-                  className="bg-gray-600/80 text-white px-8 py-3 rounded-md font-bold text-lg hover:bg-gray-500/80 transition-all duration-300 flex items-center gap-2"
+                  className="bg-transparent border-2 border-gray-400 text-white px-8 py-3 rounded-md font-bold text-lg hover:bg-gray-400/10 transition-colors duration-300 flex items-center gap-2 backdrop-blur-sm"
                 >
                   <Info className="w-6 h-6" />
                   More Info
-                </MagneticButton>
+                </button>
                 
-                <MagneticButton
-                  onClick={toggleMute}
-                  className="bg-black/50 text-white p-3 rounded-full hover:bg-black/70 transition-all duration-300 border border-white/20"
-                >
-                  {isMuted ? <VolumeX className="w-6 h-6" /> : <Volume2 className="w-6 h-6" />}
-                </MagneticButton>
               </motion.div>
             </ScrollReveal>
           </div>

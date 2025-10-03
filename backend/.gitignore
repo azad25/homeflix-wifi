@@ -1,2 +1,6 @@
 venv
 previews
+alac_audio
+subtitles
+logs
+*__pycache__*

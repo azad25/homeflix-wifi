@@ -26,29 +26,35 @@ export default function TVSeries() {
 
   useEffect(() => {
     fetchTVSeriesData();
+    
+    // Set up recommendation refresh timer (every 5 minutes)
+    const refreshInterval = setInterval(() => {
+      console.log('Refreshing TV series recommendations...');
+      fetchTVSeriesData();
+    }, 5 * 60 * 1000); // 5 minutes
+
+    return () => clearInterval(refreshInterval);
   }, []);
 
   const fetchTVSeriesData = async () => {
     try {
       const apiUrl = getApiUrl();
       
-      // Fetch TV series data
-      const [seriesResponse, popularResponse] = await Promise.all([
-        fetch(`${apiUrl}/api/media/tv-shows`),
-        fetch(`${apiUrl}/api/media/popular`)
+      // Fetch TV series data - use the dedicated hero endpoint for featured series
+      const [heroResponse, seriesResponse] = await Promise.all([
+        fetch(`${apiUrl}/api/media/tv-series-hero?limit=5`),
+        fetch(`${apiUrl}/api/media/tv-shows`)
       ]);
 
+      const heroData = await heroResponse.json();
       const seriesData = await seriesResponse.json();
-      const popularData = await popularResponse.json();
 
-      // Filter for TV series only
-      const allSeries = seriesData.media || [];
-      const popularSeriesData = (popularData.media || []).filter((item: Media) => 
-        item.type === 'tv' || item.title.toLowerCase().includes('series')
-      );
+      // Use hero endpoint data for featured series
+      const featuredSeriesData = heroData || [];
+      const allSeries = seriesData || [];
 
-      setFeaturedSeries(allSeries.slice(0, 5));
-      setPopularSeries(popularSeriesData.slice(0, 20));
+      setFeaturedSeries(featuredSeriesData);
+      setPopularSeries(allSeries.slice(0, 20));
       setTrendingSeries(allSeries.slice(5, 25));
       
       // Filter by genres if available
@@ -61,10 +67,34 @@ export default function TVSeries() {
       ).slice(0, 20));
       
       // Refresh recommendations with TV series data
-      refreshRecommendations([...allSeries, ...popularSeriesData]);
+      refreshRecommendations([...featuredSeriesData, ...allSeries]);
 
     } catch (error) {
-      console.error("Error fetching TV series data:", error);
+      console.error("Error fetching TV series recommendations:", error);
+      
+      // Fallback to basic TV series fetch if recommendations fail
+      try {
+        const apiUrl = getApiUrl();
+        const fallbackResponse = await fetch(`${apiUrl}/api/media/tv-shows`);
+        if (fallbackResponse.ok) {
+          const series = await fallbackResponse.json();
+          
+          // Set fallback data with basic filtering
+          setFeaturedSeries(series.slice(0, 5));
+          setPopularSeries(series.slice(0, 20));
+          setTrendingSeries(series.slice(5, 25));
+          setComedySeries(series.filter((s: Media) => 
+            s.genres?.some(g => g.name.toLowerCase().includes('comedy'))
+          ).slice(0, 20));
+          setDramaSeries(series.filter((s: Media) => 
+            s.genres?.some(g => g.name.toLowerCase().includes('drama'))
+          ).slice(0, 20));
+        }
+      } catch (fallbackError) {
+        console.error("Fallback TV series fetch also failed:", fallbackError);
+      }
+      
+      setLoading(false);
     } finally {
       setLoading(false);
     }

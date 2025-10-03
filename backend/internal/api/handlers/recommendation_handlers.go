@@ -5,44 +5,155 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
+	"homeflix-backend/internal/models"
 	"homeflix-backend/internal/services"
 )
 
 // GetRecommendations returns personalized recommendations for a user
 func GetRecommendations(recommendationService *services.RecommendationService) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		userID := uint(1) // Default user ID for now
-		limit := 20
+		userIDStr := c.DefaultQuery("user_id", "1")
+		limitStr := c.DefaultQuery("limit", "20")
+		category := c.DefaultQuery("category", "for_you")
 
-		recommendations, err := recommendationService.GetRecommendationsForUser(userID, limit)
+		userID, err := strconv.ParseUint(userIDStr, 10, 32)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
+			userID = 1 // Default user ID
 		}
 
-		c.JSON(http.StatusOK, gin.H{"recommendations": recommendations})
+		limit, err := strconv.Atoi(limitStr)
+		if err != nil {
+			limit = 20
+		}
+
+		var recommendations []models.Media
+		
+		switch category {
+		case "trending":
+			recommendations, err = recommendationService.GetTrendingRecommendations(limit)
+		case "top_picks":
+			recommendations, err = recommendationService.GetTopPicksForGenre(uint(userID), limit)
+		case "continue_watching":
+			recommendations, err = recommendationService.GetContinueWatching(uint(userID))
+		case "because_you_watched":
+			recommendations, err = recommendationService.GetBecauseYouWatched(uint(userID), limit)
+		case "new_releases":
+			recommendations, err = recommendationService.GetNewReleases(uint(userID), limit)
+		default: // "for_you"
+			recommendations, err = recommendationService.GetRecommendationsForUser(uint(userID), limit)
+		}
+
+		if err != nil {
+			// Fallback: Get trending recommendations if specific category fails
+			fallbackRecommendations, fallbackErr := recommendationService.GetTrendingRecommendations(limit)
+			if fallbackErr != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get recommendations", "details": err.Error()})
+				return
+			}
+			recommendations = fallbackRecommendations
+		}
+
+		// Convert to consistent format
+		var items []map[string]interface{}
+		for i, m := range recommendations {
+			item := map[string]interface{}{
+				"id":          m.ID,
+				"uuid":        m.UUID,
+				"title":       m.Title,
+				"description": m.Description,
+				"type":        m.Type,
+				"rating":      m.Rating,
+				"duration":    m.Duration,
+				"file_path":   m.FilePath,
+				"poster_path": m.PosterPath,
+				"banner_path": m.BannerPath,
+				"trailer_path": m.TrailerPath,
+				"release_date": m.ReleaseDate,
+				"genres":      m.Genres,
+				"series":      m.Series,
+				"view_count":  m.ViewCount,
+				"last_viewed": m.LastViewed,
+				"created_at":  m.CreatedAt,
+				"updated_at":  m.UpdatedAt,
+				// Scoring metadata
+				"mediaId":    m.ID,
+				"_score":     float64(100 - i*2), // Decreasing score
+				"_source":    "recommendation_engine",
+				"_category":  category,
+			}
+			items = append(items, item)
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"items":    items,
+			"category": category,
+			"total":    len(items),
+		})
 	}
 }
 
 func GetTVSeriesRecommendations(recommendationService *services.RecommendationService) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		userID := uint(1) // Default user ID for now
-		limit := 20
+		userIDStr := c.DefaultQuery("user_id", "1")
+		limitStr := c.DefaultQuery("limit", "20")
 
-		// Parse limit from query parameter if provided
-		if limitStr := c.Query("limit"); limitStr != "" {
-			if parsedLimit, err := strconv.Atoi(limitStr); err == nil && parsedLimit > 0 {
-				limit = parsedLimit
-			}
-		}
-
-		recommendations, err := recommendationService.GetTVSeriesRecommendations(userID, limit)
+		userID, err := strconv.ParseUint(userIDStr, 10, 32)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
+			userID = 1 // Default user ID
 		}
 
-		c.JSON(http.StatusOK, gin.H{"recommendations": recommendations})
+		limit, err := strconv.Atoi(limitStr)
+		if err != nil {
+			limit = 20
+		}
+
+		recommendations, err := recommendationService.GetTVSeriesRecommendations(uint(userID), limit)
+		if err != nil {
+			// Fallback: Get trending recommendations if specific category fails
+			fallbackRecommendations, fallbackErr := recommendationService.GetTrendingRecommendations(limit)
+			if fallbackErr != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get recommendations", "details": err.Error()})
+				return
+			}
+			recommendations = fallbackRecommendations
+		}
+
+		// Convert to consistent format
+		var items []map[string]interface{}
+		for i, m := range recommendations {
+			item := map[string]interface{}{
+				"id":          m.ID,
+				"uuid":        m.UUID,
+				"title":       m.Title,
+				"description": m.Description,
+				"type":        m.Type,
+				"rating":      m.Rating,
+				"duration":    m.Duration,
+				"file_path":   m.FilePath,
+				"poster_path": m.PosterPath,
+				"banner_path": m.BannerPath,
+				"trailer_path": m.TrailerPath,
+				"release_date": m.ReleaseDate,
+				"genres":      m.Genres,
+				"series":      m.Series,
+				"view_count":  m.ViewCount,
+				"last_viewed": m.LastViewed,
+				"created_at":  m.CreatedAt,
+				"updated_at":  m.UpdatedAt,
+				// Scoring metadata
+				"mediaId":    m.ID,
+				"_score":     float64(100 - i*2), // Decreasing score
+				"_source":    "tv_series_recommendations",
+				"_category":  "tv_series",
+			}
+			items = append(items, item)
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"items":    items,
+			"category": "tv_series",
+			"total":    len(items),
+		})
 	}
 }
 
@@ -71,8 +182,13 @@ func GetSimilarMediaHandler(recommendationService *services.RecommendationServic
 
 		media, err := recommendationService.GetSimilarMedia(uint(userIDUint), limit)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get similar media", "details": err.Error()})
-			return
+			// Fallback: Get trending recommendations
+			fallbackMedia, fallbackErr := recommendationService.GetTrendingRecommendations(limit)
+			if fallbackErr != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get similar media", "details": err.Error()})
+				return
+			}
+			media = fallbackMedia
 		}
 
 		// Convert to ScoredMedia format
@@ -126,8 +242,13 @@ func GetContinueWatchingHandler(recommendationService *services.RecommendationSe
 
 		media, err := recommendationService.GetContinueWatching(uint(userIDUint))
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get continue watching", "details": err.Error()})
-			return
+			// Fallback: Get trending recommendations
+			fallbackMedia, fallbackErr := recommendationService.GetTrendingRecommendations(10)
+			if fallbackErr != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get continue watching", "details": err.Error()})
+				return
+			}
+			media = fallbackMedia
 		}
 
 		// Convert to ScoredMedia format

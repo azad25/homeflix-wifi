@@ -2,9 +2,10 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { Play, Info, Plus, Volume2, VolumeX, ThumbsUp } from 'lucide-react';
-import Image from 'next/image';
 import { Media } from '../types/media';
 import { getApiUrl } from '../lib/api';
+import { NetflixImage, NetflixVideo } from '@/components';
+import { useNetflixPreloader } from '@/hooks/useNetflixPreloader';
 
 interface HoverVideoCardProps {
   media: Media;
@@ -29,8 +30,32 @@ export default function HoverVideoCard({
   const apiUrl = getApiUrl();
   const thumbnailUrl = `${apiUrl}/api/thumbnails/${media.uuid}`;
   const previewUrl = `${apiUrl}/api/preview-clips/${media.uuid}`;
+  
+  // Netflix-style preloading for hover card assets
+  const { observeElement } = useNetflixPreloader([
+    {
+      src: thumbnailUrl,
+      type: 'image',
+      priority: 'medium'
+    },
+    {
+      src: previewUrl,
+      type: 'video',
+      priority: 'low'
+    }
+  ], {
+    enabled: true,
+    maxConcurrent: 2,
+    preloadDistance: 1
+  });
 
   useEffect(() => {
+    // Setup intersection observer for preloading
+    const cardElement = document.querySelector(`[data-media-uuid="${media.uuid}"]`);
+    if (cardElement) {
+      observeElement(cardElement as HTMLElement, 0);
+    }
+    
     return () => {
       if (hoverTimeoutRef.current) {
         clearTimeout(hoverTimeoutRef.current);
@@ -39,7 +64,7 @@ export default function HoverVideoCard({
         clearTimeout(hideTimeoutRef.current);
       }
     };
-  }, []);
+  }, [media.uuid, observeElement]);
 
   const handleMouseEnter = () => {
     setIsHovered(true);
@@ -89,48 +114,41 @@ export default function HoverVideoCard({
   return (
     <div 
       className="relative group cursor-pointer transition-all duration-300 hover:scale-105 hover:z-10"
+      data-media-uuid={media.uuid}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
     >
       {/* Base Card */}
       <div className="relative w-full aspect-video bg-gray-900 rounded-lg overflow-hidden">
-        {/* Thumbnail */}
-        <Image
+        {/* Netflix-optimized Thumbnail */}
+        <NetflixImage
           src={thumbnailUrl}
           alt={media.title}
-          fill
-          sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
-          className={`object-cover transition-opacity duration-300 ${
+          className={`transition-opacity duration-300 ${
             showVideo && isVideoLoaded ? 'opacity-0' : 'opacity-100'
           }`}
-          loading="lazy"
-          onError={(e) => {
-            const target = e.target as HTMLImageElement;
-            // Create a gradient background as fallback
-            target.style.display = 'none';
-            const parent = target.parentElement;
-            if (parent && !parent.querySelector('.fallback-bg')) {
-              const fallback = document.createElement('div');
-              fallback.className = 'fallback-bg absolute inset-0 bg-gradient-to-br from-gray-700 via-gray-800 to-gray-900 flex items-center justify-center';
-              fallback.innerHTML = `<div class="text-white text-center"><div class="text-2xl mb-2">🎬</div><div class="text-sm">${media.title}</div></div>`;
-              parent.appendChild(fallback);
-            }
-          }}
+          priority="medium"
+          progressive={true}
+          preload={false}
+          onError={() => console.log('Thumbnail failed to load for:', media.title)}
         />
 
-        {/* Video Preview */}
+        {/* Netflix-optimized Video Preview */}
         {showVideo && (
-          <video
-            ref={videoRef}
+          <NetflixVideo
             src={previewUrl}
-            className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-300 ${
+            className={`absolute inset-0 transition-opacity duration-300 ${
               isVideoLoaded ? 'opacity-100' : 'opacity-0'
             }`}
-            muted
+            muted={true}
             loop
-            playsInline
-            onLoadedData={handleVideoLoad}
-            onError={handleVideoError}
+            autoPlay={false}
+            priority="medium"
+            preload={true}
+            controls={false}
+            onLoad={handleVideoLoad}
+            onError={() => handleVideoError()}
+            poster={thumbnailUrl}
           />
         )}
 

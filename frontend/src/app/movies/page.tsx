@@ -31,56 +31,134 @@ export default function MoviesPage() {
 
   useEffect(() => {
     fetchMoviesData();
+    
+    // Set up recommendation refresh timer (every 5 minutes)
+    const refreshInterval = setInterval(() => {
+      console.log('Refreshing movie recommendations...');
+      fetchMoviesData();
+    }, 5 * 60 * 1000); // 5 minutes
+
+    return () => clearInterval(refreshInterval);
   }, []);
 
   const fetchMoviesData = async () => {
     try {
       const apiUrl = getApiUrl();
+      const defaultUserId = '1';
       
-      // Fetch all movies
-      const moviesResponse = await fetch(`${apiUrl}/api/media`);
-      const allMedia = await moviesResponse.json();
-      const movies = allMedia.filter((item: Media) => item.type === "movie");
+      // Fetch movie recommendations from backend
+      const [
+        featuredResponse,
+        popularResponse,
+        recentResponse,
+        actionResponse,
+        comedyResponse,
+        dramaResponse,
+        horrorResponse,
+        sciFiResponse,
+        allMoviesResponse
+      ] = await Promise.all([
+        fetch(`${apiUrl}/api/recommendations?user_id=${defaultUserId}&category=top_picks&limit=5`),
+        fetch(`${apiUrl}/api/recommendations?user_id=${defaultUserId}&category=trending&limit=20`),
+        fetch(`${apiUrl}/api/recommendations?user_id=${defaultUserId}&category=new_releases&limit=20`),
+        fetch(`${apiUrl}/api/recommendations?user_id=${defaultUserId}&category=for_you&limit=50`),
+        fetch(`${apiUrl}/api/recommendations?user_id=${defaultUserId}&category=for_you&limit=50`),
+        fetch(`${apiUrl}/api/recommendations?user_id=${defaultUserId}&category=for_you&limit=50`),
+        fetch(`${apiUrl}/api/recommendations?user_id=${defaultUserId}&category=for_you&limit=50`),
+        fetch(`${apiUrl}/api/recommendations?user_id=${defaultUserId}&category=for_you&limit=50`),
+        fetch(`${apiUrl}/api/media/movies`)
+      ]);
+
+      // Process responses
+      const featuredData = featuredResponse.ok ? await featuredResponse.json() : { items: [] };
+      const popularData = popularResponse.ok ? await popularResponse.json() : { items: [] };
+      const recentData = recentResponse.ok ? await recentResponse.json() : { items: [] };
+      const actionData = actionResponse.ok ? await actionResponse.json() : { items: [] };
+      const comedyData = comedyResponse.ok ? await comedyResponse.json() : { items: [] };
+      const dramaData = dramaResponse.ok ? await dramaResponse.json() : { items: [] };
+      const horrorData = horrorResponse.ok ? await horrorResponse.json() : { items: [] };
+      const sciFiData = sciFiResponse.ok ? await sciFiResponse.json() : { items: [] };
+      const allMoviesData = allMoviesResponse.ok ? await allMoviesResponse.json() : [];
+
+      // Filter movies by type and set state
+      const movieItems = (items: any[]) => items.filter((item: any) => item.type === "movie");
+
+      setFeaturedMovies(movieItems(featuredData.items || []));
+      setPopularMovies(movieItems(popularData.items || []));
+      setRecentMovies(movieItems(recentData.items || []));
       
-      // Initialize recommendations with movies
-      refreshRecommendations(movies);
+      // Filter by genres from recommendations
+      setActionMovies(movieItems(actionData.items || []).filter((m: any) => 
+        m.genres?.some((g: any) => g.name.toLowerCase().includes('action'))
+      ).slice(0, 20));
+      
+      setComedyMovies(movieItems(comedyData.items || []).filter((m: any) => 
+        m.genres?.some((g: any) => g.name.toLowerCase().includes('comedy'))
+      ).slice(0, 20));
+      
+      setDramaMovies(movieItems(dramaData.items || []).filter((m: any) => 
+        m.genres?.some((g: any) => g.name.toLowerCase().includes('drama'))
+      ).slice(0, 20));
+      
+      setHorrorMovies(movieItems(horrorData.items || []).filter((m: any) => 
+        m.genres?.some((g: any) => g.name.toLowerCase().includes('horror'))
+      ).slice(0, 20));
+      
+      setSciFiMovies(movieItems(sciFiData.items || []).filter((m: any) => 
+        m.genres?.some((g: any) => g.name.toLowerCase().includes('sci-fi') || g.name.toLowerCase().includes('science'))
+      ).slice(0, 20));
+
+      // Set all movies for context
+      const movies = allMoviesData.filter((item: Media) => item.type === "movie");
       setAllMovies(movies);
       
-      // Set featured movies for hero section
-      const sortedMovies = movies.sort((a: Media, b: Media) => (b.rating || 0) - (a.rating || 0));
-      setFeaturedMovies(sortedMovies.slice(0, 5));
-
-      // Categorize movies by genre
-      setActionMovies(movies.filter((m: Media) => 
-        m.genres?.some(g => g.name.toLowerCase().includes('action'))
-      ).slice(0, 20));
-      
-      setComedyMovies(movies.filter((m: Media) => 
-        m.genres?.some(g => g.name.toLowerCase().includes('comedy'))
-      ).slice(0, 20));
-      
-      setDramaMovies(movies.filter((m: Media) => 
-        m.genres?.some(g => g.name.toLowerCase().includes('drama'))
-      ).slice(0, 20));
-      
-      setHorrorMovies(movies.filter((m: Media) => 
-        m.genres?.some(g => g.name.toLowerCase().includes('horror'))
-      ).slice(0, 20));
-      
-      setSciFiMovies(movies.filter((m: Media) => 
-        m.genres?.some(g => g.name.toLowerCase().includes('sci-fi') || g.name.toLowerCase().includes('science'))
-      ).slice(0, 20));
-
-      // Recent and popular
-      setRecentMovies(movies.sort((a: Media, b: Media) => b.id - a.id).slice(0, 20));
-      setPopularMovies(movies.sort((a: Media, b: Media) => (b.view_count ?? 0) - (a.view_count ?? 0)).slice(0, 20));
+      // Initialize recommendations with all movie data
+      const allRecommendations = [
+        ...(featuredData.items || []),
+        ...(popularData.items || []),
+        ...(recentData.items || []),
+        ...movies
+      ];
+      refreshRecommendations(allRecommendations);
       
       setLoading(false);
-      
-      // Refresh recommendations with movie data
-      refreshRecommendations(movies);
     } catch (error) {
-      console.error("Error fetching movies:", error);
+      console.error("Error fetching movie recommendations:", error);
+      
+      // Fallback to basic movie fetch if recommendations fail
+      try {
+        const apiUrl = getApiUrl();
+        const fallbackResponse = await fetch(`${apiUrl}/api/media/movies`);
+        if (fallbackResponse.ok) {
+          const movies = await fallbackResponse.json();
+          
+          // Set fallback data with basic filtering
+          setFeaturedMovies(movies.slice(0, 5));
+          setPopularMovies(movies.slice(0, 20));
+          setRecentMovies(movies.slice(0, 20));
+          setActionMovies(movies.filter((m: Media) => 
+            m.genres?.some(g => g.name.toLowerCase().includes('action'))
+          ).slice(0, 20));
+          setComedyMovies(movies.filter((m: Media) => 
+            m.genres?.some(g => g.name.toLowerCase().includes('comedy'))
+          ).slice(0, 20));
+          setDramaMovies(movies.filter((m: Media) => 
+            m.genres?.some(g => g.name.toLowerCase().includes('drama'))
+          ).slice(0, 20));
+          setHorrorMovies(movies.filter((m: Media) => 
+            m.genres?.some(g => g.name.toLowerCase().includes('horror'))
+          ).slice(0, 20));
+          setSciFiMovies(movies.filter((m: Media) => 
+            m.genres?.some(g => g.name.toLowerCase().includes('sci-fi'))
+          ).slice(0, 20));
+          
+          setAllMovies(movies);
+          refreshRecommendations(movies);
+        }
+      } catch (fallbackError) {
+        console.error("Fallback movie fetch also failed:", fallbackError);
+      }
+      
       setLoading(false);
     }
   };
@@ -152,7 +230,7 @@ export default function MoviesPage() {
       )}
 
       {/* Main Content with Parallax Background */}
-      <div className="relative bg-gradient-to-b from-red-900/20 via-black to-black">
+      <GradientBackground variant="netflix" className="min-h-screen">
         <div className="relative z-10 py-20">
           {/* Continue Watching Movies */}
           <ParallaxSection speed={0.2}>
@@ -293,7 +371,7 @@ export default function MoviesPage() {
             </ParallaxSection>
           )}
         </div>
-      </div>
+      </GradientBackground>
 
       {/* Video Player Modal */}
       {selectedMedia && (

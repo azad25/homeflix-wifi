@@ -149,12 +149,12 @@ const NetflixHorizontalRow: React.FC<NetflixHorizontalRowProps> = ({
         {/* Cards Container */}
         <div
           ref={scrollContainerRef}
-          className="flex gap-3 overflow-x-auto overflow-y-hidden scrollbar-hide px-4 md:px-8 lg:px-16 pb-4"
+          className="flex gap-3 overflow-x-auto scrollbar-hide px-4 md:px-8 lg:px-16 py-8"
           onScroll={handleScroll}
           style={{
             scrollbarWidth: 'none',
             msOverflowStyle: 'none',
-            overflowY: 'hidden'
+            overflowY: 'visible'
           }}
         >
           {media.map((item, index) => (

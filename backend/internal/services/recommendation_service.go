@@ -2,6 +2,7 @@ package services
 
 import (
 	"fmt"
+	"log"
 	"math"
 	"sort"
 	"strings"
@@ -121,7 +122,7 @@ func (s *RecommendationService) GetTrendingRecommendations(limit int) ([]models.
 
 	var media []models.Media
 	
-	// Netflix-style trending algorithm: weighted by recency and velocity
+	// First try Netflix-style trending algorithm with viewing history
 	sevenDaysAgo := time.Now().AddDate(0, 0, -7)
 	thirtyDaysAgo := time.Now().AddDate(0, 0, -30)
 	
@@ -135,45 +136,91 @@ func (s *RecommendationService) GetTrendingRecommendations(limit int) ([]models.
 	}
 	
 	var trendingScores []TrendingScore
-	s.db.Raw(`
+	
+	// Format dates for SQL query
+	sevenDaysAgoStr := sevenDaysAgo.Format("2006-01-02 15:04:05.999999999")
+	thirtyDaysAgoStr := thirtyDaysAgo.Format("2006-01-02 15:04:05.999999999")
+
+	err := s.db.Raw(`
 		SELECT 
 			m.id as media_id,
-			COUNT(CASE WHEN vh.watched_at > ? THEN 1 END) as recent_views,
+			COUNT(CASE WHEN vh.watched_at > ?::timestamp THEN 1 END) as recent_views,
 			m.view_count as total_views,
-			(COUNT(CASE WHEN vh.watched_at > ? THEN 1 END) * 1.0 / GREATEST(m.view_count, 1)) as velocity_score,
+			(COUNT(CASE WHEN vh.watched_at > ?::timestamp THEN 1 END) * 1.0 / GREATEST(m.view_count, 1)) as velocity_score,
 			(m.view_count * 1.0 / (EXTRACT(EPOCH FROM (NOW() - m.created_at)) / 86400 + 1)) as popularity_rank
 		FROM media m
 		LEFT JOIN view_histories vh ON m.id = vh.media_id
-		WHERE m.created_at > ?
+		WHERE m.created_at > ?::timestamp
 		GROUP BY m.id, m.view_count, m.created_at
-		HAVING COUNT(CASE WHEN vh.watched_at > ? THEN 1 END) > 0
-		ORDER BY (recent_views * 2 + velocity_score * 10 + popularity_rank) DESC
+		HAVING COUNT(CASE WHEN vh.watched_at > ?::timestamp THEN 1 END) > 0
+		ORDER BY (COUNT(CASE WHEN vh.watched_at > ?::timestamp THEN 1 END) * 2 + 
+		         (COUNT(CASE WHEN vh.watched_at > ?::timestamp THEN 1 END) * 1.0 / GREATEST(m.view_count, 1)) * 10 + 
+		         (m.view_count * 1.0 / (EXTRACT(EPOCH FROM (NOW() - m.created_at)) / 86400 + 1))) DESC
 		LIMIT ?
-	`, sevenDaysAgo, sevenDaysAgo, thirtyDaysAgo, sevenDaysAgo, limit).Scan(&trendingScores)
+	`, sevenDaysAgoStr, sevenDaysAgoStr, thirtyDaysAgoStr, sevenDaysAgoStr, sevenDaysAgoStr, sevenDaysAgoStr, limit).Scan(&trendingScores).Error
 	
-	// Get the actual media objects
-	var mediaIDs []uint
-	for _, score := range trendingScores {
-		mediaIDs = append(mediaIDs, score.MediaID)
+	if err != nil {
+		log.Printf("Error fetching trending recommendations: %v", err)
+		// Fallback to simple recent media if the complex query fails
+		err = s.db.Preload("Genres").Preload("Series").Preload("Subtitles").
+			Order("created_at DESC").
+			Limit(limit).
+			Find(&media).Error
+		if err != nil {
+			return nil, fmt.Errorf("error fetching fallback recommendations: %w", err)
+		}
+		return media, nil
 	}
 	
-	err := s.db.Preload("Genres").Preload("Series").Preload("Subtitles").
-		Where("id IN ?", mediaIDs).
-		Find(&media).Error
-	
-	// Sort media according to trending scores
-	sort.Slice(media, func(i, j int) bool {
-		var scoreI, scoreJ float64
+	// If we have trending data, use it
+	if len(trendingScores) > 0 {
+		// Get the actual media objects
+		var mediaIDs []uint
 		for _, score := range trendingScores {
-			if score.MediaID == media[i].ID {
-				scoreI = score.VelocityScore + score.PopularityRank
-			}
-			if score.MediaID == media[j].ID {
-				scoreJ = score.VelocityScore + score.PopularityRank
-			}
+			mediaIDs = append(mediaIDs, score.MediaID)
 		}
-		return scoreI > scoreJ
-	})
+		
+		err = s.db.Preload("Genres").Preload("Series").Preload("Subtitles").
+			Where("id IN ?", mediaIDs).
+			Find(&media).Error
+		
+		if err == nil && len(media) > 0 {
+			// Sort media according to trending scores
+			sort.Slice(media, func(i, j int) bool {
+				var scoreI, scoreJ float64
+				for _, score := range trendingScores {
+					if score.MediaID == media[i].ID {
+						scoreI = score.VelocityScore + score.PopularityRank
+					}
+					if score.MediaID == media[j].ID {
+						scoreJ = score.VelocityScore + score.PopularityRank
+					}
+				}
+				return scoreI > scoreJ
+			})
+			
+			// Cache and return the result
+			if s.redis != nil {
+				s.redis.CacheMediaList("trending", media)
+			}
+			return media, nil
+		}
+	}
+	
+	// Fallback: Get popular content by rating and recent additions when no viewing history exists
+	err = s.db.Preload("Genres").Preload("Series").Preload("Subtitles").
+		Where("rating > 0 OR view_count > 0").
+		Order("rating DESC, view_count DESC, created_at DESC").
+		Limit(limit).
+		Find(&media).Error
+		
+	if err != nil || len(media) == 0 {
+		// Final fallback: Get any recent content
+		err = s.db.Preload("Genres").Preload("Series").Preload("Subtitles").
+			Order("created_at DESC").
+			Limit(limit).
+			Find(&media).Error
+	}
 	
 	// Cache the result
 	if err == nil && s.redis != nil {
@@ -272,28 +319,6 @@ func (s *RecommendationService) GetContinueWatching(userID uint) ([]models.Media
 
 // Helper functions
 
-func (s *RecommendationService) calculateRecommendationScore(media models.Media, viewHistory []models.ViewHistory, userRatings []models.UserRating) float32 {
-	var score float32 = 0
-
-	// Base score from global popularity
-	score += float32(media.ViewCount) * 0.1
-
-	// Genre matching score
-	genreScore := s.calculateGenreScore(media, viewHistory, userRatings)
-	score += genreScore * 3
-
-	// Recency boost
-	if media.CreatedAt.After(time.Now().AddDate(0, 0, -30)) {
-		score += 2 // boost for recent additions
-	}
-
-	// Rating boost
-	if media.Rating > 7 {
-		score += float32(media.Rating - 7) * 2
-	}
-
-	return score
-}
 
 func (s *RecommendationService) calculateGenreScore(media models.Media, viewHistory []models.ViewHistory, userRatings []models.UserRating) float32 {
 	userGenrePrefs := make(map[string]float32)
@@ -328,31 +353,6 @@ func (s *RecommendationService) calculateGenreScore(media models.Media, viewHist
 	return genreScore
 }
 
-func (s *RecommendationService) generateRecommendationReason(media models.Media, _ []models.ViewHistory, userRatings []models.UserRating) string {
-	// Find the most relevant reason
-	if len(media.Genres) > 0 {
-		for _, rating := range userRatings {
-			for _, userGenre := range rating.Media.Genres {
-				for _, mediaGenre := range media.Genres {
-					if userGenre.Name == mediaGenre.Name && rating.Rating >= 8 {
-						return fmt.Sprintf("Because you loved %s", rating.Media.Title)
-					}
-				}
-			}
-		}
-
-		// Fallback to genre matching
-		for _, genre := range media.Genres {
-			return fmt.Sprintf("Popular %s content", genre.Name)
-		}
-	}
-
-	if media.ViewCount > 100 {
-		return "Trending now"
-	}
-
-	return "Recommended for you"
-}
 
 func (s *RecommendationService) hasUserWatched(_ uint, mediaID uint, viewHistory []models.ViewHistory) bool {
 	for _, history := range viewHistory {
@@ -374,19 +374,6 @@ func (s *RecommendationService) getWatchedMediaIDs(userID uint) []uint {
 	return mediaIDs
 }
 
-func (s *RecommendationService) removeDuplicateMedia(media []models.Media) []models.Media {
-	seen := make(map[uint]bool)
-	var unique []models.Media
-	
-	for _, m := range media {
-		if !seen[m.ID] {
-			seen[m.ID] = true
-			unique = append(unique, m)
-		}
-	}
-	
-	return unique
-}
 
 func (s *RecommendationService) saveRecommendation(userID uint, mediaID uint, score float32, reason string, category string) {
 	recommendation := models.Recommendation{
@@ -466,7 +453,7 @@ func (s *RecommendationService) calculateUserTimePreferences(viewHistory []model
 }
 
 // calculateNetflixStyleScore implements Netflix's multi-factor recommendation scoring
-func (s *RecommendationService) calculateNetflixStyleScore(media models.Media, viewHistory []models.ViewHistory, userRatings []models.UserRating, genrePrefs map[string]float32, timePrefs map[string]float32) float32 {
+func (s *RecommendationService) calculateNetflixStyleScore(media models.Media, viewHistory []models.ViewHistory, userRatings []models.UserRating, genrePrefs map[string]float32, _ map[string]float32) float32 {
 	var score float32 = 0
 	
 	// 1. Genre Affinity Score (40% weight)
@@ -515,7 +502,7 @@ func (s *RecommendationService) calculateNetflixStyleScore(media models.Media, v
 }
 
 // calculateCollaborativeScore finds users with similar taste and recommends what they liked
-func (s *RecommendationService) calculateCollaborativeScore(media models.Media, userViewHistory []models.ViewHistory, userRatings []models.UserRating) float32 {
+func (s *RecommendationService) calculateCollaborativeScore(media models.Media, userViewHistory []models.ViewHistory, _ []models.UserRating) float32 {
 	// Find users who watched similar content
 	var similarUsers []uint
 	for _, history := range userViewHistory {
@@ -546,7 +533,7 @@ func (s *RecommendationService) calculateCollaborativeScore(media models.Media, 
 }
 
 // generateNetflixStyleReason creates Netflix-style recommendation reasons
-func (s *RecommendationService) generateNetflixStyleReason(media models.Media, viewHistory []models.ViewHistory, userRatings []models.UserRating, genrePrefs map[string]float32) string {
+func (s *RecommendationService) generateNetflixStyleReason(media models.Media, viewHistory []models.ViewHistory, _ []models.UserRating, genrePrefs map[string]float32) string {
 	// Find the strongest reason
 	
 	// Check for "Because you watched" reasons
@@ -761,7 +748,20 @@ func (s *RecommendationService) GetBecauseYouWatched(userID uint, limit int) ([]
 		Find(&recentHistory)
 
 	if len(recentHistory) == 0 {
-		return s.GetTrendingRecommendations(limit)
+		// Fallback: Get content similar to popular genres
+		var similarMedia []models.Media
+		err := s.db.Preload("Genres").Preload("Series").Preload("Subtitles").
+			Joins("JOIN media_genres ON media.id = media_genres.media_id").
+			Joins("JOIN genres ON media_genres.genre_id = genres.id").
+			Where("genres.name IN ('Action', 'Drama', 'Comedy', 'Thriller')").
+			Order("rating DESC, view_count DESC, created_at DESC").
+			Limit(limit).
+			Find(&similarMedia).Error
+			
+		if err != nil || len(similarMedia) == 0 {
+			return s.GetTrendingRecommendations(limit)
+		}
+		return similarMedia, nil
 	}
 
 	// Get the most recent item as the "anchor"
@@ -769,7 +769,7 @@ func (s *RecommendationService) GetBecauseYouWatched(userID uint, limit int) ([]
 
 	// Find similar content based on the anchor
 	var similarMedia []models.Media
-	s.db.Preload("Genres").
+	err := s.db.Preload("Genres").Preload("Series").Preload("Subtitles").
 		Joins("JOIN media_genres mg1 ON media.id = mg1.media_id").
 		Joins("JOIN media_genres mg2 ON mg1.genre_id = mg2.genre_id").
 		Where("mg2.media_id = ? AND media.id != ?", anchorMedia.ID, anchorMedia.ID).
@@ -777,9 +777,9 @@ func (s *RecommendationService) GetBecauseYouWatched(userID uint, limit int) ([]
 		Group("media.id").
 		Order("COUNT(mg1.genre_id) DESC, media.rating DESC, media.view_count DESC").
 		Limit(limit).
-		Find(&similarMedia)
+		Find(&similarMedia).Error
 
-	return similarMedia, nil
+	return similarMedia, err
 }
 
 // GetTopPicksForGenre gets top picks for user's favorite genres
@@ -793,7 +793,26 @@ func (s *RecommendationService) GetTopPicksForGenre(userID uint, limit int) ([]m
 		Find(&viewHistory)
 
 	if len(viewHistory) == 0 {
-		return s.GetTrendingRecommendations(limit)
+		// Fallback: Get top-rated content from popular genres
+		var topPicks []models.Media
+		err := s.db.Preload("Genres").Preload("Series").Preload("Subtitles").
+			Joins("JOIN media_genres ON media.id = media_genres.media_id").
+			Joins("JOIN genres ON media_genres.genre_id = genres.id").
+			Where("genres.name IN ('Action', 'Drama', 'Comedy', 'Thriller', 'Adventure')").
+			Where("rating > 0 OR view_count > 0").
+			Order("rating DESC, view_count DESC, created_at DESC").
+			Limit(limit).
+			Find(&topPicks).Error
+			
+		if err != nil || len(topPicks) == 0 {
+			// Final fallback: Get any highly rated content
+			err = s.db.Preload("Genres").Preload("Series").Preload("Subtitles").
+				Order("rating DESC, view_count DESC, created_at DESC").
+				Limit(limit).
+				Find(&topPicks).Error
+		}
+		
+		return topPicks, err
 	}
 
 	// Calculate genre preferences
@@ -824,7 +843,7 @@ func (s *RecommendationService) GetTopPicksForGenre(userID uint, limit int) ([]m
 
 	// Get top-rated content in that genre
 	var topPicks []models.Media
-	s.db.Preload("Genres").
+	s.db.Preload("Genres").Preload("Series").Preload("Subtitles").
 		Joins("JOIN media_genres ON media.id = media_genres.media_id").
 		Joins("JOIN genres ON media_genres.genre_id = genres.id").
 		Where("genres.name = ?", topGenre).
@@ -853,12 +872,40 @@ func (s *RecommendationService) GetNewReleases(userID uint, limit int) ([]models
 
 	// Get new releases, prioritizing user's preferred genres
 	var newReleases []models.Media
-	s.db.Preload("Genres").
+	err := s.db.Preload("Genres").Preload("Series").Preload("Subtitles").
 		Where("created_at > ?", thirtyDaysAgo).
 		Order("created_at DESC, rating DESC").
-		Find(&newReleases)
+		Find(&newReleases).Error
 
-	// Score and sort by user preferences
+	// If no recent releases, get recent content from last 90 days
+	if err != nil || len(newReleases) == 0 {
+		ninetyDaysAgo := time.Now().AddDate(0, 0, -90)
+		err = s.db.Preload("Genres").Preload("Series").Preload("Subtitles").
+			Where("created_at > ?", ninetyDaysAgo).
+			Order("created_at DESC, rating DESC").
+			Limit(limit).
+			Find(&newReleases).Error
+			
+		// Final fallback: get any recent content
+		if err != nil || len(newReleases) == 0 {
+			err = s.db.Preload("Genres").Preload("Series").Preload("Subtitles").
+				Order("created_at DESC").
+				Limit(limit).
+				Find(&newReleases).Error
+		}
+		
+		return newReleases, err
+	}
+
+	// Score and sort by user preferences if we have viewing history
+	if len(viewHistory) == 0 {
+		// No viewing history, return recent releases as-is
+		if len(newReleases) > limit {
+			return newReleases[:limit], nil
+		}
+		return newReleases, nil
+	}
+
 	type ScoredRelease struct {
 		Media models.Media
 		Score float32

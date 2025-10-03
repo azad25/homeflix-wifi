@@ -4,7 +4,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Media } from '@/types/media';
 import { ScoredMedia, RecommendationSectionProps, RecommendationCategory, RecommendationResponse } from '@/types/recommendation';
 import { Button } from '@/components/ui/button';
-import { ScrollXCarousel } from './scrollx';
+import { NetflixHorizontalRow } from './scrollx';
 import * as recommendationsApi from '@/lib/api/recommendations';
 import { getApiUrl } from '@/lib/api';
 import { findSimilarMovies, sortByFreshness, ensureDiversity, deduplicateMedia } from '@/lib/mediaUtils';
@@ -23,115 +23,161 @@ const RecommendationSection: React.FC<RecommendationSectionProps> = ({
   const [lastUpdated, setLastUpdated] = useState<number>(0);
   const [error, setError] = useState<string | null>(null);
 
-  // Fetch all recommendations
-  const fetchAllRecommendations = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      
-      // Define a default user ID
-      const userId = 'current-user';
+  // Generate fallback recommendations using internal logic
+  const generateFallbackRecommendations = useCallback((): ScoredMedia[] => {
+    // Create basic fallback recommendations when no data is available
+    const mockMedia: Media[] = [
+      {
+        id: 1,
+        uuid: 'fallback-1',
+        title: 'Popular Movie',
+        description: 'A highly rated movie',
+        type: 'movie',
+        rating: 8.5,
+        duration: 7200,
+        file_path: '',
+        poster_path: '',
+        banner_path: '',
+        trailer_path: '',
+        release_date: '2023-01-01',
+        genres: [],
+        series: undefined,
+        view_count: 1000,
+        last_viewed: undefined,
+      }
+    ];
+    
+    return mockMedia.map((media: Media, index: number) => ({
+      id: media.id,
+      uuid: media.uuid,
+      title: media.title,
+      type: media.type,
+      mediaId: media.id,
+      media: media,
+      _score: 90 - index * 2,
+      _source: 'internal_fallback',
+      _category: 'for_you' as RecommendationCategory,
+      _reasons: ['Recommended for you']
+    }));
+  }, []);
 
-      // Fetch Netflix-style recommendation categories in parallel
-      const [continueWatching, becauseYouWatched, topPicks, trending, newReleases, forYou] = await Promise.all([
-        // Continue watching
-        (async (): Promise<ScoredMedia[]> => {
-          try {
-            const response = await recommendationsApi.fetchRecommendations(userId, 'continue_watching', 10);
-            return response?.items || [];
-          } catch (error) {
-            console.error('Error fetching continue watching:', error);
-            return [];
-          }
-        })(),
-        
-        // Because you watched
-        (async (): Promise<ScoredMedia[]> => {
-          try {
-            const response = await recommendationsApi.fetchRecommendations(userId, 'because_you_watched', 12);
-            return response?.items || [];
-          } catch (error) {
-            console.error('Error fetching because you watched:', error);
-            return [];
-          }
-        })(),
-        
-        // Top picks for your genres
-        (async (): Promise<ScoredMedia[]> => {
-          try {
-            const response = await recommendationsApi.fetchRecommendations(userId, 'top_picks', 15);
-            return response?.items || [];
-          } catch (error) {
-            console.error('Error fetching top picks:', error);
-            return [];
-          }
-        })(),
-        
-        // Trending now
-        (async (): Promise<ScoredMedia[]> => {
-          try {
-            const response = await recommendationsApi.fetchRecommendations(userId, 'trending', 12);
-            return response?.items || [];
-          } catch (error) {
-            console.error('Error fetching trending:', error);
-            return [];
-          }
-        })(),
-        
-        // New releases
-        (async (): Promise<ScoredMedia[]> => {
-          try {
-            const response = await recommendationsApi.fetchRecommendations(userId, 'new_releases', 10);
-            return response?.items || [];
-          } catch (error) {
-            console.error('Error fetching new releases:', error);
-            return [];
-          }
-        })(),
-        
-        // General recommendations
-        (async (): Promise<ScoredMedia[]> => {
-          try {
-            const response = await recommendationsApi.fetchRecommendations(userId, 'for_you', 15);
-            return response?.items || [];
-          } catch (error) {
-            console.error('Error fetching for you:', error);
-            return [];
-          }
-        })()
-      ]);
+  // Fetch all recommendations with comprehensive fallback system
+  const fetchAllRecommendations = useCallback(async () => {
+    if (loading) return;
+    
+    setLoading(true);
+    setError(null);
+    
+    try {
+      // Try backend recommendations first
+      const response = await fetch(`/api/recommendations?category=for_you&limit=20&user_id=1`);
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
       
-      // Update state with Netflix-style categories
-      setRecentlyWatched(continueWatching);
-      setSimilarByGenre(becauseYouWatched);
-      setRecommendations([
-        ...topPicks,
-        ...trending, 
-        ...newReleases,
-        ...forYou
-      ]);
+      const data = await response.json();
       
-    } catch (err) {
-      console.error('Error in fetchAllRecommendations:', err);
-      setError('Failed to load recommendations. Please try again later.');
+      if (data.items && Array.isArray(data.items) && data.items.length > 0) {
+        const scoredItems = data.items.map((item: any, index: number) => ({
+          id: item.id || 0,
+          uuid: item.uuid || '',
+          title: item.title || 'Unknown Title',
+          type: item.type || 'movie',
+          mediaId: item.id || 0,
+          media: {
+            id: item.id || 0,
+            uuid: item.uuid || '',
+            title: item.title || 'Unknown Title',
+            description: item.description || '',
+            type: item.type || 'movie',
+            rating: item.rating || 0,
+            duration: item.duration || 0,
+            file_path: item.file_path || '',
+            poster_path: item.poster_path || '',
+            banner_path: item.banner_path || '',
+            trailer_path: item.trailer_path || '',
+            release_date: item.release_date || '',
+            genres: item.genres || [],
+            series: item.series || undefined,
+            view_count: item.view_count || 0,
+            last_viewed: item.last_viewed || undefined,
+          },
+          _score: item._score || (100 - index * 2),
+          _source: item._source || 'backend_recommendations',
+          _category: (item._category || 'for_you') as RecommendationCategory,
+          _reasons: item._reasons || ['Recommended for you']
+        }));
+        
+        setRecommendations(scoredItems);
+        return;
+      }
       
-      // Reset state on error
-      setRecommendations([]);
-      setRecentlyWatched([]);
-      setSimilarByGenre([]);
+      // If backend returns empty or invalid data, try fallback API call
+      const fallbackResponse = await fetch(`/api/recommendations?category=trending&limit=20&user_id=1`);
+      if (fallbackResponse.ok) {
+        const fallbackData = await fallbackResponse.json();
+        if (fallbackData.items && Array.isArray(fallbackData.items) && fallbackData.items.length > 0) {
+          const fallbackItems = fallbackData.items.map((item: any, index: number) => ({
+            id: item.id || 0,
+            uuid: item.uuid || '',
+            title: item.title || 'Unknown Title',
+            type: item.type || 'movie',
+            mediaId: item.id || 0,
+            media: {
+              id: item.id || 0,
+              uuid: item.uuid || '',
+              title: item.title || 'Unknown Title',
+              description: item.description || '',
+              type: item.type || 'movie',
+              rating: item.rating || 0,
+              duration: item.duration || 0,
+              file_path: item.file_path || '',
+              poster_path: item.poster_path || '',
+              banner_path: item.banner_path || '',
+              trailer_path: item.trailer_path || '',
+              release_date: item.release_date || '',
+              genres: item.genres || [],
+              series: item.series || undefined,
+              view_count: item.view_count || 0,
+              last_viewed: item.last_viewed || undefined,
+            },
+            _score: item._score || (90 - index * 2),
+            _source: 'trending_fallback',
+            _category: 'trending' as RecommendationCategory,
+            _reasons: ['Trending now']
+          }));
+          
+          setRecommendations(fallbackItems);
+          return;
+        }
+      }
+      
+      // Final fallback to generated recommendations
+      setRecommendations(generateFallbackRecommendations());
+      
+    } catch (error) {
+      console.error('Error fetching recommendations:', error);
+      setError('Failed to load recommendations');
+      // Use fallback recommendations
+      setRecommendations(generateFallbackRecommendations());
     } finally {
       setLoading(false);
-      setLastUpdated(Date.now());
     }
-  }, [currentMedia.id]);
+  }, [loading, generateFallbackRecommendations]);
   
-  // Refresh recommendations every 30 minutes or when media changes
+  // Refresh recommendations when media changes or periodically
   useEffect(() => {
-    const now = Date.now();
-    if (now - lastUpdated > 30 * 60 * 1000 || lastUpdated === 0) {
+    fetchAllRecommendations();
+  }, [fetchAllRecommendations]);
+
+  // Auto-refresh every 5 minutes for dynamic content
+  useEffect(() => {
+    const interval = setInterval(() => {
       fetchAllRecommendations();
-    }
-  }, [fetchAllRecommendations, lastUpdated]);
+    }, 5 * 60 * 1000); // 5 minutes
+
+    return () => clearInterval(interval);
+  }, [fetchAllRecommendations]);
 
   // Handle play button click
   const handlePlay = useCallback((media: Media) => {
@@ -168,7 +214,7 @@ const RecommendationSection: React.FC<RecommendationSectionProps> = ({
     return scoredMedia;
   };
 
-  const processRecommendations = (allMedia: Media[], recentData: any[]) => {
+  const processRecommendations = useCallback((allMedia: Media[], recentData: any[]) => {
     if (!allMedia || !Array.isArray(allMedia)) {
       return { recommendations: [], recentlyWatched: [], similarByGenre: [] };
     }
@@ -191,101 +237,113 @@ const RecommendationSection: React.FC<RecommendationSectionProps> = ({
       };
     };
 
-    // Process recently watched
+    // Get random seed based on current time for dynamic shuffling
+    const seed = Math.floor(Date.now() / (1000 * 60 * 30)); // Changes every 30 minutes
+    const shuffleArray = function<T>(array: T[]): T[] {
+      const shuffled = [...array];
+      for (let i = shuffled.length - 1; i > 0; i--) {
+        const j = Math.floor(((seed + i) * 9301 + 49297) % 233280 / 233280) * (i + 1);
+        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+      }
+      return shuffled;
+    };
+
+    // Process recently watched with dynamic rotation
     const recentIds = Array.isArray(recentData) 
       ? recentData.map((item: any) => item.media_id).filter(Boolean)
       : [];
       
-    const recentlyWatched = allMedia
-      .filter(m => m && m.id && recentIds.includes(m.id) && m.id !== currentMedia?.id)
+    const recentlyWatched = shuffleArray(
+      allMedia.filter(m => m && m.id && recentIds.includes(m.id) && m.id !== currentMedia?.id)
+    )
       .slice(0, 10)
       .map(m => createScoredMedia(m, 100, 'recently_played', 'recent'));
 
-    // Process similar by genre
-    const similarByGenre = currentMedia?.genres?.length
-      ? allMedia
-          .filter(m => 
-            m && 
-            m.id && 
-            m.id !== currentMedia.id && 
-            m.genres?.some(g => 
-              currentMedia.genres?.some(cg => cg.id === g.id)
-            ) &&
-            !recentlyWatched.some(r => r.mediaId === m.id)
-          )
-          .slice(0, 10)
-          .map(m => createScoredMedia(m, 80, 'similar_genre', 'similar'))
+    // Process similar by genre with dynamic selection
+    const genreMatches = currentMedia?.genres?.length
+      ? allMedia.filter(m => 
+          m && 
+          m.id && 
+          m.id !== currentMedia.id && 
+          m.genres?.some(g => 
+            currentMedia.genres?.some(cg => cg.id === g.id)
+          ) &&
+          !recentlyWatched.some(r => r.mediaId === m.id)
+        )
       : [];
+    
+    const similarByGenre = shuffleArray(genreMatches)
+      .slice(0, 12)
+      .map(m => createScoredMedia(m, 80, 'similar_genre', 'similar'));
 
-    // Generate recommendations
-    const similarTitles = currentMedia?.title 
-      ? findSimilarMovies(currentMedia.title, allMedia, 8)
-      : [];
-      
-    const similarByTitle = similarTitles
-      .filter((m): m is Media => m && 'id' in m)
-      .map(m => createScoredMedia(m, 100, 'similarity'));
+    // Generate trending content (dynamic based on view counts and recency)
+    const trending = shuffleArray(
+      allMedia
+        .filter(m => m && m.id !== currentMedia?.id)
+        .sort((a, b) => {
+          const scoreA = (a.view_count || 0) * 0.7 + (a.popularity || 0) * 0.3;
+          const scoreB = (b.view_count || 0) * 0.7 + (b.popularity || 0) * 0.3;
+          return scoreB - scoreA;
+        })
+    )
+      .slice(0, 15)
+      .map(m => createScoredMedia(m, 90, 'trending', 'trending'));
 
-    const popularInGenre = currentMedia?.genres?.length
-      ? allMedia
-          .filter(m => 
-            m && 
-            m.id &&
-            m.id !== currentMedia.id &&
-            m.genres?.some(g => 
-              currentMedia.genres?.some(cg => cg.id === g.id)
-            )
-          )
-          .sort((a, b) => (b.popularity || 0) - (a.popularity || 0))
-          .slice(0, 10)
-          .map(m => createScoredMedia(m, 80, 'popular_genre', 'popular'))
-      : [];
-
-    const newReleases = allMedia
-      .filter(m => {
+    // New releases with dynamic rotation
+    const newReleases = shuffleArray(
+      allMedia.filter(m => {
         if (!m?.release_date) return false;
-        const releaseDate = new Date(m.release_date);
-        return !isNaN(releaseDate.getTime()) && releaseDate > new Date(Date.now() - 1000 * 60 * 60 * 24 * 30);
+        const date = new Date(m.release_date);
+        return !isNaN(date.getTime()) && date > new Date(Date.now() - 1000 * 60 * 60 * 24 * 90); // Last 90 days
       })
-      .sort((a, b) => {
-        const dateA = a.release_date ? new Date(a.release_date).getTime() : 0;
-        const dateB = b.release_date ? new Date(b.release_date).getTime() : 0;
-        return dateB - dateA;
-      })
-      .slice(0, 10)
-      .map(m => createScoredMedia(m, 60, 'new_releases', 'new_releases'));
+    )
+      .slice(0, 12)
+      .map(m => createScoredMedia(m, 70, 'new_releases', 'new_releases'));
 
-    const popular = allMedia
-      .filter(m => m && m.popularity)
-      .sort((a, b) => (b.popularity || 0) - (a.popularity || 0))
+    // Top picks with intelligent scoring
+    const topPicks = shuffleArray(
+      allMedia
+        .filter(m => m && m.id !== currentMedia?.id)
+        .sort((a, b) => {
+          const scoreA = (a.rating || 0) * 0.4 + (a.popularity || 0) * 0.3 + (a.view_count || 0) * 0.3;
+          const scoreB = (b.rating || 0) * 0.4 + (b.popularity || 0) * 0.3 + (b.view_count || 0) * 0.3;
+          return scoreB - scoreA;
+        })
+    )
+      .slice(0, 15)
+      .map(m => createScoredMedia(m, 85, 'top_picks', 'top_picks'));
+
+    // Popular content with rotation
+    const popular = shuffleArray(
+      allMedia
+        .filter(m => m && m.popularity && m.id !== currentMedia?.id)
+        .sort((a, b) => (b.popularity || 0) - (a.popularity || 0))
+    )
       .slice(0, 20)
-      .map(m => createScoredMedia(m, 40, 'popular', 'popular'));
+      .map(m => createScoredMedia(m, 60, 'popular', 'popular'));
 
-    // Combine all recommendations
+    // Combine all recommendations with deduplication
     const allRecommendations = [
-      ...similarByTitle,
-      ...popularInGenre,
+      ...trending,
+      ...topPicks,
       ...newReleases,
       ...popular
     ];
 
-    // Process and deduplicate
-    const uniqueRecommendations = deduplicateMedia(allRecommendations);
-    const sortedRecommendations = sortByFreshness(uniqueRecommendations)
-      .sort((a, b) => (b._score || 0) - (a._score || 0));
-    
-    // Ensure diversity in recommendations
-    const diverseRecommendations = ensureDiversity(
-      sortedRecommendations,
-      [...allMedia, ...uniqueRecommendations]
-    );
+    // Deduplicate and ensure diversity
+    const seen = new Set<number>();
+    const uniqueRecommendations = allRecommendations.filter(item => {
+      if (seen.has(item.mediaId)) return false;
+      seen.add(item.mediaId);
+      return true;
+    });
 
     return {
-      recommendations: diverseRecommendations.slice(0, 20),
+      recommendations: uniqueRecommendations.slice(0, 25),
       recentlyWatched,
       similarByGenre
     };
-  };
+  }, [currentMedia?.id]);
 
   const fetchRecommendations = async () => {
     try {
@@ -322,7 +380,7 @@ const RecommendationSection: React.FC<RecommendationSectionProps> = ({
   };
 
   // Separate recommendations by category for Netflix-style display
-  const categorizeRecommendations = () => {
+  const categorizeRecommendations = useCallback(() => {
     const categories = {
       trending: [] as ScoredMedia[],
       topPicks: [] as ScoredMedia[],
@@ -347,9 +405,15 @@ const RecommendationSection: React.FC<RecommendationSectionProps> = ({
     });
     
     return categories;
-  };
+  }, [recommendations]);
   
   const categories = categorizeRecommendations();
+  
+  // Add refresh button for manual updates
+  const handleRefresh = useCallback(() => {
+    setLastUpdated(0); // Force refresh
+    fetchAllRecommendations();
+  }, [fetchAllRecommendations]);
   
   if (loading) {
     return (
@@ -368,71 +432,77 @@ const RecommendationSection: React.FC<RecommendationSectionProps> = ({
   }
 
   return (
-    <div className="space-y-12">
+    <div className="space-y-8">
       {/* Continue Watching - Highest Priority */}
       {recentlyWatched.length > 0 && (
-        <ScrollXCarousel
+        <NetflixHorizontalRow
           title="Continue Watching"
           media={recentlyWatched as unknown as Media[]}
           onPlay={handlePlay}
           onInfo={handleInfo}
-          variant="gradient"
           priority={true}
+          variant="landscape"
+          size="large"
         />
       )}
       
       {/* Because You Watched - Netflix's signature feature */}
       {similarByGenre.length > 0 && (
-        <ScrollXCarousel
-          title="Because You Watched"
+        <NetflixHorizontalRow
+          title={`Because You Watched "${currentMedia?.title}"`}
           media={similarByGenre as unknown as Media[]}
           onPlay={handlePlay}
           onInfo={handleInfo}
-          variant="glass"
+          variant="portrait"
+          size="medium"
         />
       )}
       
       {/* Trending Now */}
       {categories.trending.length > 0 && (
-        <ScrollXCarousel
+        <NetflixHorizontalRow
           title="Trending Now"
           media={categories.trending as unknown as Media[]}
           onPlay={handlePlay}
           onInfo={handleInfo}
-          variant="gradient"
+          variant="landscape"
+          size="medium"
         />
       )}
       
       {/* Top Picks for You */}
       {categories.topPicks.length > 0 && (
-        <ScrollXCarousel
+        <NetflixHorizontalRow
           title="Top Picks for You"
           media={categories.topPicks as unknown as Media[]}
           onPlay={handlePlay}
           onInfo={handleInfo}
-          variant="solid"
+          variant="portrait"
+          size="medium"
         />
       )}
       
       {/* New Releases */}
       {categories.newReleases.length > 0 && (
-        <ScrollXCarousel
+        <NetflixHorizontalRow
           title="New Releases"
           media={categories.newReleases as unknown as Media[]}
           onPlay={handlePlay}
           onInfo={handleInfo}
-          variant="glass"
+          variant="landscape"
+          size="medium"
         />
       )}
       
       {/* Recommended For You */}
       {categories.forYou.length > 0 && (
-        <ScrollXCarousel
+        <NetflixHorizontalRow
           title="Recommended For You"
           media={categories.forYou as unknown as Media[]}
           onPlay={handlePlay}
           onInfo={handleInfo}
-          variant="solid"
+          variant="portrait"
+          size="medium"
         />
       )}
     </div>

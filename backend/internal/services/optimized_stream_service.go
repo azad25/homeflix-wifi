@@ -26,10 +26,16 @@ type CacheEntry struct {
 }
 
 func NewOptimizedStreamService(cacheSize int, chunkSize int) *OptimizedStreamService {
+	// Optimize for WiFi streaming with larger chunk sizes
+	optimizedChunkSize := chunkSize
+	if chunkSize < 256*1024 { // Minimum 256KB for WiFi
+		optimizedChunkSize = 256 * 1024
+	}
+	
 	return &OptimizedStreamService{
 		cache:     make(map[string]*CacheEntry),
 		cacheSize: cacheSize,
-		chunkSize: int64(chunkSize),
+		chunkSize: int64(optimizedChunkSize),
 	}
 }
 
@@ -50,14 +56,20 @@ func (s *OptimizedStreamService) StreamVideo(w http.ResponseWriter, r *http.Requ
 	// Detect content type based on file extension
 	contentType := s.getContentType(filePath)
 	
-	// Set headers for optimal streaming with better caching and performance
+	// Set headers for optimal WiFi streaming with Netflix-level performance
 	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Accept-Ranges", "bytes")
-	w.Header().Set("Cache-Control", "public, max-age=86400, immutable") // 24 hours cache
+	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable") // 1 year cache for videos
 	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("X-Accel-Buffering", "no") // Disable nginx buffering for real-time streaming
+	w.Header().Set("X-Accel-Buffering", "no") // Disable nginx buffering
 	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Headers", "Range")
+	w.Header().Set("Access-Control-Allow-Headers", "Range, Content-Type, Accept")
+	w.Header().Set("Access-Control-Expose-Headers", "Content-Range, Content-Length, Accept-Ranges")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Vary", "Accept-Encoding")
+	// WiFi optimization headers
+	w.Header().Set("Transfer-Encoding", "chunked")
+	w.Header().Set("X-Accel-Limit-Rate", "0") // No rate limiting
 	
 	// Handle range requests for efficient streaming
 	rangeHeader := r.Header.Get("Range")
@@ -119,17 +131,21 @@ func (s *OptimizedStreamService) streamWithChunks(w http.ResponseWriter, file *o
 
 	remaining := end - start + 1
 	
-	// Use adaptive buffer size based on remaining data
+	// Adaptive buffer sizing optimized for WiFi streaming
 	bufferSize := s.chunkSize
 	if remaining < s.chunkSize {
 		bufferSize = remaining
 	}
 	
-	// Increase buffer size for better performance on larger files
-	if remaining > 50*1024*1024 { // 50MB+
-		bufferSize = s.chunkSize * 4 // 4x chunk size for large files
-	} else if remaining > 10*1024*1024 { // 10MB+
-		bufferSize = s.chunkSize * 2 // 2x chunk size for medium files
+	// Netflix-style adaptive buffering for WiFi
+	if remaining > 100*1024*1024 { // 100MB+ (full movies)
+		bufferSize = s.chunkSize * 8 // 8x for large files - aggressive buffering
+	} else if remaining > 50*1024*1024 { // 50MB+ (episodes)
+		bufferSize = s.chunkSize * 6 // 6x for medium-large files
+	} else if remaining > 10*1024*1024 { // 10MB+ (clips)
+		bufferSize = s.chunkSize * 4 // 4x for medium files
+	} else if remaining > 1*1024*1024 { // 1MB+ (previews)
+		bufferSize = s.chunkSize * 2 // 2x for small files
 	}
 	
 	buffer := make([]byte, bufferSize)
@@ -158,8 +174,8 @@ func (s *OptimizedStreamService) streamWithChunks(w http.ResponseWriter, file *o
 		bytesWritten += int64(n)
 		remaining -= int64(n)
 
-		// Adaptive flushing - flush more frequently for smaller chunks
-		if bytesWritten%s.chunkSize == 0 || remaining == 0 {
+		// Netflix-style adaptive flushing for smooth playback
+		if bytesWritten%(s.chunkSize/2) == 0 || remaining == 0 {
 			if flusher, ok := w.(http.Flusher); ok {
 				flusher.Flush()
 			}
@@ -169,10 +185,8 @@ func (s *OptimizedStreamService) streamWithChunks(w http.ResponseWriter, file *o
 			break
 		}
 		
-		// Small delay for very large transfers to prevent overwhelming the connection
-		if bytesWritten > 0 && bytesWritten%(10*s.chunkSize) == 0 {
-			time.Sleep(1 * time.Millisecond)
-		}
+		// No artificial delays for WiFi - let TCP handle flow control
+		// WiFi networks benefit from continuous streaming without delays
 	}
 
 	return nil

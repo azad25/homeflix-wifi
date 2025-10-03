@@ -596,41 +596,93 @@ func (s *MediaScanner) extractMetadata(path string) *MediaMetadata {
 }
 
 func (s *MediaScanner) cleanTitle(title string) string {
+	// Remove garbage characters and system file prefixes
+	cleaned := title
+	
+	// Remove system file prefixes like $I6IU2JN, $RXH7R5L, etc.
+	cleaned = regexp.MustCompile(`^\$[A-Z0-9]+\s*`).ReplaceAllString(cleaned, "")
+	
 	// Remove common patterns from movie titles
 	patterns := []string{
+		// Years
 		`\(\d{4}\)`,           // Year in parentheses
 		`\[\d{4}\]`,           // Year in brackets
-		`\d{4}`,               // Standalone year
-		`(?i)bluray`,          // BluRay
-		`(?i)brrip`,           // BRRip
-		`(?i)webrip`,          // WebRip
-		`(?i)hdtv`,            // HDTV
-		`(?i)x264`,            // x264
-		`(?i)x265`,            // x265
-		`(?i)h264`,            // h264
-		`(?i)h265`,            // h265
-		`(?i)1080p`,           // 1080p
-		`(?i)720p`,            // 720p
-		`(?i)480p`,            // 480p
-		`(?i)4k`,              // 4K
-		`(?i)uhd`,             // UHD
-		`(?i)hdr`,             // HDR
-		`(?i)ac3`,             // AC3
-		`(?i)dts`,             // DTS
-		`(?i)aac`,             // AAC
-		`(?i)mp3`,             // MP3
+		`\b\d{4}\b`,           // Standalone year (word boundary)
+		
+		// Quality indicators
+		`(?i)\b(bluray|blu-ray|brrip|webrip|hdtv|dvdrip|camrip|ts|tc|r5|r6)\b`,
+		`(?i)\b(1080p|720p|480p|360p|2160p|4k|uhd|fhd|hd)\b`,
+		`(?i)\b(hdr|hdr10|dolby\s*vision|atmos)\b`,
+		
+		// Codecs and formats
+		`(?i)\b(x264|x265|h264|h265|hevc|avc|xvid|divx)\b`,
+		`(?i)\b(ac3|dts|aac|mp3|flac|truehd|dd5\.1|dd7\.1)\b`,
+		
+		// Release groups and sources
+		`(?i)\b(yify|rarbg|ettv|eztv|torrent|kickass|1337x)\b`,
+		`(?i)\b(web-dl|webdl|web\.dl|bdrip|dvd|netflix|amazon|hulu)\b`,
+		`(?i)\b(proper|repack|extended|unrated|directors\.cut|dc)\b`,
+		
+		// File extensions and containers
+		`(?i)\.(mkv|mp4|avi|mov|wmv|flv|webm|m4v|mpg|mpeg)$`,
+		
+		// Brackets and parentheses with technical info
+		`\[[^\]]*\]`,          // Remove anything in square brackets
+		`\([^)]*(?:rip|web|hd|p|x26|h26|ac3|dts|aac)[^)]*\)`, // Remove technical parentheses
+		
+		// Common garbage patterns
+		`(?i)\b(sample|trailer|preview|teaser)\b`,
+		`(?i)\b(multi|dual|audio|subs|subtitles)\b`,
+		`(?i)\b(eng|english|hindi|spanish|french|german)\b`,
+		
+		// Size indicators
+		`(?i)\b\d+(\.\d+)?\s*(gb|mb|kb)\b`,
+		
+		// Random technical strings
+		`\b[A-Z0-9]{8,}\b`,    // Long alphanumeric strings (likely hashes)
+		`(?i)\b(www\.[a-z0-9.-]+\.[a-z]{2,})\b`, // Website URLs
 	}
 
-	cleaned := title
 	for _, pattern := range patterns {
 		re := regexp.MustCompile(pattern)
-		cleaned = re.ReplaceAllString(cleaned, "")
+		cleaned = re.ReplaceAllString(cleaned, " ")
 	}
 
-	// Replace dots, underscores, and multiple spaces with single spaces
-	cleaned = regexp.MustCompile(`[._]+`).ReplaceAllString(cleaned, " ")
+	// Clean up separators and spacing
+	cleaned = regexp.MustCompile(`[._\-]+`).ReplaceAllString(cleaned, " ")
 	cleaned = regexp.MustCompile(`\s+`).ReplaceAllString(cleaned, " ")
 	cleaned = strings.TrimSpace(cleaned)
+	
+	// Remove leading/trailing punctuation
+	cleaned = regexp.MustCompile(`^[^\w]+|[^\w]+$`).ReplaceAllString(cleaned, "")
+	
+	// If title becomes too short or empty, try to extract meaningful part
+	if len(cleaned) < 3 {
+		// Try to extract the first meaningful word sequence
+		words := strings.Fields(title)
+		var meaningfulWords []string
+		for _, word := range words {
+			// Skip technical terms and short words
+			if len(word) > 2 && !regexp.MustCompile(`(?i)^(x264|x265|h264|h265|1080p|720p|480p|bluray|webrip|hdtv)$`).MatchString(word) {
+				meaningfulWords = append(meaningfulWords, word)
+				if len(meaningfulWords) >= 3 { // Take first 3 meaningful words
+					break
+				}
+			}
+		}
+		if len(meaningfulWords) > 0 {
+			cleaned = strings.Join(meaningfulWords, " ")
+		}
+	}
+	
+	// Capitalize first letter of each word for better presentation
+	words := strings.Fields(cleaned)
+	for i, word := range words {
+		if len(word) > 0 {
+			words[i] = strings.ToUpper(string(word[0])) + strings.ToLower(word[1:])
+		}
+	}
+	cleaned = strings.Join(words, " ")
 
 	return cleaned
 }

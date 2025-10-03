@@ -54,10 +54,11 @@ const DynamicTitle: React.FC<DynamicTitleProps> = ({
     // Generate additional effects based on genre
     const genreEffects = {
       action: {
-        animation: 'pulse',
+        animation: 'burning-fire',
         transform: 'skew-x-[-2deg]',
-        glow: 'drop-shadow-[0_0_30px_rgba(239,68,68,0.8)]',
-        border: 'border-2 border-red-500/30'
+        glow: 'drop-shadow-[0_0_30px_rgba(255,165,0,0.9)] drop-shadow-[0_0_60px_rgba(255,69,0,0.7)]',
+        border: 'border-2 border-orange-500/40',
+        textColor: 'text-orange-100'
       },
       horror: {
         animation: 'flicker',
@@ -248,10 +249,12 @@ const DynamicTitle: React.FC<DynamicTitleProps> = ({
             className={`
               relative z-20 font-bold
               ${titleStyle.responsiveSize} ${titleStyle.fontStyle.letterSpacing}
+              ${titleStyle.primaryGenre.toLowerCase() === 'action' ? 'text-orange-100' : ''}
               leading-tight max-w-full
               ${variant === 'hero' ? 'line-clamp-2' : 'line-clamp-2'}
               drop-shadow-[0_2px_8px_rgba(0,0,0,0.8)]
               filter contrast-125 brightness-110
+              ${titleStyle.primaryGenre.toLowerCase() === 'action' ? 'burning-fire-effect' : ''}
             `}
           >
             <span
@@ -270,7 +273,7 @@ const DynamicTitle: React.FC<DynamicTitleProps> = ({
           <h1
             className={`
               relative z-20 font-bold
-              bg-gradient-to-r ${titleStyle.fontStyle.color.replace('bg-gradient-to-r ', '')} bg-clip-text text-transparent
+              ${titleStyle.primaryGenre.toLowerCase() === 'action' ? 'text-orange-100' : `bg-gradient-to-r ${titleStyle.fontStyle.color.replace('bg-gradient-to-r ', '')} bg-clip-text text-transparent`}
               ${titleStyle.responsiveSize} ${titleStyle.fontStyle.letterSpacing}
               ${titleStyle.effects.glow}
               ${titleStyle.effects.transform} 
@@ -278,6 +281,7 @@ const DynamicTitle: React.FC<DynamicTitleProps> = ({
               ${variant === 'hero' ? 'line-clamp-2' : 'line-clamp-2'}
               drop-shadow-[0_2px_8px_rgba(0,0,0,0.8)]
               filter contrast-125 brightness-110
+              ${titleStyle.primaryGenre.toLowerCase() === 'action' ? 'burning-fire-effect' : ''}
             `}
             style={{
               fontFamily: titleStyle.fontStyle.fontFamily.replace(/"/g, ''),
@@ -307,6 +311,24 @@ const DynamicTitle: React.FC<DynamicTitleProps> = ({
         @keyframes pulse {
           0%, 100% { transform: scale(1); }
           50% { transform: scale(1.02); }
+        }
+        @keyframes burning-fire {
+          0%, 100% { 
+            transform: scale(1) skew(-2deg);
+            filter: hue-rotate(0deg) brightness(1.1) drop-shadow(0 0 20px rgba(255,165,0,0.8));
+          }
+          25% { 
+            transform: scale(1.02) skew(-1deg);
+            filter: hue-rotate(10deg) brightness(1.2) drop-shadow(0 0 30px rgba(255,69,0,0.9));
+          }
+          50% { 
+            transform: scale(1.01) skew(-3deg);
+            filter: hue-rotate(-5deg) brightness(1.15) drop-shadow(0 0 25px rgba(255,140,0,0.85));
+          }
+          75% { 
+            transform: scale(1.03) skew(-1.5deg);
+            filter: hue-rotate(15deg) brightness(1.25) drop-shadow(0 0 35px rgba(255,99,71,0.9));
+          }
         }
         @keyframes bounce {
           0%, 100% { transform: translateY(0); }
@@ -368,6 +390,16 @@ const DynamicTitle: React.FC<DynamicTitleProps> = ({
         .particle-container {
           transform-style: preserve-3d;
           perspective: 1000px;
+        }
+        
+        .burning-fire-effect {
+          animation: burning-fire 3s ease-in-out infinite;
+          text-shadow: 
+            0 0 5px rgba(255,165,0,0.8),
+            0 0 10px rgba(255,69,0,0.6),
+            0 0 15px rgba(255,140,0,0.4),
+            0 0 20px rgba(255,99,71,0.3),
+            2px 2px 4px rgba(0,0,0,0.8);
         }
       `}</style>
     </>

@@ -23,7 +23,7 @@ func GetThumbnail(mediaService *services.MediaService, thumbnailService *service
 			return
 		}
 
-		thumbnailPath, err := thumbnailService.ServeThumbnail(media.ID)
+		thumbnailPath, err := thumbnailService.ServeThumbnail(media)
 		if err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 			return
@@ -46,7 +46,7 @@ func GetPreviewClip(mediaService *services.MediaService, thumbnailService *servi
 			return
 		}
 
-		previewPath, err := thumbnailService.ServePreviewClip(media.ID)
+		previewPath, err := thumbnailService.ServePreviewClip(media)
 		if err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 			return
@@ -93,7 +93,7 @@ func GetPreview(mediaService *services.MediaService, thumbnailService *services.
 			return
 		}
 
-		previewPath, err := thumbnailService.ServePreview(media.ID)
+		previewPath, err := thumbnailService.ServePreview(media)
 		if err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 			return

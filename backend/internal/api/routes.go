@@ -64,12 +64,15 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		api.GET("/mylist", handlers.GetMyList(playbackService))
 		api.GET("/mylist/check/:id", handlers.CheckMyList(playbackService))
 		
-		// Admin utilities
-		api.POST("/admin/update-genres", handlers.UpdateAllMediaGenres(mediaService))
-		api.GET("/admin/media/:id", handlers.GetMediaByID(mediaService))
-		api.PUT("/admin/media/:id/thumbnail", handlers.UpdateMediaThumbnail(mediaService))
-		api.PUT("/admin/media/:id/preview", handlers.UpdateMediaPreview(mediaService))
+		// Admin media management endpoints
+		api.POST("/admin/media", handlers.CreateMediaAdmin(mediaService))
+		api.GET("/admin/media/:id", handlers.GetMediaByIDAdmin(mediaService))
+		api.PUT("/admin/media/:id", handlers.UpdateMediaAdmin(mediaService))
+		api.PUT("/admin/media/:id/preview", handlers.UpdateMediaPreviewAdmin(mediaService))
+		api.PUT("/admin/media/:id/poster", handlers.UpdateMediaPosterAdmin(mediaService))
+		api.PUT("/admin/media/:id/metadata", handlers.UpdateMediaMetadata(mediaService))
 		api.PUT("/admin/media/:id/video-metadata", handlers.UpdateMediaVideoMetadata(mediaService))
+		api.POST("/admin/media/batch-update", handlers.BatchUpdateMediaPaths(mediaService))
 		
 		// Media asset management
 		api.GET("/admin/media/:id/assets", handlers.GetMediaAssets(mediaService))
@@ -101,5 +104,4 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		api.GET("/recommendations/continue-watching", handlers.GetContinueWatchingHandler(recommendationService))
 		api.POST("/recommendations/track-click", handlers.TrackRecommendationClickHandler(recommendationService))
 	}
-	api.PUT("/admin/media/:id/metadata", handlers.UpdateMediaMetadata(mediaService))
 }

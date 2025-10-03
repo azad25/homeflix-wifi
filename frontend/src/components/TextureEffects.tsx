@@ -17,20 +17,80 @@ export const getTextureEffect = (genre: string, effectType: '3d' | 'texture' | '
   
   const effects: Record<string, TextureEffect> = {
     action: {
-      name: 'hollywood-fire-steel',
-      className: 'text-transparent bg-clip-text',
+      name: 'cgi-metal-steel',
+      className: 'cgi-metal-action-text',
       style: {
+        fontWeight: '900',
+        letterSpacing: '0.12em',
+        textShadow: `
+          0 0 2px #ffffff,
+          0 0 4px #f0f0f0,
+          0 0 8px #d0d0d0,
+          1px 1px 0px #c8c8c8,
+          2px 2px 0px #b0b0b0,
+          3px 3px 0px #989898,
+          4px 4px 0px #808080,
+          5px 5px 0px #686868,
+          6px 6px 0px #505050,
+          7px 7px 0px #383838,
+          8px 8px 0px #202020,
+          9px 9px 0px #101010,
+          10px 10px 0px #000000,
+          12px 12px 25px rgba(0,0,0,0.9),
+          15px 15px 35px rgba(0,0,0,0.8),
+          -1px -1px 0px #ffffff,
+          -2px -2px 0px #f8f8f8,
+          -3px -3px 0px #e0e0e0,
+          0 -2px 4px rgba(255,255,255,0.6),
+          0 2px 8px rgba(0,0,0,0.8),
+          inset 0 1px 0px rgba(255,255,255,0.4),
+          inset 0 -1px 0px rgba(0,0,0,0.6)
+        `,
         background: `
-          linear-gradient(135deg, #ff1a1a 0%, #ff6600 15%, #ffaa00 30%, #ffffff 45%, #e6e6e6 60%, #cccccc 75%, #999999 90%, #666666 100%),
-          repeating-linear-gradient(45deg, transparent, transparent 1px, rgba(255,255,255,0.15) 1px, rgba(255,255,255,0.15) 2px),
-          radial-gradient(ellipse at 30% 20%, rgba(255,68,68,0.4) 0%, transparent 50%),
-          radial-gradient(ellipse at 70% 80%, rgba(255,136,0,0.3) 0%, transparent 40%)
+          linear-gradient(135deg, 
+            #f8f8f8 0%, 
+            #e0e0e0 8%, 
+            #c8c8c8 16%, 
+            #a8a8a8 24%, 
+            #909090 32%, 
+            #787878 40%, 
+            #606060 48%, 
+            #484848 56%, 
+            #303030 64%, 
+            #404040 72%, 
+            #585858 80%, 
+            #707070 88%, 
+            #888888 96%, 
+            #a0a0a0 100%
+          ),
+          repeating-linear-gradient(45deg, 
+            transparent, 
+            transparent 1px, 
+            rgba(255,255,255,0.1) 1px, 
+            rgba(255,255,255,0.1) 2px
+          ),
+          repeating-linear-gradient(-45deg, 
+            transparent, 
+            transparent 0.5px, 
+            rgba(0,0,0,0.1) 0.5px, 
+            rgba(0,0,0,0.1) 1px
+          ),
+          radial-gradient(ellipse at 30% 20%, rgba(255,255,255,0.3) 0%, transparent 50%),
+          radial-gradient(ellipse at 70% 80%, rgba(0,0,0,0.2) 0%, transparent 40%)
         `,
         backgroundClip: 'text',
         WebkitBackgroundClip: 'text',
-        filter: 'drop-shadow(0 0 15px #ff4444) drop-shadow(3px 3px 8px rgba(0,0,0,0.9)) contrast(1.3) saturate(1.2)',
-        textShadow: '0 0 25px #ff4444, 0 0 50px #ff8800, 3px 3px 8px rgba(0,0,0,0.9), -1px -1px 3px rgba(255,255,255,0.2)',
-        transform: 'perspective(800px) rotateX(12deg) rotateY(-3deg) rotateZ(1deg) scale(1.02)'
+        color: 'transparent',
+        filter: `
+          drop-shadow(0 0 15px rgba(200,200,200,0.8)) 
+          drop-shadow(0 0 30px rgba(160,160,160,0.6)) 
+          drop-shadow(3px 3px 12px rgba(0,0,0,0.9)) 
+          contrast(1.5) 
+          saturate(0.8) 
+          brightness(1.3)
+        `,
+        transform: 'perspective(1200px) rotateX(18deg) rotateY(-5deg) rotateZ(2deg) scale(1.08) translateZ(40px)',
+        transformStyle: 'preserve-3d'
       }
     },
     
@@ -54,98 +114,135 @@ export const getTextureEffect = (genre: string, effectType: '3d' | 'texture' | '
     },
     
     'sci-fi': {
-      name: 'hollywood-neon-hologram',
-      className: 'text-transparent bg-clip-text',
+      name: 'hollywood-cyber-chrome',
+      className: 'hollywood-scifi-text',
       style: {
-        background: `
-          linear-gradient(120deg, #00ffff 0%, #0099ff 12%, #0088ff 25%, #4400ff 40%, #6600cc 55%, #8800ff 70%, #aa00cc 85%, #00ffff 100%),
-          repeating-linear-gradient(0deg, transparent, transparent 0.8px, rgba(0,255,255,0.3) 0.8px, rgba(0,255,255,0.3) 1.6px),
-          repeating-linear-gradient(90deg, transparent, transparent 6px, rgba(0,136,255,0.15) 6px, rgba(0,136,255,0.15) 12px),
-          radial-gradient(ellipse at 20% 30%, rgba(0,255,255,0.4) 0%, transparent 35%),
-          radial-gradient(ellipse at 80% 70%, rgba(68,0,255,0.3) 0%, transparent 40%)
+        color: '#ffffff',
+        fontWeight: '900',
+        letterSpacing: '0.1em',
+        textShadow: `
+          0 0 5px #00ffff,
+          0 0 10px #0099ff,
+          0 0 20px #0066ff,
+          0 0 40px #3366ff,
+          1px 1px 0px #0088cc,
+          2px 2px 0px #006699,
+          3px 3px 0px #004466,
+          4px 4px 0px #002233,
+          5px 5px 0px #001122,
+          6px 6px 20px rgba(0,0,0,0.8),
+          -1px -1px 0px #66ccff,
+          -2px -2px 0px #99ddff
         `,
-        backgroundClip: 'text',
-        WebkitBackgroundClip: 'text',
-        filter: 'drop-shadow(0 0 25px #00ffff) drop-shadow(0 0 50px #0088ff) drop-shadow(2px 2px 8px rgba(0,0,0,0.8)) brightness(1.3) contrast(1.2)',
-        textShadow: '0 0 15px #00ffff, 0 0 30px #0088ff, 0 0 45px #4400ff, 2px 2px 8px rgba(0,0,0,0.8), -1px -1px 3px rgba(255,255,255,0.2)',
-        transform: 'perspective(1000px) rotateX(4deg) rotateY(1deg) rotateZ(0.5deg) translateZ(25px) scale(1.01)'
+        filter: 'drop-shadow(0 0 35px #00ffff) drop-shadow(0 0 70px #0099ff) contrast(1.3) saturate(1.4) brightness(1.2)',
+        transform: 'perspective(1200px) rotateX(12deg) rotateY(-3deg) rotateZ(1deg) scale(1.04) translateZ(35px)',
+        transformStyle: 'preserve-3d'
       }
     },
     
     fantasy: {
-      name: 'magical-crystal',
-      className: 'text-transparent bg-clip-text',
+      name: 'hollywood-magical-crystal',
+      className: 'hollywood-fantasy-text',
       style: {
-        background: `
-          linear-gradient(135deg, #9933ff 0%, #ff33aa 25%, #33ffaa 50%, #ffaa33 75%, #9933ff 100%),
-          radial-gradient(circle at 20% 30%, rgba(153,51,255,0.4) 0%, transparent 40%),
-          radial-gradient(circle at 80% 70%, rgba(255,51,170,0.4) 0%, transparent 40%),
-          repeating-conic-gradient(from 0deg at 50% 50%, transparent 0deg, rgba(255,255,255,0.1) 30deg, transparent 60deg)
+        color: '#ffffff',
+        fontWeight: '850',
+        letterSpacing: '0.07em',
+        textShadow: `
+          0 0 5px #9933ff,
+          0 0 10px #cc33ff,
+          0 0 20px #ff33cc,
+          0 0 40px #33ffcc,
+          1px 1px 0px #7722cc,
+          2px 2px 0px #5511aa,
+          3px 3px 0px #330088,
+          4px 4px 0px #220066,
+          5px 5px 0px #110044,
+          6px 6px 18px rgba(0,0,0,0.7),
+          -1px -1px 0px #bb55ff,
+          -2px -2px 0px #dd77ff
         `,
-        backgroundClip: 'text',
-        WebkitBackgroundClip: 'text',
-        filter: 'drop-shadow(0 0 15px #9933ff) drop-shadow(0 0 30px #ff33aa) hue-rotate(10deg)',
-        textShadow: '0 0 15px #9933ff, 0 0 30px #ff33aa, 0 0 45px #33ffaa',
-        transform: 'perspective(700px) rotateX(12deg) rotateY(-3deg) rotateZ(1deg)'
-      },
-      backgroundImage: 'linear-gradient(135deg, #9933ff, #ff33aa, #33ffaa, #ffaa33, #9933ff)',
-      filter: 'drop-shadow(0 0 15px #9933ff)'
+        filter: 'drop-shadow(0 0 30px #9933ff) drop-shadow(0 0 60px #ff33aa) hue-rotate(5deg) contrast(1.3) saturate(1.3)',
+        transform: 'perspective(1000px) rotateX(14deg) rotateY(-4deg) rotateZ(2deg) scale(1.04) translateZ(28px)',
+        transformStyle: 'preserve-3d'
+      }
     },
     
     comedy: {
-      name: 'rainbow-bounce',
-      className: 'text-transparent bg-clip-text',
+      name: 'hollywood-rainbow-pop',
+      className: 'hollywood-comedy-text',
       style: {
-        background: `
-          linear-gradient(45deg, #ffff00 0%, #ff8800 20%, #ff4488 40%, #88ff44 60%, #44aaff 80%, #ffff00 100%),
-          repeating-linear-gradient(90deg, transparent, transparent 3px, rgba(255,255,255,0.2) 3px, rgba(255,255,255,0.2) 6px)
+        color: '#ffffff',
+        fontWeight: '800',
+        letterSpacing: '0.04em',
+        textShadow: `
+          0 0 5px #ffff00,
+          0 0 10px #ff8800,
+          0 0 20px #ff4488,
+          0 0 40px #88ff44,
+          1px 1px 0px #ddcc00,
+          2px 2px 0px #bb9900,
+          3px 3px 0px #996600,
+          4px 4px 0px #663300,
+          5px 5px 15px rgba(0,0,0,0.6),
+          -1px -1px 0px #ffff66,
+          -2px -2px 0px #ffcc99
         `,
-        backgroundClip: 'text',
-        WebkitBackgroundClip: 'text',
-        filter: 'drop-shadow(0 0 10px #ffff00) drop-shadow(2px 2px 4px rgba(0,0,0,0.3)) brightness(1.1)',
-        textShadow: '0 0 15px #ffff00, 0 0 25px #ff8800, 1px 1px 3px rgba(0,0,0,0.3)',
-        transform: 'perspective(500px) rotateX(8deg) rotateZ(2deg) scale(1.02)'
-      },
-      backgroundImage: 'linear-gradient(45deg, #ffff00, #ff8800, #ff4488, #88ff44, #44aaff, #ffff00)',
-      filter: 'drop-shadow(0 0 10px #ffff00)'
+        filter: 'drop-shadow(0 0 25px #ffff00) drop-shadow(0 0 50px #ff8800) brightness(1.2) saturate(1.4)',
+        transform: 'perspective(700px) rotateX(12deg) rotateY(-1deg) rotateZ(3deg) scale(1.06) translateZ(22px)',
+        transformStyle: 'preserve-3d'
+      }
     },
     
     thriller: {
-      name: 'steel-shadow',
-      className: 'text-transparent bg-clip-text',
+      name: 'hollywood-steel-shadow',
+      className: 'hollywood-thriller-text',
       style: {
-        background: `
-          linear-gradient(180deg, #cccccc 0%, #888888 30%, #444444 70%, #222222 100%),
-          repeating-linear-gradient(45deg, transparent, transparent 2px, rgba(255,255,255,0.1) 2px, rgba(255,255,255,0.1) 4px),
-          linear-gradient(90deg, rgba(0,0,0,0.3) 0%, transparent 50%, rgba(0,0,0,0.3) 100%)
+        color: '#e6e6e6',
+        fontWeight: '900',
+        letterSpacing: '0.06em',
+        textShadow: `
+          0 0 5px #999999,
+          0 0 10px #666666,
+          0 0 20px #333333,
+          2px 2px 0px #555555,
+          4px 4px 0px #333333,
+          6px 6px 0px #111111,
+          8px 8px 0px #000000,
+          10px 10px 25px rgba(0,0,0,0.9),
+          -1px -1px 0px #cccccc,
+          -2px -2px 0px #aaaaaa
         `,
-        backgroundClip: 'text',
-        WebkitBackgroundClip: 'text',
-        filter: 'drop-shadow(0 0 8px #666666) drop-shadow(3px 3px 6px rgba(0,0,0,0.8)) contrast(1.1)',
-        textShadow: '0 0 10px #666666, 3px 3px 6px rgba(0,0,0,0.8), -1px -1px 2px rgba(255,255,255,0.1)',
-        transform: 'perspective(600px) rotateX(5deg) skewX(-1deg)'
-      },
-      backgroundImage: 'linear-gradient(180deg, #cccccc, #888888, #444444, #222222)',
-      filter: 'drop-shadow(0 0 8px #666666)'
+        filter: 'drop-shadow(0 0 20px #666666) drop-shadow(0 0 40px rgba(51,51,51,0.8)) contrast(1.3) brightness(1.1)',
+        transform: 'perspective(900px) rotateX(10deg) rotateY(-2deg) skewX(-1deg) scale(1.02) translateZ(25px)',
+        transformStyle: 'preserve-3d'
+      }
     },
     
     romance: {
-      name: 'silk-pearl',
-      className: 'text-transparent bg-clip-text',
+      name: 'hollywood-romance',
+      className: 'hollywood-romance-text',
       style: {
-        background: `
-          linear-gradient(135deg, #ff6699 0%, #ff99cc 30%, #ffccdd 60%, #ffffff 90%, #ffe6f0 100%),
-          radial-gradient(circle at 30% 30%, rgba(255,255,255,0.6) 0%, transparent 30%),
-          radial-gradient(circle at 70% 70%, rgba(255,102,153,0.3) 0%, transparent 40%)
+        color: '#ffffff',
+        fontWeight: '800',
+        letterSpacing: '0.05em',
+        textShadow: `
+          0 0 5px #ff69b4,
+          0 0 10px #ff1493,
+          0 0 20px #ff69b4,
+          0 0 40px #ffb6c1,
+          1px 1px 0px #e91e63,
+          2px 2px 0px #c2185b,
+          3px 3px 0px #ad1457,
+          4px 4px 0px #880e4f,
+          5px 5px 0px #4a148c,
+          6px 6px 15px rgba(0,0,0,0.6),
+          -1px -1px 0px #ff8a95,
+          -2px -2px 0px #ffcdd2
         `,
-        backgroundClip: 'text',
-        WebkitBackgroundClip: 'text',
-        filter: 'drop-shadow(0 0 12px #ff6699) drop-shadow(0 0 24px rgba(255,153,204,0.5)) brightness(1.1)',
-        textShadow: '0 0 15px #ff6699, 0 0 30px rgba(255,153,204,0.8), 1px 1px 3px rgba(0,0,0,0.2)',
-        transform: 'perspective(500px) rotateX(3deg) rotateY(1deg)'
-      },
-      backgroundImage: 'linear-gradient(135deg, #ff6699, #ff99cc, #ffccdd, #ffffff, #ffe6f0)',
-      filter: 'drop-shadow(0 0 12px #ff6699)'
+        filter: 'drop-shadow(0 0 25px #ff69b4) drop-shadow(0 0 50px rgba(255,20,147,0.6)) brightness(1.2) saturate(1.2)',
+        transform: 'perspective(800px) rotateX(8deg) rotateY(-2deg) rotateZ(1deg) scale(1.03) translateZ(20px)',
+        transformStyle: 'preserve-3d'
+      }
     },
     
     documentary: {
@@ -250,34 +347,117 @@ export const getTextureEffect = (genre: string, effectType: '3d' | 'texture' | '
 
 export const TextureCSS = () => (
   <style jsx global>{`
-    /* Static texture effects - no animations */
+    /* Hollywood-style 3D text effects */
     .texture-text-container {
-      padding: 8px 12px;
-      margin: 4px 0;
+      padding: 0;
+      margin: 0;
       overflow: visible;
       display: inline-block;
       min-height: 1.5em;
-      line-height: 1.4;
+      line-height: 1.2;
+      transform-style: preserve-3d;
+      perspective: 1000px;
     }
     
     .texture-text-wrapper {
       display: inline-block;
-      padding: 4px 8px;
-      border-radius: 4px;
+      padding: 0;
+      border-radius: 0;
+      transform-style: preserve-3d;
+    }
+    
+    .cgi-metal-action-text {
+      font-family: 'Impact', 'Arial Black', sans-serif !important;
+      text-transform: uppercase;
+      transform-style: preserve-3d;
+      position: relative;
+    }
+    
+    .cgi-metal-action-text::before {
+      content: attr(data-text);
+      position: absolute;
+      top: 0;
+      left: 0;
+      z-index: -1;
+      background: linear-gradient(135deg, 
+        #2a2a2a 0%, 
+        #1a1a1a 20%, 
+        #0a0a0a 40%, 
+        #000000 60%, 
+        #1a1a1a 80%, 
+        #2a2a2a 100%
+      );
+      background-clip: text;
+      -webkit-background-clip: text;
+      color: transparent;
+      transform: translateZ(-5px) scale(1.02);
+      filter: blur(1px) opacity(0.8);
+    }
+    
+    .cgi-metal-action-text::after {
+      content: attr(data-text);
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      z-index: -2;
+      background: linear-gradient(135deg, 
+        #444444 0%, 
+        #333333 25%, 
+        #222222 50%, 
+        #111111 75%, 
+        #000000 100%
+      );
+      background-clip: text;
+      -webkit-background-clip: text;
+      color: transparent;
+      transform: translateZ(-10px) scale(1.04);
+      filter: blur(2px) opacity(0.6);
+    }
+    
+    .hollywood-romance-text {
+      font-family: 'Georgia', 'Times New Roman', serif !important;
+      font-style: italic;
+      transform-style: preserve-3d;
+    }
+    
+    .hollywood-scifi-text {
+      font-family: 'Orbitron', 'Courier New', monospace !important;
+      text-transform: uppercase;
+      transform-style: preserve-3d;
+    }
+    
+    .hollywood-thriller-text {
+      font-family: 'Arial Narrow', 'Arial', sans-serif !important;
+      text-transform: uppercase;
+      transform-style: preserve-3d;
+    }
+    
+    .hollywood-fantasy-text {
+      font-family: 'Cinzel', 'Times New Roman', serif !important;
+      transform-style: preserve-3d;
+    }
+    
+    .hollywood-comedy-text {
+      font-family: 'Comic Sans MS', 'Trebuchet MS', sans-serif !important;
+      transform-style: preserve-3d;
     }
     
     .single-word-3d {
-      transform: perspective(1000px) rotateX(15deg) rotateY(-5deg) rotateZ(2deg) scale(1.1);
+      transform: perspective(1200px) rotateX(20deg) rotateY(-6deg) rotateZ(3deg) scale(1.15) translateZ(40px);
       font-weight: 900;
       text-shadow: 
+        0 0 10px currentColor,
         0 0 20px currentColor,
-        2px 2px 0px rgba(0,0,0,0.8),
-        4px 4px 0px rgba(0,0,0,0.6),
-        6px 6px 0px rgba(0,0,0,0.4),
-        8px 8px 0px rgba(0,0,0,0.2),
-        10px 10px 20px rgba(0,0,0,0.8);
-      filter: drop-shadow(0 0 30px currentColor) contrast(1.2) saturate(1.3);
-      letter-spacing: 0.1em;
+        0 0 40px currentColor,
+        3px 3px 0px rgba(0,0,0,0.9),
+        6px 6px 0px rgba(0,0,0,0.8),
+        9px 9px 0px rgba(0,0,0,0.7),
+        12px 12px 0px rgba(0,0,0,0.6),
+        15px 15px 0px rgba(0,0,0,0.5),
+        18px 18px 30px rgba(0,0,0,0.9);
+      filter: drop-shadow(0 0 50px currentColor) contrast(1.4) saturate(1.5) brightness(1.2);
+      letter-spacing: 0.15em;
+      transform-style: preserve-3d;
     }
   `}</style>
 );
@@ -299,6 +479,7 @@ export const TextureEffects: React.FC<TextureEffectsProps> = ({
   isSingleWord = false
 }) => {
   const effect = getTextureEffect(genre, effectType);
+  const textContent = typeof children === 'string' ? children : '';
   
   return (
     <>
@@ -306,7 +487,13 @@ export const TextureEffects: React.FC<TextureEffectsProps> = ({
       <div className="texture-text-container">
         <span 
           className={`texture-text-wrapper ${effect.className} ${className} ${isSingleWord ? 'single-word-3d' : ''}`}
-          style={effect.style}
+          data-text={textContent}
+          style={{
+            ...effect.style,
+            WebkitFontSmoothing: 'antialiased',
+            MozOsxFontSmoothing: 'grayscale',
+            textRendering: 'optimizeLegibility'
+          }}
         >
           {children}
         </span>

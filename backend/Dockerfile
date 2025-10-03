@@ -29,8 +29,7 @@ ENV PATH="/opt/venv/bin:$PATH"
 
 # Copy and install Python dependencies first (better caching)
 COPY requirements.txt .
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy go mod files and download dependencies (better caching)
 COPY go.mod go.sum ./
@@ -46,7 +45,7 @@ COPY . .
 RUN mkdir -p thumbnails posters previews subtitles optimized logs
 
 # Make scripts executable
-RUN chmod +x /app/start-celery.sh
+RUN chmod +x /app/start-celery.sh /app/start_file_watcher.py
 
 # Create Air configuration for hot reloading
 RUN echo 'root = "." \n\
@@ -135,6 +134,7 @@ ENV PATH="/opt/venv/bin:$PATH"
 # Copy the binary and required files
 COPY --from=builder /app/main .
 COPY --from=builder /app/start-celery.sh .
+COPY --from=builder /app/start_file_watcher.py .
 COPY --from=builder /app/celery_app.py .
 COPY --from=builder /app/tasks ./tasks
 COPY --from=builder /app/requirements.txt .
@@ -144,7 +144,7 @@ RUN mkdir -p thumbnails posters previews subtitles optimized logs && \
     chmod 755 thumbnails posters previews subtitles optimized logs
 
 # Make scripts executable
-RUN chmod +x /app/start-celery.sh
+RUN chmod +x /app/start-celery.sh /app/start_file_watcher.py
 
 # Create non-root user for security
 RUN groupadd -r homeflix && useradd -r -g homeflix homeflix && \

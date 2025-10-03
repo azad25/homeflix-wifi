@@ -1,27 +1,68 @@
 /** @type {import('next').NextConfig} */
+
+// Determine the backend URL based on the environment
+const isDocker = process.env.DOCKER_ENV === 'true';
+const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 
+  (isDocker ? 'http://backend:8251' : 'http://localhost:8251');
+
+console.log(`Using backend URL: ${backendUrl}`);
+
 const nextConfig = {
-  experimental: {
-    turbo: {
-      rules: {
-        '*.svg': {
-          loaders: ['@svgr/webpack'],
-          as: '*.js',
-        },
+  output: 'standalone',
+  // Move turbopack to the new config format
+  turbopack: {
+    rules: {
+      '*.svg': {
+        loaders: ['@svgr/webpack'],
+        as: '*.js',
       },
     },
   },
-  // Allow cross-origin requests from network devices
-  allowedDevOrigins: [
-    'http://192.168.0.109:3000',
-    'https://192.168.0.109:3000',
-    '192.168.0.109:3000',
-    '192.168.0.109',
-    '192.168.0.0/16',
-    '10.0.0.0/8',
-    '172.16.0.0/12',
-    'localhost',
-    '127.0.0.1',
-  ],
+  // Disable the old experimental.turbo
+  experimental: {
+    serverActions: true,
+  },
+  // Configure API proxy
+  async rewrites() {
+    console.log('Next.js rewrites configured with backend URL:', backendUrl);
+    return [
+      {
+        source: '/api/:path*',
+        destination: `${backendUrl}/api/:path*`,
+      },
+    ];
+  },
+  // Configure CORS headers
+  async headers() {
+    return [
+      {
+        source: '/api/:path*',
+        headers: [
+          { key: 'Access-Control-Allow-Credentials', value: 'true' },
+          { key: 'Access-Control-Allow-Origin', value: '*' },
+          { key: 'Access-Control-Allow-Methods', value: 'GET,OPTIONS,PATCH,DELETE,POST,PUT' },
+          { key: 'Access-Control-Allow-Headers', value: 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version' },
+        ],
+      },
+      {
+        source: '/(.*)',
+        headers: [
+          {
+            key: 'Access-Control-Allow-Origin',
+            value: '*',
+          },
+          {
+            key: 'Access-Control-Allow-Methods',
+            value: 'GET, POST, PUT, DELETE, OPTIONS',
+          },
+          {
+            key: 'Access-Control-Allow-Headers',
+            value: 'Content-Type, Authorization',
+          },
+        ],
+      },
+    ];
+  },
   images: {
     remotePatterns: [
       {
@@ -73,36 +114,6 @@ const nextConfig = {
         pathname: '/api/posters/**',
       },
     ],
-  },
-  async rewrites() {
-    return [
-      {
-        source: '/api/:path*',
-        destination: 'http://backend:8251/api/:path*',
-      },
-    ];
-  },
-  // Additional headers for CORS
-  async headers() {
-    return [
-      {
-        source: '/(.*)',
-        headers: [
-          {
-            key: 'Access-Control-Allow-Origin',
-            value: '*',
-          },
-          {
-            key: 'Access-Control-Allow-Methods',
-            value: 'GET, POST, PUT, DELETE, OPTIONS',
-          },
-          {
-            key: 'Access-Control-Allow-Headers',
-            value: 'Content-Type, Authorization',
-          },
-        ],
-      },
-    ];
   },
 };
 

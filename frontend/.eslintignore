@@ -1,0 +1,97 @@
+# Build outputs
+.next/
+build/
+out/
+dist/
+
+# Dependencies
+node_modules/
+
+# Test files
+**/*.test.ts
+**/*.test.tsx
+**/__tests__/
+
+# Config files
+*.config.js
+*.config.ts
+
+# Auto-generated files
+**/generated/*
+
+# Debug logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment files
+.env*.local
+
+# IDE specific files
+.vscode/
+.idea/
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.swp
+*~
+
+# Build artifacts
+.next/
+out/
+build/
+
+# TypeScript declaration files
+**/*.d.ts
+
+# Ignore all .json files except specific ones
+*.json
+!package.json
+!tsconfig.json
+!next-env.d.ts
+
+# Ignore auto-generated files
+**/generated/*
+
+# Ignore test and mock files
+**/__mocks__/*
+**/__fixtures__/*
+
+# Ignore coverage directory
+coverage/
+
+# Ignore cypress test files
+cypress/
+
+# Ignore storybook files
+.storybook/
+
+# Ignore vercel build output
+.vercel/
+
+# Ignore turbo cache
+.turbo/
+
+# Ignore next.js cache
+.next/cache/
+
+# Ignore generated types
+types/generated/
+
+# Ignore generated API client
+src/lib/graphql/generated/
+
+# Ignore auto-imports.d.ts
+src/auto-imports.d.ts
+
+# Ignore components.d.ts
+components.d.ts

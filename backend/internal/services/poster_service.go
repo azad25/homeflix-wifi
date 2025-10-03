@@ -131,15 +131,6 @@ func (s *PosterService) extractTitleAndYear(filename string) (string, string) {
 	return title, year
 }
 
-// generatePlaceholderURL generates a placeholder poster URL
-func (s *PosterService) generatePlaceholderURL(title string) string {
-	// Clean the title for URL generation
-	cleanQuery := strings.ToLower(title)
-	cleanQuery = strings.ReplaceAll(cleanQuery, " ", "+")
-	
-	// Generate a nice looking placeholder poster
-	return fmt.Sprintf("https://via.placeholder.com/500x750/1a1a1a/ffffff?text=%s", cleanQuery)
-}
 
 // cleanTitleForSearch removes unwanted characters and formats title for search
 func (s *PosterService) cleanTitleForSearch(title string) string {

@@ -1,25 +1,21 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { Filter, Film } from "lucide-react";
+import { Search, Filter, Film, Grid3X3 } from "lucide-react";
 import { useRouter } from 'next/navigation';
 import { Media } from "../../types/media";
 import VideoPlayer from "../../components/VideoPlayer";
 import Navbar from "../../components/Navbar";
-import RecentlyWatched from "../../components/RecentlyWatched";
-import { getApiUrl } from "../../lib/api";
+import { getApiUrl, apiCall, API_ENDPOINTS } from "../../lib/api";
+import ErrorBoundary from "../../components/ErrorBoundary";
 import { 
-  NetflixHorizontalRow, 
-  ScrollXHero, 
-  ParallaxSection, 
-  GradientBackground, 
   ScrollReveal, 
   MagneticButton,
-  FloatingElement
+  FloatingElement,
+  GradientBackground
 } from '@/components/scrollx';
-import { useRecommendations } from '@/contexts/RecommendationContext';
-import RecommendedContent from '@/components/RecommendedContent';
-import ContinueWatching from '@/components/ContinueWatching';
+import NetflixPortraitGrid from '@/components/NetflixPortraitGrid';
+import GenreSidebar from '@/components/GenreSidebar';
 
 interface Genre {
   id: number;
@@ -29,10 +25,9 @@ interface Genre {
 
 export default function BrowsePage() {
   const router = useRouter();
-  const { refreshRecommendations, trackClick, getRecommendationsByCategory } = useRecommendations();
   const [allMedia, setAllMedia] = useState<Media[]>([]);
   const [filteredMedia, setFilteredMedia] = useState<Media[]>([]);
-  const [featuredMedia, setFeaturedMedia] = useState<Media[]>([]);
+  const [randomMedia, setRandomMedia] = useState<Media[]>([]);
   const [genres, setGenres] = useState<Genre[]>([]);
   const [selectedGenre, setSelectedGenre] = useState<string>("all");
   const [sortBy, setSortBy] = useState<string>("recent");
@@ -40,7 +35,7 @@ export default function BrowsePage() {
   const [selectedMedia, setSelectedMedia] = useState<Media | null>(null);
   const [isPlayerOpen, setIsPlayerOpen] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [recommendationCategories, setRecommendationCategories] = useState<any>(null);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   useEffect(() => {
     fetchData();
@@ -48,43 +43,36 @@ export default function BrowsePage() {
 
   useEffect(() => {
     filterAndSortMedia();
-  }, [allMedia, selectedGenre, sortBy, searchQuery]);
+  }, [allMedia, randomMedia, selectedGenre, sortBy, searchQuery]);
 
   const fetchData = async () => {
     try {
-      const apiUrl = getApiUrl();
+      // Fetch all media with retry logic
+      const mediaData = await apiCall(API_ENDPOINTS.media);
       
-      // Fetch all media
-      const mediaResponse = await fetch(`${apiUrl}/api/media`);
-      const mediaData = await mediaResponse.json();
-      
-      // Fetch genres
-      const genresResponse = await fetch(`${apiUrl}/api/genres`);
-      const genresData = await genresResponse.json();
+      // Fetch genres with retry logic
+      const genresData = await apiCall(API_ENDPOINTS.genres);
       
       setAllMedia(mediaData);
       setGenres(genresData);
       
-      // Set featured media (top 5 highest rated)
-      const featured = [...mediaData]
-        .sort((a, b) => (b.rating || 0) - (a.rating || 0))
-        .slice(0, 5);
-      setFeaturedMedia(featured);
-      
-      // Initialize recommendations
-      refreshRecommendations(mediaData);
-      const categories = getRecommendationsByCategory();
-      setRecommendationCategories(categories);
+      // Set random media for initial display
+      const shuffled = [...mediaData].sort(() => Math.random() - 0.5);
+      setRandomMedia(shuffled);
       
       setLoading(false);
     } catch (error) {
       console.error("Error fetching data:", error);
       setLoading(false);
+      // Set empty arrays to prevent crashes
+      setAllMedia([]);
+      setGenres([]);
+      setRandomMedia([]);
     }
   };
 
   const filterAndSortMedia = () => {
-    let filtered = [...allMedia];
+    let filtered = searchQuery || selectedGenre !== "all" ? [...allMedia] : [...randomMedia];
 
     // Filter by search query
     if (searchQuery) {
@@ -118,6 +106,9 @@ export default function BrowsePage() {
       case "title":
         filtered.sort((a, b) => a.title.localeCompare(b.title));
         break;
+      case "random":
+        filtered = filtered.sort(() => Math.random() - 0.5);
+        break;
     }
 
     setFilteredMedia(filtered);
@@ -136,27 +127,14 @@ export default function BrowsePage() {
     setSearchQuery(query);
   };
 
-  const groupedByGenre = () => {
-    const grouped: { [key: string]: Media[] } = {};
-    
-    filteredMedia.forEach(media => {
-      if (media.genres && media.genres.length > 0) {
-        media.genres.forEach(genre => {
-          if (!grouped[genre.name]) {
-            grouped[genre.name] = [];
-          }
-          grouped[genre.name].push(media);
-        });
-      } else {
-        if (!grouped["Uncategorized"]) {
-          grouped["Uncategorized"] = [];
-        }
-        grouped["Uncategorized"].push(media);
-      }
-    });
-    
-    return grouped;
+  const handleGenreSelect = (genre: string) => {
+    setSelectedGenre(genre);
   };
+
+  const toggleSidebar = () => {
+    setIsSidebarOpen(!isSidebarOpen);
+  };
+
 
   if (loading) {
     return (
@@ -167,216 +145,127 @@ export default function BrowsePage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-red-900/20 via-black to-black text-white">
-      <Navbar onSearch={handleSearch} />
+    <GradientBackground variant="netflix" className="min-h-screen">
+      <div className="min-h-screen text-white flex relative z-10">
+      {/* Genre Sidebar */}
+      <GenreSidebar
+        genres={genres}
+        selectedGenre={selectedGenre}
+        onGenreSelect={handleGenreSelect}
+        isOpen={isSidebarOpen}
+        onToggle={toggleSidebar}
+        className="hidden lg:block"
+      />
 
-      {/* Hero Section */}
-      {featuredMedia.length > 0 && (
-        <ScrollXHero
-          featuredMedia={featuredMedia}
-          onPlay={handlePlay}
-          onInfo={handleInfo}
-        />
-      )}
+      {/* Mobile Sidebar */}
+      <GenreSidebar
+        genres={genres}
+        selectedGenre={selectedGenre}
+        onGenreSelect={handleGenreSelect}
+        isOpen={isSidebarOpen}
+        onToggle={toggleSidebar}
+        className="lg:hidden"
+      />
 
-      {/* Main Content with Parallax Background */}
-      <div className="relative bg-gradient-to-b from-red-900/20 via-black to-black">
-        <div className="relative z-10 py-20">
-          {/* Search and Filter Controls */}
-          <ParallaxSection speed={0.2}>
-            <ScrollReveal direction="up" delay={0.1}>
-              <div className="px-4 md:px-8 lg:px-16 mb-12">
-                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
-                  <div>
-                    <h1 className="text-4xl md:text-6xl font-bold text-white mb-4 tracking-wider">
-                      B R O W S E   C O L L E C T I O N
-                    </h1>
-                    <p className="text-gray-300 text-lg">
-                      Discover your next favorite from {allMedia.length} titles
-                    </p>
-                  </div>
-                  
-                  {/* Filter Controls */}
-                  <div className="flex flex-wrap gap-4">
-                    {/* Genre Filter */}
-                    <div className="relative">
-                      <select
-                        value={selectedGenre}
-                        onChange={(e) => setSelectedGenre(e.target.value)}
-                        className="bg-black/50 backdrop-blur-md border border-white/20 text-white px-4 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
-                      >
-                        <option value="all">All Genres</option>
-                        {genres.map(genre => (
-                          <option key={genre.id} value={genre.name}>
-                            {genre.name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
+      {/* Main Content */}
+      <div className="flex-1 min-h-screen">
+        <Navbar onSearch={handleSearch} />
 
-                    {/* Sort Filter */}
-                    <div className="relative">
-                      <select
-                        value={sortBy}
-                        onChange={(e) => setSortBy(e.target.value)}
-                        className="bg-black/50 backdrop-blur-md border border-white/20 text-white px-4 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
-                      >
-                        <option value="recent">Recently Added</option>
-                        <option value="popular">Most Popular</option>
-                        <option value="rating">Highest Rated</option>
-                        <option value="title">A-Z</option>
-                      </select>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Results Count */}
-                <div className="mt-6">
-                  <p className="text-gray-400">
-                    Showing {filteredMedia.length} {filteredMedia.length === 1 ? 'title' : 'titles'}
+        {/* Header Section */}
+        <div className="pt-20 pb-8">
+          <ScrollReveal direction="up" delay={0.1}>
+            <div className="px-4 md:px-8 lg:px-16">
+              <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6 mb-8">
+                <div>
+                  <h1 className="text-3xl md:text-5xl font-bold text-white mb-4 flex items-center gap-4">
+                    <Grid3X3 className="w-8 h-8 md:w-12 md:h-12 text-red-500" />
+                    Browse Collection
+                  </h1>
+                  <p className="text-gray-300 text-lg">
+                    Discover from {allMedia.length} titles
                     {selectedGenre !== "all" && ` in ${selectedGenre}`}
                     {searchQuery && ` matching "${searchQuery}"`}
                   </p>
                 </div>
-              </div>
-            </ScrollReveal>
-          </ParallaxSection>
-
-          {/* Continue Watching */}
-          <ParallaxSection speed={0.3}>
-            <ScrollReveal direction="up" delay={0.2}>
-              <ContinueWatching
-                onPlay={handlePlay}
-                onInfo={handleInfo}
-              />
-            </ScrollReveal>
-          </ParallaxSection>
-
-          {/* Recently Watched */}
-          <ParallaxSection speed={0.3}>
-            <ScrollReveal direction="up" delay={0.25}>
-              <RecentlyWatched
-                onPlay={handlePlay}
-                onInfo={handleInfo}
-              />
-            </ScrollReveal>
-          </ParallaxSection>
-
-          {/* Personalized Recommendations */}
-          {recommendationCategories && (
-            <>
-              {/* For You */}
-              {recommendationCategories.for_you.length > 0 && (
-                <ParallaxSection speed={0.35}>
-                  <ScrollReveal direction="up" delay={0.3}>
-                    <NetflixHorizontalRow
-                      title="Recommended For You"
-                      media={recommendationCategories.for_you.map((rec: any) => rec.media)}
-                      onPlay={handlePlay}
-                      onInfo={handleInfo}
-                      variant="portrait"
-                      size="medium"
-                    />
-                  </ScrollReveal>
-                </ParallaxSection>
-              )}
-
-              {/* Trending Now */}
-              {recommendationCategories.trending.length > 0 && (
-                <ParallaxSection speed={0.4}>
-                  <ScrollReveal direction="up" delay={0.35}>
-                    <NetflixHorizontalRow
-                      title="Trending Now"
-                      media={recommendationCategories.trending.map((rec: any) => rec.media)}
-                      onPlay={handlePlay}
-                      onInfo={handleInfo}
-                      variant="landscape"
-                      size="large"
-                    />
-                  </ScrollReveal>
-                </ParallaxSection>
-              )}
-
-              {/* Because You Watched */}
-              {recommendationCategories.because_you_watched.length > 0 && (
-                <ParallaxSection speed={0.45}>
-                  <ScrollReveal direction="up" delay={0.4}>
-                    <NetflixHorizontalRow
-                      title="Because You Watched Similar Content"
-                      media={recommendationCategories.because_you_watched.map((rec: any) => rec.media)}
-                      onPlay={handlePlay}
-                      onInfo={handleInfo}
-                      variant="portrait"
-                      size="medium"
-                    />
-                  </ScrollReveal>
-                </ParallaxSection>
-              )}
-
-              {/* New Releases */}
-              {recommendationCategories.new_releases.length > 0 && (
-                <ParallaxSection speed={0.5}>
-                  <ScrollReveal direction="up" delay={0.45}>
-                    <NetflixHorizontalRow
-                      title="New Releases"
-                      media={recommendationCategories.new_releases.map((rec: any) => rec.media)}
-                      onPlay={handlePlay}
-                      onInfo={handleInfo}
-                      variant="portrait"
-                      size="medium"
-                    />
-                  </ScrollReveal>
-                </ParallaxSection>
-              )}
-            </>
-          )}
-
-          {/* Content by Genre */}
-          <div className="space-y-8">
-            {Object.entries(groupedByGenre()).map(([genreName, genreMedia], index) => (
-              <ParallaxSection key={genreName} speed={0.4 + index * 0.1}>
-                <ScrollReveal direction="up" delay={0.5 + index * 0.1}>
-                  <NetflixHorizontalRow
-                    title={genreName}
-                    media={genreMedia}
-                    onPlay={handlePlay}
-                    onInfo={handleInfo}
-                    variant="portrait"
-                    size="medium"
+                
+                {/* Search Bar */}
+                <div className="relative w-full lg:w-96">
+                  <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+                  <input
+                    type="text"
+                    placeholder="Search movies and shows..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full bg-gray-900/80 backdrop-blur-md text-white pl-12 pr-4 py-3 rounded-xl border border-gray-700 focus:border-red-500 focus:outline-none text-sm"
                   />
-                </ScrollReveal>
-              </ParallaxSection>
-            ))}
-          </div>
+                </div>
+              </div>
 
-          {/* No Results */}
-          {filteredMedia.length === 0 && (
-            <ParallaxSection speed={0.5}>
-              <ScrollReveal direction="up" delay={0.4}>
-                <div className="text-center py-16 px-4">
+              {/* Sort Controls */}
+              <div className="flex flex-wrap gap-4 mb-6">
+                <select
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value)}
+                  className="bg-gray-900/80 backdrop-blur-md border border-gray-700 text-white px-4 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 text-sm"
+                >
+                  <option value="recent">Recently Added</option>
+                  <option value="popular">Most Popular</option>
+                  <option value="rating">Highest Rated</option>
+                  <option value="title">A-Z</option>
+                  <option value="random">Random</option>
+                </select>
+                
+                <div className="text-gray-400 text-sm flex items-center">
+                  Showing {filteredMedia.length} {filteredMedia.length === 1 ? 'title' : 'titles'}
+                </div>
+              </div>
+            </div>
+          </ScrollReveal>
+        </div>
+
+        {/* Content Grid */}
+        <div className="pb-20">
+          <ErrorBoundary
+            showRetry={true}
+            retryText="Reload Content"
+            onError={(error) => console.error('Browse page error:', error)}
+          >
+            {filteredMedia.length > 0 ? (
+              <NetflixPortraitGrid
+                media={filteredMedia}
+                onPlay={handlePlay}
+                onInfo={handleInfo}
+                loading={loading}
+                itemsPerRow={6}
+                showTitle={false}
+              />
+            ) : (
+              <ScrollReveal direction="up" delay={0.2}>
+                <div className="text-center py-20 px-4">
                   <FloatingElement>
-                    <Film className="w-16 h-16 text-gray-600 mx-auto mb-4" />
+                    <Film className="w-20 h-20 text-gray-600 mx-auto mb-6" />
                   </FloatingElement>
-                  <h3 className="text-2xl text-white mb-4">No content found</h3>
-                  <p className="text-gray-400 mb-8">
+                  <h3 className="text-3xl text-white mb-4">No content found</h3>
+                  <p className="text-gray-400 mb-8 max-w-md mx-auto">
                     {searchQuery 
-                      ? `No results for "${searchQuery}". Try a different search term.`
-                      : "Try adjusting your filters to see more content."
+                      ? `No results for "${searchQuery}". Try a different search term or browse by genre.`
+                      : "Try selecting a different genre or adjusting your search."
                     }
                   </p>
                   <MagneticButton
                     onClick={() => {
                       setSearchQuery("");
                       setSelectedGenre("all");
+                      setSortBy("random");
                     }}
-                    className="bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-lg font-semibold"
+                    className="bg-red-600 hover:bg-red-700 text-white px-8 py-3 rounded-lg font-semibold"
                   >
-                    Clear Filters
+                    Show All Content
                   </MagneticButton>
                 </div>
               </ScrollReveal>
-            </ParallaxSection>
-          )}
+            )}
+          </ErrorBoundary>
         </div>
       </div>
 
@@ -389,6 +278,7 @@ export default function BrowsePage() {
           startTime={0}
         />
       )}
-    </div>
+      </div>
+    </GradientBackground>
   );
 }

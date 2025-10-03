@@ -6,18 +6,15 @@ import { useRouter } from 'next/navigation';
 import { Media } from "../../types/media";
 import VideoPlayer from "../../components/VideoPlayer";
 import Navbar from "../../components/Navbar";
-import { getApiUrl } from "../../lib/api";
+import { getApiUrl, apiCall, API_ENDPOINTS } from "../../lib/api";
+import ErrorBoundary from "../../components/ErrorBoundary";
 import { 
-  NetflixHorizontalRow, 
-  ScrollXHero,
-  ParallaxSection, 
-  GradientBackground, 
   ScrollReveal, 
   MagneticButton,
-  FloatingElement
+  FloatingElement,
+  GradientBackground
 } from '@/components/scrollx';
-import { useRecommendations } from '@/contexts/RecommendationContext';
-import RecommendedContent from '@/components/RecommendedContent';
+import NetflixPortraitGrid from '@/components/NetflixPortraitGrid';
 
 interface SearchFilters {
   type: string;
@@ -29,11 +26,9 @@ interface SearchFilters {
 
 export default function SearchPage() {
   const router = useRouter();
-  const { refreshRecommendations } = useRecommendations();
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<Media[]>([]);
   const [allGenres, setAllGenres] = useState<string[]>([]);
-  const [featuredMedia, setFeaturedMedia] = useState<Media[]>([]);
   const [allMedia, setAllMedia] = useState<Media[]>([]);
   const [filters, setFilters] = useState<SearchFilters>({
     type: "all",
@@ -68,10 +63,7 @@ export default function SearchPage() {
 
   const fetchGenres = async () => {
     try {
-      const apiUrl = getApiUrl();
-      
-      const response = await fetch(`${apiUrl}/api/media`);
-      const allMedia = await response.json();
+      const allMedia = await apiCall(API_ENDPOINTS.media);
       
       const genres = new Set<string>();
       allMedia.forEach((media: Media) => {
@@ -81,27 +73,17 @@ export default function SearchPage() {
       setAllGenres(Array.from(genres).sort());
     } catch (error) {
       console.error("Error fetching genres:", error);
+      setAllGenres([]);
     }
   };
 
   const performSearch = async () => {
     setLoading(true);
     try {
-      const apiUrl = getApiUrl();
+      // Fetch all media with retry logic
+      const allMedia = await apiCall(API_ENDPOINTS.media);
       
-      // Fetch all media and perform client-side filtering
-      const response = await fetch(`${apiUrl}/api/media`);
-      const allMedia = await response.json();
-      
-      // Initialize recommendations and featured content
-      refreshRecommendations(allMedia);
       setAllMedia(allMedia);
-      
-      // Set featured media for hero section (top rated content)
-      const featured = [...allMedia]
-        .sort((a: Media, b: Media) => (b.rating || 0) - (a.rating || 0))
-        .slice(0, 5);
-      setFeaturedMedia(featured);
       
       let results = [...allMedia];
       
@@ -157,6 +139,7 @@ export default function SearchPage() {
     } catch (error) {
       console.error("Error performing search:", error);
       setSearchResults([]);
+      setAllMedia([]);
     } finally {
       setLoading(false);
     }
@@ -195,242 +178,207 @@ export default function SearchPage() {
   const activeFiltersCount = Object.values(filters).filter(value => value !== "all" && value !== "relevance").length;
 
   return (
-    <div className="min-h-screen bg-black">
+    <GradientBackground variant="netflix" className="min-h-screen">
+      <div className="min-h-screen text-white relative z-10">
       <Navbar onSearch={(query) => setSearchQuery(query)} />
 
-      {/* ScrollX Hero Section */}
-      {featuredMedia.length > 0 && !hasSearched && (
-        <ScrollXHero
-          featuredMedia={featuredMedia}
-          onPlay={handlePlay}
-          onInfo={handleInfo}
-          pageType="search"
-        />
-      )}
-
-      {/* Main Content with Parallax Background */}
-      <div className="relative bg-gradient-to-b from-red-900/20 via-black to-black">
-        <div className="relative z-10 py-20">
-          {/* Search Header */}
-          <ParallaxSection speed={0.2}>
-            <ScrollReveal direction="up" delay={0.1}>
-              <div className="px-4 md:px-8 lg:px-16 mb-12">
-                <div className="text-center mb-8">
-                  <h1 className="text-4xl md:text-6xl font-bold text-white mb-6 flex items-center justify-center gap-4 tracking-wider">
-                    <FloatingElement>
-                      <Search className="w-12 h-12" />
-                    </FloatingElement>
-                    S E A R C H   L I B R A R Y
-                  </h1>
-                  
-                  {/* Search Bar */}
-                  <div className="relative max-w-3xl mx-auto">
-                    <Search className="absolute left-6 top-1/2 transform -translate-y-1/2 text-gray-400 w-6 h-6" />
-                    <input
-                      type="text"
-                      placeholder="Search for movies, TV shows, genres..."
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      className="w-full bg-black/50 backdrop-blur-md text-white pl-16 pr-6 py-6 rounded-2xl border border-white/20 focus:border-red-500 focus:outline-none text-xl placeholder-gray-400"
-                    />
-                  </div>
-                </div>
-
-                {/* Filter Controls */}
-                <div className="flex flex-wrap justify-center gap-4 mb-8">
-                  <MagneticButton
-                    onClick={() => setShowFilters(!showFilters)}
-                    className={`px-6 py-3 rounded-lg font-semibold transition-all ${
-                      showFilters 
-                        ? 'bg-red-600 hover:bg-red-700 text-white' 
-                        : 'bg-black/50 backdrop-blur-md border border-white/20 text-white hover:bg-white/10'
-                    }`}
-                  >
-                    <Filter className="w-4 h-4 mr-2" />
-                    Filters
-                    {activeFiltersCount > 0 && (
-                      <span className="ml-2 bg-red-600 text-white rounded-full px-2 py-1 text-xs">
-                        {activeFiltersCount}
-                      </span>
-                    )}
-                  </MagneticButton>
-                  
-                  {activeFiltersCount > 0 && (
-                    <MagneticButton
-                      onClick={clearFilters}
-                      className="px-6 py-3 rounded-lg font-semibold bg-gray-600 hover:bg-gray-700 text-white"
-                    >
-                      <X className="w-4 h-4 mr-2" />
-                      Clear Filters
-                    </MagneticButton>
-                  )}
-                </div>
-
-                {/* Advanced Filters */}
-                {showFilters && (
-                  <ScrollReveal direction="up" delay={0.2}>
-                    <div className="bg-black/50 backdrop-blur-md p-8 rounded-2xl border border-white/20 max-w-4xl mx-auto">
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                        {/* Type Filter */}
-                        <div>
-                          <label className="block text-sm font-medium text-gray-300 mb-3">Content Type</label>
-                          <select
-                            value={filters.type}
-                            onChange={(e) => setFilters(prev => ({ ...prev, type: e.target.value }))}
-                            className="w-full bg-black/50 backdrop-blur-md border border-white/20 text-white px-4 py-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
-                          >
-                            <option value="all">All Types</option>
-                            <option value="movie">Movies</option>
-                            <option value="episode">TV Shows</option>
-                          </select>
-                        </div>
-
-                        {/* Genre Filter */}
-                        <div>
-                          <label className="block text-sm font-medium text-gray-300 mb-3">Genre</label>
-                          <select
-                            value={filters.genre}
-                            onChange={(e) => setFilters(prev => ({ ...prev, genre: e.target.value }))}
-                            className="w-full bg-black/50 backdrop-blur-md border border-white/20 text-white px-4 py-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
-                          >
-                            <option value="all">All Genres</option>
-                            {allGenres.map(genre => (
-                              <option key={genre} value={genre}>{genre}</option>
-                            ))}
-                          </select>
-                        </div>
-
-                        {/* Rating Filter */}
-                        <div>
-                          <label className="block text-sm font-medium text-gray-300 mb-3">Min Rating</label>
-                          <select
-                            value={filters.rating}
-                            onChange={(e) => setFilters(prev => ({ ...prev, rating: e.target.value }))}
-                            className="w-full bg-black/50 backdrop-blur-md border border-white/20 text-white px-4 py-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
-                          >
-                            <option value="all">Any Rating</option>
-                            <option value="7">7+ Stars</option>
-                            <option value="8">8+ Stars</option>
-                            <option value="9">9+ Stars</option>
-                          </select>
-                        </div>
-
-                        {/* Year Filter */}
-                        <div>
-                          <label className="block text-sm font-medium text-gray-300 mb-3">Release Year</label>
-                          <select
-                            value={filters.year}
-                            onChange={(e) => setFilters(prev => ({ ...prev, year: e.target.value }))}
-                            className="w-full bg-black/50 backdrop-blur-md border border-white/20 text-white px-4 py-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
-                          >
-                            <option value="all">Any Year</option>
-                            <option value="2024">2024</option>
-                            <option value="2023">2023</option>
-                            <option value="2022">2022</option>
-                            <option value="2021">2021</option>
-                            <option value="2020">2020</option>
-                          </select>
-                        </div>
-
-                        {/* Sort Filter */}
-                        <div>
-                          <label className="block text-sm font-medium text-gray-300 mb-3">Sort By</label>
-                          <select
-                            value={filters.sortBy}
-                            onChange={(e) => setFilters(prev => ({ ...prev, sortBy: e.target.value }))}
-                            className="w-full bg-black/50 backdrop-blur-md border border-white/20 text-white px-4 py-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
-                          >
-                            <option value="relevance">Relevance</option>
-                            <option value="title">Title A-Z</option>
-                            <option value="rating">Highest Rated</option>
-                            <option value="year">Newest First</option>
-                            <option value="popular">Most Popular</option>
-                          </select>
-                        </div>
-                      </div>
-                    </div>
-                  </ScrollReveal>
-                )}
+      {/* Header Section */}
+      <div className="pt-20 pb-8">
+        <ScrollReveal direction="up" delay={0.1}>
+          <div className="px-4 md:px-8 lg:px-16">
+            <div className="text-center mb-8">
+              <h1 className="text-4xl md:text-6xl font-bold text-white mb-6 flex items-center justify-center gap-4">
+                <FloatingElement>
+                  <Search className="w-12 h-12 text-red-500" />
+                </FloatingElement>
+                Search Library
+              </h1>
+              
+              {/* Search Bar */}
+              <div className="relative max-w-3xl mx-auto mb-8">
+                <Search className="absolute left-6 top-1/2 transform -translate-y-1/2 text-gray-400 w-6 h-6" />
+                <input
+                  type="text"
+                  placeholder="Search for movies, TV shows, genres..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full bg-gray-900/80 backdrop-blur-md text-white pl-16 pr-6 py-6 rounded-2xl border border-gray-700 focus:border-red-500 focus:outline-none text-xl placeholder-gray-400"
+                />
               </div>
-            </ScrollReveal>
-          </ParallaxSection>
+            </div>
 
-          {/* Results Section */}
-          <ParallaxSection speed={0.3}>
-            <div className="px-4 md:px-8 lg:px-16">
-              {loading ? (
-                <ScrollReveal direction="up" delay={0.2}>
-                  <div className="text-center py-16">
-                    <FloatingElement>
-                      <Search className="w-16 h-16 text-gray-400 mx-auto mb-4 animate-pulse" />
-                    </FloatingElement>
-                    <div className="text-white text-2xl">Searching...</div>
-                  </div>
-                </ScrollReveal>
-              ) : hasSearched ? (
-                <div>
-                  {/* Results Header */}
-                  <ScrollReveal direction="up" delay={0.2}>
-                    <div className="mb-8 text-center">
-                      <p className="text-gray-300 text-lg">
-                        {searchResults.length} result{searchResults.length !== 1 ? 's' : ''} 
-                        {searchQuery && ` for "${searchQuery}"`}
-                      </p>
-                    </div>
-                  </ScrollReveal>
-
-                  {/* Results Display */}
-                  {searchResults.length > 0 ? (
-                    <ScrollReveal direction="up" delay={0.3}>
-                      <NetflixHorizontalRow
-                        title="Search Results"
-                        media={searchResults}
-                        onPlay={handlePlay}
-                        onInfo={handleInfo}
-                        variant="portrait"
-                        size="medium"
-                        priority={true}
-                      />
-                    </ScrollReveal>
-                  ) : (
-                    <ScrollReveal direction="up" delay={0.3}>
-                      <div className="text-center py-16">
-                        <FloatingElement>
-                          <Search className="w-16 h-16 text-gray-600 mx-auto mb-4" />
-                        </FloatingElement>
-                        <h3 className="text-2xl text-white mb-4">No results found</h3>
-                        <p className="text-gray-400 mb-8">
-                          {searchQuery 
-                            ? `No results for "${searchQuery}". Try different search terms or adjust your filters.`
-                            : "Try adjusting your search terms or filters"
-                          }
-                        </p>
-                        <MagneticButton
-                          onClick={clearFilters}
-                          className="bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-lg font-semibold"
-                        >
-                          Clear Filters
-                        </MagneticButton>
-                      </div>
-                    </ScrollReveal>
-                  )}
-                </div>
-              ) : (
-                <ScrollReveal direction="up" delay={0.2}>
-                  <div className="text-center py-16">
-                    <FloatingElement>
-                      <Search className="w-20 h-20 text-gray-600 mx-auto mb-6" />
-                    </FloatingElement>
-                    <h3 className="text-3xl text-white mb-4">Search Your Library</h3>
-                    <p className="text-gray-400 text-lg max-w-md mx-auto">
-                      Enter a search term above to discover movies and TV shows in your collection
-                    </p>
-                  </div>
-                </ScrollReveal>
+            {/* Filter Controls */}
+            <div className="flex flex-wrap justify-center gap-4 mb-8">
+              <MagneticButton
+                onClick={() => setShowFilters(!showFilters)}
+                className={`px-6 py-3 rounded-lg font-semibold transition-all ${
+                  showFilters 
+                    ? 'bg-red-600 hover:bg-red-700 text-white' 
+                    : 'bg-gray-900/80 backdrop-blur-md border border-gray-700 text-white hover:bg-gray-800'
+                }`}
+              >
+                <Filter className="w-4 h-4 mr-2" />
+                Filters
+                {activeFiltersCount > 0 && (
+                  <span className="ml-2 bg-red-600 text-white rounded-full px-2 py-1 text-xs">
+                    {activeFiltersCount}
+                  </span>
+                )}
+              </MagneticButton>
+              
+              {activeFiltersCount > 0 && (
+                <MagneticButton
+                  onClick={clearFilters}
+                  className="px-6 py-3 rounded-lg font-semibold bg-gray-600 hover:bg-gray-700 text-white"
+                >
+                  <X className="w-4 h-4 mr-2" />
+                  Clear Filters
+                </MagneticButton>
               )}
             </div>
-          </ParallaxSection>
-        </div>
+
+            {/* Advanced Filters */}
+            {showFilters && (
+              <ScrollReveal direction="up" delay={0.2}>
+                <div className="bg-gray-900/80 backdrop-blur-md p-8 rounded-2xl border border-gray-700 max-w-4xl mx-auto mb-8">
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {/* Type Filter */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-300 mb-3">Content Type</label>
+                      <select
+                        value={filters.type}
+                        onChange={(e) => setFilters(prev => ({ ...prev, type: e.target.value }))}
+                        className="w-full bg-gray-800 border border-gray-600 text-white px-4 py-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
+                      >
+                        <option value="all">All Types</option>
+                        <option value="movie">Movies</option>
+                        <option value="episode">TV Shows</option>
+                      </select>
+                    </div>
+
+                    {/* Genre Filter */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-300 mb-3">Genre</label>
+                      <select
+                        value={filters.genre}
+                        onChange={(e) => setFilters(prev => ({ ...prev, genre: e.target.value }))}
+                        className="w-full bg-gray-800 border border-gray-600 text-white px-4 py-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
+                      >
+                        <option value="all">All Genres</option>
+                        {allGenres.map(genre => (
+                          <option key={genre} value={genre}>{genre}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Rating Filter */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-300 mb-3">Min Rating</label>
+                      <select
+                        value={filters.rating}
+                        onChange={(e) => setFilters(prev => ({ ...prev, rating: e.target.value }))}
+                        className="w-full bg-gray-800 border border-gray-600 text-white px-4 py-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
+                      >
+                        <option value="all">Any Rating</option>
+                        <option value="7">7+ Stars</option>
+                        <option value="8">8+ Stars</option>
+                        <option value="9">9+ Stars</option>
+                      </select>
+                    </div>
+
+                    {/* Sort Filter */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-300 mb-3">Sort By</label>
+                      <select
+                        value={filters.sortBy}
+                        onChange={(e) => setFilters(prev => ({ ...prev, sortBy: e.target.value }))}
+                        className="w-full bg-gray-800 border border-gray-600 text-white px-4 py-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
+                      >
+                        <option value="relevance">Relevance</option>
+                        <option value="title">Title A-Z</option>
+                        <option value="rating">Highest Rated</option>
+                        <option value="year">Newest First</option>
+                        <option value="popular">Most Popular</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+              </ScrollReveal>
+            )}
+
+            {/* Results Count */}
+            {hasSearched && (
+              <div className="text-center mb-8">
+                <p className="text-gray-300 text-lg">
+                  {searchResults.length} result{searchResults.length !== 1 ? 's' : ''} 
+                  {searchQuery && ` for "${searchQuery}"`}
+                </p>
+              </div>
+            )}
+          </div>
+        </ScrollReveal>
+      </div>
+
+      {/* Results Section */}
+      <div className="pb-20">
+        <ErrorBoundary
+          showRetry={true}
+          retryText="Retry Search"
+          onError={(error) => console.error('Search page error:', error)}
+        >
+          {loading ? (
+            <div className="text-center py-16">
+              <FloatingElement>
+                <Search className="w-16 h-16 text-gray-400 mx-auto mb-4 animate-pulse" />
+              </FloatingElement>
+              <div className="text-white text-2xl">Searching...</div>
+            </div>
+          ) : hasSearched ? (
+            searchResults.length > 0 ? (
+              <NetflixPortraitGrid
+                media={searchResults}
+                onPlay={handlePlay}
+                onInfo={handleInfo}
+                loading={loading}
+                itemsPerRow={6}
+                showTitle={false}
+              />
+            ) : (
+              <ScrollReveal direction="up" delay={0.3}>
+                <div className="text-center py-20 px-4">
+                  <FloatingElement>
+                    <Search className="w-20 h-20 text-gray-600 mx-auto mb-6" />
+                  </FloatingElement>
+                  <h3 className="text-3xl text-white mb-4">No results found</h3>
+                  <p className="text-gray-400 mb-8 max-w-md mx-auto">
+                    {searchQuery 
+                      ? `No results for "${searchQuery}". Try different search terms or adjust your filters.`
+                      : "Try adjusting your search terms or filters"
+                    }
+                  </p>
+                  <MagneticButton
+                    onClick={clearFilters}
+                    className="bg-red-600 hover:bg-red-700 text-white px-8 py-3 rounded-lg font-semibold"
+                  >
+                    Clear Filters
+                  </MagneticButton>
+                </div>
+              </ScrollReveal>
+            )
+          ) : (
+            <ScrollReveal direction="up" delay={0.2}>
+              <div className="text-center py-20 px-4">
+                <FloatingElement>
+                  <Search className="w-24 h-24 text-gray-600 mx-auto mb-8" />
+                </FloatingElement>
+                <h3 className="text-4xl text-white mb-6">Search Your Library</h3>
+                <p className="text-gray-400 text-xl max-w-lg mx-auto">
+                  Enter a search term above to discover movies and TV shows in your collection
+                </p>
+              </div>
+            </ScrollReveal>
+          )}
+        </ErrorBoundary>
       </div>
 
       {/* Video Player Modal */}
@@ -442,6 +390,7 @@ export default function SearchPage() {
           startTime={0}
         />
       )}
-    </div>
+      </div>
+    </GradientBackground>
   );
 }
