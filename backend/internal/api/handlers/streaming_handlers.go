@@ -5,8 +5,9 @@ import (
 	"os"
 	"strconv"
 
-	"github.com/gin-gonic/gin"
 	"homeflix-backend/internal/services"
+
+	"github.com/gin-gonic/gin"
 )
 
 // Streaming Handlers

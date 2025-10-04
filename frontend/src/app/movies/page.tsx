@@ -26,6 +26,13 @@ export default function MoviesPage() {
 
   useEffect(() => {
     fetchMoviesData();
+    
+    // Set up auto-refresh every 5 minutes for recommendations
+    const interval = setInterval(() => {
+      fetchMoviesData();
+    }, 5 * 60 * 1000); // 5 minutes in milliseconds
+    
+    return () => clearInterval(interval);
   }, []);
 
   const fetchMoviesData = async () => {

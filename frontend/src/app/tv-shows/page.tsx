@@ -35,17 +35,23 @@ export default function TVShowsPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetchTVShowsData();
+    fetchData();
+    
+    // Set up auto-refresh every 5 minutes for recommendations
+    const interval = setInterval(() => {
+      fetchData();
+    }, 5 * 60 * 1000); // 5 minutes in milliseconds
+    
+    return () => clearInterval(interval);
   }, []);
 
-  const fetchTVShowsData = async () => {
+  const fetchData = async () => {
     try {
       const apiUrl = getApiUrl();
       
-      // Fetch all media
-      const mediaResponse = await fetch(`${apiUrl}/api/media`);
-      const allMedia = await mediaResponse.json();
-      const episodes = allMedia.filter((item: Media) => item.type === "episode");
+      // Fetch TV shows specifically
+      const tvShowsResponse = await fetch(`${apiUrl}/api/media/tv-shows`);
+      const episodes = await tvShowsResponse.json();
       
       // Set featured episodes for hero section
       const sortedEpisodes = episodes.sort((a: Media, b: Media) => (b.rating || 0) - (a.rating || 0));

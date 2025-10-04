@@ -12,9 +12,27 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		// Media endpoints
 		api.GET("/media", handlers.GetAllMedia(mediaService))
 		api.GET("/media/:id", handlers.GetMediaByID(mediaService))
+		api.GET("/media/movies", handlers.GetMovies(mediaService))
+		api.GET("/media/tv-shows", handlers.GetTVShows(mediaService))
 		api.GET("/movies", handlers.GetMovies(mediaService))
 		api.GET("/genre/:genre", handlers.GetMediaByGenre(mediaService))
 		api.GET("/search", handlers.SearchMedia(mediaService))
+		api.GET("/media/search", handlers.SearchMedia(mediaService))
+		api.GET("/search/advanced", handlers.SearchMediaAdvanced(mediaService))
+		api.GET("/media/trending", handlers.GetTrendingMedia(mediaService))
+		api.GET("/trending", handlers.GetTrendingMedia(mediaService))
+		api.GET("/media/popular", handlers.GetPopularMedia(mediaService))
+		api.GET("/popular", handlers.GetPopularMedia(mediaService))
+		api.GET("/media/recent", handlers.GetRecentMedia(mediaService))
+		api.GET("/recent", handlers.GetRecentMedia(mediaService))
+		
+		// Genre endpoints
+		api.GET("/genres", handlers.GetAllGenres(mediaService))
+		api.GET("/genres/:id", handlers.GetGenreByID(mediaService))
+		api.POST("/genres", handlers.CreateGenre(mediaService))
+		api.PUT("/genres/:id", handlers.UpdateGenre(mediaService))
+		api.DELETE("/genres/:id", handlers.DeleteGenre(mediaService))
+		api.GET("/genres/stats", handlers.GetGenreStats(mediaService))
 		
 		// Initialize handlers
 		celeryHandlers := handlers.NewCeleryHandlers(celeryService)

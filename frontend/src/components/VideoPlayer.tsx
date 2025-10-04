@@ -4,8 +4,7 @@ import React, { useRef, useEffect, useState, useCallback } from "react";
 import { Play, Pause, Volume2, VolumeX, Maximize, RotateCcw, RotateCw, X, Minimize, Subtitles } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { getApiUrl } from '@/lib/api';
-import { useEnhancedAudio } from '../contexts/EnhancedAudioContext';
-import AudioQualityIndicator from './AudioQualityIndicator';
+
 import { updatePlaybackProgress, getPlaybackProgress, trackView } from '@/lib/playback';
 import NextEpisodePreview from './NextEpisodePreview';
 import { Media } from '@/types/media';
@@ -23,20 +22,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
   const containerRef = useRef<HTMLDivElement>(null);
   const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   
-  // Enhanced audio integration
-  const { 
-    alacEngine, 
-    spatialProcessor, 
-    isALACEnabled, 
-    spatialAudioEnabled, 
-    dolbyAtmosEnabled,
-    audioQuality,
-    getMasterVolume,
-    setMasterVolume,
-    initializeEnhancedAudio,
-    toggleSpatialAudio,
-    toggleDolbyAtmos
-  } = useEnhancedAudio();
+
   
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -212,21 +198,30 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
     const video = videoRef.current;
     const progressBar = e.currentTarget;
     if (!video || !progressBar) return;
+    
+    setIsDragging(true);
     const rect = progressBar.getBoundingClientRect();
     const clickX = e.clientX - rect.left;
     const width = rect.width;
     const percentage = Math.max(0, Math.min(1, clickX / width));
     const newTime = percentage * duration;
+    
     video.currentTime = newTime;
     setCurrentTime(newTime);
+    
+    // Reset dragging state after seeking
+    setTimeout(() => setIsDragging(false), 100);
   };
 
   const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
     const video = videoRef.current;
     if (!video) return;
+    setIsDragging(true);
     const newTime = (parseFloat(e.target.value) / 100) * duration;
     video.currentTime = newTime;
     setCurrentTime(newTime);
+    // Reset dragging state after a short delay
+    setTimeout(() => setIsDragging(false), 100);
   };
 
   const formatTime = (time: number) => {
@@ -281,12 +276,30 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
     if (!video) return;
 
     const handleLoadedMetadata = () => {
+      console.log('Video metadata loaded, duration:', video.duration);
       setDuration(video.duration);
       // Set start time if provided
       if (startTime > 0) {
         video.currentTime = startTime;
         setCurrentTime(startTime);
       }
+    };
+
+    const handleLoadedData = () => {
+      console.log('Video data loaded successfully');
+      // Ensure video is ready to play
+      if (video.readyState >= 2) {
+        video.volume = volume;
+        video.muted = isMuted;
+      }
+    };
+
+    const handleCanPlay = () => {
+      console.log('Video can play');
+      // Auto-play when ready
+      video.play().catch(error => {
+        console.log('Auto-play failed:', error);
+      });
     };
 
     const handleTimeUpdate = () => {
@@ -300,37 +313,74 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
     };
 
     const handlePlay = () => {
+      console.log('Video started playing');
       setIsPlaying(true);
       // Track view when playback starts
       trackView(media.id);
     };
     
     const handlePause = () => {
+      console.log('Video paused');
       setIsPlaying(false);
       // Update progress when paused
       updatePlaybackProgress(media.id, video.currentTime, video.duration);
     };
     
     const handleEnded = () => {
+      console.log('Video ended');
       setIsPlaying(false);
       // Mark as completed when ended
       updatePlaybackProgress(media.id, video.duration, video.duration);
+      
+      // Show next episode if available
+      if (nextEpisode) {
+        setShowNextEpisode(true);
+      }
+    };
+
+    const handleError = (e: Event) => {
+      console.error('Video error:', e);
+      const error = (e.target as HTMLVideoElement).error;
+      if (error) {
+        console.error('Video error details:', {
+          code: error.code,
+          message: error.message
+        });
+      }
+    };
+
+    const handleWaiting = () => {
+      console.log('Video is buffering...');
+    };
+
+    const handleCanPlayThrough = () => {
+      console.log('Video can play through without buffering');
     };
 
     video.addEventListener('loadedmetadata', handleLoadedMetadata);
+    video.addEventListener('loadeddata', handleLoadedData);
+    video.addEventListener('canplay', handleCanPlay);
     video.addEventListener('timeupdate', handleTimeUpdate);
     video.addEventListener('play', handlePlay);
     video.addEventListener('pause', handlePause);
     video.addEventListener('ended', handleEnded);
+    video.addEventListener('error', handleError);
+    video.addEventListener('waiting', handleWaiting);
+    video.addEventListener('canplaythrough', handleCanPlayThrough);
 
     return () => {
       video.removeEventListener('loadedmetadata', handleLoadedMetadata);
+      video.removeEventListener('loadeddata', handleLoadedData);
+      video.removeEventListener('canplay', handleCanPlay);
       video.removeEventListener('timeupdate', handleTimeUpdate);
       video.removeEventListener('play', handlePlay);
       video.removeEventListener('pause', handlePause);
       video.removeEventListener('ended', handleEnded);
+      video.removeEventListener('error', handleError);
+      video.removeEventListener('waiting', handleWaiting);
+      video.removeEventListener('canplaythrough', handleCanPlayThrough);
     };
-  }, [isDragging, media.id, startTime]);
+  }, [isDragging, media.id, startTime, volume, isMuted, nextEpisode]);
 
   // Keyboard event listener
   useEffect(() => {
@@ -381,7 +431,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
         {/* Video */}
         <video
           ref={videoRef}
-          src={getStreamUrl(media.id)}
           className="w-full h-full object-contain bg-black"
           onPlay={() => setIsPlaying(true)}
           autoPlay
@@ -395,9 +444,53 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
           }}
           onLoadStart={() => console.log('Video loading started')}
           onCanPlay={() => console.log('Video can play')}
-          preload="metadata"
+          onLoadedData={() => {
+            console.log('Video loaded successfully');
+            const video = videoRef.current;
+            if (video) {
+              // Ensure video is properly initialized
+              video.volume = volume;
+              video.muted = isMuted;
+              if (startTime > 0) {
+                video.currentTime = startTime;
+              }
+            }
+          }}
+          preload="auto"
           muted={false}
-        />
+          crossOrigin="anonymous"
+        >
+          {/* Primary video source with better codec specification */}
+          <source src={`${getStreamUrl(media.id)}?quality=high`} type="video/mp4; codecs=&quot;avc1.42E01E, mp4a.40.2&quot;" />
+          <source src={getStreamUrl(media.id)} type="video/mp4" />
+          <source src={`${getStreamUrl(media.id)}?format=webm`} type="video/webm; codecs=&quot;vp9, vorbis&quot;" />
+          <source src={`${getStreamUrl(media.id)}?format=mov`} type="video/quicktime" />
+          
+          {/* Subtitles */}
+          {availableSubtitles.map((subtitle, index) => (
+            <track
+              key={index}
+              kind="subtitles"
+              src={subtitle.url}
+              srcLang={subtitle.language.toLowerCase()}
+              label={subtitle.language}
+              default={index === 0 && subtitlesEnabled}
+            />
+          ))}
+          
+          {/* Fallback message */}
+          <p className="text-white text-center p-8">
+            Your browser does not support the video tag or this video format.
+            <br />
+            <a 
+              href={getStreamUrl(media.id)} 
+              download={media.title}
+              className="text-blue-400 hover:text-blue-300 underline"
+            >
+              Download the video file
+            </a>
+          </p>
+        </video>
 
 
         {/* Controls Overlay */}
@@ -473,28 +566,54 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                   <div 
                     className="relative w-full h-1 bg-white/30 rounded-lg cursor-pointer group-hover:h-2 transition-all duration-200"
                     onClick={handleProgressClick}
+                    onMouseDown={(e) => {
+                      setIsDragging(true);
+                      handleProgressClick(e);
+                    }}
+                    onMouseUp={() => setIsDragging(false)}
                   >
                     {/* Progress Fill */}
                     <div 
-                      className="absolute top-0 left-0 h-full bg-red-600 rounded-lg transition-all duration-200"
+                      className="absolute top-0 left-0 h-full bg-red-600 rounded-lg transition-all duration-200 pointer-events-none"
                       style={{ width: `${duration > 0 ? (currentTime / duration) * 100 : 0}%` }}
                     />
                     
                     {/* Progress Handle */}
                     <div 
-                      className="absolute top-1/2 transform -translate-y-1/2 w-3 h-3 bg-red-600 rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-200"
+                      className="absolute top-1/2 transform -translate-y-1/2 -translate-x-1/2 w-3 h-3 bg-red-600 rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none"
                       style={{ left: `${duration > 0 ? (currentTime / duration) * 100 : 0}%` }}
                     />
                     
-                    {/* Hidden Range Input for Accessibility and Dragging */}
+                    {/* Hidden Range Input for Better Dragging */}
                     <input
                       type="range"
                       min="0"
                       max="100"
                       value={duration > 0 ? (currentTime / duration) * 100 : 0}
                       onChange={handleSeek}
-                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                      onMouseDown={() => setIsDragging(true)}
+                      onMouseUp={() => setIsDragging(false)}
+                      onTouchStart={() => setIsDragging(true)}
+                      onTouchEnd={() => setIsDragging(false)}
+                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                      style={{
+                        background: 'transparent',
+                        WebkitAppearance: 'none',
+                        appearance: 'none'
+                      }}
                     />
+                  </div>
+                  
+                  {/* Time tooltip on hover */}
+                  <div className="relative">
+                    <div className="absolute bottom-2 left-0 right-0 pointer-events-none">
+                      <div 
+                        className="absolute bg-black/80 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200 transform -translate-x-1/2"
+                        style={{ left: `${duration > 0 ? (currentTime / duration) * 100 : 0}%` }}
+                      >
+                        {formatTime(currentTime)}
+                      </div>
+                    </div>
                   </div>
                 </div>
 
@@ -533,7 +652,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                       </button>
                     </div>
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-4">
                       <button
                         onClick={toggleMute}
                         className="text-white hover:text-white/70 transition-colors"
@@ -545,6 +664,42 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                           <Volume2 className="w-6 h-6" />
                         )}
                       </button>
+
+                      {/* Volume Slider */}
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="range"
+                          min="0"
+                          max="100"
+                          value={isMuted ? 0 : volume * 100}
+                          onChange={handleVolumeChange}
+                          className="w-20 h-1 bg-white/30 rounded-lg appearance-none cursor-pointer"
+                          style={{
+                            background: `linear-gradient(to right, #ef4444 0%, #ef4444 ${isMuted ? 0 : volume * 100}%, rgba(255,255,255,0.3) ${isMuted ? 0 : volume * 100}%, rgba(255,255,255,0.3) 100%)`,
+                            WebkitAppearance: 'none',
+                            appearance: 'none'
+                          }}
+                        />
+                        <style jsx>{`
+                          input[type="range"]::-webkit-slider-thumb {
+                            appearance: none;
+                            width: 12px;
+                            height: 12px;
+                            border-radius: 50%;
+                            background: #ef4444;
+                            cursor: pointer;
+                            border: none;
+                          }
+                          input[type="range"]::-moz-range-thumb {
+                            width: 12px;
+                            height: 12px;
+                            border-radius: 50%;
+                            background: #ef4444;
+                            cursor: pointer;
+                            border: none;
+                          }
+                        `}</style>
+                      </div>
 
                       <button
                         onClick={toggleSubtitles}
@@ -563,9 +718,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                   </div>
 
                   <div className="flex items-center gap-4">
-                    {/* Audio Quality Indicator */}
-                    <AudioQualityIndicator />
-                    
                     <button
                       onClick={toggleFullscreen}
                       className="text-white hover:text-white/70 transition-colors"

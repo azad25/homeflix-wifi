@@ -93,23 +93,65 @@ func (s *MediaService) CreateSubtitle(subtitle *models.Subtitle) error {
 func (s *MediaService) SearchMedia(query string) ([]models.Media, error) {
 	var media []models.Media
 	
-	// Enhanced search with multiple fields and better ranking
-	err := s.db.Preload("Genres").Preload("Series").Preload("Subtitles").
-		Where("title ILIKE ? OR description ILIKE ?", "%"+query+"%", "%"+query+"%").
-		Or("EXISTS (SELECT 1 FROM media_genres mg JOIN genres g ON mg.genre_id = g.id WHERE mg.media_id = media.id AND g.name ILIKE ?)", "%"+query+"%").
-		Order("CASE WHEN title ILIKE '" + query + "%' THEN 1 WHEN description ILIKE '%" + query + "%' THEN 2 ELSE 3 END, view_count DESC").
-		Find(&media).Error
+	// Enhanced search with multiple fields and better ranking (SQL injection safe)
+	searchPattern := "%" + query + "%"
+	titlePattern := query + "%"
+	
+	// Build the query step by step to avoid parameter binding issues
+	dbQuery := s.db.Preload("Genres").Preload("Series").Preload("Subtitles")
+	
+	// Add search conditions
+	dbQuery = dbQuery.Where("title ILIKE ? OR description ILIKE ? OR EXISTS (SELECT 1 FROM media_genres mg JOIN genres g ON mg.genre_id = g.id WHERE mg.media_id = media.id AND g.name ILIKE ?)", searchPattern, searchPattern, searchPattern)
+	
+	// Add ordering with title preference
+	dbQuery = dbQuery.Order("CASE WHEN title ILIKE '" + titlePattern + "' THEN 1 WHEN description ILIKE '" + searchPattern + "' THEN 2 ELSE 3 END, view_count DESC, rating DESC")
+	
+	err := dbQuery.Find(&media).Error
+	
+	// Add fallback thumbnail paths for search results
+	for i := range media {
+		s.ensureThumbnailFallback(&media[i])
+	}
 	
 	return media, err
 }
 
-func (s *MediaService) GetMediaByGenre(genreName string) ([]models.Media, error) {
+func (s *MediaService) GetMediaByGenre(genreName string, page int, limit int) ([]models.Media, error) {
 	var media []models.Media
+	offset := (page - 1) * limit
+	
 	err := s.db.Preload("Genres").Preload("Series").Preload("Subtitles").
 		Joins("JOIN media_genres ON media.id = media_genres.media_id").
 		Joins("JOIN genres ON media_genres.genre_id = genres.id").
-		Where("genres.name = ?", genreName).
+		Where("genres.name ILIKE ?", genreName).
+		Order("view_count DESC, rating DESC").
+		Offset(offset).Limit(limit).
 		Find(&media).Error
+	
+	// Add fallback thumbnail paths
+	for i := range media {
+		s.ensureThumbnailFallback(&media[i])
+	}
+	
+	return media, err
+}
+
+// GetMediaByGenreSimple returns all media for a genre without pagination
+func (s *MediaService) GetMediaByGenreSimple(genreName string) ([]models.Media, error) {
+	var media []models.Media
+	
+	err := s.db.Preload("Genres").Preload("Series").Preload("Subtitles").
+		Joins("JOIN media_genres ON media.id = media_genres.media_id").
+		Joins("JOIN genres ON media_genres.genre_id = genres.id").
+		Where("genres.name ILIKE ?", genreName).
+		Order("view_count DESC, rating DESC").
+		Find(&media).Error
+	
+	// Add fallback thumbnail paths
+	for i := range media {
+		s.ensureThumbnailFallback(&media[i])
+	}
+	
 	return media, err
 }
 
@@ -117,6 +159,78 @@ func (s *MediaService) GetAllGenres() ([]models.Genre, error) {
 	var genres []models.Genre
 	err := s.db.Find(&genres).Error
 	return genres, err
+}
+
+func (s *MediaService) GetGenreByID(id uint) (*models.Genre, error) {
+	var genre models.Genre
+	err := s.db.First(&genre, id).Error
+	return &genre, err
+}
+
+func (s *MediaService) CreateGenre(name, description string) (*models.Genre, error) {
+	genre := &models.Genre{
+		Name:        name,
+		Description: description,
+	}
+	err := s.db.Create(genre).Error
+	return genre, err
+}
+
+func (s *MediaService) UpdateGenre(id uint, name, description string) (*models.Genre, error) {
+	var genre models.Genre
+	if err := s.db.First(&genre, id).Error; err != nil {
+		return nil, err
+	}
+	
+	if name != "" {
+		genre.Name = name
+	}
+	if description != "" {
+		genre.Description = description
+	}
+	
+	err := s.db.Save(&genre).Error
+	return &genre, err
+}
+
+func (s *MediaService) DeleteGenre(id uint) error {
+	// First remove associations with media
+	if err := s.db.Exec("DELETE FROM media_genres WHERE genre_id = ?", id).Error; err != nil {
+		return err
+	}
+	
+	// Then delete the genre
+	return s.db.Delete(&models.Genre{}, id).Error
+}
+
+func (s *MediaService) GetGenreStats() (map[string]interface{}, error) {
+	var stats []struct {
+		GenreName  string `json:"genre_name"`
+		MediaCount int    `json:"media_count"`
+	}
+	
+	err := s.db.Table("genres").
+		Select("genres.name as genre_name, COUNT(media_genres.media_id) as media_count").
+		Joins("LEFT JOIN media_genres ON genres.id = media_genres.genre_id").
+		Group("genres.id, genres.name").
+		Order("media_count DESC").
+		Scan(&stats).Error
+	
+	if err != nil {
+		return nil, err
+	}
+	
+	var totalGenres int64
+	s.db.Model(&models.Genre{}).Count(&totalGenres)
+	
+	var totalMedia int64
+	s.db.Model(&models.Media{}).Count(&totalMedia)
+	
+	return map[string]interface{}{
+		"total_genres": totalGenres,
+		"total_media":  totalMedia,
+		"genre_stats":  stats,
+	}, nil
 }
 
 func (s *MediaService) UpdateMediaViewCount(id uint) error {
@@ -347,6 +461,25 @@ func (s *MediaService) UpdateAllMediaGenres() error {
 	// This would typically involve analyzing media files and updating genres
 	// For now, return nil as a placeholder
 	return nil
+}
+
+// GetTrendingMedia returns trending media based on recent activity and ratings
+func (s *MediaService) GetTrendingMedia(limit int) ([]models.Media, error) {
+	var media []models.Media
+	
+	// Get trending media based on view count and rating with recent bias
+	err := s.db.Preload("Genres").Preload("Series").Preload("Subtitles").
+		Where("view_count > 0 OR rating > 0").
+		Order("(view_count * 0.7 + COALESCE(rating, 0) * 30) DESC, created_at DESC").
+		Limit(limit).
+		Find(&media).Error
+	
+	// Add fallback thumbnail paths
+	for i := range media {
+		s.ensureThumbnailFallback(&media[i])
+	}
+	
+	return media, err
 }
 
 // GetSubtitles returns subtitles for a media item

@@ -264,6 +264,26 @@ func (s *OptimizedStreamService) getContentType(filePath string) string {
 		return "video/x-flv"
 	case ".m4v":
 		return "video/x-m4v"
+	case ".mpg", ".mpeg":
+		return "video/mpeg"
+	case ".3gp":
+		return "video/3gpp"
+	case ".ogv":
+		return "video/ogg"
+	case ".ts":
+		return "video/mp2t"
+	case ".mts", ".m2ts":
+		return "video/mp2t"
+	case ".vob":
+		return "video/dvd"
+	case ".asf":
+		return "video/x-ms-asf"
+	case ".rm", ".rmvb":
+		return "video/x-pn-realvideo"
+	case ".divx":
+		return "video/divx"
+	case ".xvid":
+		return "video/x-msvideo"
 	default:
 		return "video/mp4" // Default fallback
 	}

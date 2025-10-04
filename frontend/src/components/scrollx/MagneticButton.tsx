@@ -3,12 +3,11 @@
 import React, { useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 
-interface MagneticButtonProps {
+interface MagneticButtonProps extends Omit<React.ButtonHTMLAttributes<HTMLButtonElement>,
+  'onAnimationStart' | 'onAnimationEnd' | 'onDrag' | 'onDragEnd' | 'onDragStart' | 'onDragEnter' | 'onDragExit' | 'onDragLeave' | 'onDragOver' | 'onDrop'> {
   children: React.ReactNode;
   className?: string;
   strength?: number;
-  disabled?: boolean;
-  onClick?: () => void;
 }
 
 export const MagneticButton: React.FC<MagneticButtonProps> = ({
@@ -16,7 +15,8 @@ export const MagneticButton: React.FC<MagneticButtonProps> = ({
   className = '',
   strength = 0.4,
   disabled = false,
-  onClick
+  onClick,
+  ...props
 }) => {
   const ref = useRef<HTMLButtonElement>(null);
   const [position, setPosition] = useState({ x: 0, y: 0 });
@@ -26,10 +26,10 @@ export const MagneticButton: React.FC<MagneticButtonProps> = ({
 
     const { clientX, clientY } = e;
     const { width, height, left, top } = ref.current.getBoundingClientRect();
-    
+
     const x = (clientX - (left + width / 2)) * strength;
     const y = (clientY - (top + height / 2)) * strength;
-    
+
     setPosition({ x, y });
   };
 
@@ -49,6 +49,7 @@ export const MagneticButton: React.FC<MagneticButtonProps> = ({
       transition={{ type: "spring", stiffness: 150, damping: 15, mass: 0.1 }}
       whileHover={{ scale: 1.05 }}
       whileTap={{ scale: 0.95 }}
+      {...props}
     >
       {children}
     </motion.button>

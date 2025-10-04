@@ -12,13 +12,18 @@ interface ScrollXHeroProps {
   featuredMedia: Media[];
   onPlay: (media: Media) => void;
   onInfo: (media: Media) => void;
+  refreshInterval?: number; // Optional refresh interval in milliseconds
+  enableRecommendations?: boolean; // Enable recommendation-based updates
 }
 
 const ScrollXHero: React.FC<ScrollXHeroProps> = ({
-  featuredMedia,
+  featuredMedia: initialFeaturedMedia,
   onPlay,
   onInfo,
+  refreshInterval = 300000, // Default 5 minutes
+  enableRecommendations = true,
 }) => {
+  const [featuredMedia, setFeaturedMedia] = useState<Media[]>(initialFeaturedMedia);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isAutoPlaying, setIsAutoPlaying] = useState(true);
   const [isMuted, setIsMuted] = useState(false); // Always start with ALAC audio enabled
@@ -28,6 +33,8 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
   const [isPlayButtonLoading, setIsPlayButtonLoading] = useState(false);
   const [isInfoButtonLoading, setIsInfoButtonLoading] = useState(false);
   const [isMouseOver, setIsMouseOver] = useState(false);
+  const [cycleCount, setCycleCount] = useState(0);
+  const [isLoadingNewContent, setIsLoadingNewContent] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -49,6 +56,57 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
   const opacity = useTransform(scrollYProgress, [0, 0.5], [1, 0]);
 
   const currentMedia = featuredMedia[currentIndex] || featuredMedia[0];
+
+  // Fetch recommended/trending media for hero slides
+  const fetchRecommendedMedia = async (cycleNumber: number = 0) => {
+    setIsLoadingNewContent(true);
+    try {
+      // Vary the content based on cycle count for diversity
+      const endpoints = [
+        `${getApiUrl()}/api/recommendations/trending?limit=10`,
+        `${getApiUrl()}/api/media?sort=rating&limit=8`,
+        `${getApiUrl()}/api/media?sort=view_count&limit=8`,
+        `${getApiUrl()}/api/media?sort=created_at&limit=8`,
+        `${getApiUrl()}/api/recommendations/popular?limit=10`
+      ];
+      
+      const endpointIndex = cycleNumber % endpoints.length;
+      const response = await fetch(endpoints[endpointIndex]);
+      
+      if (response.ok) {
+        const newMedia = await response.json();
+        if (newMedia && newMedia.length > 0) {
+          // Filter out media that was in the previous cycle to ensure fresh content
+          const filteredMedia = newMedia.filter((media: Media) => 
+            !featuredMedia.some(existing => existing.id === media.id)
+          );
+          
+          if (filteredMedia.length > 0) {
+            // Mix new content with some fresh picks
+            const mixedMedia = [
+              ...filteredMedia.slice(0, 6), // New content
+              ...initialFeaturedMedia.slice(0, 2) // Keep some original variety
+            ];
+            setFeaturedMedia(mixedMedia);
+            console.log(`Hero slides updated with fresh content (cycle ${cycleNumber + 1})`);
+          } else {
+            // If no new content, shuffle existing content
+            const shuffledMedia = [...featuredMedia].sort(() => 0.5 - Math.random());
+            setFeaturedMedia(shuffledMedia);
+            console.log('Hero slides shuffled for variety');
+          }
+        }
+      }
+    } catch (error) {
+      console.warn('Failed to fetch recommended media for hero:', error);
+      // Fallback to shuffling existing content
+      const shuffledMedia = [...featuredMedia].sort(() => 0.5 - Math.random());
+      setFeaturedMedia(shuffledMedia);
+      console.log('Hero slides shuffled as fallback');
+    } finally {
+      setIsLoadingNewContent(false);
+    }
+  };
 
   const handlePlay = async () => {
     setIsPlayButtonLoading(true);
@@ -102,7 +160,20 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
 
   const nextSlide = () => {
     if (featuredMedia.length > 1) {
-      setCurrentIndex((prev) => (prev + 1) % featuredMedia.length);
+      const nextIndex = (currentIndex + 1) % featuredMedia.length;
+      setCurrentIndex(nextIndex);
+      
+      // Check if we've completed a full cycle
+      if (nextIndex === 0 && currentIndex === featuredMedia.length - 1) {
+        const newCycleCount = cycleCount + 1;
+        setCycleCount(newCycleCount);
+        console.log(`Completed cycle ${newCycleCount}, loading fresh content...`);
+        
+        // Load new content after completing a cycle
+        setTimeout(() => {
+          fetchRecommendedMedia(newCycleCount);
+        }, 2000); // Small delay to let the transition complete
+      }
     }
   };
 
@@ -152,6 +223,35 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
     return 'PG';
   };
 
+  // Extract year from filename or title
+  const extractYearFromMedia = () => {
+    //try to extract year from object first
+    if(currentMedia.year){
+      return currentMedia.year;
+    } else if(currentMedia.release_date){
+      return new Date(currentMedia.release_date).getFullYear().toString();
+    }
+
+    // Try to extract year from filename first
+    if (currentMedia.file_path) {
+      const yearMatch = currentMedia.file_path.match(/\b(19|20)\d{2}\b/);
+      if (yearMatch) return yearMatch[0];
+    }
+    
+    // Try to extract year from title
+    if (currentMedia.title) {
+      const yearMatch = currentMedia.title.match(/\b(19|20)\d{2}\b/);
+      if (yearMatch) return yearMatch[0];
+    }
+    
+    // Fallback to release_date if available
+    if (currentMedia.release_date) {
+      return new Date(currentMedia.release_date).getFullYear().toString();
+    }
+    
+    return null;
+  };
+
   const formatDuration = (seconds: number) => {
     const hours = Math.floor(seconds / 3600);
     const minutes = Math.floor((seconds % 3600) / 60);
@@ -199,6 +299,14 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
     setTimeout(() => setIsAutoPlaying(true), 5000);
   };
 
+  // Function to manually trigger content refresh
+  const refreshContent = () => {
+    const newCycleCount = cycleCount + 1;
+    setCycleCount(newCycleCount);
+    fetchRecommendedMedia(newCycleCount);
+    setCurrentIndex(0); // Reset to first slide
+  };
+
   // Auto-slide functionality with enhanced timing
   useEffect(() => {
     if (!isAutoPlaying || featuredMedia.length <= 1) return;
@@ -212,6 +320,43 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
 
     return () => clearInterval(interval);
   }, [isAutoPlaying, featuredMedia.length, currentIndex, isVideoLoaded, isPlaying]);
+
+  // Recommendation-based hero slide updates
+  useEffect(() => {
+    if (!enableRecommendations) return;
+
+    // Initial fetch after component mounts
+    const initialDelay = setTimeout(() => {
+      fetchRecommendedMedia(0);
+    }, 5000); // Wait 5 seconds after mount
+
+    // Set up periodic refresh as backup (longer interval since cycle-based refresh is primary)
+    const refreshTimer = setInterval(() => {
+      refreshContent();
+    }, refreshInterval * 2); // Double the interval since we have cycle-based refresh
+
+    return () => {
+      clearTimeout(initialDelay);
+      clearInterval(refreshTimer);
+    };
+  }, [enableRecommendations, refreshInterval]);
+
+  // Reset video states when featured media changes
+  useEffect(() => {
+    if (featuredMedia.length > 0) {
+      setIsVideoLoaded(false);
+      setIsPlaying(false);
+      // Reset to first slide when content changes
+      if (isLoadingNewContent) {
+        setCurrentIndex(0);
+      }
+    }
+  }, [featuredMedia, isLoadingNewContent]);
+
+  // Update featured media when initialFeaturedMedia changes
+  useEffect(() => {
+    setFeaturedMedia(initialFeaturedMedia);
+  }, [initialFeaturedMedia]);
 
   // Enhanced video loading and playback with better error handling
   useEffect(() => {
@@ -521,7 +666,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
           >
             <MagneticButton
               onClick={prevSlide}
-              className="bg-black/50 backdrop-blur-md text-white p-4 rounded-full hover:bg-black/70 transition-all duration-300 border border-white/20"
+              className="bg-transparent text-white p-4 rounded-full hover:bg-white/10 transition-all duration-300 border border-white/20"
             >
               <ChevronLeft className="w-8 h-8" />
             </MagneticButton>
@@ -535,7 +680,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
           >
             <MagneticButton
               onClick={nextSlide}
-              className="bg-black/50 backdrop-blur-md text-white p-4 rounded-full hover:bg-black/70 transition-all duration-300 border border-white/20"
+              className="bg-transparent text-white p-4 rounded-full hover:bg-white/10 transition-all duration-300 border border-white/20"
             >
               <ChevronRight className="w-8 h-8" />
             </MagneticButton>
@@ -543,11 +688,57 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
         </>
       )}
 
+      {/* Refresh content button */}
+      {enableRecommendations && (
+        <motion.div
+          className="absolute top-8 right-8 z-20"
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: showControls ? 1 : 0, y: showControls ? 0 : -20 }}
+          transition={{ duration: 0.3 }}
+        >
+          <MagneticButton
+            onClick={refreshContent}
+            disabled={isLoadingNewContent}
+            className="bg-transparent text-white p-3 rounded-full hover:bg-white/10 transition-all duration-300 border border-white/20 disabled:opacity-50 disabled:cursor-not-allowed"
+            title="Refresh content"
+          >
+            <motion.div
+              animate={isLoadingNewContent ? { rotate: 360 } : { rotate: 0 }}
+              transition={{ duration: 1, repeat: isLoadingNewContent ? Infinity : 0, ease: "linear" }}
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+            </motion.div>
+          </MagneticButton>
+        </motion.div>
+      )}
+
 
       {/* Content - Netflix-style left positioning */}
       <div className="absolute inset-0 z-20 flex items-center">
         <div className="w-full max-w-none px-8 md:px-16 lg:px-24">
           <div className="max-w-2xl">
+          {/* Media Tags - Above Title */}
+          <ScrollReveal delay={0.05}>
+            <motion.div 
+              key={`tags-${currentMedia.id}`}
+              className="flex flex-wrap gap-2 mb-4"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.6, delay: 0.05 }}
+            >
+              {currentMedia.genres?.slice(0, 4).map((genre, index) => (
+                <span 
+                  key={genre.id}
+                  className="text-white/90 text-xs font-medium bg-black/40 backdrop-blur-sm px-3 py-1 rounded-full border border-white/30"
+                >
+                  {genre.name}
+                </span>
+              ))}
+            </motion.div>
+          </ScrollReveal>
+
           {/* Netflix-style metadata */}
           <ScrollReveal delay={0.1}>
             <motion.div 
@@ -562,10 +753,10 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
                 {getQualityBadge().text}
               </div>
               
-              {/* Year */}
-              {currentMedia.release_date && (
+              {/* Year - extracted from filename/title or release_date */}
+              {extractYearFromMedia() && (
                 <span className="text-white font-medium">
-                  {new Date(currentMedia.release_date).getFullYear()}
+                  {extractYearFromMedia()}
                 </span>
               )}
               
@@ -592,6 +783,16 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
                   {currentMedia.type === 'episode' ? 'Series' : currentMedia.type}
                 </span>
               </div>
+
+              {/* Rating if available */}
+              {currentMedia.rating && (
+                <div className="flex items-center gap-1">
+                  <span className="text-yellow-400 text-sm">★</span>
+                  <span className="text-gray-300 text-sm">
+                    {currentMedia.rating.toFixed(1)}
+                  </span>
+                </div>
+              )}
             </motion.div>
           </ScrollReveal>
 
@@ -611,25 +812,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
             </motion.h1>
           </ScrollReveal>
 
-          {/* Genres */}
-          <ScrollReveal delay={0.3}>
-            <motion.div 
-              key={`genres-${currentMedia.id}`}
-              className="flex flex-wrap gap-2 mb-4"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.6, delay: 0.3 }}
-            >
-              {currentMedia.genres?.slice(0, 3).map((genre, index) => (
-                <span 
-                  key={genre.id}
-                  className="text-gray-300 text-sm bg-black/30 backdrop-blur-sm px-3 py-1 rounded-full border border-white/20"
-                >
-                  {genre.name}
-                </span>
-              ))}
-            </motion.div>
-          </ScrollReveal>
+
 
           {/* Description */}
           <ScrollReveal delay={0.4}>
@@ -660,7 +843,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
                     setIsPlayButtonLoading(false);
                   }, 300);
                 }}
-                className="bg-white text-black px-8 py-3 rounded-md font-bold text-lg hover:bg-gray-200 transition-all duration-300 flex items-center gap-2"
+                className="bg-transparent text-white px-8 py-3 rounded-md font-bold text-lg hover:bg-white/10 transition-all duration-300 flex items-center gap-2 border border-white/30"
               >
                 <Play className="w-6 h-6 fill-current" />
                 Play
@@ -674,7 +857,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
                     setIsInfoButtonLoading(false);
                   }, 300);
                 }}
-                className="bg-gray-600/80 text-white px-8 py-3 rounded-md font-bold text-lg hover:bg-gray-500/80 transition-all duration-300 flex items-center gap-2"
+                className="bg-transparent text-white px-8 py-3 rounded-md font-bold text-lg hover:bg-white/10 transition-all duration-300 flex items-center gap-2 border border-white/30"
               >
                 <Info className="w-6 h-6" />
                 More Info
@@ -693,20 +876,37 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
           animate={{ opacity: showControls ? 1 : 0, y: showControls ? 0 : 20 }}
           transition={{ duration: 0.3 }}
         >
-          <div className="flex gap-3">
-            {featuredMedia.map((_, index) => (
-              <MagneticButton
-                key={index}
-                onClick={() => goToSlide(index)}
-                className={`w-3 h-3 rounded-full transition-all duration-300 ${
-                  index === currentIndex 
-                    ? 'bg-white scale-125' 
-                    : 'bg-white/50 hover:bg-white/80'
-                }`}
-              >
-                <span className="sr-only">Go to slide {index + 1}</span>
-              </MagneticButton>
-            ))}
+          <div className="flex items-center gap-3">
+            {/* Cycle indicator */}
+            {cycleCount > 0 && (
+              <div className="text-white/60 text-xs mr-2 bg-transparent px-2 py-1 rounded-full border border-white/20">
+                Cycle {cycleCount + 1}
+              </div>
+            )}
+            
+            {/* Slide dots */}
+            <div className="flex gap-3">
+              {featuredMedia.map((_, index) => (
+                <MagneticButton
+                  key={`${index}-${cycleCount}`}
+                  onClick={() => goToSlide(index)}
+                  className={`w-3 h-3 rounded-full transition-all duration-300 ${
+                    index === currentIndex 
+                      ? 'bg-white scale-125' 
+                      : 'bg-white/50 hover:bg-white/80'
+                  } ${isLoadingNewContent ? 'animate-pulse' : ''}`}
+                >
+                  <span className="sr-only">Go to slide {index + 1}</span>
+                </MagneticButton>
+              ))}
+            </div>
+            
+            {/* Loading indicator */}
+            {isLoadingNewContent && (
+              <div className="text-white/80 text-xs ml-2 bg-transparent px-2 py-1 rounded-full border border-white/30 animate-pulse">
+                Loading fresh content...
+              </div>
+            )}
           </div>
         </motion.div>
       )}

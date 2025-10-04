@@ -21,31 +21,55 @@ export default function TVSeries() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetchTVSeriesData();
+    fetchData();
+    
+    // Set up auto-refresh every 5 minutes for recommendations
+    const interval = setInterval(() => {
+      fetchData();
+    }, 5 * 60 * 1000); // 5 minutes in milliseconds
+    
+    return () => clearInterval(interval);
   }, []);
 
-  const fetchTVSeriesData = async () => {
+  const fetchData = async () => {
     try {
       const apiUrl = getApiUrl();
       
-      // Fetch TV series data
-      const [seriesResponse, popularResponse] = await Promise.all([
-        fetch(`${apiUrl}/api/media/tv-shows`),
-        fetch(`${apiUrl}/api/media/popular`)
-      ]);
+      // Fetch all media data
+      const response = await fetch(`${apiUrl}/api/media`);
+      const allMedia = await response.json();
 
-      const seriesData = await seriesResponse.json();
-      const popularData = await popularResponse.json();
-
-      // Filter for TV series only
-      const allSeries = seriesData.media || [];
-      const popularSeriesData = (popularData.media || []).filter((item: Media) => 
-        item.type === 'tv' || item.title.toLowerCase().includes('series')
+      // Filter for TV series/episodes only
+      const allSeries = allMedia.filter((item: Media) => 
+        item.type === 'episode' || 
+        item.type === 'tv' || 
+        item.title.toLowerCase().includes('series') ||
+        item.title.toLowerCase().includes('episode')
       );
 
-      setFeaturedSeries(allSeries.slice(0, 5));
-      setPopularSeries(popularSeriesData.slice(0, 20));
-      setTrendingSeries(allSeries.slice(5, 25));
+      // Get high-quality series for hero section
+      const highQualitySeries = allSeries
+        .filter((item: Media) => (item.rating || 0) >= 6.0)
+        .sort(() => Math.random() - 0.5)
+        .slice(0, 10);
+
+      const featuredSelection = highQualitySeries
+        .sort((a: Media, b: Media) => (b.rating || 0) - (a.rating || 0))
+        .slice(0, 5);
+
+      setFeaturedSeries(featuredSelection.length > 0 ? featuredSelection : allSeries.slice(0, 5));
+      
+      // Popular series (most viewed)
+      const popularSeriesData = allSeries
+        .sort((a: Media, b: Media) => (b.view_count || 0) - (a.view_count || 0))
+        .slice(0, 20);
+      setPopularSeries(popularSeriesData);
+      
+      // Trending series (highest rated)
+      const trendingSeriesData = allSeries
+        .sort((a: Media, b: Media) => (b.rating || 0) - (a.rating || 0))
+        .slice(0, 20);
+      setTrendingSeries(trendingSeriesData);
       
       // Filter by genres if available
       setComedySeries(allSeries.filter((item: Media) => 

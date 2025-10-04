@@ -28,6 +28,13 @@ export default function Home() {
 
   useEffect(() => {
     fetchInitialData();
+    
+    // Set up auto-refresh every 5 minutes for recommendations
+    const interval = setInterval(() => {
+      fetchInitialData();
+    }, 5 * 60 * 1000); // 5 minutes in milliseconds
+    
+    return () => clearInterval(interval);
   }, []);
 
   const fetchInitialData = async () => {

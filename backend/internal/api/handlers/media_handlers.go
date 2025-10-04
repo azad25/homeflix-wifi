@@ -108,7 +108,24 @@ func GetTVShows(mediaService *services.MediaService) gin.HandlerFunc {
 func GetMediaByGenre(mediaService *services.MediaService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		genre := c.Param("genre")
-		media, err := mediaService.GetMediaByGenre(genre)
+		
+		// Get page and limit from query parameters with defaults
+		page := 1
+		limit := 50
+		
+		if pageStr := c.Query("page"); pageStr != "" {
+			if p, err := strconv.Atoi(pageStr); err == nil && p > 0 {
+				page = p
+			}
+		}
+		
+		if limitStr := c.Query("limit"); limitStr != "" {
+			if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= 100 {
+				limit = l
+			}
+		}
+		
+		media, err := mediaService.GetMediaByGenre(genre, page, limit)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
@@ -121,7 +138,8 @@ func SearchMedia(mediaService *services.MediaService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		query := c.Query("q")
 		if query == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Query parameter 'q' is required"})
+			// Return empty array instead of error for better UX
+			c.JSON(http.StatusOK, []interface{}{})
 			return
 		}
 
@@ -131,7 +149,8 @@ func SearchMedia(mediaService *services.MediaService) gin.HandlerFunc {
 			return
 		}
 
-		c.JSON(http.StatusOK, gin.H{"media": results})
+		// Return results directly as array for frontend compatibility
+		c.JSON(http.StatusOK, results)
 	}
 }
 
@@ -143,5 +162,50 @@ func UpdateAllMediaGenres(mediaService *services.MediaService) gin.HandlerFunc {
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"message": "All media genres updated successfully"})
+	}
+}
+
+// SearchMediaAdvanced provides advanced search with filters
+func SearchMediaAdvanced(mediaService *services.MediaService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		query := c.Query("q")
+		genreFilter := c.Query("genre")
+		typeFilter := c.Query("type")
+		minRatingStr := c.Query("min_rating")
+		
+		var minRating float32 = 0
+		if minRatingStr != "" {
+			if rating, err := strconv.ParseFloat(minRatingStr, 32); err == nil {
+				minRating = float32(rating)
+			}
+		}
+		
+		results, err := mediaService.SearchMediaAdvanced(query, genreFilter, typeFilter, minRating)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		
+		c.JSON(http.StatusOK, results)
+	}
+}
+
+// GetTrendingMedia returns trending media based on recent views and ratings
+func GetTrendingMedia(mediaService *services.MediaService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		limit := 20
+		if limitStr := c.Query("limit"); limitStr != "" {
+			if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= 100 {
+				limit = l
+			}
+		}
+		
+		media, err := mediaService.GetTrendingMedia(limit)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		
+		c.JSON(http.StatusOK, media)
 	}
 }

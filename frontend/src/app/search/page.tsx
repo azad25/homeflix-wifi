@@ -51,12 +51,18 @@ export default function SearchPage() {
     if (queryParam) {
       setSearchQuery(queryParam);
       setHasSearched(true);
+      performSearch();
     }
   }, []);
 
   useEffect(() => {
     if (searchQuery.trim() || hasSearched) {
-      performSearch();
+      // Debounce search to avoid too many API calls
+      const timeoutId = setTimeout(() => {
+        performSearch();
+      }, 300);
+      
+      return () => clearTimeout(timeoutId);
     }
   }, [searchQuery, filters]);
 
@@ -83,9 +89,25 @@ export default function SearchPage() {
     try {
       const apiUrl = getApiUrl();
       
-      // Fetch all media and perform client-side filtering
-      const response = await fetch(`${apiUrl}/api/media`);
-      const allMedia = await response.json();
+      // Try search endpoint first, fallback to client-side filtering
+      let allMedia;
+      if (searchQuery.trim()) {
+        try {
+          const searchResponse = await fetch(`${apiUrl}/api/media/search?q=${encodeURIComponent(searchQuery)}`);
+          if (searchResponse.ok) {
+            allMedia = await searchResponse.json();
+          } else {
+            throw new Error('Search endpoint failed');
+          }
+        } catch (error) {
+          console.log('Search endpoint failed, falling back to client-side search');
+          const response = await fetch(`${apiUrl}/api/media`);
+          allMedia = await response.json();
+        }
+      } else {
+        const response = await fetch(`${apiUrl}/api/media`);
+        allMedia = await response.json();
+      }
       
       let results = [...allMedia];
       
@@ -353,18 +375,67 @@ export default function SearchPage() {
                     </div>
                   </ScrollReveal>
 
-                  {/* Results Display */}
+                  {/* Results Display - Portrait Grid */}
                   {searchResults.length > 0 ? (
                     <ScrollReveal direction="up" delay={0.3}>
-                      <NetflixHorizontalRow
-                        title="Search Results"
-                        media={searchResults}
-                        onPlay={handlePlay}
-                        onInfo={handleInfo}
-                        variant="portrait"
-                        size="medium"
-                        priority={true}
-                      />
+                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+                        {searchResults.map((media, index) => (
+                          <div key={media.id} className="group relative">
+                            <div className="aspect-[2/3] bg-gray-800 rounded-lg overflow-hidden relative">
+                              <img
+                                src={`${getApiUrl()}/api/posters/${media.id}`}
+                                alt={media.title}
+                                className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                                onError={(e) => {
+                                  const target = e.target as HTMLImageElement;
+                                  target.src = `${getApiUrl()}/api/thumbnails/${media.id}`;
+                                }}
+                              />
+                              
+                              {/* Overlay */}
+                              <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center">
+                                <div className="flex gap-2">
+                                  <button
+                                    onClick={() => handlePlay(media)}
+                                    className="bg-white text-black p-2 rounded-full hover:bg-gray-200 transition-colors"
+                                    title="Play"
+                                  >
+                                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                                      <path d="M8 5v14l11-7z"/>
+                                    </svg>
+                                  </button>
+                                  <button
+                                    onClick={() => handleInfo(media)}
+                                    className="bg-gray-600 text-white p-2 rounded-full hover:bg-gray-500 transition-colors"
+                                    title="More Info"
+                                  >
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                    </svg>
+                                  </button>
+                                </div>
+                              </div>
+                              
+                              {/* Rating Badge */}
+                              {media.rating && (
+                                <div className="absolute top-2 right-2 bg-black/80 text-white text-xs px-2 py-1 rounded">
+                                  ⭐ {media.rating}
+                                </div>
+                              )}
+                            </div>
+                            
+                            {/* Title */}
+                            <div className="mt-2">
+                              <h3 className="text-white text-sm font-medium truncate group-hover:text-red-400 transition-colors">
+                                {media.title}
+                              </h3>
+                              <p className="text-gray-400 text-xs mt-1 capitalize">
+                                {media.type === 'episode' ? 'TV Series' : media.type}
+                              </p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
                     </ScrollReveal>
                   ) : (
                     <ScrollReveal direction="up" delay={0.3}>

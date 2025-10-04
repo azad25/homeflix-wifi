@@ -46,15 +46,16 @@ export default function BrowsePage() {
   }, [allMedia, selectedGenre, sortBy, searchQuery]);
 
   const fetchData = async () => {
+    setLoading(true);
     try {
       const apiUrl = getApiUrl();
       
-      // Fetch all media
-      const mediaResponse = await fetch(`${apiUrl}/api/media`);
+      // Fetch all media and genres
+      const [mediaResponse, genresResponse] = await Promise.all([
+        fetch(`${apiUrl}/api/media`),
+        fetch(`${apiUrl}/api/genres`)
+      ]);
       const mediaData = await mediaResponse.json();
-      
-      // Fetch genres
-      const genresResponse = await fetch(`${apiUrl}/api/genres`);
       const genresData = await genresResponse.json();
       
       setAllMedia(mediaData);
@@ -242,52 +243,119 @@ export default function BrowsePage() {
             </ScrollReveal>
           </ParallaxSection>
 
-          {/* Content by Genre */}
-          <div className="space-y-8">
-            {Object.entries(groupedByGenre()).map(([genreName, genreMedia], index) => (
-              <ParallaxSection key={genreName} speed={0.4 + index * 0.1}>
-                <ScrollReveal direction="up" delay={0.3 + index * 0.1}>
-                  <NetflixHorizontalRow
-                    title={genreName}
-                    media={genreMedia}
-                    onPlay={handlePlay}
-                    onInfo={handleInfo}
-                    variant="portrait"
-                    size="medium"
-                  />
-                </ScrollReveal>
-              </ParallaxSection>
-            ))}
-          </div>
+          {/* Content Grid */}
+          <ParallaxSection speed={0.4}>
+            <ScrollReveal direction="up" delay={0.3}>
+              <div className="px-4 md:px-8 lg:px-16">
+                {filteredMedia.length > 0 ? (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+                    {filteredMedia.map((media, index) => (
+                      <div key={media.id} className="group relative">
+                        <div className="aspect-[2/3] bg-gray-800 rounded-lg overflow-hidden relative">
+                          <img
+                            src={`${getApiUrl()}/api/posters/${media.id}`}
+                            alt={media.title}
+                            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                            onError={(e) => {
+                              const target = e.target as HTMLImageElement;
+                              target.src = `${getApiUrl()}/api/thumbnails/${media.id}`;
+                            }}
+                          />
+                          
+                          {/* Overlay */}
+                          <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center">
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() => handlePlay(media)}
+                                className="bg-white text-black p-2 rounded-full hover:bg-gray-200 transition-colors"
+                                title="Play"
+                              >
+                                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                                  <path d="M8 5v14l11-7z"/>
+                                </svg>
+                              </button>
+                              <button
+                                onClick={() => handleInfo(media)}
+                                className="bg-gray-600 text-white p-2 rounded-full hover:bg-gray-500 transition-colors"
+                                title="More Info"
+                              >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                </svg>
+                              </button>
+                            </div>
+                          </div>
+                          
+                          {/* Rating Badge */}
+                          {media.rating && (
+                            <div className="absolute top-2 right-2 bg-black/80 text-white text-xs px-2 py-1 rounded">
+                              ⭐ {media.rating}
+                            </div>
+                          )}
+                          
+                          {/* Type Badge */}
+                          <div className="absolute top-2 left-2 bg-red-600 text-white text-xs px-2 py-1 rounded capitalize">
+                            {media.type === 'episode' ? 'TV' : media.type}
+                          </div>
+                        </div>
+                        
+                        {/* Title and Info */}
+                        <div className="mt-2">
+                          <h3 className="text-white text-sm font-medium truncate group-hover:text-red-400 transition-colors">
+                            {media.title}
+                          </h3>
+                          <div className="flex items-center justify-between mt-1">
+                            <p className="text-gray-400 text-xs capitalize">
+                              {media.type === 'episode' ? 'TV Series' : media.type}
+                            </p>
+                            {media.view_count && (
+                              <p className="text-gray-500 text-xs">
+                                {media.view_count} views
+                              </p>
+                            )}
+                          </div>
+                          {/* Genres */}
+                          {media.genres && media.genres.length > 0 && (
+                            <div className="flex flex-wrap gap-1 mt-1">
+                              {media.genres.slice(0, 2).map((genre, idx) => (
+                                <span key={idx} className="text-gray-500 text-xs bg-gray-800 px-1 py-0.5 rounded">
+                                  {genre.name}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-16">
+                    <FloatingElement>
+                      <Film className="w-16 h-16 text-gray-600 mx-auto mb-4" />
+                    </FloatingElement>
+                    <h3 className="text-2xl text-white mb-4">No content found</h3>
+                    <p className="text-gray-400 mb-8">
+                      {searchQuery 
+                        ? `No results for "${searchQuery}". Try a different search term.`
+                        : "Try adjusting your filters to see more content."
+                      }
+                    </p>
+                    <MagneticButton
+                      onClick={() => {
+                        setSearchQuery("");
+                        setSelectedGenre("all");
+                      }}
+                      className="bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-lg font-semibold"
+                    >
+                      Clear Filters
+                    </MagneticButton>
+                  </div>
+                )}
+              </div>
+            </ScrollReveal>
+          </ParallaxSection>
 
-          {/* No Results */}
-          {filteredMedia.length === 0 && (
-            <ParallaxSection speed={0.5}>
-              <ScrollReveal direction="up" delay={0.4}>
-                <div className="text-center py-16 px-4">
-                  <FloatingElement>
-                    <Film className="w-16 h-16 text-gray-600 mx-auto mb-4" />
-                  </FloatingElement>
-                  <h3 className="text-2xl text-white mb-4">No content found</h3>
-                  <p className="text-gray-400 mb-8">
-                    {searchQuery 
-                      ? `No results for "${searchQuery}". Try a different search term.`
-                      : "Try adjusting your filters to see more content."
-                    }
-                  </p>
-                  <MagneticButton
-                    onClick={() => {
-                      setSearchQuery("");
-                      setSelectedGenre("all");
-                    }}
-                    className="bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-lg font-semibold"
-                  >
-                    Clear Filters
-                  </MagneticButton>
-                </div>
-              </ScrollReveal>
-            </ParallaxSection>
-          )}
+
         </div>
       </div>
 

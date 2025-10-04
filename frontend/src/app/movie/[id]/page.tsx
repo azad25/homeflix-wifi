@@ -62,7 +62,7 @@ export default function MoviePage() {
       const timer = setTimeout(() => {
         setShowTitleOverlay(false);
       }, 1500); // 1.5 second delay to show title first
-      
+
       return () => clearTimeout(timer);
     }
   }, [loading, media]);
@@ -86,7 +86,7 @@ export default function MoviePage() {
       if (response.ok) {
         const data = await response.json();
         setAllMedia(data);
-        
+
         if (media) {
           // Use smart similarity matching
           const similar = findSimilarMovies(media.title, data, 8);
@@ -122,7 +122,7 @@ export default function MoviePage() {
           action: isInMyList ? 'remove' : 'add',
         }),
       });
-      
+
       if (response.ok) {
         setIsInMyList(!isInMyList);
       }
@@ -133,7 +133,7 @@ export default function MoviePage() {
 
   const loadPlaybackProgress = () => {
     if (!params.id) return;
-    
+
     const progress = localStorage.getItem(`progress_${params.id}`);
     if (progress) {
       const { progress: savedProgress, timestamp } = JSON.parse(progress);
@@ -143,21 +143,35 @@ export default function MoviePage() {
   };
 
   const handlePlay = () => {
+    // Pause the background video when opening the player
+    if (videoRef.current && isVideoPlaying) {
+      videoRef.current.pause();
+      console.log('Background video paused for player');
+    }
     setIsPlayerOpen(true);
   };
 
   const handlePlayerClose = () => {
+    // Resume the background video when closing the player
+    if (videoRef.current && isVideoLoaded) {
+      videoRef.current.play().then(() => {
+        console.log('Background video resumed after player close');
+        setIsVideoPlaying(true);
+      }).catch((error) => {
+        console.log('Failed to resume background video:', error);
+      });
+    }
     setIsPlayerOpen(false);
   };
 
   const handlePlayerProgress = (progress: number) => {
     if (!params.id) return;
-    
+
     const progressData = {
       progress,
       timestamp: new Date().toISOString(),
     };
-    
+
     localStorage.setItem(`progress_${params.id}`, JSON.stringify(progressData));
     setPlaybackProgress(progress);
   };
@@ -251,7 +265,7 @@ export default function MoviePage() {
     <div className="min-h-screen bg-gradient-to-b from-red-900/20 via-black to-black text-white">
       <Navbar />
       <GradientBackground variant="cosmic" animate={true} className="fixed inset-0 -z-10" />
-      
+
       {/* Hero Section */}
       <div className="relative h-screen overflow-hidden">
         {/* Background Image */}
@@ -260,15 +274,14 @@ export default function MoviePage() {
             src={getBackgroundImageUrl(media)}
             alt={media.title}
             fill
-            className={`object-cover transition-opacity duration-1000 ${
-              isVideoLoaded && isVideoPlaying ? 'opacity-0' : 'opacity-100'
-            }`}
+            className={`object-cover transition-opacity duration-1000 ${isVideoLoaded && isVideoPlaying ? 'opacity-0' : 'opacity-100'
+              }`}
             priority
             style={{ zIndex: 1 }}
             sizes="100vw"
           />
         </div>
-        
+
         {/* Background Video with ALAC Audio */}
         <video
           ref={videoRef}
@@ -279,12 +292,13 @@ export default function MoviePage() {
           playsInline
           preload="auto"
           controls={false}
-          style={{ 
-            zIndex: 5, 
-            position: 'absolute', 
-            top: 0, 
-            left: 0, 
-            width: '100%', 
+          crossOrigin="anonymous"
+          style={{
+            zIndex: 5,
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            width: '100%',
             height: '100%',
             objectFit: 'cover'
           }}
@@ -293,77 +307,59 @@ export default function MoviePage() {
             setIsVideoLoaded(true);
             if (videoRef.current) {
               const video = videoRef.current;
-              
-              // Check for ALAC codec support
-              const alacSupport = video.canPlayType('video/mp4; codecs="avc1.42E01E, alac"');
-              console.log('ALAC codec support:', alacSupport);
-              
+
               video.currentTime = 0;
-              video.volume = 0.9; // Higher volume for ALAC quality
-              video.muted = false; // Always start with ALAC audio enabled
-              
-              // Set audio properties for high quality
-              if ((video as any).audioTracks && (video as any).audioTracks.length > 0) {
-                console.log('Audio tracks available:', (video as any).audioTracks.length);
-              }
-              
-              // Force user interaction for audio
-              const playWithAudio = async () => {
+              video.volume = 0.8;
+              video.muted = false;
+
+              // Enhanced playback with fallbacks
+              const attemptPlay = async () => {
                 try {
                   await video.play();
-                  console.log('Media info video playing successfully with ALAC audio');
+                  console.log('Media info video playing successfully');
                   setIsVideoPlaying(true);
                 } catch (error) {
-                  console.log('Video play with audio failed, trying user interaction approach:', error);
-                  // Create a user interaction event
-                  const playButton = document.createElement('button');
-                  playButton.style.position = 'fixed';
-                  playButton.style.top = '50%';
-                  playButton.style.left = '50%';
-                  playButton.style.transform = 'translate(-50%, -50%)';
-                  playButton.style.zIndex = '9999';
-                  playButton.style.padding = '10px 20px';
-                  playButton.style.backgroundColor = '#e50914';
-                  playButton.style.color = 'white';
-                  playButton.style.border = 'none';
-                  playButton.style.borderRadius = '5px';
-                  playButton.style.cursor = 'pointer';
-                  playButton.textContent = 'Enable Audio';
-                  
-                  playButton.onclick = async () => {
-                    try {
+                  console.log('Autoplay failed, trying muted fallback:', error);
+                  try {
+                    video.muted = true;
+                    await video.play();
+                    setIsVideoPlaying(true);
+
+                    // Add click listener to unmute
+                    const handleClick = () => {
                       video.muted = false;
-                      video.volume = 0.9;
-                      await video.play();
-                      setIsVideoPlaying(true);
-                      document.body.removeChild(playButton);
-                      console.log('Audio enabled successfully with ALAC');
-                    } catch (err) {
-                      console.log('Final fallback to muted:', err);
-                      video.muted = true;
-                      await video.play();
-                      setIsVideoPlaying(true);
-                      document.body.removeChild(playButton);
-                    }
-                  };
-                  
-                  document.body.appendChild(playButton);
+                      video.volume = 0.8;
+                      document.removeEventListener('click', handleClick);
+                    };
+                    document.addEventListener('click', handleClick);
+                  } catch (mutedError) {
+                    console.log('Video playback failed completely:', mutedError);
+                    setIsVideoLoaded(false);
+                    setIsVideoPlaying(false);
+                  }
                 }
               };
-              
-              playWithAudio();
+
+              attemptPlay();
             }
           }}
-          onError={() => {
-            console.log('Video error occurred');
+          onError={(e) => {
+            console.log('Video error occurred:', e);
             setIsVideoLoaded(false);
             setIsVideoPlaying(false);
           }}
           onCanPlay={() => {
             console.log('Video can play');
+            if (videoRef.current && !isVideoPlaying) {
+              const video = videoRef.current;
+              video.play().catch(() => {
+                console.log('CanPlay auto-play failed');
+              });
+            }
           }}
           onPlay={() => {
             console.log('Video started playing');
+            setIsVideoPlaying(true);
           }}
           onPause={() => {
             console.log('Video paused');
@@ -388,49 +384,43 @@ export default function MoviePage() {
         <motion.div
           className="absolute inset-0 bg-gradient-to-b from-black/80 via-black/60 to-black/40 z-15"
           initial={{ opacity: 1 }}
-          animate={{ 
+          animate={{
             opacity: showTitleOverlay ? 1 : 0.3
           }}
-          transition={{ 
-            duration: 1.2, 
+          transition={{
+            duration: 1.2,
             ease: [0.25, 0.46, 0.45, 0.94]
           }}
         />
-        
+
         {/* Overlay Gradient */}
         <div className="absolute inset-0 bg-gradient-to-t from-black via-black/80 to-transparent z-10" />
 
         {/* Navigation */}
         <div className="absolute top-0 left-0 right-0 z-20 p-6 flex justify-between items-center">
-          <MagneticButton
-            onClick={() => router.push('/')}
-            className="bg-black/50 backdrop-blur-md text-white p-3 rounded-full hover:bg-black/70 transition-all duration-300"
-          >
-            <ArrowLeft className="w-6 h-6" />
-          </MagneticButton>
-          
+
         </div>
 
         {/* Hero Content */}
         <div className="absolute inset-0 flex items-end z-20">
-          <div 
+          <div
             className="w-full h-full flex items-end"
             onMouseEnter={() => setIsHoveringTitle(true)}
             onMouseLeave={() => setIsHoveringTitle(false)}
           >
-          <ParticleField count={50} className="absolute inset-0 opacity-30" />
-          
+            <ParticleField count={50} className="absolute inset-0 opacity-30" />
+
             <div className="container mx-auto px-6 md:px-12 lg:px-16 relative z-10">
               <div className="max-w-4xl w-full">
                 {/* Title that appears immediately */}
                 <motion.div
                   initial={{ opacity: 0, y: 50 }}
-                  animate={{ 
-                    opacity: 1, 
+                  animate={{
+                    opacity: 1,
                     y: 0
                   }}
-                  transition={{ 
-                    duration: 0.8, 
+                  transition={{
+                    duration: 0.8,
                     delay: 0.2
                   }}
                   className="mb-6"
@@ -442,13 +432,13 @@ export default function MoviePage() {
                 {media.tagline && (
                   <motion.div
                     initial={{ opacity: 0, y: 30, scale: 0.8 }}
-                    animate={{ 
-                      opacity: (!showTitleOverlay || isHoveringTitle) ? 1 : 0, 
+                    animate={{
+                      opacity: (!showTitleOverlay || isHoveringTitle) ? 1 : 0,
                       y: (!showTitleOverlay || isHoveringTitle) ? 0 : 30,
                       scale: (!showTitleOverlay || isHoveringTitle) ? 1 : 0.8
                     }}
-                    transition={{ 
-                      duration: 0.6, 
+                    transition={{
+                      duration: 0.6,
                       delay: 0.1,
                       ease: [0.25, 0.46, 0.45, 0.94]
                     }}
@@ -462,13 +452,13 @@ export default function MoviePage() {
                 {/* Metadata with hover reveal and scaling */}
                 <motion.div
                   initial={{ opacity: 0, y: 30, scale: 0.8 }}
-                  animate={{ 
-                    opacity: (!showTitleOverlay || isHoveringTitle) ? 1 : 0, 
+                  animate={{
+                    opacity: (!showTitleOverlay || isHoveringTitle) ? 1 : 0,
                     y: (!showTitleOverlay || isHoveringTitle) ? 0 : 30,
                     scale: (!showTitleOverlay || isHoveringTitle) ? 1 : 0.8
                   }}
-                  transition={{ 
-                    duration: 0.6, 
+                  transition={{
+                    duration: 0.6,
                     delay: 0.2,
                     ease: [0.25, 0.46, 0.45, 0.94]
                   }}
@@ -493,18 +483,18 @@ export default function MoviePage() {
                   <span className="text-green-400 font-medium">
                     {(media.view_count || 0).toLocaleString()} views
                   </span>
-              </motion.div>
+                </motion.div>
 
                 {/* Action buttons with hover reveal and scaling */}
                 <motion.div
                   initial={{ opacity: 0, y: 30, scale: 0.8 }}
-                  animate={{ 
-                    opacity: (!showTitleOverlay || isHoveringTitle) ? 1 : 0, 
+                  animate={{
+                    opacity: (!showTitleOverlay || isHoveringTitle) ? 1 : 0,
                     y: (!showTitleOverlay || isHoveringTitle) ? 0 : 30,
                     scale: (!showTitleOverlay || isHoveringTitle) ? 1 : 0.8
                   }}
-                  transition={{ 
-                    duration: 0.6, 
+                  transition={{
+                    duration: 0.6,
                     delay: 0.3,
                     ease: [0.25, 0.46, 0.45, 0.94]
                   }}
@@ -537,37 +527,37 @@ export default function MoviePage() {
                   <MagneticButton className="bg-white/10 hover:bg-white/20 text-white p-3 rounded-full">
                     <Download className="w-5 h-5" />
                   </MagneticButton>
-              </motion.div>
+                </motion.div>
 
                 {/* Description with hover reveal and scaling */}
                 <motion.div
                   initial={{ opacity: 0, y: 30, scale: 0.8 }}
-                  animate={{ 
-                    opacity: (!showTitleOverlay || isHoveringTitle) ? 1 : 0, 
+                  animate={{
+                    opacity: (!showTitleOverlay || isHoveringTitle) ? 1 : 0,
                     y: (!showTitleOverlay || isHoveringTitle) ? 0 : 30,
                     scale: (!showTitleOverlay || isHoveringTitle) ? 1 : 0.8
                   }}
-                  transition={{ 
-                    duration: 0.6, 
+                  transition={{
+                    duration: 0.6,
                     delay: 0.4,
                     ease: [0.25, 0.46, 0.45, 0.94]
                   }}
                 >
-                <p className="text-white/90 mb-4 text-lg leading-relaxed">
-                  {media.description ? (
-                    showFullDescription ? media.description : `${media.description.substring(0, 200)}...`
-                  ) : (
-                    "Experience the ultimate entertainment with this amazing content. Watch now and immerse yourself in a world of endless possibilities."
-                  )}
-                  {media.description && media.description.length > 200 && (
-                    <button
-                      onClick={() => setShowFullDescription(!showFullDescription)}
-                      className="text-red-400 hover:text-red-300 ml-2 font-medium"
-                    >
-                      {showFullDescription ? 'Show less' : 'Read more'}
-                    </button>
-                  )}
-                </p>
+                  <p className="text-white/90 mb-4 text-lg leading-relaxed">
+                    {media.description ? (
+                      showFullDescription ? media.description : `${media.description.substring(0, 200)}...`
+                    ) : (
+                      "Experience the ultimate entertainment with this amazing content. Watch now and immerse yourself in a world of endless possibilities."
+                    )}
+                    {media.description && media.description.length > 200 && (
+                      <button
+                        onClick={() => setShowFullDescription(!showFullDescription)}
+                        className="text-red-400 hover:text-red-300 ml-2 font-medium"
+                      >
+                        {showFullDescription ? 'Show less' : 'Read more'}
+                      </button>
+                    )}
+                  </p>
                 </motion.div>
               </div>
             </div>
@@ -715,7 +705,7 @@ export default function MoviePage() {
           <div className="container mx-auto px-6 md:px-12 lg:px-16">
             <h2 className="text-2xl font-bold text-white mb-8">More Like This</h2>
             <NetflixHorizontalRow
-              title="More Like This"
+              title=""
               media={similarMedia.map(item => ({
                 ...item,
                 title: cleanMovieTitle(item.title)
@@ -737,7 +727,7 @@ export default function MoviePage() {
         <VideoPlayer
           media={media}
           isOpen={isPlayerOpen}
-          onClose={() => setIsPlayerOpen(false)}
+          onClose={handlePlayerClose}
           startTime={0}
         />
       )}

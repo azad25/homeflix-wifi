@@ -23,6 +23,13 @@ const RecommendationSection: React.FC<RecommendationSectionProps> = ({
 
   useEffect(() => {
     fetchRecommendations();
+    
+    // Set up auto-refresh every 5 minutes
+    const interval = setInterval(() => {
+      fetchRecommendations();
+    }, 5 * 60 * 1000); // 5 minutes in milliseconds
+    
+    return () => clearInterval(interval);
   }, [currentMedia.id]);
 
   const fetchRecommendations = async () => {
