@@ -2,6 +2,10 @@
 
 A full-featured Netflix clone built with Go backend and Next.js frontend, designed to stream your personal media collection from external drives.
 
+//add screenshots here
+![HomeFlix](/preview.png)
+![HomeFlix](/preview-2.png)
+
 ## Features
 
 - 🎬 **Media Library Management**: Automatically scan and organize movies/series from external drives
