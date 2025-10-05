@@ -50,20 +50,34 @@ func (s *OptimizedStreamService) StreamVideo(w http.ResponseWriter, r *http.Requ
 	// Detect content type based on file extension
 	contentType := s.getContentType(filePath)
 	
-	// Set headers for optimal streaming with better caching and performance
+	// Netflix-style streaming headers for maximum performance
 	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Accept-Ranges", "bytes")
-	w.Header().Set("Cache-Control", "public, max-age=86400, immutable") // 24 hours cache
+	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable") // 1 year cache for video content
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no") // Disable nginx buffering for real-time streaming
 	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Headers", "Range")
+	w.Header().Set("Access-Control-Allow-Headers", "Range, Content-Type, Accept")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
+	w.Header().Set("Vary", "Accept-Encoding")
 	
-	// Handle range requests for efficient streaming
+	// Enhanced headers for better streaming performance
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("X-Frame-Options", "SAMEORIGIN")
+	w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+	
+	// Quality and format hints for browsers
+	quality := r.URL.Query().Get("quality")
+	if quality != "" {
+		w.Header().Set("X-Video-Quality", quality)
+	}
+	
+	// Handle range requests for efficient streaming (Netflix-style)
 	rangeHeader := r.Header.Get("Range")
 	if rangeHeader == "" {
-		// No range request, serve with chunked transfer
+		// No range request, serve with optimized chunked transfer
 		w.Header().Set("Content-Length", strconv.FormatInt(fileSize, 10))
+		w.Header().Set("Transfer-Encoding", "chunked")
 		return s.streamWithChunks(w, file, 0, fileSize-1)
 	}
 
@@ -119,21 +133,30 @@ func (s *OptimizedStreamService) streamWithChunks(w http.ResponseWriter, file *o
 
 	remaining := end - start + 1
 	
-	// Use adaptive buffer size based on remaining data
+	// Netflix-style adaptive buffer sizing for optimal streaming
 	bufferSize := s.chunkSize
 	if remaining < s.chunkSize {
 		bufferSize = remaining
 	}
 	
-	// Increase buffer size for better performance on larger files
-	if remaining > 50*1024*1024 { // 50MB+
+	// Dynamic buffer sizing based on file size and connection speed
+	if remaining > 100*1024*1024 { // 100MB+ files
+		bufferSize = s.chunkSize * 8 // 8x chunk size for very large files
+	} else if remaining > 50*1024*1024 { // 50MB+ files
 		bufferSize = s.chunkSize * 4 // 4x chunk size for large files
-	} else if remaining > 10*1024*1024 { // 10MB+
+	} else if remaining > 10*1024*1024 { // 10MB+ files
 		bufferSize = s.chunkSize * 2 // 2x chunk size for medium files
+	}
+	
+	// Ensure buffer size doesn't exceed reasonable limits
+	maxBufferSize := int64(4 * 1024 * 1024) // 4MB max buffer
+	if bufferSize > maxBufferSize {
+		bufferSize = maxBufferSize
 	}
 	
 	buffer := make([]byte, bufferSize)
 	bytesWritten := int64(0)
+	startTime := time.Now()
 
 	for remaining > 0 {
 		readSize := int64(bufferSize)
@@ -158,8 +181,26 @@ func (s *OptimizedStreamService) streamWithChunks(w http.ResponseWriter, file *o
 		bytesWritten += int64(n)
 		remaining -= int64(n)
 
-		// Adaptive flushing - flush more frequently for smaller chunks
+		// Netflix-style adaptive flushing based on data size and time
+		shouldFlush := false
+		
+		// Flush every chunk or at end
 		if bytesWritten%s.chunkSize == 0 || remaining == 0 {
+			shouldFlush = true
+		}
+		
+		// Flush more frequently for initial chunks (faster startup)
+		if bytesWritten < 5*s.chunkSize && bytesWritten%(s.chunkSize/2) == 0 {
+			shouldFlush = true
+		}
+		
+		// Time-based flushing for consistent streaming
+		if time.Since(startTime) > 50*time.Millisecond {
+			shouldFlush = true
+			startTime = time.Now()
+		}
+		
+		if shouldFlush {
 			if flusher, ok := w.(http.Flusher); ok {
 				flusher.Flush()
 			}
@@ -169,9 +210,10 @@ func (s *OptimizedStreamService) streamWithChunks(w http.ResponseWriter, file *o
 			break
 		}
 		
-		// Small delay for very large transfers to prevent overwhelming the connection
-		if bytesWritten > 0 && bytesWritten%(10*s.chunkSize) == 0 {
-			time.Sleep(1 * time.Millisecond)
+		// Adaptive throttling - no delay for initial chunks, minimal delay for large transfers
+		if bytesWritten > 20*s.chunkSize && bytesWritten%(20*s.chunkSize) == 0 {
+			// Very small delay only for extremely large continuous transfers
+			time.Sleep(500 * time.Microsecond)
 		}
 	}
 

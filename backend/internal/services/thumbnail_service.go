@@ -477,3 +477,165 @@ func (s *ThumbnailService) CleanupThumbnails(mediaID uint) error {
 	
 	return nil
 }
+
+// GenerateOptimizedPreviewClip creates multiple quality versions of preview clips
+func (s *ThumbnailService) GenerateOptimizedPreviewClip(videoPath string, mediaID uint) (map[string]string, error) {
+	previewPaths := make(map[string]string)
+	
+	// Create previews directory if it doesn't exist
+	os.MkdirAll("./previews", 0755)
+	
+	// Get video duration
+	duration, err := s.getVideoDuration(videoPath)
+	if err != nil {
+		duration = 300 // Default fallback
+	}
+	
+	// Calculate optimal start time
+	var startTime int
+	if duration > 600 {
+		startTime = 60 + rand.Intn(120)
+	} else if duration > 300 {
+		startTime = 30 + rand.Intn(60)
+	} else {
+		startTime = 10 + rand.Intn(30)
+	}
+	
+	clipDuration := 25 // 25 second clips
+	if startTime+clipDuration > duration {
+		startTime = max(0, duration-clipDuration-10)
+	}
+	
+	// Generate different quality versions
+	qualities := map[string]struct {
+		resolution string
+		bitrate    string
+		crf        string
+		suffix     string
+	}{
+		"high": {"1280:720", "3M", "25", "_720p"},
+		"medium": {"854:480", "1.5M", "28", "_480p"},
+		"low": {"640:360", "800k", "32", "_360p"},
+	}
+	
+	for quality, settings := range qualities {
+		filename := fmt.Sprintf("preview_%d%s.mp4", mediaID, settings.suffix)
+		previewPath := filepath.Join("./previews", filename)
+		
+		// Check if this quality already exists
+		if _, err := os.Stat(previewPath); err == nil {
+			previewPaths[quality] = previewPath
+			continue
+		}
+		
+		// Generate this quality version
+		cmd := exec.Command("ffmpeg",
+			"-i", videoPath,
+			"-ss", strconv.Itoa(startTime),
+			"-t", strconv.Itoa(clipDuration),
+			"-c:v", "libx264",
+			"-preset", "fast",
+			"-crf", settings.crf,
+			"-maxrate", settings.bitrate,
+			"-bufsize", "2M",
+			"-vf", fmt.Sprintf("scale=%s:force_original_aspect_ratio=decrease", settings.resolution),
+			"-c:a", "aac",
+			"-b:a", "96k",
+			"-ac", "2",
+			"-movflags", "+faststart",
+			"-f", "mp4",
+			"-y",
+			previewPath,
+		)
+		
+		log.Printf("Generating %s quality preview for media %d", quality, mediaID)
+		
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			log.Printf("Failed to generate %s quality preview for media %d: %v\nOutput: %s", quality, mediaID, err, string(output))
+			continue
+		}
+		
+		previewPaths[quality] = previewPath
+		log.Printf("Generated %s quality preview: %s", quality, previewPath)
+	}
+	
+	return previewPaths, nil
+}
+
+// GenerateMultipleThumbnails generates multiple thumbnails at different timestamps
+func (s *ThumbnailService) GenerateMultipleThumbnails(videoPath string, mediaID uint, count int) ([]map[string]interface{}, error) {
+	var results []map[string]interface{}
+	
+	// Get video duration
+	duration, err := s.getVideoDuration(videoPath)
+	if err != nil {
+		duration = 300 // Default fallback
+	}
+	
+	// Calculate first half
+	firstHalf := duration / 2
+	if firstHalf < 60 {
+		firstHalf = 60
+	}
+	
+	// Generate thumbnails at different timestamps
+	for i := 0; i < count; i++ {
+		// Calculate timestamp for this thumbnail
+		timestamp := (firstHalf / count) * i + 10
+		if timestamp >= firstHalf-10 {
+			timestamp = firstHalf - 10
+		}
+		
+		filename := fmt.Sprintf("thumb_%d_%d.jpg", mediaID, i+1)
+		thumbnailPath := filepath.Join(s.thumbnailPath, filename)
+		
+		result := map[string]interface{}{
+			"index":     i + 1,
+			"timestamp": timestamp,
+			"path":      thumbnailPath,
+		}
+		
+		// Check if thumbnail already exists
+		if _, err := os.Stat(thumbnailPath); err == nil {
+			result["status"] = "success"
+			result["message"] = "Thumbnail already exists"
+			results = append(results, result)
+			continue
+		}
+		
+		// Generate thumbnail at specific timestamp
+		timeStr := s.secondsToTimeString(timestamp)
+		cmd := exec.Command("ffmpeg",
+			"-i", videoPath,
+			"-ss", timeStr,
+			"-vframes", "1",
+			"-vf", "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2",
+			"-q:v", "2",
+			"-y",
+			thumbnailPath,
+		)
+		
+		if err := cmd.Run(); err != nil {
+			result["status"] = "failed"
+			result["error"] = err.Error()
+			log.Printf("Failed to generate thumbnail %d for media %d: %v", i+1, mediaID, err)
+		} else {
+			result["status"] = "success"
+			result["message"] = "Thumbnail generated successfully"
+			log.Printf("Generated thumbnail %d for media %d at %s", i+1, mediaID, timeStr)
+		}
+		
+		results = append(results, result)
+	}
+	
+	return results, nil
+}
+
+// Helper function for max
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}

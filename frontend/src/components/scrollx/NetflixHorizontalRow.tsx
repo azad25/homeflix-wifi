@@ -96,6 +96,10 @@ const NetflixHorizontalRow: React.FC<NetflixHorizontalRowProps> = ({
       className="relative group mb-8"
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
+      style={{ 
+        overflow: 'visible',
+        zIndex: 1
+      }}
     >
       {/* Title */}
       {showTitle && (
@@ -107,7 +111,7 @@ const NetflixHorizontalRow: React.FC<NetflixHorizontalRowProps> = ({
       )}
 
       {/* Row Container */}
-      <div className="relative">
+      <div className="relative" style={{ overflow: 'visible' }}>
         {/* Left Arrow */}
         <AnimatePresence>
           {canScrollLeft && isHovered && (
@@ -149,12 +153,14 @@ const NetflixHorizontalRow: React.FC<NetflixHorizontalRowProps> = ({
         {/* Cards Container */}
         <div
           ref={scrollContainerRef}
-          className="flex gap-3 overflow-x-auto overflow-y-hidden scrollbar-hide px-4 md:px-8 lg:px-16 pb-4"
+          className="flex gap-3 overflow-x-auto scrollbar-hide px-4 md:px-8 lg:px-16 pb-4"
           onScroll={handleScroll}
           style={{
             scrollbarWidth: 'none',
             msOverflowStyle: 'none',
-            overflowY: 'hidden'
+            overflowY: 'visible',
+            paddingBottom: '120px', // Extra space for expanded cards
+            marginBottom: '-80px' // Compensate for extra padding
           }}
         >
           {media.map((item, index) => (

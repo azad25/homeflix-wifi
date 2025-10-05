@@ -4,6 +4,7 @@ import React, { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { Search, Bell, User, Menu, X } from "lucide-react";
 import Image from "next/image";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 interface NavbarProps {
@@ -40,7 +41,6 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
   };
 
   const navItems = [
-    { name: "Home", href: "/" },
     { name: "Movies", href: "/movies" },
     { name: "TV Shows", href: "/tv-shows" },
     { name: "My List", href: "/my-list" },
@@ -60,9 +60,12 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
         <div className="flex items-center justify-between h-16">
           {/* Logo */}
           <div className="flex items-center gap-8">
-            <div className="text-red-600 text-2xl font-bold">
+            <Link 
+              href="/"
+              className="text-red-600 text-2xl font-bold hover:text-red-500 transition-colors cursor-pointer"
+            >
               HomeFlix
-            </div>
+            </Link>
 
             {/* Desktop Navigation */}
             <div className="hidden md:flex items-center gap-6">

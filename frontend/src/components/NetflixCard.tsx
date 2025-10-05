@@ -1,11 +1,13 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Play, Plus, ThumbsUp, ChevronDown, Volume2, VolumeX } from 'lucide-react';
+import { Play, Plus, ThumbsUp, ChevronDown, Volume2, VolumeX, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import Image from 'next/image';
+import LazyImage from './LazyImage';
+import LazyVideo from './LazyVideo';
 import { Media } from '../types/media';
 import { getApiUrl } from '../lib/api';
+import { addToWishlist, removeFromWishlist, isInWishlist } from '../lib/wishlist';
 
 interface NetflixCardProps {
   media: Media;
@@ -15,10 +17,10 @@ interface NetflixCardProps {
   delay?: number;
 }
 
-const NetflixCard: React.FC<NetflixCardProps> = ({ 
-  media, 
-  onPlay, 
-  onInfo, 
+const NetflixCard: React.FC<NetflixCardProps> = ({
+  media,
+  onPlay,
+  onInfo,
   priority = false,
   delay = 0
 }) => {
@@ -29,13 +31,14 @@ const NetflixCard: React.FC<NetflixCardProps> = ({
   const [isPlaying, setIsPlaying] = useState(false);
   const [imageError, setImageError] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  
+  const [inWishlist, setInWishlist] = useState(false);
+
   const videoRef = useRef<HTMLVideoElement>(null);
   const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const hideTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const apiUrl = getApiUrl();
-  
+
   const getThumbnailUrl = () => {
     if (media.poster_path) {
       return `${apiUrl}/api/posters/${media.id}`;
@@ -51,15 +54,18 @@ const NetflixCard: React.FC<NetflixCardProps> = ({
   };
 
   useEffect(() => {
+    // Check if media is in wishlist
+    setInWishlist(isInWishlist(media.id));
+
     return () => {
       if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
       if (hideTimeoutRef.current) clearTimeout(hideTimeoutRef.current);
     };
-  }, []);
+  }, [media.id]);
 
   const handleMouseEnter = () => {
     setIsHovered(true);
-    
+
     if (hideTimeoutRef.current) {
       clearTimeout(hideTimeoutRef.current);
     }
@@ -72,7 +78,7 @@ const NetflixCard: React.FC<NetflixCardProps> = ({
 
   const handleMouseLeave = () => {
     setIsHovered(false);
-    
+
     if (hoverTimeoutRef.current) {
       clearTimeout(hoverTimeoutRef.current);
     }
@@ -116,6 +122,21 @@ const NetflixCard: React.FC<NetflixCardProps> = ({
     setImageError(true);
   };
 
+  const handleWishlistToggle = (e: React.MouseEvent) => {
+    e.stopPropagation();
+
+    let success = false;
+    if (inWishlist) {
+      success = removeFromWishlist(media.id);
+    } else {
+      success = addToWishlist(media.id);
+    }
+
+    if (success) {
+      setInWishlist(!inWishlist);
+    }
+  };
+
   const formatDuration = (seconds: number) => {
     const hours = Math.floor(seconds / 3600);
     const minutes = Math.floor((seconds % 3600) / 60);
@@ -127,34 +148,40 @@ const NetflixCard: React.FC<NetflixCardProps> = ({
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5, delay: delay / 1000 }}
-      className="relative group cursor-pointer"
+      className={`relative group cursor-pointer ${isHovered ? 'z-50' : 'z-10'}`}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
+      style={{
+        zIndex: isHovered ? 50 : 10,
+      }}
     >
       {/* Base Card */}
       <motion.div
         className="relative w-full aspect-video bg-gray-900 rounded-lg overflow-hidden"
-        animate={{ 
+        animate={{
           scale: isHovered ? 1.3 : 1,
-          zIndex: isHovered ? 50 : 1,
         }}
         transition={{ duration: 0.3, ease: "easeOut" }}
         style={{
           transformOrigin: 'center center',
+          zIndex: isHovered ? 50 : 1,
+          position: isHovered ? 'relative' : 'relative',
         }}
       >
-        {/* Thumbnail Image */}
+        {/* Thumbnail Image with Lazy Loading */}
         {!imageError ? (
-          <Image
+          <LazyImage
             src={getThumbnailUrl()}
             alt={media.title}
             fill
             sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
-            className={`object-cover transition-opacity duration-300 ${
-              showPreview && isVideoLoaded ? 'opacity-0' : 'opacity-100'
-            }`}
-            loading={priority ? "eager" : "lazy"}
+            className={`transition-opacity duration-300 ${showPreview && isVideoLoaded ? 'opacity-0' : 'opacity-100'
+              }`}
+            priority={priority}
             onError={handleImageError}
+            loaderSize="medium"
+            showLoader={true}
+            fallbackSrc={`${getApiUrl()}/api/thumbnails/${media.id}`}
           />
         ) : (
           <div className="w-full h-full bg-gradient-to-br from-gray-700 via-gray-800 to-gray-900 flex items-center justify-center">
@@ -165,19 +192,21 @@ const NetflixCard: React.FC<NetflixCardProps> = ({
           </div>
         )}
 
-        {/* Preview Video */}
+        {/* Preview Video with Lazy Loading */}
         {showPreview && (
-          <video
+          <LazyVideo
             ref={videoRef}
             src={getPreviewUrl()}
-            className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-300 ${
-              isVideoLoaded ? 'opacity-100' : 'opacity-0'
-            }`}
+            className={`absolute inset-0 w-full h-full transition-opacity duration-300 ${isVideoLoaded ? 'opacity-100' : 'opacity-0'
+              }`}
             muted={isMuted}
             loop
             playsInline
-            onLoadedData={handleVideoLoad}
+            onCanPlay={handleVideoLoad}
             onError={handleVideoError}
+            loaderSize="small"
+            showLoader={false}
+            priority={false}
           />
         )}
 
@@ -232,14 +261,14 @@ const NetflixCard: React.FC<NetflixCardProps> = ({
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 10, scale: 0.95 }}
             transition={{ duration: 0.2, ease: "easeOut" }}
-            className="absolute top-full left-0 right-0 bg-gray-900 rounded-b-lg shadow-2xl p-4 z-30 border border-gray-700"
-            style={{ marginTop: '4px' }}
+            className="absolute top-full left-0 right-0 bg-gray-900 rounded-b-lg shadow-2xl p-4 border border-gray-700"
+            style={{ zIndex: 60, marginTop: '4px' }}
           >
             {/* Title */}
             <h3 className="text-white font-bold text-lg mb-2 line-clamp-1">
               {media.title}
             </h3>
-            
+
             {/* Metadata */}
             <div className="flex items-center gap-2 mb-3 text-sm">
               <span className="text-green-500 font-semibold">
@@ -275,15 +304,22 @@ const NetflixCard: React.FC<NetflixCardProps> = ({
                 )}
                 Play
               </button>
-              
-              <button className="bg-gray-700 text-white p-2 rounded-full hover:bg-gray-600 transition-colors duration-200 cursor-pointer">
-                <Plus className="w-4 h-4" />
+
+              <button
+                onClick={handleWishlistToggle}
+                className={`p-2 rounded-full transition-colors duration-200 cursor-pointer ${inWishlist
+                  ? 'bg-green-600 text-white hover:bg-green-700'
+                  : 'bg-gray-700 text-white hover:bg-gray-600'
+                  }`}
+                title={inWishlist ? 'Remove from My List' : 'Add to My List'}
+              >
+                {inWishlist ? <Check className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
               </button>
-              
+
               <button className="bg-gray-700 text-white p-2 rounded-full hover:bg-gray-600 transition-colors duration-200 cursor-pointer">
                 <ThumbsUp className="w-4 h-4" />
               </button>
-              
+
               <button
                 onClick={() => onInfo(media)}
                 className="bg-gray-700 text-white p-2 rounded-full hover:bg-gray-600 transition-colors duration-200 ml-auto cursor-pointer"

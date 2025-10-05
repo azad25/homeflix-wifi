@@ -262,31 +262,6 @@ func (s *ALACAudioService) ConvertToSpatialAudio(inputPath string, mediaID int, 
 	return outputPath, nil
 }
 
-// OptimizeForStreaming optimizes ALAC audio for web streaming
-func (s *ALACAudioService) OptimizeForStreaming(inputPath string, mediaID int) (string, error) {
-	outputPath := filepath.Join(s.outputDir, fmt.Sprintf("stream_optimized_%d.m4a", mediaID))
-
-	// Create streaming-optimized version with progressive download support
-	cmd := exec.Command("ffmpeg",
-		"-i", inputPath,
-		"-c:a", "alac",
-		"-ar", "48000",           // Slightly lower sample rate for streaming
-		"-compression_level", "1", // Light compression for smaller files
-		"-movflags", "+faststart+frag_keyframe+empty_moov", // Streaming optimization
-		"-frag_duration", "1000000", // 1 second fragments
-		"-y",
-		outputPath,
-	)
-
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return "", fmt.Errorf("streaming optimization failed: %v\nOutput: %s", err, string(output))
-	}
-
-	log.Printf("✅ Streaming-optimized ALAC created: %s", outputPath)
-	return outputPath, nil
-}
-
 // GetAudioPath returns the path to the ALAC audio file for a media ID
 func (s *ALACAudioService) GetAudioPath(mediaID int) string {
 	alacPath := filepath.Join(s.outputDir, fmt.Sprintf("alac_%d.m4a", mediaID))
@@ -301,33 +276,6 @@ func (s *ALACAudioService) GetAudioPath(mediaID int) string {
 	}
 
 	return ""
-}
-
-// CleanupAudioFiles removes old audio files to save space
-func (s *ALACAudioService) CleanupAudioFiles(mediaID int) error {
-	patterns := []string{
-		fmt.Sprintf("alac_%d.m4a", mediaID),
-		fmt.Sprintf("hq_audio_%d.m4a", mediaID),
-		fmt.Sprintf("spatial_*_%d.m4a", mediaID),
-		fmt.Sprintf("stream_optimized_%d.m4a", mediaID),
-	}
-
-	for _, pattern := range patterns {
-		matches, err := filepath.Glob(filepath.Join(s.outputDir, pattern))
-		if err != nil {
-			continue
-		}
-
-		for _, match := range matches {
-			if err := os.Remove(match); err != nil {
-				log.Printf("Warning: Could not remove audio file %s: %v", match, err)
-			} else {
-				log.Printf("Cleaned up audio file: %s", match)
-			}
-		}
-	}
-
-	return nil
 }
 
 // GetSupportedFormats returns list of supported audio formats

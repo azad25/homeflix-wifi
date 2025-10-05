@@ -81,7 +81,7 @@ const NextEpisodePreview: React.FC<NextEpisodePreviewProps> = ({
               {/* Thumbnail */}
               <div className="w-32 h-20 bg-gray-800 rounded overflow-hidden flex-shrink-0">
                 <img
-                  src={`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8251'}/api/thumbnails/${nextEpisode.id}`}
+                  src={`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8252'}/api/thumbnails/${nextEpisode.id}`}
                   alt={nextEpisode.title}
                   className="w-full h-full object-cover"
                   onError={(e) => {

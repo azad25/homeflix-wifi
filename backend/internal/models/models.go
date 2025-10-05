@@ -34,8 +34,20 @@ type Media struct {
 	Quality     string    `json:"quality"` // HD, 4K, SD, HDR
 	
 	// Cast and crew - matching media.json structure
-	Stars    []string `json:"stars" gorm:"type:json"`
-	Director []string `json:"director" gorm:"type:json"`
+	Stars     []string `json:"stars" gorm:"type:json"`
+	Director  []string `json:"director" gorm:"type:json"`
+	Cast      []string `json:"cast" gorm:"type:json"`      // Full cast list
+	Writers   []string `json:"writers" gorm:"type:json"`   // Writers/Screenplay
+	Producers []string `json:"producers" gorm:"type:json"` // Producers
+	
+	// Box office and additional metadata
+	Budget     int64  `json:"budget"`      // Production budget
+	Revenue    int64  `json:"revenue"`     // Box office revenue
+	BoxOffice  string `json:"box_office"`  // Formatted box office string
+	Status     string `json:"status"`      // Released, Post Production, etc.
+	IMDBID     string `json:"imdb_id"`     // IMDB identifier
+	Homepage   string `json:"homepage"`    // Official website
+	Collection string `json:"collection"`  // Movie collection/franchise
 	
 	// Genres - keeping both relationship and JSON for flexibility
 	Genres     []Genre  `json:"genres" gorm:"many2many:media_genres;"`

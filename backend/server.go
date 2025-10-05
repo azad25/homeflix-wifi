@@ -40,12 +40,13 @@ func main() {
 	geminiService := services.NewGeminiService()
 	celeryService := services.NewCeleryService()
 	alacService := services.NewALACAudioService("./alac_audio")
+	tmdbService := services.NewTMDBService()
 
 	// Initialize poster service
 	posterService := services.NewPosterService("./posters")
 	
-	// Initialize media scanner
-	mediaScanner := scanner.NewMediaScanner(mediaService, thumbnailService, posterService, geminiService, celeryService, cfg.MediaPath)
+	// Initialize media scanner with ALAC service
+	mediaScanner := scanner.NewMediaScanner(mediaService, thumbnailService, posterService, geminiService, celeryService, alacService, cfg.MediaPath)
 
 	// Start background media scanning
 	go func() {
@@ -71,12 +72,12 @@ func main() {
 	}))
 
 	// Initialize API routes
-	api.SetupRoutes(r, mediaService, streamService, thumbnailService, userService, recommendationService, playbackService, geminiService, celeryService, alacService)
+	api.SetupRoutes(r, mediaService, streamService, thumbnailService, userService, recommendationService, playbackService, geminiService, celeryService, alacService, tmdbService, mediaScanner)
 
 	// Start server
 	port := os.Getenv("PORT")
 	if port == "" {
-		port = "8251"
+		port = "8252"
 	}
 
 	log.Printf("Server starting on port %s", port)

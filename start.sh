@@ -28,6 +28,14 @@ if [ ! -d "$MEDIA_PATH" ]; then
     echo "⚠️  Please add your media files to: $MEDIA_PATH"
 fi
 
+# Create necessary directories for thumbnails, posters, and previews
+echo "📁 Creating necessary directories..."
+mkdir -p thumbnails
+mkdir -p posters
+mkdir -p previews
+mkdir -p subtitles
+mkdir -p optimized
+
 # Get local IP address for network access
 LOCAL_IP=$(hostname -I | awk '{print $1}')
 
@@ -43,31 +51,32 @@ cd ..
 sleep 5
 
 # Start frontend
-echo "🎨 Starting Next.js frontend..."
+echo "🎨 Starting Next.js frontend in production mode..."
 cd frontend
 npm install
-npm run dev &
+npm run build
+npm run start &
 FRONTEND_PID=$!
 cd ..
 
 echo ""
 echo "🎉 HomeFlix is now running!"
 echo "=================================="
-echo "🌐 Frontend (Local): http://localhost:3006"
-echo "🌐 Frontend (Network): http://$LOCAL_IP:3006"
-echo "🔧 Backend API (Local): http://localhost:8251"
-echo "🔧 Backend API (Network): http://$LOCAL_IP:8251"
+echo "🌐 Frontend (Local): http://localhost:3008"
+echo "🌐 Frontend (Network): http://$LOCAL_IP:3008"
+echo "🔧 Backend API (Local): http://localhost:8252"
+echo "🔧 Backend API (Network): http://$LOCAL_IP:8252"
 echo "📁 Media Path: $MEDIA_PATH"
 echo ""
 echo "📱 Network Access:"
 echo "   - Access from any device on your WiFi network"
 echo "   - Use the network URLs above on other devices"
-echo "   - Make sure firewall allows ports 3006 and 8251"
+echo "   - Make sure firewall allows ports 3008 and 8252"
 echo ""
 echo "📖 Instructions:"
 echo "1. Add your movies/series to: $MEDIA_PATH"
 echo "2. The backend will automatically scan and organize your media"
-echo "3. Open http://localhost:3006 in your browser"
+echo "3. Open http://localhost:3008 in your browser"
 echo "4. Enjoy your personal Netflix clone!"
 echo ""
 echo "Press Ctrl+C to stop both services"

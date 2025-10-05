@@ -24,25 +24,25 @@ const nextConfig = {
       {
         protocol: 'http',
         hostname: 'localhost',
-        port: '8251',
+        port: '8252',
         pathname: '/api/thumbnails/**',
       },
       {
         protocol: 'http',
         hostname: 'localhost',
-        port: '8251',
+        port: '8252',
         pathname: '/api/posters/**',
       },
       {
         protocol: 'http',
         hostname: '*',
-        port: '8251',
+        port: '8252',
         pathname: '/api/thumbnails/**',
       },
       {
         protocol: 'http',
         hostname: '*',
-        port: '8251',
+        port: '8252',
         pathname: '/api/posters/**',
       },
     ],
@@ -51,7 +51,7 @@ const nextConfig = {
     return [
       {
         source: '/api/:path*',
-        destination: `http://localhost:8251/api/:path*`,
+        destination: `http://localhost:8252/api/:path*`,
       },
     ];
   },

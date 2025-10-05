@@ -12,6 +12,7 @@ import { ScrollXCarousel, ParallaxSection, GradientBackground, ScrollReveal, Mag
 import RecentlyWatched from '@/components/RecentlyWatched';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
+import { getWishlist, removeFromWishlist, fetchWishlistMedia } from '@/lib/wishlist';
 
 export default function MyListPage() {
   const router = useRouter();
@@ -33,27 +34,12 @@ export default function MyListPage() {
 
   const fetchWatchlist = async () => {
     try {
-      // For now, use localStorage to simulate watchlist functionality
-      const savedWatchlist = localStorage.getItem('homeflix_watchlist');
-      if (savedWatchlist) {
-        const watchlistIds = JSON.parse(savedWatchlist);
-        
-        // Fetch media details for watchlist items
-        const apiUrl = getApiUrl();
-        const response = await fetch(`${apiUrl}/api/media`);
-        const allMedia = await response.json();
-        
-        const watchlistMedia = allMedia.filter((media: Media) => 
-          watchlistIds.includes(media.id)
-        );
-        
-        setWatchlist(watchlistMedia);
-      } else {
-        setWatchlist([]);
-      }
+      const apiUrl = getApiUrl();
+      const wishlistMedia = await fetchWishlistMedia(apiUrl);
+      setWatchlist(wishlistMedia);
       setLoading(false);
     } catch (error) {
-      console.error("Error fetching watchlist:", error);
+      console.error("Error fetching wishlist:", error);
       setWatchlist([]);
       setLoading(false);
     }
@@ -97,17 +83,12 @@ export default function MyListPage() {
 
   const handleRemoveFromList = async (mediaId: number) => {
     try {
-      // Update localStorage watchlist
-      const savedWatchlist = localStorage.getItem('homeflix_watchlist');
-      if (savedWatchlist) {
-        const watchlistIds = JSON.parse(savedWatchlist);
-        const updatedIds = watchlistIds.filter((id: number) => id !== mediaId);
-        localStorage.setItem('homeflix_watchlist', JSON.stringify(updatedIds));
+      const success = removeFromWishlist(mediaId);
+      if (success) {
+        setWatchlist(prev => prev.filter(item => item.id !== mediaId));
       }
-      
-      setWatchlist(prev => prev.filter(item => item.id !== mediaId));
     } catch (error) {
-      console.error("Error removing from watchlist:", error);
+      console.error("Error removing from wishlist:", error);
     }
   };
 
@@ -188,7 +169,7 @@ export default function MyListPage() {
                 <div className="aspect-[2/3] bg-gradient-to-br from-gray-800 to-gray-900 flex items-center justify-center relative">
                   {media.thumbnail_path ? (
                     <Image
-                      src={`http://${window.location.hostname === 'localhost' ? 'localhost' : window.location.hostname}:8251/api/thumbnails/${media.id}`}
+                      src={`http://${window.location.hostname === 'localhost' ? 'localhost' : window.location.hostname}:8252/api/thumbnails/${media.id}`}
                       alt={media.title}
                       fill
                       className="object-cover"

@@ -27,7 +27,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
-  const [volume, setVolume] = useState(1);
+  const [volume, setVolume] = useState(0.8);
   const [isMuted, setIsMuted] = useState(false);
   const [showControls, setShowControls] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -37,10 +37,24 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
   const [subtitlesEnabled, setSubtitlesEnabled] = useState(true);
   const [availableSubtitles, setAvailableSubtitles] = useState<Array<{language: string, url: string}>>([]);
   const [currentSubtitle, setCurrentSubtitle] = useState<string | null>(null);
+  const [dragStartTime, setDragStartTime] = useState<number | null>(null);
+  const [isBuffering, setIsBuffering] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
+  const [showResumeNotification, setShowResumeNotification] = useState(false);
+  const [resumeTime, setResumeTime] = useState(0);
 
   const getStreamUrl = (mediaId: number) => {
     return `${getApiUrl()}/api/stream/${mediaId}`;
   };
+
+  // Detect mobile device
+  useEffect(() => {
+    const checkMobile = () => {
+      const userAgent = navigator.userAgent || navigator.vendor || (window as any).opera;
+      setIsMobile(/android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(userAgent.toLowerCase()));
+    };
+    checkMobile();
+  }, []);
 
   // Load subtitles
   useEffect(() => {
@@ -109,6 +123,24 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
     setShowNextEpisode(false);
   };
 
+  const handleResumePlayback = () => {
+    const video = videoRef.current;
+    if (video && resumeTime > 0) {
+      video.currentTime = resumeTime;
+      setCurrentTime(resumeTime);
+      setShowResumeNotification(false);
+    }
+  };
+
+  const handleStartFromBeginning = () => {
+    const video = videoRef.current;
+    if (video) {
+      video.currentTime = 0;
+      setCurrentTime(0);
+      setShowResumeNotification(false);
+    }
+  };
+
   const toggleSubtitles = () => {
     setSubtitlesEnabled(!subtitlesEnabled);
     const video = videoRef.current;
@@ -123,10 +155,17 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
   const togglePlay = () => {
     const video = videoRef.current;
     if (!video) return;
+    
     if (isPlaying) {
       video.pause();
     } else {
-      video.play();
+      // Always ensure sound is on when playing
+      video.muted = false;
+      video.volume = volume > 0 ? volume : 0.8;
+      setIsMuted(false);
+      video.play().catch(error => {
+        console.log('Play failed:', error);
+      });
     }
   };
 
@@ -156,22 +195,61 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
   };
 
   const toggleFullscreen = () => {
+    const video = videoRef.current;
     const container = containerRef.current;
-    if (!container) return;
+    
+    if (!container || !video) return;
+
+    // For iOS Safari, use video element fullscreen
+    if (isMobile && (video as any).webkitEnterFullscreen) {
+      try {
+        if (!document.fullscreenElement && !(document as any).webkitFullscreenElement) {
+          (video as any).webkitEnterFullscreen();
+          setIsFullscreen(true);
+        } else {
+          if ((document as any).webkitExitFullscreen) {
+            (document as any).webkitExitFullscreen();
+          }
+          setIsFullscreen(false);
+        }
+        return;
+      } catch (error) {
+        console.log('iOS fullscreen failed, trying standard method:', error);
+      }
+    }
+
+    // Standard fullscreen API
     if (!document.fullscreenElement) {
-      container.requestFullscreen().then(() => {
-        setIsFullscreen(true);
-        if (screen.orientation && (screen.orientation as any).lock) {
-          (screen.orientation as any).lock('landscape').catch(() => {});
-        }
-      }).catch(console.error);
+      const requestFullscreen = container.requestFullscreen || 
+                               (container as any).webkitRequestFullscreen || 
+                               (container as any).mozRequestFullScreen || 
+                               (container as any).msRequestFullscreen;
+      
+      if (requestFullscreen) {
+        requestFullscreen.call(container).then(() => {
+          setIsFullscreen(true);
+          // Lock orientation on mobile
+          if (screen.orientation && (screen.orientation as any).lock) {
+            (screen.orientation as any).lock('landscape').catch(() => {});
+          }
+        }).catch((error: any) => {
+          console.error('Fullscreen request failed:', error);
+        });
+      }
     } else {
-      document.exitFullscreen().then(() => {
-        setIsFullscreen(false);
-        if (screen.orientation && screen.orientation.unlock) {
-          screen.orientation.unlock();
-        }
-      }).catch(console.error);
+      const exitFullscreen = document.exitFullscreen || 
+                            (document as any).webkitExitFullscreen || 
+                            (document as any).mozCancelFullScreen || 
+                            (document as any).msExitFullscreen;
+      
+      if (exitFullscreen) {
+        exitFullscreen.call(document).then(() => {
+          setIsFullscreen(false);
+          if (screen.orientation && screen.orientation.unlock) {
+            screen.orientation.unlock();
+          }
+        }).catch(console.error);
+      }
     }
   };
 
@@ -188,40 +266,77 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
     const video = videoRef.current;
     if (!video) return;
     const newVolume = parseFloat(e.target.value) / 100;
-    video.volume = newVolume;
-    setVolume(newVolume);
-    setIsMuted(newVolume === 0);
-    video.muted = newVolume === 0;
+    
+    // Ensure minimum volume of 0.1 to keep sound audible
+    const adjustedVolume = Math.max(0.1, newVolume);
+    
+    video.volume = adjustedVolume;
+    setVolume(adjustedVolume);
+    setIsMuted(false); // Never mute through volume control
+    video.muted = false;
   };
 
-  const handleProgressClick = (e: React.MouseEvent<HTMLDivElement>) => {
+  const handleProgressClick = (e: React.MouseEvent<HTMLDivElement> | React.TouchEvent<HTMLDivElement>) => {
     const video = videoRef.current;
     const progressBar = e.currentTarget;
     if (!video || !progressBar) return;
     
-    setIsDragging(true);
     const rect = progressBar.getBoundingClientRect();
-    const clickX = e.clientX - rect.left;
+    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+    const clickX = clientX - rect.left;
     const width = rect.width;
     const percentage = Math.max(0, Math.min(1, clickX / width));
     const newTime = percentage * duration;
     
     video.currentTime = newTime;
     setCurrentTime(newTime);
+  };
+
+  const handleSeekStart = (e: React.MouseEvent | React.TouchEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+    setDragStartTime(currentTime);
     
-    // Reset dragging state after seeking
-    setTimeout(() => setIsDragging(false), 100);
+    const handleMove = (moveEvent: MouseEvent | TouchEvent) => {
+      const video = videoRef.current;
+      if (!video || !duration) return;
+      
+      const progressBar = (e.target as HTMLElement).closest('.progress-container');
+      if (!progressBar) return;
+      
+      const rect = progressBar.getBoundingClientRect();
+      const clientX = 'touches' in moveEvent ? moveEvent.touches[0].clientX : moveEvent.clientX;
+      const clickX = clientX - rect.left;
+      const width = rect.width;
+      const percentage = Math.max(0, Math.min(1, clickX / width));
+      const newTime = percentage * duration;
+      
+      setCurrentTime(newTime);
+      video.currentTime = newTime;
+    };
+    
+    const handleEnd = () => {
+      setIsDragging(false);
+      setDragStartTime(null);
+      document.removeEventListener('mousemove', handleMove);
+      document.removeEventListener('mouseup', handleEnd);
+      document.removeEventListener('touchmove', handleMove);
+      document.removeEventListener('touchend', handleEnd);
+    };
+    
+    document.addEventListener('mousemove', handleMove);
+    document.addEventListener('mouseup', handleEnd);
+    document.addEventListener('touchmove', handleMove);
+    document.addEventListener('touchend', handleEnd);
   };
 
   const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
     const video = videoRef.current;
     if (!video) return;
-    setIsDragging(true);
+    
     const newTime = (parseFloat(e.target.value) / 100) * duration;
     video.currentTime = newTime;
     setCurrentTime(newTime);
-    // Reset dragging state after a short delay
-    setTimeout(() => setIsDragging(false), 100);
   };
 
   const formatTime = (time: number) => {
@@ -270,35 +385,87 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
     }
   }, [isOpen, isFullscreen, onClose]);
 
+  // Ensure user interaction for autoplay policy
+  useEffect(() => {
+    const handleUserInteraction = () => {
+      const video = videoRef.current;
+      if (video && video.paused) {
+        video.muted = false;
+        video.volume = volume;
+        setIsMuted(false);
+        video.play().catch(console.log);
+      }
+    };
+
+    // Add interaction listeners
+    document.addEventListener('click', handleUserInteraction, { once: true });
+    document.addEventListener('touchstart', handleUserInteraction, { once: true });
+    document.addEventListener('keydown', handleUserInteraction, { once: true });
+
+    return () => {
+      document.removeEventListener('click', handleUserInteraction);
+      document.removeEventListener('touchstart', handleUserInteraction);
+      document.removeEventListener('keydown', handleUserInteraction);
+    };
+  }, [volume]);
+
   // Video event handlers
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
 
-    const handleLoadedMetadata = () => {
+    const handleLoadedMetadata = async () => {
       console.log('Video metadata loaded, duration:', video.duration);
       setDuration(video.duration);
-      // Set start time if provided
-      if (startTime > 0) {
-        video.currentTime = startTime;
-        setCurrentTime(startTime);
+      
+      // Load saved progress or use provided start time
+      const savedProgress = await getPlaybackProgress(media.id);
+      const resumeTimeValue = startTime > 0 ? startTime : (savedProgress?.progress || 0);
+      
+      if (resumeTimeValue > 30 && resumeTimeValue < video.duration - 30) { // Don't resume if less than 30 seconds watched or less than 30 seconds left
+        setResumeTime(resumeTimeValue);
+        setShowResumeNotification(true);
+        console.log(`Found saved progress at ${resumeTimeValue} seconds`);
+        
+        // Auto-hide notification after 10 seconds
+        setTimeout(() => {
+          setShowResumeNotification(false);
+        }, 10000);
       }
     };
 
     const handleLoadedData = () => {
       console.log('Video data loaded successfully');
-      // Ensure video is ready to play
+      // Ensure video is ready to play with sound
       if (video.readyState >= 2) {
         video.volume = volume;
-        video.muted = isMuted;
+        video.muted = false; // Always unmuted for video player
+        setIsMuted(false);
       }
     };
 
     const handleCanPlay = () => {
       console.log('Video can play');
-      // Auto-play when ready
+      // Auto-play with sound when ready
+      video.muted = false;
+      video.volume = volume;
+      setIsMuted(false);
+      
       video.play().catch(error => {
-        console.log('Auto-play failed:', error);
+        console.log('Auto-play with sound failed, trying muted first:', error);
+        // If autoplay with sound fails, try muted then unmute
+        video.muted = true;
+        video.play().then(() => {
+          // Immediately unmute after successful muted play
+          setTimeout(() => {
+            video.muted = false;
+            video.volume = volume;
+            setIsMuted(false);
+            console.log('Video playing with sound after muted start');
+          }, 100);
+        }).catch(mutedError => {
+          console.log('Even muted autoplay failed:', mutedError);
+        });
       });
     };
 
@@ -315,6 +482,14 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
     const handlePlay = () => {
       console.log('Video started playing');
       setIsPlaying(true);
+      
+      // Ensure sound is on when playing
+      if (video.muted) {
+        video.muted = false;
+        video.volume = volume;
+        setIsMuted(false);
+      }
+      
       // Track view when playback starts
       trackView(media.id);
     };
@@ -351,10 +526,20 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
 
     const handleWaiting = () => {
       console.log('Video is buffering...');
+      setIsBuffering(true);
     };
 
     const handleCanPlayThrough = () => {
       console.log('Video can play through without buffering');
+      setIsBuffering(false);
+    };
+
+    const handleSeeking = () => {
+      setIsBuffering(true);
+    };
+
+    const handleSeeked = () => {
+      setIsBuffering(false);
     };
 
     video.addEventListener('loadedmetadata', handleLoadedMetadata);
@@ -367,6 +552,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
     video.addEventListener('error', handleError);
     video.addEventListener('waiting', handleWaiting);
     video.addEventListener('canplaythrough', handleCanPlayThrough);
+    video.addEventListener('seeking', handleSeeking);
+    video.addEventListener('seeked', handleSeeked);
 
     return () => {
       video.removeEventListener('loadedmetadata', handleLoadedMetadata);
@@ -379,6 +566,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
       video.removeEventListener('error', handleError);
       video.removeEventListener('waiting', handleWaiting);
       video.removeEventListener('canplaythrough', handleCanPlayThrough);
+      video.removeEventListener('seeking', handleSeeking);
+      video.removeEventListener('seeked', handleSeeked);
     };
   }, [isDragging, media.id, startTime, volume, isMuted, nextEpisode]);
 
@@ -436,11 +625,27 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
           autoPlay
           controls={false}
           playsInline
+          webkit-playsinline="true"
           onPause={() => setIsPlaying(false)}
           onEnded={() => setIsPlaying(false)}
           onError={(e) => {
             console.error('Video error:', e);
             console.log('Video src:', getStreamUrl(media.id));
+          }}
+          onClick={(e) => {
+            // Ensure sound is always on when clicking video
+            if (videoRef.current) {
+              const video = videoRef.current;
+              video.muted = false;
+              video.volume = volume > 0 ? volume : 0.8;
+              setIsMuted(false);
+              
+              if (video.paused) {
+                video.play().catch(error => {
+                  console.log('Play failed on click:', error);
+                });
+              }
+            }
           }}
           onLoadStart={() => console.log('Video loading started')}
           onCanPlay={() => console.log('Video can play')}
@@ -448,11 +653,13 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
             console.log('Video loaded successfully');
             const video = videoRef.current;
             if (video) {
-              // Ensure video is properly initialized
+              // Ensure video is properly initialized with sound
               video.volume = volume;
-              video.muted = isMuted;
+              video.muted = false; // Always start unmuted
+              setIsMuted(false);
               if (startTime > 0) {
                 video.currentTime = startTime;
+                console.log(`Resuming playback from ${startTime} seconds`);
               }
             }
           }}
@@ -564,51 +771,53 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                 {/* Progress Bar */}
                 <div className="mb-4 group">
                   <div 
-                    className="relative w-full h-1 bg-white/30 rounded-lg cursor-pointer group-hover:h-2 transition-all duration-200"
+                    className="progress-container relative w-full h-1 bg-white/30 rounded-lg cursor-pointer group-hover:h-2 transition-all duration-200"
                     onClick={handleProgressClick}
-                    onMouseDown={(e) => {
-                      setIsDragging(true);
-                      handleProgressClick(e);
-                    }}
-                    onMouseUp={() => setIsDragging(false)}
+                    onMouseDown={handleSeekStart}
+                    onTouchStart={handleSeekStart}
                   >
+                    {/* Buffered Progress */}
+                    <div 
+                      className="absolute top-0 left-0 h-full bg-white/20 rounded-lg pointer-events-none"
+                      style={{ 
+                        width: videoRef.current?.buffered && videoRef.current.buffered.length > 0 && duration > 0 
+                          ? `${(videoRef.current.buffered.end(videoRef.current.buffered.length - 1) / duration) * 100}%` 
+                          : '0%' 
+                      }}
+                    />
+                    
                     {/* Progress Fill */}
                     <div 
-                      className="absolute top-0 left-0 h-full bg-red-600 rounded-lg transition-all duration-200 pointer-events-none"
+                      className={`absolute top-0 left-0 h-full bg-red-600 rounded-lg transition-all pointer-events-none ${
+                        isDragging ? 'duration-0' : 'duration-200'
+                      }`}
                       style={{ width: `${duration > 0 ? (currentTime / duration) * 100 : 0}%` }}
                     />
                     
                     {/* Progress Handle */}
                     <div 
-                      className="absolute top-1/2 transform -translate-y-1/2 -translate-x-1/2 w-3 h-3 bg-red-600 rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none"
+                      className={`absolute top-1/2 transform -translate-y-1/2 -translate-x-1/2 w-3 h-3 bg-red-600 rounded-full transition-all duration-200 pointer-events-none ${
+                        isDragging || isBuffering ? 'opacity-100 scale-125' : 'opacity-0 group-hover:opacity-100'
+                      }`}
                       style={{ left: `${duration > 0 ? (currentTime / duration) * 100 : 0}%` }}
                     />
                     
-                    {/* Hidden Range Input for Better Dragging */}
-                    <input
-                      type="range"
-                      min="0"
-                      max="100"
-                      value={duration > 0 ? (currentTime / duration) * 100 : 0}
-                      onChange={handleSeek}
-                      onMouseDown={() => setIsDragging(true)}
-                      onMouseUp={() => setIsDragging(false)}
-                      onTouchStart={() => setIsDragging(true)}
-                      onTouchEnd={() => setIsDragging(false)}
-                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
-                      style={{
-                        background: 'transparent',
-                        WebkitAppearance: 'none',
-                        appearance: 'none'
-                      }}
-                    />
+                    {/* Buffering indicator */}
+                    {isBuffering && (
+                      <div 
+                        className="absolute top-1/2 transform -translate-y-1/2 -translate-x-1/2 w-4 h-4 border-2 border-white/30 border-t-red-600 rounded-full animate-spin pointer-events-none"
+                        style={{ left: `${duration > 0 ? (currentTime / duration) * 100 : 0}%` }}
+                      />
+                    )}
                   </div>
                   
                   {/* Time tooltip on hover */}
                   <div className="relative">
                     <div className="absolute bottom-2 left-0 right-0 pointer-events-none">
                       <div 
-                        className="absolute bg-black/80 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200 transform -translate-x-1/2"
+                        className={`absolute bg-black/80 text-white text-xs px-2 py-1 rounded transition-opacity duration-200 transform -translate-x-1/2 ${
+                          isDragging ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+                        }`}
                         style={{ left: `${duration > 0 ? (currentTime / duration) * 100 : 0}%` }}
                       >
                         {formatTime(currentTime)}
@@ -731,6 +940,45 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                     </button>
                   </div>
                 </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Resume Playback Notification */}
+        <AnimatePresence>
+          {showResumeNotification && (
+            <motion.div
+              initial={{ opacity: 0, y: 50 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 50 }}
+              className="absolute bottom-24 left-1/2 transform -translate-x-1/2 z-30"
+            >
+              <div className="bg-black/90 backdrop-blur-sm text-white p-4 rounded-lg border border-white/20 flex items-center gap-4 min-w-96">
+                <div className="flex-1">
+                  <p className="text-sm text-white/80 mb-1">Continue watching</p>
+                  <p className="font-medium">Resume from {formatTime(resumeTime)}</p>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleStartFromBeginning}
+                    className="px-3 py-1 text-sm bg-white/20 hover:bg-white/30 rounded transition-colors"
+                  >
+                    Start Over
+                  </button>
+                  <button
+                    onClick={handleResumePlayback}
+                    className="px-3 py-1 text-sm bg-red-600 hover:bg-red-700 rounded transition-colors"
+                  >
+                    Resume
+                  </button>
+                </div>
+                <button
+                  onClick={() => setShowResumeNotification(false)}
+                  className="text-white/60 hover:text-white/80 transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                </button>
               </div>
             </motion.div>
           )}

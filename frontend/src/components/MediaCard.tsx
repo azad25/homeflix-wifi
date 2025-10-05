@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import { motion } from "framer-motion";
 import Image from 'next/image';
+import LazyImage from './LazyImage';
 import { Play, Info, Plus, ThumbsUp, ChevronDown } from 'lucide-react';
 import { Media } from '../types/media';
 import { getApiUrl } from '../lib/api';
@@ -55,12 +56,15 @@ const MediaCard: React.FC<MediaCardProps> = ({
       {/* Thumbnail */}
       <div className="relative w-full h-full">
         {!imageError ? (
-          <Image
+          <LazyImage
             src={getImageUrl(media)}
             alt={media.title}
             fill
             className="object-cover"
             onError={() => setImageError(true)}
+            loaderSize="medium"
+            showLoader={true}
+            fallbackSrc={`${getApiUrl()}/api/thumbnails/${media.id}`}
           />
         ) : (
           <div className="w-full h-full bg-gradient-to-br from-gray-800 to-gray-900 flex items-center justify-center">

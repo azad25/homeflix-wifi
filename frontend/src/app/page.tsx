@@ -5,9 +5,10 @@ import { Film, Tv, Star, Clock } from "lucide-react";
 import { useRouter } from 'next/navigation';
 import Navbar from "@/components/Navbar";
 import VideoPlayer from '@/components/VideoPlayer';
+import PageTransition from '@/components/PageTransition';
 import { getApiUrl } from '@/lib/api';
 import { Media } from '@/types/media';
-import { ScrollXHero, NetflixHorizontalRow, ParallaxSection, GradientBackground, ParticleField, ScrollReveal } from '@/components/scrollx';
+import { ScrollXHero, NetflixHorizontalRow } from '@/components/scrollx';
 import RecentlyWatched from '@/components/RecentlyWatched';
 
 export default function Home() {
@@ -225,160 +226,152 @@ export default function Home() {
     },
   ];
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-black flex items-center justify-center">
-        <div className="text-white text-xl">Loading HomeFlix...</div>
-      </div>
-    );
-  }
-
   return (
-    <div className="min-h-screen bg-black">
-      <Navbar onSearch={handleSearch} />
-      
-      {/* ScrollX Hero Section */}
-      {featuredMedia.length > 0 && (
-        <ScrollXHero
-          featuredMedia={featuredMedia}
-          onPlay={handlePlay}
-          onInfo={handleInfo}
-        />
-      )}
+    <PageTransition isLoading={loading} text="Loading HomeFlix...">
+      <div className="min-h-screen bg-black">
+        <Navbar onSearch={handleSearch} />
+        
+        {/* ScrollX Hero Section */}
+        {featuredMedia.length > 0 && (
+          <ScrollXHero
+            featuredMedia={featuredMedia}
+            onPlay={handlePlay}
+            onInfo={handleInfo}
+          />
+        )}
 
-      {/* Main Content - Netflix Style */}
-      <div className="relative bg-black">
-        {searchResults.length > 0 ? (
-          <div className="py-8">
-            <NetflixHorizontalRow
-              title="Search Results"
-              media={searchResults}
-              onPlay={handlePlay}
-              onInfo={handleInfo}
-              priority={true}
-              variant="portrait"
-              size="medium"
-            />
-          </div>
-        ) : (
-          <div className="space-y-8 pb-20">
-            {/* Recently Watched */}
-            <RecentlyWatched
-              onPlay={handlePlay}
-              onInfo={handleInfo}
-            />
-
-            {/* Trending Now */}
-            {trendingNow.length > 0 && (
+        {/* Main Content - Netflix Style */}
+        <div className="relative bg-black">
+          {searchResults.length > 0 ? (
+            <div className="py-8">
               <NetflixHorizontalRow
-                title="Trending Now"
-                media={trendingNow}
+                title="Search Results"
+                media={searchResults}
                 onPlay={handlePlay}
                 onInfo={handleInfo}
-                variant="portrait"
-                size="large"
                 priority={true}
-              />
-            )}
-
-            {/* Popular Movies */}
-            {popularMovies.length > 0 && (
-              <NetflixHorizontalRow
-                title="Popular Movies"
-                media={popularMovies}
-                onPlay={handlePlay}
-                onInfo={handleInfo}
                 variant="portrait"
                 size="medium"
               />
-            )}
-
-            {/* Popular TV Shows */}
-            {popularSeries.length > 0 && (
-              <NetflixHorizontalRow
-                title="Popular TV Shows"
-                media={popularSeries}
+            </div>
+          ) : (
+            <div className="space-y-8 pb-20">
+              {/* Recently Watched */}
+              <RecentlyWatched
                 onPlay={handlePlay}
                 onInfo={handleInfo}
-                variant="portrait"
-                size="medium"
               />
-            )}
 
-            {/* Action Movies */}
-            {actionMovies.length > 0 && (
-              <NetflixHorizontalRow
-                title="Action & Adventure"
-                media={actionMovies}
-                onPlay={handlePlay}
-                onInfo={handleInfo}
-                variant="portrait"
-                size="medium"
-              />
-            )}
+              {/* Trending Now */}
+              {trendingNow.length > 0 && (
+                <NetflixHorizontalRow
+                  title="Trending Now"
+                  media={trendingNow}
+                  onPlay={handlePlay}
+                  onInfo={handleInfo}
+                  variant="portrait"
+                  size="large"
+                  priority={true}
+                />
+              )}
 
-            {/* Comedy Movies */}
-            {comedyMovies.length > 0 && (
-              <NetflixHorizontalRow
-                title="Comedy Movies"
-                media={comedyMovies}
-                onPlay={handlePlay}
-                onInfo={handleInfo}
-                variant="portrait"
-                size="medium"
-              />
-            )}
+              {/* Popular Movies */}
+              {popularMovies.length > 0 && (
+                <NetflixHorizontalRow
+                  title="Popular Movies"
+                  media={popularMovies}
+                  onPlay={handlePlay}
+                  onInfo={handleInfo}
+                  variant="portrait"
+                  size="medium"
+                />
+              )}
 
-            {/* Drama Movies */}
-            {dramaMovies.length > 0 && (
-              <NetflixHorizontalRow
-                title="Drama Movies"
-                media={dramaMovies}
-                onPlay={handlePlay}
-                onInfo={handleInfo}
-                variant="portrait"
-                size="medium"
-              />
-            )}
+              {/* Popular TV Shows */}
+              {popularSeries.length > 0 && (
+                <NetflixHorizontalRow
+                  title="Popular TV Shows"
+                  media={popularSeries}
+                  onPlay={handlePlay}
+                  onInfo={handleInfo}
+                  variant="portrait"
+                  size="medium"
+                />
+              )}
 
-            {/* Horror & Thriller */}
-            {horrorMovies.length > 0 && (
-              <NetflixHorizontalRow
-                title="Horror & Thriller"
-                media={horrorMovies}
-                onPlay={handlePlay}
-                onInfo={handleInfo}
-                variant="portrait"
-                size="medium"
-              />
-            )}
+              {/* Action Movies */}
+              {actionMovies.length > 0 && (
+                <NetflixHorizontalRow
+                  title="Action & Adventure"
+                  media={actionMovies}
+                  onPlay={handlePlay}
+                  onInfo={handleInfo}
+                  variant="portrait"
+                  size="medium"
+                />
+              )}
 
-            {/* Recently Added */}
-            {recentMovies.length > 0 && (
-              <NetflixHorizontalRow
-                title="Recently Added"
-                media={recentMovies}
-                onPlay={handlePlay}
-                onInfo={handleInfo}
-                variant="portrait"
-                size="medium"
-              />
-            )}
-          </div>
+              {/* Comedy Movies */}
+              {comedyMovies.length > 0 && (
+                <NetflixHorizontalRow
+                  title="Comedy Movies"
+                  media={comedyMovies}
+                  onPlay={handlePlay}
+                  onInfo={handleInfo}
+                  variant="portrait"
+                  size="medium"
+                />
+              )}
+
+              {/* Drama Movies */}
+              {dramaMovies.length > 0 && (
+                <NetflixHorizontalRow
+                  title="Drama Movies"
+                  media={dramaMovies}
+                  onPlay={handlePlay}
+                  onInfo={handleInfo}
+                  variant="portrait"
+                  size="medium"
+                />
+              )}
+
+              {/* Horror & Thriller */}
+              {horrorMovies.length > 0 && (
+                <NetflixHorizontalRow
+                  title="Horror & Thriller"
+                  media={horrorMovies}
+                  onPlay={handlePlay}
+                  onInfo={handleInfo}
+                  variant="portrait"
+                  size="medium"
+                />
+              )}
+
+              {/* Recently Added */}
+              {recentMovies.length > 0 && (
+                <NetflixHorizontalRow
+                  title="Recently Added"
+                  media={recentMovies}
+                  onPlay={handlePlay}
+                  onInfo={handleInfo}
+                  variant="portrait"
+                  size="medium"
+                />
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Video Player Modal */}
+        {selectedMedia && (
+          <VideoPlayer
+            media={selectedMedia}
+            isOpen={isPlayerOpen}
+            onClose={() => setIsPlayerOpen(false)}
+            startTime={0}
+          />
         )}
       </div>
-
-      {/* Additional content sections can be added here */}
-
-      {/* Video Player Modal */}
-      {selectedMedia && (
-        <VideoPlayer
-          media={selectedMedia}
-          isOpen={isPlayerOpen}
-          onClose={() => setIsPlayerOpen(false)}
-          startTime={0}
-        />
-      )}
-    </div>
+    </PageTransition>
   );
 }

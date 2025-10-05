@@ -488,3 +488,39 @@ func (s *MediaService) GetSubtitles(mediaID uint) ([]models.Subtitle, error) {
 	err := s.db.Where("media_id = ?", mediaID).Find(&subtitles).Error
 	return subtitles, err
 }
+
+// GetMediaByRating returns media sorted by rating (highest first)
+func (s *MediaService) GetMediaByRating(limit int) ([]models.Media, error) {
+	var media []models.Media
+	err := s.db.Preload("Genres").Preload("Series").Preload("Subtitles").
+		Where("rating > 0").
+		Order("rating DESC, view_count DESC").
+		Limit(limit).
+		Find(&media).Error
+	
+	// Add fallback thumbnail paths
+	for i := range media {
+		s.ensureThumbnailFallback(&media[i])
+	}
+	
+	return media, err
+}
+
+// GetMediaByGenreName returns media filtered by genre name
+func (s *MediaService) GetMediaByGenreName(genreName string, limit int) ([]models.Media, error) {
+	var media []models.Media
+	err := s.db.Preload("Genres").Preload("Series").Preload("Subtitles").
+		Joins("JOIN media_genres ON media.id = media_genres.media_id").
+		Joins("JOIN genres ON media_genres.genre_id = genres.id").
+		Where("LOWER(genres.name) = LOWER(?)", genreName).
+		Order("rating DESC, view_count DESC, created_at DESC").
+		Limit(limit).
+		Find(&media).Error
+	
+	// Add fallback thumbnail paths
+	for i := range media {
+		s.ensureThumbnailFallback(&media[i])
+	}
+	
+	return media, err
+}

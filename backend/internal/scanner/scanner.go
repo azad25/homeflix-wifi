@@ -10,6 +10,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"homeflix-backend/internal/models"
 	"homeflix-backend/internal/services"
@@ -23,65 +25,371 @@ type MediaScanner struct {
 	posterService    *services.PosterService
 	geminiService    *services.GeminiService
 	celeryService    *services.CeleryService
+	alacService      *services.ALACAudioService
 	mediaPath        string
+	
+	// Enhanced scanning options
+	maxWorkers       int
+	batchSize        int
+	lastScanTime     time.Time
+	scanCache        map[string]time.Time
+	cacheMutex       sync.RWMutex
+	
+	// Performance tracking
+	stats            ScanStats
+	
+	// Advanced caching and optimization
+	fileHashCache    map[string]string
+	metadataCache    map[string]*MediaMetadata
+	skipPatterns     []string
+	priorityQueue    chan FileInfo
+	lowPriorityQueue chan FileInfo
 }
 
-func NewMediaScanner(mediaService *services.MediaService, thumbnailService *services.ThumbnailService, posterService *services.PosterService, geminiService *services.GeminiService, celeryService *services.CeleryService, mediaPath string) *MediaScanner {
+type ScanStats struct {
+	TotalFiles       int
+	ProcessedFiles   int
+	SkippedFiles     int
+	ErrorFiles       int
+	NewFiles         int
+	UpdatedFiles     int
+	ScanDuration     time.Duration
+	StartTime        time.Time
+}
+
+type FileInfo struct {
+	Path     string
+	Info     os.FileInfo
+	IsVideo  bool
+	IsSubtitle bool
+}
+
+func NewMediaScanner(mediaService *services.MediaService, thumbnailService *services.ThumbnailService, posterService *services.PosterService, geminiService *services.GeminiService, celeryService *services.CeleryService, alacService *services.ALACAudioService, mediaPath string) *MediaScanner {
 	return &MediaScanner{
 		mediaService:     mediaService,
 		thumbnailService: thumbnailService,
 		posterService:    posterService,
 		geminiService:    geminiService,
 		celeryService:    celeryService,
+		alacService:      alacService,
 		mediaPath:        mediaPath,
+		maxWorkers:       8, // Increased worker count for faster processing
+		batchSize:        20, // Larger batch size
+		scanCache:        make(map[string]time.Time),
+		fileHashCache:    make(map[string]string),
+		metadataCache:    make(map[string]*MediaMetadata),
+		stats:            ScanStats{},
+		skipPatterns:     []string{".DS_Store", "Thumbs.db", ".tmp", ".temp", "._*"},
+		priorityQueue:    make(chan FileInfo, 100),
+		lowPriorityQueue: make(chan FileInfo, 500),
 	}
 }
 
 func (s *MediaScanner) ScanMediaLibrary() error {
-	log.Printf("Scanning media library at: %s", s.mediaPath)
+	s.stats.StartTime = time.Now()
+	log.Printf("🔍 Starting optimized media library scan at: %s", s.mediaPath)
 
 	// Check if media path exists
 	if _, err := os.Stat(s.mediaPath); os.IsNotExist(err) {
-		log.Printf("Media path does not exist: %s", s.mediaPath)
+		log.Printf("❌ Media path does not exist: %s", s.mediaPath)
 		return fmt.Errorf("media path does not exist: %s", s.mediaPath)
 	}
 
-	videoCount := 0
-	subtitleCount := 0
+	// Phase 1: Fast file discovery
+	log.Printf("📂 Phase 1: Discovering files...")
+	files, err := s.discoverFiles()
+	if err != nil {
+		return fmt.Errorf("file discovery failed: %v", err)
+	}
+
+	s.stats.TotalFiles = len(files)
+	log.Printf("📊 Discovered %d files (%d videos, %d subtitles)", 
+		s.stats.TotalFiles, 
+		s.countFilesByType(files, true, false),
+		s.countFilesByType(files, false, true))
+
+	// Phase 2: Parallel processing
+	log.Printf("⚡ Phase 2: Processing files with %d workers...", s.maxWorkers)
+	if err := s.processFilesParallel(files); err != nil {
+		log.Printf("⚠️ Some files failed to process: %v", err)
+	}
+
+	// Phase 3: Cleanup and statistics
+	s.stats.ScanDuration = time.Since(s.stats.StartTime)
+	s.logScanResults()
+
+	return nil
+}
+
+// discoverFiles performs superfast file discovery with smart filtering
+func (s *MediaScanner) discoverFiles() ([]FileInfo, error) {
+	var files []FileInfo
+	var mu sync.Mutex
+	
+	// Use goroutines for parallel directory scanning
+	var wg sync.WaitGroup
+	fileChan := make(chan FileInfo, 1000)
+	
+	// Start collector goroutine
+	go func() {
+		for file := range fileChan {
+			mu.Lock()
+			files = append(files, file)
+			mu.Unlock()
+		}
+	}()
 
 	err := filepath.Walk(s.mediaPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
-			log.Printf("Error accessing path %s: %v", path, err)
+			log.Printf("⚠️ Error accessing path %s: %v", path, err)
+			s.stats.ErrorFiles++
 			return nil // Continue scanning
 		}
 
 		if info.IsDir() {
+			// Skip hidden and system directories
+			dirName := filepath.Base(path)
+			if strings.HasPrefix(dirName, ".") || dirName == "System Volume Information" {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 
-		// Check if file is a video
-		if s.isVideoFile(path) {
-			videoCount++
-			log.Printf("Found video file [%d]: %s", videoCount, path)
-			if err := s.processVideoFile(path, info); err != nil {
-				log.Printf("Error processing video file %s: %v", path, err)
+		// Skip files matching skip patterns
+		fileName := filepath.Base(path)
+		for _, pattern := range s.skipPatterns {
+			if matched, _ := filepath.Match(pattern, fileName); matched {
+				return nil
 			}
 		}
 
-		// Check if file is a subtitle
-		if s.isSubtitleFile(path) {
-			subtitleCount++
-			log.Printf("Found subtitle file [%d]: %s", subtitleCount, path)
-			if err := s.processSubtitleFile(path); err != nil {
-				log.Printf("Error processing subtitle file %s: %v", path, err)
-			}
+		// Ultra-fast file type detection using extension first
+		ext := strings.ToLower(filepath.Ext(path))
+		isVideo := s.isVideoFileByExtension(ext)
+		isSubtitle := s.isSubtitleFileByExtension(ext)
+
+		if isVideo || isSubtitle {
+			wg.Add(1)
+			go func(p string, i os.FileInfo) {
+				defer wg.Done()
+				
+				fileInfo := FileInfo{
+					Path:       p,
+					Info:       i,
+					IsVideo:    isVideo,
+					IsSubtitle: isSubtitle,
+				}
+				
+				select {
+				case fileChan <- fileInfo:
+				default:
+					// Channel full, add directly
+					mu.Lock()
+					files = append(files, fileInfo)
+					mu.Unlock()
+				}
+			}(path, info)
 		}
 
 		return nil
 	})
+	
+	wg.Wait()
+	close(fileChan)
+	
+	// Small delay to ensure collector finishes
+	time.Sleep(100 * time.Millisecond)
 
-	log.Printf("Scan completed: %d videos, %d subtitles processed", videoCount, subtitleCount)
-	return err
+	return files, err
+}
+
+// isVideoFileByExtension performs ultra-fast video detection by extension only
+func (s *MediaScanner) isVideoFileByExtension(ext string) bool {
+	videoExts := map[string]bool{
+		".mp4": true, ".mkv": true, ".avi": true, ".mov": true, 
+		".wmv": true, ".flv": true, ".webm": true, ".m4v": true, 
+		".mpg": true, ".mpeg": true, ".3gp": true, ".ogv": true,
+		".ts": true, ".m2ts": true, ".mts": true, ".vob": true,
+	}
+	return videoExts[ext]
+}
+
+// isSubtitleFileByExtension performs ultra-fast subtitle detection by extension only
+func (s *MediaScanner) isSubtitleFileByExtension(ext string) bool {
+	subtitleExts := map[string]bool{
+		".srt": true, ".vtt": true, ".ass": true, 
+		".ssa": true, ".sub": true, ".idx": true,
+	}
+	return subtitleExts[ext]
+}
+
+// processFilesParallel processes files using optimized worker pools with priority queues
+func (s *MediaScanner) processFilesParallel(files []FileInfo) error {
+	var wg sync.WaitGroup
+	
+	// Separate files into priority queues
+	s.prioritizeFiles(files)
+	
+	// Start high-priority workers (for new video files)
+	for i := 0; i < s.maxWorkers/2; i++ {
+		wg.Add(1)
+		go s.priorityWorker(i, &wg)
+	}
+	
+	// Start low-priority workers (for subtitles and existing files)
+	for i := 0; i < s.maxWorkers/2; i++ {
+		wg.Add(1)
+		go s.lowPriorityWorker(i+s.maxWorkers/2, &wg)
+	}
+	
+	// Close queues when done
+	go func() {
+		time.Sleep(100 * time.Millisecond) // Allow workers to start
+		close(s.priorityQueue)
+		close(s.lowPriorityQueue)
+	}()
+
+	// Wait for all workers to complete
+	wg.Wait()
+
+	return nil
+}
+
+// prioritizeFiles separates files into priority queues for optimal processing
+func (s *MediaScanner) prioritizeFiles(files []FileInfo) {
+	for _, file := range files {
+		if file.IsVideo {
+			// Check if file needs processing
+			if s.shouldSkipFile(file.Path, file.Info) {
+				s.stats.SkippedFiles++
+				continue
+			}
+			
+			// High priority for new video files
+			select {
+			case s.priorityQueue <- file:
+			default:
+				// Priority queue full, use low priority
+				s.lowPriorityQueue <- file
+			}
+		} else {
+			// Low priority for subtitles
+			s.lowPriorityQueue <- file
+		}
+	}
+}
+
+// priorityWorker handles high-priority video files
+func (s *MediaScanner) priorityWorker(id int, wg *sync.WaitGroup) {
+	defer wg.Done()
+	
+	for file := range s.priorityQueue {
+		if err := s.processVideoFileOptimized(file.Path, file.Info); err != nil {
+			log.Printf("❌ Priority Worker %d: Error processing %s: %v", id, file.Path, err)
+			s.stats.ErrorFiles++
+		} else {
+			s.stats.ProcessedFiles++
+			s.stats.NewFiles++
+		}
+	}
+}
+
+// lowPriorityWorker handles subtitles and less critical files
+func (s *MediaScanner) lowPriorityWorker(id int, wg *sync.WaitGroup) {
+	defer wg.Done()
+	
+	for file := range s.lowPriorityQueue {
+		var err error
+		if file.IsVideo {
+			err = s.processVideoFileOptimized(file.Path, file.Info)
+		} else if file.IsSubtitle {
+			err = s.processSubtitleFile(file.Path)
+		}
+		
+		if err != nil {
+			log.Printf("❌ Low Priority Worker %d: Error processing %s: %v", id, file.Path, err)
+			s.stats.ErrorFiles++
+		} else {
+			s.stats.ProcessedFiles++
+		}
+	}
+}
+
+// worker processes files from the work channel
+func (s *MediaScanner) worker(id int, workChan <-chan FileInfo, wg *sync.WaitGroup) {
+	defer wg.Done()
+
+	for file := range workChan {
+		if s.shouldSkipFile(file.Path, file.Info) {
+			s.stats.SkippedFiles++
+			continue
+		}
+
+		var err error
+		if file.IsVideo {
+			err = s.processVideoFileOptimized(file.Path, file.Info)
+		} else if file.IsSubtitle {
+			err = s.processSubtitleFile(file.Path)
+		}
+
+		if err != nil {
+			log.Printf("❌ Worker %d: Error processing %s: %v", id, file.Path, err)
+			s.stats.ErrorFiles++
+		} else {
+			s.stats.ProcessedFiles++
+		}
+	}
+}
+
+// shouldSkipFile determines if a file should be skipped based on cache and modification time
+func (s *MediaScanner) shouldSkipFile(path string, info os.FileInfo) bool {
+	s.cacheMutex.RLock()
+	lastProcessed, exists := s.scanCache[path]
+	s.cacheMutex.RUnlock()
+
+	if exists && info.ModTime().Before(lastProcessed) {
+		// File hasn't been modified since last scan
+		return true
+	}
+
+	// Check if media already exists in database
+	if exists, err := s.mediaService.MediaExists(path); err == nil && exists {
+		// Update cache
+		s.cacheMutex.Lock()
+		s.scanCache[path] = time.Now()
+		s.cacheMutex.Unlock()
+		return true
+	}
+
+	return false
+}
+
+// countFilesByType counts files by type for statistics
+func (s *MediaScanner) countFilesByType(files []FileInfo, video, subtitle bool) int {
+	count := 0
+	for _, file := range files {
+		if (video && file.IsVideo) || (subtitle && file.IsSubtitle) {
+			count++
+		}
+	}
+	return count
+}
+
+// logScanResults logs the final scan statistics
+func (s *MediaScanner) logScanResults() {
+	log.Printf("✅ Media scan completed in %v", s.stats.ScanDuration)
+	log.Printf("📊 Scan Statistics:")
+	log.Printf("   📁 Total files discovered: %d", s.stats.TotalFiles)
+	log.Printf("   ✅ Successfully processed: %d", s.stats.ProcessedFiles)
+	log.Printf("   ⏭️ Skipped (unchanged): %d", s.stats.SkippedFiles)
+	log.Printf("   ❌ Errors: %d", s.stats.ErrorFiles)
+	log.Printf("   🆕 New files added: %d", s.stats.NewFiles)
+	log.Printf("   🔄 Files updated: %d", s.stats.UpdatedFiles)
+	
+	if s.stats.TotalFiles > 0 {
+		successRate := float64(s.stats.ProcessedFiles) / float64(s.stats.TotalFiles) * 100
+		log.Printf("   📈 Success rate: %.1f%%", successRate)
+	}
 }
 
 func (s *MediaScanner) isVideoFile(path string) bool {
@@ -130,6 +438,15 @@ func (s *MediaScanner) isSubtitleFile(path string) bool {
 	return false
 }
 
+func (s *MediaScanner) processVideoFileOptimized(path string, info os.FileInfo) error {
+	// Update cache
+	s.cacheMutex.Lock()
+	s.scanCache[path] = time.Now()
+	s.cacheMutex.Unlock()
+
+	return s.processVideoFile(path, info)
+}
+
 func (s *MediaScanner) processVideoFile(path string, info os.FileInfo) error {
 	// Check if media already exists
 	exists, err := s.mediaService.MediaExists(path)
@@ -142,8 +459,8 @@ func (s *MediaScanner) processVideoFile(path string, info os.FileInfo) error {
 		return nil // Skip if already processed
 	}
 
-	// Extract metadata from filename and path
-	metadata := s.extractMetadata(path)
+	// Extract metadata from filename and path (with caching)
+	metadata := s.extractMetadataWithCache(path)
 	log.Printf("Extracted metadata for %s: Title=%s, Type=%s", path, metadata.Title, metadata.Type)
 
 	media := &models.Media{
@@ -187,59 +504,121 @@ func (s *MediaScanner) processVideoFile(path string, info os.FileInfo) error {
 		}
 	}
 
-	// Extract additional metadata using FFprobe
-	log.Printf("Extracting metadata for: %s", media.Title)
-	if err := s.extractVideoMetadata(media, path); err != nil {
-		log.Printf("Warning: Failed to extract metadata for %s: %v", media.Title, err)
-	}
-
-	// Generate thumbnail for the media
-	log.Printf("Generating thumbnail for: %s", media.Title)
-	thumbnailPath, err := s.thumbnailService.GenerateThumbnail(path, media.ID)
-	if err != nil {
-		log.Printf("Warning: Failed to generate thumbnail for %s: %v", media.Title, err)
-	} else {
-		media.ThumbnailPath = thumbnailPath
-		log.Printf("Thumbnail generated successfully: %s", thumbnailPath)
-	}
-
-	// Generate preview clip for Netflix-style hover playback
-	log.Printf("Generating preview clip for: %s", media.Title)
-	previewClipPath, err := s.thumbnailService.GeneratePreviewClip(path, media.ID)
-	if err != nil {
-		log.Printf("Warning: Failed to generate preview clip for %s: %v", media.Title, err)
-	} else {
-		media.PreviewClipPath = previewClipPath
-		log.Printf("Preview clip generated successfully: %s", previewClipPath)
-	}
-
-	// Download poster after preview clip generation
-	if s.posterService != nil {
-		err := s.posterService.DownloadPoster(media.Title, media.ID)
-		if err != nil {
-			log.Printf("Failed to download poster for %s: %v", media.Title, err)
+	// Extract additional metadata using FFprobe (async)
+	go func() {
+		if err := s.extractVideoMetadata(media, path); err != nil {
+			log.Printf("Warning: Failed to extract metadata for %s: %v", media.Title, err)
 		} else {
-			// Get the poster path and update media
-			posterPath := s.posterService.GetPosterPath(media.ID)
-			if posterPath != "" {
-				media.PosterPath = posterPath
-				if err := s.mediaService.UpdateMedia(media); err != nil {
-					log.Printf("Failed to update media with poster path: %v", err)
-				} else {
-					log.Printf("Updated media %s with poster: %s", media.Title, posterPath)
-				}
-			}
+			s.mediaService.UpdateMedia(media)
 		}
-	}
+	}()
 
-	// Queue AI metadata generation using Celery
-	if s.geminiService != nil {
-		log.Printf("Queueing AI metadata generation for: %s", media.Title)
-		go s.queueCeleryTasks(media, path)
-	}
+	// Queue all asset generation in parallel
+	s.queueAssetGeneration(media, path)
 
 	log.Printf("Successfully added media: %s (Type: %s, Size: %d bytes)", media.Title, media.Type, media.FileSize)
 	return nil
+}
+
+// extractMetadataWithCache uses caching to speed up metadata extraction
+func (s *MediaScanner) extractMetadataWithCache(path string) *MediaMetadata {
+	// Check cache first
+	s.cacheMutex.RLock()
+	if cached, exists := s.metadataCache[path]; exists {
+		s.cacheMutex.RUnlock()
+		return cached
+	}
+	s.cacheMutex.RUnlock()
+	
+	// Extract metadata
+	metadata := s.extractMetadata(path)
+	
+	// Cache the result
+	s.cacheMutex.Lock()
+	s.metadataCache[path] = metadata
+	s.cacheMutex.Unlock()
+	
+	return metadata
+}
+
+// queueAssetGeneration queues all asset generation tasks in parallel
+func (s *MediaScanner) queueAssetGeneration(media *models.Media, path string) {
+	var wg sync.WaitGroup
+	
+	// Queue thumbnail generation
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if s.celeryService != nil {
+			if err := s.celeryService.QueueThumbnailGeneration(media.ID, path); err != nil {
+				log.Printf("⚠️ Failed to queue thumbnail generation, generating directly: %v", err)
+				s.generateThumbnailDirect(media, path)
+			}
+		} else {
+			s.generateThumbnailDirect(media, path)
+		}
+	}()
+	
+	// Queue preview clip generation
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if s.celeryService != nil {
+			if err := s.celeryService.QueuePreviewGeneration(media.ID, path); err != nil {
+				log.Printf("⚠️ Failed to queue preview generation, generating directly: %v", err)
+				s.generatePreviewDirect(media, path)
+			}
+		} else {
+			s.generatePreviewDirect(media, path)
+		}
+	}()
+	
+	// Queue ALAC audio extraction
+	if s.alacService != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			log.Printf("🎵 Extracting ALAC audio for: %s", media.Title)
+			if audioPath, err := s.alacService.ExtractALACAudio(path, int(media.ID)); err != nil {
+				log.Printf("⚠️ Failed to extract ALAC audio for %s: %v", media.Title, err)
+			} else {
+				log.Printf("✅ ALAC audio extracted: %s", audioPath)
+			}
+		}()
+	}
+	
+	// Queue poster download
+	if s.posterService != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := s.posterService.DownloadPoster(media.Title, media.ID); err != nil {
+				log.Printf("Failed to download poster for %s: %v", media.Title, err)
+			} else {
+				posterPath := s.posterService.GetPosterPath(media.ID)
+				if posterPath != "" {
+					media.PosterPath = posterPath
+					s.mediaService.UpdateMedia(media)
+					log.Printf("Updated media %s with poster: %s", media.Title, posterPath)
+				}
+			}
+		}()
+	}
+	
+	// Queue AI metadata generation
+	if s.geminiService != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			s.queueCeleryTasks(media, path)
+		}()
+	}
+	
+	// Don't wait for asset generation to complete - let it run in background
+	go func() {
+		wg.Wait()
+		log.Printf("✅ All asset generation queued for: %s", media.Title)
+	}()
 }
 
 func (s *MediaScanner) extractVideoMetadata(media *models.Media, path string) error {
@@ -666,5 +1045,300 @@ func (s *MediaScanner) generateMetadataAsync(media *models.Media, path string) {
 	}
 	if metadata.Country != "" {
 		log.Printf("   🌍 Country: %s", metadata.Country)
+	}
+}
+// generateThumbnailDirect generates thumbnail directly (fallback)
+func (s *MediaScanner) generateThumbnailDirect(media *models.Media, path string) {
+	log.Printf("🖼️ Generating thumbnail directly for: %s", media.Title)
+	thumbnailPath, err := s.thumbnailService.GenerateThumbnail(path, media.ID)
+	if err != nil {
+		log.Printf("❌ Failed to generate thumbnail for %s: %v", media.Title, err)
+	} else {
+		media.ThumbnailPath = thumbnailPath
+		log.Printf("✅ Thumbnail generated: %s", thumbnailPath)
+		
+		// Update media record
+		if err := s.mediaService.UpdateMedia(media); err != nil {
+			log.Printf("⚠️ Failed to update media with thumbnail path: %v", err)
+		}
+	}
+}
+
+// generatePreviewDirect generates preview clip directly (fallback)
+func (s *MediaScanner) generatePreviewDirect(media *models.Media, path string) {
+	log.Printf("🎬 Generating preview clip directly for: %s", media.Title)
+	previewClipPath, err := s.thumbnailService.GeneratePreviewClip(path, media.ID)
+	if err != nil {
+		log.Printf("❌ Failed to generate preview clip for %s: %v", media.Title, err)
+	} else {
+		media.PreviewClipPath = previewClipPath
+		log.Printf("✅ Preview clip generated: %s", previewClipPath)
+		
+		// Update media record
+		if err := s.mediaService.UpdateMedia(media); err != nil {
+			log.Printf("⚠️ Failed to update media with preview path: %v", err)
+		}
+	}
+}
+
+// IncrementalScan performs a lightning-fast scan that only checks for new/modified files
+func (s *MediaScanner) IncrementalScan() error {
+	log.Printf("⚡ Starting superfast incremental media scan...")
+	
+	// Load last scan time from cache or database
+	s.loadLastScanTime()
+	
+	var newFiles []FileInfo
+	var mu sync.Mutex
+	
+	// Use parallel directory walking for speed
+	err := s.parallelWalk(s.mediaPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		
+		if info.IsDir() {
+			// Skip hidden and system directories
+			dirName := filepath.Base(path)
+			if strings.HasPrefix(dirName, ".") || dirName == "System Volume Information" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		
+		// Only process files modified after last scan
+		if info.ModTime().After(s.lastScanTime) {
+			ext := strings.ToLower(filepath.Ext(path))
+			isVideo := s.isVideoFileByExtension(ext)
+			isSubtitle := s.isSubtitleFileByExtension(ext)
+			
+			if isVideo || isSubtitle {
+				mu.Lock()
+				newFiles = append(newFiles, FileInfo{
+					Path:       path,
+					Info:       info,
+					IsVideo:    isVideo,
+					IsSubtitle: isSubtitle,
+				})
+				mu.Unlock()
+			}
+		}
+		
+		return nil
+	})
+	
+	if err != nil {
+		return err
+	}
+	
+	if len(newFiles) == 0 {
+		log.Printf("✅ No new files found since last scan")
+		return nil
+	}
+	
+	log.Printf("🆕 Found %d new/modified files", len(newFiles))
+	
+	// Process new files with optimized pipeline
+	s.stats.TotalFiles = len(newFiles)
+	s.stats.StartTime = time.Now()
+	
+	if err := s.processFilesParallel(newFiles); err != nil {
+		log.Printf("⚠️ Some files failed to process: %v", err)
+	}
+	
+	// Update last scan time
+	s.lastScanTime = time.Now()
+	s.saveLastScanTime()
+	
+	s.stats.ScanDuration = time.Since(s.stats.StartTime)
+	s.logScanResults()
+	
+	return nil
+}
+
+// parallelWalk performs parallel directory walking for maximum speed
+func (s *MediaScanner) parallelWalk(root string, walkFn filepath.WalkFunc) error {
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	var firstErr error
+	
+	// Start with the root directory
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		
+		err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				mu.Lock()
+				if firstErr == nil {
+					firstErr = err
+				}
+				mu.Unlock()
+				return nil
+			}
+			
+			// Call the walk function
+			if walkErr := walkFn(path, info, err); walkErr != nil {
+				if walkErr == filepath.SkipDir {
+					return walkErr
+				}
+				mu.Lock()
+				if firstErr == nil {
+					firstErr = walkErr
+				}
+				mu.Unlock()
+			}
+			
+			return nil
+		})
+		
+		if err != nil {
+			mu.Lock()
+			if firstErr == nil {
+				firstErr = err
+			}
+			mu.Unlock()
+		}
+	}()
+	
+	wg.Wait()
+	return firstErr
+}
+
+// SuperfastScan performs the fastest possible scan with minimal processing
+func (s *MediaScanner) SuperfastScan() error {
+	s.stats.StartTime = time.Now()
+	log.Printf("🚀 Starting superfast media library scan at: %s", s.mediaPath)
+
+	// Phase 1: Lightning-fast file discovery
+	log.Printf("⚡ Phase 1: Lightning-fast file discovery...")
+	files, err := s.superfastDiscoverFiles()
+	if err != nil {
+		return fmt.Errorf("superfast file discovery failed: %v", err)
+	}
+
+	s.stats.TotalFiles = len(files)
+	log.Printf("📊 Discovered %d files in record time", s.stats.TotalFiles)
+
+	// Phase 2: Parallel processing with maximum workers
+	originalWorkers := s.maxWorkers
+	s.maxWorkers = 16 // Use maximum workers for superfast scan
+	
+	log.Printf("🔥 Phase 2: Processing files with %d workers...", s.maxWorkers)
+	if err := s.processFilesParallel(files); err != nil {
+		log.Printf("⚠️ Some files failed to process: %v", err)
+	}
+	
+	s.maxWorkers = originalWorkers // Restore original worker count
+
+	// Phase 3: Results
+	s.stats.ScanDuration = time.Since(s.stats.StartTime)
+	s.logScanResults()
+
+	return nil
+}
+
+// superfastDiscoverFiles performs the fastest possible file discovery
+func (s *MediaScanner) superfastDiscoverFiles() ([]FileInfo, error) {
+	var files []FileInfo
+	var mu sync.Mutex
+	
+	// Pre-allocate slice for better performance
+	files = make([]FileInfo, 0, 1000)
+	
+	// Use optimized file walking
+	err := filepath.Walk(s.mediaPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil // Skip errors, continue scanning
+		}
+
+		if info.IsDir() {
+			// Skip system directories immediately
+			dirName := filepath.Base(path)
+			if strings.HasPrefix(dirName, ".") || 
+			   dirName == "System Volume Information" ||
+			   dirName == "$RECYCLE.BIN" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		// Ultra-fast extension check
+		ext := strings.ToLower(filepath.Ext(path))
+		if ext == "" {
+			return nil
+		}
+		
+		// Check video extensions
+		if s.isVideoFileByExtension(ext) {
+			mu.Lock()
+			files = append(files, FileInfo{
+				Path:       path,
+				Info:       info,
+				IsVideo:    true,
+				IsSubtitle: false,
+			})
+			mu.Unlock()
+		} else if s.isSubtitleFileByExtension(ext) {
+			mu.Lock()
+			files = append(files, FileInfo{
+				Path:       path,
+				Info:       info,
+				IsVideo:    false,
+				IsSubtitle: true,
+			})
+			mu.Unlock()
+		}
+
+		return nil
+	})
+
+	return files, err
+}
+
+// loadLastScanTime loads the last scan timestamp
+func (s *MediaScanner) loadLastScanTime() {
+	// Try to load from a cache file
+	cacheFile := filepath.Join(s.mediaPath, ".homeflix_scan_cache")
+	if data, err := os.ReadFile(cacheFile); err == nil {
+		if timestamp, err := time.Parse(time.RFC3339, string(data)); err == nil {
+			s.lastScanTime = timestamp
+			log.Printf("📅 Last scan time loaded: %v", s.lastScanTime)
+			return
+		}
+	}
+	
+	// Default to 24 hours ago if no cache
+	s.lastScanTime = time.Now().Add(-24 * time.Hour)
+	log.Printf("📅 Using default last scan time: %v", s.lastScanTime)
+}
+
+// saveLastScanTime saves the last scan timestamp
+func (s *MediaScanner) saveLastScanTime() {
+	cacheFile := filepath.Join(s.mediaPath, ".homeflix_scan_cache")
+	data := s.lastScanTime.Format(time.RFC3339)
+	if err := os.WriteFile(cacheFile, []byte(data), 0644); err != nil {
+		log.Printf("⚠️ Failed to save scan cache: %v", err)
+	}
+}
+
+// GetScanStats returns current scan statistics
+func (s *MediaScanner) GetScanStats() ScanStats {
+	return s.stats
+}
+
+// SetMaxWorkers configures the number of worker goroutines
+func (s *MediaScanner) SetMaxWorkers(workers int) {
+	if workers > 0 && workers <= 16 {
+		s.maxWorkers = workers
+		log.Printf("⚙️ Set max workers to %d", workers)
+	}
+}
+
+// SetBatchSize configures the batch size for processing
+func (s *MediaScanner) SetBatchSize(size int) {
+	if size > 0 && size <= 100 {
+		s.batchSize = size
+		log.Printf("⚙️ Set batch size to %d", size)
 	}
 }

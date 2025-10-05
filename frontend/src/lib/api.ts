@@ -5,12 +5,12 @@ export const getApiUrl = () => {
   
   if (typeof window === 'undefined') {
     // Server-side: use Docker internal URL or localhost
-    return dockerApiUrl || 'http://localhost:8251';
+    return dockerApiUrl || 'http://localhost:8252';
   }
 
   // Client-side: use external hostname with backend port
   const hostname = window.location.hostname;
-  return `http://${hostname}:8251`;
+  return `http://${hostname}:8252`;
 };
 
 export const getApiHost = () => {

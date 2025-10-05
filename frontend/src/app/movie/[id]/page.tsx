@@ -2,17 +2,21 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowLeft, Play, Plus, Check, Share, Download, Info, Star, Clock, Calendar, Globe, Users, Award, Film, Tv, User, Mic, ChevronDown, ChevronUp, Volume2, VolumeX } from "lucide-react";
+import { ArrowLeft, Play, Plus, Check, Share, Download, Info, Star, Clock, Calendar, Globe, Users, Award, Film, Tv, User, Mic, ChevronDown, ChevronUp, Volume2, VolumeX, Users as Cast, User as Director } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import Image from 'next/image';
 import { Media } from '@/types/media';
 import { getApiUrl } from '@/lib/api';
+import RedLoader from '@/components/RedLoader';
+import LazyImage from '@/components/LazyImage';
+import LazyVideo from '@/components/LazyVideo';
 import { updatePlaybackProgress, getPlaybackProgress } from '@/lib/playback';
 import Navbar from '@/components/Navbar';
 import { cleanMovieTitle, findSimilarMovies } from '@/lib/titleUtils';
 import VideoPlayer from '@/components/VideoPlayer';
 import GenreTitle from '@/components/GenreTitle';
 import QualityBadge from '../../../components/QualityBadge';
+import { addToWishlist, removeFromWishlist, isInWishlist } from '@/lib/wishlist';
 import {
   NetflixHorizontalRow,
   ParallaxSection,
@@ -35,6 +39,8 @@ export default function MoviePage() {
   const [isPlayerOpen, setIsPlayerOpen] = useState(false);
   const [isInMyList, setIsInMyList] = useState(false);
   const [playbackProgress, setPlaybackProgress] = useState(0);
+  const [playbackDuration, setPlaybackDuration] = useState(0);
+  const [hasWatchedBefore, setHasWatchedBefore] = useState(false);
   const [showFullDescription, setShowFullDescription] = useState(false);
   const [lastWatched, setLastWatched] = useState<string | null>(null);
   const [showMoreInfo, setShowMoreInfo] = useState(false);
@@ -54,6 +60,62 @@ export default function MoviePage() {
       loadPlaybackProgress();
     }
   }, [params.id]);
+
+  // Cookie-based playback progress management
+  const savePlaybackProgress = (mediaId: string, currentTime: number, duration: number) => {
+    const progressData = {
+      currentTime,
+      duration,
+      percentage: (currentTime / duration) * 100,
+      timestamp: new Date().toISOString(),
+      lastWatched: new Date().toISOString()
+    };
+    
+    // Save to cookie with 30 days expiration
+    const expirationDate = new Date();
+    expirationDate.setDate(expirationDate.getDate() + 30);
+    
+    document.cookie = `playback_${mediaId}=${JSON.stringify(progressData)}; expires=${expirationDate.toUTCString()}; path=/; SameSite=Lax`;
+    
+    // Update local state
+    setPlaybackProgress(currentTime);
+    setPlaybackDuration(duration);
+    setHasWatchedBefore(true);
+    setLastWatched(progressData.lastWatched);
+    
+    console.log(`Saved playback progress for media ${mediaId}: ${Math.round(progressData.percentage)}%`);
+  };
+
+  const getPlaybackProgressFromCookie = (mediaId: string) => {
+    const cookies = document.cookie.split(';');
+    const progressCookie = cookies.find(cookie => 
+      cookie.trim().startsWith(`playback_${mediaId}=`)
+    );
+    
+    if (progressCookie) {
+      try {
+        const progressData = JSON.parse(progressCookie.split('=')[1]);
+        return progressData;
+      } catch (error) {
+        console.error('Error parsing playback progress cookie:', error);
+        return null;
+      }
+    }
+    return null;
+  };
+
+  const clearPlaybackProgress = (mediaId: string) => {
+    // Clear cookie by setting expiration to past date
+    document.cookie = `playback_${mediaId}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;`;
+    
+    // Reset local state
+    setPlaybackProgress(0);
+    setPlaybackDuration(0);
+    setHasWatchedBefore(false);
+    setLastWatched(null);
+    
+    console.log(`Cleared playback progress for media ${mediaId}`);
+  };
 
   // Netflix-style title overlay animation
   useEffect(() => {
@@ -104,41 +166,60 @@ export default function MoviePage() {
   };
 
   const checkMyList = async () => {
-    // Implementation for checking if media is in user's list
-    // This would typically call your API
-    setIsInMyList(false); // Placeholder
+    if (params.id) {
+      const inList = isInWishlist(parseInt(params.id as string));
+      setIsInMyList(inList);
+    }
   };
 
   const toggleMyList = async () => {
     try {
-      const apiUrl = getApiUrl();
-      const response = await fetch(`${apiUrl}/api/user/list`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          mediaId: params.id,
-          action: isInMyList ? 'remove' : 'add',
-        }),
-      });
-
-      if (response.ok) {
+      if (!params.id) return;
+      
+      const mediaId = parseInt(params.id as string);
+      let success = false;
+      
+      if (isInMyList) {
+        success = removeFromWishlist(mediaId);
+      } else {
+        success = addToWishlist(mediaId);
+      }
+      
+      if (success) {
         setIsInMyList(!isInMyList);
+        console.log(`${isInMyList ? 'Removed from' : 'Added to'} wishlist: ${media?.title}`);
       }
     } catch (error) {
-      console.error('Error updating list:', error);
+      console.error('Error updating wishlist:', error);
     }
   };
 
   const loadPlaybackProgress = () => {
     if (!params.id) return;
 
+    // Try to load from cookie first (new system)
+    const cookieProgress = getPlaybackProgressFromCookie(params.id as string);
+    if (cookieProgress) {
+      setPlaybackProgress(cookieProgress.currentTime);
+      setPlaybackDuration(cookieProgress.duration);
+      setHasWatchedBefore(true);
+      setLastWatched(cookieProgress.lastWatched);
+      console.log(`Loaded playback progress from cookie: ${Math.round(cookieProgress.percentage)}%`);
+      return;
+    }
+
+    // Fallback to localStorage (legacy system)
     const progress = localStorage.getItem(`progress_${params.id}`);
     if (progress) {
-      const { progress: savedProgress, timestamp } = JSON.parse(progress);
-      setPlaybackProgress(savedProgress);
-      setLastWatched(timestamp);
+      try {
+        const { progress: savedProgress, timestamp } = JSON.parse(progress);
+        setPlaybackProgress(savedProgress);
+        setLastWatched(timestamp);
+        setHasWatchedBefore(savedProgress > 0);
+        console.log('Loaded playback progress from localStorage (legacy)');
+      } catch (error) {
+        console.error('Error parsing localStorage progress:', error);
+      }
     }
   };
 
@@ -164,16 +245,18 @@ export default function MoviePage() {
     setIsPlayerOpen(false);
   };
 
-  const handlePlayerProgress = (progress: number) => {
-    if (!params.id) return;
+  const handlePlayerProgress = (currentTime: number, duration: number) => {
+    if (!params.id || !duration) return;
 
+    // Save to cookie-based system
+    savePlaybackProgress(params.id as string, currentTime, duration);
+
+    // Also save to localStorage for backward compatibility
     const progressData = {
-      progress,
+      progress: currentTime,
       timestamp: new Date().toISOString(),
     };
-
     localStorage.setItem(`progress_${params.id}`, JSON.stringify(progressData));
-    setPlaybackProgress(progress);
   };
 
   const formatRuntime = (minutes: number) => {
@@ -220,15 +303,15 @@ export default function MoviePage() {
 
   const getBackgroundVideoUrl = (media: Media) => {
     const apiUrl = getApiUrl();
-    // First try to get the actual media file for full experience
-    if (media.file_path) {
-      return `${apiUrl}/api/stream/${media.id}`;
-    }
-    // Fallback to trailer if available
+    // First try trailer for background (lighter than full media file)
     if (media.trailer_path) {
       return `${apiUrl}/api/admin/assets/${media.trailer_path.split('/').pop()}`;
     }
-    // Final fallback to preview clips
+    // Then try preview clips (optimized for background)
+    if (media.preview_clip_path) {
+      return `${apiUrl}/api/admin/assets/${media.preview_clip_path.split('/').pop()}`;
+    }
+    // Fallback to preview clips endpoint
     return `${apiUrl}/api/preview-clips/${media.id}`;
   };
 
@@ -237,7 +320,7 @@ export default function MoviePage() {
       <GradientBackground variant="cosmic" animate={true}>
         <div className="min-h-screen flex items-center justify-center">
           <FloatingElement>
-            <div className="text-white text-xl">Loading...</div>
+            <RedLoader size="large" showText text="Loading movie details..." />
           </FloatingElement>
         </div>
       </GradientBackground>
@@ -268,21 +351,22 @@ export default function MoviePage() {
 
       {/* Hero Section */}
       <div className="relative h-screen overflow-hidden">
-        {/* Background Image */}
+        {/* Background Image with Lazy Loading */}
         <div className="absolute inset-0" style={{ zIndex: 1 }}>
-          <Image
+          <LazyImage
             src={getBackgroundImageUrl(media)}
             alt={media.title}
             fill
-            className={`object-cover transition-opacity duration-1000 ${isVideoLoaded && isVideoPlaying ? 'opacity-0' : 'opacity-100'
+            className={`transition-opacity duration-1000 ${isVideoLoaded && isVideoPlaying ? 'opacity-0' : 'opacity-100'
               }`}
             priority
-            style={{ zIndex: 1 }}
             sizes="100vw"
+            loaderSize="large"
+            showLoader={true}
           />
         </div>
 
-        {/* Background Video with ALAC Audio */}
+        {/* Background Video - Load preview/trailer, not full media file */}
         <video
           ref={videoRef}
           className="absolute inset-0 w-full h-full object-cover opacity-100"
@@ -290,7 +374,7 @@ export default function MoviePage() {
           muted={false}
           loop
           playsInline
-          preload="auto"
+          preload="metadata"
           controls={false}
           crossOrigin="anonymous"
           style={{
@@ -303,20 +387,20 @@ export default function MoviePage() {
             objectFit: 'cover'
           }}
           onLoadedData={() => {
-            console.log('Media info video loaded successfully');
+            console.log('Media info preview video loaded successfully');
             setIsVideoLoaded(true);
             if (videoRef.current) {
               const video = videoRef.current;
 
               video.currentTime = 0;
-              video.volume = 0.8;
+              video.volume = 0.6; // Lower volume for background preview
               video.muted = false;
 
               // Enhanced playback with fallbacks
               const attemptPlay = async () => {
                 try {
                   await video.play();
-                  console.log('Media info video playing successfully');
+                  console.log('Media info preview video playing successfully');
                   setIsVideoPlaying(true);
                 } catch (error) {
                   console.log('Autoplay failed, trying muted fallback:', error);
@@ -328,7 +412,7 @@ export default function MoviePage() {
                     // Add click listener to unmute
                     const handleClick = () => {
                       video.muted = false;
-                      video.volume = 0.8;
+                      video.volume = 0.6;
                       document.removeEventListener('click', handleClick);
                     };
                     document.addEventListener('click', handleClick);
@@ -344,12 +428,12 @@ export default function MoviePage() {
             }
           }}
           onError={(e) => {
-            console.log('Video error occurred:', e);
+            console.log('Preview video error occurred:', e);
             setIsVideoLoaded(false);
             setIsVideoPlaying(false);
           }}
           onCanPlay={() => {
-            console.log('Video can play');
+            console.log('Preview video can play');
             if (videoRef.current && !isVideoPlaying) {
               const video = videoRef.current;
               video.play().catch(() => {
@@ -358,25 +442,23 @@ export default function MoviePage() {
             }
           }}
           onPlay={() => {
-            console.log('Video started playing');
+            console.log('Preview video started playing');
             setIsVideoPlaying(true);
           }}
           onPause={() => {
-            console.log('Video paused');
+            console.log('Preview video paused');
           }}
           onLoadStart={() => {
-            console.log('Video load started');
+            console.log('Preview video load started');
           }}
           onLoadedMetadata={() => {
-            console.log('Video metadata loaded');
+            console.log('Preview video metadata loaded');
           }}
         >
-          {/* ALAC audio sources with high quality priority */}
-          <source src={`${getApiUrl()}/api/stream/${media.id}?audio=alac&quality=high`} type="video/mp4; codecs=&quot;avc1.42E01E, alac&quot;" />
-          <source src={`${getApiUrl()}/api/stream/${media.id}?audio=alac`} type="video/mp4; codecs=&quot;avc1.42E01E, alac&quot;" />
-          <source src={`${getApiUrl()}/api/stream/${media.id}`} type="video/mp4" />
-          <source src={`${getApiUrl()}/api/stream/${media.id}?format=webm&audio=opus`} type="video/webm; codecs=&quot;vp9, opus&quot;" />
-          <source src={`${getApiUrl()}/api/stream/${media.id}?format=mov`} type="video/quicktime" />
+          {/* Preview/trailer sources - not full media file */}
+          <source src={`${getBackgroundVideoUrl(media)}?audio=aac&quality=medium`} type="video/mp4" />
+          <source src={`${getBackgroundVideoUrl(media)}`} type="video/mp4" />
+          <source src={`${getApiUrl()}/api/preview-clips/${media.id}`} type="video/mp4" />
           Your browser does not support the video tag.
         </video>
 
@@ -425,7 +507,17 @@ export default function MoviePage() {
                   }}
                   className="mb-6"
                 >
-                  <GenreTitle media={media} className="mb-6" />
+                  <GenreTitle media={media} className="mb-4" />
+
+                  {/* Year below title */}
+                  <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.6, delay: 0.4 }}
+                    className="text-white/80 text-lg font-medium"
+                  >
+                    {media.year || (media.release_date && new Date(media.release_date).getFullYear()) || new Date().getFullYear()}
+                  </motion.div>
                 </motion.div>
 
                 {/* Tagline with hover reveal */}
@@ -500,18 +592,32 @@ export default function MoviePage() {
                   }}
                   className="flex flex-wrap gap-4 mb-8"
                 >
-                  <MagneticButton
-                    onClick={handlePlay}
-                    className="bg-red-600 hover:bg-red-700 text-white px-8 py-3 rounded-lg text-lg font-semibold flex items-center gap-2"
-                  >
-                    <Play className="w-5 h-5" />
-                    {playbackProgress > 0 ? 'Continue Watching' : 'Play'}
-                    {playbackProgress > 0 && (
-                      <span className="text-sm font-normal opacity-80">
-                        {formatProgressPercentage(playbackProgress)}% watched
-                      </span>
+                  <div className="relative">
+                    <MagneticButton
+                      onClick={handlePlay}
+                      className="bg-red-600 hover:bg-red-700 text-white px-8 py-3 rounded-lg text-lg font-semibold flex items-center gap-2 relative overflow-hidden"
+                    >
+                      <Play className="w-5 h-5" />
+                      {hasWatchedBefore && playbackProgress > 0 ? 'Continue Playing' : 'Play'}
+                      {hasWatchedBefore && playbackProgress > 0 && playbackDuration > 0 && (
+                        <span className="text-sm font-normal opacity-80">
+                          {Math.round((playbackProgress / playbackDuration) * 100)}%
+                        </span>
+                      )}
+                    </MagneticButton>
+                    
+                    {/* Progress bar overlay */}
+                    {hasWatchedBefore && playbackProgress > 0 && playbackDuration > 0 && (
+                      <motion.div
+                        className="absolute bottom-0 left-0 h-1 bg-red-400 rounded-b-lg"
+                        initial={{ width: 0 }}
+                        animate={{ 
+                          width: `${Math.min((playbackProgress / playbackDuration) * 100, 100)}%` 
+                        }}
+                        transition={{ duration: 1, ease: "easeOut" }}
+                      />
                     )}
-                  </MagneticButton>
+                  </div>
 
                   <MagneticButton
                     onClick={toggleMyList}
@@ -544,12 +650,12 @@ export default function MoviePage() {
                   }}
                 >
                   <p className="text-white/90 mb-4 text-lg leading-relaxed">
-                    {media.description ? (
-                      showFullDescription ? media.description : `${media.description.substring(0, 200)}...`
+                    {media.long_desc ? (
+                      showFullDescription ? media.long_desc : `${media.long_desc.substring(0, 200)}...`
                     ) : (
                       "Experience the ultimate entertainment with this amazing content. Watch now and immerse yourself in a world of endless possibilities."
                     )}
-                    {media.description && media.description.length > 200 && (
+                    {media.long_desc && media.long_desc.length > 200 && (
                       <button
                         onClick={() => setShowFullDescription(!showFullDescription)}
                         className="text-red-400 hover:text-red-300 ml-2 font-medium"
@@ -578,7 +684,10 @@ export default function MoviePage() {
                 <div className="space-y-4">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div>
-                      <h3 className="text-lg font-semibold text-white mb-3">Details</h3>
+                      <div className="flex items-center gap-2 mb-3">
+                        <Info className="w-5 h-5 text-red-500" />
+                        <h3 className="text-lg font-semibold text-white">Details</h3>
+                      </div>
                       <div className="space-y-2">
                         <div className="flex">
                           <span className="w-32 text-white/60">Type</span>
@@ -596,6 +705,18 @@ export default function MoviePage() {
                           <div className="flex">
                             <span className="w-32 text-white/60">Duration</span>
                             <span className="text-white">{formatRuntime(Math.floor(media.duration / 60))}</span>
+                          </div>
+                        )}
+                        {media.director && (
+                          <div className="flex">
+                            <span className="w-32 text-white/60">Director</span>
+                            <span className="text-white">{media.director}</span>
+                          </div>
+                        )}
+                        {media.stars && (
+                          <div className="flex">
+                            <span className="w-32 text-white/60">Cast</span>
+                            <span className="text-white">{media.stars}</span>
                           </div>
                         )}
                       </div>
@@ -675,6 +796,96 @@ export default function MoviePage() {
                   </div>
                 </div>
               </div>
+
+              {/* Cast & Crew Section */}
+              {(media.stars && media.stars.length > 0) || (media.director && media.director.length > 0) ? (
+                <div className="mb-12">
+                  <h2 className="text-2xl font-bold text-white mb-6">Cast & Crew</h2>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+
+                    {/* Director Section */}
+                    {media.director && media.director.length > 0 && (
+                      <div>
+                        <div className="flex items-center gap-2 mb-4">
+                          <Director className="w-5 h-5 text-red-500" />
+                          <h3 className="text-lg font-semibold text-white">
+                            Director{media.director.length > 1 ? 's' : ''}
+                          </h3>
+                        </div>
+                        <div className="space-y-3">
+                          {media.director.map((director, index) => (
+                            <div key={index} className="flex items-center gap-3 p-3 bg-gray-800/30 rounded-lg hover:bg-gray-800/50 transition-colors">
+                              <div className="w-12 h-12 bg-gray-700 rounded-full flex items-center justify-center">
+                                <Director className="w-6 h-6 text-gray-400" />
+                              </div>
+                              <div>
+                                <p className="text-white font-medium">{director}</p>
+                                <p className="text-white/60 text-sm">Director</p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Cast Section */}
+                    {media.stars && media.stars.length > 0 && (
+                      <div>
+                        <div className="flex items-center gap-2 mb-4">
+                          <Cast className="w-5 h-5 text-red-500" />
+                          <h3 className="text-lg font-semibold text-white">Cast</h3>
+                        </div>
+                        <div className="space-y-3">
+                          {media.stars.slice(0, 6).map((actor, index) => (
+                            <div key={index} className="flex items-center gap-3 p-3 bg-gray-800/30 rounded-lg hover:bg-gray-800/50 transition-colors">
+                              <div className="w-12 h-12 bg-gray-700 rounded-full flex items-center justify-center">
+                                <User className="w-6 h-6 text-gray-400" />
+                              </div>
+                              <div>
+                                <p className="text-white font-medium">{actor}</p>
+                                <p className="text-white/60 text-sm">Actor</p>
+                              </div>
+                            </div>
+                          ))}
+                          {media.stars.length > 6 && (
+                            <div className="text-center">
+                              <button
+                                onClick={() => setShowMoreInfo(!showMoreInfo)}
+                                className="text-red-400 hover:text-red-300 text-sm font-medium flex items-center gap-1 mx-auto"
+                              >
+                                {showMoreInfo ? (
+                                  <>
+                                    Show Less <ChevronUp className="w-4 h-4" />
+                                  </>
+                                ) : (
+                                  <>
+                                    Show {media.stars.length - 6} More <ChevronDown className="w-4 h-4" />
+                                  </>
+                                )}
+                              </button>
+                              {showMoreInfo && (
+                                <div className="mt-3 space-y-3">
+                                  {media.stars.slice(6).map((actor, index) => (
+                                    <div key={index + 6} className="flex items-center gap-3 p-3 bg-gray-800/30 rounded-lg hover:bg-gray-800/50 transition-colors">
+                                      <div className="w-12 h-12 bg-gray-700 rounded-full flex items-center justify-center">
+                                        <User className="w-6 h-6 text-gray-400" />
+                                      </div>
+                                      <div>
+                                        <p className="text-white font-medium">{actor}</p>
+                                        <p className="text-white/60 text-sm">Actor</p>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : null}
             </div>
 
             {/* Sidebar */}

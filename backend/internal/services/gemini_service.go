@@ -54,13 +54,32 @@ type OllamaResponse struct {
 type MediaMetadata struct {
 	Title       string   `json:"title"`
 	Tagline     string   `json:"tagline"`
+	ShortDesc   string   `json:"short_desc"`
+	LongDesc    string   `json:"long_desc"`
 	Description string   `json:"description"`
 	Year        int      `json:"year"`
 	Stars       []string `json:"stars"`
 	Directors   []string `json:"directors"`
 	Country     string   `json:"country"`
+	Language    string   `json:"language"`
+	Quality     string   `json:"quality"`
 	Genres      []string `json:"genres"`
 	Rating      float64  `json:"rating"`
+	PosterURL   string   `json:"poster_url"`
+	BackdropURL string   `json:"backdrop_url"`
+	Runtime     int      `json:"runtime"`
+	// Box office and additional metadata
+	Budget      int64    `json:"budget"`
+	Revenue     int64    `json:"revenue"`
+	BoxOffice   string   `json:"box_office"`   // Formatted box office string
+	Status      string   `json:"status"`       // Released, Post Production, etc.
+	IMDBID      string   `json:"imdb_id"`
+	Homepage    string   `json:"homepage"`
+	Collection  string   `json:"collection"`   // Movie collection/franchise
+	Cast        []string `json:"cast"`         // Full cast list (more than just stars)
+	Crew        []string `json:"crew"`         // Key crew members
+	Writers     []string `json:"writers"`      // Writers/Screenplay
+	Producers   []string `json:"producers"`    // Producers
 }
 
 func NewGeminiService() *GeminiService {
@@ -181,11 +200,15 @@ func (s *GeminiService) generateFallbackMetadata(filename string, _ string) (*Me
 		metadata := &MediaMetadata{
 			Title:       fallbackMeta.Title,
 			Tagline:     fallbackMeta.Tagline,
+			ShortDesc:   fallbackMeta.ShortDesc,
+			LongDesc:    fallbackMeta.LongDesc,
 			Description: fallbackMeta.LongDesc,
 			Year:        fallbackMeta.Year,
 			Stars:       fallbackMeta.Stars,
 			Directors:   fallbackMeta.Director,
 			Country:     fallbackMeta.Country,
+			Language:    fallbackMeta.Language,
+			Quality:     fallbackMeta.Quality,
 			Genres:      fallbackMeta.Genres,
 			Rating:      fallbackMeta.Rating,
 		}
@@ -208,12 +231,15 @@ func (s *GeminiService) storeFallbackMetadata(filename string, metadata *MediaMe
 	// Update with AI-generated data
 	fallbackMeta.Title = metadata.Title
 	fallbackMeta.Tagline = metadata.Tagline
-	fallbackMeta.LongDesc = metadata.Description
+	fallbackMeta.ShortDesc = metadata.ShortDesc
+	fallbackMeta.LongDesc = metadata.LongDesc
 	fallbackMeta.Year = metadata.Year
 	fallbackMeta.Genres = metadata.Genres
 	fallbackMeta.Stars = metadata.Stars
 	fallbackMeta.Director = metadata.Directors
 	fallbackMeta.Country = metadata.Country
+	fallbackMeta.Language = metadata.Language
+	fallbackMeta.Quality = metadata.Quality
 	fallbackMeta.Rating = metadata.Rating
 	
 	s.fallbackService.AddMetadata(filename, fallbackMeta)
