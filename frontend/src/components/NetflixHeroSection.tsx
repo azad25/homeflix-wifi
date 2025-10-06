@@ -5,6 +5,7 @@ import { Play, Info, Plus, VolumeX, Volume2, ChevronLeft, ChevronRight } from 'l
 import { motion, AnimatePresence } from 'framer-motion';
 import { Media } from '../types/media';
 import { getApiUrl } from '../lib/api';
+import RedLoader from './RedLoader';
 
 interface NetflixHeroSectionProps {
   featuredMedia?: Media[];
@@ -163,8 +164,8 @@ const NetflixHeroSection: React.FC<NetflixHeroSectionProps> = ({
 
   if (!currentMedia) {
     return (
-      <div className="relative h-screen w-full overflow-hidden bg-gradient-to-br from-red-900 via-black to-gray-900 flex items-center justify-center">
-        <h1 className="text-white text-4xl font-bold">Loading...</h1>
+      <div className="relative h-screen w-full overflow-hidden bg-black flex items-center justify-center">
+        <RedLoader size="large" />
       </div>
     );
   }

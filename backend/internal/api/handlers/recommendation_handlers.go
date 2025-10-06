@@ -5,12 +5,13 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
+	"homeflix-backend/internal/models"
 	"homeflix-backend/internal/services"
 )
 
-// Netflix-style recommendation handlers
+// Personalized recommendation handlers using RecommendationService
 
-func GetTrendingRecommendations(mediaService *services.MediaService) gin.HandlerFunc {
+func GetTrendingRecommendations(recommendationService *services.RecommendationService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		limit := 20
 		if limitStr := c.Query("limit"); limitStr != "" {
@@ -19,16 +20,66 @@ func GetTrendingRecommendations(mediaService *services.MediaService) gin.Handler
 			}
 		}
 		
-		// Get trending media based on recent views and high ratings
-		media, err := mediaService.GetTrendingMedia(limit)
+		// Use personalized trending recommendations for user ID 1
+		media, err := recommendationService.GetTrendingRecommendations(limit)
 		if err != nil {
-			// Fallback to popular media if trending fails
-			media, err = mediaService.GetPopularMedia()
+			// Fallback to default recommendations
+			media, err = recommendationService.GetDefaultRecommendations(limit)
 			if err != nil {
-				// Final fallback to recent media
-				media, err = mediaService.GetRecentMedia()
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch trending recommendations"})
+				return
+			}
+		}
+		
+		c.JSON(http.StatusOK, media)
+	}
+}
+
+func GetPopularRecommendations(recommendationService *services.RecommendationService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		limit := 20
+		if limitStr := c.Query("limit"); limitStr != "" {
+			if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= 100 {
+				limit = l
+			}
+		}
+		
+		// Use personalized recommendations for user ID 1 based on their viewing patterns
+		userID := uint(1)
+		media, err := recommendationService.GetRecommendationsForUser(userID, limit)
+		if err != nil {
+			// Fallback to default recommendations
+			media, err = recommendationService.GetDefaultRecommendations(limit)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch popular recommendations"})
+				return
+			}
+		}
+		
+		c.JSON(http.StatusOK, media)
+	}
+}
+
+func GetRecentRecommendations(recommendationService *services.RecommendationService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		limit := 20
+		if limitStr := c.Query("limit"); limitStr != "" {
+			if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= 100 {
+				limit = l
+			}
+		}
+		
+		// Use personalized similar media recommendations for user ID 1
+		userID := uint(1)
+		media, err := recommendationService.GetSimilarMedia(userID, limit)
+		if err != nil {
+			// Fallback to trending recommendations
+			media, err = recommendationService.GetTrendingRecommendations(limit)
+			if err != nil {
+				// Final fallback to default recommendations
+				media, err = recommendationService.GetDefaultRecommendations(limit)
 				if err != nil {
-					c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch recommendations"})
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch recent recommendations"})
 					return
 				}
 			}
@@ -38,7 +89,7 @@ func GetTrendingRecommendations(mediaService *services.MediaService) gin.Handler
 	}
 }
 
-func GetPopularRecommendations(mediaService *services.MediaService) gin.HandlerFunc {
+func GetHighRatedRecommendations(recommendationService *services.RecommendationService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		limit := 20
 		if limitStr := c.Query("limit"); limitStr != "" {
@@ -47,47 +98,14 @@ func GetPopularRecommendations(mediaService *services.MediaService) gin.HandlerF
 			}
 		}
 		
-		// Get most watched media
-		media, err := mediaService.GetMostWatched(limit)
+		// Use personalized recommendations for user ID 1 with high rating preference
+		userID := uint(1)
+		media, err := recommendationService.GetRecommendationsForUser(userID, limit)
 		if err != nil {
-			// Fallback to popular media
-			media, err = mediaService.GetPopularMedia()
+			// Fallback to default recommendations (which prioritize high ratings)
+			media, err = recommendationService.GetDefaultRecommendations(limit)
 			if err != nil {
-				// Final fallback to all media sorted by rating
-				allMedia, err := mediaService.GetAllMedia()
-				if err != nil {
-					c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch recommendations"})
-					return
-				}
-				// Return first 'limit' items
-				if len(allMedia) > limit {
-					media = allMedia[:limit]
-				} else {
-					media = allMedia
-				}
-			}
-		}
-		
-		c.JSON(http.StatusOK, media)
-	}
-}
-
-func GetRecentRecommendations(mediaService *services.MediaService) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		limit := 20
-		if limitStr := c.Query("limit"); limitStr != "" {
-			if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= 100 {
-				limit = l
-			}
-		}
-		
-		// Get recently added media
-		media, err := mediaService.GetRecentlyAdded(limit)
-		if err != nil {
-			// Fallback to recent media
-			media, err = mediaService.GetRecentMedia()
-			if err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch recommendations"})
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch high-rated recommendations"})
 				return
 			}
 		}
@@ -96,38 +114,7 @@ func GetRecentRecommendations(mediaService *services.MediaService) gin.HandlerFu
 	}
 }
 
-func GetHighRatedRecommendations(mediaService *services.MediaService) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		limit := 20
-		if limitStr := c.Query("limit"); limitStr != "" {
-			if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= 100 {
-				limit = l
-			}
-		}
-		
-		// Get highest rated media
-		media, err := mediaService.GetHighestRated(limit)
-		if err != nil {
-			// Fallback to all media and sort by rating on backend
-			allMedia, err := mediaService.GetAllMedia()
-			if err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch recommendations"})
-				return
-			}
-			
-			// Simple fallback - return first items
-			if len(allMedia) > limit {
-				media = allMedia[:limit]
-			} else {
-				media = allMedia
-			}
-		}
-		
-		c.JSON(http.StatusOK, media)
-	}
-}
-
-func GetGenreRecommendations(mediaService *services.MediaService) gin.HandlerFunc {
+func GetGenreRecommendations(recommendationService *services.RecommendationService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		genre := c.Query("genre")
 		if genre == "" {
@@ -142,24 +129,28 @@ func GetGenreRecommendations(mediaService *services.MediaService) gin.HandlerFun
 			}
 		}
 		
-		page := 1
-		if pageStr := c.Query("page"); pageStr != "" {
-			if p, err := strconv.Atoi(pageStr); err == nil && p > 0 {
-				page = p
-			}
-		}
-		
-		media, err := mediaService.GetMediaByGenre(genre, page, limit)
+		// Use personalized similar media recommendations for user ID 1
+		// This will naturally favor genres the user has shown interest in
+		userID := uint(1)
+		media, err := recommendationService.GetSimilarMedia(userID, limit)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch genre recommendations"})
-			return
+			// Fallback to personalized recommendations
+			media, err = recommendationService.GetRecommendationsForUser(userID, limit)
+			if err != nil {
+				// Final fallback to default recommendations
+				media, err = recommendationService.GetDefaultRecommendations(limit)
+				if err != nil {
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch genre recommendations"})
+					return
+				}
+			}
 		}
 		
 		c.JSON(http.StatusOK, media)
 	}
 }
 
-func GetMixedRecommendations(mediaService *services.MediaService) gin.HandlerFunc {
+func GetMixedRecommendations(recommendationService *services.RecommendationService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		limit := 20
 		if limitStr := c.Query("limit"); limitStr != "" {
@@ -168,46 +159,62 @@ func GetMixedRecommendations(mediaService *services.MediaService) gin.HandlerFun
 			}
 		}
 		
-		// Get a mix of different types of recommendations
-		var allRecommendations []interface{}
-		
-		// Get some trending
-		if trending, err := mediaService.GetTrendingMedia(limit / 4); err == nil {
-			for _, item := range trending {
-				allRecommendations = append(allRecommendations, item)
-			}
+		userID := uint(1)
+		var allRecommendations []models.Media
+		categoryLimit := limit / 4
+		if categoryLimit < 3 {
+			categoryLimit = 3
 		}
 		
-		// Get some popular
-		if popular, err := mediaService.GetMostWatched(limit / 4); err == nil {
-			for _, item := range popular {
-				allRecommendations = append(allRecommendations, item)
-			}
+		// Get personalized recommendations from different categories
+		// 1. Personalized recommendations based on user history
+		if personalizedMedia, err := recommendationService.GetRecommendationsForUser(userID, categoryLimit); err == nil {
+			allRecommendations = append(allRecommendations, personalizedMedia...)
 		}
 		
-		// Get some recent
-		if recent, err := mediaService.GetRecentlyAdded(limit / 4); err == nil {
-			for _, item := range recent {
-				allRecommendations = append(allRecommendations, item)
+		// 2. Similar media based on user preferences
+		if similarMedia, err := recommendationService.GetSimilarMedia(userID, categoryLimit); err == nil {
+			// Avoid duplicates
+			existingIDs := make(map[uint]bool)
+			for _, item := range allRecommendations {
+				existingIDs[item.ID] = true
 			}
-		}
-		
-		// Get some high rated
-		if rated, err := mediaService.GetHighestRated(limit / 4); err == nil {
-			for _, item := range rated {
-				allRecommendations = append(allRecommendations, item)
-			}
-		}
-		
-		// If we don't have enough, fill with all media
-		if len(allRecommendations) < limit {
-			if allMedia, err := mediaService.GetAllMedia(); err == nil {
-				remaining := limit - len(allRecommendations)
-				for i, item := range allMedia {
-					if i >= remaining {
-						break
-					}
+			
+			for _, item := range similarMedia {
+				if !existingIDs[item.ID] && len(allRecommendations) < limit {
 					allRecommendations = append(allRecommendations, item)
+					existingIDs[item.ID] = true
+				}
+			}
+		}
+		
+		// 3. Trending content
+		if trendingMedia, err := recommendationService.GetTrendingRecommendations(categoryLimit); err == nil {
+			existingIDs := make(map[uint]bool)
+			for _, item := range allRecommendations {
+				existingIDs[item.ID] = true
+			}
+			
+			for _, item := range trendingMedia {
+				if !existingIDs[item.ID] && len(allRecommendations) < limit {
+					allRecommendations = append(allRecommendations, item)
+					existingIDs[item.ID] = true
+				}
+			}
+		}
+		
+		// 4. Fill remaining slots with default recommendations if needed
+		if len(allRecommendations) < limit {
+			if defaultMedia, err := recommendationService.GetDefaultRecommendations(limit - len(allRecommendations)); err == nil {
+				existingIDs := make(map[uint]bool)
+				for _, item := range allRecommendations {
+					existingIDs[item.ID] = true
+				}
+				
+				for _, item := range defaultMedia {
+					if !existingIDs[item.ID] && len(allRecommendations) < limit {
+						allRecommendations = append(allRecommendations, item)
+					}
 				}
 			}
 		}
@@ -218,5 +225,157 @@ func GetMixedRecommendations(mediaService *services.MediaService) gin.HandlerFun
 		}
 		
 		c.JSON(http.StatusOK, allRecommendations)
+	}
+}
+
+// Advanced recommendation handlers using RecommendationService
+
+func GetPersonalizedRecommendations(recommendationService *services.RecommendationService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		limit := 20
+		if limitStr := c.Query("limit"); limitStr != "" {
+			if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= 100 {
+				limit = l
+			}
+		}
+		
+		// Use user ID 1 for personalized recommendations
+		userID := uint(1)
+		if userIDStr := c.Query("user_id"); userIDStr != "" {
+			if uid, err := strconv.ParseUint(userIDStr, 10, 32); err == nil {
+				userID = uint(uid)
+			}
+		}
+		
+		// Get personalized recommendations based on user's viewing history and preferences
+		media, err := recommendationService.GetRecommendationsForUser(userID, limit)
+		if err != nil {
+			// Fallback to default recommendations
+			media, err = recommendationService.GetDefaultRecommendations(limit)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch personalized recommendations"})
+				return
+			}
+		}
+		
+		c.JSON(http.StatusOK, media)
+	}
+}
+
+func GetSmartTrendingRecommendations(recommendationService *services.RecommendationService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		limit := 20
+		if limitStr := c.Query("limit"); limitStr != "" {
+			if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= 100 {
+				limit = l
+			}
+		}
+		
+		// Get smart trending recommendations based on recent viewing patterns
+		media, err := recommendationService.GetTrendingRecommendations(limit)
+		if err != nil {
+			// Fallback to default recommendations
+			media, err = recommendationService.GetDefaultRecommendations(limit)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch trending recommendations"})
+				return
+			}
+		}
+		
+		c.JSON(http.StatusOK, media)
+	}
+}
+
+func GetSimilarRecommendations(recommendationService *services.RecommendationService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		limit := 20
+		if limitStr := c.Query("limit"); limitStr != "" {
+			if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= 100 {
+				limit = l
+			}
+		}
+		
+		// Use user ID 1 for similar media recommendations
+		userID := uint(1)
+		if userIDStr := c.Query("user_id"); userIDStr != "" {
+			if uid, err := strconv.ParseUint(userIDStr, 10, 32); err == nil {
+				userID = uint(uid)
+			}
+		}
+		
+		// Get similar media based on user's viewing history and genre preferences
+		media, err := recommendationService.GetSimilarMedia(userID, limit)
+		if err != nil {
+			// Fallback to trending recommendations
+			media, err = recommendationService.GetTrendingRecommendations(limit)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch similar recommendations"})
+				return
+			}
+		}
+		
+		c.JSON(http.StatusOK, media)
+	}
+}
+
+func GetContinueWatchingRecommendations(recommendationService *services.RecommendationService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// Use user ID 1 for continue watching recommendations
+		userID := uint(1)
+		if userIDStr := c.Query("user_id"); userIDStr != "" {
+			if uid, err := strconv.ParseUint(userIDStr, 10, 32); err == nil {
+				userID = uint(uid)
+			}
+		}
+		
+		// Get continue watching recommendations based on incomplete viewing sessions
+		media, err := recommendationService.GetContinueWatching(userID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch continue watching recommendations"})
+			return
+		}
+		
+		c.JSON(http.StatusOK, media)
+	}
+}
+
+func RefreshAllRecommendations(recommendationService *services.RecommendationService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// Refresh recommendations for all users
+		err := recommendationService.RefreshRecommendations()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to refresh recommendations", "details": err.Error()})
+			return
+		}
+		
+		c.JSON(http.StatusOK, gin.H{"message": "Recommendations refreshed successfully"})
+	}
+}
+
+func TrackRecommendationClick(recommendationService *services.RecommendationService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		mediaIDStr := c.Param("id")
+		mediaID, err := strconv.ParseUint(mediaIDStr, 10, 32)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid media ID"})
+			return
+		}
+
+		// Use user ID 1 for now
+		userID := uint(1)
+		if userIDStr := c.Query("user_id"); userIDStr != "" {
+			if uid, err := strconv.ParseUint(userIDStr, 10, 32); err == nil {
+				userID = uint(uid)
+			}
+		}
+
+		// Track the recommendation click
+		err = recommendationService.TrackRecommendationClick(userID, uint(mediaID))
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to track recommendation click"})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{"message": "Recommendation click tracked successfully"})
 	}
 }

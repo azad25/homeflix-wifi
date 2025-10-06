@@ -89,37 +89,85 @@ export default function BrowsePage() {
     try {
       const apiUrl = getApiUrl();
       
-      // Try to fetch from recommendations endpoints with fallbacks
-      const endpoints = [
-        `${apiUrl}/api/recommendations/trending?limit=8`,
-        `${apiUrl}/api/recommendations/popular?limit=8`,
-        `${apiUrl}/api/recommendations/mixed?limit=8`,
-        `${apiUrl}/api/media?limit=8` // Final fallback
+      // Prioritize backend recommendation endpoints
+      const recommendationEndpoints = [
+        `${apiUrl}/api/recommendations/personalized?limit=20`,
+        `${apiUrl}/api/recommendations/mixed?limit=20`,
+        `${apiUrl}/api/recommendations/trending?limit=20`,
+        `${apiUrl}/api/recommendations/popular?limit=20`
       ];
 
       let featured: Media[] = [];
       
-      for (const endpoint of endpoints) {
+      console.log('🎬 Fetching featured media from backend recommendations...');
+      
+      for (const endpoint of recommendationEndpoints) {
         try {
+          console.log(`🎯 Trying: ${endpoint}`);
           const response = await fetch(endpoint);
           if (response.ok) {
             const data = await response.json();
-            if (data && data.length > 0) {
-              featured = data.slice(0, 8);
+            if (data && Array.isArray(data) && data.length > 0) {
+              featured = data;
+              console.log(`✅ Got ${featured.length} items from backend recommendations`);
               break;
             }
           }
         } catch (error) {
-          console.warn(`Failed to fetch from ${endpoint}:`, error);
+          console.warn(`❌ Failed to fetch from ${endpoint}:`, error);
           continue;
         }
       }
 
-      // If all endpoints fail, use highest rated from allMedia
+      // Only use movies endpoint as fallback for browse page
+      if (featured.length === 0) {
+        console.warn('⚠️ All recommendation endpoints failed, using movies endpoint as fallback');
+        try {
+          const response = await fetch(`${apiUrl}/api/movies?limit=20`);
+          if (response.ok) {
+            const data = await response.json();
+            if (data && Array.isArray(data) && data.length > 0) {
+              featured = data;
+              console.log(`✅ Got ${featured.length} items from movies endpoint`);
+            }
+          }
+        } catch (error) {
+          console.warn('❌ Movies endpoint also failed:', error);
+        }
+      }
+
+      // Filter for movies with HD/4K quality only for hero section
+      if (featured.length > 0) {
+        const hdMovies = featured.filter((item: Media) => {
+          const isMovie = item.type === 'movie';
+          const hasHDQuality = item.quality && (
+            item.quality.toLowerCase().includes('hd') || 
+            item.quality.toLowerCase().includes('4k') ||
+            item.quality.toLowerCase().includes('1080p') ||
+            item.quality.toLowerCase().includes('2160p')
+          );
+          return isMovie && hasHDQuality;
+        });
+
+        // If we have HD movies, use them; otherwise fall back to all movies
+        if (hdMovies.length >= 5) {
+          featured = hdMovies.slice(0, 8);
+          console.log(`✅ Using ${featured.length} HD/4K movies for hero section`);
+        } else {
+          // Fall back to all movies if not enough HD content
+          const allMovies = featured.filter((item: Media) => item.type === 'movie');
+          featured = allMovies.slice(0, 8);
+          console.log(`⚠️ Not enough HD content, using ${featured.length} movies for hero section`);
+        }
+      }
+
+      // If still no movies, use highest rated movies from allMedia
       if (featured.length === 0 && allMedia.length > 0) {
-        featured = [...allMedia]
+        const movies = allMedia.filter((item: Media) => item.type === 'movie');
+        featured = movies
           .sort((a, b) => (b.rating || 0) - (a.rating || 0))
           .slice(0, 8);
+        console.log(`✅ Using ${featured.length} highest rated movies from allMedia`);
       }
 
       setFeaturedMedia(featured);
@@ -230,6 +278,7 @@ export default function BrowsePage() {
           featuredMedia={featuredMedia}
           onPlay={handlePlay}
           onInfo={handleInfo}
+          contentFilter="movies-hd"
         />
       )}
 

@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"os"
 	"strings"
+
+	"homeflix-backend/internal/interfaces"
 )
 
 type GeminiService struct {
@@ -51,36 +53,6 @@ type OllamaResponse struct {
 	Done     bool   `json:"done"`
 }
 
-type MediaMetadata struct {
-	Title       string   `json:"title"`
-	Tagline     string   `json:"tagline"`
-	ShortDesc   string   `json:"short_desc"`
-	LongDesc    string   `json:"long_desc"`
-	Description string   `json:"description"`
-	Year        int      `json:"year"`
-	Stars       []string `json:"stars"`
-	Directors   []string `json:"directors"`
-	Country     string   `json:"country"`
-	Language    string   `json:"language"`
-	Quality     string   `json:"quality"`
-	Genres      []string `json:"genres"`
-	Rating      float64  `json:"rating"`
-	PosterURL   string   `json:"poster_url"`
-	BackdropURL string   `json:"backdrop_url"`
-	Runtime     int      `json:"runtime"`
-	// Box office and additional metadata
-	Budget      int64    `json:"budget"`
-	Revenue     int64    `json:"revenue"`
-	BoxOffice   string   `json:"box_office"`   // Formatted box office string
-	Status      string   `json:"status"`       // Released, Post Production, etc.
-	IMDBID      string   `json:"imdb_id"`
-	Homepage    string   `json:"homepage"`
-	Collection  string   `json:"collection"`   // Movie collection/franchise
-	Cast        []string `json:"cast"`         // Full cast list (more than just stars)
-	Crew        []string `json:"crew"`         // Key crew members
-	Writers     []string `json:"writers"`      // Writers/Screenplay
-	Producers   []string `json:"producers"`    // Producers
-}
 
 func NewGeminiService() *GeminiService {
 	apiKey := os.Getenv("GEMINI_API_KEY")
@@ -117,7 +89,7 @@ func NewGeminiService() *GeminiService {
 	}
 }
 
-func (s *GeminiService) GenerateMediaMetadata(filename string, existingTitle string) (*MediaMetadata, error) {
+func (s *GeminiService) GenerateMediaMetadata(filename string, existingTitle string) (*interfaces.MediaMetadata, error) {
 	prompt := fmt.Sprintf(`Analyze this media file and generate comprehensive metadata in JSON format.
 
 Filename: %s
@@ -172,7 +144,7 @@ Return ONLY valid JSON in this exact format:
 	}
 
 	// Parse JSON response
-	var metadata MediaMetadata
+	var metadata interfaces.MediaMetadata
 	
 	// First try to extract JSON from response
 	cleanResponse := extractJSON(response)
@@ -193,11 +165,11 @@ Return ONLY valid JSON in this exact format:
 }
 
 // generateFallbackMetadata creates metadata from filename when AI services fail
-func (s *GeminiService) generateFallbackMetadata(filename string, _ string) (*MediaMetadata, error) {
+func (s *GeminiService) generateFallbackMetadata(filename string, _ string) (*interfaces.MediaMetadata, error) {
 	// Check if we have cached metadata first
 	if fallbackMeta := s.fallbackService.GetFallbackMetadata(filename); fallbackMeta != nil {
 		// Convert fallback metadata to GeminiService MediaMetadata format
-		metadata := &MediaMetadata{
+		metadata := &interfaces.MediaMetadata{
 			Title:       fallbackMeta.Title,
 			Tagline:     fallbackMeta.Tagline,
 			ShortDesc:   fallbackMeta.ShortDesc,
@@ -225,7 +197,7 @@ func (s *GeminiService) generateFallbackMetadata(filename string, _ string) (*Me
 }
 
 // storeFallbackMetadata stores AI-generated metadata in the fallback cache
-func (s *GeminiService) storeFallbackMetadata(filename string, metadata *MediaMetadata) {
+func (s *GeminiService) storeFallbackMetadata(filename string, metadata *interfaces.MediaMetadata) {
 	fallbackMeta := s.fallbackService.ExtractMetadataFromFilename(filename)
 	
 	// Update with AI-generated data

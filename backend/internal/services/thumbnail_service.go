@@ -25,6 +25,7 @@ type ThumbnailService struct {
 	processingQueue  chan ProcessingTask
 	mu               sync.RWMutex
 	activeJobs       map[string]*JobStatus
+	alacService      *ALACAudioService // Reference to ALAC service for preview clips with audio
 }
 
 type ProcessingTask struct {
@@ -47,12 +48,13 @@ type JobStatus struct {
 }
 
 type WorkerPool struct {
-	workers    int
-	taskQueue  chan ProcessingTask
-	wg         sync.WaitGroup
-	ctx        context.Context
-	cancel     context.CancelFunc
-	hwAccel    string
+	workers     int
+	taskQueue   chan ProcessingTask
+	wg          sync.WaitGroup
+	ctx         context.Context
+	cancel      context.CancelFunc
+	hwAccel     string
+	alacService *ALACAudioService // Reference to ALAC service for preview clips with audio
 }
 
 type FFmpegConfig struct {
@@ -113,6 +115,15 @@ func NewThumbnailService() *ThumbnailService {
 		maxConcurrent, hwAccel)
 
 	return service
+}
+
+// SetALACService sets the ALAC service for preview clips with audio
+func (s *ThumbnailService) SetALACService(alacService *ALACAudioService) {
+	s.alacService = alacService
+	// Also set it in the worker pool
+	if s.workerPool != nil {
+		s.workerPool.alacService = alacService
+	}
 }
 
 // detectHardwareAcceleration detects the best available hardware acceleration
@@ -317,7 +328,7 @@ func (wp *WorkerPool) processThumbnailOptimized(task ProcessingTask) (string, er
 	return thumbnailPath, nil
 }
 
-// processPreviewOptimized processes preview generation with hardware acceleration
+// processPreviewOptimized processes preview generation with hardware acceleration and ALAC audio
 func (wp *WorkerPool) processPreviewOptimized(task ProcessingTask) (string, error) {
 	// Create filename for HD preview clip using cleaned title
 	cleanTitle := cleanTitleForFilename(task.Title)
@@ -352,10 +363,15 @@ func (wp *WorkerPool) processPreviewOptimized(task ProcessingTask) (string, erro
 
 	startTimeStr := secondsToTimeString(startTime)
 
-	log.Printf("🎬 Generating optimized 15s HD preview for media %d starting at %s using %s", 
+	log.Printf("🎬 Generating optimized 15s HD preview with ALAC audio for media %d starting at %s using %s", 
 		task.MediaID, startTimeStr, config.HWAccel)
 
-	// Build optimized FFmpeg command
+	// Try to generate preview with ALAC audio first
+	if previewWithALAC, err := wp.generatePreviewWithALAC(task, previewPath, startTimeStr, clipDuration, config); err == nil {
+		return previewWithALAC, nil
+	}
+
+	// Fallback to standard preview generation
 	args := buildPreviewCommand(task.VideoPath, previewPath, startTimeStr, clipDuration, config)
 	
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -385,6 +401,108 @@ func (wp *WorkerPool) processPreviewOptimized(task ProcessingTask) (string, erro
 
 	log.Printf("✅ Optimized 15s HD preview generated for media %d: %s", task.MediaID, previewPath)
 	return previewPath, nil
+}
+
+// generatePreviewWithALAC generates preview clip with ALAC audio automatically
+func (wp *WorkerPool) generatePreviewWithALAC(task ProcessingTask, previewPath, startTimeStr string, clipDuration int, config FFmpegConfig) (string, error) {
+	// Check if ALAC audio exists for this media
+	alacPath := wp.getALACPath(task.MediaID)
+	if alacPath == "" {
+		// No ALAC audio available, skip ALAC preview
+		return "", fmt.Errorf("no ALAC audio available for media %d", task.MediaID)
+	}
+
+	log.Printf("🎵 Generating preview with ALAC audio for media %d", task.MediaID)
+
+	// Build FFmpeg command with ALAC audio
+	args := []string{
+		"-ss", startTimeStr,                    // Start time
+		"-i", task.VideoPath,                   // Video input
+		"-ss", startTimeStr,                    // Start time for audio
+		"-i", alacPath,                         // ALAC audio input
+		"-t", fmt.Sprintf("%d", clipDuration),  // Duration
+		"-map", "0:v:0",                        // Map video from first input
+		"-map", "1:a:0",                        // Map ALAC audio from second input
+	}
+
+	// Add hardware acceleration if available
+	if config.HWAccel != "none" {
+		switch config.HWAccel {
+		case "cuda":
+			args = append(args, "-hwaccel", "cuda", "-hwaccel_output_format", "cuda")
+			args = append(args, "-c:v", "h264_nvenc")
+		case "vaapi":
+			args = append(args, "-hwaccel", "vaapi", "-hwaccel_output_format", "vaapi")
+			args = append(args, "-c:v", "h264_vaapi")
+		}
+	} else {
+		args = append(args, "-c:v", "libx264")
+	}
+
+	// Audio settings - copy ALAC or re-encode if needed
+	args = append(args,
+		"-c:a", "aac",                          // Re-encode to AAC for web compatibility
+		"-b:a", "192k",                         // High quality audio bitrate
+		"-ar", "48000",                         // 48kHz sample rate
+		"-ac", "2",                             // Stereo for previews
+		"-af", "loudnorm=I=-16:TP=-1.5:LRA=11", // Loudness normalization
+	)
+
+	// Video quality settings
+	args = append(args,
+		"-preset", "fast",                      // Fast encoding
+		"-crf", "23",                           // Good quality
+		"-pix_fmt", "yuv420p",                  // Web compatibility
+		"-movflags", "+faststart",              // Web optimization
+		"-y",                                   // Overwrite existing
+		previewPath,
+	)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second) // Longer timeout for ALAC processing
+	defer cancel()
+	
+	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
+	
+	err := runCommandWithTimeout(cmd, 90*time.Second)
+	if err != nil {
+		log.Printf("❌ Preview with ALAC audio generation failed for media %d: %v", task.MediaID, err)
+		return "", err
+	}
+
+	// Verify preview was created
+	if _, err := os.Stat(previewPath); err != nil {
+		return "", fmt.Errorf("preview file not created: %v", err)
+	}
+
+	log.Printf("✅ Preview with ALAC audio generated for media %d: %s", task.MediaID, previewPath)
+	return previewPath, nil
+}
+
+// getALACPath returns the ALAC audio path for a media ID (integration point with ALAC service)
+func (wp *WorkerPool) getALACPath(mediaID uint) string {
+	// Use injected ALAC service if available
+	if wp.alacService != nil {
+		return wp.alacService.GetAudioPath(int(mediaID))
+	}
+
+	// Fallback: check common ALAC paths
+	alacPaths := []string{
+		fmt.Sprintf("./alac_audio/alac_%d.m4a", mediaID),
+		fmt.Sprintf("./alac_audio/hq_audio_%d.m4a", mediaID),
+		fmt.Sprintf("./audio/alac_%d.m4a", mediaID),
+		fmt.Sprintf("./audio/hq_audio_%d.m4a", mediaID),
+	}
+
+	for _, path := range alacPaths {
+		if _, err := os.Stat(path); err == nil {
+			// Verify file is not too large (under 1GB)
+			if fileInfo, err := os.Stat(path); err == nil && fileInfo.Size() <= 1024*1024*1024 {
+				return path
+			}
+		}
+	}
+
+	return ""
 }
 
 // getOptimizedFFmpegConfig returns optimized FFmpeg configuration based on hardware

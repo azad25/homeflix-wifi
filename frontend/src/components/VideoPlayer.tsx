@@ -4,6 +4,7 @@ import React, { useRef, useEffect, useState, useCallback } from "react";
 import { Play, Pause, Volume2, VolumeX, Maximize, RotateCcw, RotateCw, X, Minimize, Subtitles } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { getApiUrl } from '@/lib/api';
+import RedLoader from './RedLoader';
 
 import { updatePlaybackProgress, getPlaybackProgress, trackView } from '@/lib/playback';
 import NextEpisodePreview from './NextEpisodePreview';
@@ -39,6 +40,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
   const [currentSubtitle, setCurrentSubtitle] = useState<string | null>(null);
   const [dragStartTime, setDragStartTime] = useState<number | null>(null);
   const [isBuffering, setIsBuffering] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [isMobile, setIsMobile] = useState(false);
   const [showResumeNotification, setShowResumeNotification] = useState(false);
   const [resumeTime, setResumeTime] = useState(0);
@@ -47,20 +49,42 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
     const baseUrl = `${getApiUrl()}/api/stream/${mediaId}`;
     const params = new URLSearchParams();
     
-    // Netflix-level optimization parameters
+    // Ultra-enhanced Netflix-level optimization parameters
     params.set('optimize', 'netflix-level');
-    params.set('buffer', 'aggressive');
-    params.set('latency', 'ultra-low');
+    params.set('buffer', 'ultra-aggressive');
+    params.set('latency', 'zero');
+    params.set('preload', 'instant');
+    
+    // Bandwidth detection and hints
+    const connection = (navigator as any).connection;
+    if (connection) {
+      params.set('bandwidth-hint', (connection.downlink * 1024 * 1024).toString());
+      params.set('network-type', connection.effectiveType || 'unknown');
+    }
     
     if (quality) {
       params.set('quality', quality);
     } else {
-      // Auto-detect quality based on device
+      // Enhanced auto-detect quality based on device and network
       const userAgent = navigator.userAgent.toLowerCase();
-      if (userAgent.includes('mobile')) {
-        params.set('quality', 'high'); // High quality even for mobile on local network
+      const isLocalNetwork = window.location.hostname === 'localhost' || 
+                            window.location.hostname.startsWith('192.168.') ||
+                            window.location.hostname.startsWith('10.') ||
+                            window.location.hostname.startsWith('172.');
+      
+      if (isLocalNetwork) {
+        // Ultra-high quality for local network
+        if (userAgent.includes('mobile')) {
+          params.set('quality', '1080p'); // 1080p for mobile on local network
+        } else {
+          params.set('quality', '4k-ultra'); // Ultra 4K for desktop on local network
+        }
       } else {
-        params.set('quality', '4k'); // Ultra quality for desktop
+        if (userAgent.includes('mobile')) {
+          params.set('quality', 'high');
+        } else {
+          params.set('quality', '4k');
+        }
       }
     }
     
@@ -68,18 +92,34 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
       params.set('format', format);
     }
     
-    // Device-specific optimizations
+    // Enhanced device-specific optimizations
     const userAgent = navigator.userAgent.toLowerCase();
     if (userAgent.includes('mac')) {
       params.set('device', 'mac');
+      params.set('hardware-accel', 'videotoolbox');
     } else if (userAgent.includes('windows')) {
       params.set('device', 'windows');
+      params.set('hardware-accel', 'dxva');
     } else if (userAgent.includes('linux')) {
       params.set('device', 'linux');
+      params.set('hardware-accel', 'vaapi');
     } else if (userAgent.includes('ios')) {
       params.set('device', 'ios');
+      params.set('hardware-accel', 'metal');
     } else if (userAgent.includes('android')) {
       params.set('device', 'android');
+      params.set('hardware-accel', 'mediacodec');
+    }
+    
+    // Screen resolution optimization
+    const screenWidth = window.screen.width;
+    const screenHeight = window.screen.height;
+    params.set('screen-resolution', `${screenWidth}x${screenHeight}`);
+    
+    // Memory and performance hints
+    const memory = (navigator as any).deviceMemory;
+    if (memory) {
+      params.set('device-memory', memory.toString());
     }
     
     return `${baseUrl}?${params.toString()}`;
@@ -474,6 +514,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
 
     const handleLoadedData = () => {
       console.log('Video data loaded successfully');
+      setIsLoading(false);
       // Ensure video is ready to play with sound
       if (video.readyState >= 2) {
         video.volume = volume;
@@ -484,6 +525,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
 
     const handleCanPlay = () => {
       console.log('Video can play');
+      setIsLoading(false);
+      setIsBuffering(false);
       // Auto-play with sound when ready
       video.muted = false;
       video.volume = volume;
@@ -574,6 +617,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
     const handleCanPlayThrough = () => {
       console.log('Video can play through without buffering');
       setIsBuffering(false);
+      setIsLoading(false);
     };
 
     const handleSeeking = () => {
@@ -582,6 +626,12 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
 
     const handleSeeked = () => {
       setIsBuffering(false);
+    };
+
+    const handleLoadStart = () => {
+      console.log('Video loading started');
+      setIsLoading(true);
+      setIsBuffering(true);
     };
 
     video.addEventListener('loadedmetadata', handleLoadedMetadata);
@@ -596,6 +646,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
     video.addEventListener('canplaythrough', handleCanPlayThrough);
     video.addEventListener('seeking', handleSeeking);
     video.addEventListener('seeked', handleSeeked);
+    video.addEventListener('loadstart', handleLoadStart);
 
     return () => {
       video.removeEventListener('loadedmetadata', handleLoadedMetadata);
@@ -610,6 +661,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
       video.removeEventListener('canplaythrough', handleCanPlayThrough);
       video.removeEventListener('seeking', handleSeeking);
       video.removeEventListener('seeked', handleSeeked);
+      video.removeEventListener('loadstart', handleLoadStart);
     };
   }, [isDragging, media.id, startTime, volume, isMuted, nextEpisode]);
 
@@ -689,10 +741,19 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
               }
             }
           }}
-          onLoadStart={() => console.log('Video loading started')}
-          onCanPlay={() => console.log('Video can play')}
+          onLoadStart={() => {
+            console.log('Video loading started');
+            setIsLoading(true);
+            setIsBuffering(true);
+          }}
+          onCanPlay={() => {
+            console.log('Video can play');
+            setIsLoading(false);
+            setIsBuffering(false);
+          }}
           onLoadedData={() => {
             console.log('Video loaded successfully');
+            setIsLoading(false);
             const video = videoRef.current;
             if (video) {
               // Ensure video is properly initialized with sound
@@ -709,10 +770,12 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
           muted={false}
           crossOrigin="anonymous"
         >
-          {/* Netflix-level multi-source strategy with ultra-fast loading */}
+          {/* Ultra-enhanced multi-source strategy with instant loading */}
+          <source src={getStreamUrl(media.id, '4k-ultra', 'mp4')} type="video/mp4; codecs=&quot;avc1.640028, mp4a.40.2&quot;" />
           <source src={getStreamUrl(media.id, '4k', 'mp4')} type="video/mp4; codecs=&quot;avc1.42E01E, mp4a.40.2&quot;" />
-          <source src={getStreamUrl(media.id, 'high', 'webm')} type="video/webm; codecs=&quot;vp9, opus&quot;" />
-          <source src={getStreamUrl(media.id, 'high', 'mp4')} type="video/mp4" />
+          <source src={getStreamUrl(media.id, 'high', 'webm')} type="video/webm; codecs=&quot;vp9.2, opus&quot;" />
+          <source src={getStreamUrl(media.id, 'high', 'mp4')} type="video/mp4; codecs=&quot;avc1.42E01E, mp4a.40.2&quot;" />
+          <source src={getStreamUrl(media.id, 'medium', 'webm')} type="video/webm; codecs=&quot;vp9, opus&quot;" />
           <source src={getStreamUrl(media.id, 'medium', 'mp4')} type="video/mp4" />
           <source src={getStreamUrl(media.id, 'low', 'mp4')} type="video/mp4" />
           
@@ -742,6 +805,19 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
           </p>
         </video>
 
+        {/* Loading/Buffering Overlay */}
+        <AnimatePresence>
+          {(isLoading || isBuffering) && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 flex items-center justify-center bg-black/30 backdrop-blur-sm z-40"
+            >
+              <RedLoader size="large" />
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* Controls Overlay */}
         <AnimatePresence>

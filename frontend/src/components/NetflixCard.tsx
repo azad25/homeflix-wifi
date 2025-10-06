@@ -47,6 +47,9 @@ const NetflixCard: React.FC<NetflixCardProps> = ({
   };
 
   const getPreviewUrl = () => {
+    if (media.preview_clip_path) {
+      return `${apiUrl}/api/admin/assets/${media.preview_clip_path.split('/').pop()}`;
+    }
     if (media.trailer_path) {
       return `${apiUrl}/api/admin/assets/${media.trailer_path.split('/').pop()}`;
     }
@@ -151,6 +154,7 @@ const NetflixCard: React.FC<NetflixCardProps> = ({
       className={`relative group cursor-pointer ${isHovered ? 'z-50' : 'z-10'}`}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
+      onClick={() => onInfo(media)}
       style={{
         zIndex: isHovered ? 50 : 10,
       }}
@@ -223,7 +227,10 @@ const NetflixCard: React.FC<NetflixCardProps> = ({
               className="absolute inset-0 flex items-center justify-center"
             >
               <button
-                onClick={handlePlayClick}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handlePlayClick();
+                }}
                 disabled={isLoading}
                 className="bg-white/20 backdrop-blur-sm rounded-full p-4 hover:bg-white/30 transition-all duration-200 cursor-pointer"
               >
@@ -240,7 +247,8 @@ const NetflixCard: React.FC<NetflixCardProps> = ({
         {/* Volume Control for Preview */}
         {showPreview && isPlaying && (
           <button
-            onClick={() => {
+            onClick={(e) => {
+              e.stopPropagation();
               setIsMuted(!isMuted);
               if (videoRef.current) {
                 videoRef.current.muted = !isMuted;
@@ -293,7 +301,10 @@ const NetflixCard: React.FC<NetflixCardProps> = ({
             {/* Action Buttons */}
             <div className="flex items-center gap-2 mb-3">
               <button
-                onClick={handlePlayClick}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handlePlayClick();
+                }}
                 disabled={isLoading}
                 className="bg-white text-black px-4 py-2 rounded-md font-bold hover:bg-gray-200 transition-colors duration-200 flex items-center gap-2 cursor-pointer"
               >
@@ -321,7 +332,10 @@ const NetflixCard: React.FC<NetflixCardProps> = ({
               </button>
 
               <button
-                onClick={() => onInfo(media)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onInfo(media);
+                }}
                 className="bg-gray-700 text-white p-2 rounded-full hover:bg-gray-600 transition-colors duration-200 ml-auto cursor-pointer"
               >
                 <ChevronDown className="w-4 h-4" />

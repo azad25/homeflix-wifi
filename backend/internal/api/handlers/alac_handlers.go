@@ -50,8 +50,8 @@ func ExtractALACAudio(alacService *services.ALACAudioService, mediaService *serv
 			return
 		}
 
-		// Extract ALAC audio
-		audioPath, err := alacService.ExtractALACAudio(media.FilePath, mediaID)
+		// Extract ALAC audio using manual extraction (bypasses batch mode restrictions)
+		audioPath, err := alacService.ManualExtractALAC(media.FilePath, mediaID)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to extract ALAC audio", "details": err.Error()})
 			return
@@ -172,10 +172,67 @@ func GetSupportedAudioFormats(alacService *services.ALACAudioService) gin.Handle
 				"spatial_audio": true,
 				"hi_res_audio": alacSupported,
 				"dolby_atmos_simulation": true,
-				"max_sample_rate": "192kHz",
-				"max_bit_depth": "32-bit",
-				"max_channels": 12,
+				"max_sample_rate": "48kHz", // Optimized for size
+				"max_bit_depth": "16-bit",  // Optimized for size
+				"max_channels": 8,
+				"size_optimization": true,
+				"max_file_size": "1GB",
 			},
+		})
+	}
+}
+
+// CleanupOversizedAudioFiles removes audio files that exceed size limits
+func CleanupOversizedAudioFiles(alacService *services.ALACAudioService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		err := alacService.CleanupOversizedFiles()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error": "Failed to cleanup oversized files",
+				"details": err.Error(),
+			})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"message": "Oversized audio files cleanup completed",
+			"status": "success",
+		})
+	}
+}
+
+// GetAudioFileInfo returns information about an audio file including size
+func GetAudioFileInfo(alacService *services.ALACAudioService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		idStr := c.Param("id")
+		mediaID, err := strconv.Atoi(idStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid media ID"})
+			return
+		}
+
+		audioPath := alacService.GetAudioPath(mediaID)
+		if audioPath == "" {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Audio file not found"})
+			return
+		}
+
+		fileSize := alacService.GetAudioFileSize(mediaID)
+		metadata, err := alacService.AnalyzeAudioQuality(audioPath)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error": "Failed to analyze audio file",
+				"details": err.Error(),
+			})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"audio_path": audioPath,
+			"file_size_bytes": fileSize,
+			"file_size_mb": fileSize / (1024 * 1024),
+			"within_size_limit": fileSize <= 1024*1024*1024,
+			"metadata": metadata,
 		})
 	}
 }

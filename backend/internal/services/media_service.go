@@ -3,6 +3,7 @@ package services
 import (
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -147,21 +148,6 @@ func (s *MediaService) CreateMedia(media *models.Media) error {
 	})
 }
 
-func (s *MediaService) GetAllMedia() ([]models.Media, error) {
-	var media []models.Media
-	err := s.DBManager.WithReadOnly(func(db *gorm.DB) error {
-		return db.Preload("Genres").Preload("Series").Preload("Subtitles").
-			Order("created_at DESC").Find(&media).Error
-	})
-
-	// Add fallback thumbnail paths for media without thumbnails
-	for i := range media {
-		s.ensureThumbnailFallback(&media[i])
-	}
-
-	return media, err
-}
-
 func (s *MediaService) GetMediaByID(id uint) (*models.Media, error) {
 	var media models.Media
 	err := s.DBManager.WithReadOnly(func(db *gorm.DB) error {
@@ -192,6 +178,26 @@ func (s *MediaService) MediaExists(path string) (bool, error) {
 		return db.Model(&models.Media{}).Where("file_path = ?", path).Count(&count).Error
 	})
 	return count > 0, err
+}
+
+func (s *MediaService) GetAllMedia() ([]models.Media, error) {
+	var media []models.Media
+	err := s.DBManager.WithReadOnly(func(db *gorm.DB) error {
+		return db.Preload("Genres").Preload("Series").Preload("Subtitles").Find(&media).Error
+	})
+	
+	if err != nil {
+		return nil, err
+	}
+	
+	// Add fallback thumbnail paths for all media
+	for i := range media {
+		if err := s.EnsureThumbnailFallback(&media[i]); err != nil {
+			log.Printf("Warning: Failed to ensure thumbnail fallback for media %d: %v", media[i].ID, err)
+		}
+	}
+	
+	return media, nil
 }
 
 func (s *MediaService) GetMovies() ([]models.Media, error) {
@@ -245,21 +251,21 @@ func (s *MediaService) CreateSubtitle(subtitle *models.Subtitle) error {
 func (s *MediaService) SearchMedia(query string) ([]models.Media, error) {
 	var media []models.Media
 
+	if query == "" {
+		// Return all media if query is empty
+		return s.GetAllMedia()
+	}
+
 	// Enhanced search with multiple fields and better ranking (SQL injection safe)
 	searchPattern := "%" + query + "%"
-	titlePattern := query + "%"
-
-	// Build the query step by step to avoid parameter binding issues
-	dbQuery := s.db.Preload("Genres").Preload("Series").Preload("Subtitles")
-
-	// Add search conditions
-	dbQuery = dbQuery.Where("title ILIKE ? OR description ILIKE ? OR EXISTS (SELECT 1 FROM media_genres mg JOIN genres g ON mg.genre_id = g.id WHERE mg.media_id = media.id AND g.name ILIKE ?)", searchPattern, searchPattern, searchPattern)
-
-	// Add ordering with title preference
-	dbQuery = dbQuery.Order("CASE WHEN title ILIKE '" + titlePattern + "' THEN 1 WHEN description ILIKE '" + searchPattern + "' THEN 2 ELSE 3 END, view_count DESC, rating DESC")
 
 	err := s.DBManager.WithReadOnly(func(db *gorm.DB) error {
-		return dbQuery.Find(&media).Error
+		// Use LIKE instead of ILIKE for SQLite compatibility
+		return db.Preload("Genres").Preload("Series").Preload("Subtitles").
+			Where("title LIKE ? OR description LIKE ? OR EXISTS (SELECT 1 FROM media_genres mg JOIN genres g ON mg.genre_id = g.id WHERE mg.media_id = media.id AND g.name LIKE ?)", 
+				searchPattern, searchPattern, searchPattern).
+			Order("view_count DESC, rating DESC").
+			Find(&media).Error
 	})
 
 	// Add fallback thumbnail paths for search results
@@ -690,6 +696,35 @@ func (s *MediaService) UpdateGenre(id uint, name, description string) (*models.G
 
 func (s *MediaService) DeleteGenre(id uint) error {
 	return s.db.Delete(&models.Genre{}, id).Error
+}
+
+// DeleteMedia removes a media entry from the database
+func (s *MediaService) DeleteMedia(id uint) error {
+	return s.DBManager.WithTx(func(tx *gorm.DB) error {
+		// First, remove all related associations
+		if err := tx.Exec("DELETE FROM media_genres WHERE media_id = ?", id).Error; err != nil {
+			return fmt.Errorf("failed to delete media-genre associations: %w", err)
+		}
+		
+		// Delete subtitles associated with this media
+		if err := tx.Where("media_id = ?", id).Delete(&models.Subtitle{}).Error; err != nil {
+			return fmt.Errorf("failed to delete subtitles: %w", err)
+		}
+		
+		// Delete playback progress records
+		if err := tx.Exec("DELETE FROM playback_progress WHERE media_id = ?", id).Error; err != nil {
+			// Log but don't fail if playback_progress table doesn't exist
+			log.Printf("Warning: Could not delete playback progress for media %d: %v", id, err)
+		}
+		
+		// Delete the media entry itself
+		if err := tx.Delete(&models.Media{}, id).Error; err != nil {
+			return fmt.Errorf("failed to delete media: %w", err)
+		}
+		
+		log.Printf("Successfully deleted media with ID %d and all related data", id)
+		return nil
+	})
 }
 
 func (s *MediaService) GetGenreStats() (map[string]interface{}, error) {

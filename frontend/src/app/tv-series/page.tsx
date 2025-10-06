@@ -48,16 +48,76 @@ export default function TVSeries() {
       );
 
       // Get high-quality series for hero section
-      const highQualitySeries = allSeries
-        .filter((item: Media) => (item.rating || 0) >= 6.0)
-        .sort(() => Math.random() - 0.5)
-        .slice(0, 10);
+      // Try to get TV series recommendations from backend first
+      let highQualitySeries: Media[] = [];
+      try {
+        const recommendationEndpoints = [
+          `${getApiUrl()}/api/recommendations/personalized?limit=20`,
+          `${getApiUrl()}/api/recommendations/mixed?limit=20`,
+          `${getApiUrl()}/api/recommendations/trending?limit=20`,
+          `${getApiUrl()}/api/recommendations/recent?limit=20`
+        ];
+
+        for (const endpoint of recommendationEndpoints) {
+          try {
+            const recommendationResponse = await fetch(endpoint);
+            if (recommendationResponse.ok) {
+              const recommendedData = await recommendationResponse.json();
+              if (recommendedData && Array.isArray(recommendedData) && recommendedData.length > 0) {
+                // Filter for TV series/episodes only
+                const tvContent = recommendedData.filter((item: Media) => 
+                  item.type === 'episode' || 
+                  item.type === 'tv' || 
+                  item.type === 'series' ||
+                  item.title.toLowerCase().includes('series') ||
+                  item.title.toLowerCase().includes('episode') ||
+                  item.title.toLowerCase().includes('season')
+                );
+                
+                if (tvContent.length >= 5) {
+                  highQualitySeries = tvContent;
+                  console.log(`✅ Using backend recommendations for TV series from ${endpoint}`);
+                  break;
+                }
+              }
+            }
+          } catch (error) {
+            console.warn(`❌ Failed to fetch TV recommendations from ${endpoint}:`, error);
+            continue;
+          }
+        }
+      } catch (error) {
+        console.warn('⚠️ Backend recommendations failed for TV series, using fallback');
+      }
+
+      // Fallback to TV shows endpoint if recommendations don't have enough TV content
+      if (highQualitySeries.length < 5) {
+        try {
+          const tvShowsResponse = await fetch(`${getApiUrl()}/api/media/tv-shows?limit=20`);
+          if (tvShowsResponse.ok) {
+            const tvShowsData = await tvShowsResponse.json();
+            if (tvShowsData && Array.isArray(tvShowsData) && tvShowsData.length > 0) {
+              highQualitySeries = tvShowsData;
+              console.log('✅ Using TV shows endpoint for hero section');
+            }
+          }
+        } catch (error) {
+          console.warn('❌ TV shows endpoint failed:', error);
+        }
+      }
+
+      // Final fallback to filtered allSeries
+      if (highQualitySeries.length === 0) {
+        highQualitySeries = allSeries
+          .filter((item: Media) => (item.rating || 0) >= 6.0)
+          .slice(0, 10);
+      }
 
       const featuredSelection = highQualitySeries
         .sort((a: Media, b: Media) => (b.rating || 0) - (a.rating || 0))
-        .slice(0, 5);
+        .slice(0, 8);
 
-      setFeaturedSeries(featuredSelection.length > 0 ? featuredSelection : allSeries.slice(0, 5));
+      setFeaturedSeries(featuredSelection.length > 0 ? featuredSelection : allSeries.slice(0, 8));
       
       // Popular series (most viewed)
       const popularSeriesData = allSeries
@@ -116,6 +176,7 @@ export default function TVSeries() {
           onInfo={handleInfo}
           enableRecommendations={true}
           refreshInterval={300000}
+          contentFilter="tv-series"
         />
       )}
 

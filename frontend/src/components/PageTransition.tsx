@@ -32,7 +32,7 @@ const PageTransition: React.FC<PageTransitionProps> = ({
               exit={{ scale: 0.8, opacity: 0 }}
               transition={{ duration: 0.3, delay: 0.1 }}
             >
-              <RedLoader size="large" showText text={text} />
+              <RedLoader size="large" />
             </motion.div>
           </motion.div>
         )}

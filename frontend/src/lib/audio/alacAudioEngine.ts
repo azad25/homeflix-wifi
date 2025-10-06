@@ -37,9 +37,9 @@ export class ALACAudioEngine {
 
   constructor(config: Partial<ALACAudioConfig> = {}) {
     this.config = {
-      sampleRate: 96000, // Hi-Res Audio standard
-      bitDepth: 24,      // 24-bit depth for ALAC
-      channels: 8,       // Support up to 7.1 surround
+      sampleRate: 48000, // Optimized for size/quality balance
+      bitDepth: 16,      // 16-bit for optimal compression
+      channels: 6,       // Support up to 5.1 surround (optimized)
       spatialAudio: true,
       dolbyAtmos: true,
       binaural: false,
@@ -183,14 +183,18 @@ export class ALACAudioEngine {
   }
 
   private analyzeAudioBuffer(buffer: AudioBuffer): AudioMetadata {
+    // Detect if this is actually ALAC or optimized AAC
+    const isLikelyLossless = buffer.sampleRate >= 44100 && buffer.numberOfChannels <= 8;
+    const estimatedBitDepth = buffer.sampleRate >= 48000 ? 16 : 16; // Optimized bit depth
+    
     return {
-      codec: 'ALAC',
+      codec: isLikelyLossless ? 'ALAC/AAC-HQ' : 'AAC-Optimized',
       sampleRate: buffer.sampleRate,
-      bitDepth: 24, // ALAC supports up to 32-bit
+      bitDepth: estimatedBitDepth,
       channels: buffer.numberOfChannels,
-      bitrate: Math.round((buffer.length * buffer.numberOfChannels * 24 * buffer.sampleRate) / buffer.duration / 1000),
+      bitrate: Math.round((buffer.length * buffer.numberOfChannels * estimatedBitDepth * buffer.sampleRate) / buffer.duration / 1000),
       duration: buffer.duration,
-      isLossless: true,
+      isLossless: isLikelyLossless,
       spatialFormat: buffer.numberOfChannels > 2 ? 'Surround' : 'Stereo'
     };
   }

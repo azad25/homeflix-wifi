@@ -3,6 +3,7 @@ package services
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -11,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"homeflix-backend/internal/interfaces"
 )
 
 type TMDBService struct {
@@ -55,6 +58,9 @@ type TMDBMovieDetails struct {
 	IMDBID              string          `json:"imdb_id"`
 	Homepage            string          `json:"homepage"`
 	BelongsToCollection *TMDBCollection `json:"belongs_to_collection"`
+	// Additional fields for enhanced metadata
+	Certification       string          `json:"certification,omitempty"`
+	Awards              []string        `json:"awards,omitempty"`
 }
 
 type TMDBCollection struct {
@@ -208,31 +214,46 @@ func (t *TMDBService) GetMovieDetails(movieID int) (*TMDBMovieDetails, error) {
 	return &details, nil
 }
 
-func (t *TMDBService) GenerateMediaMetadata(filePath, title string) (*MediaMetadata, error) {
-	// Extract year from title if present
-	year := t.extractYear(title)
-	cleanTitle := t.cleanTitle(title)
+func (t *TMDBService) GenerateMediaMetadata(filePath, title string) (*interfaces.MediaMetadata, error) {
+	// Check if we received a bad title with "Unknown Movie" prefix
+	// If so, use the original filename instead
+	originalTitle := title
+	if strings.HasPrefix(title, "Unknown Movie") {
+		log.Printf("⚠️ Detected bad title with 'Unknown Movie' prefix, using filename instead")
+		originalTitle = filepath.Base(filePath)
+	}
 	
-	// Remove year from the clean title for better search results
+	// Extract year from title if present
+	year := t.extractYear(originalTitle)
+	cleanTitle := t.cleanTitle(originalTitle)
+	
+	// For TMDB search, always remove year from title for better matching
 	// The year will be used as a separate search parameter
-	cleanTitleWithoutYear := t.removeYearFromTitle(cleanTitle)
+	cleanTitleForSearch := t.removeYearFromTitle(cleanTitle)
+
+	log.Printf("🔍 TMDB Search - Original: '%s', Clean: '%s', Search: '%s', Year: %d", 
+		originalTitle, cleanTitle, cleanTitleForSearch, year)
 
 	// Try multiple search strategies
 	var movie *TMDBMovie
 	var err error
 
 	// Strategy 1: Search with clean title (without year) and year parameter
-	movie, err = t.SearchMovie(cleanTitleWithoutYear, year)
+	movie, err = t.SearchMovie(cleanTitleForSearch, year)
 	if err != nil {
-		// Strategy 2: Try with the original clean title (may include year)
-		movie, err = t.SearchMovie(cleanTitle, year)
+		// Strategy 2: Try without year parameter (broader search)
+		movie, err = t.SearchMovie(cleanTitleForSearch, 0)
 		if err != nil {
 			// Strategy 3: Try simple title extraction as last resort
 			simpleTitle := t.simpleCleanTitle(title)
-			simpleTitleWithoutYear := t.removeYearFromTitle(simpleTitle)
-			movie, err = t.SearchMovie(simpleTitleWithoutYear, year)
+			simpleTitleForSearch := t.removeYearFromTitle(simpleTitle)
+			movie, err = t.SearchMovie(simpleTitleForSearch, year)
 			if err != nil {
-				return nil, fmt.Errorf("failed to find movie metadata for '%s': %w", title, err)
+				// Strategy 4: Final fallback - try simple title without year
+				movie, err = t.SearchMovie(simpleTitleForSearch, 0)
+				if err != nil {
+					return nil, fmt.Errorf("failed to find movie metadata for '%s': %w", title, err)
+				}
 			}
 		}
 	}
@@ -322,8 +343,23 @@ func (t *TMDBService) GenerateMediaMetadata(filePath, title string) (*MediaMetad
 		collection = details.BelongsToCollection.Name
 	}
 
-	metadata := &MediaMetadata{
-		Title:       details.Title,
+	// Format budget for display
+	budgetFormatted := ""
+	if details.Budget > 0 {
+		budgetFormatted = t.formatCurrency(details.Budget)
+	}
+
+	// Detect quality from filename
+	quality := t.detectQuality(filePath)
+
+	// Create final title with year if not already present
+	finalTitle := details.Title
+	if year > 0 && !strings.Contains(finalTitle, strconv.Itoa(year)) {
+		finalTitle = fmt.Sprintf("%s (%d)", finalTitle, year)
+	}
+
+	metadata := &interfaces.MediaMetadata{
+		Title:       finalTitle,
 		Tagline:     details.Tagline,
 		ShortDesc:   t.truncateText(details.Overview, 150),
 		LongDesc:    details.Overview,
@@ -333,7 +369,7 @@ func (t *TMDBService) GenerateMediaMetadata(filePath, title string) (*MediaMetad
 		Directors:   directors,
 		Country:     country,
 		Language:    language,
-		Quality:     "HD", // Default quality
+		Quality:     quality,
 		Rating:      details.VoteAverage,
 		Genres:      genres,
 		PosterURL:   posterURL,
@@ -351,14 +387,48 @@ func (t *TMDBService) GenerateMediaMetadata(filePath, title string) (*MediaMetad
 		Crew:       crew,
 		Writers:    writers,
 		Producers:  producers,
+		// Additional fields
+		Popularity: details.Popularity,
+		VoteCount:  details.VoteCount,
+		Adult:      details.Adult,
 	}
+
+	// Log enhanced metadata for debugging
+	log.Printf("TMDB metadata for %s: Budget=%s, Revenue=%s, Rating=%.1f, Runtime=%dm", 
+		details.Title, budgetFormatted, boxOffice, details.VoteAverage, details.Runtime)
 
 	return metadata, nil
 }
 
 // CleanTitle is a public method that exposes the title cleaning functionality
 func (t *TMDBService) CleanTitle(title string) string {
-	return t.cleanTitle(title)
+	cleaned := t.cleanTitle(title)
+	
+	// Safety check - never return empty title
+	if cleaned == "" || len(strings.TrimSpace(cleaned)) == 0 {
+		// Fallback to simple cleaning
+		fallback := t.simpleCleanTitle(title)
+		if fallback != "" && len(strings.TrimSpace(fallback)) > 0 {
+			return fallback
+		}
+		
+		// Last resort - return original with basic cleanup
+		basic := strings.TrimSuffix(filepath.Base(title), filepath.Ext(filepath.Base(title)))
+		basic = strings.ReplaceAll(basic, ".", " ")
+		basic = strings.ReplaceAll(basic, "_", " ")
+		basic = strings.ReplaceAll(basic, "-", " ")
+		basic = regexp.MustCompile(`\s+`).ReplaceAllString(basic, " ")
+		basic = strings.TrimSpace(basic)
+		
+		if basic != "" {
+			return basic
+		}
+		
+		// Absolute fallback
+		return "Unknown Title"
+	}
+	
+	return cleaned
 }
 
 // RemoveYearFromTitle is a public method that removes year from title for cleaner searches
@@ -395,6 +465,8 @@ func (t *TMDBService) cleanTitle(title string) string {
 	ext := filepath.Ext(baseName)
 	baseName = strings.TrimSuffix(baseName, ext)
 
+	log.Printf("🔍 TMDB Title cleaning input: '%s'", baseName)
+
 	// Step 1: Extract year FIRST before any other processing
 	originalBaseName := baseName
 	yearPattern := regexp.MustCompile("\\b(19|20)\\d{2}\\b")
@@ -403,6 +475,7 @@ func (t *TMDBService) cleanTitle(title string) string {
 	if len(yearMatches) > 0 {
 		// Use the last year found (usually the release year)
 		extractedYear = yearMatches[len(yearMatches)-1]
+		log.Printf("🗓️ Extracted year: %s", extractedYear)
 	}
 
 	// Step 2: Replace common separators with spaces
@@ -410,24 +483,26 @@ func (t *TMDBService) cleanTitle(title string) string {
 	baseName = strings.ReplaceAll(baseName, "_", " ")
 	baseName = strings.ReplaceAll(baseName, "-", " ")
 
-	// Step 3: Extract the main title before quality indicators (excluding years from the cut pattern)
-	titleEndPattern := regexp.MustCompile("(?i)\\s*(\\b(1080p|2160p|720p|480p|4K|8K|UHD|FHD|HD|BluRay|BRRip|BDRip|DVDRip|WEBRip|WEB|HDTV|HDRip|x264|x265|h264|h265|HEVC|AVC|XviD|10bit|8bit|HDR|AAC|AC3|DTS|5\\.1|7\\.1|YIFY|YTS|RARBG|PSA|ETRG)\\b)")
+	// Step 3: Find the main title by looking for the first quality/technical indicator
+	// This is the key improvement - we stop at the FIRST technical indicator
+	titleEndPattern := regexp.MustCompile("(?i)\\s+(\\b(1080p|2160p|720p|480p|4K|8K|UHD|FHD|HD|BluRay|BRRip|BDRip|DVDRip|WEBRip|WEB.DL|WEB|HDTV|HDRip|x264|x265|h264|h265|HEVC|AVC|XviD|10bit|8bit|HDR|AAC|AC3|DTS|5\\.1|7\\.1|YIFY|YTS|RARBG|PSA|ETRG|Hasan)\\b)")
 	
 	// Find where the title likely ends
 	titleEndIndex := titleEndPattern.FindStringIndex(baseName)
 	if titleEndIndex != nil {
 		// Extract everything before the quality indicators
 		baseName = baseName[:titleEndIndex[0]]
+		log.Printf("🎯 Title cut at quality indicator: '%s'", baseName)
 	}
 
-	// Step 3: Remove anything in brackets or parentheses that might remain
+	// Step 4: Remove anything in brackets or parentheses that might remain
 	bracketsPattern := regexp.MustCompile("[\\[\\{\\(][^\\]\\}\\)]*[\\]\\}\\)]*")
 	baseName = bracketsPattern.ReplaceAllString(baseName, " ")
 
-	// Step 4: Remove any remaining quality indicators that might have slipped through
+	// Step 5: Remove any remaining quality indicators and video codecs
 	qualityPattern := regexp.MustCompile("(?i)\\b(" +
 		"1080p|2160p|720p|480p|360p|4K|8K|UHD|FHD|HD|SD|" +
-		"BluRay|BRRip|BDRip|DVDRip|WEBRip|WEB|HDTV|HDRip|BrRip|" +
+		"BluRay|BRRip|BDRip|DVDRip|WEBRip|WEB.DL|WEB|HDTV|HDRip|BrRip|" +
 		"x264|x265|h264|h265|HEVC|AVC|XviD|" +
 		"10bit|8bit|HDR|HDR10|DV|DoVi|" +
 		"AAC|AC3|DTS|DDP|DD|EAC3|FLAC|MP3|Atmos|TrueHD|" +
@@ -438,23 +513,20 @@ func (t *TMDBService) cleanTitle(title string) string {
 		"MULTI|DUAL|VOSTFR|TRUEFRENCH|" +
 		"COMPLETE|FULL|" +
 		"ESub|ESubs|Subs?|Subtitle|Subtitles|" +
-		"DVD|CD\\d|DISC\\d" +
+		"DVD|CD\\d|DISC\\d|Hasan" +
 		")\\b")
 	baseName = qualityPattern.ReplaceAllString(baseName, " ")
 
-	// Step 5: Remove release groups (specific known groups only)
+	// Step 6: Remove release groups (specific known groups only)
 	releaseGroupPattern := regexp.MustCompile("(?i)\\b(" +
 		"YIFY|YTS|RARBG|PSA|ETRG|AMZN|NF|NETFLIX|ATVP|DSNP|" +
 		"HMAX|HBO|HULU|DISNEY|APPLE|PARAMOUNT|" +
 		"SPARKS|GECKOS|ROVERS|GALAXY|ORBS|CMRG|ETHiCS|" +
 		"DEFLATE|STUTTERSHIT|VETO|BLOW|SCENE|FGT|" +
 		"EVOLVE|KILLERS|DEMAND|FLEET|ION10|ION|" +
-		"RARBG|ETRG|YIFY|YTS|MX" +
+		"MX|Hasan" +
 		")\\b")
 	baseName = releaseGroupPattern.ReplaceAllString(baseName, " ")
-
-	// Step 6: Keep years in the title for now (they'll be removed separately for TMDB search)
-	// This preserves the original title structure while still extracting year for search parameter
 
 	// Step 7: Remove episode/season patterns
 	episodePattern := regexp.MustCompile("(?i)\\b(S\\d{1,2}E\\d{1,2}|Season\\s?\\d{1,2}|Episode\\s?\\d{1,2})\\b")
@@ -480,8 +552,12 @@ func (t *TMDBService) cleanTitle(title string) string {
 	baseName = regexp.MustCompile("\\s+").ReplaceAllString(baseName, " ")
 	baseName = strings.TrimSpace(baseName)
 
+	log.Printf("🧹 After cleaning: '%s'", baseName)
+
 	// Step 13: If we're left with a very short string or empty, try a fallback approach
 	if len(baseName) <= 2 || baseName == "" {
+		log.Printf("⚠️ Title too short, trying fallback approach...")
+		
 		// Fallback: try to extract title from the original filename more conservatively
 		originalBase := filepath.Base(title)
 		originalBase = strings.TrimSuffix(originalBase, filepath.Ext(originalBase))
@@ -496,29 +572,32 @@ func (t *TMDBService) cleanTitle(title string) string {
 			baseName = strings.ReplaceAll(baseName, "-", " ")
 			baseName = regexp.MustCompile("\\s+").ReplaceAllString(baseName, " ")
 			baseName = strings.TrimSpace(baseName)
+			log.Printf("🔄 Fallback 1 result: '%s'", baseName)
 		} else {
 			// Last resort: use first few words before any numbers/quality indicators
 			words := strings.Fields(strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(originalBase, ".", " "), "_", " "), "-", " "))
 			var titleWords []string
 			for _, word := range words {
-				// Stop at first quality indicator or year
-				if regexp.MustCompile("(?i)^(19|20)\\d{2}$|^(1080p|2160p|720p|4K|HD|BluRay|WEB|x264|x265)$").MatchString(word) {
+				// Stop at first quality indicator, year, or release group
+				if regexp.MustCompile("(?i)^(19|20)\\d{2}$|^(1080p|2160p|720p|4K|HD|BluRay|WEB|x264|x265|HEVC|Hasan)$").MatchString(word) {
 					break
 				}
 				titleWords = append(titleWords, word)
-				// Don't take more than 5 words for the title
-				if len(titleWords) >= 5 {
+				// Don't take more than 4 words for the title
+				if len(titleWords) >= 4 {
 					break
 				}
 			}
 			if len(titleWords) > 0 {
 				baseName = strings.Join(titleWords, " ")
+				log.Printf("🔄 Fallback 2 result: '%s'", baseName)
 			}
 		}
 	}
 
 	// Step 14: Final fallback - if still empty or too short, use basic filename cleanup
 	if len(baseName) <= 2 || baseName == "" {
+		log.Printf("🚨 Using ultimate fallback...")
 		// Ultimate fallback: just clean the basic filename
 		fallbackTitle := filepath.Base(title)
 		fallbackTitle = strings.TrimSuffix(fallbackTitle, filepath.Ext(fallbackTitle))
@@ -561,6 +640,7 @@ func (t *TMDBService) cleanTitle(title string) string {
 
 	// Final validation - check if the cleaned title makes sense
 	if !t.isValidTitle(baseName) {
+		log.Printf("⚠️ Title validation failed, trying simple clean...")
 		// Try a simpler approach
 		simpleTitle := t.simpleCleanTitle(title)
 		if t.isValidTitle(simpleTitle) && len(simpleTitle) > len(baseName) {
@@ -568,7 +648,7 @@ func (t *TMDBService) cleanTitle(title string) string {
 		}
 	}
 
-	// Final safety check - if we still have nothing, return the original filename
+	// Final safety check - if we still have nothing, return a basic cleaned version
 	if baseName == "" {
 		baseName = strings.TrimSuffix(filepath.Base(title), filepath.Ext(filepath.Base(title)))
 		baseName = strings.ReplaceAll(baseName, ".", " ")
@@ -578,6 +658,7 @@ func (t *TMDBService) cleanTitle(title string) string {
 		baseName = strings.TrimSpace(baseName)
 	}
 
+	log.Printf("✨ Final cleaned title: '%s'", baseName)
 	return baseName
 }
 
@@ -770,4 +851,54 @@ func (t *TMDBService) extractYear(title string) int {
 	}
 
 	return 0
+}
+
+// detectQuality detects video quality from filename and path
+func (t *TMDBService) detectQuality(filePath string) string {
+	filename := strings.ToLower(filepath.Base(filePath))
+	
+	// 4K/UHD detection
+	if regexp.MustCompile(`\b(2160p|4K|UHD|4096x2160|3840x2160)\b`).MatchString(filename) {
+		return "4K"
+	}
+	
+	// 1440p/QHD detection
+	if regexp.MustCompile(`\b(1440p|QHD|2560x1440)\b`).MatchString(filename) {
+		return "QHD"
+	}
+	
+	// 1080p/Full HD detection
+	if regexp.MustCompile(`\b(1080p|FHD|1920x1080)\b`).MatchString(filename) {
+		return "Full HD"
+	}
+	
+	// 720p/HD detection
+	if regexp.MustCompile(`\b(720p|HD|1280x720)\b`).MatchString(filename) {
+		return "HD"
+	}
+	
+	// 480p/SD detection
+	if regexp.MustCompile(`\b(480p|SD|854x480|640x480)\b`).MatchString(filename) {
+		return "SD"
+	}
+	
+	// 360p detection
+	if regexp.MustCompile(`\b(360p|640x360)\b`).MatchString(filename) {
+		return "360p"
+	}
+	
+	// Check for BluRay/high quality sources
+	if regexp.MustCompile(`\b(BluRay|BRRip|BDRip)\b`).MatchString(filename) {
+		// If BluRay but no specific resolution, assume HD
+		return "HD"
+	}
+	
+	// Check for WEB sources
+	if regexp.MustCompile(`\b(WEBRip|WEB.DL|WEB)\b`).MatchString(filename) {
+		// If WEB but no specific resolution, assume HD
+		return "HD"
+	}
+	
+	// Default fallback
+	return "HD"
 }

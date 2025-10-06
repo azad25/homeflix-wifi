@@ -41,9 +41,12 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		scannerHandlers := handlers.NewScannerHandlers(mediaScanner)
 		watcherHandler := NewWatcherHandler(watcherService)
 
-		// Streaming
+		// Streaming (with automatic ALAC integration)
 		api.GET("/stream/:id", handlers.StreamMedia(streamService, mediaService))
 		api.GET("/preview-clips/:id", handlers.StreamPreviewClip(streamService, mediaService))
+		
+		// Additional ALAC Audio endpoints (optional)
+		api.GET("/media/:id/alac-audio", handlers.StreamALACAudio(streamService, mediaService))
 
 		// Thumbnails and previews
 		api.GET("/thumbnails/:id", handlers.GetThumbnail(mediaService, thumbnailService))
@@ -72,6 +75,8 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		api.GET("/audio/alac/:id/metadata", handlers.GetALACAudioMetadata(alacService))
 		api.POST("/audio/alac/:id/spatial/:layout", handlers.ConvertToSpatialAudio(alacService, mediaService))
 		api.GET("/audio/formats", handlers.GetSupportedAudioFormats(alacService))
+		api.POST("/admin/alac/cleanup-oversized", handlers.CleanupOversizedAudioFiles(alacService))
+		api.GET("/audio/alac/:id/info", handlers.GetAudioFileInfo(alacService))
 
 		// Analytics and Playback
 		api.POST("/track-view/:id", handlers.TrackView(mediaService, playbackService))
@@ -82,6 +87,9 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		api.GET("/playback/continue", handlers.GetContinueWatching(playbackService))
 		api.GET("/playback/history", handlers.GetWatchHistory(playbackService))
 		api.GET("/playback/stats", handlers.GetWatchStats(playbackService))
+		
+		// Recommendation tracking
+		api.POST("/recommendations/track-click/:id", handlers.TrackRecommendationClick(recommendationService))
 
 		// My List
 		api.POST("/mylist/:id", handlers.AddToMyList(playbackService))
@@ -103,13 +111,20 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		api.POST("/admin/media/:id/update-with-tmdb", handlers.UpdateMediaWithTMDB(mediaService, tmdbService))
 		api.POST("/admin/generate-recommendations", handlers.GenerateRecommendations(geminiService))
 
-		// Netflix-style recommendation endpoints
-		api.GET("/recommendations/trending", handlers.GetTrendingRecommendations(mediaService))
-		api.GET("/recommendations/popular", handlers.GetPopularRecommendations(mediaService))
-		api.GET("/recommendations/recent", handlers.GetRecentRecommendations(mediaService))
-		api.GET("/recommendations/top-rated", handlers.GetHighRatedRecommendations(mediaService))
-		api.GET("/recommendations/genre", handlers.GetGenreRecommendations(mediaService))
-		api.GET("/recommendations/mixed", handlers.GetMixedRecommendations(mediaService))
+		// Personalized recommendation endpoints using RecommendationService for user ID 1
+		api.GET("/recommendations/trending", handlers.GetTrendingRecommendations(recommendationService))
+		api.GET("/recommendations/popular", handlers.GetPopularRecommendations(recommendationService))
+		api.GET("/recommendations/recent", handlers.GetRecentRecommendations(recommendationService))
+		api.GET("/recommendations/top-rated", handlers.GetHighRatedRecommendations(recommendationService))
+		api.GET("/recommendations/genre", handlers.GetGenreRecommendations(recommendationService))
+		api.GET("/recommendations/mixed", handlers.GetMixedRecommendations(recommendationService))
+		
+		// Advanced recommendation endpoints using RecommendationService
+		api.GET("/recommendations/personalized", handlers.GetPersonalizedRecommendations(recommendationService))
+		api.GET("/recommendations/smart-trending", handlers.GetSmartTrendingRecommendations(recommendationService))
+		api.GET("/recommendations/similar", handlers.GetSimilarRecommendations(recommendationService))
+		api.GET("/recommendations/continue-watching", handlers.GetContinueWatchingRecommendations(recommendationService))
+		api.POST("/admin/recommendations/refresh", handlers.RefreshAllRecommendations(recommendationService))
 
 		// Celery task management endpoints
 		// Remove celery task management endpoints
@@ -139,6 +154,12 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		api.POST("/admin/scan/full", scannerHandlers.StartFullScan)
 		api.POST("/admin/scan/incremental", scannerHandlers.StartIncrementalScan)
 		api.POST("/admin/scan/superfast", scannerHandlers.StartSuperfastScan)
+		api.POST("/admin/scan/sync", scannerHandlers.StartScanAndSync)
+		api.POST("/admin/scan/database-sync", scannerHandlers.StartDatabaseSync)
+		api.POST("/admin/scan/cleanup-invalid", scannerHandlers.StartCleanupInvalidEntries)
+		api.POST("/admin/scan/regenerate-assets", scannerHandlers.RegenerateAllAssets)
+		api.POST("/admin/scan/regenerate-previews", scannerHandlers.RegeneratePreviewClips)
+		api.POST("/admin/scan/regenerate-missing-previews", scannerHandlers.RegenerateMissingPreviewClips)
 		api.GET("/admin/scan/stats", scannerHandlers.GetScanStats)
 		api.PUT("/admin/scan/config", scannerHandlers.ConfigureScanner)
 		api.PUT("/admin/scan/workers/:workers", handlers.SetMaxWorkers(mediaScanner))

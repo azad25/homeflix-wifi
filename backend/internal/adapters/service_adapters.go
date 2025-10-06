@@ -115,6 +115,10 @@ func (a *MediaServiceAdapter) UpdateMedia(media *models.Media) error {
 	return a.service.UpdateMedia(media)
 }
 
+func (a *MediaServiceAdapter) DeleteMedia(id uint) error {
+	return a.service.DeleteMedia(id)
+}
+
 func (a *MediaServiceAdapter) FindOrCreateSeries(title string) (*models.Series, error) {
 	return a.service.FindOrCreateSeries(title)
 }
@@ -129,6 +133,14 @@ func (a *MediaServiceAdapter) AssignGenresToMedia(mediaID uint, genreIDs []uint)
 
 func (a *MediaServiceAdapter) CreateSubtitle(subtitle *models.Subtitle) error {
 	return a.service.CreateSubtitle(subtitle)
+}
+
+func (a *MediaServiceAdapter) GetAllMedia() ([]models.Media, error) {
+	return a.service.GetAllMedia()
+}
+
+func (a *MediaServiceAdapter) SearchMedia(query string) ([]models.Media, error) {
+	return a.service.SearchMedia(query)
 }
 
 // ThumbnailServiceAdapter adapts services.ThumbnailService to interfaces.ThumbnailServiceInterface
@@ -266,6 +278,26 @@ func NewALACAudioServiceAdapter(service *services.ALACAudioService) *ALACAudioSe
 
 func (a *ALACAudioServiceAdapter) ExtractALACAudio(path string, mediaID int) (string, error) {
 	return a.service.ExtractALACAudio(path, mediaID)
+}
+
+func (a *ALACAudioServiceAdapter) AutoExtractALACForMedia(videoPath string, mediaID int) {
+	a.service.AutoExtractALACForMedia(videoPath, mediaID)
+}
+
+func (a *ALACAudioServiceAdapter) ManualExtractALAC(videoPath string, mediaID int) (string, error) {
+	return a.service.ManualExtractALAC(videoPath, mediaID)
+}
+
+func (a *ALACAudioServiceAdapter) SetBatchMode(enabled bool) {
+	a.service.SetBatchMode(enabled)
+}
+
+func (a *ALACAudioServiceAdapter) GetAudioPath(mediaID int) string {
+	return a.service.GetAudioPath(mediaID)
+}
+
+func (a *ALACAudioServiceAdapter) CleanupOversizedFiles() error {
+	return a.service.CleanupOversizedFiles()
 }
 
 // RecommendationServiceAdapter adapts services.RecommendationService to interfaces.RecommendationServiceInterface

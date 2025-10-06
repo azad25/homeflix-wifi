@@ -62,6 +62,98 @@ func (h *ScannerHandlers) StartSuperfastScan(c *gin.Context) {
 	})
 }
 
+// StartScanAndSync starts a comprehensive scan and sync operation
+func (h *ScannerHandlers) StartScanAndSync(c *gin.Context) {
+	go func() {
+		if err := h.scanner.ScanAndSyncMediaLibrary(); err != nil {
+			// Log error but don't block response
+		}
+	}()
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Comprehensive scan and sync started",
+		"description": "This will sync all database entries with storage and regenerate assets",
+		"status":  "running",
+	})
+}
+
+// StartDatabaseSync starts database-storage synchronization
+func (h *ScannerHandlers) StartDatabaseSync(c *gin.Context) {
+	go func() {
+		if err := h.scanner.SyncDatabaseWithStorage(); err != nil {
+			// Log error but don't block response
+		}
+	}()
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Database-storage sync started",
+		"description": "This will validate all database entries against storage and remove non-existent files",
+		"status":  "running",
+	})
+}
+
+
+
+// StartCleanupInvalidEntries starts cleanup of invalid database entries
+func (h *ScannerHandlers) StartCleanupInvalidEntries(c *gin.Context) {
+	go func() {
+		if err := h.scanner.CleanupInvalidEntries(); err != nil {
+			// Log error but don't block response
+		}
+	}()
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Invalid entries cleanup started",
+		"description": "This will remove database entries for media files that no longer exist in storage",
+		"status":  "running",
+	})
+}
+
+// RegenerateAllAssets regenerates all thumbnails, previews, and posters
+func (h *ScannerHandlers) RegenerateAllAssets(c *gin.Context) {
+	go func() {
+		if err := h.scanner.RegenerateAllAssets(); err != nil {
+			// Log error but don't block response
+		}
+	}()
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Asset regeneration started",
+		"description": "This will regenerate thumbnails, previews, and posters for all media",
+		"status":  "running",
+	})
+}
+
+// RegeneratePreviewClips regenerates preview clips for all media
+func (h *ScannerHandlers) RegeneratePreviewClips(c *gin.Context) {
+	go func() {
+		if err := h.scanner.RegeneratePreviewClips(); err != nil {
+			// Log error but don't block response
+		}
+	}()
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Preview clip regeneration started",
+		"description": "This will regenerate preview clips for all media that need them",
+		"status":  "running",
+	})
+}
+
+// RegenerateMissingPreviewClips regenerates preview clips only for media that are completely missing them
+func (h *ScannerHandlers) RegenerateMissingPreviewClips(c *gin.Context) {
+	go func() {
+		if err := h.scanner.RegeneratePreviewClipsForMissingOnly(); err != nil {
+			// Log error but don't block response
+		}
+	}()
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Missing preview clip regeneration started",
+		"description": "This will generate preview clips only for media that are completely missing them",
+		"status":  "running",
+	})
+}
+
 // GetScanStats returns current scan statistics
 func (h *ScannerHandlers) GetScanStats(c *gin.Context) {
 	stats := h.scanner.GetScanStats()

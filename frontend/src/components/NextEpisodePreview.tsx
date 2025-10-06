@@ -87,9 +87,10 @@ const NextEpisodePreview: React.FC<NextEpisodePreviewProps> = ({
                   onError={(e) => {
                     const target = e.target as HTMLImageElement;
                     target.src = `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8252'}/api/thumbnails/${nextEpisode.id}`;
-                  }}
-                  onError={(e) => {
-                    e.currentTarget.style.display = 'none';
+                    // If thumbnail also fails, hide the image
+                    target.onerror = () => {
+                      target.style.display = 'none';
+                    };
                   }}
                 />
               </div>

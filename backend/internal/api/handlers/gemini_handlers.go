@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"homeflix-backend/internal/interfaces"
 	"homeflix-backend/internal/models"
 	"homeflix-backend/internal/services"
 )
@@ -31,7 +32,7 @@ func GenerateMediaMetadata(mediaService *services.MediaService, tmdbService *ser
 		metadata, err := tmdbService.GenerateMediaMetadata(media.FilePath, media.Title)
 		if err != nil {
 			// Fallback: return basic metadata from existing media data
-			fallbackMetadata := &services.MediaMetadata{
+			fallbackMetadata := &interfaces.MediaMetadata{
 				Title:       media.Title,
 				Tagline:     media.Tagline,
 				ShortDesc:   media.ShortDesc,
@@ -253,7 +254,7 @@ func UpdateMediaWithTMDB(mediaService *services.MediaService, tmdbService *servi
 }
 
 // createFallbackMetadata creates metadata from filename when TMDB fails
-func createFallbackMetadata(filePath, currentTitle string) *services.MediaMetadata {
+func createFallbackMetadata(filePath, currentTitle string) *interfaces.MediaMetadata {
 	filename := filepath.Base(filePath)
 	
 	// Remove file extension
@@ -273,7 +274,7 @@ func createFallbackMetadata(filePath, currentTitle string) *services.MediaMetada
 	// Generate basic description
 	description := generateBasicDescription(title, year)
 	
-	return &services.MediaMetadata{
+	return &interfaces.MediaMetadata{
 		Title:       title,
 		Tagline:     "",
 		ShortDesc:   description,

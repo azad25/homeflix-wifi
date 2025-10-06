@@ -22,6 +22,26 @@ export interface Media {
   // Cast and crew
   stars?: string[];
   director?: string[];
+  cast?: string[];
+  writers?: string[];
+  producers?: string[];
+  
+  // Box office and financial data
+  budget?: number;
+  revenue?: number;
+  box_office?: string;
+  
+  // Additional metadata
+  status?: string;
+  imdb_id?: string;
+  homepage?: string;
+  collection?: string;
+  awards?: string[];
+  certification?: string;
+  runtime?: number;
+  popularity?: number;
+  vote_count?: number;
+  adult?: boolean;
   
   // Genres
   genres?: Genre[];

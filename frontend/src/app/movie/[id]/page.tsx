@@ -34,8 +34,6 @@ export default function MoviePage() {
   const params = useParams();
   const router = useRouter();
   const [media, setMedia] = useState<Media | null>(null);
-  const [similarMedia, setSimilarMedia] = useState<Media[]>([]);
-  const [allMedia, setAllMedia] = useState<Media[]>([]);
   const [isPlayerOpen, setIsPlayerOpen] = useState(false);
   const [isInMyList, setIsInMyList] = useState(false);
   const [playbackProgress, setPlaybackProgress] = useState(0);
@@ -55,7 +53,6 @@ export default function MoviePage() {
   useEffect(() => {
     if (params.id) {
       fetchMedia();
-      fetchSimilarMedia();
       checkMyList();
       loadPlaybackProgress();
     }
@@ -142,28 +139,7 @@ export default function MoviePage() {
     }
   };
 
-  const fetchSimilarMedia = async () => {
-    try {
-      const response = await fetch(`${getApiUrl()}/api/media`);
-      if (response.ok) {
-        const data = await response.json();
-        setAllMedia(data);
 
-        if (media) {
-          // Use smart similarity matching
-          const similar = findSimilarMovies(media.title, data, 8);
-          setSimilarMedia(similar);
-        } else {
-          // Fallback to random selection
-          const filtered = data.filter((item: Media) => item.id !== parseInt(params.id as string));
-          const shuffled = filtered.sort(() => 0.5 - Math.random());
-          setSimilarMedia(shuffled.slice(0, 6));
-        }
-      }
-    } catch (error) {
-      console.error('Error fetching similar media:', error);
-    }
-  };
 
   const checkMyList = async () => {
     if (params.id) {
@@ -317,30 +293,23 @@ export default function MoviePage() {
 
   if (loading) {
     return (
-      <GradientBackground variant="cosmic" animate={true}>
-        <div className="min-h-screen flex items-center justify-center">
-          <FloatingElement>
-            <RedLoader size="large" showText text="Loading movie details..." />
-          </FloatingElement>
-        </div>
-      </GradientBackground>
+      <div className="min-h-screen bg-black flex items-center justify-center">
+      </div>
     );
   }
 
   if (!media) {
     return (
-      <GradientBackground variant="cosmic" animate={true}>
-        <div className="min-h-screen flex flex-col items-center justify-center text-center p-6">
-          <h1 className="text-4xl font-bold text-white mb-4">Media Not Found</h1>
-          <p className="text-xl text-white/80 mb-8">The requested media could not be found.</p>
-          <MagneticButton
-            onClick={() => router.back()}
-            className="bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-lg"
-          >
-            Go Back
-          </MagneticButton>
-        </div>
-      </GradientBackground>
+      <div className="min-h-screen bg-black flex flex-col items-center justify-center text-center p-6">
+        <h1 className="text-4xl font-bold text-white mb-4">Media Not Found</h1>
+        <p className="text-xl text-white/80 mb-8">The requested media could not be found.</p>
+        <button
+          onClick={() => router.back()}
+          className="bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-lg transition-colors"
+        >
+          Go Back
+        </button>
+      </div>
     );
   }
 
@@ -726,13 +695,19 @@ export default function MoviePage() {
                         {media.director && (
                           <div className="flex">
                             <span className="w-32 text-white/60">Director</span>
-                            <span className="text-white">{media.director}</span>
+                            <span className="text-white">{Array.isArray(media.director) ? media.director.join(', ') : media.director}</span>
                           </div>
                         )}
-                        {media.description && (
+                        {media.writers && media.writers.length > 0 && (
                           <div className="flex">
-                            <span className="w-32 text-white/60">Studio</span>
-                            <span className="text-white">HomeFlix Studios</span>
+                            <span className="w-32 text-white/60">Writers</span>
+                            <span className="text-white">{media.writers.join(', ')}</span>
+                          </div>
+                        )}
+                        {media.producers && media.producers.length > 0 && (
+                          <div className="flex">
+                            <span className="w-32 text-white/60">Producers</span>
+                            <span className="text-white">{media.producers.join(', ')}</span>
                           </div>
                         )}
                         {media.release_date && (
@@ -753,9 +728,173 @@ export default function MoviePage() {
                             <span className="text-white">{media.language}</span>
                           </div>
                         )}
+                        {media.status && (
+                          <div className="flex">
+                            <span className="w-32 text-white/60">Status</span>
+                            <span className="text-white">{media.status}</span>
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>
+
+                  {/* Box Office & Financial Information */}
+                  {(media.box_office || media.budget || media.revenue) && (
+                    <div className="mt-8">
+                      <div className="flex items-center gap-2 mb-4">
+                        <Award className="w-5 h-5 text-green-500" />
+                        <h3 className="text-lg font-semibold text-white">Box Office & Financial</h3>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        {media.box_office && (
+                          <div className="bg-gradient-to-r from-green-500/10 to-green-600/10 p-4 rounded-lg border border-green-500/20">
+                            <div className="text-green-400 text-sm font-medium mb-1">Box Office</div>
+                            <div className="text-white text-xl font-bold">{media.box_office}</div>
+                          </div>
+                        )}
+                        {media.budget && media.budget > 0 && (
+                          <div className="bg-gradient-to-r from-blue-500/10 to-blue-600/10 p-4 rounded-lg border border-blue-500/20">
+                            <div className="text-blue-400 text-sm font-medium mb-1">Budget</div>
+                            <div className="text-white text-xl font-bold">
+                              {media.budget >= 1000000000
+                                ? `$${(media.budget / 1000000000).toFixed(1)}B`
+                                : media.budget >= 1000000
+                                  ? `$${(media.budget / 1000000).toFixed(1)}M`
+                                  : `$${media.budget.toLocaleString()}`
+                              }
+                            </div>
+                          </div>
+                        )}
+                        {media.revenue && media.revenue > 0 && (
+                          <div className="bg-gradient-to-r from-purple-500/10 to-purple-600/10 p-4 rounded-lg border border-purple-500/20">
+                            <div className="text-purple-400 text-sm font-medium mb-1">Revenue</div>
+                            <div className="text-white text-xl font-bold">
+                              {media.revenue >= 1000000000
+                                ? `$${(media.revenue / 1000000000).toFixed(1)}B`
+                                : media.revenue >= 1000000
+                                  ? `$${(media.revenue / 1000000).toFixed(1)}M`
+                                  : `$${media.revenue.toLocaleString()}`
+                              }
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                      {/* Profit calculation if both budget and revenue are available */}
+                      {media.budget && media.revenue && media.budget > 0 && media.revenue > 0 && (
+                        <div className="mt-4">
+                          <div className="bg-gradient-to-r from-yellow-500/10 to-yellow-600/10 p-4 rounded-lg border border-yellow-500/20">
+                            <div className="text-yellow-400 text-sm font-medium mb-1">Profit</div>
+                            <div className="text-white text-xl font-bold">
+                              {(() => {
+                                const profit = media.revenue - media.budget;
+                                const isProfit = profit > 0;
+                                return (
+                                  <span className={isProfit ? 'text-green-400' : 'text-red-400'}>
+                                    {isProfit ? '+' : ''}
+                                    {profit >= 1000000000
+                                      ? `$${(profit / 1000000000).toFixed(1)}B`
+                                      : profit >= 1000000
+                                        ? `$${(profit / 1000000).toFixed(1)}M`
+                                        : `$${profit.toLocaleString()}`
+                                    }
+                                  </span>
+                                );
+                              })()}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Cast & Crew Section */}
+                  {(media.cast || media.stars) && (
+                    <div className="mt-8">
+                      <div className="flex items-center gap-2 mb-4">
+                        <Users className="w-5 h-5 text-blue-500" />
+                        <h3 className="text-lg font-semibold text-white">Cast & Crew</h3>
+                      </div>
+                      <div className="space-y-3">
+                        {media.stars && media.stars.length > 0 && (
+                          <div>
+                            <div className="text-white/60 text-sm font-medium mb-2">Main Cast</div>
+                            <div className="flex flex-wrap gap-2">
+                              {media.stars.map((star, index) => (
+                                <span key={index} className="bg-white/10 px-3 py-1 rounded-full text-sm text-white">
+                                  {star}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        {media.cast && media.cast.length > 0 && (
+                          <div>
+                            <div className="text-white/60 text-sm font-medium mb-2">Full Cast</div>
+                            <div className="text-white/80 text-sm leading-relaxed">
+                              {media.cast.slice(0, 10).join(', ')}
+                              {media.cast.length > 10 && '...'}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Additional Metadata */}
+                  {(media.imdb_id || media.homepage || media.collection) && (
+                    <div className="mt-8">
+                      <div className="flex items-center gap-2 mb-4">
+                        <Film className="w-5 h-5 text-red-500" />
+                        <h3 className="text-lg font-semibold text-white">Additional Information</h3>
+                      </div>
+                      <div className="space-y-2">
+                        {media.imdb_id && (
+                          <div className="flex">
+                            <span className="w-32 text-white/60">IMDB ID</span>
+                            <a
+                              href={`https://www.imdb.com/title/${media.imdb_id}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-yellow-400 hover:text-yellow-300 underline"
+                            >
+                              {media.imdb_id}
+                            </a>
+                          </div>
+                        )}
+                        {media.homepage && (
+                          <div className="flex">
+                            <span className="w-32 text-white/60">Official Site</span>
+                            <a
+                              href={media.homepage}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-blue-400 hover:text-blue-300 underline"
+                            >
+                              Visit Website
+                            </a>
+                          </div>
+                        )}
+                        {media.collection && (
+                          <div className="flex">
+                            <span className="w-32 text-white/60">Collection</span>
+                            <span className="text-white">{media.collection}</span>
+                          </div>
+                        )}
+                        {media.runtime && (
+                          <div className="flex">
+                            <span className="w-32 text-white/60">Runtime</span>
+                            <span className="text-white">{formatRuntime(media.runtime)}</span>
+                          </div>
+                        )}
+                        {media.vote_count && (
+                          <div className="flex">
+                            <span className="w-32 text-white/60">Votes</span>
+                            <span className="text-white">{media.vote_count.toLocaleString()}</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
 
                   {/* Additional Stats Section */}
                   <div className="mt-8">
@@ -909,27 +1048,19 @@ export default function MoviePage() {
       </div>
 
       {/* Recommendations */}
-      {similarMedia.length > 0 && (
-        <div className="py-16 bg-black">
-          <div className="container mx-auto px-6 md:px-12 lg:px-16">
-            <h2 className="text-2xl font-bold text-white mb-8">More Like This</h2>
-            <NetflixHorizontalRow
-              title=""
-              media={similarMedia.map(item => ({
-                ...item,
-                title: cleanMovieTitle(item.title)
-              }))}
-              onPlay={(m: Media) => {
-                setMedia(m);
-                setIsPlayerOpen(true);
-              }}
-              onInfo={(m: Media) => router.push(`/movie/${m.id}`)}
-              variant="portrait"
-              size="medium"
-            />
-          </div>
+      {/* Enhanced Recommendations Section */}
+      <div className="py-16 bg-black">
+        <div className="container mx-auto px-6 md:px-12 lg:px-16">
+          <RecommendationSection
+            currentMedia={media}
+            onPlay={(m: Media) => {
+              setMedia(m);
+              setIsPlayerOpen(true);
+            }}
+            onInfo={(m: Media) => router.push(`/movie/${m.id}`)}
+          />
         </div>
-      )}
+      </div>
 
       {/* Video Player Modal */}
       {media && (
@@ -949,7 +1080,6 @@ export default function MoviePage() {
         renderMediaContent(media)
       ) : (
         <div className="flex items-center justify-center h-screen">
-          <p className="text-white">Loading...</p>
         </div>
       )}
     </div>

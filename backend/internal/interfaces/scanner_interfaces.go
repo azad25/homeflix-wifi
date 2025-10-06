@@ -29,6 +29,20 @@ type MediaMetadata struct {
 	Revenue     int64    `json:"revenue"`
 	BoxOffice   string   `json:"box_office"`
 	Cast        []string `json:"cast"`
+	// Enhanced metadata fields
+	Status      string   `json:"status"`
+	IMDBID      string   `json:"imdb_id"`
+	Homepage    string   `json:"homepage"`
+	Collection  string   `json:"collection"`
+	Crew        []string `json:"crew"`
+	Writers     []string `json:"writers"`
+	Producers   []string `json:"producers"`
+	// Additional fields
+	Popularity  float64  `json:"popularity"`
+	VoteCount   int      `json:"vote_count"`
+	Adult       bool     `json:"adult"`
+	Awards      []string `json:"awards"`
+	Certification string `json:"certification"`
 }
 
 // JobStatus represents the status of a processing job
@@ -44,13 +58,16 @@ type JobStatus struct {
 // MediaServiceInterface defines the interface for media operations
 type MediaServiceInterface interface {
 	GetMediaByPath(path string) (*models.Media, error)
+	GetAllMedia() ([]models.Media, error)
 	MediaExists(path string) (bool, error)
 	CreateMedia(media *models.Media) error
 	UpdateMedia(media *models.Media) error
+	DeleteMedia(id uint) error
 	FindOrCreateSeries(title string) (*models.Series, error)
 	GetGenreIDsByNames(genreNames []string) ([]uint, error)
 	AssignGenresToMedia(mediaID uint, genreIDs []uint) error
 	CreateSubtitle(subtitle *models.Subtitle) error
+	SearchMedia(query string) ([]models.Media, error)
 }
 
 // ThumbnailServiceInterface defines the interface for thumbnail operations
@@ -90,6 +107,11 @@ type CeleryServiceInterface interface {
 // ALACAudioServiceInterface defines the interface for ALAC audio operations
 type ALACAudioServiceInterface interface {
 	ExtractALACAudio(path string, mediaID int) (string, error)
+	AutoExtractALACForMedia(videoPath string, mediaID int)
+	ManualExtractALAC(videoPath string, mediaID int) (string, error)
+	SetBatchMode(enabled bool)
+	GetAudioPath(mediaID int) string
+	CleanupOversizedFiles() error
 }
 
 // TMDBServiceInterface defines the interface for TMDB operations

@@ -79,7 +79,7 @@ const UltraFastVideo: React.FC<UltraFastVideoProps> = ({
         detectCapabilities();
     }, []);
 
-    // Get optimized stream URL with Netflix-level parameters
+    // Get ultra-optimized stream URL with maximum performance parameters
     const getOptimizedStreamUrl = useCallback((isPreview: boolean = false) => {
         const baseUrl = getApiUrl();
         const endpoint = isPreview ? 'preview-clips' : 'stream';
@@ -87,30 +87,69 @@ const UltraFastVideo: React.FC<UltraFastVideoProps> = ({
 
         const params = new URLSearchParams();
 
-        // Quality optimization based on device and network
+        // Enhanced quality optimization based on device, network, and local detection
+        const isLocalNetwork = window.location.hostname === 'localhost' || 
+                              window.location.hostname.startsWith('192.168.') ||
+                              window.location.hostname.startsWith('10.') ||
+                              window.location.hostname.startsWith('172.');
+
         if (quality === 'auto') {
-            if (deviceType === 'mobile' || networkSpeed === 'slow') {
-                params.set('quality', 'medium');
-            } else if (deviceType === 'mac' || deviceType === 'windows' || deviceType === 'linux') {
-                params.set('quality', 'high');
+            if (isLocalNetwork) {
+                // Ultra-high quality for local network
+                if (deviceType === 'mobile' || networkSpeed === 'slow') {
+                    params.set('quality', 'high');
+                } else {
+                    params.set('quality', '4k-ultra');
+                }
             } else {
-                params.set('quality', 'high');
+                if (deviceType === 'mobile' || networkSpeed === 'slow') {
+                    params.set('quality', 'medium');
+                } else if (deviceType === 'mac' || deviceType === 'windows' || deviceType === 'linux') {
+                    params.set('quality', 'high');
+                } else {
+                    params.set('quality', 'high');
+                }
             }
         } else {
             params.set('quality', quality);
         }
 
-        // Format optimization
+        // Enhanced format optimization
         if (deviceType === 'ios' || deviceType === 'mac') {
-            params.set('format', 'mp4'); // iOS prefers MP4
-        } else if (deviceType === 'chrome' || deviceType === 'firefox') {
-            params.set('format', 'webm'); // Modern browsers support WebM
+            params.set('format', 'mp4'); // iOS/macOS prefers MP4
+            params.set('hardware-accel', 'videotoolbox');
+        } else if (deviceType === 'android') {
+            params.set('format', 'mp4');
+            params.set('hardware-accel', 'mediacodec');
+        } else if (deviceType === 'windows') {
+            params.set('format', 'mp4');
+            params.set('hardware-accel', 'dxva');
+        } else if (deviceType === 'linux') {
+            params.set('format', 'webm'); // Linux often has better WebM support
+            params.set('hardware-accel', 'vaapi');
+        } else {
+            params.set('format', 'mp4'); // Default to MP4
         }
 
-        // Add performance hints
-        params.set('optimize', 'netflix-level');
-        params.set('buffer', 'aggressive');
-        params.set('latency', 'ultra-low');
+        // Ultra-enhanced performance hints
+        params.set('optimize', 'ultra-netflix-level');
+        params.set('buffer', 'ultra-aggressive');
+        params.set('latency', 'zero');
+        params.set('preload', 'instant');
+        
+        // Network and bandwidth hints
+        const connection = (navigator as any).connection;
+        if (connection) {
+            params.set('bandwidth-hint', (connection.downlink * 1024 * 1024).toString());
+            params.set('network-type', connection.effectiveType || 'unknown');
+        }
+        
+        // Screen and device hints
+        params.set('screen-resolution', `${window.screen.width}x${window.screen.height}`);
+        const memory = (navigator as any).deviceMemory;
+        if (memory) {
+            params.set('device-memory', memory.toString());
+        }
 
         if (params.toString()) {
             url += '?' + params.toString();
@@ -209,32 +248,51 @@ const UltraFastVideo: React.FC<UltraFastVideoProps> = ({
         };
     }, [deviceType, getOptimizedStreamUrl, onCanPlay, onError, onLoadStart, preload]);
 
-    // Intelligent source selection for maximum compatibility
+    // Ultra-intelligent source selection for maximum compatibility and speed
     const renderVideoSources = () => {
         const baseUrl = getOptimizedStreamUrl();
 
         return (
             <>
-                {/* Primary optimized source */}
+                {/* Ultra-high quality primary source */}
+                <source
+                    src={`${baseUrl}&quality=4k-ultra`}
+                    type="video/mp4; codecs=&quot;avc1.640028, mp4a.40.2&quot;"
+                />
+
+                {/* High quality primary source */}
                 <source
                     src={baseUrl}
                     type="video/mp4; codecs=&quot;avc1.42E01E, mp4a.40.2&quot;"
                 />
 
-                {/* WebM fallback for modern browsers */}
+                {/* WebM with VP9.2 for modern browsers */}
+                <source
+                    src={`${baseUrl}&format=webm&quality=high`}
+                    type="video/webm; codecs=&quot;vp9.2, opus&quot;"
+                />
+
+                {/* WebM fallback */}
                 <source
                     src={`${baseUrl}&format=webm`}
                     type="video/webm; codecs=&quot;vp9, opus&quot;"
                 />
 
-                {/* Additional fallbacks */}
+                {/* Medium quality fallback */}
                 <source
                     src={`${baseUrl}&quality=medium`}
+                    type="video/mp4; codecs=&quot;avc1.42E01E, mp4a.40.2&quot;"
+                />
+
+                {/* Low quality fallback */}
+                <source
+                    src={`${baseUrl}&quality=low`}
                     type="video/mp4"
                 />
 
+                {/* Emergency fallback */}
                 <source
-                    src={`${baseUrl}&quality=low`}
+                    src={`${baseUrl}&quality=low&format=mp4&fallback=true`}
                     type="video/mp4"
                 />
             </>
@@ -261,7 +319,7 @@ const UltraFastVideo: React.FC<UltraFastVideoProps> = ({
                 {renderVideoSources()}
 
                 {/* Fallback message */}
-                <div className="absolute inset-0 flex items-center justify-center bg-gray-900 text-white">
+                <div className="absolute inset-0 flex items-center justify-center bg-black text-white">
                     <div className="text-center">
                         <p className="mb-2">Video not supported</p>
                         <a
@@ -280,14 +338,13 @@ const UltraFastVideo: React.FC<UltraFastVideoProps> = ({
                 <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-50">
                     <div className="flex items-center space-x-2 text-white">
                         <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-red-600"></div>
-                        <span>Loading...</span>
                     </div>
                 </div>
             )}
 
             {/* Error indicator */}
             {hasError && (
-                <div className="absolute inset-0 flex items-center justify-center bg-red-900 bg-opacity-50">
+                <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-50">
                     <div className="text-center text-white">
                         <p className="mb-2">Failed to load video</p>
                         <button

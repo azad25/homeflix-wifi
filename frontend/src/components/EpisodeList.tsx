@@ -146,12 +146,13 @@ const EpisodeList: React.FC<EpisodeListProps> = ({
                       onError={(e) => {
                         const target = e.target as HTMLImageElement;
                         target.src = `${getApiUrl()}/api/thumbnails/${episode.id}`;
+                        // If thumbnail also fails, hide the image
+                        target.onerror = () => {
+                          target.style.display = 'none';
+                        };
                       }}
                       sizes="160px"
                       className="object-cover"
-                      onError={(e) => {
-                        e.currentTarget.style.display = 'none';
-                      }}
                     />
                     
                     {/* Play Button Overlay */}

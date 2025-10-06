@@ -47,10 +47,27 @@ export default function Home() {
       const allMedia = await apiCall(API_ENDPOINTS.media);
       
       // Get random high-quality movies and TV shows for hero section
-      const highQualityMedia = allMedia
-        .filter((item: Media) => (item.rating || 0) >= 6.0) // Only show content with decent ratings
-        .sort(() => Math.random() - 0.5) // Randomize the order
-        .slice(0, 10); // Get more items to choose from
+      // Try to get recommendations from backend first
+      let highQualityMedia: Media[] = [];
+      try {
+        const recommendationResponse = await fetch(`${getApiUrl()}/api/recommendations/mixed?limit=10`);
+        if (recommendationResponse.ok) {
+          const recommendedData = await recommendationResponse.json();
+          if (recommendedData && Array.isArray(recommendedData) && recommendedData.length > 0) {
+            highQualityMedia = recommendedData;
+            console.log('✅ Using backend recommendations for featured content');
+          }
+        }
+      } catch (error) {
+        console.warn('⚠️ Backend recommendations failed, using fallback');
+      }
+
+      // Fallback only if backend recommendations failed
+      if (highQualityMedia.length === 0) {
+        highQualityMedia = allMedia
+          .filter((item: Media) => (item.rating || 0) >= 6.0)
+          .slice(0, 10); // Don't shuffle - keep database order which might be intelligent
+      }
       
       // Mix movies and TV shows, prioritize higher rated content
       const featuredSelection = highQualityMedia

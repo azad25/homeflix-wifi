@@ -16,6 +16,7 @@ interface ScrollXHeroProps {
   onInfo: (media: Media) => void;
   refreshInterval?: number; // Optional refresh interval in milliseconds
   enableRecommendations?: boolean; // Enable recommendation-based updates
+  contentFilter?: 'movies-hd' | 'tv-series' | 'all'; // Content filtering for hero section
 }
 
 const ScrollXHero: React.FC<ScrollXHeroProps> = ({
@@ -24,6 +25,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
   onInfo,
   refreshInterval = 300000, // Default 5 minutes
   enableRecommendations = true,
+  contentFilter = 'all',
 }) => {
   const [featuredMedia, setFeaturedMedia] = useState<Media[]>(initialFeaturedMedia);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -119,110 +121,182 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
     }
   };
 
-  // Fetch recommended/trending media for hero slides
+  // Fetch recommended/trending media for hero slides - prioritize backend recommendations
   const fetchRecommendedMedia = async (cycleNumber: number = 0) => {
     setIsLoadingNewContent(true);
+    console.log(`🎬 Fetching recommendations from backend (cycle ${cycleNumber})...`);
+    
     try {
-      // Use the actual recommendation endpoints from the backend
-      const endpoints = [
-        `${getApiUrl()}/api/recommendations/trending?limit=10`,
-        `${getApiUrl()}/api/recommendations/popular?limit=10`,
-        `${getApiUrl()}/api/recommendations/recent?limit=10`,
-        `${getApiUrl()}/api/recommendations/top-rated?limit=10`,
-        `${getApiUrl()}/api/recommendations/mixed?limit=10`
+      // Primary recommendation endpoints from backend - these use intelligent algorithms
+      const recommendationEndpoints = [
+        `${getApiUrl()}/api/recommendations/personalized?limit=12`,
+        `${getApiUrl()}/api/recommendations/mixed?limit=12`,
+        `${getApiUrl()}/api/recommendations/trending?limit=12`,
+        `${getApiUrl()}/api/recommendations/popular?limit=12`,
+        `${getApiUrl()}/api/recommendations/recent?limit=12`,
+        `${getApiUrl()}/api/recommendations/top-rated?limit=12`
       ];
 
-      const endpointIndex = cycleNumber % endpoints.length;
+      const endpointIndex = cycleNumber % recommendationEndpoints.length;
+      const primaryEndpoint = recommendationEndpoints[endpointIndex];
       let newMedia: Media[] = [];
 
-      // Try the primary recommendation endpoint
+      console.log(`🎯 Trying primary recommendation endpoint: ${primaryEndpoint}`);
+
+      // Try the primary recommendation endpoint first
       try {
-        const response = await fetch(endpoints[endpointIndex]);
+        const response = await fetch(primaryEndpoint);
         if (response.ok) {
           const data = await response.json();
-          if (data && data.length > 0) {
+          if (data && Array.isArray(data) && data.length > 0) {
             newMedia = data;
+            console.log(`✅ Got ${newMedia.length} recommendations from primary endpoint`);
+          } else {
+            console.warn(`⚠️ Primary endpoint returned empty or invalid data:`, data);
           }
+        } else {
+          console.warn(`⚠️ Primary endpoint failed with status: ${response.status}`);
         }
       } catch (error) {
-        console.warn(`Primary endpoint ${endpoints[endpointIndex]} failed:`, error);
+        console.warn(`❌ Primary endpoint ${primaryEndpoint} failed:`, error);
       }
 
-      // Fallback to other recommendation endpoints
+      // If primary fails, try other recommendation endpoints (but be more selective)
       if (newMedia.length === 0) {
-        for (const fallbackEndpoint of endpoints) {
-          if (fallbackEndpoint === endpoints[endpointIndex]) continue;
+        console.log(`🔄 Primary failed, trying other recommendation endpoints...`);
+        
+        // Try up to 2 other recommendation endpoints
+        const fallbackEndpoints = recommendationEndpoints
+          .filter(endpoint => endpoint !== primaryEndpoint)
+          .slice(0, 2);
 
+        for (const fallbackEndpoint of fallbackEndpoints) {
           try {
+            console.log(`🎯 Trying fallback recommendation endpoint: ${fallbackEndpoint}`);
             const response = await fetch(fallbackEndpoint);
             if (response.ok) {
               const data = await response.json();
-              if (data && data.length > 0) {
+              if (data && Array.isArray(data) && data.length > 0) {
                 newMedia = data;
+                console.log(`✅ Got ${newMedia.length} recommendations from fallback endpoint`);
                 break;
               }
             }
           } catch (error) {
-            console.warn(`Fallback endpoint ${fallbackEndpoint} failed:`, error);
+            console.warn(`❌ Fallback endpoint ${fallbackEndpoint} failed:`, error);
             continue;
           }
         }
       }
 
-      // Final fallback to basic media endpoints
+      // ONLY if ALL recommendation endpoints fail, use content-specific endpoints as last resort
       if (newMedia.length === 0) {
-        const basicEndpoints = [
-          `${getApiUrl()}/api/trending?limit=10`,
-          `${getApiUrl()}/api/popular?limit=10`,
-          `${getApiUrl()}/api/recent?limit=10`,
-          `${getApiUrl()}/api/media?limit=10`
-        ];
+        console.warn(`⚠️ All recommendation endpoints failed, using content-specific endpoints as last resort...`);
+        
+        let basicEndpoints: string[] = [];
+        
+        if (contentFilter === 'movies-hd') {
+          basicEndpoints = [
+            `${getApiUrl()}/api/movies?limit=20`,
+            `${getApiUrl()}/api/media?limit=20`
+          ];
+        } else if (contentFilter === 'tv-series') {
+          basicEndpoints = [
+            `${getApiUrl()}/api/media/tv-shows?limit=20`,
+            `${getApiUrl()}/api/media?limit=20`
+          ];
+        } else {
+          basicEndpoints = [
+            `${getApiUrl()}/api/media?limit=20`
+          ];
+        }
 
         for (const basicEndpoint of basicEndpoints) {
           try {
             const response = await fetch(basicEndpoint);
             if (response.ok) {
               const data = await response.json();
-              if (data && data.length > 0) {
+              if (data && Array.isArray(data) && data.length > 0) {
                 newMedia = data;
+                console.log(`✅ Got ${newMedia.length} items from ${basicEndpoint} as last resort`);
                 break;
               }
             }
           } catch (error) {
-            console.warn(`Basic endpoint ${basicEndpoint} failed:`, error);
+            console.warn(`❌ Basic endpoint ${basicEndpoint} failed:`, error);
             continue;
           }
         }
       }
 
+      // Process the new media from backend
       if (newMedia && newMedia.length > 0) {
-        // Filter out media that was in the previous cycle to ensure fresh content
-        const filteredMedia = newMedia.filter((media: Media) =>
+        console.log(`🎬 Processing ${newMedia.length} items from backend...`);
+        
+        // Apply content filtering based on contentFilter prop
+        let contentFilteredMedia = newMedia;
+        
+        if (contentFilter === 'movies-hd') {
+          contentFilteredMedia = newMedia.filter((media: Media) => {
+            const isMovie = media.type === 'movie';
+            const hasHDQuality = media.quality && (
+              media.quality.toLowerCase().includes('hd') || 
+              media.quality.toLowerCase().includes('4k') ||
+              media.quality.toLowerCase().includes('1080p') ||
+              media.quality.toLowerCase().includes('2160p')
+            );
+            return isMovie && hasHDQuality;
+          });
+          
+          // If not enough HD movies, fall back to all movies
+          if (contentFilteredMedia.length < 4) {
+            contentFilteredMedia = newMedia.filter((media: Media) => media.type === 'movie');
+            console.log(`⚠️ Not enough HD movies, using all movies (${contentFilteredMedia.length})`);
+          } else {
+            console.log(`✅ Filtered to ${contentFilteredMedia.length} HD/4K movies`);
+          }
+        } else if (contentFilter === 'tv-series') {
+          contentFilteredMedia = newMedia.filter((media: Media) => {
+            return media.type === 'episode' || 
+                   media.type === 'tv' || 
+                   media.type === 'series' ||
+                   media.title.toLowerCase().includes('series') ||
+                   media.title.toLowerCase().includes('episode') ||
+                   media.title.toLowerCase().includes('season');
+          });
+          console.log(`✅ Filtered to ${contentFilteredMedia.length} TV series/episodes`);
+        }
+        
+        // Filter out exact duplicates from current cycle
+        const filteredMedia = contentFilteredMedia.filter((media: Media) =>
           !featuredMedia.some(existing => existing.id === media.id)
         );
 
-        if (filteredMedia.length > 0) {
-          // Mix new content with some fresh picks
+        if (filteredMedia.length >= 4) {
+          // We have enough new content from backend recommendations
+          setFeaturedMedia(filteredMedia.slice(0, 10));
+          console.log(`✅ Updated with ${filteredMedia.length} new filtered recommendations`);
+        } else if (filteredMedia.length > 0) {
+          // Mix new backend content with some existing (but prioritize new)
           const mixedMedia = [
-            ...filteredMedia.slice(0, 6), // New content
-            ...initialFeaturedMedia.slice(0, 2) // Keep some original variety
+            ...filteredMedia, // All new filtered recommendations first
+            ...featuredMedia.slice(0, Math.max(0, 8 - filteredMedia.length)) // Fill remaining slots
           ];
           setFeaturedMedia(mixedMedia);
+          console.log(`✅ Mixed ${filteredMedia.length} new filtered recommendations with existing content`);
         } else {
-          // If no new content, shuffle existing content
-          const shuffledMedia = [...featuredMedia].sort(() => 0.5 - Math.random());
-          setFeaturedMedia(shuffledMedia);
+          // All content was duplicates, use the new filtered recommendations anyway
+          setFeaturedMedia(contentFilteredMedia.slice(0, 10));
+          console.log(`✅ Used filtered recommendations despite duplicates`);
         }
       } else {
-        // Final fallback to shuffling existing content
-        const shuffledMedia = [...featuredMedia].sort(() => 0.5 - Math.random());
-        setFeaturedMedia(shuffledMedia);
+        // WORST CASE: All endpoints failed - keep existing content
+        console.error(`❌ All endpoints failed, keeping existing content`);
+        // Don't shuffle - keep the existing intelligent content
       }
     } catch (error) {
-      console.warn('Failed to fetch recommended media for hero:', error);
-      // Fallback to shuffling existing content
-      const shuffledMedia = [...featuredMedia].sort(() => 0.5 - Math.random());
-      setFeaturedMedia(shuffledMedia);
+      console.error('❌ Critical error fetching recommended media:', error);
+      // Keep existing content without shuffling
     } finally {
       setIsLoadingNewContent(false);
     }
@@ -249,15 +323,14 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
   const getVideoUrl = (media: Media, fallback: boolean = false): string | undefined => {
     if (!media.id) return undefined;
 
-    const host = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
-    const apiUrl = `http://${host === 'localhost' ? 'localhost' : host}:8252`;
+    const apiUrl = getApiUrl();
 
     if (fallback) {
       // Try alternative endpoints if primary fails
       const alternatives = [
-        `${apiUrl}/api/preview-clips/${media.id}?format=mp4`,
-        `${apiUrl}/api/preview-clips/${media.id}?quality=low`,
-        `${apiUrl}/api/media/${media.id}/preview`
+        `${apiUrl}/api/preview-clips/${media.id}?quality=low&format=mp4`,
+        `${apiUrl}/api/preview-clips/${media.id}?quality=medium&format=mp4`,
+        `${apiUrl}/api/stream/${media.id}?preview=true`
       ];
 
       // Return first valid alternative
@@ -268,17 +341,76 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
       }
     }
 
-    // Primary endpoint - use the preview-clips API endpoint
-    return `${apiUrl}/api/preview-clips/${media.id}`;
+    // Primary endpoint - use the preview-clips API endpoint with optimized settings
+    return `${apiUrl}/api/preview-clips/${media.id}?quality=high&format=mp4`;
   };
 
 
 
   // Check if media has video content (preview clip or can generate one)
   const hasVideoContent = (media: Media) => {
-    // Always try to show video if we have a media ID
-    // The backend will handle generating preview clips if they don't exist
-    return !!(media.id && (media.preview_clip_path || media.file_path));
+    // Check if we have a media ID and either a preview clip path or file path
+    // The backend will serve preview clips if they exist, or generate them on-demand
+    return !!(media.id && media.file_path);
+  };
+
+  // Debug function to check preview clip availability
+  const checkPreviewClipAvailability = async (media: Media) => {
+    if (!media.id) return false;
+    
+    try {
+      const videoUrl = getVideoUrl(media);
+      if (!videoUrl) return false;
+      
+      const response = await fetch(videoUrl, { method: 'HEAD' });
+      const isAvailable = response.ok;
+      
+      if (!isAvailable) {
+        console.log(`Preview clip not available for media ${media.id} (${media.title})`);
+        console.log(`Tried URL: ${videoUrl}`);
+        console.log(`Response status: ${response.status}`);
+        
+        // Try to generate preview clip if it doesn't exist
+        await generatePreviewClipIfNeeded(media);
+      } else {
+        console.log(`Preview clip available for media ${media.id} (${media.title})`);
+      }
+      
+      return isAvailable;
+    } catch (error) {
+      console.warn(`Error checking preview clip for media ${media.id}:`, error);
+      return false;
+    }
+  };
+
+  // Generate preview clip if needed
+  const generatePreviewClipIfNeeded = async (media: Media) => {
+    try {
+      const generateUrl = `${getApiUrl()}/api/admin/preview-clips/${media.id}/generate`;
+      console.log(`Attempting to generate preview clip for media ${media.id}...`);
+      
+      const response = await fetch(generateUrl, { method: 'POST' });
+      
+      if (response.ok) {
+        console.log(`Preview clip generation started for media ${media.id}`);
+        
+        // Wait a bit and then try to reload the video
+        setTimeout(() => {
+          if (videoRef.current && currentMedia?.id === media.id) {
+            const video = videoRef.current;
+            const newVideoUrl = getVideoUrl(media);
+            if (newVideoUrl) {
+              video.src = newVideoUrl;
+              video.load();
+            }
+          }
+        }, 3000); // Wait 3 seconds for generation
+      } else {
+        console.warn(`Failed to generate preview clip for media ${media.id}:`, response.status);
+      }
+    } catch (error) {
+      console.warn(`Error generating preview clip for media ${media.id}:`, error);
+    }
   };
 
 
@@ -359,10 +491,11 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
           const newCycleCount = cycleCount + 1;
           setCycleCount(newCycleCount);
 
-          // Load new content after completing a cycle
+          // Load new content from backend after completing a cycle
+          console.log(`🔄 Cycle ${newCycleCount} completed, fetching new recommendations from backend...`);
           setTimeout(() => {
             fetchRecommendedMedia(newCycleCount);
-          }, 2000);
+          }, 1000); // Reduced delay for faster backend fetching
         }
       }, 300); // Wait for fade out
     }
@@ -442,9 +575,28 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
   // Simplified video playback with audio handling
   const playVideoWithAudio = async (video: HTMLVideoElement, withAudio: boolean = false) => {
     try {
+      // Ensure video is ready to play
+      if (video.readyState < 3) {
+        // Wait for video to be ready
+        await new Promise((resolve) => {
+          const handleCanPlay = () => {
+            video.removeEventListener('canplay', handleCanPlay);
+            resolve(void 0);
+          };
+          video.addEventListener('canplay', handleCanPlay);
+          
+          // Timeout after 3 seconds
+          setTimeout(() => {
+            video.removeEventListener('canplay', handleCanPlay);
+            resolve(void 0);
+          }, 3000);
+        });
+      }
+
       // Always start muted for autoplay compliance
       video.muted = true;
       video.volume = 0;
+      video.currentTime = 0;
 
       const playPromise = video.play();
       if (playPromise !== undefined) {
@@ -454,17 +606,23 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
         // If audio is requested and user has interacted, try to unmute
         if (withAudio && userHasInteracted && hasUserEverUnmuted()) {
           setTimeout(() => {
-            video.muted = false;
-            video.volume = spatialAudioEnabled ? 0.8 : 0.6;
+            if (video && !video.paused) {
+              video.muted = false;
+              video.volume = spatialAudioEnabled ? 0.8 : 0.6;
+            }
           }, 500);
         }
 
         return true;
       }
     } catch (error) {
+      console.warn('Video play failed, trying fallback:', error);
+      
       // Fallback: ensure video is muted and try again
       video.muted = true;
       video.volume = 0;
+      video.currentTime = 0;
+      
       try {
         const fallbackPromise = video.play();
         if (fallbackPromise !== undefined) {
@@ -472,7 +630,8 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
           setIsPlaying(true);
           return true;
         }
-      } catch {
+      } catch (fallbackError) {
+        console.warn('Video fallback play also failed:', fallbackError);
         return false;
       }
     }
@@ -601,10 +760,11 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
     }
   };
 
-  // Function to manually trigger content refresh
+  // Function to manually trigger content refresh from backend
   const refreshContent = () => {
     const newCycleCount = cycleCount + 1;
     setCycleCount(newCycleCount);
+    console.log(`🔄 Manual refresh triggered, fetching cycle ${newCycleCount} from backend...`);
     fetchRecommendedMedia(newCycleCount);
     setCurrentIndex(0); // Reset to first slide
   };
@@ -650,19 +810,23 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
     return () => clearInterval(interval);
   }, [isAutoPlaying, featuredMedia.length, currentIndex, isVideoLoaded, isPlaying]);
 
-  // Recommendation-based hero slide updates
+  // Recommendation-based hero slide updates - prioritize backend calls
   useEffect(() => {
     if (!enableRecommendations) return;
 
-    // Initial fetch after component mounts
-    const initialDelay = setTimeout(() => {
-      fetchRecommendedMedia(0);
-    }, 5000); // Wait 5 seconds after mount
+    console.log('🚀 Setting up recommendation system...');
 
-    // Set up periodic refresh as backup (longer interval since cycle-based refresh is primary)
+    // Initial fetch after component mounts - fetch from backend immediately
+    const initialDelay = setTimeout(() => {
+      console.log('🎬 Initial recommendation fetch from backend...');
+      fetchRecommendedMedia(0);
+    }, 2000); // Reduced delay - fetch sooner
+
+    // More frequent refresh to get fresh backend recommendations
     const refreshTimer = setInterval(() => {
+      console.log('⏰ Periodic recommendation refresh from backend...');
       refreshContent();
-    }, refreshInterval * 2); // Double the interval since we have cycle-based refresh
+    }, refreshInterval); // Use original interval, not doubled
 
     return () => {
       clearTimeout(initialDelay);
@@ -685,13 +849,18 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
     }
   }, [featuredMedia, isLoadingNewContent]);
 
-  // Handle media without video content
+  // Handle media without video content and check preview clip availability
   useEffect(() => {
-    if (currentMedia && !hasVideoContent(currentMedia)) {
-      // For media without video, ensure video states are false
-      setIsVideoLoaded(false);
-      setVideoLoaded(false);
-      setIsPlaying(false);
+    if (currentMedia) {
+      if (!hasVideoContent(currentMedia)) {
+        // For media without video, ensure video states are false
+        setIsVideoLoaded(false);
+        setVideoLoaded(false);
+        setIsPlaying(false);
+      } else {
+        // Check if preview clip is actually available
+        checkPreviewClipAvailability(currentMedia);
+      }
     }
   }, [currentMedia]);
 
@@ -765,18 +934,50 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
         playVideoWithAudio(video, shouldPlayWithAudio);
       };
 
-      const handleError = () => {
+      const handleCanPlay = () => {
+        // Also try to play on canplay event for faster loading
+        if (!isVideoLoaded) {
+          setIsVideoLoaded(true);
+          setVideoLoaded(true);
+
+          const shouldPlayWithAudio = !isMuted && hasUserEverUnmuted() && canAutoplayWithAudio;
+          playVideoWithAudio(video, shouldPlayWithAudio);
+        }
+      };
+
+      const handleError = (e: Event) => {
+        console.warn('Video loading error for media', currentMedia.id, ':', e);
+        
+        // Try fallback URL
+        const fallbackUrl = getVideoUrl(currentMedia, true);
+        if (fallbackUrl && fallbackUrl !== video.src) {
+          console.log('Trying fallback URL:', fallbackUrl);
+          video.src = fallbackUrl;
+          video.load();
+          return;
+        }
+        
+        // If all fails, hide video
         setIsVideoLoaded(false);
         setVideoLoaded(false);
         setIsPlaying(false);
       };
 
+      const handleLoadStart = () => {
+        setVideoLoaded(false);
+        setIsPlaying(false);
+      };
+
       video.addEventListener('canplaythrough', handleCanPlayThrough);
+      video.addEventListener('canplay', handleCanPlay);
       video.addEventListener('error', handleError);
+      video.addEventListener('loadstart', handleLoadStart);
 
       return () => {
         video.removeEventListener('canplaythrough', handleCanPlayThrough);
+        video.removeEventListener('canplay', handleCanPlay);
         video.removeEventListener('error', handleError);
+        video.removeEventListener('loadstart', handleLoadStart);
       };
     }
   }, [currentMedia, isMuted, canAutoplayWithAudio]);
@@ -1009,7 +1210,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
                   exit={{ opacity: 0 }}
                   transition={{ duration: 0.2 }}
                 >
-                  <RedLoader size="large" showText text="Loading..." />
+                  <RedLoader size="large" />
                 </motion.div>
               )}
             </AnimatePresence>
@@ -1051,7 +1252,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
                     }
                   }}
                   onCanPlay={() => {
-                    if (videoRef.current && !isPlaying) {
+                    if (videoRef.current && !isPlaying && !isTransitioning) {
                       const video = videoRef.current;
                       video.currentTime = 0;
 
@@ -1059,7 +1260,21 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
                       playVideoWithAudio(video, shouldStartWithAudio);
                     }
                   }}
-                  onError={() => {
+                  onError={(e) => {
+                    console.warn('Video element error for media', currentMedia.id, ':', e);
+                    
+                    // Try fallback URL
+                    if (videoRef.current) {
+                      const video = videoRef.current;
+                      const fallbackUrl = getVideoUrl(currentMedia, true);
+                      if (fallbackUrl && fallbackUrl !== video.src) {
+                        console.log('Trying fallback URL:', fallbackUrl);
+                        video.src = fallbackUrl;
+                        video.load();
+                        return;
+                      }
+                    }
+                    
                     setIsVideoLoaded(false);
                     setVideoLoaded(false);
                     setIsPlaying(false);
@@ -1476,8 +1691,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
             {/* Loading indicator */}
             {isLoadingNewContent && (
               <div className="flex items-center ml-2">
-                <RedLoader size="small" className="mr-2" />
-                <span className="text-white/80 text-xs">Loading...</span>
+                <RedLoader size="small" />
               </div>
             )}
           </div>

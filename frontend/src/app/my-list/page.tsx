@@ -1,18 +1,17 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { Play, Info, Plus, Check, Trash2, Heart, Film, Tv } from 'lucide-react';
+import { Play, Info, Trash2, Heart, Film, Tv } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import Navbar from "@/components/Navbar";
 import { Media } from '../../types/media';
 import VideoPlayer from "@/components/VideoPlayer";
 import { getApiUrl } from '@/lib/api';
-import { ScrollXCarousel, ParallaxSection, GradientBackground, ScrollReveal, MagneticButton } from '@/components/scrollx';
-import RecentlyWatched from '@/components/RecentlyWatched';
+import { MagneticButton } from '@/components/scrollx';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
-import { getWishlist, removeFromWishlist, fetchWishlistMedia } from '@/lib/wishlist';
+import { removeFromWishlist, fetchWishlistMedia } from '@/lib/wishlist';
 
 export default function MyListPage() {
   const router = useRouter();
@@ -109,7 +108,7 @@ export default function MyListPage() {
   return (
     <div className="min-h-screen bg-gradient-to-b from-red-900/20 via-black to-black">
       <Navbar />
-      
+
       {/* Header Section */}
       <div className="pt-20 px-4 md:px-8 lg:px-16">
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
@@ -120,7 +119,7 @@ export default function MyListPage() {
             </h1>
             <p className="text-gray-400">Your personal collection of favorites</p>
           </div>
-          
+
           {/* Controls */}
           <div className="flex flex-wrap gap-4">
             {/* Type Filter */}
@@ -172,14 +171,17 @@ export default function MyListPage() {
                       src={`http://${window.location.hostname === 'localhost' ? 'localhost' : window.location.hostname}:8252/api/posters/${media.id}`}
                       alt={media.title}
                       fill
-                      onError={(e) => {
-                        const target = e.target as HTMLImageElement;
-                        target.src = `http://${window.location.hostname === 'localhost' ? 'localhost' : window.location.hostname}:8252/api/thumbnails/${media.id}`;
-                      }}
                       className="object-cover"
                       onError={(e) => {
-                        e.currentTarget.style.display = 'none';
-                        e.currentTarget.nextElementSibling?.classList.remove('hidden');
+                        const target = e.target as HTMLImageElement;
+                        // First try to fallback to thumbnail
+                        if (target.src.includes('/api/posters/')) {
+                          target.src = `http://${window.location.hostname === 'localhost' ? 'localhost' : window.location.hostname}:8252/api/thumbnails/${media.id}`;
+                        } else {
+                          // If thumbnail also fails, hide the image and show fallback
+                          e.currentTarget.style.display = 'none';
+                          e.currentTarget.nextElementSibling?.classList.remove('hidden');
+                        }
                       }}
                     />
                   ) : null}
@@ -190,12 +192,11 @@ export default function MyListPage() {
                       <Tv className="w-12 h-12 text-gray-600" />
                     )}
                   </div>
-                  
+
                   {/* Type Badge */}
                   <div className="absolute top-2 left-2">
-                    <span className={`px-2 py-1 rounded text-xs font-bold ${
-                      media.type === "movie" ? "bg-red-600" : "bg-blue-600"
-                    } text-white`}>
+                    <span className={`px-2 py-1 rounded text-xs font-bold ${media.type === "movie" ? "bg-red-600" : "bg-blue-600"
+                      } text-white`}>
                       {media.type === "movie" ? "MOVIE" : "TV"}
                     </span>
                   </div>
@@ -207,7 +208,7 @@ export default function MyListPage() {
                   >
                     <Trash2 className="w-4 h-4" />
                   </button>
-                  
+
                   {/* Hover Overlay */}
                   <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-60 transition-all duration-300 flex items-center justify-center opacity-0 group-hover:opacity-100">
                     <div className="flex gap-2">
@@ -230,13 +231,13 @@ export default function MyListPage() {
                     </div>
                   </div>
                 </div>
-                
+
                 {/* Content Info */}
                 <div className="p-4">
                   <h3 className="text-white font-semibold text-sm mb-2 line-clamp-2 leading-tight">
                     {media.title}
                   </h3>
-                  
+
                   <div className="flex items-center justify-between text-xs text-gray-400 mb-2">
                     <span>{media.type === "movie" ? "Movie" : "TV Show"}</span>
                     {(media.rating || 0) > 0 && (
@@ -252,7 +253,7 @@ export default function MyListPage() {
                       {formatDuration(media.duration || 0)}
                     </div>
                   )}
-                  
+
                   {/* Genres */}
                   <div className="flex flex-wrap gap-1">
                     {(media.genres || []).slice(0, 2).map((genre, index) => (
@@ -273,7 +274,7 @@ export default function MyListPage() {
             <Heart className="w-16 h-16 text-gray-600 mx-auto mb-4" />
             <h3 className="text-xl text-white mb-2">Your list is empty</h3>
             <p className="text-gray-400 mb-6">
-              {filterType !== "all" 
+              {filterType !== "all"
                 ? `No ${filterType === "movie" ? "movies" : "TV shows"} in your list`
                 : "Add movies and TV shows to your list to see them here"
               }

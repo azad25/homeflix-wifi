@@ -7,6 +7,7 @@ import Image from 'next/image';
 import { Media } from '../types/media';
 import { getApiUrl } from '../lib/api';
 import DynamicTitle from './DynamicTitle';
+import RedLoader from './RedLoader';
 
 interface HeroSectionProps {
   featuredMedia?: Media[];
@@ -78,8 +79,8 @@ const HeroSection: React.FC<HeroSectionProps> = ({
 
   if (!currentMedia) {
     return (
-      <div className="relative h-screen w-full overflow-hidden bg-gradient-to-br from-red-900 via-black to-gray-900 flex items-center justify-center">
-        <h1 className="text-white text-4xl font-bold">Loading...</h1>
+      <div className="relative h-screen w-full overflow-hidden bg-black flex items-center justify-center">
+        <RedLoader size="large" />
       </div>
     );
   }

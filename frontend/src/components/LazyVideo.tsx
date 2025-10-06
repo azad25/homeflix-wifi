@@ -181,7 +181,7 @@ const LazyVideo = forwardRef<HTMLVideoElement, LazyVideoProps>(({
             exit={{ opacity: 0 }}
             transition={{ duration: 0.3 }}
           >
-            <RedLoader size={loaderSize} showText text="Loading video..." />
+            <RedLoader size={loaderSize} />
           </motion.div>
         )}
       </AnimatePresence>
@@ -227,9 +227,9 @@ const LazyVideo = forwardRef<HTMLVideoElement, LazyVideoProps>(({
 
       {/* Placeholder when not in view */}
       {!isInView && !priority && (
-        <div className="absolute inset-0 bg-gray-900 flex items-center justify-center">
-          <div className="w-16 h-16 bg-gray-700 rounded animate-pulse flex items-center justify-center">
-            <svg className="w-8 h-8 text-gray-500" fill="currentColor" viewBox="0 0 20 20">
+        <div className="absolute inset-0 bg-black flex items-center justify-center">
+          <div className="w-16 h-16 bg-gray-800 rounded animate-pulse flex items-center justify-center">
+            <svg className="w-8 h-8 text-gray-400" fill="currentColor" viewBox="0 0 20 20">
               <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clipRule="evenodd" />
             </svg>
           </div>

@@ -43,8 +43,14 @@ func main() {
 	alacService := services.NewALACAudioService("./alac_audio")
 	tmdbService := services.NewTMDBService()
 
+	// Integrate ALAC service with streaming service for automatic ALAC audio streaming
+	streamService.SetALACService(alacService)
+
 	// Initialize poster service
 	posterService := services.NewPosterService("./posters")
+	
+	// Integrate ALAC service with thumbnail service for preview clips with ALAC audio
+	thumbnailService.SetALACService(alacService)
 	
 	// Create service adapters to resolve interface compatibility
 	mediaServiceAdapter := adapters.NewMediaServiceAdapter(mediaService)
@@ -92,10 +98,10 @@ func main() {
 	// CORS middleware
 	r.Use(cors.New(cors.Config{
 		AllowOrigins:     []string{"*"},
-		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization", "X-User-ID", "x-user-id"},
-		ExposeHeaders:    []string{"Content-Length"},
-		AllowCredentials: true,
+		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization", "X-User-ID", "x-user-id", "Range"},
+		ExposeHeaders:    []string{"Content-Length", "Content-Range", "Accept-Ranges", "Content-Type"},
+		AllowCredentials: false, // Set to false when using wildcard origin
 	}))
 
 	// Initialize API routes

@@ -49,6 +49,14 @@ type Media struct {
 	Homepage   string `json:"homepage"`    // Official website
 	Collection string `json:"collection"`  // Movie collection/franchise
 	
+	// Enhanced metadata
+	Awards       []string `json:"awards" gorm:"serializer:json"`       // Awards and nominations
+	Certification string  `json:"certification"`                       // Rating (PG, PG-13, R, etc.)
+	Runtime      int      `json:"runtime"`                             // Runtime in minutes
+	Popularity   float64  `json:"popularity"`                          // TMDB popularity score
+	VoteCount    int      `json:"vote_count"`                          // Number of votes
+	Adult        bool     `json:"adult"`                               // Adult content flag
+	
 	// Genres - keeping both relationship and JSON for flexibility
 	Genres     []Genre  `json:"genres" gorm:"many2many:media_genres;"`
 	GenreNames []string `json:"genre_names" gorm:"serializer:json"` // For JSON compatibility

@@ -5,6 +5,7 @@ import { Play, Info, Plus, Volume2, VolumeX, ThumbsUp } from 'lucide-react';
 import Image from 'next/image';
 import { Media } from '../types/media';
 import { getApiUrl } from '../lib/api';
+import UltraFastPreview from './UltraFastPreview';
 
 interface HoverVideoCardProps {
   media: Media;
@@ -34,7 +35,8 @@ export default function HoverVideoCard({
     return `${apiUrl}/api/thumbnails/${media.id}`;
   };
   const thumbnailUrl = getThumbnailUrl();
-  const previewUrl = `${apiUrl}/api/preview-clips/${media.id}`;
+  
+
 
   useEffect(() => {
     return () => {
@@ -124,20 +126,23 @@ export default function HoverVideoCard({
           }}
         />
 
-        {/* Video Preview */}
+        {/* Ultra-Fast Video Preview */}
         {showVideo && (
-          <video
-            ref={videoRef}
-            src={previewUrl}
-            className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-300 ${
-              isVideoLoaded ? 'opacity-100' : 'opacity-0'
-            }`}
-            muted
-            loop
-            playsInline
-            onLoadedData={handleVideoLoad}
-            onError={handleVideoError}
-          />
+          <div className={`absolute inset-0 transition-opacity duration-300 ${
+            isVideoLoaded ? 'opacity-100' : 'opacity-0'
+          }`}>
+            <UltraFastPreview
+              media={media}
+              autoPlay={true}
+              muted={true}
+              loop={true}
+              quality="auto"
+              delay={100} // Small delay for smooth transition
+              className="w-full h-full"
+              onCanPlay={handleVideoLoad}
+              onError={handleVideoError}
+            />
+          </div>
         )}
 
         {/* Gradient Overlay */}
