@@ -70,28 +70,28 @@ export default function MoviePage() {
       timestamp: new Date().toISOString(),
       lastWatched: new Date().toISOString()
     };
-    
+
     // Save to cookie with 30 days expiration
     const expirationDate = new Date();
     expirationDate.setDate(expirationDate.getDate() + 30);
-    
+
     document.cookie = `playback_${mediaId}=${JSON.stringify(progressData)}; expires=${expirationDate.toUTCString()}; path=/; SameSite=Lax`;
-    
+
     // Update local state
     setPlaybackProgress(currentTime);
     setPlaybackDuration(duration);
     setHasWatchedBefore(true);
     setLastWatched(progressData.lastWatched);
-    
+
     console.log(`Saved playback progress for media ${mediaId}: ${Math.round(progressData.percentage)}%`);
   };
 
   const getPlaybackProgressFromCookie = (mediaId: string) => {
     const cookies = document.cookie.split(';');
-    const progressCookie = cookies.find(cookie => 
+    const progressCookie = cookies.find(cookie =>
       cookie.trim().startsWith(`playback_${mediaId}=`)
     );
-    
+
     if (progressCookie) {
       try {
         const progressData = JSON.parse(progressCookie.split('=')[1]);
@@ -107,13 +107,13 @@ export default function MoviePage() {
   const clearPlaybackProgress = (mediaId: string) => {
     // Clear cookie by setting expiration to past date
     document.cookie = `playback_${mediaId}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;`;
-    
+
     // Reset local state
     setPlaybackProgress(0);
     setPlaybackDuration(0);
     setHasWatchedBefore(false);
     setLastWatched(null);
-    
+
     console.log(`Cleared playback progress for media ${mediaId}`);
   };
 
@@ -175,16 +175,16 @@ export default function MoviePage() {
   const toggleMyList = async () => {
     try {
       if (!params.id) return;
-      
+
       const mediaId = parseInt(params.id as string);
       let success = false;
-      
+
       if (isInMyList) {
         success = removeFromWishlist(mediaId);
       } else {
         success = addToWishlist(mediaId);
       }
-      
+
       if (success) {
         setIsInMyList(!isInMyList);
         console.log(`${isInMyList ? 'Removed from' : 'Added to'} wishlist: ${media?.title}`);
@@ -536,7 +536,7 @@ export default function MoviePage() {
                     }}
                   >
                     <p className="text-xl md:text-2xl text-white/90 italic mb-6 drop-shadow-lg">
-                      &ldquo;{media.tagline}&rdquo;
+                      &ldquo;{media.description && `${media.description.substring(0, 200)}` || "Watch and Enjoy Homeflix"}&rdquo;
                     </p>
                   </motion.div>
                 )}
@@ -605,14 +605,14 @@ export default function MoviePage() {
                         </span>
                       )}
                     </MagneticButton>
-                    
+
                     {/* Progress bar overlay */}
                     {hasWatchedBefore && playbackProgress > 0 && playbackDuration > 0 && (
                       <motion.div
                         className="absolute bottom-0 left-0 h-1 bg-red-400 rounded-b-lg"
                         initial={{ width: 0 }}
-                        animate={{ 
-                          width: `${Math.min((playbackProgress / playbackDuration) * 100, 100)}%` 
+                        animate={{
+                          width: `${Math.min((playbackProgress / playbackDuration) * 100, 100)}%`
                         }}
                         transition={{ duration: 1, ease: "easeOut" }}
                       />
@@ -650,12 +650,10 @@ export default function MoviePage() {
                   }}
                 >
                   <p className="text-white/90 mb-4 text-lg leading-relaxed">
-                    {media.long_desc ? (
-                      showFullDescription ? media.long_desc : `${media.long_desc.substring(0, 200)}...`
-                    ) : (
+                    {media.description ? `${media.description.substring(0, 200)}` : (
                       "Experience the ultimate entertainment with this amazing content. Watch now and immerse yourself in a world of endless possibilities."
                     )}
-                    {media.long_desc && media.long_desc.length > 200 && (
+                    {media.description && media.description.length > 200 && (
                       <button
                         onClick={() => setShowFullDescription(!showFullDescription)}
                         className="text-red-400 hover:text-red-300 ml-2 font-medium"

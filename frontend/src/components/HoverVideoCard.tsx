@@ -27,7 +27,13 @@ export default function HoverVideoCard({
   const hideTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const apiUrl = getApiUrl();
-  const thumbnailUrl = `${apiUrl}/api/thumbnails/${media.id}`;
+  const getThumbnailUrl = () => {
+    if (media.poster_path) {
+      return `${apiUrl}/api/posters/${media.id}`;
+    }
+    return `${apiUrl}/api/thumbnails/${media.id}`;
+  };
+  const thumbnailUrl = getThumbnailUrl();
   const previewUrl = `${apiUrl}/api/preview-clips/${media.id}`;
 
   useEffect(() => {

@@ -15,6 +15,9 @@ interface LazyVideoProps extends React.VideoHTMLAttributes<HTMLVideoElement> {
   onCanPlay?: () => void;
   onError?: () => void;
   className?: string;
+  quality?: 'low' | 'medium' | 'high' | 'auto';
+  streamOptimization?: 'netflix-level' | 'standard';
+  bufferStrategy?: 'aggressive' | 'balanced' | 'conservative';
 }
 
 const LazyVideo = forwardRef<HTMLVideoElement, LazyVideoProps>(({
@@ -28,15 +31,51 @@ const LazyVideo = forwardRef<HTMLVideoElement, LazyVideoProps>(({
   onCanPlay,
   onError,
   className = '',
+  quality = 'auto',
+  streamOptimization = 'netflix-level',
+  bufferStrategy = 'aggressive',
   ...props
 }, ref) => {
   const [isLoading, setIsLoading] = useState(true);
   const [hasError, setHasError] = useState(false);
   const [isInView, setIsInView] = useState(priority);
   const [canPlay, setCanPlay] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
+  const [networkSpeed, setNetworkSpeed] = useState<string>('unknown');
+  const [deviceType, setDeviceType] = useState<string>('desktop');
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Intersection Observer for lazy loading
+  // Device and network detection for Netflix-level optimization
+  useEffect(() => {
+    const detectCapabilities = () => {
+      // Device detection
+      const userAgent = navigator.userAgent.toLowerCase();
+      if (userAgent.includes('mobile') || userAgent.includes('android')) {
+        setDeviceType('mobile');
+      } else if (userAgent.includes('iphone') || userAgent.includes('ipad')) {
+        setDeviceType('ios');
+      } else if (userAgent.includes('mac')) {
+        setDeviceType('mac');
+      } else if (userAgent.includes('windows')) {
+        setDeviceType('windows');
+      } else if (userAgent.includes('linux')) {
+        setDeviceType('linux');
+      }
+
+      // Network speed estimation
+      if ('connection' in navigator) {
+        const connection = (navigator as any).connection;
+        if (connection) {
+          const effectiveType = connection.effectiveType;
+          setNetworkSpeed(effectiveType || 'unknown');
+        }
+      }
+    };
+
+    detectCapabilities();
+  }, []);
+
+  // Enhanced Intersection Observer for lazy loading with Netflix-level preloading
   useEffect(() => {
     if (priority || isInView) return;
 
@@ -48,7 +87,7 @@ const LazyVideo = forwardRef<HTMLVideoElement, LazyVideoProps>(({
         }
       },
       {
-        rootMargin: '100px', // Start loading 100px before the video comes into view
+        rootMargin: streamOptimization === 'netflix-level' ? '200px' : '100px', // More aggressive preloading
         threshold: 0.1
       }
     );
@@ -58,7 +97,7 @@ const LazyVideo = forwardRef<HTMLVideoElement, LazyVideoProps>(({
     }
 
     return () => observer.disconnect();
-  }, [priority, isInView]);
+  }, [priority, isInView, streamOptimization]);
 
   const handleLoadStart = () => {
     setIsLoading(true);
@@ -72,12 +111,65 @@ const LazyVideo = forwardRef<HTMLVideoElement, LazyVideoProps>(({
   };
 
   const handleError = () => {
-    setHasError(true);
-    setIsLoading(false);
-    onError?.();
+    // Netflix-level retry logic
+    if (retryCount < 3) {
+      setTimeout(() => {
+        setRetryCount(prev => prev + 1);
+        setHasError(false);
+        setIsLoading(true);
+      }, 1000 * (retryCount + 1)); // Exponential backoff
+    } else {
+      setHasError(true);
+      setIsLoading(false);
+      onError?.();
+    }
   };
 
-  const videoSrc = hasError && fallbackSrc ? fallbackSrc : src;
+  // Netflix-level URL optimization
+  const getOptimizedVideoSrc = () => {
+    const baseUrl = hasError && fallbackSrc ? fallbackSrc : src;
+    if (!baseUrl) return '';
+    
+    try {
+      const url = new URL(baseUrl, window.location.origin);
+      
+      // Add Netflix-level optimization parameters
+      if (streamOptimization === 'netflix-level') {
+        url.searchParams.set('optimize', 'netflix-level');
+        url.searchParams.set('buffer', bufferStrategy);
+        
+        // Quality optimization based on device and network
+        if (quality === 'auto') {
+          if (deviceType === 'mobile' || networkSpeed === '2g' || networkSpeed === 'slow-2g') {
+            url.searchParams.set('quality', 'medium');
+          } else if (deviceType === 'mac' || deviceType === 'windows' || deviceType === 'linux') {
+            url.searchParams.set('quality', 'high');
+          } else {
+            url.searchParams.set('quality', 'high');
+          }
+        } else {
+          url.searchParams.set('quality', quality);
+        }
+        
+        // Device-specific optimizations
+        url.searchParams.set('device', deviceType);
+        
+        // Network-specific optimizations
+        if (networkSpeed !== 'unknown') {
+          url.searchParams.set('network', networkSpeed);
+        }
+        
+        // Priority handling
+        if (priority) {
+          url.searchParams.set('priority', 'high');
+        }
+      }
+      
+      return url.toString();
+    } catch {
+      return baseUrl; // Fallback to original URL if parsing fails
+    }
+  };
 
   return (
     <div ref={containerRef} className={`relative overflow-hidden ${className}`}>
@@ -108,10 +200,24 @@ const LazyVideo = forwardRef<HTMLVideoElement, LazyVideoProps>(({
             onCanPlay={handleCanPlay}
             onError={handleError}
             poster={poster}
+            preload={priority ? 'auto' : 'metadata'}
+            crossOrigin="anonymous"
+            playsInline
+            webkit-playsinline="true"
+            x-webkit-airplay="allow"
+            style={{
+              // Netflix-level hardware acceleration
+              transform: 'translateZ(0)',
+              willChange: 'transform',
+              backgroundColor: '#000'
+            }}
             {...props}
           >
-            <source src={videoSrc} type="video/mp4" />
-            {fallbackSrc && hasError && (
+            {/* Netflix-level multi-source strategy */}
+            <source src={getOptimizedVideoSrc()} type="video/mp4; codecs=&quot;avc1.42E01E, mp4a.40.2&quot;" />
+            <source src={`${getOptimizedVideoSrc()}&format=webm`} type="video/webm; codecs=&quot;vp9, opus&quot;" />
+            <source src={`${getOptimizedVideoSrc()}&quality=medium`} type="video/mp4" />
+            {fallbackSrc && (
               <source src={fallbackSrc} type="video/mp4" />
             )}
             Your browser does not support the video tag.

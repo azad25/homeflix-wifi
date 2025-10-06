@@ -33,7 +33,12 @@ func NewPosterService(posterDir string) *PosterService {
 	if err := os.MkdirAll(posterDir, 0755); err != nil {
 		log.Printf("Warning: Failed to create poster directory %s: %v", posterDir, err)
 	}
-	
+
+	// Also create root-level poster directory for fallback
+	if err := os.MkdirAll("./posters", 0755); err != nil {
+		log.Printf("Warning: Failed to create root poster directory: %v", err)
+	}
+
 	return &PosterService{
 		posterDir: posterDir,
 	}
@@ -42,11 +47,11 @@ func NewPosterService(posterDir string) *PosterService {
 // DownloadPoster downloads and saves a poster for the given media
 func (s *PosterService) DownloadPoster(title string, mediaID uint) error {
 	log.Printf("Downloading HD poster for: %s", title)
-	
+
 	// Extract title and year from filename
 	cleanedTitle, year := s.extractTitleAndYear(title)
 	log.Printf("Extracted title: '%s', year: '%s'", cleanedTitle, year)
-	
+
 	// Build search query with year if available
 	var searchQuery string
 	if year != "" {
@@ -54,62 +59,86 @@ func (s *PosterService) DownloadPoster(title string, mediaID uint) error {
 	} else {
 		searchQuery = cleanedTitle
 	}
-	
+
 	log.Printf("Searching for poster: %s", searchQuery)
-	
+
 	// Search for poster using multiple sources
 	posterURL, err := s.searchGoogleImages(searchQuery)
 	if err != nil {
 		log.Printf("Failed to find poster for %s: %v", searchQuery, err)
 		return fmt.Errorf("failed to find poster for %s", title)
 	}
-	
-	posterPath, err := s.downloadAndSaveImage(posterURL, mediaID)
+
+	posterPath, err := s.downloadAndSaveImage(posterURL, mediaID, title)
 	if err != nil {
 		log.Printf("Failed to download poster from %s: %v", posterURL, err)
 		return fmt.Errorf("failed to download poster for %s", title)
 	}
-	
+
 	log.Printf("Successfully downloaded poster for %s: %s", title, posterPath)
 	return nil
 }
 
 // downloadAndSaveImage downloads an image from URL and saves it to a local path
-func (s *PosterService) downloadAndSaveImage(imageURL string, mediaID uint) (string, error) {
-	// Create the file path
-	posterPath := filepath.Join(s.posterDir, fmt.Sprintf("poster_%d.jpg", mediaID))
+func (s *PosterService) downloadAndSaveImage(imageURL string, mediaID uint, title string) (string, error) {
+	// Create filename using cleaned title
+	cleanTitle := s.cleanTitleForFilename(title)
 	
+	// Try root folder first (preferred location)
+	rootPosterPath := filepath.Join("./posters", fmt.Sprintf("poster_%s.jpg", cleanTitle))
+	backendPosterPath := filepath.Join(s.posterDir, fmt.Sprintf("poster_%s.jpg", cleanTitle))
+
+	// Try to save to root folder first
+	var rootErr error
+	if rootErr = s.downloadToPath(imageURL, rootPosterPath); rootErr == nil {
+		return rootPosterPath, nil
+	}
+
+	log.Printf("Failed to save to root folder, trying backend folder: %v", rootErr)
+
+	// Fallback to backend folder
+	var backendErr error
+	if backendErr = s.downloadToPath(imageURL, backendPosterPath); backendErr == nil {
+		return backendPosterPath, nil
+	}
+
+	return "", fmt.Errorf("failed to save poster to any location: %w", backendErr)
+}
+
+// downloadToPath downloads image to specific path
+func (s *PosterService) downloadToPath(imageURL, posterPath string) error {
+
 	// Download the image
 	client := &http.Client{
 		Timeout: 30 * time.Second,
 	}
-	
+
 	resp, err := client.Get(imageURL)
 	if err != nil {
-		return "", err
+		return err
 	}
 	defer resp.Body.Close()
-	
+
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("failed to download image: status %d", resp.StatusCode)
+		return fmt.Errorf("failed to download image: status %d", resp.StatusCode)
 	}
-	
+
 	// Create the file
 	file, err := os.Create(posterPath)
 	if err != nil {
-		return "", err
+		return err
 	}
 	defer file.Close()
-	
+
 	// Copy image data to file
 	_, err = io.Copy(file, resp.Body)
 	if err != nil {
 		// Clean up partial file on error
 		os.Remove(posterPath)
-		return "", err
+		return err
 	}
-	
-	return posterPath, nil
+
+	return nil
 }
 
 // extractTitleAndYear extracts clean title and year from filename
@@ -121,13 +150,13 @@ func (s *PosterService) extractTitleAndYear(filename string) (string, string) {
 	if len(yearMatches) > 0 {
 		year = yearMatches[len(yearMatches)-1] // Take the last year found
 	}
-	
+
 	// Remove year from filename for title cleaning
 	titleWithoutYear := yearRegex.ReplaceAllString(filename, " ")
-	
+
 	// Clean the title
 	title := s.cleanTitleForSearch(titleWithoutYear)
-	
+
 	return title, year
 }
 
@@ -136,7 +165,7 @@ func (s *PosterService) generatePlaceholderURL(title string) string {
 	// Clean the title for URL generation
 	cleanQuery := strings.ToLower(title)
 	cleanQuery = strings.ReplaceAll(cleanQuery, " ", "+")
-	
+
 	// Generate a nice looking placeholder poster
 	return fmt.Sprintf("https://via.placeholder.com/500x750/1a1a1a/ffffff?text=%s", cleanQuery)
 }
@@ -147,7 +176,7 @@ func (s *PosterService) cleanTitleForSearch(title string) string {
 	if idx := strings.Index(strings.ToLower(title), " p "); idx != -1 {
 		title = title[:idx]
 	}
-	
+
 	// Remove everything after common separators
 	separators := []string{" - ", " -", "- ", "-d3g", "-[", " [", "["}
 	for _, sep := range separators {
@@ -155,63 +184,63 @@ func (s *PosterService) cleanTitleForSearch(title string) string {
 			title = title[:idx]
 		}
 	}
-	
+
 	// Remove brackets and parentheses content
 	title = regexp.MustCompile(`\[.*?\]`).ReplaceAllString(title, " ")
 	title = regexp.MustCompile(`\(.*?\)`).ReplaceAllString(title, " ")
-	
+
 	// Enhanced patterns for better cleaning
 	patterns := []string{
-		`(?i)imax\s+ed`,       // IMAX Ed
-		`(?i)imax`,            // IMAX
-		`(?i)extended`,        // Extended
+		`(?i)imax\s+ed`,          // IMAX Ed
+		`(?i)imax`,               // IMAX
+		`(?i)extended`,           // Extended
 		`(?i)director.?s?\s+cut`, // Director's Cut
-		`(?i)unrated`,         // Unrated
-		`(?i)remastered`,      // Remastered
-		`(?i)dd5\.?1`,         // DD5.1
-		`(?i)dd\s*5\s*1`,      // DD 5 1
-		`(?i)dts`,             // DTS
-		`(?i)ac3`,             // AC3
-		`(?i)aac`,             // AAC
-		`(?i)bluray`,          // BluRay
-		`(?i)brrip`,           // BRRip
-		`(?i)webrip`,          // WebRip
-		`(?i)web-?dl`,         // WEB-DL
-		`(?i)hdtv`,            // HDTV
-		`(?i)x26[45]`,         // x264/x265
-		`(?i)h\.?26[45]`,      // h264/h265
-		`(?i)hevc`,            // HEVC
-		`(?i)\d{3,4}p`,        // Resolution (720p, 1080p, etc)
-		`(?i)4k`,              // 4K
-		`(?i)uhd`,             // UHD
-		`(?i)hdr`,             // HDR
-		`(?i)yts\.?mx`,        // YTS.MX
-		`(?i)yts\.?am`,        // YTS.AM
-		`(?i)yify`,            // YIFY
-		`(?i)rarbg`,           // RARBG
-		`(?i)\d+bit`,          // 10bit, 8bit
-		`(?i)[57]\.?1`,        // 5.1, 7.1 audio
-		`\b[57]\s+1\b`,        // "5 1", "7 1"
-		`(?i)web\b`,           // WEB
-		`(?i)cam`,             // CAM
-		`(?i)ts\b`,            // TS
-		`(?i)dvdrip`,          // DVDRip
-		`(?i)bdrip`,           // BDRip
-		`(?i)hdrip`,           // HDRip
+		`(?i)unrated`,            // Unrated
+		`(?i)remastered`,         // Remastered
+		`(?i)dd5\.?1`,            // DD5.1
+		`(?i)dd\s*5\s*1`,         // DD 5 1
+		`(?i)dts`,                // DTS
+		`(?i)ac3`,                // AC3
+		`(?i)aac`,                // AAC
+		`(?i)bluray`,             // BluRay
+		`(?i)brrip`,              // BRRip
+		`(?i)webrip`,             // WebRip
+		`(?i)web-?dl`,            // WEB-DL
+		`(?i)hdtv`,               // HDTV
+		`(?i)x26[45]`,            // x264/x265
+		`(?i)h\.?26[45]`,         // h264/h265
+		`(?i)hevc`,               // HEVC
+		`(?i)\d{3,4}p`,           // Resolution (720p, 1080p, etc)
+		`(?i)4k`,                 // 4K
+		`(?i)uhd`,                // UHD
+		`(?i)hdr`,                // HDR
+		`(?i)yts\.?mx`,           // YTS.MX
+		`(?i)yts\.?am`,           // YTS.AM
+		`(?i)yify`,               // YIFY
+		`(?i)rarbg`,              // RARBG
+		`(?i)\d+bit`,             // 10bit, 8bit
+		`(?i)[57]\.?1`,           // 5.1, 7.1 audio
+		`\b[57]\s+1\b`,           // "5 1", "7 1"
+		`(?i)web\b`,              // WEB
+		`(?i)cam`,                // CAM
+		`(?i)ts\b`,               // TS
+		`(?i)dvdrip`,             // DVDRip
+		`(?i)bdrip`,              // BDRip
+		`(?i)hdrip`,              // HDRip
 	}
-	
+
 	cleaned := title
-	
+
 	// Apply all cleaning patterns
 	for _, pattern := range patterns {
 		re := regexp.MustCompile(pattern)
 		cleaned = re.ReplaceAllString(cleaned, " ")
 	}
-	
+
 	// Final cleanup
 	cleaned = strings.TrimSpace(cleaned)
 	cleaned = strings.Join(strings.Fields(cleaned), " ")
-	
+
 	return cleaned
 }
 
@@ -224,13 +253,13 @@ func (s *PosterService) searchGoogleImages(query string) (string, error) {
 		s.searchIMDbPattern,
 		s.generateFallbackPoster,
 	}
-	
+
 	for _, source := range sources {
 		if imageURL, err := source(query); err == nil && imageURL != "" {
 			return imageURL, nil
 		}
 	}
-	
+
 	return "", fmt.Errorf("no poster found for query: %s", query)
 }
 
@@ -244,17 +273,17 @@ func (s *PosterService) searchGoogleCustomAPI(query string) (string, error) {
 func (s *PosterService) searchOMDbAPI(query string) (string, error) {
 	// Clean query for OMDb search
 	cleanQuery := strings.ReplaceAll(query, " ", "+")
-	
+
 	// Try OMDb poster URL pattern (would need API key for real implementation)
 	posterURL := fmt.Sprintf("https://img.omdbapi.com/?t=%s&apikey=placeholder", cleanQuery)
-	
+
 	// Test if URL is accessible (this will fail without real API key)
 	client := &http.Client{Timeout: 5 * time.Second}
 	resp, err := client.Head(posterURL)
 	if err != nil || resp.StatusCode != 200 {
 		return "", fmt.Errorf("OMDb API not accessible")
 	}
-	
+
 	return posterURL, nil
 }
 
@@ -264,13 +293,13 @@ func (s *PosterService) searchIMDbPattern(query string) (string, error) {
 	cleanQuery := strings.ToLower(query)
 	cleanQuery = strings.ReplaceAll(cleanQuery, " ", "-")
 	cleanQuery = regexp.MustCompile(`[^a-z0-9-]`).ReplaceAllString(cleanQuery, "")
-	
+
 	// Try common IMDb poster patterns
 	patterns := []string{
 		fmt.Sprintf("https://m.media-amazon.com/images/M/MV5B%s.jpg", cleanQuery),
 		fmt.Sprintf("https://images-na.ssl-images-amazon.com/images/M/MV5B%s.jpg", cleanQuery),
 	}
-	
+
 	client := &http.Client{Timeout: 5 * time.Second}
 	for _, pattern := range patterns {
 		resp, err := client.Head(pattern)
@@ -278,7 +307,7 @@ func (s *PosterService) searchIMDbPattern(query string) (string, error) {
 			return pattern, nil
 		}
 	}
-	
+
 	return "", fmt.Errorf("no IMDb pattern found")
 }
 
@@ -287,19 +316,60 @@ func (s *PosterService) generateFallbackPoster(query string) (string, error) {
 	// Clean the query for URL generation
 	cleanQuery := strings.TrimSpace(query)
 	cleanQuery = url.QueryEscape(cleanQuery)
-	
+
 	// Use a better placeholder service with movie poster styling
 	posterURL := fmt.Sprintf("https://via.placeholder.com/500x750/2c3e50/ecf0f1?text=%s", cleanQuery)
-	
+
 	return posterURL, nil
 }
 
-
 // GetPosterPath returns the path to a poster for the given media ID
-func (s *PosterService) GetPosterPath(mediaID uint) string {
-	posterPath := filepath.Join(s.posterDir, fmt.Sprintf("poster_%d.jpg", mediaID))
-	if _, err := os.Stat(posterPath); err == nil {
-		return posterPath
+func (s *PosterService) GetPosterPath(mediaID uint, title string) string {
+	cleanTitle := s.cleanTitleForFilename(title)
+	
+	// Check root folder first
+	rootPosterPath := filepath.Join("./posters", fmt.Sprintf("poster_%s.jpg", cleanTitle))
+	if _, err := os.Stat(rootPosterPath); err == nil {
+		return rootPosterPath
 	}
+
+	// Check backend folder as fallback
+	backendPosterPath := filepath.Join(s.posterDir, fmt.Sprintf("poster_%s.jpg", cleanTitle))
+	if _, err := os.Stat(backendPosterPath); err == nil {
+		return backendPosterPath
+	}
+
 	return ""
+}
+
+// cleanTitleForFilename creates a safe filename from a title
+func (s *PosterService) cleanTitleForFilename(title string) string {
+	// Remove or replace characters that are not safe for filenames
+	cleaned := strings.ReplaceAll(title, " ", "_")
+	cleaned = strings.ReplaceAll(cleaned, ":", "")
+	cleaned = strings.ReplaceAll(cleaned, "/", "_")
+	cleaned = strings.ReplaceAll(cleaned, "\\", "_")
+	cleaned = strings.ReplaceAll(cleaned, "?", "")
+	cleaned = strings.ReplaceAll(cleaned, "*", "")
+	cleaned = strings.ReplaceAll(cleaned, "<", "")
+	cleaned = strings.ReplaceAll(cleaned, ">", "")
+	cleaned = strings.ReplaceAll(cleaned, "|", "")
+	cleaned = strings.ReplaceAll(cleaned, "\"", "")
+	cleaned = strings.ReplaceAll(cleaned, "'", "")
+	
+	// Remove multiple underscores and trim
+	cleaned = regexp.MustCompile(`_+`).ReplaceAllString(cleaned, "_")
+	cleaned = strings.Trim(cleaned, "_")
+	
+	// Limit length to avoid filesystem issues
+	if len(cleaned) > 100 {
+		cleaned = cleaned[:100]
+	}
+	
+	// Ensure we have something if title was all special characters
+	if cleaned == "" {
+		cleaned = "untitled"
+	}
+	
+	return cleaned
 }

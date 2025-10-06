@@ -10,6 +10,7 @@ import { getApiUrl } from '@/lib/api';
 import { Media } from '@/types/media';
 import { ScrollXHero, NetflixHorizontalRow } from '@/components/scrollx';
 import RecentlyWatched from '@/components/RecentlyWatched';
+import ContinueWatching from '@/components/ContinueWatching';
 
 export default function Home() {
   const router = useRouter();
@@ -237,6 +238,8 @@ export default function Home() {
             featuredMedia={featuredMedia}
             onPlay={handlePlay}
             onInfo={handleInfo}
+            enableRecommendations={true}
+            refreshInterval={300000}
           />
         )}
 
@@ -256,6 +259,12 @@ export default function Home() {
             </div>
           ) : (
             <div className="space-y-8 pb-20">
+              {/* Continue Watching */}
+              <ContinueWatching
+                onPlay={handlePlay}
+                onInfo={handleInfo}
+              />
+
               {/* Recently Watched */}
               <RecentlyWatched
                 onPlay={handlePlay}

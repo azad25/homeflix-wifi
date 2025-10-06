@@ -66,7 +66,7 @@ export const trackView = async (
 ): Promise<void> => {
   try {
     const apiUrl = getApiUrl();
-    const response = await fetch(`${apiUrl}/api/playback/track/${mediaId}`, {
+    const response = await fetch(`${apiUrl}/api/track-view/${mediaId}`, {
       method: 'POST',
       headers: {
         'X-User-ID': userID,
@@ -90,6 +90,50 @@ export const formatTime = (seconds: number): string => {
     return `${hours}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   }
   return `${minutes}:${secs.toString().padStart(2, '0')}`;
+};
+
+export const getContinueWatching = async (
+  userID: string = '1',
+  limit: number = 10
+): Promise<PlaybackProgress[]> => {
+  try {
+    const apiUrl = getApiUrl();
+    const response = await fetch(`${apiUrl}/api/playback/continue?limit=${limit}`, {
+      headers: {
+        'X-User-ID': userID,
+      },
+    });
+
+    if (response.ok) {
+      return await response.json();
+    }
+    return [];
+  } catch (error) {
+    console.error('Error getting continue watching:', error);
+    return [];
+  }
+};
+
+export const getRecentlyWatched = async (
+  userID: string = '1',
+  limit: number = 20
+): Promise<any[]> => {
+  try {
+    const apiUrl = getApiUrl();
+    const response = await fetch(`${apiUrl}/api/playback/recently-watched?limit=${limit}`, {
+      headers: {
+        'X-User-ID': userID,
+      },
+    });
+
+    if (response.ok) {
+      return await response.json();
+    }
+    return [];
+  } catch (error) {
+    console.error('Error getting recently watched:', error);
+    return [];
+  }
 };
 
 export const formatProgress = (progressSeconds: number, durationSeconds: number): number => {

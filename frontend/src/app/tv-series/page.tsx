@@ -114,6 +114,8 @@ export default function TVSeries() {
           featuredMedia={featuredSeries}
           onPlay={handlePlay}
           onInfo={handleInfo}
+          enableRecommendations={true}
+          refreshInterval={300000}
         />
       )}
 

@@ -4,6 +4,7 @@ import (
 	"log"
 	"os"
 
+	"homeflix-backend/internal/adapters"
 	"homeflix-backend/internal/api"
 	"homeflix-backend/internal/config"
 	"homeflix-backend/internal/database"
@@ -45,17 +46,43 @@ func main() {
 	// Initialize poster service
 	posterService := services.NewPosterService("./posters")
 	
-	// Initialize media scanner with ALAC service
-	mediaScanner := scanner.NewMediaScanner(mediaService, thumbnailService, posterService, geminiService, celeryService, alacService, cfg.MediaPath)
+	// Create service adapters to resolve interface compatibility
+	mediaServiceAdapter := adapters.NewMediaServiceAdapter(mediaService)
+	thumbnailServiceAdapter := adapters.NewThumbnailServiceAdapter(thumbnailService)
+	posterServiceAdapter := adapters.NewPosterServiceAdapter(posterService)
+	geminiServiceAdapter := adapters.NewGeminiServiceAdapter(geminiService)
+	celeryServiceAdapter := adapters.NewCeleryServiceAdapter(celeryService)
+	alacServiceAdapter := adapters.NewALACAudioServiceAdapter(alacService)
+	tmdbServiceAdapter := adapters.NewTMDBServiceAdapter(tmdbService)
+	recommendationServiceAdapter := adapters.NewRecommendationServiceAdapter(recommendationService)
+
+	// Initialize media scanner with adapted services
+	mediaScanner := scanner.NewMediaScanner(mediaServiceAdapter, thumbnailServiceAdapter, posterServiceAdapter, geminiServiceAdapter, celeryServiceAdapter, alacServiceAdapter, tmdbServiceAdapter, recommendationServiceAdapter, cfg.MediaPath)
+
+	// Initialize watcher service for real-time file monitoring
+	watchPaths := []string{cfg.MediaPath}
+	watcherService, err := services.NewWatcherService(mediaScanner, watchPaths)
+	if err != nil {
+		log.Printf("Failed to initialize watcher service: %v", err)
+	} else {
+		log.Println("Watcher service initialized successfully")
+		
+		// Start the file watcher
+		if err := watcherService.Start(); err != nil {
+			log.Printf("Failed to start file watcher: %v", err)
+		} else {
+			log.Println("File watcher started successfully")
+		}
+	}
 
 	// Start background media scanning
 	go func() {
-		log.Println("Starting media scanner...")
+		log.Println("Starting initial media scanner...")
 		log.Printf("Scanning media path: %s", cfg.MediaPath)
 		if err := mediaScanner.ScanMediaLibrary(); err != nil {
 			log.Printf("Media scanning error: %v", err)
 		} else {
-			log.Println("Media scanning completed successfully")
+			log.Println("Initial media scanning completed successfully")
 		}
 	}()
 
@@ -72,7 +99,7 @@ func main() {
 	}))
 
 	// Initialize API routes
-	api.SetupRoutes(r, mediaService, streamService, thumbnailService, userService, recommendationService, playbackService, geminiService, celeryService, alacService, tmdbService, mediaScanner)
+	api.SetupRoutes(r, mediaService, streamService, thumbnailService, userService, recommendationService, playbackService, geminiService, celeryService, alacService, tmdbService, mediaScanner, watcherService)
 
 	// Start server
 	port := os.Getenv("PORT")

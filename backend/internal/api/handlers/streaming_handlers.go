@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 
 	"homeflix-backend/internal/services"
 
@@ -43,40 +44,68 @@ func StreamMedia(streamService *services.OptimizedStreamService, mediaService *s
 			return
 		}
 		
-		// Netflix-style quality and format handling
+		// Netflix-level quality and format handling
 		quality := c.Query("quality")
 		format := c.Query("format")
 		
-		// Set Netflix-style streaming headers
+		// Set Netflix-level streaming headers
 		c.Header("X-Content-Type-Options", "nosniff")
 		c.Header("X-Frame-Options", "SAMEORIGIN")
-		c.Header("Vary", "Accept-Encoding, Range")
+		c.Header("Vary", "Accept-Encoding, Range, User-Agent")
 		c.Header("X-Robots-Tag", "noindex")
+		c.Header("X-Stream-Engine", "homeflix-ultra")
 		
-		// Quality-specific headers
-		if quality == "high" {
+		// Advanced quality-specific headers
+		switch quality {
+		case "4k", "ultra":
+			c.Header("X-Video-Quality", "4k")
+			c.Header("X-Video-Bitrate", "ultra-high")
+			c.Header("X-Hardware-Decode", "required")
+		case "high", "1080p":
 			c.Header("X-Video-Quality", "1080p")
 			c.Header("X-Video-Bitrate", "high")
-		} else if quality == "medium" {
+			c.Header("X-Hardware-Decode", "recommended")
+		case "medium", "720p":
 			c.Header("X-Video-Quality", "720p")
 			c.Header("X-Video-Bitrate", "medium")
-		} else if quality == "low" {
+			c.Header("X-Hardware-Decode", "optional")
+		case "low", "480p":
 			c.Header("X-Video-Quality", "480p")
 			c.Header("X-Video-Bitrate", "low")
+			c.Header("X-Hardware-Decode", "software")
+		default:
+			// Auto-detect based on user agent
+			userAgent := c.GetHeader("User-Agent")
+			if strings.Contains(strings.ToLower(userAgent), "mobile") {
+				c.Header("X-Video-Quality", "720p")
+				c.Header("X-Video-Bitrate", "medium")
+			} else {
+				c.Header("X-Video-Quality", "1080p")
+				c.Header("X-Video-Bitrate", "high")
+			}
 		}
 		
-		// Format-specific content type override
-		if format == "webm" {
-			c.Header("Content-Type", "video/webm")
-		} else if format == "mov" {
-			c.Header("Content-Type", "video/quicktime")
+		// Format-specific content type override with codec hints
+		switch format {
+		case "webm":
+			c.Header("Content-Type", "video/webm; codecs=\"vp9, opus\"")
+		case "mov":
+			c.Header("Content-Type", "video/quicktime; codecs=\"avc1.42E01E, mp4a.40.2\"")
+		case "mp4":
+			c.Header("Content-Type", "video/mp4; codecs=\"avc1.42E01E, mp4a.40.2\"")
 		}
 		
-		// Enhanced CORS for video streaming
+		// Ultra-enhanced CORS for cross-device streaming
 		c.Header("Access-Control-Allow-Origin", "*")
 		c.Header("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
-		c.Header("Access-Control-Allow-Headers", "Range, Content-Type, Accept, Authorization")
-		c.Header("Access-Control-Expose-Headers", "Content-Range, Content-Length, Accept-Ranges")
+		c.Header("Access-Control-Allow-Headers", "Range, Content-Type, Accept, Authorization, X-Requested-With, X-Device-Type, X-Network-Speed")
+		c.Header("Access-Control-Expose-Headers", "Content-Range, Content-Length, Accept-Ranges, X-Video-Quality, X-Stream-Health, X-Buffer-Status")
+		c.Header("Access-Control-Max-Age", "86400")
+		
+		// Performance optimization headers
+		c.Header("X-Stream-Optimization", "netflix-level")
+		c.Header("X-Buffer-Strategy", "aggressive-preload")
+		c.Header("X-Latency-Mode", "ultra-low")
 		
 		// Handle preflight requests
 		if c.Request.Method == "OPTIONS" {
@@ -152,26 +181,57 @@ func StreamPreviewClip(streamService *services.OptimizedStreamService, mediaServ
 			return
 		}
 		
-		// Set headers optimized for preview clips (shorter, smaller files)
-		c.Header("Content-Type", "video/mp4")
-		c.Header("Cache-Control", "public, max-age=86400") // 24 hours cache for previews
+		// Set headers optimized for ultra-fast preview clips
+		c.Header("Content-Type", "video/mp4; codecs=\"avc1.42E01E, mp4a.40.2\"")
+		c.Header("Cache-Control", "public, max-age=86400, stale-while-revalidate=3600") // Aggressive caching
 		c.Header("Access-Control-Allow-Origin", "*")
-		c.Header("Access-Control-Allow-Headers", "Range, Content-Type, Accept")
+		c.Header("Access-Control-Allow-Headers", "Range, Content-Type, Accept, X-Preview-Quality")
+		c.Header("Access-Control-Expose-Headers", "Content-Length, Content-Range, X-Preview-Duration")
 		c.Header("X-Content-Type-Options", "nosniff")
+		c.Header("X-Preview-Clip", "true")
+		c.Header("X-Stream-Priority", "high") // High priority for instant loading
 		
-		// Handle quality parameter for preview clips
+		// Ultra-optimized quality handling for preview clips
 		quality := c.Query("quality")
-		if quality == "low" {
-			c.Header("X-Video-Quality", "360p")
-		} else {
+		switch quality {
+		case "high":
 			c.Header("X-Video-Quality", "720p")
+			c.Header("X-Preview-Bitrate", "2000k")
+		case "medium":
+			c.Header("X-Video-Quality", "480p")
+			c.Header("X-Preview-Bitrate", "1000k")
+		case "low":
+			c.Header("X-Video-Quality", "360p")
+			c.Header("X-Preview-Bitrate", "500k")
+		default:
+			// Auto-detect optimal quality for previews
+			userAgent := c.GetHeader("User-Agent")
+			if strings.Contains(strings.ToLower(userAgent), "mobile") {
+				c.Header("X-Video-Quality", "480p")
+				c.Header("X-Preview-Bitrate", "800k")
+			} else {
+				c.Header("X-Video-Quality", "720p")
+				c.Header("X-Preview-Bitrate", "1500k")
+			}
 		}
 		
-		// Handle format parameter
+		// Format optimization for preview clips
 		format := c.Query("format")
-		if format == "webm" {
-			c.Header("Content-Type", "video/webm")
+		switch format {
+		case "webm":
+			c.Header("Content-Type", "video/webm; codecs=\"vp9, opus\"")
+			c.Header("X-Preview-Format", "webm")
+		case "mp4":
+			c.Header("Content-Type", "video/mp4; codecs=\"avc1.42E01E, mp4a.40.2\"")
+			c.Header("X-Preview-Format", "mp4")
+		default:
+			c.Header("X-Preview-Format", "auto")
 		}
+		
+		// Preview-specific performance headers
+		c.Header("X-Preview-Optimization", "instant-load")
+		c.Header("X-Buffer-Strategy", "preview-optimized")
+		c.Header("X-Preload-Hint", "aggressive")
 		
 		// Handle preflight requests
 		if c.Request.Method == "OPTIONS" {

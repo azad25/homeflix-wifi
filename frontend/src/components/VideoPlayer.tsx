@@ -43,8 +43,46 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
   const [showResumeNotification, setShowResumeNotification] = useState(false);
   const [resumeTime, setResumeTime] = useState(0);
 
-  const getStreamUrl = (mediaId: number) => {
-    return `${getApiUrl()}/api/stream/${mediaId}`;
+  const getStreamUrl = (mediaId: number, quality?: string, format?: string) => {
+    const baseUrl = `${getApiUrl()}/api/stream/${mediaId}`;
+    const params = new URLSearchParams();
+    
+    // Netflix-level optimization parameters
+    params.set('optimize', 'netflix-level');
+    params.set('buffer', 'aggressive');
+    params.set('latency', 'ultra-low');
+    
+    if (quality) {
+      params.set('quality', quality);
+    } else {
+      // Auto-detect quality based on device
+      const userAgent = navigator.userAgent.toLowerCase();
+      if (userAgent.includes('mobile')) {
+        params.set('quality', 'high'); // High quality even for mobile on local network
+      } else {
+        params.set('quality', '4k'); // Ultra quality for desktop
+      }
+    }
+    
+    if (format) {
+      params.set('format', format);
+    }
+    
+    // Device-specific optimizations
+    const userAgent = navigator.userAgent.toLowerCase();
+    if (userAgent.includes('mac')) {
+      params.set('device', 'mac');
+    } else if (userAgent.includes('windows')) {
+      params.set('device', 'windows');
+    } else if (userAgent.includes('linux')) {
+      params.set('device', 'linux');
+    } else if (userAgent.includes('ios')) {
+      params.set('device', 'ios');
+    } else if (userAgent.includes('android')) {
+      params.set('device', 'android');
+    }
+    
+    return `${baseUrl}?${params.toString()}`;
   };
 
   // Detect mobile device
@@ -473,8 +511,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
       if (!isDragging) {
         setCurrentTime(video.currentTime);
         // Update playback progress every 10 seconds
-        if (Math.floor(video.currentTime) % 10 === 0) {
-          updatePlaybackProgress(media.id, video.currentTime, video.duration);
+        if (Math.floor(video.currentTime) % 10 === 0 && video.duration > 0) {
+          updatePlaybackProgress(media.id, video.currentTime, video.duration, '1');
         }
       }
     };
@@ -498,14 +536,18 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
       console.log('Video paused');
       setIsPlaying(false);
       // Update progress when paused
-      updatePlaybackProgress(media.id, video.currentTime, video.duration);
+      if (video.duration > 0) {
+        updatePlaybackProgress(media.id, video.currentTime, video.duration, '1');
+      }
     };
     
     const handleEnded = () => {
       console.log('Video ended');
       setIsPlaying(false);
       // Mark as completed when ended
-      updatePlaybackProgress(media.id, video.duration, video.duration);
+      if (video.duration > 0) {
+        updatePlaybackProgress(media.id, video.duration, video.duration, '1');
+      }
       
       // Show next episode if available
       if (nextEpisode) {
@@ -667,11 +709,12 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
           muted={false}
           crossOrigin="anonymous"
         >
-          {/* Primary video source with better codec specification */}
-          <source src={`${getStreamUrl(media.id)}?quality=high`} type="video/mp4; codecs=&quot;avc1.42E01E, mp4a.40.2&quot;" />
-          <source src={getStreamUrl(media.id)} type="video/mp4" />
-          <source src={`${getStreamUrl(media.id)}?format=webm`} type="video/webm; codecs=&quot;vp9, vorbis&quot;" />
-          <source src={`${getStreamUrl(media.id)}?format=mov`} type="video/quicktime" />
+          {/* Netflix-level multi-source strategy with ultra-fast loading */}
+          <source src={getStreamUrl(media.id, '4k', 'mp4')} type="video/mp4; codecs=&quot;avc1.42E01E, mp4a.40.2&quot;" />
+          <source src={getStreamUrl(media.id, 'high', 'webm')} type="video/webm; codecs=&quot;vp9, opus&quot;" />
+          <source src={getStreamUrl(media.id, 'high', 'mp4')} type="video/mp4" />
+          <source src={getStreamUrl(media.id, 'medium', 'mp4')} type="video/mp4" />
+          <source src={getStreamUrl(media.id, 'low', 'mp4')} type="video/mp4" />
           
           {/* Subtitles */}
           {availableSubtitles.map((subtitle, index) => (

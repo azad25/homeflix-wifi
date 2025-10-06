@@ -51,7 +51,61 @@ export default function TVShowsPage() {
       
       // Fetch TV shows specifically
       const tvShowsResponse = await fetch(`${apiUrl}/api/media/tv-shows`);
+      
+      if (!tvShowsResponse.ok) {
+        throw new Error(`HTTP error! status: ${tvShowsResponse.status}`);
+      }
+      
       const episodes = await tvShowsResponse.json();
+      
+      // Ensure we have valid data
+      if (!Array.isArray(episodes)) {
+        console.warn("TV shows API returned non-array data:", episodes);
+        setLoading(false);
+        return;
+      }
+      
+      console.log(`Fetched ${episodes.length} TV show episodes`);
+      
+      // If no episodes found, try fallback to all media filtered for episodes
+      if (episodes.length === 0) {
+        console.log("No episodes found via TV shows endpoint, trying fallback...");
+        const allMediaResponse = await fetch(`${apiUrl}/api/media`);
+        const allMedia = await allMediaResponse.json();
+        
+        const filteredEpisodes = allMedia.filter((item: Media) => 
+          item.type === 'episode' || 
+          item.type === 'tv' || 
+          item.title.toLowerCase().includes('series') ||
+          item.title.toLowerCase().includes('episode')
+        );
+        
+        console.log(`Fallback found ${filteredEpisodes.length} episodes`);
+        
+        if (filteredEpisodes.length > 0) {
+          const sortedEpisodes = filteredEpisodes.sort((a: Media, b: Media) => (b.rating || 0) - (a.rating || 0));
+          setFeaturedSeries(sortedEpisodes.slice(0, 5));
+          
+          // Update other arrays with fallback data
+          setRecentEpisodes(filteredEpisodes.sort((a: Media, b: Media) => b.id - a.id).slice(0, 20));
+          setPopularSeries(filteredEpisodes.sort((a: Media, b: Media) => (b.view_count ?? 0) - (a.view_count ?? 0)).slice(0, 20));
+          
+          setActionSeries(filteredEpisodes.filter((e: Media) => 
+            e.genres?.some(g => g.name.toLowerCase().includes('action'))
+          ).slice(0, 20));
+          
+          setDramaSeries(filteredEpisodes.filter((e: Media) => 
+            e.genres?.some(g => g.name.toLowerCase().includes('drama'))
+          ).slice(0, 20));
+          
+          setComedySeries(filteredEpisodes.filter((e: Media) => 
+            e.genres?.some(g => g.name.toLowerCase().includes('comedy'))
+          ).slice(0, 20));
+          
+          setLoading(false);
+          return;
+        }
+      }
       
       // Set featured episodes for hero section
       const sortedEpisodes = episodes.sort((a: Media, b: Media) => (b.rating || 0) - (a.rating || 0));
@@ -140,12 +194,21 @@ export default function TVShowsPage() {
       <Navbar />
       
       {/* Hero Section */}
-      {featuredSeries.length > 0 && (
+      {featuredSeries.length > 0 ? (
         <ScrollXHero
           featuredMedia={featuredSeries}
           onPlay={handlePlay}
           onInfo={handleInfo}
         />
+      ) : (
+        !loading && (
+          <div className="h-96 bg-gradient-to-r from-red-900/50 to-black flex items-center justify-center">
+            <div className="text-center text-white">
+              <h2 className="text-2xl font-bold mb-2">No TV Shows Found</h2>
+              <p className="text-gray-400">No TV show episodes are available in your library.</p>
+            </div>
+          </div>
+        )
       )}
 
       {/* Main Content with Parallax Background */}

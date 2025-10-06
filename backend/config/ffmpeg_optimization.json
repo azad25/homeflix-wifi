@@ -1,0 +1,87 @@
+{
+  "hardware_acceleration": {
+    "priority_order": ["vaapi", "cuda", "qsv", "opencl"],
+    "fallback_to_software": true,
+    "test_timeout_seconds": 5
+  },
+  "thumbnail_generation": {
+    "resolution": "1920x1080",
+    "quality": 2,
+    "format": "jpg",
+    "pixel_format": "yuvj420p",
+    "timestamp_strategy": "optimal_range",
+    "optimal_range": {
+      "start_percent": 25,
+      "end_percent": 40
+    },
+    "timeout_seconds": 30
+  },
+  "preview_generation": {
+    "resolution": "1920x1080",
+    "duration_seconds": 15,
+    "quality_crf": 23,
+    "audio_bitrate": "128k",
+    "audio_channels": 2,
+    "timestamp_strategy": "optimal_range",
+    "optimal_range": {
+      "start_percent": 15,
+      "end_percent": 60
+    },
+    "timeout_seconds": 120,
+    "container_optimization": {
+      "movflags": "+faststart",
+      "pixel_format": "yuv420p"
+    }
+  },
+  "worker_pool": {
+    "max_workers_multiplier": 2,
+    "max_workers_cap": 8,
+    "queue_size_multiplier": 2,
+    "job_timeout_minutes": 10,
+    "cleanup_interval_minutes": 30
+  },
+  "hardware_specific": {
+    "vaapi": {
+      "device": "/dev/dri/renderD128",
+      "encoder": "h264_vaapi",
+      "decoder": "h264",
+      "extra_flags": ["-hwaccel_output_format", "vaapi"]
+    },
+    "cuda": {
+      "encoder": "h264_nvenc",
+      "decoder": "h264_cuvid",
+      "preset": "p4",
+      "tune": "ll",
+      "extra_flags": ["-gpu", "0"]
+    },
+    "qsv": {
+      "encoder": "h264_qsv",
+      "decoder": "h264_qsv",
+      "preset": "veryfast",
+      "extra_flags": ["-look_ahead", "0"]
+    },
+    "software": {
+      "encoder": "libx264",
+      "preset": "ultrafast",
+      "threads": "auto"
+    }
+  },
+  "fallback_strategies": {
+    "thumbnail": [
+      "ffprobe_minimal",
+      "imagemagick",
+      "placeholder"
+    ],
+    "preview": [
+      "software_simple",
+      "software_short",
+      "placeholder"
+    ]
+  },
+  "monitoring": {
+    "enable_progress_logging": true,
+    "log_level": "info",
+    "performance_metrics": true,
+    "job_history_retention_hours": 24
+  }
+}

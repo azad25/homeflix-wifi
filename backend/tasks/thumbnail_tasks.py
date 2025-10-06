@@ -32,38 +32,90 @@ def generate_thumbnail(self, media_id: int, file_path: str, output_dir: str = No
         if not os.path.exists(file_path):
             raise FileNotFoundError(f"Video file not found: {file_path}")
         
-        # Set output directory
+        # Set output directory - prefer root folder
         if not output_dir:
             output_dir = os.getenv('THUMBNAIL_DIR', './thumbnails')
         
+        # Ensure both root and backend directories exist
         os.makedirs(output_dir, exist_ok=True)
+        os.makedirs('./thumbnails', exist_ok=True)
+        os.makedirs('./previews', exist_ok=True)
+        os.makedirs('./posters', exist_ok=True)
+        
+        # Use root folder for new thumbnails
+        if output_dir.startswith('./backend/'):
+            output_dir = './thumbnails'
         
         # Generate thumbnail filename
         thumbnail_filename = f"thumb_{media_id}.jpg"
         thumbnail_path = os.path.join(output_dir, thumbnail_filename)
         
-        # FFmpeg command for thumbnail generation
-        cmd = [
-            'ffmpeg',
-            '-i', file_path,
-            '-ss', '00:01:00',  # Seek to 1 minute
-            '-vframes', '1',    # Extract 1 frame
-            '-vf', 'scale=320:180',  # Resize to 320x180
-            '-q:v', '2',        # High quality
-            '-y',               # Overwrite existing
-            thumbnail_path
-        ]
+        # Try HD thumbnail generation first
+        success = False
+        error_msg = ""
         
-        # Execute FFmpeg
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=60
-        )
+        # Method 1: HD thumbnail with smart timing
+        try:
+            duration = get_video_duration(file_path)
+            if duration:
+                # Use first half of video for better thumbnail
+                seek_time = min(60, duration // 4)  # 1 minute or 1/4 of video
+            else:
+                seek_time = 60
+            
+            cmd = [
+                'ffmpeg',
+                '-i', file_path,
+                '-ss', str(seek_time),
+                '-vframes', '1',
+                '-vf', 'scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2',
+                '-q:v', '1',        # Highest quality
+                '-y',
+                thumbnail_path
+            ]
+            
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+            
+            if result.returncode == 0 and os.path.exists(thumbnail_path):
+                success = True
+            else:
+                error_msg = result.stderr
+                
+        except Exception as e:
+            error_msg = str(e)
         
-        if result.returncode != 0:
-            raise Exception(f"FFmpeg error: {result.stderr}")
+        # Method 2: Fallback with simpler parameters
+        if not success:
+            logger.warning(f"HD thumbnail failed, trying fallback method: {error_msg}")
+            try:
+                cmd = [
+                    'ffmpeg',
+                    '-i', file_path,
+                    '-ss', '30',        # 30 seconds
+                    '-vframes', '1',
+                    '-vf', 'scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2',
+                    '-q:v', '3',
+                    '-pix_fmt', 'yuvj420p',
+                    '-y',
+                    thumbnail_path
+                ]
+                
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+                
+                if result.returncode == 0 and os.path.exists(thumbnail_path):
+                    success = True
+                else:
+                    error_msg = result.stderr
+                    
+            except Exception as e:
+                error_msg = str(e)
+        
+        # Method 3: Create placeholder if all else fails
+        if not success:
+            logger.warning(f"All thumbnail methods failed, creating placeholder: {error_msg}")
+            success = create_placeholder_thumbnail(media_id, thumbnail_path)
+            if not success:
+                raise Exception(f"All thumbnail generation methods failed: {error_msg}")
         
         if not os.path.exists(thumbnail_path):
             raise Exception("Thumbnail file was not created")
@@ -116,41 +168,100 @@ def generate_preview_clip(self, media_id: int, file_path: str, output_dir: str =
         if not os.path.exists(file_path):
             raise FileNotFoundError(f"Video file not found: {file_path}")
         
-        # Set output directory
+        # Set output directory - prefer root folder
         if not output_dir:
             output_dir = os.getenv('PREVIEW_DIR', './previews')
         
+        # Ensure directories exist
         os.makedirs(output_dir, exist_ok=True)
+        os.makedirs('./previews', exist_ok=True)
+        
+        # Use root folder for new previews
+        if output_dir.startswith('./backend/'):
+            output_dir = './previews'
         
         # Generate preview clip filename
         preview_filename = f"preview_{media_id}.mp4"
         preview_path = os.path.join(output_dir, preview_filename)
         
-        # FFmpeg command for preview clip (10 seconds from 2 minutes in)
-        cmd = [
-            'ffmpeg',
-            '-i', file_path,
-            '-ss', '00:02:00',      # Start at 2 minutes
-            '-t', '00:00:10',       # Duration 10 seconds
-            '-vf', 'scale=640:360', # Resize for web
-            '-c:v', 'libx264',      # H.264 codec
-            '-preset', 'fast',      # Fast encoding
-            '-crf', '28',           # Compression
-            '-an',                  # No audio
-            '-y',                   # Overwrite existing
-            preview_path
-        ]
+        # Try HD preview generation with fallback methods
+        success = False
+        error_msg = ""
         
-        # Execute FFmpeg
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=120
-        )
+        # Method 1: HD preview with smart timing
+        try:
+            duration = get_video_duration(file_path)
+            if duration:
+                # Use first half of video, random start time
+                import random
+                first_half = duration // 2
+                start_time = random.randint(30, max(60, first_half - 15))
+            else:
+                start_time = 60
+            
+            cmd = [
+                'ffmpeg',
+                '-i', file_path,
+                '-ss', str(start_time),
+                '-t', '15',             # 15 seconds
+                '-vf', 'scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,unsharp=5:5:1.0:5:5:0.0',
+                '-c:v', 'libx264',
+                '-preset', 'medium',
+                '-crf', '18',
+                '-c:a', 'aac',
+                '-b:a', '128k',
+                '-movflags', '+faststart',
+                '-pix_fmt', 'yuv420p',
+                '-y',
+                preview_path
+            ]
+            
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+            
+            if result.returncode == 0 and os.path.exists(preview_path):
+                success = True
+            else:
+                error_msg = result.stderr
+                
+        except Exception as e:
+            error_msg = str(e)
         
-        if result.returncode != 0:
-            raise Exception(f"FFmpeg error: {result.stderr}")
+        # Method 2: Fallback with simpler parameters
+        if not success:
+            logger.warning(f"HD preview failed, trying fallback method: {error_msg}")
+            try:
+                cmd = [
+                    'ffmpeg',
+                    '-i', file_path,
+                    '-ss', '60',            # 1 minute
+                    '-t', '15',             # 15 seconds
+                    '-vf', 'scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2',
+                    '-c:v', 'libx264',
+                    '-preset', 'ultrafast',
+                    '-crf', '25',
+                    '-c:a', 'aac',
+                    '-b:a', '128k',
+                    '-pix_fmt', 'yuv420p',
+                    '-y',
+                    preview_path
+                ]
+                
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+                
+                if result.returncode == 0 and os.path.exists(preview_path):
+                    success = True
+                else:
+                    error_msg = result.stderr
+                    
+            except Exception as e:
+                error_msg = str(e)
+        
+        # Method 3: Create placeholder preview if all else fails
+        if not success:
+            logger.warning(f"All preview methods failed, creating placeholder: {error_msg}")
+            success = create_placeholder_preview(media_id, preview_path)
+            if not success:
+                raise Exception(f"All preview generation methods failed: {error_msg}")
         
         if not os.path.exists(preview_path):
             raise Exception("Preview clip was not created")
@@ -294,7 +405,7 @@ def update_thumbnail_in_database(media_id: int, thumbnail_path: str) -> bool:
     """Update media thumbnail path in database"""
     try:
         import requests
-        api_url = os.getenv('API_URL', 'http://localhost:8251')
+        api_url = os.getenv('API_URL', 'http://localhost:8252')
         
         response = requests.put(
             f"{api_url}/api/admin/media/{media_id}/thumbnail",
@@ -302,7 +413,12 @@ def update_thumbnail_in_database(media_id: int, thumbnail_path: str) -> bool:
             timeout=10
         )
         
-        return response.status_code == 200
+        if response.status_code == 200:
+            logger.info(f"✅ Updated thumbnail path in database for media {media_id}")
+            return True
+        else:
+            logger.warning(f"⚠️ Failed to update thumbnail path: HTTP {response.status_code}")
+            return False
         
     except Exception as e:
         logger.error(f"Database thumbnail update error: {e}")
@@ -312,7 +428,7 @@ def update_preview_in_database(media_id: int, preview_path: str) -> bool:
     """Update media preview clip path in database"""
     try:
         import requests
-        api_url = os.getenv('API_URL', 'http://localhost:8251')
+        api_url = os.getenv('API_URL', 'http://localhost:8252')
         
         response = requests.put(
             f"{api_url}/api/admin/media/{media_id}/preview",
@@ -320,8 +436,84 @@ def update_preview_in_database(media_id: int, preview_path: str) -> bool:
             timeout=10
         )
         
-        return response.status_code == 200
+        if response.status_code == 200:
+            logger.info(f"✅ Updated preview path in database for media {media_id}")
+            return True
+        else:
+            logger.warning(f"⚠️ Failed to update preview path: HTTP {response.status_code}")
+            return False
         
     except Exception as e:
         logger.error(f"Database preview update error: {e}")
         return False
+
+def create_placeholder_thumbnail(media_id: int, thumbnail_path: str) -> bool:
+    """Create a placeholder thumbnail using ImageMagick or FFmpeg"""
+    try:
+        # Try ImageMagick first
+        cmd = [
+            'convert',
+            '-size', '1920x1080',
+            'xc:black',
+            '-fill', 'white',
+            '-gravity', 'center',
+            '-pointsize', '72',
+            '-annotate', '+0+0', f'Media {media_id}\\nThumbnail\\nUnavailable',
+            thumbnail_path
+        ]
+        
+        result = subprocess.run(cmd, capture_output=True, timeout=30)
+        if result.returncode == 0 and os.path.exists(thumbnail_path):
+            logger.info(f"Created placeholder thumbnail with ImageMagick: {thumbnail_path}")
+            return True
+            
+    except Exception:
+        pass
+    
+    try:
+        # Fallback to FFmpeg
+        cmd = [
+            'ffmpeg',
+            '-f', 'lavfi',
+            '-i', 'color=black:size=1920x1080:duration=0.1:rate=1',
+            '-vf', f'drawtext=text="Thumbnail\\nUnavailable\\nMedia {media_id}":fontcolor=white:fontsize=48:x=(w-text_w)/2:y=(h-text_h)/2',
+            '-frames:v', '1',
+            '-y',
+            thumbnail_path
+        ]
+        
+        result = subprocess.run(cmd, capture_output=True, timeout=30)
+        if result.returncode == 0 and os.path.exists(thumbnail_path):
+            logger.info(f"Created placeholder thumbnail with FFmpeg: {thumbnail_path}")
+            return True
+            
+    except Exception:
+        pass
+    
+    return False
+
+def create_placeholder_preview(media_id: int, preview_path: str) -> bool:
+    """Create a placeholder preview clip using FFmpeg"""
+    try:
+        cmd = [
+            'ffmpeg',
+            '-f', 'lavfi',
+            '-i', 'color=black:size=1280x720:duration=10:rate=25',
+            '-vf', f'drawtext=text="Preview\\nUnavailable\\nMedia {media_id}":fontcolor=white:fontsize=36:x=(w-text_w)/2:y=(h-text_h)/2',
+            '-c:v', 'libx264',
+            '-preset', 'ultrafast',
+            '-crf', '30',
+            '-pix_fmt', 'yuv420p',
+            '-y',
+            preview_path
+        ]
+        
+        result = subprocess.run(cmd, capture_output=True, timeout=60)
+        if result.returncode == 0 and os.path.exists(preview_path):
+            logger.info(f"Created placeholder preview with FFmpeg: {preview_path}")
+            return True
+            
+    except Exception as e:
+        logger.error(f"Failed to create placeholder preview: {e}")
+    
+    return False

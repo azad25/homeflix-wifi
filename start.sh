@@ -84,3 +84,4 @@ echo "Press Ctrl+C to stop both services"
 # Wait for interrupt
 trap "echo ''; echo '🛑 Stopping HomeFlix...'; kill $BACKEND_PID $FRONTEND_PID; exit" INT
 wait
+

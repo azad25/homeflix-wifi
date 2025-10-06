@@ -28,7 +28,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
   const [featuredMedia, setFeaturedMedia] = useState<Media[]>(initialFeaturedMedia);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isAutoPlaying, setIsAutoPlaying] = useState(true);
-  const [isMuted, setIsMuted] = useState(true); // Start muted, unmute on click
+  const [isMuted, setIsMuted] = useState(true);
   const [isVideoLoaded, setIsVideoLoaded] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [showControls, setShowControls] = useState(true);
@@ -40,8 +40,8 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
   const [backgroundLoaded, setBackgroundLoaded] = useState(false);
   const [videoLoaded, setVideoLoaded] = useState(false);
   const [isTransitioning, setIsTransitioning] = useState(false);
-  const [preloadedVideos, setPreloadedVideos] = useState<Map<string, HTMLVideoElement>>(new Map());
   const [userHasInteracted, setUserHasInteracted] = useState(false);
+  const [canAutoplayWithAudio, setCanAutoplayWithAudio] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -65,52 +65,164 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
 
   const currentMedia = featuredMedia[currentIndex] || featuredMedia[0];
 
+  // Global audio preference management
+  const getGlobalAudioPreference = (): boolean => {
+    if (typeof window === 'undefined') return true; // SSR fallback
+    const saved = localStorage.getItem('scrollx-audio-muted');
+    return saved !== null ? JSON.parse(saved) : true; // Default to muted
+  };
+
+  const setGlobalAudioPreference = (muted: boolean) => {
+    if (typeof window === 'undefined') return;
+    localStorage.setItem('scrollx-audio-muted', JSON.stringify(muted));
+  };
+
+  const hasUserEverUnmuted = (): boolean => {
+    if (typeof window === 'undefined') return false;
+    return localStorage.getItem('scrollx-user-has-unmuted') === 'true';
+  };
+
+  const setUserHasUnmuted = () => {
+    if (typeof window === 'undefined') return;
+    localStorage.setItem('scrollx-user-has-unmuted', 'true');
+  };
+
+  // Test browser autoplay capabilities
+  const testAutoplayCapabilities = async () => {
+    try {
+      const video = document.createElement('video');
+      video.muted = true;
+      video.src = 'data:video/mp4;base64,AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDEAAAAIZnJlZQAAAr1tZGF0AAACrgYF//+q3EXpvebZSLeWLNgg2SPu73gyNjQgLSBjb3JlIDE1MiByMjg1NCBlOWE1OTAzIC0gSC4yNjQvTVBFRy00IEFWQyBjb2RlYyAtIENvcHlsZWZ0IDIwMDMtMjAxNyAtIGh0dHA6Ly93d3cudmlkZW9sYW4ub3JnL3gyNjQuaHRtbCAtIG9wdGlvbnM6IGNhYmFjPTEgcmVmPTMgZGVibG9jaz0xOjA6MCBhbmFseXNlPTB4MzoweDExMyBtZT1oZXggc3VibWU9NyBwc3k9MSBwc3lfcmQ9MS4wMDowLjAwIG1peGVkX3JlZj0xIG1lX3JhbmdlPTE2IGNocm9tYV9tZT0xIHRyZWxsaXM9MSA4eDhkY3Q9MSBjcW09MCBkZWFkem9uZT0yMSwxMSBmYXN0X3Bza2lwPTEgY2hyb21hX3FwX29mZnNldD0tMiB0aHJlYWRzPTMgbG9va2FoZWFkX3RocmVhZHM9MSBzbGljZWRfdGhyZWFkcz0wIG5yPTAgZGVjaW1hdGU9MSBpbnRlcmxhY2VkPTAgYmx1cmF5X2NvbXBhdD0wIGNvbnN0cmFpbmVkX2ludHJhPTAgYmZyYW1lcz0zIGJfcHlyYW1pZD0yIGJfYWRhcHQ9MSBiX2JpYXM9MCBkaXJlY3Q9MSB3ZWlnaHRiPTEgb3Blbl9nb3A9MCB3ZWlnaHRwPTIga2V5aW50PTI1MCBrZXlpbnRfbWluPTEwIHNjZW5lY3V0PTQwIGludHJhX3JlZnJlc2g9MCByY19sb29rYWhlYWQ9NDAgcmM9Y3JmIG1idHJlZT0xIGNyZj0yMy4wIHFjb21wPTAuNjAgcXBtaW49MCBxcG1heD02OSBxcHN0ZXA9NCBpcF9yYXRpbz0xLjQwIGFxPTE6MS4wMACAAAAAOWWIhAA3//p+C7v8tDDSTjf97w6BcLhRHXoJizVHBdHeAAACAAEAAALQQoCgQAAAAwAAAwAAAwAAAwAAAwAA';
+
+      const playPromise = video.play();
+      if (playPromise !== undefined) {
+        await playPromise;
+        setCanAutoplayWithAudio(false); // Muted autoplay works
+        video.pause();
+
+        // Test with audio
+        video.muted = false;
+        video.volume = 0.1;
+        try {
+          const audioPlayPromise = video.play();
+          if (audioPlayPromise !== undefined) {
+            await audioPlayPromise;
+            setCanAutoplayWithAudio(true); // Audio autoplay works
+            video.pause();
+          }
+        } catch {
+          setCanAutoplayWithAudio(false); // Audio autoplay blocked
+        }
+      }
+    } catch {
+      setCanAutoplayWithAudio(false);
+    }
+  };
+
   // Fetch recommended/trending media for hero slides
   const fetchRecommendedMedia = async (cycleNumber: number = 0) => {
     setIsLoadingNewContent(true);
     try {
-      // Vary the content based on cycle count for diversity
+      // Use the actual recommendation endpoints from the backend
       const endpoints = [
         `${getApiUrl()}/api/recommendations/trending?limit=10`,
-        `${getApiUrl()}/api/media?sort=rating&limit=8`,
-        `${getApiUrl()}/api/media?sort=view_count&limit=8`,
-        `${getApiUrl()}/api/media?sort=created_at&limit=8`,
-        `${getApiUrl()}/api/recommendations/popular?limit=10`
+        `${getApiUrl()}/api/recommendations/popular?limit=10`,
+        `${getApiUrl()}/api/recommendations/recent?limit=10`,
+        `${getApiUrl()}/api/recommendations/top-rated?limit=10`,
+        `${getApiUrl()}/api/recommendations/mixed?limit=10`
       ];
 
       const endpointIndex = cycleNumber % endpoints.length;
-      const response = await fetch(endpoints[endpointIndex]);
+      let newMedia: Media[] = [];
 
-      if (response.ok) {
-        const newMedia = await response.json();
-        if (newMedia && newMedia.length > 0) {
-          // Filter out media that was in the previous cycle to ensure fresh content
-          const filteredMedia = newMedia.filter((media: Media) =>
-            !featuredMedia.some(existing => existing.id === media.id)
-          );
-
-          if (filteredMedia.length > 0) {
-            // Mix new content with some fresh picks
-            const mixedMedia = [
-              ...filteredMedia.slice(0, 6), // New content
-              ...initialFeaturedMedia.slice(0, 2) // Keep some original variety
-            ];
-            setFeaturedMedia(mixedMedia);
-            console.log(`Hero slides updated with fresh content (cycle ${cycleNumber + 1})`);
-          } else {
-            // If no new content, shuffle existing content
-            const shuffledMedia = [...featuredMedia].sort(() => 0.5 - Math.random());
-            setFeaturedMedia(shuffledMedia);
-            console.log('Hero slides shuffled for variety');
+      // Try the primary recommendation endpoint
+      try {
+        const response = await fetch(endpoints[endpointIndex]);
+        if (response.ok) {
+          const data = await response.json();
+          if (data && data.length > 0) {
+            newMedia = data;
           }
         }
+      } catch (error) {
+        console.warn(`Primary endpoint ${endpoints[endpointIndex]} failed:`, error);
+      }
+
+      // Fallback to other recommendation endpoints
+      if (newMedia.length === 0) {
+        for (const fallbackEndpoint of endpoints) {
+          if (fallbackEndpoint === endpoints[endpointIndex]) continue;
+
+          try {
+            const response = await fetch(fallbackEndpoint);
+            if (response.ok) {
+              const data = await response.json();
+              if (data && data.length > 0) {
+                newMedia = data;
+                break;
+              }
+            }
+          } catch (error) {
+            console.warn(`Fallback endpoint ${fallbackEndpoint} failed:`, error);
+            continue;
+          }
+        }
+      }
+
+      // Final fallback to basic media endpoints
+      if (newMedia.length === 0) {
+        const basicEndpoints = [
+          `${getApiUrl()}/api/trending?limit=10`,
+          `${getApiUrl()}/api/popular?limit=10`,
+          `${getApiUrl()}/api/recent?limit=10`,
+          `${getApiUrl()}/api/media?limit=10`
+        ];
+
+        for (const basicEndpoint of basicEndpoints) {
+          try {
+            const response = await fetch(basicEndpoint);
+            if (response.ok) {
+              const data = await response.json();
+              if (data && data.length > 0) {
+                newMedia = data;
+                break;
+              }
+            }
+          } catch (error) {
+            console.warn(`Basic endpoint ${basicEndpoint} failed:`, error);
+            continue;
+          }
+        }
+      }
+
+      if (newMedia && newMedia.length > 0) {
+        // Filter out media that was in the previous cycle to ensure fresh content
+        const filteredMedia = newMedia.filter((media: Media) =>
+          !featuredMedia.some(existing => existing.id === media.id)
+        );
+
+        if (filteredMedia.length > 0) {
+          // Mix new content with some fresh picks
+          const mixedMedia = [
+            ...filteredMedia.slice(0, 6), // New content
+            ...initialFeaturedMedia.slice(0, 2) // Keep some original variety
+          ];
+          setFeaturedMedia(mixedMedia);
+        } else {
+          // If no new content, shuffle existing content
+          const shuffledMedia = [...featuredMedia].sort(() => 0.5 - Math.random());
+          setFeaturedMedia(shuffledMedia);
+        }
+      } else {
+        // Final fallback to shuffling existing content
+        const shuffledMedia = [...featuredMedia].sort(() => 0.5 - Math.random());
+        setFeaturedMedia(shuffledMedia);
       }
     } catch (error) {
       console.warn('Failed to fetch recommended media for hero:', error);
       // Fallback to shuffling existing content
       const shuffledMedia = [...featuredMedia].sort(() => 0.5 - Math.random());
       setFeaturedMedia(shuffledMedia);
-      console.log('Hero slides shuffled as fallback');
     } finally {
       setIsLoadingNewContent(false);
     }
@@ -135,42 +247,38 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
   };
 
   const getVideoUrl = (media: Media, fallback: boolean = false): string | undefined => {
-    // Check if media has preview clip available
-    if (media.preview_clip_path || media.id) {
-      const host = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
-      const apiUrl = `http://${host === 'localhost' ? 'localhost' : host}:8252`;
-      
-      if (fallback) {
-        // Try alternative endpoints if primary fails
-        const alternatives = [
-          `${apiUrl}/api/preview-clips/${media.id}?format=mp4`,
-          `${apiUrl}/api/preview-clips/${media.id}?quality=low`,
-          `${apiUrl}/api/media/${media.id}/preview`,
-          media.preview_clip_path?.startsWith('http') ? media.preview_clip_path : `${apiUrl}${media.preview_clip_path}`
-        ];
-        
-        // Return first valid alternative
-        for (const alt of alternatives) {
-          if (alt && alt !== `${apiUrl}/api/preview-clips/${media.id}`) {
-            console.log('🔄 Trying fallback URL:', alt);
-            return alt;
-          }
+    if (!media.id) return undefined;
+
+    const host = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
+    const apiUrl = `http://${host === 'localhost' ? 'localhost' : host}:8252`;
+
+    if (fallback) {
+      // Try alternative endpoints if primary fails
+      const alternatives = [
+        `${apiUrl}/api/preview-clips/${media.id}?format=mp4`,
+        `${apiUrl}/api/preview-clips/${media.id}?quality=low`,
+        `${apiUrl}/api/media/${media.id}/preview`
+      ];
+
+      // Return first valid alternative
+      for (const alt of alternatives) {
+        if (alt && alt !== `${apiUrl}/api/preview-clips/${media.id}`) {
+          return alt;
         }
       }
-      
-      // Use the preview-clips API endpoint which is working according to backend logs
-      return `${apiUrl}/api/preview-clips/${media.id}`;
     }
-    
-    // Return undefined if no preview clip available
-    return undefined;
+
+    // Primary endpoint - use the preview-clips API endpoint
+    return `${apiUrl}/api/preview-clips/${media.id}`;
   };
 
 
 
-  // Check if media has video content (only preview clip)
+  // Check if media has video content (preview clip or can generate one)
   const hasVideoContent = (media: Media) => {
-    return !!(media.preview_clip_path);
+    // Always try to show video if we have a media ID
+    // The backend will handle generating preview clips if they don't exist
+    return !!(media.id && (media.preview_clip_path || media.file_path));
   };
 
 
@@ -178,21 +286,64 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
   const getBackgroundImageUrl = (media: Media) => {
     const host = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
     const apiUrl = `http://${host === 'localhost' ? 'localhost' : host}:8252`;
-    // Try banner first for hero backgrounds
+
+    // Always try thumbnail first as it's most reliable
+    if (media.id) {
+      return `${apiUrl}/api/thumbnails/${media.id}`;
+    }
+
+    // Try banner for hero backgrounds
     if (media.banner_path) {
       return `${apiUrl}/api/admin/assets/${media.banner_path.split('/').pop()}`;
     }
+
     // Fallback to poster
     if (media.poster_path) {
       return `${apiUrl}/api/posters/${media.id}`;
     }
-    // Final fallback to thumbnail
-    return `${apiUrl}/api/thumbnails/${media.id}`;
+
+    // Default fallback
+    return `${apiUrl}/api/thumbnails/1`;
+  };
+
+  // Stop all video/audio playback
+  const stopAllPlayback = () => {
+    // Stop main video
+    if (videoRef.current) {
+      const video = videoRef.current;
+      video.pause();
+      video.currentTime = 0;
+      video.muted = true;
+      video.volume = 0;
+    }
+
+    // Stop all preloaded videos
+    preloadRefs.current.forEach((video) => {
+      try {
+        video.pause();
+        video.currentTime = 0;
+        video.muted = true;
+        video.volume = 0;
+      } catch (error) {
+        // Ignore cleanup errors
+      }
+    });
+
+    // Mute all audio through context
+    muteAll();
+
+    // Reset playback states
+    setIsPlaying(false);
+    setIsVideoLoaded(false);
+    setVideoLoaded(false);
   };
 
   const nextSlide = () => {
     if (featuredMedia.length > 1 && !isTransitioning) {
       setIsTransitioning(true);
+
+      // Stop all current playback before transitioning
+      stopAllPlayback();
 
       // Fade out current content
       setBackgroundLoaded(false);
@@ -207,12 +358,11 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
         if (nextIndex === 0 && currentIndex === featuredMedia.length - 1) {
           const newCycleCount = cycleCount + 1;
           setCycleCount(newCycleCount);
-          console.log(`Completed cycle ${newCycleCount}, loading fresh content...`);
 
           // Load new content after completing a cycle
           setTimeout(() => {
             fetchRecommendedMedia(newCycleCount);
-          }, 2000); // Small delay to let the transition complete
+          }, 2000);
         }
       }, 300); // Wait for fade out
     }
@@ -221,6 +371,9 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
   const prevSlide = () => {
     if (featuredMedia.length > 1 && !isTransitioning) {
       setIsTransitioning(true);
+
+      // Stop all current playback before transitioning
+      stopAllPlayback();
 
       // Fade out current content
       setBackgroundLoaded(false);
@@ -235,36 +388,48 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
 
   // Preload videos for smooth transitions
   const preloadVideo = (media: Media) => {
-    // Only preload if media has preview clip
     if (!hasVideoContent(media)) return;
-    
+
     const videoId = media.id.toString();
-    if (preloadRefs.current.has(videoId)) return;
+
+    if (preloadRefs.current.has(videoId)) {
+      const existingVideo = preloadRefs.current.get(videoId);
+      if (existingVideo) {
+        existingVideo.pause();
+        existingVideo.currentTime = 0;
+        existingVideo.muted = true;
+        existingVideo.volume = 0;
+      }
+      return;
+    }
 
     const video = document.createElement('video');
-    video.preload = 'auto';
-    video.muted = true; // Always preload muted
+    video.preload = 'metadata';
+    video.muted = true;
     video.loop = true;
     video.playsInline = true;
     video.setAttribute('playsinline', 'true');
     video.setAttribute('webkit-playsinline', 'true');
     video.crossOrigin = 'anonymous';
-    
-    // Only use preview clip as source
+    video.volume = 0;
+
     const videoUrl = getVideoUrl(media);
     if (videoUrl) {
-      // Add multiple source formats for better compatibility
-      const mp4Source = document.createElement('source');
-      mp4Source.src = videoUrl;
-      mp4Source.type = 'video/mp4';
-      video.appendChild(mp4Source);
+      video.src = videoUrl;
 
-      // Store the preloaded video
+      video.addEventListener('error', () => {
+        preloadRefs.current.delete(videoId);
+      });
+
+      video.addEventListener('loadeddata', () => {
+        video.pause();
+        video.currentTime = 0;
+        video.muted = true;
+        video.volume = 0;
+      });
+
       preloadRefs.current.set(videoId, video);
-      
-      // Start loading
       video.load();
-      console.log('Preloading preview clip for:', media.title, 'URL:', videoUrl);
     }
   };
 
@@ -274,69 +439,71 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
     return preloadRefs.current.get(videoId);
   };
 
-  // Universal unmute functionality for all browsers
+  // Simplified video playback with audio handling
+  const playVideoWithAudio = async (video: HTMLVideoElement, withAudio: boolean = false) => {
+    try {
+      // Always start muted for autoplay compliance
+      video.muted = true;
+      video.volume = 0;
+
+      const playPromise = video.play();
+      if (playPromise !== undefined) {
+        await playPromise;
+        setIsPlaying(true);
+
+        // If audio is requested and user has interacted, try to unmute
+        if (withAudio && userHasInteracted && hasUserEverUnmuted()) {
+          setTimeout(() => {
+            video.muted = false;
+            video.volume = spatialAudioEnabled ? 0.8 : 0.6;
+          }, 500);
+        }
+
+        return true;
+      }
+    } catch (error) {
+      // Fallback: ensure video is muted and try again
+      video.muted = true;
+      video.volume = 0;
+      try {
+        const fallbackPromise = video.play();
+        if (fallbackPromise !== undefined) {
+          await fallbackPromise;
+          setIsPlaying(true);
+          return true;
+        }
+      } catch {
+        return false;
+      }
+    }
+    return false;
+  };
+
+  // Universal unmute functionality
   const handleUnmute = async (e?: React.MouseEvent | KeyboardEvent) => {
-    console.log('🔊 UNMUTE CLICKED - Universal browser support');
-    
-    // Mark user interaction for autoplay policy
     setUserHasInteracted(true);
-    
+    setUserHasUnmuted();
+
     if (e) {
       e.preventDefault();
       e.stopPropagation();
     }
 
-    // Update state immediately
     setIsMuted(false);
-    console.log('✅ State updated: isMuted = false');
+    setGlobalAudioPreference(false);
 
-    // Handle video element
-    if (videoRef.current) {
+    // Immediately apply to current video if playing
+    if (videoRef.current && isPlaying) {
       const video = videoRef.current;
-      
-      try {
-        // Set volume and unmute
-        video.muted = false;
-        video.volume = spatialAudioEnabled ? 0.8 : 0.7;
-        
-        // Ensure video is playing
-        if (video.paused) {
-          const playPromise = video.play();
-          if (playPromise !== undefined) {
-            await playPromise;
-            console.log('✅ Video playing with audio');
-          }
-        }
-        
-        console.log('✅ Unmute successful');
-      } catch (error) {
-        console.log('⚠️ Unmute failed, trying recovery:', error);
-        
-        // Recovery attempt
-        try {
-          video.load();
-          await new Promise(resolve => setTimeout(resolve, 500));
-          video.muted = false;
-          video.volume = spatialAudioEnabled ? 0.8 : 0.7;
-          
-          if (video.paused) {
-            await video.play();
-          }
-          console.log('✅ Recovery successful');
-        } catch (recoveryError) {
-          console.log('❌ Recovery failed:', recoveryError);
-        }
-      }
+      video.muted = false;
+      video.volume = spatialAudioEnabled ? 0.8 : 0.6;
     }
   };
 
   // Netflix-style helper functions
   const getQualityBadge = () => {
-    if (currentMedia.rating && currentMedia.rating >= 8.5) return { text: '4K', color: 'bg-green-600' };
-    if (currentMedia.rating && currentMedia.rating >= 7.5) return { text: 'HD', color: 'bg-blue-600' };
-    return { text: 'SD', color: 'bg-gray-600' };
-  };
-
+    return { text: currentMedia.quality || "HD", color: 'bg-blue-600' };
+  }
   const getAgeRating = () => {
     if (currentMedia.rating && currentMedia.rating >= 8.0) return '18+';
     if (currentMedia.rating && currentMedia.rating >= 7.0) return '16+';
@@ -417,6 +584,9 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
       setIsTransitioning(true);
       setIsAutoPlaying(false);
 
+      // Stop all current playback before transitioning
+      stopAllPlayback();
+
       // Fade out current content
       setBackgroundLoaded(false);
       setVideoLoaded(false);
@@ -438,6 +608,33 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
     fetchRecommendedMedia(newCycleCount);
     setCurrentIndex(0); // Reset to first slide
   };
+
+  // Initialize audio preferences and test autoplay capabilities
+  useEffect(() => {
+    const savedMutedState = getGlobalAudioPreference();
+    const userHasUnmutedBefore = hasUserEverUnmuted();
+
+    setIsMuted(savedMutedState);
+    setUserHasInteracted(userHasUnmutedBefore);
+
+    // Test browser autoplay capabilities
+    testAutoplayCapabilities();
+  }, []);
+
+  // Handle slide changes - simplified video setup
+  useEffect(() => {
+    if (videoRef.current && currentMedia && hasVideoContent(currentMedia) && !isTransitioning) {
+      const video = videoRef.current;
+      const shouldPlayWithAudio = !isMuted && hasUserEverUnmuted() && canAutoplayWithAudio;
+
+      // Small delay to ensure video element is ready after slide change
+      setTimeout(() => {
+        if (video && hasVideoContent(currentMedia) && video.readyState >= 3 && video.paused) {
+          playVideoWithAudio(video, shouldPlayWithAudio);
+        }
+      }, 300);
+    }
+  }, [currentIndex, currentMedia, isMuted, isTransitioning, canAutoplayWithAudio]);
 
   // Auto-slide functionality with enhanced timing
   useEffect(() => {
@@ -491,11 +688,10 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
   // Handle media without video content
   useEffect(() => {
     if (currentMedia && !hasVideoContent(currentMedia)) {
-      // For media without video, mark video as "loaded" so UI behaves correctly
+      // For media without video, ensure video states are false
       setIsVideoLoaded(false);
       setVideoLoaded(false);
       setIsPlaying(false);
-      console.log('Media has no video content, using thumbnail only:', currentMedia.title);
     }
   }, [currentMedia]);
 
@@ -519,216 +715,73 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
     }
   }, [currentIndex, featuredMedia]);
 
-  // Reset video states when media changes and force video load
+  // Reset video states when media changes - simplified
   useEffect(() => {
     if (currentMedia) {
+      stopAllPlayback();
       setIsVideoLoaded(false);
       setIsPlaying(false);
       setVideoLoaded(false);
-      
-      // Check if we have a valid video URL (preview clip)
-      const videoUrl = getVideoUrl(currentMedia);
-      if (!videoUrl) {
-        console.warn('No preview clip available for:', currentMedia.title);
-        return;
-      }
 
-      // Force video element to load new source
+      const videoUrl = getVideoUrl(currentMedia);
+      if (!videoUrl) return;
+
       if (videoRef.current) {
         const video = videoRef.current;
         video.pause();
         video.currentTime = 0;
-        video.load(); // Force reload of video element
-        console.log('🎬 Loading video for:', currentMedia.title);
-        console.log('🔗 Video URL:', videoUrl);
-        console.log('📁 Preview clip path:', currentMedia.preview_clip_path);
-        console.log('🆔 Media ID:', currentMedia.id);
-        
-        // Test if URL is accessible and handle 404s
-        fetch(videoUrl, { method: 'HEAD' })
-          .then(response => {
-            console.log('🌐 Video URL test:', response.status, response.ok ? 'OK' : 'FAILED');
-            if (response.status === 404) {
-              console.log('🚫 404 Error - Video not found, this will cause playback issues');
-              // Mark video as not loaded to prevent playback attempts
-              setIsVideoLoaded(false);
-              setVideoLoaded(false);
-              setIsPlaying(false);
-            }
-          })
-          .catch(error => {
-            console.log('❌ Video URL not accessible:', error);
-            // Network error - also prevent playback attempts
-            setIsVideoLoaded(false);
-            setVideoLoaded(false);
-            setIsPlaying(false);
-          });
+        video.muted = true;
+        video.volume = 0;
+        video.preload = 'metadata';
+        video.setAttribute('playsinline', 'true');
+        video.setAttribute('webkit-playsinline', 'true');
+        video.src = videoUrl;
+        video.load();
       }
     }
   }, [currentMedia]);
 
-  // Enhanced video loading and autoplay effect
+  // Simplified video loading and autoplay
   useEffect(() => {
     if (videoRef.current && currentMedia && hasVideoContent(currentMedia)) {
       const video = videoRef.current;
       const videoUrl = getVideoUrl(currentMedia);
-      
+
       if (!videoUrl) return;
 
-      // Set up video properties for cross-browser compatibility
       video.setAttribute('playsinline', 'true');
       video.setAttribute('webkit-playsinline', 'true');
-      video.muted = isMuted;
-      video.volume = isMuted ? 0 : (spatialAudioEnabled ? 0.8 : 0.6);
-      video.preload = 'auto';
-
-      const handleLoadedMetadata = () => {
-        console.log('Video metadata loaded for:', currentMedia.title);
-        video.currentTime = 0;
-      };
+      video.setAttribute('x-webkit-airplay', 'allow');
+      video.crossOrigin = 'anonymous';
+      video.preload = 'metadata';
+      video.loop = true;
 
       const handleCanPlayThrough = () => {
-        console.log('Video can play through for:', currentMedia.title);
         setIsVideoLoaded(true);
         setVideoLoaded(true);
-        
-        // Attempt immediate playback
-        const playVideo = async () => {
-          try {
-            video.muted = isMuted;
-            const playPromise = video.play();
-            if (playPromise !== undefined) {
-              await playPromise;
-              setIsPlaying(true);
-              console.log('Video started playing:', currentMedia.title);
-            }
-          } catch (error) {
-            console.log('Autoplay blocked, trying muted:', error);
-            try {
-              video.muted = true;
-              setIsMuted(true);
-              const mutedPromise = video.play();
-              if (mutedPromise !== undefined) {
-                await mutedPromise;
-                setIsPlaying(true);
-                console.log('Video playing muted:', currentMedia.title);
-              }
-            } catch (mutedError) {
-              console.error('Failed to play video:', mutedError);
-            }
-          }
-        };
 
-        playVideo();
+        // Auto-play with appropriate audio settings
+        const shouldPlayWithAudio = !isMuted && hasUserEverUnmuted() && canAutoplayWithAudio;
+        playVideoWithAudio(video, shouldPlayWithAudio);
       };
 
-      const handleError = (e: Event) => {
-        const videoElement = e.target as HTMLVideoElement;
-        const error = videoElement.error;
-        
-        console.error('🚨 Video error for:', currentMedia.title);
-        console.error('Error details:', {
-          code: error?.code,
-          message: error?.message,
-          url: videoUrl
-        });
-
-        // Handle specific error types
-        if (error) {
-          switch (error.code) {
-            case MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED:
-              console.error('❌ Video format not supported or 404 error');
-              break;
-            case MediaError.MEDIA_ERR_NETWORK:
-              console.error('❌ Network error loading video');
-              break;
-            case MediaError.MEDIA_ERR_DECODE:
-              console.error('❌ Video decode error');
-              break;
-            case MediaError.MEDIA_ERR_ABORTED:
-              console.error('❌ Video loading aborted');
-              break;
-            default:
-              console.error('❌ Unknown video error');
-          }
-        }
-
-        // Test the URL to confirm if it's a 404
-        fetch(videoUrl, { method: 'HEAD' })
-          .then(response => {
-            if (response.status === 404) {
-              console.error('🚫 Confirmed: Video URL returns 404 - this prevents audio playback');
-            } else if (!response.ok) {
-              console.error('🚫 Video URL error:', response.status, response.statusText);
-            } else {
-              console.log('🤔 Video URL is accessible but video element failed to load');
-            }
-          })
-          .catch(fetchError => {
-            console.error('🌐 Network error testing video URL:', fetchError);
-          });
-        
-        // Try fallback URLs before giving up
-        const fallbackUrl = getVideoUrl(currentMedia, true);
-        if (fallbackUrl && fallbackUrl !== videoUrl && videoElement) {
-          console.log('🔄 Trying fallback video URL:', fallbackUrl);
-          
-          // Update video source to fallback URL
-          const sources = videoElement.querySelectorAll('source');
-          if (sources.length > 0) {
-            sources[0].src = fallbackUrl;
-            videoElement.load();
-            return; // Don't reset states yet, give fallback a chance
-          }
-        }
-        
-        // Reset video states to prevent broken playback
+      const handleError = () => {
         setIsVideoLoaded(false);
         setVideoLoaded(false);
         setIsPlaying(false);
-        
-        // Force fallback to image-only mode
-        console.log('🔄 All video URLs failed, falling back to image-only mode');
       };
 
-      // Add event listeners
-      video.addEventListener('loadedmetadata', handleLoadedMetadata);
       video.addEventListener('canplaythrough', handleCanPlayThrough);
       video.addEventListener('error', handleError);
 
-      // Cleanup
       return () => {
-        video.removeEventListener('loadedmetadata', handleLoadedMetadata);
         video.removeEventListener('canplaythrough', handleCanPlayThrough);
         video.removeEventListener('error', handleError);
       };
     }
-  }, [currentMedia, isMuted, spatialAudioEnabled]);
+  }, [currentMedia, isMuted, canAutoplayWithAudio]);
 
-  // Periodic video health check to detect 404s and other issues
-  useEffect(() => {
-    if (!videoRef.current || !isVideoLoaded) return;
 
-    const healthCheck = setInterval(() => {
-      const video = videoRef.current;
-      if (video && video.error) {
-        console.log('🏥 Video health check detected error:', video.error.code);
-        
-        // Clear the interval to prevent spam
-        clearInterval(healthCheck);
-        
-        // Try to recover from the error
-        const currentUrl = getVideoUrl(currentMedia);
-        if (currentUrl) {
-          console.log('🔄 Attempting video recovery...');
-          video.src = currentUrl;
-          video.load();
-        }
-      }
-    }, 5000); // Check every 5 seconds
-
-    return () => clearInterval(healthCheck);
-  }, [isVideoLoaded, currentMedia]);
 
   // Hide controls after inactivity and add keyboard shortcut for unmute
   useEffect(() => {
@@ -740,17 +793,32 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
 
     const handleKeyPress = (e: KeyboardEvent) => {
       if (e.key === 'm' || e.key === 'M' || e.key === ' ') {
-        console.log('🎹 Key pressed for unmute:', e.key);
         e.preventDefault();
         handleUnmute(e);
       }
     };
 
-    // Global interaction detection for Chromium autoplay policy
+    // Global interaction detection for autoplay policy
     const handleUserInteraction = () => {
       if (!userHasInteracted) {
-        console.log('👆 First user interaction detected');
         setUserHasInteracted(true);
+
+        // Try to start video playback after first interaction
+        if (videoRef.current && hasVideoContent(currentMedia) && !isPlaying) {
+          const video = videoRef.current;
+          const shouldPlayWithAudio = !isMuted && hasUserEverUnmuted() && canAutoplayWithAudio;
+          playVideoWithAudio(video, shouldPlayWithAudio);
+        }
+      }
+    };
+
+    // Handle page visibility changes to pause/resume video
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        stopAllPlayback();
+        setIsAutoPlaying(false);
+      } else {
+        setTimeout(() => setIsAutoPlaying(true), 1000);
       }
     };
 
@@ -760,12 +828,14 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
       document.addEventListener('keydown', handleKeyPress);
       document.addEventListener('click', handleUserInteraction);
       document.addEventListener('touchstart', handleUserInteraction);
-      
+      document.addEventListener('visibilitychange', handleVisibilityChange);
+
       return () => {
         container.removeEventListener('mousemove', handleMouseMove);
         document.removeEventListener('keydown', handleKeyPress);
         document.removeEventListener('click', handleUserInteraction);
         document.removeEventListener('touchstart', handleUserInteraction);
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
         if (timeoutRef.current) clearTimeout(timeoutRef.current);
       };
     }
@@ -776,29 +846,59 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
     if (currentMedia) {
       setBackgroundLoaded(false);
       const img = new Image();
+
       img.onload = () => {
         setBackgroundLoaded(true);
       };
+
       img.onerror = () => {
-        // If image fails to load, still show the component
-        setBackgroundLoaded(true);
+        // If primary image fails, try fallback URLs
+        const fallbackUrls = [
+          `${getApiUrl()}/api/posters/${currentMedia.id}`,
+          `${getApiUrl()}/api/thumbnails/${currentMedia.id}`,
+          // Generic fallback
+          'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTkyMCIgaGVpZ2h0PSIxMDgwIiB2aWV3Qm94PSIwIDAgMTkyMCAxMDgwIiBmaWxsPSJub25lIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPgo8cmVjdCB3aWR0aD0iMTkyMCIgaGVpZ2h0PSIxMDgwIiBmaWxsPSIjMTExMTExIi8+CjxwYXRoIGQ9Ik05NjAgNTQwTDEwODAgNDIwVjY2MEw5NjAgNTQwWiIgZmlsbD0iIzMzMzMzMyIvPgo8L3N2Zz4K'
+        ];
+
+        let fallbackIndex = 0;
+        const tryFallback = () => {
+          if (fallbackIndex < fallbackUrls.length) {
+            const fallbackImg = new Image();
+            fallbackImg.onload = () => setBackgroundLoaded(true);
+            fallbackImg.onerror = () => {
+              fallbackIndex++;
+              tryFallback();
+            };
+            fallbackImg.src = fallbackUrls[fallbackIndex];
+          } else {
+            // If all fallbacks fail, still show the component
+            setBackgroundLoaded(true);
+          }
+        };
+
+        tryFallback();
       };
+
       img.src = getBackgroundImageUrl(currentMedia);
     }
   }, [currentMedia]);
 
-  // Update video muted state when isMuted changes
+  // Update video audio state when muted state changes
   useEffect(() => {
-    console.log('isMuted state changed to:', isMuted);
-    if (videoRef.current) {
-      console.log('Updating video muted state to:', isMuted);
-      videoRef.current.muted = isMuted;
-      if (!isMuted) {
-        videoRef.current.volume = spatialAudioEnabled ? 0.8 : 0.6;
-        console.log('Video volume set to:', videoRef.current.volume);
+    if (videoRef.current && isVideoLoaded && isPlaying) {
+      const video = videoRef.current;
+
+      if (isMuted) {
+        video.muted = true;
+        video.volume = 0;
+      } else if (hasUserEverUnmuted()) {
+        video.muted = false;
+        video.volume = spatialAudioEnabled ? 0.8 : 0.6;
       }
     }
-  }, [isMuted, spatialAudioEnabled]);
+  }, [isMuted, spatialAudioEnabled, isVideoLoaded, isPlaying]);
+
+
 
   // Enhanced audio integration for ALAC support
   useEffect(() => {
@@ -816,30 +916,49 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
                 // ALAC audio stream available, optimize video for ALAC playback
                 if (videoRef.current) {
                   videoRef.current.volume = spatialAudioEnabled ? 0.9 : 0.7; // Higher volume for ALAC
-                  console.log('ALAC audio stream detected, using enhanced audio quality');
-
                   // Set audio processing parameters for ALAC
                   const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
                   if (audioContext.sampleRate >= 48000) {
-                    console.log('High sample rate supported for ALAC audio');
+                    // High sample rate supported for ALAC audio
                   }
                 }
               }
             })
             .catch(() => {
               // Fallback to standard video audio with ALAC codec preference
-              console.log('ALAC audio stream not available, using standard video with ALAC codec preference');
               if (videoRef.current && videoRef.current.canPlayType) {
                 const alacSupport = videoRef.current.canPlayType('video/mp4; codecs="avc1.42E01E, alac"');
-                if (alacSupport) {
-                  console.log('ALAC codec supported in video container');
-                }
+                // ALAC codec support check completed
               }
             });
         });
       }
     }
   }, [isVideoLoaded, setCurrentAudioElement, isALACEnabled, alacEngine, spatialAudioEnabled, currentMedia, initializeEnhancedAudio]);
+
+
+
+
+
+  // Component cleanup
+  useEffect(() => {
+    return () => {
+      stopAllPlayback();
+      preloadRefs.current.forEach((video) => {
+        try {
+          video.pause();
+          video.src = '';
+          video.load();
+        } catch (error) {
+          // Ignore cleanup errors
+        }
+      });
+      preloadRefs.current.clear();
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+    };
+  }, []);
 
   if (!currentMedia) return null;
 
@@ -880,9 +999,9 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
               />
             </AnimatePresence>
 
-            {/* Netflix-style loading - show loader only briefly */}
+            {/* Netflix-style loading - show loader only when nothing is loaded */}
             <AnimatePresence>
-              {!backgroundLoaded && (!hasVideoContent(currentMedia) || !videoLoaded) && (
+              {!backgroundLoaded && (
                 <motion.div
                   className="absolute inset-0 bg-black flex items-center justify-center z-30"
                   initial={{ opacity: 1 }}
@@ -902,114 +1021,72 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
                   ref={videoRef}
                   key={`video-${currentMedia.id}`}
                   poster={getBackgroundImageUrl(currentMedia)}
-                  className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-300 ${
-                    videoLoaded && isPlaying ? 'opacity-100' : 'opacity-0'
-                  }`}
-                  style={{ 
+                  className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-300 ${videoLoaded && isPlaying ? 'opacity-100' : 'opacity-0'
+                    }`}
+                  style={{
                     zIndex: 5,
                     objectFit: 'cover',
                     objectPosition: 'center'
                   }}
-                  autoPlay
+                  autoPlay={false}
                   muted={isMuted}
                   loop
                   playsInline
-                  preload="auto"
+                  preload="metadata"
                   controls={false}
                   crossOrigin="anonymous"
                   webkit-playsinline="true"
                   x-webkit-airplay="allow"
                   disablePictureInPicture
                   disableRemotePlayback
+                  src={getVideoUrl(currentMedia)}
                   onLoadedData={() => {
-                    console.log('Hero video loaded successfully:', currentMedia.title);
-                    setIsVideoLoaded(true);
-                    setVideoLoaded(true);
-                    setCurrentAudioElement(videoRef.current);
+                    if (videoRef.current) {
+                      const video = videoRef.current;
+                      if (video.readyState >= 2 && video.duration > 0) {
+                        setIsVideoLoaded(true);
+                        setVideoLoaded(true);
+                        setCurrentAudioElement(video);
+                      }
+                    }
                   }}
                   onCanPlay={() => {
-                    console.log('Hero video can play');
                     if (videoRef.current && !isPlaying) {
                       const video = videoRef.current;
                       video.currentTime = 0;
-                      video.volume = isMuted ? 0 : (spatialAudioEnabled ? 0.8 : 0.6);
-                      video.muted = isMuted;
 
-                      // Enhanced playback with cross-browser compatibility
-                      const attemptPlay = async () => {
-                        try {
-                          // Try to play with current muted state
-                          const playPromise = video.play();
-                          if (playPromise !== undefined) {
-                            await playPromise;
-                            console.log('Hero video playing successfully');
-                            setIsPlaying(true);
-                          }
-                        } catch (error) {
-                          console.log('Autoplay failed, trying muted fallback:', error);
-                          try {
-                            // Force muted for autoplay compliance
-                            video.muted = true;
-                            setIsMuted(true);
-                            const mutedPlayPromise = video.play();
-                            if (mutedPlayPromise !== undefined) {
-                              await mutedPlayPromise;
-                              setIsPlaying(true);
-                              console.log('Hero video playing muted');
-                            }
-                          } catch (mutedError) {
-                            console.log('Video playback failed completely:', mutedError);
-                            setIsVideoLoaded(false);
-                            setVideoLoaded(false);
-                            setIsPlaying(false);
-                          }
-                        }
-                      };
-
-                      // Small delay to ensure video is ready
-                      setTimeout(attemptPlay, 100);
+                      const shouldStartWithAudio = !isMuted && hasUserEverUnmuted() && canAutoplayWithAudio;
+                      playVideoWithAudio(video, shouldStartWithAudio);
                     }
                   }}
-                  onError={(e) => {
-                    console.log('Hero video error occurred:', e);
+                  onError={() => {
                     setIsVideoLoaded(false);
                     setVideoLoaded(false);
                     setIsPlaying(false);
                   }}
 
                   onPlay={() => {
-                    console.log('Hero video started playing');
                     setIsPlaying(true);
                   }}
                   onPause={() => {
-                    console.log('Hero video paused');
                     setIsPlaying(false);
                   }}
                   onLoadStart={() => {
-                    console.log('Hero video load started');
                     setVideoLoaded(false);
                     setIsPlaying(false);
                   }}
-                  onLoadedMetadata={() => {
-                    console.log('Hero video metadata loaded');
-                  }}
                   onClick={(e) => {
-                    console.log('🎬 Video element clicked directly');
                     if (isMuted) {
                       e.stopPropagation();
                       handleUnmute(e);
                     }
                   }}
                 >
-                  {/* Multiple source formats for cross-browser compatibility */}
+                  {/* Single source for Chromium compatibility - multiple sources can cause issues */}
                   {getVideoUrl(currentMedia) && (
-                    <>
-                      <source src={getVideoUrl(currentMedia)!} type="video/mp4" />
-                      <source src={getVideoUrl(currentMedia)!} type="video/webm" />
-                      <source src={getVideoUrl(currentMedia)!} type="video/ogg" />
-                    </>
+                    <source src={getVideoUrl(currentMedia)!} type="video/mp4" />
                   )}
-                  
+
                   {/* Fallback message */}
                   Your browser does not support the video tag.
                 </video>
@@ -1063,11 +1140,11 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
 
 
 
-      {/* Click to unmute overlay - Universal browser support */}
-      {isMuted && isVideoLoaded && hasVideoContent(currentMedia) && (
+      {/* Click to unmute overlay - Show if muted and video is playing */}
+      {isMuted && isVideoLoaded && hasVideoContent(currentMedia) && isPlaying && (
         <motion.div
           className="absolute inset-0 z-50 flex items-center justify-center cursor-pointer"
-          style={{ 
+          style={{
             backgroundColor: 'rgba(0,0,0,0.2)',
             pointerEvents: 'all'
           }}
@@ -1106,6 +1183,10 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
           </motion.button>
         </motion.div>
       )}
+
+
+
+
 
       {/* Refresh content button */}
       {enableRecommendations && (
@@ -1184,11 +1265,11 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
                 </div>
 
                 {/* Rating if available */}
-                {currentMedia.rating && (
+                {(
                   <div className="flex items-center gap-1">
                     <span className="text-yellow-400 text-sm">★</span>
-                    <span className="text-gray-300 text-sm">
-                      {currentMedia.rating.toFixed(1)}
+                    <span className="font-bold text-gray-300 text-sm">
+                      {currentMedia.rating ? parseFloat(currentMedia.rating.toFixed(1)) : "8.0"}
                     </span>
                   </div>
                 )}
@@ -1242,7 +1323,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.8, delay: 0.3 }}
               >
-                {currentMedia.short_desc || "Experience premium entertainment with stunning visuals and immersive storytelling."}
+                {currentMedia.description ? `${currentMedia.description.substring(0, 250)}` : "Experience premium entertainment with stunning visuals and immersive storytelling."}
               </motion.p>
             </ScrollReveal>
 
@@ -1303,56 +1384,87 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
                   key={`${index}-${cycleCount}`}
                   onClick={() => goToSlide(index)}
                   disabled={isTransitioning}
-                  className="relative flex items-center justify-center transition-all duration-500 ease-out disabled:cursor-not-allowed"
+                  className="relative flex items-center justify-center transition-all duration-500 ease-out disabled:cursor-not-allowed p-1"
+                  strength={0.2}
                 >
                   {index === currentIndex ? (
-                    // Red bar for current slide with glow effect
+                    // Netflix-style red bar for current slide
                     <motion.div
-                      className={`bg-red-600 rounded-full relative ${isTransitioning ? 'animate-pulse' : ''}`}
+                      className="relative"
                       style={{
-                        boxShadow: isTransitioning 
-                          ? '0 0 8px rgba(239, 68, 68, 0.4), 0 0 16px rgba(239, 68, 68, 0.2)'
-                          : '0 0 12px rgba(239, 68, 68, 0.6), 0 0 24px rgba(239, 68, 68, 0.3)'
-                      }}
-                      initial={{ width: 12, height: 12 }}
-                      animate={{ 
-                        width: 32, 
-                        height: 4,
+                        background: 'linear-gradient(90deg, #e50914, #ff1a2b, #e50914)', // Enhanced Netflix red gradient
                         borderRadius: 2,
-                        opacity: isTransitioning ? 0.7 : 1
+                        boxShadow: '0 0 20px rgba(229, 9, 20, 0.9), 0 0 40px rgba(229, 9, 20, 0.5), 0 2px 4px rgba(0, 0, 0, 0.3)'
                       }}
-                      transition={{ 
-                        duration: 0.5, 
+                      initial={{ width: 12, height: 12, opacity: 0.7 }}
+                      animate={{
+                        width: 40,
+                        height: 5,
+                        opacity: 1
+                      }}
+                      transition={{
+                        duration: 0.3,
                         ease: "easeOut",
                         type: "spring",
-                        stiffness: 300,
+                        stiffness: 500,
                         damping: 30
                       }}
-                    />
+                    >
+                      {/* Animated glow effect */}
+                      <motion.div 
+                        className="absolute inset-0 rounded-sm"
+                        style={{
+                          background: 'linear-gradient(180deg, rgba(255,255,255,0.6) 0%, transparent 40%, rgba(255,255,255,0.1) 100%)',
+                          borderRadius: 2
+                        }}
+                        animate={{
+                          opacity: [0.6, 1, 0.6]
+                        }}
+                        transition={{
+                          duration: 2,
+                          repeat: Infinity,
+                          ease: "easeInOut"
+                        }}
+                      />
+                      {/* Bottom shadow for depth */}
+                      <div 
+                        className="absolute -bottom-1 left-1/2 transform -translate-x-1/2 w-8 h-1 rounded-full"
+                        style={{
+                          background: 'radial-gradient(ellipse, rgba(229, 9, 20, 0.4) 0%, transparent 70%)',
+                          filter: 'blur(2px)'
+                        }}
+                      />
+                    </motion.div>
                   ) : (
-                    // Dots for inactive slides
+                    // Subtle dots for inactive slides
                     <motion.div
-                      className={`bg-white/50 hover:bg-white/80 rounded-full cursor-pointer ${isLoadingNewContent ? 'animate-pulse' : ''}`}
-                      initial={{ width: 32, height: 4 }}
-                      animate={{ 
-                        width: 12, 
-                        height: 12,
-                        borderRadius: 6,
-                        backgroundColor: "rgba(255, 255, 255, 0.5)"
+                      className={`rounded-full cursor-pointer ${isLoadingNewContent ? 'animate-pulse' : ''}`}
+                      style={{
+                        backgroundColor: "rgba(255, 255, 255, 0.25)",
+                        border: "1px solid rgba(255, 255, 255, 0.2)",
+                        boxShadow: "inset 0 0 3px rgba(0, 0, 0, 0.4)"
                       }}
-                      whileHover={{ 
-                        scale: 1.2,
-                        backgroundColor: "rgba(255, 255, 255, 0.8)"
+                      initial={{ width: 40, height: 5 }}
+                      animate={{
+                        width: 10,
+                        height: 10,
+                        borderRadius: 5,
+                        backgroundColor: "rgba(255, 255, 255, 0.25)"
                       }}
-                      whileTap={{ 
-                        scale: 0.9 
+                      whileHover={{
+                        scale: 1.3,
+                        backgroundColor: "rgba(255, 255, 255, 0.5)",
+                        boxShadow: "0 0 12px rgba(255, 255, 255, 0.3), inset 0 0 3px rgba(0, 0, 0, 0.3)"
                       }}
-                      transition={{ 
-                        duration: 0.5, 
+                      whileTap={{
+                        scale: 0.8
+                      }}
+                      transition={{
+                        duration: 0.3,
                         ease: "easeOut",
                         type: "spring",
-                        stiffness: 300,
-                        damping: 30
+                        stiffness: 400,
+                        damping: 25
                       }}
                     />
                   )}

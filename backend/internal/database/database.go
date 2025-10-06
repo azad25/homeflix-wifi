@@ -24,6 +24,10 @@ func Initialize(databaseURL string) (*gorm.DB, error) {
 		&models.ViewHistory{},
 		&models.UserRating{},
 		&models.Recommendation{},
+		&models.PlaybackProgress{},
+		&models.WatchHistory{},
+		&models.RecentlyWatched{},
+		&models.MyList{},
 	)
 	if err != nil {
 		return nil, err

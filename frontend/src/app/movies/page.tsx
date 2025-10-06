@@ -140,6 +140,8 @@ export default function MoviesPage() {
           featuredMedia={featuredMovies}
           onPlay={handlePlay}
           onInfo={handleInfo}
+          enableRecommendations={true}
+          refreshInterval={300000}
         />
       )}
 

@@ -34,11 +34,11 @@ type Media struct {
 	Quality     string    `json:"quality"` // HD, 4K, SD, HDR
 	
 	// Cast and crew - matching media.json structure
-	Stars     []string `json:"stars" gorm:"type:json"`
-	Director  []string `json:"director" gorm:"type:json"`
-	Cast      []string `json:"cast" gorm:"type:json"`      // Full cast list
-	Writers   []string `json:"writers" gorm:"type:json"`   // Writers/Screenplay
-	Producers []string `json:"producers" gorm:"type:json"` // Producers
+	Stars     []string `json:"stars" gorm:"serializer:json"`
+	Director  []string `json:"director" gorm:"serializer:json"`
+	Cast      []string `json:"cast" gorm:"serializer:json"`      // Full cast list
+	Writers   []string `json:"writers" gorm:"serializer:json"`   // Writers/Screenplay
+	Producers []string `json:"producers" gorm:"serializer:json"` // Producers
 	
 	// Box office and additional metadata
 	Budget     int64  `json:"budget"`      // Production budget
@@ -51,7 +51,7 @@ type Media struct {
 	
 	// Genres - keeping both relationship and JSON for flexibility
 	Genres     []Genre  `json:"genres" gorm:"many2many:media_genres;"`
-	GenreNames []string `json:"genre_names" gorm:"type:json"` // For JSON compatibility
+	GenreNames []string `json:"genre_names" gorm:"serializer:json"` // For JSON compatibility
 	
 	// Video info
 	Resolution string `json:"resolution"`

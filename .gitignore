@@ -7,7 +7,6 @@
 *.dylib
 *.test
 *.out
-
 # Binaries for programs and plugins
 *.exe
 *.exe~
@@ -54,7 +53,6 @@ yarn-error.log*
 
 # Local development
 .env*.local
-.env
 
 # Editor directories and files
 .idea/

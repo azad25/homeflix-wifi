@@ -1,12 +1,13 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { Filter, Film } from "lucide-react";
 import { useRouter } from 'next/navigation';
 import { Media } from "../../types/media";
 import VideoPlayer from "../../components/VideoPlayer";
 import Navbar from "../../components/Navbar";
 import RecentlyWatched from "../../components/RecentlyWatched";
+import LazyMediaGrid from "../../components/LazyMediaGrid";
 import { getApiUrl } from "../../lib/api";
 import { 
   NetflixHorizontalRow, 
@@ -28,6 +29,7 @@ export default function BrowsePage() {
   const router = useRouter();
   const [allMedia, setAllMedia] = useState<Media[]>([]);
   const [filteredMedia, setFilteredMedia] = useState<Media[]>([]);
+  const [displayedMedia, setDisplayedMedia] = useState<Media[]>([]);
   const [featuredMedia, setFeaturedMedia] = useState<Media[]>([]);
   const [genres, setGenres] = useState<Genre[]>([]);
   const [selectedGenre, setSelectedGenre] = useState<string>("all");
@@ -36,6 +38,10 @@ export default function BrowsePage() {
   const [selectedMedia, setSelectedMedia] = useState<Media | null>(null);
   const [isPlayerOpen, setIsPlayerOpen] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
+  const ITEMS_PER_PAGE = 24;
 
   useEffect(() => {
     fetchData();
@@ -44,6 +50,14 @@ export default function BrowsePage() {
   useEffect(() => {
     filterAndSortMedia();
   }, [allMedia, selectedGenre, sortBy, searchQuery]);
+
+  useEffect(() => {
+    // Reset pagination when filters change
+    setCurrentPage(1);
+    setDisplayedMedia([]);
+    setHasMore(true);
+    loadMoreMedia(1);
+  }, [filteredMedia]);
 
   const fetchData = async () => {
     setLoading(true);
@@ -61,16 +75,63 @@ export default function BrowsePage() {
       setAllMedia(mediaData);
       setGenres(genresData);
       
-      // Set featured media (top 5 highest rated)
-      const featured = [...mediaData]
-        .sort((a, b) => (b.rating || 0) - (a.rating || 0))
-        .slice(0, 5);
-      setFeaturedMedia(featured);
+      // Fetch featured media from recommendations with fallback
+      await fetchFeaturedMedia();
       
       setLoading(false);
     } catch (error) {
       console.error("Error fetching data:", error);
       setLoading(false);
+    }
+  };
+
+  const fetchFeaturedMedia = async () => {
+    try {
+      const apiUrl = getApiUrl();
+      
+      // Try to fetch from recommendations endpoints with fallbacks
+      const endpoints = [
+        `${apiUrl}/api/recommendations/trending?limit=8`,
+        `${apiUrl}/api/recommendations/popular?limit=8`,
+        `${apiUrl}/api/recommendations/mixed?limit=8`,
+        `${apiUrl}/api/media?limit=8` // Final fallback
+      ];
+
+      let featured: Media[] = [];
+      
+      for (const endpoint of endpoints) {
+        try {
+          const response = await fetch(endpoint);
+          if (response.ok) {
+            const data = await response.json();
+            if (data && data.length > 0) {
+              featured = data.slice(0, 8);
+              break;
+            }
+          }
+        } catch (error) {
+          console.warn(`Failed to fetch from ${endpoint}:`, error);
+          continue;
+        }
+      }
+
+      // If all endpoints fail, use highest rated from allMedia
+      if (featured.length === 0 && allMedia.length > 0) {
+        featured = [...allMedia]
+          .sort((a, b) => (b.rating || 0) - (a.rating || 0))
+          .slice(0, 8);
+      }
+
+      setFeaturedMedia(featured);
+    } catch (error) {
+      console.error("Error fetching featured media:", error);
+      // Fallback to highest rated from allMedia
+      if (allMedia.length > 0) {
+        const featured = [...allMedia]
+          .sort((a, b) => (b.rating || 0) - (a.rating || 0))
+          .slice(0, 8);
+        setFeaturedMedia(featured);
+      }
     }
   };
 
@@ -127,27 +188,29 @@ export default function BrowsePage() {
     setSearchQuery(query);
   };
 
-  const groupedByGenre = () => {
-    const grouped: { [key: string]: Media[] } = {};
+  const loadMoreMedia = useCallback((page: number = currentPage) => {
+    const startIndex = (page - 1) * ITEMS_PER_PAGE;
+    const endIndex = startIndex + ITEMS_PER_PAGE;
+    const newItems = filteredMedia.slice(startIndex, endIndex);
     
-    filteredMedia.forEach(media => {
-      if (media.genres && media.genres.length > 0) {
-        media.genres.forEach(genre => {
-          if (!grouped[genre.name]) {
-            grouped[genre.name] = [];
-          }
-          grouped[genre.name].push(media);
-        });
-      } else {
-        if (!grouped["Uncategorized"]) {
-          grouped["Uncategorized"] = [];
-        }
-        grouped["Uncategorized"].push(media);
-      }
-    });
+    if (page === 1) {
+      setDisplayedMedia(newItems);
+    } else {
+      setDisplayedMedia(prev => [...prev, ...newItems]);
+    }
     
-    return grouped;
-  };
+    setHasMore(endIndex < filteredMedia.length);
+    setLoadingMore(false);
+  }, [filteredMedia, currentPage, ITEMS_PER_PAGE]);
+
+  const handleLoadMore = useCallback(() => {
+    if (!loadingMore && hasMore) {
+      setLoadingMore(true);
+      const nextPage = currentPage + 1;
+      setCurrentPage(nextPage);
+      setTimeout(() => loadMoreMedia(nextPage), 100); // Small delay for better UX
+    }
+  }, [loadingMore, hasMore, currentPage, loadMoreMedia]);
 
   if (loading) {
     return (
@@ -243,91 +306,19 @@ export default function BrowsePage() {
             </ScrollReveal>
           </ParallaxSection>
 
-          {/* Content Grid */}
+          {/* Content Grid with Lazy Loading */}
           <ParallaxSection speed={0.4}>
             <ScrollReveal direction="up" delay={0.3}>
               <div className="px-4 md:px-8 lg:px-16">
                 {filteredMedia.length > 0 ? (
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
-                    {filteredMedia.map((media, index) => (
-                      <div key={media.id} className="group relative">
-                        <div className="aspect-[2/3] bg-gray-800 rounded-lg overflow-hidden relative">
-                          <img
-                            src={`${getApiUrl()}/api/posters/${media.id}`}
-                            alt={media.title}
-                            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
-                            onError={(e) => {
-                              const target = e.target as HTMLImageElement;
-                              target.src = `${getApiUrl()}/api/thumbnails/${media.id}`;
-                            }}
-                          />
-                          
-                          {/* Overlay */}
-                          <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center">
-                            <div className="flex gap-2">
-                              <button
-                                onClick={() => handlePlay(media)}
-                                className="bg-white text-black p-2 rounded-full hover:bg-gray-200 transition-colors"
-                                title="Play"
-                              >
-                                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-                                  <path d="M8 5v14l11-7z"/>
-                                </svg>
-                              </button>
-                              <button
-                                onClick={() => handleInfo(media)}
-                                className="bg-gray-600 text-white p-2 rounded-full hover:bg-gray-500 transition-colors"
-                                title="More Info"
-                              >
-                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                </svg>
-                              </button>
-                            </div>
-                          </div>
-                          
-                          {/* Rating Badge */}
-                          {media.rating && (
-                            <div className="absolute top-2 right-2 bg-black/80 text-white text-xs px-2 py-1 rounded">
-                              ⭐ {media.rating}
-                            </div>
-                          )}
-                          
-                          {/* Type Badge */}
-                          <div className="absolute top-2 left-2 bg-red-600 text-white text-xs px-2 py-1 rounded capitalize">
-                            {media.type === 'episode' ? 'TV' : media.type}
-                          </div>
-                        </div>
-                        
-                        {/* Title and Info */}
-                        <div className="mt-2">
-                          <h3 className="text-white text-sm font-medium truncate group-hover:text-red-400 transition-colors">
-                            {media.title}
-                          </h3>
-                          <div className="flex items-center justify-between mt-1">
-                            <p className="text-gray-400 text-xs capitalize">
-                              {media.type === 'episode' ? 'TV Series' : media.type}
-                            </p>
-                            {media.view_count && (
-                              <p className="text-gray-500 text-xs">
-                                {media.view_count} views
-                              </p>
-                            )}
-                          </div>
-                          {/* Genres */}
-                          {media.genres && media.genres.length > 0 && (
-                            <div className="flex flex-wrap gap-1 mt-1">
-                              {media.genres.slice(0, 2).map((genre, idx) => (
-                                <span key={idx} className="text-gray-500 text-xs bg-gray-800 px-1 py-0.5 rounded">
-                                  {genre.name}
-                                </span>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+                  <LazyMediaGrid
+                    media={displayedMedia}
+                    onPlay={handlePlay}
+                    onInfo={handleInfo}
+                    loading={loadingMore}
+                    hasMore={hasMore}
+                    onLoadMore={handleLoadMore}
+                  />
                 ) : (
                   <div className="text-center py-16">
                     <FloatingElement>

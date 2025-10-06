@@ -140,9 +140,13 @@ const EpisodeList: React.FC<EpisodeListProps> = ({
                 <div className="relative flex-shrink-0">
                   <div className="w-40 h-24 bg-zinc-800 rounded overflow-hidden relative">
                     <Image
-                      src={`${getApiUrl()}/api/thumbnails/${episode.id}`}
+                      src={`${getApiUrl()}/api/posters/${episode.id}`}
                       alt={episode.title}
                       fill
+                      onError={(e) => {
+                        const target = e.target as HTMLImageElement;
+                        target.src = `${getApiUrl()}/api/thumbnails/${episode.id}`;
+                      }}
                       sizes="160px"
                       className="object-cover"
                       onError={(e) => {

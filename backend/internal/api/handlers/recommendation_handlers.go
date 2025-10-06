@@ -8,192 +8,215 @@ import (
 	"homeflix-backend/internal/services"
 )
 
-// GetTrendingRecommendations returns trending media for hero carousel
+// Netflix-style recommendation handlers
+
 func GetTrendingRecommendations(mediaService *services.MediaService) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		limit := 10 // Default limit for hero carousel
-		if l := c.Query("limit"); l != "" {
-			if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 && parsed <= 50 {
-				limit = parsed
+		limit := 20
+		if limitStr := c.Query("limit"); limitStr != "" {
+			if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= 100 {
+				limit = l
 			}
 		}
-
+		
+		// Get trending media based on recent views and high ratings
 		media, err := mediaService.GetTrendingMedia(limit)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
+			// Fallback to popular media if trending fails
+			media, err = mediaService.GetPopularMedia()
+			if err != nil {
+				// Final fallback to recent media
+				media, err = mediaService.GetRecentMedia()
+				if err != nil {
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch recommendations"})
+					return
+				}
+			}
 		}
-
+		
 		c.JSON(http.StatusOK, media)
 	}
 }
 
-// GetPopularRecommendations returns popular media for hero carousel
 func GetPopularRecommendations(mediaService *services.MediaService) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		limit := 10 // Default limit for hero carousel
-		if l := c.Query("limit"); l != "" {
-			if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 && parsed <= 50 {
-				limit = parsed
+		limit := 20
+		if limitStr := c.Query("limit"); limitStr != "" {
+			if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= 100 {
+				limit = l
 			}
 		}
-
-		media, err := mediaService.GetPopularMedia()
+		
+		// Get most watched media
+		media, err := mediaService.GetMostWatched(limit)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
+			// Fallback to popular media
+			media, err = mediaService.GetPopularMedia()
+			if err != nil {
+				// Final fallback to all media sorted by rating
+				allMedia, err := mediaService.GetAllMedia()
+				if err != nil {
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch recommendations"})
+					return
+				}
+				// Return first 'limit' items
+				if len(allMedia) > limit {
+					media = allMedia[:limit]
+				} else {
+					media = allMedia
+				}
+			}
 		}
-
-		// Limit results
-		if len(media) > limit {
-			media = media[:limit]
-		}
-
+		
 		c.JSON(http.StatusOK, media)
 	}
 }
 
-// GetRecentRecommendations returns recently added media
 func GetRecentRecommendations(mediaService *services.MediaService) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		limit := 10 // Default limit
-		if l := c.Query("limit"); l != "" {
-			if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 && parsed <= 50 {
-				limit = parsed
+		limit := 20
+		if limitStr := c.Query("limit"); limitStr != "" {
+			if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= 100 {
+				limit = l
 			}
 		}
-
+		
+		// Get recently added media
 		media, err := mediaService.GetRecentlyAdded(limit)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-
-		c.JSON(http.StatusOK, media)
-	}
-}
-
-// GetHighRatedRecommendations returns highest rated media
-func GetHighRatedRecommendations(mediaService *services.MediaService) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		limit := 10 // Default limit
-		if l := c.Query("limit"); l != "" {
-			if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 && parsed <= 50 {
-				limit = parsed
+			// Fallback to recent media
+			media, err = mediaService.GetRecentMedia()
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch recommendations"})
+				return
 			}
 		}
-
-		// Get media sorted by rating
-		media, err := mediaService.GetMediaByRating(limit)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-
+		
 		c.JSON(http.StatusOK, media)
 	}
 }
 
-// GetGenreRecommendations returns media by genre
+func GetHighRatedRecommendations(mediaService *services.MediaService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		limit := 20
+		if limitStr := c.Query("limit"); limitStr != "" {
+			if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= 100 {
+				limit = l
+			}
+		}
+		
+		// Get highest rated media
+		media, err := mediaService.GetHighestRated(limit)
+		if err != nil {
+			// Fallback to all media and sort by rating on backend
+			allMedia, err := mediaService.GetAllMedia()
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch recommendations"})
+				return
+			}
+			
+			// Simple fallback - return first items
+			if len(allMedia) > limit {
+				media = allMedia[:limit]
+			} else {
+				media = allMedia
+			}
+		}
+		
+		c.JSON(http.StatusOK, media)
+	}
+}
+
 func GetGenreRecommendations(mediaService *services.MediaService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		genre := c.Query("genre")
 		if genre == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Genre parameter required"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Genre parameter is required"})
 			return
 		}
-
-		limit := 10 // Default limit
-		if l := c.Query("limit"); l != "" {
-			if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 && parsed <= 50 {
-				limit = parsed
+		
+		limit := 20
+		if limitStr := c.Query("limit"); limitStr != "" {
+			if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= 100 {
+				limit = l
 			}
 		}
-
-		media, err := mediaService.GetMediaByGenreName(genre, limit)
+		
+		page := 1
+		if pageStr := c.Query("page"); pageStr != "" {
+			if p, err := strconv.Atoi(pageStr); err == nil && p > 0 {
+				page = p
+			}
+		}
+		
+		media, err := mediaService.GetMediaByGenre(genre, page, limit)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch genre recommendations"})
 			return
 		}
-
+		
 		c.JSON(http.StatusOK, media)
 	}
 }
 
-// GetMixedRecommendations returns a mix of different recommendation types
 func GetMixedRecommendations(mediaService *services.MediaService) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		limit := 10 // Default limit
-		if l := c.Query("limit"); l != "" {
-			if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 && parsed <= 50 {
-				limit = parsed
+		limit := 20
+		if limitStr := c.Query("limit"); limitStr != "" {
+			if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= 100 {
+				limit = l
 			}
 		}
-
-		// Get a mix of trending, popular, and recent media
-		var allMedia []interface{}
 		
-		// Get trending (40% of results)
-		trendingLimit := (limit * 4) / 10
-		if trendingLimit < 1 {
-			trendingLimit = 1
-		}
-		trending, err := mediaService.GetTrendingMedia(trendingLimit)
-		if err == nil {
-			for _, media := range trending {
-				allMedia = append(allMedia, media)
+		// Get a mix of different types of recommendations
+		var allRecommendations []interface{}
+		
+		// Get some trending
+		if trending, err := mediaService.GetTrendingMedia(limit / 4); err == nil {
+			for _, item := range trending {
+				allRecommendations = append(allRecommendations, item)
 			}
 		}
-
-		// Get popular (30% of results)
-		popularLimit := (limit * 3) / 10
-		if popularLimit < 1 {
-			popularLimit = 1
-		}
-		popular, err := mediaService.GetPopularMedia()
-		if err == nil {
-			count := 0
-			for _, media := range popular {
-				if count >= popularLimit {
-					break
-				}
-				// Avoid duplicates (simplified check)
-				isDuplicate := false
-				for _, existing := range allMedia {
-					// Use a simple comparison or implement proper equality check
-					_ = existing // Skip duplicate check for now to avoid comparison issues
-				}
-				if !isDuplicate {
-					allMedia = append(allMedia, media)
-					count++
-				}
+		
+		// Get some popular
+		if popular, err := mediaService.GetMostWatched(limit / 4); err == nil {
+			for _, item := range popular {
+				allRecommendations = append(allRecommendations, item)
 			}
 		}
-
-		// Get recent (30% of results)
-		recentLimit := limit - len(allMedia)
-		if recentLimit > 0 {
-			recent, err := mediaService.GetRecentlyAdded(recentLimit * 2) // Get more to filter duplicates
-			if err == nil {
-				count := 0
-				for _, media := range recent {
-					if count >= recentLimit {
+		
+		// Get some recent
+		if recent, err := mediaService.GetRecentlyAdded(limit / 4); err == nil {
+			for _, item := range recent {
+				allRecommendations = append(allRecommendations, item)
+			}
+		}
+		
+		// Get some high rated
+		if rated, err := mediaService.GetHighestRated(limit / 4); err == nil {
+			for _, item := range rated {
+				allRecommendations = append(allRecommendations, item)
+			}
+		}
+		
+		// If we don't have enough, fill with all media
+		if len(allRecommendations) < limit {
+			if allMedia, err := mediaService.GetAllMedia(); err == nil {
+				remaining := limit - len(allRecommendations)
+				for i, item := range allMedia {
+					if i >= remaining {
 						break
 					}
-					// Avoid duplicates (simplified check)
-					isDuplicate := false
-					for _, existing := range allMedia {
-						// Use a simple comparison or implement proper equality check
-						_ = existing // Skip duplicate check for now to avoid comparison issues
-					}
-					if !isDuplicate {
-						allMedia = append(allMedia, media)
-						count++
-					}
+					allRecommendations = append(allRecommendations, item)
 				}
 			}
 		}
-
-		c.JSON(http.StatusOK, allMedia)
+		
+		// Limit the results
+		if len(allRecommendations) > limit {
+			allRecommendations = allRecommendations[:limit]
+		}
+		
+		c.JSON(http.StatusOK, allRecommendations)
 	}
 }

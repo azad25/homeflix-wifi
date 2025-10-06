@@ -299,3 +299,37 @@ func (s *RecommendationService) TrackRecommendationClick(userID uint, mediaID ui
 			"clicked_at": &now,
 		}).Error
 }
+
+// RefreshRecommendations updates recommendation scores for all users after new media is added
+func (s *RecommendationService) RefreshRecommendations() error {
+	// Get all active users (users who have watched something in the last 90 days)
+	var activeUsers []uint
+	ninetyDaysAgo := time.Now().AddDate(0, 0, -90)
+	
+	err := s.db.Model(&models.ViewHistory{}).
+		Where("watched_at > ?", ninetyDaysAgo).
+		Distinct("user_id").
+		Pluck("user_id", &activeUsers)
+	
+	if err != nil {
+		return fmt.Errorf("failed to get active users: %v", err)
+	}
+
+	// Refresh recommendations for each active user
+	for _, userID := range activeUsers {
+		// Generate fresh recommendations for this user
+		_, err := s.GetRecommendationsForUser(userID, 50) // Generate up to 50 recommendations
+		if err != nil {
+			// Log error but continue with other users
+			fmt.Printf("Warning: Failed to refresh recommendations for user %d: %v\n", userID, err)
+		}
+	}
+
+	// Clean up old recommendations (older than 30 days)
+	thirtyDaysAgo := time.Now().AddDate(0, 0, -30)
+	if err := s.db.Where("created_at < ?", thirtyDaysAgo).Delete(&models.Recommendation{}).Error; err != nil {
+		return fmt.Errorf("failed to clean up old recommendations: %v", err)
+	}
+
+	return nil
+}

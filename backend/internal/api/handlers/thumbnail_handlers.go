@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
 	"os"
 	"strconv"
@@ -25,7 +26,7 @@ func GetThumbnail(mediaService *services.MediaService, thumbnailService *service
 			return
 		}
 
-		thumbnailPath, err := thumbnailService.ServeThumbnail(media.ID)
+		thumbnailPath, err := thumbnailService.ServeThumbnail(media.ID, media.Title)
 		if err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 			return
@@ -48,7 +49,7 @@ func GetPreviewClip(mediaService *services.MediaService, thumbnailService *servi
 			return
 		}
 
-		previewPath, err := thumbnailService.ServePreviewClip(media.ID)
+		previewPath, err := thumbnailService.ServePreviewClip(media.ID, media.Title)
 		if err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 			return
@@ -71,7 +72,7 @@ func GenerateThumbnail(mediaService *services.MediaService, thumbnailService *se
 			return
 		}
 
-		_, err = thumbnailService.GenerateThumbnail(media.FilePath, media.ID)
+		_, err = thumbnailService.GenerateThumbnail(media.FilePath, media.ID, media.Title)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
@@ -95,7 +96,7 @@ func GetPreview(mediaService *services.MediaService, thumbnailService *services.
 			return
 		}
 
-		previewPath, err := thumbnailService.ServePreview(media.ID)
+		previewPath, err := thumbnailService.ServePreview(media.ID, media.Title)
 		if err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 			return
@@ -142,7 +143,7 @@ func GeneratePreviewClip(mediaService *services.MediaService, thumbnailService *
 		}
 
 		// Generate preview clip with Python task compatibility
-		previewPath, err := thumbnailService.GeneratePreviewClip(media.FilePath, media.ID)
+		previewPath, err := thumbnailService.GeneratePreviewClip(media.FilePath, media.ID, media.Title)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"status": "failed",
@@ -342,5 +343,207 @@ func UpdatePreviewPath(mediaService *services.MediaService) gin.HandlerFunc {
 		}
 
 		c.JSON(http.StatusOK, gin.H{"message": "Preview path updated successfully"})
+	}
+}
+
+// GetThumbnailServiceStats returns thumbnail service statistics
+func GetThumbnailServiceStats(thumbnailService *services.ThumbnailService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		stats := thumbnailService.GetWorkerPoolStats()
+		activeJobs := thumbnailService.GetActiveJobs()
+		
+		// Add job statistics
+		jobStats := map[string]int{
+			"queued":     0,
+			"processing": 0,
+			"completed":  0,
+			"failed":     0,
+		}
+		
+		for _, job := range activeJobs {
+			jobStats[job.Status]++
+		}
+		
+		c.JSON(http.StatusOK, gin.H{
+			"worker_pool": stats,
+			"job_stats":   jobStats,
+			"active_jobs": len(activeJobs),
+		})
+	}
+}
+
+// GetJobStatus returns the status of a specific job
+func GetJobStatus(thumbnailService *services.ThumbnailService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		jobID := c.Param("jobId")
+		
+		job, exists := thumbnailService.GetJobStatus(jobID)
+		if !exists {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Job not found"})
+			return
+		}
+		
+		c.JSON(http.StatusOK, gin.H{
+			"job": job,
+		})
+	}
+}
+
+// GenerateThumbnailBatch generates multiple thumbnails in parallel
+func GenerateThumbnailBatch(mediaService *services.MediaService, thumbnailService *services.ThumbnailService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var request struct {
+			MediaIDs []uint `json:"media_ids"`
+		}
+
+		if err := c.BindJSON(&request); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
+			return
+		}
+
+		if len(request.MediaIDs) == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "No media IDs provided"})
+			return
+		}
+
+		if len(request.MediaIDs) > 50 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Too many media IDs (max 50)"})
+			return
+		}
+
+		// Prepare batch requests
+		var batchRequests []struct {
+			VideoPath string
+			MediaID   uint
+			Title     string
+		}
+
+		for _, mediaID := range request.MediaIDs {
+			media, err := mediaService.GetMediaByID(mediaID)
+			if err != nil {
+				continue // Skip invalid media IDs
+			}
+
+			batchRequests = append(batchRequests, struct {
+				VideoPath string
+				MediaID   uint
+				Title     string
+			}{
+				VideoPath: media.FilePath,
+				MediaID:   media.ID,
+				Title:     media.Title,
+			})
+		}
+
+		// Generate thumbnails in parallel
+		results := thumbnailService.GenerateThumbnailBatch(batchRequests)
+
+		// Process results
+		successful := 0
+		failed := 0
+		var errors []string
+
+		for i, result := range results {
+			if result.Error != nil {
+				failed++
+				errors = append(errors, fmt.Sprintf("Media %d: %v", batchRequests[i].MediaID, result.Error))
+			} else {
+				successful++
+				// Update media record
+				media, _ := mediaService.GetMediaByID(batchRequests[i].MediaID)
+				if media != nil {
+					media.ThumbnailPath = result.Path
+					mediaService.UpdateMedia(media)
+				}
+			}
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"status":     "completed",
+			"total":      len(batchRequests),
+			"successful": successful,
+			"failed":     failed,
+			"errors":     errors,
+		})
+	}
+}
+
+// GeneratePreviewClipBatch generates multiple preview clips in parallel
+func GeneratePreviewClipBatch(mediaService *services.MediaService, thumbnailService *services.ThumbnailService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var request struct {
+			MediaIDs []uint `json:"media_ids"`
+		}
+
+		if err := c.BindJSON(&request); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
+			return
+		}
+
+		if len(request.MediaIDs) == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "No media IDs provided"})
+			return
+		}
+
+		if len(request.MediaIDs) > 20 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Too many media IDs (max 20)"})
+			return
+		}
+
+		// Prepare batch requests
+		var batchRequests []struct {
+			VideoPath string
+			MediaID   uint
+			Title     string
+		}
+
+		for _, mediaID := range request.MediaIDs {
+			media, err := mediaService.GetMediaByID(mediaID)
+			if err != nil {
+				continue // Skip invalid media IDs
+			}
+
+			batchRequests = append(batchRequests, struct {
+				VideoPath string
+				MediaID   uint
+				Title     string
+			}{
+				VideoPath: media.FilePath,
+				MediaID:   media.ID,
+				Title:     media.Title,
+			})
+		}
+
+		// Generate preview clips in parallel
+		results := thumbnailService.GeneratePreviewClipBatch(batchRequests)
+
+		// Process results
+		successful := 0
+		failed := 0
+		var errors []string
+
+		for i, result := range results {
+			if result.Error != nil {
+				failed++
+				errors = append(errors, fmt.Sprintf("Media %d: %v", batchRequests[i].MediaID, result.Error))
+			} else {
+				successful++
+				// Update media record
+				media, _ := mediaService.GetMediaByID(batchRequests[i].MediaID)
+				if media != nil {
+					media.PreviewPath = result.Path
+					media.PreviewClipPath = result.Path
+					mediaService.UpdateMedia(media)
+				}
+			}
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"status":     "completed",
+			"total":      len(batchRequests),
+			"successful": successful,
+			"failed":     failed,
+			"errors":     errors,
+		})
 	}
 }
