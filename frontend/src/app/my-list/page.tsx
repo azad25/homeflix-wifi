@@ -167,11 +167,15 @@ export default function MyListPage() {
               >
                 {/* Thumbnail */}
                 <div className="aspect-[2/3] bg-gradient-to-br from-gray-800 to-gray-900 flex items-center justify-center relative">
-                  {media.thumbnail_path ? (
+                  {media.poster_path || media.thumbnail_path ? (
                     <Image
-                      src={`http://${window.location.hostname === 'localhost' ? 'localhost' : window.location.hostname}:8252/api/thumbnails/${media.id}`}
+                      src={`http://${window.location.hostname === 'localhost' ? 'localhost' : window.location.hostname}:8252/api/posters/${media.id}`}
                       alt={media.title}
                       fill
+                      onError={(e) => {
+                        const target = e.target as HTMLImageElement;
+                        target.src = `http://${window.location.hostname === 'localhost' ? 'localhost' : window.location.hostname}:8252/api/thumbnails/${media.id}`;
+                      }}
                       className="object-cover"
                       onError={(e) => {
                         e.currentTarget.style.display = 'none';
