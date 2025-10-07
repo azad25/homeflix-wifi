@@ -48,11 +48,16 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		// Additional ALAC Audio endpoints (optional)
 		api.GET("/media/:id/alac-audio", handlers.StreamALACAudio(streamService, mediaService))
 
-		// Thumbnails and previews
-		api.GET("/thumbnails/:id", handlers.GetThumbnail(mediaService, thumbnailService))
+		// Thumbnails and previews with enhanced error handling
+		api.GET("/thumbnails/:id", handlers.GetThumbnailEnhanced(mediaService, thumbnailService))
 		api.POST("/thumbnails/:id", handlers.GenerateThumbnail(mediaService, thumbnailService))
-		api.GET("/previews/:id", handlers.GetPreview(mediaService, thumbnailService))
-		api.GET("/posters/:id", handlers.GetPoster(mediaService))
+		api.GET("/previews/:id", handlers.GetPreviewEnhanced(mediaService, thumbnailService))
+		api.GET("/posters/:id", handlers.GetPosterEnhanced(mediaService))
+		
+		// Alternative asset serving endpoints
+		api.GET("/assets/thumbnails/:id", handlers.GetThumbnailEnhanced(mediaService, thumbnailService))
+		api.GET("/assets/previews/:id", handlers.GetPreviewEnhanced(mediaService, thumbnailService))
+		api.GET("/assets/posters/:id", handlers.GetPosterEnhanced(mediaService))
 
 		// Preview clip generation
 		api.POST("/admin/preview-clips/:id/generate", handlers.GeneratePreviewClip(mediaService, thumbnailService))
@@ -61,6 +66,7 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		// Optimized batch processing endpoints
 		api.POST("/admin/thumbnails/batch", handlers.GenerateThumbnailBatch(mediaService, thumbnailService))
 		api.POST("/admin/preview-clips/batch", handlers.GeneratePreviewClipBatch(mediaService, thumbnailService))
+		api.POST("/admin/preview-clips/regenerate-missing", handlers.RegeneratePreviewsForMissing(mediaService, thumbnailService))
 
 		// Thumbnail service monitoring
 		api.GET("/admin/thumbnail-service/stats", handlers.GetThumbnailServiceStats(thumbnailService))
@@ -82,6 +88,7 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		api.POST("/track-view/:id", handlers.TrackView(mediaService, playbackService))
 		api.POST("/playback/progress", handlers.UpdatePlaybackProgress(playbackService))
 		api.GET("/playback/progress/:id", handlers.GetPlaybackProgress(playbackService))
+		api.POST("/playback/initialize/:id", handlers.InitializePlaybackProgress(playbackService))
 		api.GET("/playback/recent", handlers.GetRecentlyWatched(playbackService))
 		api.GET("/playback/recently-watched", handlers.GetRecentlyWatched(playbackService))
 		api.GET("/playback/continue", handlers.GetContinueWatching(playbackService))
@@ -111,17 +118,18 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		api.POST("/admin/media/:id/update-with-tmdb", handlers.UpdateMediaWithTMDB(mediaService, tmdbService))
 		api.POST("/admin/generate-recommendations", handlers.GenerateRecommendations(geminiService))
 
-		// Personalized recommendation endpoints using RecommendationService for user ID 1
-		api.GET("/recommendations/trending", handlers.GetTrendingRecommendations(recommendationService))
+		// Enhanced recommendation endpoints with session awareness
+		api.GET("/recommendations/unique", handlers.GetUniqueRecommendations(recommendationService, mediaService))
+		api.GET("/recommendations/trending", handlers.GetSmartTrendingRecommendationsEnhanced(recommendationService, mediaService))
 		api.GET("/recommendations/popular", handlers.GetPopularRecommendations(recommendationService))
 		api.GET("/recommendations/recent", handlers.GetRecentRecommendations(recommendationService))
 		api.GET("/recommendations/top-rated", handlers.GetHighRatedRecommendations(recommendationService))
 		api.GET("/recommendations/genre", handlers.GetGenreRecommendations(recommendationService))
-		api.GET("/recommendations/mixed", handlers.GetMixedRecommendations(recommendationService))
+		api.GET("/recommendations/mixed", handlers.GetMixedRecommendationsEnhanced(recommendationService, mediaService))
 		
-		// Advanced recommendation endpoints using RecommendationService
-		api.GET("/recommendations/personalized", handlers.GetPersonalizedRecommendations(recommendationService))
-		api.GET("/recommendations/smart-trending", handlers.GetSmartTrendingRecommendations(recommendationService))
+		// Advanced recommendation endpoints with session awareness
+		api.GET("/recommendations/personalized", handlers.GetPersonalizedRecommendationsEnhanced(recommendationService, mediaService))
+		api.GET("/recommendations/smart-trending", handlers.GetSmartTrendingRecommendationsEnhanced(recommendationService, mediaService))
 		api.GET("/recommendations/similar", handlers.GetSimilarRecommendations(recommendationService))
 		api.GET("/recommendations/continue-watching", handlers.GetContinueWatchingRecommendations(recommendationService))
 		api.POST("/admin/recommendations/refresh", handlers.RefreshAllRecommendations(recommendationService))

@@ -15,37 +15,19 @@ import (
 
 	"homeflix-backend/internal/interfaces"
 	"homeflix-backend/internal/models"
+	"homeflix-backend/internal/scanner/core"
+	"homeflix-backend/internal/scanner/processing"
+	storageSync "homeflix-backend/internal/scanner/sync"
 
 	"github.com/h2non/filetype"
 )
 
 type MediaScanner struct {
-	mediaService           interfaces.MediaServiceInterface
-	thumbnailService       interfaces.ThumbnailServiceInterface
-	posterService          interfaces.PosterServiceInterface
-	geminiService          interfaces.GeminiServiceInterface
-	celeryService          interfaces.CeleryServiceInterface
-	alacService            interfaces.ALACAudioServiceInterface
-	tmdbService            interfaces.TMDBServiceInterface
-	recommendationService  interfaces.RecommendationServiceInterface
-	mediaPath              string
+	*core.MediaScanner
 	
-	// Enhanced scanning options
-	maxWorkers       int
-	batchSize        int
-	lastScanTime     time.Time
-	scanCache        map[string]time.Time
-	cacheMutex       sync.RWMutex
-	
-	// Performance tracking
-	stats            ScanStats
-	
-	// Advanced caching and optimization
-	fileHashCache    map[string]string
-	metadataCache    map[string]*FileMetadata
-	skipPatterns     []string
-	priorityQueue    chan FileInfo
-	lowPriorityQueue chan FileInfo
+	// Specialized processors
+	assetProcessor *processing.AssetProcessor
+	storageSync    *storageSync.StorageSync
 }
 
 type ScanStats struct {
@@ -66,27 +48,32 @@ type FileInfo struct {
 	IsSubtitle bool
 }
 
-func NewMediaScanner(mediaService interfaces.MediaServiceInterface, thumbnailService interfaces.ThumbnailServiceInterface, posterService interfaces.PosterServiceInterface, geminiService interfaces.GeminiServiceInterface, celeryService interfaces.CeleryServiceInterface, alacService interfaces.ALACAudioServiceInterface, tmdbService interfaces.TMDBServiceInterface, recommendationService interfaces.RecommendationServiceInterface, mediaPath string) *MediaScanner {
-	return &MediaScanner{
-		mediaService:          mediaService,
-		thumbnailService:      thumbnailService,
-		posterService:         posterService,
-		geminiService:         geminiService,
-		celeryService:         celeryService,
-		alacService:           alacService,
-		tmdbService:           tmdbService,
-		recommendationService: recommendationService,
-		mediaPath:             mediaPath,
-		maxWorkers:       8, // Increased worker count for faster processing
-		batchSize:        20, // Larger batch size
-		scanCache:        make(map[string]time.Time),
-		fileHashCache:    make(map[string]string),
-		metadataCache:    make(map[string]*FileMetadata),
-		stats:            ScanStats{},
-		skipPatterns:     []string{".DS_Store", "Thumbs.db", ".tmp", ".temp", "._*"},
-		priorityQueue:    make(chan FileInfo, 100),
-		lowPriorityQueue: make(chan FileInfo, 500),
+
+
+// convertToCore converts main scanner FileInfo to core FileInfo
+func (f FileInfo) convertToCore() core.FileInfo {
+	return core.FileInfo{
+		Path:       f.Path,
+		Info:       f.Info,
+		IsVideo:    f.IsVideo,
+		IsSubtitle: f.IsSubtitle,
 	}
+}
+
+func NewMediaScanner(mediaService interfaces.MediaServiceInterface, thumbnailService interfaces.ThumbnailServiceInterface, posterService interfaces.PosterServiceInterface, geminiService interfaces.GeminiServiceInterface, celeryService interfaces.CeleryServiceInterface, alacService interfaces.ALACAudioServiceInterface, tmdbService interfaces.TMDBServiceInterface, recommendationService interfaces.RecommendationServiceInterface, mediaPath string) *MediaScanner {
+	// Create core scanner
+	coreScanner := core.NewMediaScanner(mediaService, thumbnailService, posterService, geminiService, celeryService, alacService, tmdbService, recommendationService, mediaPath)
+	
+	// Create main scanner with specialized processors
+	scanner := &MediaScanner{
+		MediaScanner: coreScanner,
+	}
+	
+	// Initialize specialized processors
+	scanner.assetProcessor = processing.NewAssetProcessor(coreScanner)
+	scanner.storageSync = storageSync.NewStorageSync(coreScanner)
+	
+	return scanner
 }
 
 // ScanAndSyncMediaLibrary performs a comprehensive scan and sync of the media library
@@ -116,7 +103,8 @@ func (s *MediaScanner) ScanAndSyncMediaLibrary() error {
 // CleanupInvalidEntries removes database entries for media files that no longer exist
 func (s *MediaScanner) CleanupInvalidEntries() error {
 	log.Printf("🧹 Starting cleanup of invalid database entries...")
-	s.stats.StartTime = time.Now()
+	// Note: Using core scanner's stats tracking
+	stats := s.GetScanStats()
 	
 	// Get all media from database
 	allMedia, err := s.getAllMediaFromDatabase()
@@ -151,8 +139,9 @@ func (s *MediaScanner) CleanupInvalidEntries() error {
 		}
 	}
 	
-	s.stats.ScanDuration = time.Since(s.stats.StartTime)
-	log.Printf("✅ Cleanup completed in %v", s.stats.ScanDuration)
+	stats = s.GetScanStats()
+	s.SetScanDuration(time.Since(stats.StartTime))
+	log.Printf("✅ Cleanup completed")
 	log.Printf("📊 Cleanup Statistics:")
 	log.Printf("   📁 Total entries checked: %d", len(allMedia))
 	log.Printf("   ✅ Valid entries: %d", validCount)
@@ -314,10 +303,10 @@ func (s *MediaScanner) discoverFiles() ([]FileInfo, error) {
 		}
 	}()
 
-	err := filepath.Walk(s.mediaPath, func(path string, info os.FileInfo, err error) error {
+	err := filepath.Walk(s.GetMediaPath(), func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			log.Printf("⚠️ Error accessing path %s: %v", path, err)
-			s.stats.ErrorFiles++
+			s.IncrementErrorFiles()
 			return nil // Continue scanning
 		}
 
@@ -332,7 +321,7 @@ func (s *MediaScanner) discoverFiles() ([]FileInfo, error) {
 
 		// Skip files matching skip patterns
 		fileName := filepath.Base(path)
-		for _, pattern := range s.skipPatterns {
+		for _, pattern := range s.GetSkipPatterns() {
 			if matched, _ := filepath.Match(pattern, fileName); matched {
 				return nil
 			}
@@ -404,17 +393,17 @@ func (s *MediaScanner) processFilesSequential(files []FileInfo) error {
 		if file.IsVideo {
 			// Check if file needs processing
 			if s.shouldSkipFile(file.Path, file.Info) {
-				s.stats.SkippedFiles++
+				s.IncrementSkippedFiles()
 				continue
 			}
 			
 			// Process video file sequentially
 			s.processVideoFile(file.Path, file.Info)
-			s.stats.ProcessedFiles++
+			s.IncrementProcessedFiles()
 		} else if file.IsSubtitle {
 			// Process subtitle file
 			s.processSubtitleFile(file.Path)
-			s.stats.ProcessedFiles++
+			s.IncrementProcessedFiles()
 		}
 	}
 	
@@ -431,7 +420,7 @@ func (s *MediaScanner) processFilesBatch(files []FileInfo) error {
 		} else if file.IsSubtitle {
 			subtitleFiles = append(subtitleFiles, file)
 		} else if file.IsVideo {
-			s.stats.SkippedFiles++
+			s.IncrementSkippedFiles()
 		}
 	}
 	
@@ -492,7 +481,7 @@ func (s *MediaScanner) processSingleVideoBatch(batch []FileInfo, batchNum int) e
 	var batchErrors []error
 	
 	// Use semaphore to control concurrency within batch
-	semaphore := make(chan struct{}, s.maxWorkers)
+	semaphore := make(chan struct{}, s.GetMaxWorkers())
 	
 	for i, file := range batch {
 		wg.Add(1)
@@ -509,14 +498,14 @@ func (s *MediaScanner) processSingleVideoBatch(batch []FileInfo, batchNum int) e
 			if err := s.processVideoFileOptimized(fileInfo.Path, fileInfo.Info); err != nil {
 				mu.Lock()
 				batchErrors = append(batchErrors, fmt.Errorf("file %s: %v", fileInfo.Path, err))
-				s.stats.ErrorFiles++
 				mu.Unlock()
+				s.IncrementErrorFiles()
 				log.Printf("❌ Batch %d: Error processing %s: %v", batchNum, filepath.Base(fileInfo.Path), err)
 			} else {
 				mu.Lock()
-				s.stats.ProcessedFiles++
-				s.stats.NewFiles++
 				mu.Unlock()
+				s.IncrementProcessedFiles()
+				s.IncrementNewFiles()
 				log.Printf("✅ Batch %d: Successfully processed %s", batchNum, filepath.Base(fileInfo.Path))
 			}
 		}(file, i)
@@ -537,7 +526,7 @@ func (s *MediaScanner) processSubtitlesBatch(subtitleFiles []FileInfo) {
 	log.Printf("📝 Processing %d subtitle files in parallel...", len(subtitleFiles))
 	
 	var wg sync.WaitGroup
-	semaphore := make(chan struct{}, s.maxWorkers*2) // Allow more concurrency for lightweight subtitle processing
+	semaphore := make(chan struct{}, s.GetMaxWorkers()*2) // Allow more concurrency for lightweight subtitle processing
 	
 	for _, file := range subtitleFiles {
 		wg.Add(1)
@@ -549,9 +538,9 @@ func (s *MediaScanner) processSubtitlesBatch(subtitleFiles []FileInfo) {
 			
 			if err := s.processSubtitleFile(fileInfo.Path); err != nil {
 				log.Printf("⚠️ Error processing subtitle %s: %v", fileInfo.Path, err)
-				s.stats.ErrorFiles++
+				s.IncrementErrorFiles()
 			} else {
-				s.stats.ProcessedFiles++
+				s.IncrementProcessedFiles()
 			}
 		}(file)
 	}
@@ -563,11 +552,12 @@ func (s *MediaScanner) processSubtitlesBatch(subtitleFiles []FileInfo) {
 // calculateOptimalBatchSize calculates optimal batch size based on system resources
 func (s *MediaScanner) calculateOptimalBatchSize() int {
 	// Base batch size
-	baseBatchSize := s.batchSize
+	baseBatchSize := s.GetBatchSize()
 	
 	// Adjust based on available workers
-	if s.maxWorkers >= 8 {
-		baseBatchSize = baseBatchSize + (s.maxWorkers - 4) // Increase batch size for more workers
+	maxWorkers := s.GetMaxWorkers()
+	if maxWorkers >= 8 {
+		baseBatchSize = baseBatchSize + (maxWorkers - 4) // Increase batch size for more workers
 	}
 	
 	// Cap the batch size to prevent memory issues
@@ -590,23 +580,24 @@ func (s *MediaScanner) processFilesParallel(files []FileInfo) error {
 	var wg sync.WaitGroup
 	
 	// Start high-priority workers (for new video files)
-	for i := 0; i < s.maxWorkers/2; i++ {
+	maxWorkers := s.GetMaxWorkers()
+	for i := 0; i < maxWorkers/2; i++ {
 		wg.Add(1)
 		go s.priorityWorker(i, &wg)
 	}
 	
 	// Start low-priority workers (for subtitles and existing files)
-	for i := 0; i < s.maxWorkers/2; i++ {
+	for i := 0; i < maxWorkers/2; i++ {
 		wg.Add(1)
-		go s.lowPriorityWorker(i+s.maxWorkers/2, &wg)
+		go s.lowPriorityWorker(i+maxWorkers/2, &wg)
 	}
 	
 	// Separate files into priority queues AFTER workers are started
 	s.prioritizeFiles(files)
 	
 	// Close queues after all files are queued
-	close(s.priorityQueue)
-	close(s.lowPriorityQueue)
+	close(s.GetPriorityQueue())
+	close(s.GetLowPriorityQueue())
 
 	// Wait for all workers to complete
 	wg.Wait()
@@ -620,20 +611,20 @@ func (s *MediaScanner) prioritizeFiles(files []FileInfo) {
 		if file.IsVideo {
 			// Check if file needs processing
 			if s.shouldSkipFile(file.Path, file.Info) {
-				s.stats.SkippedFiles++
+				s.IncrementSkippedFiles()
 				continue
 			}
 			
 			// High priority for new video files
 			select {
-			case s.priorityQueue <- file:
+			case s.GetPriorityQueue() <- file.convertToCore():
 			default:
 				// Priority queue full, use low priority
-				s.lowPriorityQueue <- file
+				s.GetLowPriorityQueue() <- file.convertToCore()
 			}
 		} else {
 			// Low priority for subtitles
-			s.lowPriorityQueue <- file
+			s.GetLowPriorityQueue() <- file.convertToCore()
 		}
 	}
 }
@@ -642,13 +633,13 @@ func (s *MediaScanner) prioritizeFiles(files []FileInfo) {
 func (s *MediaScanner) priorityWorker(id int, wg *sync.WaitGroup) {
 	defer wg.Done()
 	
-	for file := range s.priorityQueue {
+	for file := range s.GetPriorityQueue() {
 		if err := s.processVideoFileOptimized(file.Path, file.Info); err != nil {
 			log.Printf("❌ Priority Worker %d: Error processing %s: %v", id, file.Path, err)
-			s.stats.ErrorFiles++
+			s.IncrementErrorFiles()
 		} else {
-			s.stats.ProcessedFiles++
-			s.stats.NewFiles++
+			s.IncrementProcessedFiles()
+			s.IncrementNewFiles()
 		}
 	}
 }
@@ -657,7 +648,7 @@ func (s *MediaScanner) priorityWorker(id int, wg *sync.WaitGroup) {
 func (s *MediaScanner) lowPriorityWorker(id int, wg *sync.WaitGroup) {
 	defer wg.Done()
 	
-	for file := range s.lowPriorityQueue {
+	for file := range s.GetLowPriorityQueue() {
 		var err error
 		if file.IsVideo {
 			err = s.processVideoFileOptimized(file.Path, file.Info)
@@ -667,9 +658,9 @@ func (s *MediaScanner) lowPriorityWorker(id int, wg *sync.WaitGroup) {
 		
 		if err != nil {
 			log.Printf("❌ Low Priority Worker %d: Error processing %s: %v", id, file.Path, err)
-			s.stats.ErrorFiles++
+			s.IncrementErrorFiles()
 		} else {
-			s.stats.ProcessedFiles++
+			s.IncrementProcessedFiles()
 		}
 	}
 }
@@ -680,7 +671,7 @@ func (s *MediaScanner) worker(id int, workChan <-chan FileInfo, wg *sync.WaitGro
 
 	for file := range workChan {
 		if s.shouldSkipFile(file.Path, file.Info) {
-			s.stats.SkippedFiles++
+			s.IncrementSkippedFiles()
 			continue
 		}
 
@@ -693,18 +684,21 @@ func (s *MediaScanner) worker(id int, workChan <-chan FileInfo, wg *sync.WaitGro
 
 		if err != nil {
 			log.Printf("❌ Worker %d: Error processing %s: %v", id, file.Path, err)
-			s.stats.ErrorFiles++
+			s.IncrementErrorFiles()
 		} else {
-			s.stats.ProcessedFiles++
+			s.IncrementProcessedFiles()
 		}
 	}
 }
 
 // shouldSkipFile determines if a file should be skipped based on cache and modification time
 func (s *MediaScanner) shouldSkipFile(path string, info os.FileInfo) bool {
-	s.cacheMutex.RLock()
-	lastProcessed, exists := s.scanCache[path]
-	s.cacheMutex.RUnlock()
+	cacheMutex := s.GetCacheMutex()
+	scanCache := s.GetScanCache()
+	
+	cacheMutex.RLock()
+	lastProcessed, exists := scanCache[path]
+	cacheMutex.RUnlock()
 
 	if exists && info.ModTime().Before(lastProcessed) {
 		// File hasn't been modified since last scan
@@ -712,11 +706,11 @@ func (s *MediaScanner) shouldSkipFile(path string, info os.FileInfo) bool {
 	}
 
 	// Check if media already exists in database
-	if exists, err := s.mediaService.MediaExists(path); err == nil && exists {
+	if exists, err := s.GetMediaService().MediaExists(path); err == nil && exists {
 		// Update cache
-		s.cacheMutex.Lock()
-		s.scanCache[path] = time.Now()
-		s.cacheMutex.Unlock()
+		cacheMutex.Lock()
+		scanCache[path] = time.Now()
+		cacheMutex.Unlock()
 		return true
 	}
 
@@ -736,17 +730,18 @@ func (s *MediaScanner) countFilesByType(files []FileInfo, video, subtitle bool) 
 
 // logScanResults logs the final scan statistics
 func (s *MediaScanner) logScanResults() {
-	log.Printf("✅ Media scan completed in %v", s.stats.ScanDuration)
+	stats := s.GetScanStats()
+	log.Printf("✅ Media scan completed in %v", stats.ScanDuration)
 	log.Printf("📊 Scan Statistics:")
-	log.Printf("   📁 Total files discovered: %d", s.stats.TotalFiles)
-	log.Printf("   ✅ Successfully processed: %d", s.stats.ProcessedFiles)
-	log.Printf("   ⏭️ Skipped (unchanged): %d", s.stats.SkippedFiles)
-	log.Printf("   ❌ Errors: %d", s.stats.ErrorFiles)
-	log.Printf("   🆕 New files added: %d", s.stats.NewFiles)
-	log.Printf("   🔄 Files updated: %d", s.stats.UpdatedFiles)
+	log.Printf("   📁 Total files discovered: %d", stats.TotalFiles)
+	log.Printf("   ✅ Successfully processed: %d", stats.ProcessedFiles)
+	log.Printf("   ⏭️ Skipped (unchanged): %d", stats.SkippedFiles)
+	log.Printf("   ❌ Errors: %d", stats.ErrorFiles)
+	log.Printf("   🆕 New files added: %d", stats.NewFiles)
+	log.Printf("   🔄 Files updated: %d", stats.UpdatedFiles)
 	
-	if s.stats.TotalFiles > 0 {
-		successRate := float64(s.stats.ProcessedFiles) / float64(s.stats.TotalFiles) * 100
+	if stats.TotalFiles > 0 {
+		successRate := float64(stats.ProcessedFiles) / float64(stats.TotalFiles) * 100
 		log.Printf("   📈 Success rate: %.1f%%", successRate)
 	}
 }
@@ -799,9 +794,12 @@ func (s *MediaScanner) isSubtitleFile(path string) bool {
 
 func (s *MediaScanner) processVideoFileOptimized(path string, info os.FileInfo) error {
 	// Update cache
-	s.cacheMutex.Lock()
-	s.scanCache[path] = time.Now()
-	s.cacheMutex.Unlock()
+	cacheMutex := s.GetCacheMutex()
+	scanCache := s.GetScanCache()
+	
+	cacheMutex.Lock()
+	scanCache[path] = time.Now()
+	cacheMutex.Unlock()
 
 	return s.processVideoFile(path, info)
 }
@@ -865,12 +863,12 @@ func (s *MediaScanner) processVideoFile(path string, info os.FileInfo) error {
 	}
 
 	// Extract metadata from filename and path (with caching)
-	var metadata *FileMetadata
+	var metadata *core.FileMetadata
 	
 	// Always re-extract if title needs fixing or metadata needs updating
 	if needsTitleFix || needsMetadataUpdate {
 		log.Printf("🔄 Re-extracting metadata for: %s", path)
-		metadata = s.extractMetadataWithCache(path)
+		metadata = s.extractMetadataWithCacheLocal(path)
 		
 		// Update title if it needs fixing
 		if needsTitleFix {
@@ -882,8 +880,8 @@ func (s *MediaScanner) processVideoFile(path string, info os.FileInfo) error {
 			if media.Title == "" {
 				log.Printf("⚠️ WARNING: Title is empty after update! Re-extracting from filename...")
 				// Re-extract using TMDB service directly from filename
-				if s.tmdbService != nil {
-					media.Title = s.tmdbService.CleanTitle(filepath.Base(path))
+				if s.GetTMDBService() != nil {
+					media.Title = s.GetTMDBService().CleanTitle(filepath.Base(path))
 				} else {
 					media.Title = s.cleanTitle(filepath.Base(path))
 				}
@@ -906,7 +904,7 @@ func (s *MediaScanner) processVideoFile(path string, info os.FileInfo) error {
 		}
 	} else {
 		// Use cached metadata for existing media
-		metadata = s.extractMetadataWithCache(path)
+		metadata = s.extractMetadataWithCacheLocal(path)
 		if media.Title == "" {
 			media.Title = metadata.Title
 			
@@ -914,8 +912,8 @@ func (s *MediaScanner) processVideoFile(path string, info os.FileInfo) error {
 			if media.Title == "" {
 				log.Printf("⚠️ WARNING: Title is empty from metadata! Re-extracting from filename...")
 				// Re-extract using TMDB service directly from filename
-				if s.tmdbService != nil {
-					media.Title = s.tmdbService.CleanTitle(filepath.Base(path))
+				if s.GetTMDBService() != nil {
+					media.Title = s.GetTMDBService().CleanTitle(filepath.Base(path))
 				} else {
 					media.Title = s.cleanTitle(filepath.Base(path))
 				}
@@ -936,7 +934,7 @@ func (s *MediaScanner) processVideoFile(path string, info os.FileInfo) error {
 
 	// If it's an episode, find or create the series
 	if metadata.Type == "episode" && metadata.SeriesTitle != "" {
-		series, err := s.mediaService.FindOrCreateSeries(metadata.SeriesTitle)
+		series, err := s.GetMediaService().FindOrCreateSeries(metadata.SeriesTitle)
 		if err != nil {
 			log.Printf("Error finding/creating series %s: %v", metadata.SeriesTitle, err)
 			return err
@@ -949,8 +947,8 @@ func (s *MediaScanner) processVideoFile(path string, info os.FileInfo) error {
 		log.Printf("🚨 CRITICAL: Empty title detected before database save! Path: %s", path)
 		
 		// Try TMDB cleaning one more time with the original filename
-		if s.tmdbService != nil {
-			media.Title = s.tmdbService.CleanTitle(filepath.Base(path))
+		if s.GetTMDBService() != nil {
+			media.Title = s.GetTMDBService().CleanTitle(filepath.Base(path))
 			log.Printf("🔧 TMDB emergency clean result: %s", media.Title)
 		}
 		
@@ -963,13 +961,13 @@ func (s *MediaScanner) processVideoFile(path string, info os.FileInfo) error {
 
 	// Save or update media to database
 	if media.ID == 0 {
-		if err := s.mediaService.CreateMedia(media); err != nil {
+		if err := s.GetMediaService().CreateMedia(media); err != nil {
 			log.Printf("Error creating media %s: %v", media.Title, err)
 			return err
 		}
 		log.Printf("✅ Created new media: %s", media.Title)
 	} else {
-		if err := s.mediaService.UpdateMedia(media); err != nil {
+		if err := s.GetMediaService().UpdateMedia(media); err != nil {
 			log.Printf("Error updating media %s: %v", media.Title, err)
 			return err
 		}
@@ -980,11 +978,11 @@ func (s *MediaScanner) processVideoFile(path string, info os.FileInfo) error {
 	genreNames := s.extractGenresFromPath(path, media.Title)
 	if len(genreNames) > 0 {
 		// Convert genre names to IDs
-		genreIDs, err := s.mediaService.GetGenreIDsByNames(genreNames)
+		genreIDs, err := s.GetMediaService().GetGenreIDsByNames(genreNames)
 		if err != nil {
 			log.Printf("Warning: Failed to get genre IDs for media %s: %v", media.Title, err)
 		} else if len(genreIDs) > 0 {
-			if err := s.mediaService.AssignGenresToMedia(media.ID, genreIDs); err != nil {
+			if err := s.GetMediaService().AssignGenresToMedia(media.ID, genreIDs); err != nil {
 				log.Printf("Warning: Failed to assign genres to media %s: %v", media.Title, err)
 			} else {
 				log.Printf("Assigned %d genres to media: %s", len(genreIDs), media.Title)
@@ -1000,8 +998,8 @@ func (s *MediaScanner) processVideoFile(path string, info os.FileInfo) error {
 		}
 
 		// Then try to get enhanced metadata from TMDB with fallback to file-based metadata
-		if s.tmdbService != nil {
-			tmdbMetadata, err := s.tmdbService.GenerateMediaMetadata(path, media.Title)
+		if s.GetTMDBService() != nil {
+			tmdbMetadata, err := s.GetTMDBService().GenerateMediaMetadata(path, media.Title)
 			if err != nil {
 				log.Printf("TMDB metadata fetch failed for %s, using file-based metadata: %v", media.Title, err)
 			} else {
@@ -1083,11 +1081,11 @@ func (s *MediaScanner) processVideoFile(path string, info os.FileInfo) error {
 				// Update genres from TMDB if available
 				if len(tmdbMetadata.Genres) > 0 {
 					// Convert genre names to IDs and assign to media
-					genreIDs, err := s.mediaService.GetGenreIDsByNames(tmdbMetadata.Genres)
+					genreIDs, err := s.GetMediaService().GetGenreIDsByNames(tmdbMetadata.Genres)
 					if err != nil {
 						log.Printf("Warning: Failed to get TMDB genre IDs for media %s: %v", media.Title, err)
 					} else if len(genreIDs) > 0 {
-						if err := s.mediaService.AssignGenresToMedia(media.ID, genreIDs); err != nil {
+						if err := s.GetMediaService().AssignGenresToMedia(media.ID, genreIDs); err != nil {
 							log.Printf("Warning: Failed to assign TMDB genres to media %s: %v", media.Title, err)
 						} else {
 							log.Printf("Assigned %d TMDB genres to media: %s", len(genreIDs), media.Title)
@@ -1106,15 +1104,15 @@ func (s *MediaScanner) processVideoFile(path string, info os.FileInfo) error {
 		}
 
 		// Update media with all collected metadata
-		if err := s.mediaService.UpdateMedia(media); err != nil {
+		if err := s.GetMediaService().UpdateMedia(media); err != nil {
 			log.Printf("Warning: Failed to update media metadata for %s: %v", media.Title, err)
 		}
 	}()
 
 	// Check for existing assets using title-based naming
-	thumbnailExists := s.thumbnailService.ThumbnailExists(media.ID, media.Title)
-	previewExists := s.thumbnailService.PreviewExists(media.ID, media.Title)
-	posterExists := s.posterService != nil && s.posterService.GetPosterPath(media.ID, media.Title) != ""
+	thumbnailExists := s.GetThumbnailService().ThumbnailExists(media.ID, media.Title)
+	previewExists := s.GetThumbnailService().PreviewExists(media.ID, media.Title)
+	posterExists := s.GetPosterService() != nil && s.GetPosterService().GetPosterPath(media.ID, media.Title) != ""
 
 	// Determine asset generation needs based on flags
 	var needsThumbnail, needsPreview, needsPoster bool
@@ -1123,7 +1121,7 @@ func (s *MediaScanner) processVideoFile(path string, info os.FileInfo) error {
 		// Force regeneration of all assets
 		needsThumbnail = true
 		needsPreview = true
-		needsPoster = s.posterService != nil
+		needsPoster = s.GetPosterService() != nil
 		log.Printf("🔄 Forcing asset regeneration for: %s", media.Title)
 	} else {
 		// Generate assets only if missing
@@ -1136,19 +1134,19 @@ func (s *MediaScanner) processVideoFile(path string, info os.FileInfo) error {
 	log.Printf("🔍 Asset check for %s: needsThumbnail=%v, needsPreview=%v (PreviewPath='%s', PreviewClipPath='%s'), needsPoster=%v", 
 		media.Title, needsThumbnail, needsPreview, media.PreviewPath, media.PreviewClipPath, needsPoster)
 
-	// Generate assets using batch-aware resource management
+	// Generate assets using batch-aware resource management with fallbacks
 	if needsThumbnail || needsPreview {
-		s.scheduleAssetGeneration(media, path, needsThumbnail, needsPreview)
+		s.scheduleAssetGenerationWithFallbacks(media, path, needsThumbnail, needsPreview)
 	}
 
-	if needsPoster && s.posterService != nil {
-		if err := s.posterService.DownloadPoster(media.Title, media.ID); err != nil {
+	if needsPoster && s.GetPosterService() != nil {
+		if err := s.GetPosterService().DownloadPoster(media.Title, media.ID); err != nil {
 			log.Printf("Failed to download poster for %s: %v", media.Title, err)
 		} else {
-			posterPath := s.posterService.GetPosterPath(media.ID, media.Title)
+			posterPath := s.GetPosterService().GetPosterPath(media.ID, media.Title)
 			if posterPath != "" {
 				media.PosterPath = posterPath
-				s.mediaService.UpdateMedia(media)
+				s.GetMediaService().UpdateMedia(media)
 				log.Printf("Updated media %s with poster: %s", media.Title, posterPath)
 			}
 		}
@@ -1156,7 +1154,7 @@ func (s *MediaScanner) processVideoFile(path string, info os.FileInfo) error {
 
 	// Auto-extract optimized LOUD ALAC audio if service available (only for individual files)
 	// ALAC extraction is disabled during batch operations to prevent system overload
-	if s.alacService != nil && media.ID != 0 {
+	if s.GetALACService() != nil && media.ID != 0 {
 		// Only attempt ALAC extraction for individual file processing (not batch scans)
 		log.Printf("🎵 ALAC service available for: %s (will extract on-demand)", media.Title)
 	}
@@ -1180,49 +1178,56 @@ func formatCurrency(amount int64) string {
 
 // generateThumbnailDirect generates thumbnail directly (backward compatibility)
 func (s *MediaScanner) generateThumbnailDirect(media *models.Media, path string) {
-	if _, err := s.thumbnailService.GenerateThumbnail(path, media.ID, media.Title); err != nil {
+	if _, err := s.GetThumbnailService().GenerateThumbnail(path, media.ID, media.Title); err != nil {
 		log.Printf("❌ Failed to generate thumbnail for %s: %v", media.Title, err)
 	} else {
 		// Update media record with thumbnail path
-		thumbnailPath := s.thumbnailService.GetThumbnailPath(media.ID, media.Title)
+		thumbnailPath := s.GetThumbnailService().GetThumbnailPath(media.ID, media.Title)
 		if thumbnailPath != "" {
 			media.ThumbnailPath = thumbnailPath
-			s.mediaService.UpdateMedia(media)
+			s.GetMediaService().UpdateMedia(media)
 		}
 	}
 }
 
 // generatePreviewDirect generates preview directly (backward compatibility)
 func (s *MediaScanner) generatePreviewDirect(media *models.Media, path string) {
-	if previewPath, err := s.thumbnailService.GeneratePreviewClip(path, media.ID, media.Title); err != nil {
+	if previewPath, err := s.GetThumbnailService().GeneratePreviewClip(path, media.ID, media.Title); err != nil {
 		log.Printf("❌ Failed to generate preview for %s: %v", media.Title, err)
 	} else {
 		// Update media record with preview paths
 		media.PreviewPath = previewPath
 		media.PreviewClipPath = previewPath
-		s.mediaService.UpdateMedia(media)
+		s.GetMediaService().UpdateMedia(media)
 	}
 }
 
 // extractMetadataWithCache uses caching to speed up metadata extraction
-func (s *MediaScanner) extractMetadataWithCache(path string) *FileMetadata {
+func (s *MediaScanner) extractMetadataWithCache(path string) *core.FileMetadata {
 	// Check cache first
-	s.cacheMutex.RLock()
-	if cached, exists := s.metadataCache[path]; exists {
-		s.cacheMutex.RUnlock()
+	if cached, exists := s.GetMetadataCacheEntry(path); exists {
 		return cached
 	}
-	s.cacheMutex.RUnlock()
 	
 	// Extract metadata
 	metadata := s.extractMetadata(path)
 	
-	// Cache the result
-	s.cacheMutex.Lock()
-	s.metadataCache[path] = metadata
-	s.cacheMutex.Unlock()
+	// Convert to core.FileMetadata
+	coreMetadata := &core.FileMetadata{
+		Title:       metadata.Title,
+		Type:        metadata.Type,
+		Quality:     metadata.Quality,
+		SeriesTitle: metadata.SeriesTitle,
+		Season:      metadata.Season,
+		Episode:     metadata.Episode,
+		Year:        metadata.Year,
+		Genres:      metadata.Genres,
+	}
 	
-	return metadata
+	// Cache the result
+	s.SetMetadataCache(path, coreMetadata)
+	
+	return coreMetadata
 }
 
 func (s *MediaScanner) processSubtitleFile(path string) error {
@@ -1233,7 +1238,7 @@ func (s *MediaScanner) processSubtitleFile(path string) error {
 	}
 
 	// Find media in database
-	media, err := s.mediaService.GetMediaByPath(videoPath)
+	media, err := s.GetMediaService().GetMediaByPath(videoPath)
 	if err != nil {
 		return err
 	}
@@ -1253,7 +1258,7 @@ func (s *MediaScanner) processSubtitleFile(path string) error {
 		Format:   strings.TrimPrefix(filepath.Ext(path), "."),
 	}
 
-	return s.mediaService.CreateSubtitle(subtitle)
+	return s.GetMediaService().CreateSubtitle(subtitle)
 }
 
 // MediaSearchResult contains information about how media was found and what needs updating
@@ -1268,7 +1273,7 @@ type MediaSearchResult struct {
 func (s *MediaScanner) findExistingMedia(path string, info os.FileInfo) (*models.Media, *MediaSearchResult, error) {
 	result := &MediaSearchResult{FoundBy: "none"}
 	// Strategy 1: Search by exact path (fastest)
-	media, err := s.mediaService.GetMediaByPath(path)
+	media, err := s.GetMediaService().GetMediaByPath(path)
 	if err != nil {
 		return nil, result, err
 	}
@@ -1416,8 +1421,8 @@ func (s *MediaScanner) extractExpectedTitle(path string) string {
 
 // cleanTitleForSearch creates a cleaned version of title for fuzzy searching
 func (s *MediaScanner) cleanTitleForSearch(title string) string {
-	if s.tmdbService != nil {
-		return s.tmdbService.CleanTitle(title)
+	if s.GetTMDBService() != nil {
+		return s.GetTMDBService().CleanTitle(title)
 	}
 	return s.cleanTitle(title)
 }
@@ -1476,7 +1481,7 @@ func (s *MediaScanner) calculateTitleSimilarity(title1, title2 string) float64 {
 // findMediaByTitle searches for media by title
 func (s *MediaScanner) findMediaByTitle(title string) (*models.Media, error) {
 	// Use the existing SearchMedia method which searches by title
-	mediaList, err := s.mediaService.SearchMedia(title)
+	mediaList, err := s.GetMediaService().SearchMedia(title)
 	if err != nil {
 		return nil, err
 	}
@@ -1497,7 +1502,7 @@ func (s *MediaScanner) findMediaByTitle(title string) (*models.Media, error) {
 // findMediaByTitleFuzzy performs fuzzy search by title
 func (s *MediaScanner) findMediaByTitleFuzzy(title string) (*models.Media, error) {
 	// Use the existing SearchMedia method for fuzzy search
-	mediaList, err := s.mediaService.SearchMedia(title)
+	mediaList, err := s.GetMediaService().SearchMedia(title)
 	if err != nil {
 		return nil, err
 	}
@@ -1544,7 +1549,7 @@ func (s *MediaScanner) findMediaByFilename(filename string) (*models.Media, erro
 	}
 	
 	for _, oldPath := range oldPaths {
-		media, err := s.mediaService.GetMediaByPath(oldPath)
+		media, err := s.GetMediaService().GetMediaByPath(oldPath)
 		if err != nil {
 			continue // Try next path
 		}
@@ -1559,7 +1564,7 @@ func (s *MediaScanner) findMediaByFilename(filename string) (*models.Media, erro
 // searchMediaByFilenamePattern searches for media where the file path ends with the given filename
 func (s *MediaScanner) searchMediaByFilenamePattern(filename string) ([]models.Media, error) {
 	// Get all media and filter by filename match
-	allMedia, err := s.mediaService.GetAllMedia()
+	allMedia, err := s.GetMediaService().GetAllMedia()
 	if err != nil {
 		return nil, err
 	}
@@ -1574,7 +1579,7 @@ func (s *MediaScanner) searchMediaByFilenamePattern(filename string) ([]models.M
 	// If no exact filename matches, try fuzzy matching
 	if len(matches) == 0 {
 		baseNameWithoutExt := strings.TrimSuffix(filename, filepath.Ext(filename))
-		fuzzyMatches, err := s.mediaService.SearchMedia(baseNameWithoutExt)
+		fuzzyMatches, err := s.GetMediaService().SearchMedia(baseNameWithoutExt)
 		if err != nil {
 			return matches, nil // Return empty matches instead of error
 		}
@@ -1700,439 +1705,7 @@ func (s *MediaScanner) extractGenresFromPath(path, title string) []string {
 	return genres
 }
 
-type FileMetadata struct {
-	Title         string
-	Type          string // "movie" or "episode"
-	SeriesTitle   string
-	SeasonNumber  *int
-	EpisodeNumber *int
-	Quality       string // Video quality (4K, Full HD, HD, SD, etc.)
-}
 
-func (s *MediaScanner) extractMetadata(path string) *FileMetadata {
-	filename := filepath.Base(path)
-	filenameWithoutExt := strings.TrimSuffix(filename, filepath.Ext(filename))
-	
-	metadata := &FileMetadata{
-		Title:   filenameWithoutExt,
-		Type:    "movie", // Default to movie
-		Quality: s.detectQuality(path), // Detect quality from filename
-	}
-
-	// Check for TV series patterns
-	// Pattern 1: Series.Name.S01E01.Title
-	seriesPattern1 := regexp.MustCompile(`^(.+?)\.S(\d+)E(\d+)`)
-	if matches := seriesPattern1.FindStringSubmatch(filenameWithoutExt); len(matches) == 4 {
-		metadata.Type = "episode"
-		metadata.SeriesTitle = strings.ReplaceAll(matches[1], ".", " ")
-		if season, err := strconv.Atoi(matches[2]); err == nil {
-			metadata.SeasonNumber = &season
-		}
-		if episode, err := strconv.Atoi(matches[3]); err == nil {
-			metadata.EpisodeNumber = &episode
-		}
-		metadata.Title = fmt.Sprintf("%s S%sE%s", metadata.SeriesTitle, matches[2], matches[3])
-		return metadata
-	}
-
-	// Pattern 2: Series Name - S01E01 - Episode Title
-	seriesPattern2 := regexp.MustCompile(`^(.+?)\s*-\s*S(\d+)E(\d+)`)
-	if matches := seriesPattern2.FindStringSubmatch(filenameWithoutExt); len(matches) == 4 {
-		metadata.Type = "episode"
-		metadata.SeriesTitle = strings.TrimSpace(matches[1])
-		if season, err := strconv.Atoi(matches[2]); err == nil {
-			metadata.SeasonNumber = &season
-		}
-		if episode, err := strconv.Atoi(matches[3]); err == nil {
-			metadata.EpisodeNumber = &episode
-		}
-		metadata.Title = fmt.Sprintf("%s S%sE%s", metadata.SeriesTitle, matches[2], matches[3])
-		return metadata
-	}
-
-	// Pattern 3: Series/Season/Episode structure in path
-	pathParts := strings.Split(filepath.Dir(path), string(os.PathSeparator))
-	if len(pathParts) >= 2 {
-		seasonPattern := regexp.MustCompile(`(?i)season\s*(\d+)`)
-		for i := len(pathParts) - 1; i >= 0; i-- {
-			if matches := seasonPattern.FindStringSubmatch(pathParts[i]); len(matches) == 2 {
-				if i > 0 {
-					metadata.Type = "episode"
-					metadata.SeriesTitle = pathParts[i-1]
-					if season, err := strconv.Atoi(matches[1]); err == nil {
-						metadata.SeasonNumber = &season
-					}
-					
-					// Try to extract episode number from filename
-					episodePattern := regexp.MustCompile(`(?i)e(\d+)|episode\s*(\d+)|(\d+)`)
-					if epMatches := episodePattern.FindStringSubmatch(filenameWithoutExt); len(epMatches) > 1 {
-						for j := 1; j < len(epMatches); j++ {
-							if epMatches[j] != "" {
-								if episode, err := strconv.Atoi(epMatches[j]); err == nil {
-									metadata.EpisodeNumber = &episode
-									break
-								}
-							}
-						}
-					}
-					
-					if metadata.EpisodeNumber != nil {
-						metadata.Title = fmt.Sprintf("%s S%dE%d", metadata.SeriesTitle, *metadata.SeasonNumber, *metadata.EpisodeNumber)
-					} else {
-						metadata.Title = fmt.Sprintf("%s S%d - %s", metadata.SeriesTitle, *metadata.SeasonNumber, filenameWithoutExt)
-					}
-					return metadata
-				}
-			}
-		}
-	}
-
-	// For movies, try to use the folder name if it's more descriptive than the filename
-	folderName := filepath.Base(filepath.Dir(path))
-	
-	// Check if the folder name looks like a movie title (contains year, quality indicators, etc.)
-	folderHasMoviePattern := regexp.MustCompile(`(?i)\b(19|20)\d{2}\b|\b(1080p|2160p|720p|4K|BluRay|WEB|HDRip)\b`).MatchString(folderName)
-	
-	// Check if folder is a generic name like "Movies", "Films", etc.
-	genericFolderPattern := regexp.MustCompile(`(?i)^(movies?\d*|films?|videos?|media|downloads?|torrents?|dc\s+movies|marvel\s+movies)$`)
-	
-	var titleSource string
-	
-	// Use folder name if:
-	// 1. Folder has movie patterns (year/quality indicators) 
-	// 2. AND folder is not a generic name
-	// 3. OR folder name is significantly longer and more descriptive
-	if folderHasMoviePattern && !genericFolderPattern.MatchString(folderName) {
-		titleSource = folderName
-	} else if !genericFolderPattern.MatchString(folderName) && len(folderName) > len(filenameWithoutExt)+5 {
-		// Use folder if it's significantly more descriptive
-		titleSource = folderName
-	} else {
-		titleSource = filenameWithoutExt
-	}
-
-	// Clean up movie title using TMDB service if available
-	if s.tmdbService != nil {
-		metadata.Title = s.tmdbService.CleanTitle(titleSource)
-	} else {
-		metadata.Title = s.cleanTitle(titleSource)
-	}
-	
-	// Debug logging for title extraction
-	log.Printf("🔍 Title extraction for %s:", filepath.Base(path))
-	log.Printf("   📁 Folder: %s", folderName)
-	log.Printf("   📄 Filename: %s", filenameWithoutExt)
-	log.Printf("   🎯 Source used: %s", titleSource)
-	log.Printf("   ✨ Cleaned title: %s", metadata.Title)
-	
-	// Validate the cleaned title and try alternatives if needed
-	if !s.isValidTitle(metadata.Title) || len(metadata.Title) <= 2 {
-		log.Printf("   ⚠️ Title invalid or too short ('%s'), trying alternative source...", metadata.Title)
-		alternativeSource := filenameWithoutExt
-		if titleSource == filenameWithoutExt {
-			alternativeSource = folderName
-		}
-		
-		// Skip generic folder names for alternatives
-		if !genericFolderPattern.MatchString(alternativeSource) {
-			var alternativeTitle string
-			if s.tmdbService != nil {
-				alternativeTitle = s.tmdbService.CleanTitle(alternativeSource)
-			} else {
-				alternativeTitle = s.cleanTitle(alternativeSource)
-			}
-			
-			// Use alternative if it's better (valid and longer)
-			if s.isValidTitle(alternativeTitle) && len(alternativeTitle) > len(metadata.Title) {
-				log.Printf("   🔄 Using alternative title: %s", alternativeTitle)
-				metadata.Title = alternativeTitle
-			}
-		}
-		
-		// If still not good, try simple cleaning on both sources
-		if !s.isValidTitle(metadata.Title) || len(metadata.Title) <= 2 {
-			simpleFolder := s.simpleCleanTitle(folderName)
-			simpleFilename := s.simpleCleanTitle(filenameWithoutExt)
-			
-			if !genericFolderPattern.MatchString(folderName) && s.isValidTitle(simpleFolder) && len(simpleFolder) > len(metadata.Title) {
-				log.Printf("   🔄 Using simple folder title: %s", simpleFolder)
-				metadata.Title = simpleFolder
-			} else if s.isValidTitle(simpleFilename) && len(simpleFilename) > len(metadata.Title) {
-				log.Printf("   🔄 Using simple filename title: %s", simpleFilename)
-				metadata.Title = simpleFilename
-			}
-		}
-	}
-	
-	// Final safety check - ensure we always have a title
-	if len(metadata.Title) <= 2 || metadata.Title == "" {
-		log.Printf("   🚨 All cleaning failed, using basic filename fallback...")
-		// Last resort: use the filename with minimal cleaning
-		basicTitle := strings.TrimSuffix(filename, filepath.Ext(filename))
-		basicTitle = strings.ReplaceAll(basicTitle, ".", " ")
-		basicTitle = strings.ReplaceAll(basicTitle, "_", " ")
-		basicTitle = strings.ReplaceAll(basicTitle, "-", " ")
-		
-		// Remove common quality indicators
-		basicTitle = regexp.MustCompile(`(?i)\b(1080p|2160p|720p|4K|HD|BluRay|WEB|x264|x265|YIFY|YTS|RARBG)\b`).ReplaceAllString(basicTitle, "")
-		
-		// Clean up spaces and apply title case
-		basicTitle = regexp.MustCompile(`\s+`).ReplaceAllString(basicTitle, " ")
-		basicTitle = strings.TrimSpace(basicTitle)
-		
-		// Apply basic title case
-		if basicTitle != "" {
-			words := strings.Fields(basicTitle)
-			for i, word := range words {
-				if len(word) > 0 {
-					words[i] = strings.ToUpper(string(word[0])) + strings.ToLower(word[1:])
-				}
-			}
-			basicTitle = strings.Join(words, " ")
-		}
-		
-		if basicTitle != "" {
-			metadata.Title = basicTitle
-			log.Printf("   📝 Final fallback title: %s", metadata.Title)
-		} else {
-			// Absolute last resort - use original filename
-			metadata.Title = strings.TrimSuffix(filename, filepath.Ext(filename))
-			log.Printf("   ❌ Using raw filename as title: %s", metadata.Title)
-		}
-	}
-	
-	return metadata
-}
-
-// detectQuality detects video quality from filename and path
-func (s *MediaScanner) detectQuality(filePath string) string {
-	filename := strings.ToLower(filepath.Base(filePath))
-	
-	// 4K/UHD detection
-	if regexp.MustCompile(`\b(2160p|4K|UHD|4096x2160|3840x2160)\b`).MatchString(filename) {
-		return "4K"
-	}
-	
-	// 1440p/QHD detection
-	if regexp.MustCompile(`\b(1440p|QHD|2560x1440)\b`).MatchString(filename) {
-		return "QHD"
-	}
-	
-	// 1080p/Full HD detection
-	if regexp.MustCompile(`\b(1080p|FHD|1920x1080)\b`).MatchString(filename) {
-		return "Full HD"
-	}
-	
-	// 720p/HD detection
-	if regexp.MustCompile(`\b(720p|HD|1280x720)\b`).MatchString(filename) {
-		return "HD"
-	}
-	
-	// 480p/SD detection
-	if regexp.MustCompile(`\b(480p|SD|854x480|640x480)\b`).MatchString(filename) {
-		return "SD"
-	}
-	
-	// 360p detection
-	if regexp.MustCompile(`\b(360p|640x360)\b`).MatchString(filename) {
-		return "360p"
-	}
-	
-	// Check for BluRay/high quality sources
-	if regexp.MustCompile(`\b(BluRay|BRRip|BDRip)\b`).MatchString(filename) {
-		// If BluRay but no specific resolution, assume HD
-		return "HD"
-	}
-	
-	// Check for WEB sources
-	if regexp.MustCompile(`\b(WEBRip|WEB.DL|WEB)\b`).MatchString(filename) {
-		// If WEB but no specific resolution, assume HD
-		return "HD"
-	}
-	
-	// Default fallback
-	return "HD"
-}
-
-func (s *MediaScanner) cleanTitle(title string) string {
-	// Step 1: Extract year FIRST before any other processing
-	originalTitle := title
-	yearPattern := regexp.MustCompile(`\b(19|20)\d{2}\b`)
-	yearMatches := yearPattern.FindAllString(originalTitle, -1)
-	var extractedYear string
-	if len(yearMatches) > 0 {
-		// Use the last year found (usually the release year)
-		extractedYear = yearMatches[len(yearMatches)-1]
-	}
-
-	// Step 2: Replace common separators with spaces
-	cleaned := strings.ReplaceAll(title, ".", " ")
-	cleaned = strings.ReplaceAll(cleaned, "_", " ")
-	cleaned = strings.ReplaceAll(cleaned, "-", " ")
-
-	// Step 3: Extract the main title before quality indicators (excluding years from the cut pattern)
-	titleEndPattern := regexp.MustCompile(`(?i)\s*(\b(1080p|2160p|720p|480p|4K|8K|UHD|FHD|HD|BluRay|BRRip|BDRip|DVDRip|WEBRip|WEB|HDTV|HDRip|x264|x265|h264|h265|HEVC|AVC|XviD|10bit|8bit|HDR|AAC|AC3|DTS|5\.1|7\.1|YIFY|YTS|RARBG|PSA|ETRG)\b)`)
-	
-	// Find where the title likely ends
-	titleEndIndex := titleEndPattern.FindStringIndex(cleaned)
-	if titleEndIndex != nil {
-		// Extract everything before the quality indicators
-		cleaned = cleaned[:titleEndIndex[0]]
-	}
-
-	// Step 3: Remove anything in brackets or parentheses that might remain
-	bracketsPattern := regexp.MustCompile(`[\[\(\{][^\]\)\}]*[\]\)\}]*`)
-	cleaned = bracketsPattern.ReplaceAllString(cleaned, " ")
-
-	// Step 4: Remove any remaining quality indicators and video codecs
-	qualityPattern := regexp.MustCompile(`(?i)\b(` +
-		`1080p|2160p|720p|480p|360p|4K|8K|UHD|FHD|HD|SD|` +
-		`BluRay|BRRip|BDRip|DVDRip|WEBRip|WEB.DL|WEB|HDTV|HDRip|BrRip|` +
-		`x264|x265|h264|h265|HEVC|AVC|XviD|` +
-		`10bit|8bit|HDR|HDR10|DV|DoVi|` +
-		`AAC|AC3|DTS|DDP|DD|EAC3|FLAC|MP3|Atmos|TrueHD|` +
-		`5\.1|7\.1|2\.0|2ch|6ch|8ch|` +
-		`PROPER|REPACK|INTERNAL|LIMITED|SUBBED|DUBBED|UNRATED|` +
-		`EXTENDED|THEATRICAL|DIRECTORS?\.?CUT|DC|UNCUT|` +
-		`REMASTERED|ANNIVERSARY|SPECIAL\.?EDITION|SE|` +
-		`MULTI|DUAL|VOSTFR|TRUEFRENCH|` +
-		`COMPLETE|FULL|` +
-		`ESub|ESubs|Subs?|Subtitle|Subtitles|` +
-		`DVD|CD\d|DISC\d` +
-		`)\b`)
-	cleaned = qualityPattern.ReplaceAllString(cleaned, " ")
-
-	// Step 5: Remove release groups (specific known groups only)
-	releaseGroupPattern := regexp.MustCompile(`(?i)\b(` +
-		`YIFY|YTS|RARBG|PSA|ETRG|AMZN|NF|NETFLIX|ATVP|DSNP|` +
-		`HMAX|HBO|HULU|DISNEY|APPLE|PARAMOUNT|` +
-		`SPARKS|GECKOS|ROVERS|GALAXY|ORBS|CMRG|ETHiCS|` +
-		`DEFLATE|STUTTERSHIT|VETO|BLOW|SCENE|FGT|` +
-		`EVOLVE|KILLERS|DEMAND|FLEET|ION10|ION|` +
-		`MX` +
-		`)\b`)
-	cleaned = releaseGroupPattern.ReplaceAllString(cleaned, " ")
-
-	// Step 6: Remove years from the middle of the title (we already extracted it)
-	cleaned = yearPattern.ReplaceAllString(cleaned, " ")
-
-	// Step 7: Remove file size indicators
-	sizePattern := regexp.MustCompile(`(?i)\b\d+(\.\d+)?\s?(GB|MB|GiB|MiB)\b`)
-	cleaned = sizePattern.ReplaceAllString(cleaned, " ")
-
-	// Step 8: Clean up multiple spaces and trim
-	cleaned = regexp.MustCompile(`\s+`).ReplaceAllString(cleaned, " ")
-	cleaned = strings.TrimSpace(cleaned)
-
-	// Step 9: If we're left with a very short string, try a fallback approach
-	if len(cleaned) <= 2 || cleaned == "" {
-		// Fallback: try to extract title from the original more conservatively
-		words := strings.Fields(strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(title, ".", " "), "_", " "), "-", " "))
-		var titleWords []string
-		for _, word := range words {
-			// Stop at first quality indicator or year
-			if regexp.MustCompile(`(?i)^(19|20)\d{2}$|^(1080p|2160p|720p|4K|HD|BluRay|WEB|x264|x265)$`).MatchString(word) {
-				break
-			}
-			titleWords = append(titleWords, word)
-			// Don't take more than 5 words for the title
-			if len(titleWords) >= 5 {
-				break
-			}
-		}
-		if len(titleWords) > 0 {
-			cleaned = strings.Join(titleWords, " ")
-		}
-	}
-
-	// Step 10: Final fallback - if still empty or too short, use basic filename cleanup
-	if len(cleaned) <= 2 || cleaned == "" {
-		// Ultimate fallback: just clean the basic filename
-		fallbackTitle := strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(title, ".", " "), "_", " "), "-", " ")
-		fallbackTitle = regexp.MustCompile(`\s+`).ReplaceAllString(fallbackTitle, " ")
-		fallbackTitle = strings.TrimSpace(fallbackTitle)
-		
-		// If we have something reasonable, use it
-		if len(fallbackTitle) > 2 {
-			cleaned = fallbackTitle
-		}
-	}
-
-	// Step 11: Title case formatting
-	if cleaned != "" {
-		words := strings.Fields(cleaned)
-		for i, word := range words {
-			if len(word) > 0 {
-				// Keep short articles/prepositions lowercase (except at start)
-				if i > 0 && len(word) <= 3 && regexp.MustCompile(`(?i)^(a|an|the|and|or|but|of|in|on|at|to|for|by|with)$`).MatchString(word) {
-					words[i] = strings.ToLower(word)
-				} else {
-					// Title case for other words
-					words[i] = strings.ToUpper(string(word[0])) + strings.ToLower(word[1:])
-				}
-			}
-		}
-		cleaned = strings.Join(words, " ")
-	}
-
-	// Step 12: Add year back to the title if we found one
-	if extractedYear != "" && cleaned != "" {
-		cleaned = cleaned + " (" + extractedYear + ")"
-	}
-
-	// Final validation - check if the cleaned title makes sense
-	if !s.isValidTitle(cleaned) {
-		// Try a simpler approach
-		simpleTitle := s.simpleCleanTitle(title)
-		if s.isValidTitle(simpleTitle) && len(simpleTitle) > len(cleaned) {
-			cleaned = simpleTitle
-		}
-	}
-
-	return cleaned
-}
-
-// isValidTitle checks if a title looks reasonable
-func (s *MediaScanner) isValidTitle(title string) bool {
-	if title == "" || len(title) <= 2 {
-		return false
-	}
-	
-	// Check if title contains at least one letter
-	hasLetter := regexp.MustCompile(`[a-zA-Z]`).MatchString(title)
-	if !hasLetter {
-		return false
-	}
-	
-	// Check if title is mostly numbers (probably not a good title)
-	words := strings.Fields(title)
-	numberWords := 0
-	for _, word := range words {
-		if regexp.MustCompile(`^\d+$`).MatchString(word) {
-			numberWords++
-		}
-	}
-	
-	// If more than half the words are numbers, it's probably not a good title
-	if len(words) > 0 && float64(numberWords)/float64(len(words)) > 0.5 {
-		return false
-	}
-	
-	// Check for common bad patterns
-	badPatterns := []string{
-		`^[0-9\s]+$`,           // Only numbers and spaces
-		`^[^a-zA-Z]*$`,         // No letters at all
-		`^\s*$`,                // Only whitespace
-	}
-	
-	for _, pattern := range badPatterns {
-		if matched, _ := regexp.MatchString(pattern, title); matched {
-			return false
-		}
-	}
-	
-	return true
-}
 
 // simpleCleanTitle provides a basic, conservative title cleaning
 func (s *MediaScanner) simpleCleanTitle(title string) string {
@@ -2248,7 +1821,7 @@ func (s *MediaScanner) IncrementalScan() error {
 	var mu sync.Mutex
 	
 	// Use parallel directory walking for speed
-	err := s.parallelWalk(s.mediaPath, func(path string, info os.FileInfo, err error) error {
+	err := s.parallelWalk(s.GetMediaPath(), func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return nil
 		}
@@ -2263,7 +1836,7 @@ func (s *MediaScanner) IncrementalScan() error {
 		}
 		
 		// Only process files modified after last scan
-		if info.ModTime().After(s.lastScanTime) {
+		if info.ModTime().After(s.GetLastScanTime()) {
 			ext := strings.ToLower(filepath.Ext(path))
 			isVideo := s.isVideoFileByExtension(ext)
 			isSubtitle := s.isSubtitleFileByExtension(ext)
@@ -2295,18 +1868,19 @@ func (s *MediaScanner) IncrementalScan() error {
 	log.Printf("🆕 Found %d new/modified files", len(newFiles))
 	
 	// Process new files with optimized pipeline
-	s.stats.TotalFiles = len(newFiles)
-	s.stats.StartTime = time.Now()
+	s.SetTotalFiles(len(newFiles))
+	s.SetStartTime(time.Now())
 	
 	if err := s.processFilesSequential(newFiles); err != nil {
 		log.Printf("⚠️ Some files failed to process: %v", err)
 	}
 	
 	// Update last scan time
-	s.lastScanTime = time.Now()
+	s.SetLastScanTime(time.Now())
 	s.saveLastScanTime()
 	
-	s.stats.ScanDuration = time.Since(s.stats.StartTime)
+	stats := s.GetScanStats()
+	s.SetScanDuration(time.Since(stats.StartTime))
 	s.logScanResults()
 	
 	return nil
@@ -2363,8 +1937,8 @@ func (s *MediaScanner) parallelWalk(root string, walkFn filepath.WalkFunc) error
 
 // SuperfastScan performs the fastest possible scan with minimal processing
 func (s *MediaScanner) SuperfastScan() error {
-	s.stats.StartTime = time.Now()
-	log.Printf("🚀 Starting superfast media library scan at: %s", s.mediaPath)
+	s.SetStartTime(time.Now())
+	log.Printf("🚀 Starting superfast media library scan at: %s", s.GetMediaPath())
 
 	// Phase 1: Lightning-fast file discovery
 	log.Printf("⚡ Phase 1: Lightning-fast file discovery...")
@@ -2373,22 +1947,24 @@ func (s *MediaScanner) SuperfastScan() error {
 		return fmt.Errorf("superfast file discovery failed: %v", err)
 	}
 
-	s.stats.TotalFiles = len(files)
-	log.Printf("📊 Discovered %d files in record time", s.stats.TotalFiles)
+	s.SetTotalFiles(len(files))
+	stats := s.GetScanStats()
+	log.Printf("📊 Discovered %d files in record time", stats.TotalFiles)
 
 	// Phase 2: Parallel processing with maximum workers
-	originalWorkers := s.maxWorkers
-	s.maxWorkers = 16 // Use maximum workers for superfast scan
+	originalWorkers := s.GetMaxWorkers()
+	s.SetMaxWorkersValue(16) // Use maximum workers for superfast scan
 	
 	log.Printf("🔥 Phase 2: Processing files sequentially...")
 	if err := s.processFilesSequential(files); err != nil {
 		log.Printf("⚠️ Some files failed to process: %v", err)
 	}
 	
-	s.maxWorkers = originalWorkers // Restore original worker count
-
+	s.SetMaxWorkersValue(originalWorkers) // Restore original worker count
+	
 	// Phase 3: Results
-	s.stats.ScanDuration = time.Since(s.stats.StartTime)
+	finalStats := s.GetScanStats()
+	s.SetScanDuration(time.Since(finalStats.StartTime))
 	s.logScanResults()
 
 	return nil
@@ -2403,7 +1979,7 @@ func (s *MediaScanner) superfastDiscoverFiles() ([]FileInfo, error) {
 	files = make([]FileInfo, 0, 1000)
 	
 	// Use optimized file walking
-	err := filepath.Walk(s.mediaPath, func(path string, info os.FileInfo, err error) error {
+	err := filepath.Walk(s.GetMediaPath(), func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return nil // Skip errors, continue scanning
 		}
@@ -2455,24 +2031,24 @@ func (s *MediaScanner) superfastDiscoverFiles() ([]FileInfo, error) {
 // loadLastScanTime loads the last scan timestamp
 func (s *MediaScanner) loadLastScanTime() {
 	// Try to load from a cache file
-	cacheFile := filepath.Join(s.mediaPath, ".homeflix_scan_cache")
+	cacheFile := filepath.Join(s.GetMediaPath(), ".homeflix_scan_cache")
 	if data, err := os.ReadFile(cacheFile); err == nil {
 		if timestamp, err := time.Parse(time.RFC3339, string(data)); err == nil {
-			s.lastScanTime = timestamp
-			log.Printf("📅 Last scan time loaded: %v", s.lastScanTime)
+			s.SetLastScanTime(timestamp)
+			log.Printf("📅 Last scan time loaded: %v", s.GetLastScanTime())
 			return
 		}
 	}
 	
 	// Default to 24 hours ago if no cache
-	s.lastScanTime = time.Now().Add(-24 * time.Hour)
-	log.Printf("📅 Using default last scan time: %v", s.lastScanTime)
+	s.SetLastScanTime(time.Now().Add(-24 * time.Hour))
+	log.Printf("📅 Using default last scan time: %v", s.GetLastScanTime())
 }
 
 // saveLastScanTime saves the last scan timestamp
 func (s *MediaScanner) saveLastScanTime() {
-	cacheFile := filepath.Join(s.mediaPath, ".homeflix_scan_cache")
-	data := s.lastScanTime.Format(time.RFC3339)
+	cacheFile := filepath.Join(s.GetMediaPath(), ".homeflix_scan_cache")
+	data := s.GetLastScanTime().Format(time.RFC3339)
 	if err := os.WriteFile(cacheFile, []byte(data), 0644); err != nil {
 		log.Printf("⚠️ Failed to save scan cache: %v", err)
 	}
@@ -2480,34 +2056,47 @@ func (s *MediaScanner) saveLastScanTime() {
 
 // GetScanStats returns current scan statistics
 func (s *MediaScanner) GetScanStats() ScanStats {
-	return s.stats
+	coreStats := s.MediaScanner.GetScanStats()
+	return ScanStats{
+		TotalFiles:     coreStats.TotalFiles,
+		ProcessedFiles: coreStats.ProcessedFiles,
+		SkippedFiles:   coreStats.SkippedFiles,
+		ErrorFiles:     coreStats.ErrorFiles,
+		NewFiles:       coreStats.NewFiles,
+		UpdatedFiles:   coreStats.UpdatedFiles,
+		ScanDuration:   coreStats.ScanDuration,
+		StartTime:      coreStats.StartTime,
+	}
 }
 
 // GetBatchProcessingStats returns detailed batch processing statistics
 func (s *MediaScanner) GetBatchProcessingStats() map[string]interface{} {
+	scanStats := s.GetScanStats()
 	stats := map[string]interface{}{
-		"maxWorkers":           s.maxWorkers,
-		"batchSize":           s.batchSize,
-		"totalFiles":          s.stats.TotalFiles,
-		"processedFiles":      s.stats.ProcessedFiles,
-		"skippedFiles":        s.stats.SkippedFiles,
-		"errorFiles":          s.stats.ErrorFiles,
-		"newFiles":            s.stats.NewFiles,
-		"updatedFiles":        s.stats.UpdatedFiles,
-		"scanDuration":        s.stats.ScanDuration.String(),
+		"maxWorkers":           s.GetMaxWorkers(),
+		"batchSize":           s.GetBatchSize(),
+		"totalFiles":          scanStats.TotalFiles,
+		"processedFiles":      scanStats.ProcessedFiles,
+		"skippedFiles":        scanStats.SkippedFiles,
+		"errorFiles":          scanStats.ErrorFiles,
+		"newFiles":            scanStats.NewFiles,
+		"updatedFiles":        scanStats.UpdatedFiles,
+		"scanDuration":        s.GetScanStats().ScanDuration.String(),
 		"processingRate":      0.0,
 		"systemUtilization":   "optimal",
 	}
 	
 	// Calculate processing rate (files per second)
-	if s.stats.ScanDuration.Seconds() > 0 {
-		stats["processingRate"] = float64(s.stats.ProcessedFiles) / s.stats.ScanDuration.Seconds()
+	if scanStats.ScanDuration.Seconds() > 0 {
+		stats["processingRate"] = float64(scanStats.ProcessedFiles) / scanStats.ScanDuration.Seconds()
 	}
 	
 	// Determine system utilization level
-	if s.maxWorkers >= 8 && s.batchSize >= 15 {
+	maxWorkers := s.GetMaxWorkers()
+	batchSize := s.GetBatchSize()
+	if maxWorkers >= 8 && batchSize >= 15 {
 		stats["systemUtilization"] = "high"
-	} else if s.maxWorkers >= 4 && s.batchSize >= 10 {
+	} else if maxWorkers >= 4 && batchSize >= 10 {
 		stats["systemUtilization"] = "medium"
 	} else {
 		stats["systemUtilization"] = "low"
@@ -2519,7 +2108,7 @@ func (s *MediaScanner) GetBatchProcessingStats() map[string]interface{} {
 // SetMaxWorkers configures the number of worker goroutines
 func (s *MediaScanner) SetMaxWorkers(workers int) {
 	if workers > 0 && workers <= 16 {
-		s.maxWorkers = workers
+		s.SetMaxWorkersValue(workers)
 		log.Printf("⚙️ Set max workers to %d", workers)
 	}
 }
@@ -2527,7 +2116,7 @@ func (s *MediaScanner) SetMaxWorkers(workers int) {
 // SetBatchSize configures the batch size for processing
 func (s *MediaScanner) SetBatchSize(size int) {
 	if size > 0 && size <= 100 {
-		s.batchSize = size
+		s.SetBatchSizeValue(size)
 		log.Printf("⚙️ Set batch size to %d", size)
 	}
 }
@@ -2540,27 +2129,32 @@ func (s *MediaScanner) AutoTuneBatchProcessing() {
 	startTime := time.Now()
 	
 	// Measure performance and adjust parameters
-	if s.stats.ProcessedFiles > 0 && s.stats.ScanDuration > 0 {
-		currentRate := float64(s.stats.ProcessedFiles) / s.stats.ScanDuration.Seconds()
+	scanStats := s.GetScanStats()
+	if scanStats.ProcessedFiles > 0 && scanStats.ScanDuration > 0 {
+		currentRate := float64(scanStats.ProcessedFiles) / scanStats.ScanDuration.Seconds()
 		
 		// Adjust parameters based on processing rate
 		if currentRate > 2.0 { // High performance
-			if s.maxWorkers < 12 {
-				s.maxWorkers = min(s.maxWorkers+2, 12)
-				log.Printf("🚀 Increased workers to %d (high performance detected)", s.maxWorkers)
+			if s.GetMaxWorkers() < 12 {
+				newWorkers := min(s.GetMaxWorkers()+2, 12)
+				s.SetMaxWorkersValue(newWorkers)
+				log.Printf("🚀 Increased workers to %d (high performance detected)", newWorkers)
 			}
-			if s.batchSize < 30 {
-				s.batchSize = min(s.batchSize+5, 30)
-				log.Printf("🚀 Increased batch size to %d (high performance detected)", s.batchSize)
+			if s.GetBatchSize() < 30 {
+				newBatchSize := min(s.GetBatchSize()+5, 30)
+				s.SetBatchSizeValue(newBatchSize)
+				log.Printf("🚀 Increased batch size to %d (high performance detected)", newBatchSize)
 			}
 		} else if currentRate < 0.5 { // Low performance
-			if s.maxWorkers > 4 {
-				s.maxWorkers = max(s.maxWorkers-1, 4)
-				log.Printf("🐌 Decreased workers to %d (low performance detected)", s.maxWorkers)
+			if s.GetMaxWorkers() > 4 {
+				newWorkers := max(s.GetMaxWorkers()-1, 4)
+				s.SetMaxWorkersValue(newWorkers)
+				log.Printf("🐌 Decreased workers to %d (low performance detected)", newWorkers)
 			}
-			if s.batchSize > 10 {
-				s.batchSize = max(s.batchSize-2, 10)
-				log.Printf("🐌 Decreased batch size to %d (low performance detected)", s.batchSize)
+			if s.GetBatchSize() > 10 {
+				newBatchSize := max(s.GetBatchSize()-2, 10)
+				s.SetBatchSizeValue(newBatchSize)
+				log.Printf("🐌 Decreased batch size to %d (low performance detected)", newBatchSize)
 			}
 		}
 		
@@ -2568,13 +2162,12 @@ func (s *MediaScanner) AutoTuneBatchProcessing() {
 	}
 	
 	// Adjust queue sizes based on new parameters
-	newPriorityQueueSize := s.maxWorkers * 10
-	newLowPriorityQueueSize := s.maxWorkers * 50
+	newPriorityQueueSize := s.GetMaxWorkers() * 10
+	newLowPriorityQueueSize := s.GetMaxWorkers() * 50
 	
-	if cap(s.priorityQueue) != newPriorityQueueSize {
-		s.priorityQueue = make(chan FileInfo, newPriorityQueueSize)
-		s.lowPriorityQueue = make(chan FileInfo, newLowPriorityQueueSize)
-		log.Printf("🔧 Adjusted queue sizes: priority=%d, low-priority=%d", newPriorityQueueSize, newLowPriorityQueueSize)
+	if cap(s.GetPriorityQueue()) != newPriorityQueueSize {
+		// Note: Queue resizing would require stopping and restarting workers
+		log.Printf("🔧 Queue size adjustment needed: priority=%d, low-priority=%d", newPriorityQueueSize, newLowPriorityQueueSize)
 	}
 	
 	tuningDuration := time.Since(startTime)
@@ -2631,7 +2224,7 @@ func (s *MediaScanner) ProcessSingleFile(path string, info os.FileInfo) error {
 // SyncDatabaseWithStorage performs a comprehensive sync between database and file storage
 // This ensures all existing media entries are properly synced and assets are regenerated
 func (s *MediaScanner) SyncDatabaseWithStorage() error {
-	s.stats.StartTime = time.Now()
+	s.SetStartTime(time.Now())
 	log.Printf("🔄 Starting comprehensive database-storage sync...")
 
 	// Phase 0: Detect drive changes and attempt smart path resolution
@@ -2686,10 +2279,10 @@ func (s *MediaScanner) SyncDatabaseWithStorage() error {
 		for _, fileInfo := range orphanedFiles {
 			if err := s.processVideoFileOptimized(fileInfo.Path, fileInfo.Info); err != nil {
 				log.Printf("❌ Failed to process orphaned file %s: %v", fileInfo.Path, err)
-				s.stats.ErrorFiles++
+				s.IncrementErrorFiles()
 			} else {
-				s.stats.ProcessedFiles++
-				s.stats.NewFiles++
+				s.IncrementProcessedFiles()
+				s.IncrementNewFiles()
 			}
 		}
 	}
@@ -2707,7 +2300,8 @@ func (s *MediaScanner) SyncDatabaseWithStorage() error {
 	s.regenerateAllAssets(append(validMedia, updatedMedia...))
 
 	// Final statistics
-	s.stats.ScanDuration = time.Since(s.stats.StartTime)
+	stats := s.GetScanStats()
+	s.SetScanDuration(time.Since(stats.StartTime))
 	s.logSyncResults(len(allMedia), len(validMedia), len(invalidMedia), len(updatedMedia), len(orphanedFiles))
 	
 	log.Printf("🔄 Database sync completed - %d invalid entries removed from database", len(invalidMedia))
@@ -2816,7 +2410,7 @@ func (s *MediaScanner) syncSingleMediaEntry(media *models.Media) *MediaSyncResul
 
 	// Update database if needed
 	if result.NeedsUpdate {
-		if err := s.mediaService.UpdateMedia(media); err != nil {
+		if err := s.GetMediaService().UpdateMedia(media); err != nil {
 			log.Printf("❌ Failed to update media %s: %v", media.Title, err)
 			result.Issues = append(result.Issues, fmt.Sprintf("Database update failed: %v", err))
 		} else {
@@ -2832,7 +2426,7 @@ func (s *MediaScanner) syncSingleMediaEntry(media *models.Media) *MediaSyncResul
 
 // getAllMediaFromDatabase retrieves all media entries from the database
 func (s *MediaScanner) getAllMediaFromDatabase() ([]models.Media, error) {
-	return s.mediaService.GetAllMedia()
+	return s.GetMediaService().GetAllMedia()
 }
 
 // findFileInStorage searches for a file by name in the media storage
@@ -2840,7 +2434,7 @@ func (s *MediaScanner) findFileInStorage(filename string) string {
 	var foundPath string
 	
 	// Walk through the media path to find the file
-	filepath.Walk(s.mediaPath, func(path string, info os.FileInfo, err error) error {
+	filepath.Walk(s.GetMediaPath(), func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return nil
 		}
@@ -2889,7 +2483,7 @@ func (s *MediaScanner) handleInvalidMediaEntry(media *models.Media) error {
 	log.Printf("🗑️ Handling invalid media entry: %s (ID: %d)", media.Title, media.ID)
 	
 	// Delete the entry since the file no longer exists
-	if err := s.mediaService.DeleteMedia(media.ID); err != nil {
+	if err := s.GetMediaService().DeleteMedia(media.ID); err != nil {
 		log.Printf("❌ Failed to delete invalid media entry %d (%s): %v", media.ID, media.Title, err)
 		return err
 	}
@@ -2970,7 +2564,7 @@ func (s *MediaScanner) regeneratePreviewClipsBatch(mediaList []models.Media) {
 	log.Printf("✅ Preview clip batch generation completed for %d media items", len(mediaList))
 }
 
-// regeneratePreviewClipForMedia regenerates preview clip for a single media item
+// regeneratePreviewClipForMedia regenerates preview clip for a single media item with fallback handling
 func (s *MediaScanner) regeneratePreviewClipForMedia(media *models.Media) {
 	log.Printf("🎬 Generating preview clip for: %s", media.Title)
 	
@@ -2980,20 +2574,8 @@ func (s *MediaScanner) regeneratePreviewClipForMedia(media *models.Media) {
 		return
 	}
 	
-	// Generate preview clip synchronously for better control
-	previewPath, err := s.thumbnailService.GeneratePreviewClip(media.FilePath, media.ID, media.Title)
-	if err != nil {
-		log.Printf("❌ Failed to generate preview clip for %s: %v", media.Title, err)
-		
-		// Try async method as fallback
-		log.Printf("🔄 Trying async preview generation for %s...", media.Title)
-		if asyncPreviewPath, asyncErr := s.thumbnailService.GeneratePreviewClipAsync(media.FilePath, media.ID, media.Title); asyncErr != nil {
-			log.Printf("❌ Async preview generation also failed for %s: %v", media.Title, asyncErr)
-		} else {
-			previewPath = asyncPreviewPath
-			err = nil
-		}
-	}
+	// Try multiple preview generation strategies with fallbacks
+	previewPath, err := s.generatePreviewWithFallbacks(media)
 	
 	if err == nil && previewPath != "" {
 		// Update media record with preview paths
@@ -3003,7 +2585,7 @@ func (s *MediaScanner) regeneratePreviewClipForMedia(media *models.Media) {
 		media.PreviewPath = previewPath
 		media.PreviewClipPath = previewPath
 		
-		if updateErr := s.mediaService.UpdateMedia(media); updateErr != nil {
+		if updateErr := s.GetMediaService().UpdateMedia(media); updateErr != nil {
 			log.Printf("⚠️ Failed to update media record for %s: %v", media.Title, updateErr)
 		} else {
 			log.Printf("✅ Preview clip generated and updated for: %s", media.Title)
@@ -3020,7 +2602,232 @@ func (s *MediaScanner) regeneratePreviewClipForMedia(media *models.Media) {
 				log.Printf("⚠️ Warning: Preview file not found after generation: %s", previewPath)
 			}
 		}
+	} else {
+		log.Printf("❌ All preview generation methods failed for %s: %v", media.Title, err)
 	}
+}
+
+// generatePreviewWithFallbacks tries multiple methods to generate preview clips with ALAC audio fallbacks
+func (s *MediaScanner) generatePreviewWithFallbacks(media *models.Media) (string, error) {
+	var lastErr error
+	
+	// Strategy 1: Try standard preview generation (1080p with original audio)
+	log.Printf("🎬 Attempt 1: Standard 1080p preview generation for %s", media.Title)
+	previewPath, err := s.GetThumbnailService().GeneratePreviewClip(media.FilePath, media.ID, media.Title)
+	if err == nil && previewPath != "" && s.validatePreviewFile(previewPath) {
+		log.Printf("✅ Standard preview generation successful for %s", media.Title)
+		return previewPath, nil
+	}
+	lastErr = err
+	log.Printf("⚠️ Standard preview generation failed for %s: %v", media.Title, err)
+	
+	// Strategy 2: Try with audio codec fallback (convert ALAC to AAC)
+	log.Printf("🎬 Attempt 2: Preview with audio codec fallback for %s", media.Title)
+	previewPath, err = s.generatePreviewWithAudioFallback(media)
+	if err == nil && previewPath != "" && s.validatePreviewFile(previewPath) {
+		log.Printf("✅ Audio fallback preview generation successful for %s", media.Title)
+		return previewPath, nil
+	}
+	if err != nil {
+		lastErr = err
+	}
+	log.Printf("⚠️ Audio fallback preview generation failed for %s: %v", media.Title, err)
+	
+	// Strategy 3: Try async method as fallback
+	log.Printf("🎬 Attempt 3: Async preview generation for %s", media.Title)
+	previewPath, err = s.GetThumbnailService().GeneratePreviewClipAsync(media.FilePath, media.ID, media.Title)
+	if err == nil && previewPath != "" && s.validatePreviewFile(previewPath) {
+		log.Printf("✅ Async preview generation successful for %s", media.Title)
+		return previewPath, nil
+	}
+	if err != nil {
+		lastErr = err
+	}
+	log.Printf("⚠️ Async preview generation failed for %s: %v", media.Title, err)
+	
+	// Strategy 4: Try lower quality preview (720p) with audio conversion
+	log.Printf("🎬 Attempt 4: Lower quality (720p) preview for %s", media.Title)
+	previewPath, err = s.generateLowerQualityPreview(media)
+	if err == nil && previewPath != "" && s.validatePreviewFile(previewPath) {
+		log.Printf("✅ Lower quality preview generation successful for %s", media.Title)
+		return previewPath, nil
+	}
+	if err != nil {
+		lastErr = err
+	}
+	log.Printf("⚠️ Lower quality preview generation failed for %s: %v", media.Title, err)
+	
+	// Strategy 5: Try basic preview without audio
+	log.Printf("🎬 Attempt 5: Video-only preview for %s", media.Title)
+	previewPath, err = s.generateVideoOnlyPreview(media)
+	if err == nil && previewPath != "" && s.validatePreviewFile(previewPath) {
+		log.Printf("✅ Video-only preview generation successful for %s", media.Title)
+		return previewPath, nil
+	}
+	if err != nil {
+		lastErr = err
+	}
+	
+	return "", fmt.Errorf("all preview generation strategies failed, last error: %v", lastErr)
+}
+
+// generatePreviewWithAudioFallback generates preview with audio codec conversion
+func (s *MediaScanner) generatePreviewWithAudioFallback(media *models.Media) (string, error) {
+	previewDir := "previews"
+	if _, err := os.Stat(previewDir); os.IsNotExist(err) {
+		os.MkdirAll(previewDir, 0755)
+	}
+	
+	outputPath := fmt.Sprintf("%s/preview_%d_%s_audio_fallback.mp4", previewDir, media.ID, 
+		strings.ReplaceAll(media.Title, " ", "_"))
+	
+	// FFmpeg command with audio codec fallback (ALAC -> AAC conversion)
+	cmd := exec.Command("ffmpeg",
+		"-i", media.FilePath,
+		"-ss", "60", // Start at 1 minute
+		"-t", "30",  // 30 second duration
+		"-vf", "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2",
+		"-c:v", "libx264",
+		"-preset", "fast",
+		"-crf", "23",
+		"-c:a", "aac", // Force AAC audio codec
+		"-b:a", "128k", // Audio bitrate
+		"-ac", "2", // Stereo audio
+		"-ar", "44100", // Sample rate
+		"-movflags", "+faststart",
+		"-y", // Overwrite output file
+		outputPath)
+	
+	log.Printf("🔧 Running FFmpeg with audio fallback: %s", cmd.String())
+	
+	if output, err := cmd.CombinedOutput(); err != nil {
+		log.Printf("❌ FFmpeg audio fallback failed: %v\nOutput: %s", err, string(output))
+		return "", fmt.Errorf("ffmpeg audio fallback failed: %v", err)
+	}
+	
+	return outputPath, nil
+}
+
+// generateLowerQualityPreview generates 720p preview with audio conversion
+func (s *MediaScanner) generateLowerQualityPreview(media *models.Media) (string, error) {
+	previewDir := "previews"
+	if _, err := os.Stat(previewDir); os.IsNotExist(err) {
+		os.MkdirAll(previewDir, 0755)
+	}
+	
+	outputPath := fmt.Sprintf("%s/preview_%d_%s_720p.mp4", previewDir, media.ID, 
+		strings.ReplaceAll(media.Title, " ", "_"))
+	
+	// FFmpeg command for 720p with audio conversion
+	cmd := exec.Command("ffmpeg",
+		"-i", media.FilePath,
+		"-ss", "60", // Start at 1 minute
+		"-t", "30",  // 30 second duration
+		"-vf", "scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2",
+		"-c:v", "libx264",
+		"-preset", "ultrafast", // Faster encoding
+		"-crf", "28", // Lower quality for faster processing
+		"-c:a", "aac", // Force AAC audio codec
+		"-b:a", "96k", // Lower audio bitrate
+		"-ac", "2", // Stereo audio
+		"-ar", "44100", // Sample rate
+		"-movflags", "+faststart",
+		"-y", // Overwrite output file
+		outputPath)
+	
+	log.Printf("🔧 Running FFmpeg 720p preview: %s", cmd.String())
+	
+	if output, err := cmd.CombinedOutput(); err != nil {
+		log.Printf("❌ FFmpeg 720p preview failed: %v\nOutput: %s", err, string(output))
+		return "", fmt.Errorf("ffmpeg 720p preview failed: %v", err)
+	}
+	
+	return outputPath, nil
+}
+
+// generateVideoOnlyPreview generates preview without audio track
+func (s *MediaScanner) generateVideoOnlyPreview(media *models.Media) (string, error) {
+	previewDir := "previews"
+	if _, err := os.Stat(previewDir); os.IsNotExist(err) {
+		os.MkdirAll(previewDir, 0755)
+	}
+	
+	outputPath := fmt.Sprintf("%s/preview_%d_%s_video_only.mp4", previewDir, media.ID, 
+		strings.ReplaceAll(media.Title, " ", "_"))
+	
+	// FFmpeg command without audio
+	cmd := exec.Command("ffmpeg",
+		"-i", media.FilePath,
+		"-ss", "60", // Start at 1 minute
+		"-t", "30",  // 30 second duration
+		"-vf", "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2",
+		"-c:v", "libx264",
+		"-preset", "fast",
+		"-crf", "23",
+		"-an", // No audio
+		"-movflags", "+faststart",
+		"-y", // Overwrite output file
+		outputPath)
+	
+	log.Printf("🔧 Running FFmpeg video-only preview: %s", cmd.String())
+	
+	if output, err := cmd.CombinedOutput(); err != nil {
+		log.Printf("❌ FFmpeg video-only preview failed: %v\nOutput: %s", err, string(output))
+		return "", fmt.Errorf("ffmpeg video-only preview failed: %v", err)
+	}
+	
+	return outputPath, nil
+}
+
+// scheduleAssetGenerationWithFallbacks schedules asset generation with fallback handling
+func (s *MediaScanner) scheduleAssetGenerationWithFallbacks(media *models.Media, path string, needsThumbnail, needsPreview bool) {
+	// Generate thumbnail with fallbacks
+	if needsThumbnail {
+		go func() {
+			if _, err := s.GetThumbnailService().GenerateThumbnail(path, media.ID, media.Title); err != nil {
+				log.Printf("❌ Thumbnail generation failed for %s: %v", media.Title, err)
+				
+				// Try async thumbnail generation as fallback
+				if _, asyncErr := s.GetThumbnailService().GenerateThumbnailAsync(path, media.ID, media.Title); asyncErr != nil {
+					log.Printf("❌ Async thumbnail generation also failed for %s: %v", media.Title, asyncErr)
+				} else {
+					log.Printf("✅ Async thumbnail generation successful for %s", media.Title)
+					thumbnailPath := s.GetThumbnailService().GetThumbnailPath(media.ID, media.Title)
+					if thumbnailPath != "" {
+						media.ThumbnailPath = thumbnailPath
+						s.GetMediaService().UpdateMedia(media)
+					}
+				}
+			} else {
+				log.Printf("✅ Thumbnail generation successful for %s", media.Title)
+				thumbnailPath := s.GetThumbnailService().GetThumbnailPath(media.ID, media.Title)
+				if thumbnailPath != "" {
+					media.ThumbnailPath = thumbnailPath
+					s.GetMediaService().UpdateMedia(media)
+				}
+			}
+		}()
+	}
+	
+	// Generate preview with comprehensive fallbacks
+	if needsPreview {
+		go func() {
+			previewPath, err := s.generatePreviewWithFallbacks(media)
+			if err != nil {
+				log.Printf("❌ All preview generation methods failed for %s: %v", media.Title, err)
+			} else {
+				log.Printf("✅ Preview generation successful for %s: %s", media.Title, previewPath)
+				media.PreviewPath = previewPath
+				media.PreviewClipPath = previewPath
+				s.GetMediaService().UpdateMedia(media)
+			}
+		}()
+	}
+}
+
+// scheduleAssetGeneration provides backward compatibility (calls new method)
+func (s *MediaScanner) scheduleAssetGeneration(media *models.Media, path string, needsThumbnail, needsPreview bool) {
+	s.scheduleAssetGenerationWithFallbacks(media, path, needsThumbnail, needsPreview)
 }
 
 // regenerateMediaAssets regenerates all assets for a single media item
@@ -3035,14 +2842,14 @@ func (s *MediaScanner) regenerateMediaAssets(media *models.Media) {
 	
 	// Generate thumbnail
 	go func() {
-		if _, err := s.thumbnailService.GenerateThumbnailAsync(media.FilePath, media.ID, media.Title); err != nil {
+		if _, err := s.GetThumbnailService().GenerateThumbnailAsync(media.FilePath, media.ID, media.Title); err != nil {
 			log.Printf("❌ Failed to regenerate thumbnail for %s: %v", media.Title, err)
 		} else {
 			// Update media record with thumbnail path
-			thumbnailPath := s.thumbnailService.GetThumbnailPath(media.ID, media.Title)
+			thumbnailPath := s.GetThumbnailService().GetThumbnailPath(media.ID, media.Title)
 			if thumbnailPath != "" {
 				media.ThumbnailPath = thumbnailPath
-				s.mediaService.UpdateMedia(media)
+				s.GetMediaService().UpdateMedia(media)
 			}
 			log.Printf("✅ Thumbnail regenerated for: %s", media.Title)
 		}
@@ -3050,27 +2857,27 @@ func (s *MediaScanner) regenerateMediaAssets(media *models.Media) {
 	
 	// Generate preview
 	go func() {
-		if previewPath, err := s.thumbnailService.GeneratePreviewClipAsync(media.FilePath, media.ID, media.Title); err != nil {
+		if previewPath, err := s.GetThumbnailService().GeneratePreviewClipAsync(media.FilePath, media.ID, media.Title); err != nil {
 			log.Printf("❌ Failed to regenerate preview for %s: %v", media.Title, err)
 		} else {
 			// Update media record with preview paths
 			media.PreviewPath = previewPath
 			media.PreviewClipPath = previewPath
-			s.mediaService.UpdateMedia(media)
+			s.GetMediaService().UpdateMedia(media)
 			log.Printf("✅ Preview regenerated for: %s", media.Title)
 		}
 	}()
 	
 	// Generate poster
-	if s.posterService != nil {
+	if s.GetPosterService() != nil {
 		go func() {
-			if err := s.posterService.DownloadPoster(media.Title, media.ID); err != nil {
+			if err := s.GetPosterService().DownloadPoster(media.Title, media.ID); err != nil {
 				log.Printf("❌ Failed to regenerate poster for %s: %v", media.Title, err)
 			} else {
-				posterPath := s.posterService.GetPosterPath(media.ID, media.Title)
+				posterPath := s.GetPosterService().GetPosterPath(media.ID, media.Title)
 				if posterPath != "" {
 					media.PosterPath = posterPath
-					s.mediaService.UpdateMedia(media)
+					s.GetMediaService().UpdateMedia(media)
 				}
 				log.Printf("✅ Poster regenerated for: %s", media.Title)
 			}
@@ -3078,9 +2885,9 @@ func (s *MediaScanner) regenerateMediaAssets(media *models.Media) {
 	}
 	
 	// Update metadata from TMDB if available
-	if s.tmdbService != nil {
+	if s.GetTMDBService() != nil {
 		go func() {
-			if tmdbMetadata, err := s.tmdbService.GenerateMediaMetadata(media.FilePath, media.Title); err != nil {
+			if tmdbMetadata, err := s.GetTMDBService().GenerateMediaMetadata(media.FilePath, media.Title); err != nil {
 				log.Printf("⚠️ Failed to update TMDB metadata for %s: %v", media.Title, err)
 			} else {
 				// Update media with TMDB metadata
@@ -3122,457 +2929,52 @@ func (s *MediaScanner) updateMediaWithTMDBMetadata(media *models.Media, tmdbMeta
 	}
 	
 	// Update in database
-	if err := s.mediaService.UpdateMedia(media); err != nil {
+	if err := s.GetMediaService().UpdateMedia(media); err != nil {
 		log.Printf("⚠️ Failed to update media with TMDB metadata: %v", err)
 	}
 }
 
-// findBestPathMatch finds the best matching media entry based on directory structure similarity
-func (s *MediaScanner) findBestPathMatch(currentPath string, candidates []models.Media) *models.Media {
-	if len(candidates) == 0 {
-		return nil
-	}
+// findFileInCurrentStorage searches for a file in current storage preserving directory structure
+func (s *MediaScanner) findFileInCurrentStorage(filename, originalPath string) string {
+	// Extract the relative directory structure from the original path
+	originalDir := filepath.Dir(originalPath)
 	
-	// If only one candidate, return it
-	if len(candidates) == 1 {
-		return &candidates[0]
-	}
+	// Try to find similar directory structure in current media path
+	var foundPath string
 	
-	// Extract relative path structure from current path
-	currentRelPath := s.extractRelativePathStructure(currentPath)
-	
-	var bestMatch *models.Media
-	var bestScore float64
-	
-	for _, candidate := range candidates {
-		// Extract relative path structure from candidate
-		candidateRelPath := s.extractRelativePathStructure(candidate.FilePath)
+	// Walk through current media path
+	filepath.Walk(s.GetMediaPath(), func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
 		
-		// Calculate structure similarity
-		score := s.calculatePathStructureSimilarity(currentRelPath, candidateRelPath)
-		
-		if score > bestScore {
-			bestScore = score
-			bestMatch = &candidate
-		}
-	}
-	
-	// Only return match if similarity is reasonable
-	if bestScore > 0.6 {
-		return bestMatch
-	}
-	
-	return nil
-}
-
-// extractRelativePathStructure extracts the directory structure relative to common mount points
-func (s *MediaScanner) extractRelativePathStructure(fullPath string) string {
-	// Common mount point patterns to strip
-	mountPatterns := []string{
-		`^/media/[^/]+/[^/]+/`,     // /media/user/drive/
-		`^/mnt/[^/]+/`,             // /mnt/drive/
-		`^/Volumes/[^/]+/`,         // /Volumes/drive/ (macOS)
-		`^/home/[^/]+/[^/]+/`,      // /home/user/media/
-		`^[A-Z]:\\`,                // C:\ (Windows)
-	}
-	
-	relPath := fullPath
-	for _, pattern := range mountPatterns {
-		re := regexp.MustCompile(pattern)
-		if re.MatchString(fullPath) {
-			relPath = re.ReplaceAllString(fullPath, "")
-			break
-		}
-	}
-	
-	return relPath
-}
-
-// calculatePathStructureSimilarity calculates similarity between two path structures
-func (s *MediaScanner) calculatePathStructureSimilarity(path1, path2 string) float64 {
-	if path1 == path2 {
-		return 1.0
-	}
-	
-	// Split paths into components
-	parts1 := strings.Split(filepath.Clean(path1), string(filepath.Separator))
-	parts2 := strings.Split(filepath.Clean(path2), string(filepath.Separator))
-	
-	// Remove empty parts
-	parts1 = s.removeEmptyStrings(parts1)
-	parts2 = s.removeEmptyStrings(parts2)
-	
-	if len(parts1) == 0 || len(parts2) == 0 {
-		return 0.0
-	}
-	
-	// Calculate common suffix (most important for file structure)
-	commonSuffix := 0
-	minLen := len(parts1)
-	if len(parts2) < minLen {
-		minLen = len(parts2)
-	}
-	
-	for i := 1; i <= minLen; i++ {
-		if parts1[len(parts1)-i] == parts2[len(parts2)-i] {
-			commonSuffix++
-		} else {
-			break
-		}
-	}
-	
-	// Calculate similarity based on common suffix and total length
-	maxLen := len(parts1)
-	if len(parts2) > maxLen {
-		maxLen = len(parts2)
-	}
-	
-	return float64(commonSuffix*2) / float64(maxLen)
-}
-
-// removeEmptyStrings removes empty strings from a slice
-func (s *MediaScanner) removeEmptyStrings(slice []string) []string {
-	var result []string
-	for _, str := range slice {
-		if str != "" {
-			result = append(result, str)
-		}
-	}
-	return result
-}
-
-// SmartPathResolution attempts to resolve moved/remounted drive paths
-func (s *MediaScanner) SmartPathResolution() error {
-	log.Printf("🔍 Starting smart path resolution for moved/remounted drives...")
-	
-	// Get all media with potentially invalid paths
-	allMedia, err := s.getAllMediaFromDatabase()
-	if err != nil {
-		return fmt.Errorf("failed to get media from database: %v", err)
-	}
-	
-	var resolvedCount, unresolvedCount int
-	
-	for _, media := range allMedia {
-		// Check if current path exists
-		if _, err := os.Stat(media.FilePath); os.IsNotExist(err) {
-			log.Printf("🔍 Attempting to resolve missing path: %s", media.FilePath)
-			
-			// Try to find the file in current media path
-			filename := filepath.Base(media.FilePath)
-			newPath := s.findFileInCurrentStorage(filename, media.FilePath)
-			
-			if newPath != "" {
-				log.Printf("✅ Resolved path: %s -> %s", media.FilePath, newPath)
+		if !info.IsDir() && filepath.Base(path) == filename {
+			// Check if this is a video file
+			if s.isVideoFile(path) {
+				// Calculate similarity score based on directory structure
+				currentDir := filepath.Dir(path)
 				
-				// Update file info
-				if fileInfo, err := os.Stat(newPath); err == nil {
-					media.FilePath = newPath
-					media.FileSize = fileInfo.Size()
-					
-					if err := s.mediaService.UpdateMedia(&media); err != nil {
-						log.Printf("❌ Failed to update resolved path for %s: %v", media.Title, err)
-					} else {
-						resolvedCount++
+				// Simple heuristic: prefer paths with similar directory names
+				originalDirParts := strings.Split(originalDir, string(os.PathSeparator))
+				currentDirParts := strings.Split(currentDir, string(os.PathSeparator))
+				
+				// Count matching directory parts
+				matchScore := 0
+				for _, origPart := range originalDirParts {
+					for _, currPart := range currentDirParts {
+						if strings.EqualFold(origPart, currPart) {
+							matchScore++
+						}
 					}
 				}
-			} else {
-				log.Printf("❌ Could not resolve path for: %s", media.FilePath)
-				unresolvedCount++
-			}
-		}
-	}
-	
-	log.Printf("✅ Smart path resolution completed: %d resolved, %d unresolved", resolvedCount, unresolvedCount)
-	return nil
-}
-
-// findFileInCurrentStorage searches for a file in the current media storage using multiple strategies
-func (s *MediaScanner) findFileInCurrentStorage(filename string, originalPath string) string {
-	// Strategy 1: Search by exact filename in current media path
-	foundPath := s.findFileInStorage(filename)
-	if foundPath != "" {
-		return foundPath
-	}
-	
-	// Strategy 2: Try to preserve directory structure
-	relativeStructure := s.extractRelativePathStructure(originalPath)
-	if relativeStructure != originalPath {
-		// Try to reconstruct path with current media root
-		potentialPath := filepath.Join(s.mediaPath, relativeStructure)
-		if _, err := os.Stat(potentialPath); err == nil {
-			log.Printf("🎯 Found file using preserved structure: %s", potentialPath)
-			return potentialPath
-		}
-	}
-	
-	// Strategy 3: Search in subdirectories with similar names
-	originalDir := filepath.Dir(originalPath)
-	originalDirName := filepath.Base(originalDir)
-	
-	var foundInSimilarDir string
-	filepath.Walk(s.mediaPath, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return nil
-		}
-		
-		if info.IsDir() {
-			dirName := filepath.Base(path)
-			// Check if directory name is similar to original
-			if s.calculateTitleSimilarity(
-				s.normalizeTitleForComparison(originalDirName),
-				s.normalizeTitleForComparison(dirName),
-			) > 0.7 {
-				// Check if file exists in this similar directory
-				potentialFile := filepath.Join(path, filename)
-				if _, err := os.Stat(potentialFile); err == nil {
-					foundInSimilarDir = potentialFile
-					return filepath.SkipDir
-				}
-			}
-		}
-		
-		return nil
-	})
-	
-	if foundInSimilarDir != "" {
-		log.Printf("🎯 Found file in similar directory: %s", foundInSimilarDir)
-		return foundInSimilarDir
-	}
-	
-	return ""
-}
-
-
-
-
-
-// detectOldMountPoints analyzes media paths to find common old mount points
-func (s *MediaScanner) detectOldMountPoints(mediaList []models.Media) map[string]int {
-	mountPoints := make(map[string]int)
-	
-	for _, media := range mediaList {
-		// Check if file doesn't exist (indicating potential mount point change)
-		if _, err := os.Stat(media.FilePath); os.IsNotExist(err) {
-			// Extract potential mount point patterns
-			pathParts := strings.Split(media.FilePath, "/")
-			
-			// Common mount point patterns
-			if len(pathParts) >= 4 {
-				// /media/user/drive pattern
-				if pathParts[1] == "media" && len(pathParts) >= 4 {
-					mountPoint := "/" + strings.Join(pathParts[1:4], "/")
-					mountPoints[mountPoint]++
-				}
-				// /mnt/drive pattern
-				if pathParts[1] == "mnt" && len(pathParts) >= 3 {
-					mountPoint := "/" + strings.Join(pathParts[1:3], "/")
-					mountPoints[mountPoint]++
-				}
-			}
-		}
-	}
-	
-	return mountPoints
-}
-
-// DetectDriveChanges detects when external drives have been remounted with different paths
-func (s *MediaScanner) DetectDriveChanges() error {
-	log.Printf("🔍 Detecting drive changes and remounts...")
-	
-	// Get all media entries
-	allMedia, err := s.getAllMediaFromDatabase()
-	if err != nil {
-		return err
-	}
-	
-	// Group media by potential drive/mount point
-	driveGroups := make(map[string][]models.Media)
-	
-	for _, media := range allMedia {
-		driveRoot := s.extractDriveRoot(media.FilePath)
-		driveGroups[driveRoot] = append(driveGroups[driveRoot], media)
-	}
-	
-	// Check each drive group
-	for driveRoot, mediaList := range driveGroups {
-		if len(mediaList) == 0 {
-			continue
-		}
-		
-		// Check if any files in this drive group exist
-		existingCount := 0
-		for _, media := range mediaList {
-			if _, err := os.Stat(media.FilePath); err == nil {
-				existingCount++
-			}
-		}
-		
-		// If less than 10% of files exist, the drive might be remounted
-		existenceRatio := float64(existingCount) / float64(len(mediaList))
-		if existenceRatio < 0.1 {
-			log.Printf("🚨 Potential drive remount detected for %s (%.1f%% files exist)", driveRoot, existenceRatio*100)
-			
-			// Try to find new mount point for this drive
-			if newDriveRoot := s.findNewDriveLocation(mediaList); newDriveRoot != "" {
-				log.Printf("🎯 Found potential new location: %s", newDriveRoot)
-				s.migrateDrivePaths(mediaList, driveRoot, newDriveRoot)
-			}
-		}
-	}
-	
-	return nil
-}
-
-// extractDriveRoot extracts the drive/mount point root from a path
-func (s *MediaScanner) extractDriveRoot(path string) string {
-	// Common patterns for drive roots
-	patterns := []string{
-		`^(/media/[^/]+/[^/]+)`,     // /media/user/drive
-		`^(/mnt/[^/]+)`,             // /mnt/drive
-		`^(/Volumes/[^/]+)`,         // /Volumes/drive (macOS)
-		`^([A-Z]:)`,                 // C: (Windows)
-	}
-	
-	for _, pattern := range patterns {
-		re := regexp.MustCompile(pattern)
-		if matches := re.FindStringSubmatch(path); len(matches) > 1 {
-			return matches[1]
-		}
-	}
-	
-	// Fallback: use first two path components
-	parts := strings.Split(filepath.Clean(path), string(filepath.Separator))
-	if len(parts) >= 3 {
-		return "/" + parts[1] + "/" + parts[2]
-	}
-	
-	return filepath.Dir(path)
-}
-
-// findNewDriveLocation attempts to find where a drive has been remounted
-func (s *MediaScanner) findNewDriveLocation(mediaList []models.Media) string {
-	if len(mediaList) == 0 {
-		return ""
-	}
-	
-	// Take a sample of files to search for
-	sampleSize := 5
-	if len(mediaList) < sampleSize {
-		sampleSize = len(mediaList)
-	}
-	
-	sampleFiles := mediaList[:sampleSize]
-	
-	// Common mount points to check
-	mountPoints := []string{
-		"/media",
-		"/mnt",
-		"/Volumes", // macOS
-	}
-	
-	for _, mountPoint := range mountPoints {
-		if _, err := os.Stat(mountPoint); os.IsNotExist(err) {
-			continue
-		}
-		
-		// Check subdirectories in mount point
-		entries, err := os.ReadDir(mountPoint)
-		if err != nil {
-			continue
-		}
-		
-		for _, entry := range entries {
-			if !entry.IsDir() {
-				continue
-			}
-			
-			potentialRoot := filepath.Join(mountPoint, entry.Name())
-			
-			// Check if sample files exist in this potential location
-			foundCount := 0
-			for _, media := range sampleFiles {
-				relPath := s.extractRelativePathStructure(media.FilePath)
-				potentialPath := filepath.Join(potentialRoot, relPath)
 				
-				if _, err := os.Stat(potentialPath); err == nil {
-					foundCount++
+				// If this is the first match or has a better score, use it
+				if foundPath == "" || matchScore > 0 {
+					foundPath = path
+					if matchScore > 2 { // Good match, stop searching
+						return filepath.SkipDir
+					}
 				}
-			}
-			
-			// If we found most of the sample files, this is likely the new location
-			if float64(foundCount)/float64(len(sampleFiles)) > 0.6 {
-				return potentialRoot
-			}
-		}
-	}
-	
-	return ""
-}
-
-// migrateDrivePaths updates all media paths from old drive root to new drive root
-func (s *MediaScanner) migrateDrivePaths(mediaList []models.Media, oldRoot, newRoot string) {
-	log.Printf("🔄 Migrating %d media paths from %s to %s", len(mediaList), oldRoot, newRoot)
-	
-	var successCount, failCount int
-	
-	for _, media := range mediaList {
-		// Calculate new path
-		relativePath := strings.TrimPrefix(media.FilePath, oldRoot)
-		newPath := filepath.Join(newRoot, relativePath)
-		
-		// Verify new path exists
-		if _, err := os.Stat(newPath); err == nil {
-			// Update media record
-			oldPath := media.FilePath
-			media.FilePath = newPath
-			
-			if fileInfo, err := os.Stat(newPath); err == nil {
-				media.FileSize = fileInfo.Size()
-			}
-			
-			if err := s.mediaService.UpdateMedia(&media); err != nil {
-				log.Printf("❌ Failed to migrate path for %s: %v", media.Title, err)
-				failCount++
-			} else {
-				log.Printf("✅ Migrated: %s -> %s", oldPath, newPath)
-				successCount++
-			}
-		} else {
-			log.Printf("⚠️ New path doesn't exist for %s: %s", media.Title, newPath)
-			failCount++
-		}
-	}
-	
-	log.Printf("✅ Drive migration completed: %d successful, %d failed", successCount, failCount)
-}
-
-// findMediaFileByTitle searches for a media file by title in the current storage
-func (s *MediaScanner) findMediaFileByTitle(title string) string {
-	var foundPath string
-	normalizedTitle := s.normalizeTitleForComparison(title)
-	
-	// Walk through media path to find files with similar titles
-	filepath.Walk(s.mediaPath, func(path string, info os.FileInfo, err error) error {
-		if err != nil || info.IsDir() {
-			return nil
-		}
-		
-		// Check if it's a video file
-		if !s.isVideoFile(path) {
-			return nil
-		}
-		
-		// Extract title from filename and compare
-		metadata := s.extractMetadataWithCache(path)
-		if metadata.Title != "" {
-			normalizedFileTitle := s.normalizeTitleForComparison(metadata.Title)
-			similarity := s.calculateTitleSimilarity(normalizedTitle, normalizedFileTitle)
-			
-			// If similarity is high enough, consider it a match
-			if similarity > 0.8 {
-				foundPath = path
-				return filepath.SkipDir // Stop searching once found
 			}
 		}
 		
@@ -3582,395 +2984,488 @@ func (s *MediaScanner) findMediaFileByTitle(title string) string {
 	return foundPath
 }
 
-// RepairBrokenPaths is a comprehensive method to fix all broken media paths
-// This is the main method you should call when external drives are remounted
-func (s *MediaScanner) RepairBrokenPaths() error {
-	log.Printf("🔧 Starting comprehensive broken path repair...")
+// findMediaFileByTitle searches for media files by title similarity
+func (s *MediaScanner) findMediaFileByTitle(title string) string {
+	var bestMatch string
+	var bestScore float64
 	
-	startTime := time.Now()
+	normalizedTitle := s.normalizeTitleForComparison(title)
 	
-	// Step 1: Detect and migrate entire drives
-	log.Printf("🔍 Step 1: Detecting drive changes...")
-	if err := s.DetectDriveChanges(); err != nil {
-		log.Printf("⚠️ Drive change detection failed: %v", err)
+	filepath.Walk(s.GetMediaPath(), func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		
+		if !info.IsDir() && s.isVideoFile(path) {
+			// Extract title from filename
+			metadata := s.extractMetadataWithCache(path)
+			if metadata.Title != "" {
+				normalizedFileTitle := s.normalizeTitleForComparison(metadata.Title)
+				similarity := s.calculateTitleSimilarity(normalizedTitle, normalizedFileTitle)
+				
+				if similarity > bestScore && similarity > 0.6 { // 60% similarity threshold
+					bestScore = similarity
+					bestMatch = path
+				}
+			}
+		}
+		
+		return nil
+	})
+	
+	return bestMatch
+}
+
+// findBestPathMatch finds the best matching media from a list based on path similarity
+func (s *MediaScanner) findBestPathMatch(filename string, mediaList []models.Media) *models.Media {
+	if len(mediaList) == 0 {
+		return nil
 	}
 	
-	// Step 2: Smart path resolution for individual files
-	log.Printf("🔍 Step 2: Smart path resolution...")
-	if err := s.SmartPathResolution(); err != nil {
-		log.Printf("⚠️ Smart path resolution failed: %v", err)
+	// If only one match, return it
+	if len(mediaList) == 1 {
+		return &mediaList[0]
 	}
 	
-	// Step 3: Get statistics on remaining broken paths
+	// Find the best match based on path similarity and file existence
+	var bestMatch *models.Media
+	bestScore := -1
+	
+	for i := range mediaList {
+		media := &mediaList[i]
+		
+		// Check if file exists at the stored path
+		if _, err := os.Stat(media.FilePath); err == nil {
+			// File exists, this is likely the correct match
+			return media
+		}
+		
+		// Calculate path similarity score
+		score := s.calculatePathSimilarity(filename, media.FilePath)
+		if score > bestScore {
+			bestScore = score
+			bestMatch = media
+		}
+	}
+	
+	return bestMatch
+}
+
+// calculatePathSimilarity calculates similarity between filename and stored path
+func (s *MediaScanner) calculatePathSimilarity(filename, storedPath string) int {
+	score := 0
+	
+	// Same filename gets base score
+	if filepath.Base(storedPath) == filename {
+		score += 10
+	}
+	
+	// Similar directory structure gets bonus points
+	currentMediaPath := strings.ToLower(s.GetMediaPath())
+	storedDir := strings.ToLower(filepath.Dir(storedPath))
+	
+	// Check for common directory patterns
+	commonPatterns := []string{"movies", "films", "videos", "media"}
+	for _, pattern := range commonPatterns {
+		if strings.Contains(currentMediaPath, pattern) && strings.Contains(storedDir, pattern) {
+			score += 2
+		}
+	}
+	
+	return score
+}
+
+// DetectDriveChanges detects if media files have been moved to different drives/paths
+func (s *MediaScanner) DetectDriveChanges() error {
+	log.Printf("🔍 Detecting drive changes and path updates...")
+	
+	// Get all media from database
 	allMedia, err := s.getAllMediaFromDatabase()
 	if err != nil {
 		return fmt.Errorf("failed to get media from database: %v", err)
 	}
 	
-	var brokenPaths, repairedPaths int
+	var updatedCount int
+	var notFoundCount int
+	
 	for _, media := range allMedia {
+		// Check if file exists at stored path
 		if _, err := os.Stat(media.FilePath); os.IsNotExist(err) {
-			brokenPaths++
+			// Try to find the file in current media path
+			filename := filepath.Base(media.FilePath)
+			newPath := s.findFileInCurrentStorage(filename, media.FilePath)
+			
+			if newPath != "" {
+				log.Printf("📁 Drive change detected: %s -> %s", media.FilePath, newPath)
+				
+				// Update the path in database
+				media.FilePath = newPath
+				if updateErr := s.GetMediaService().UpdateMedia(&media); updateErr != nil {
+					log.Printf("❌ Failed to update path for media %d: %v", media.ID, updateErr)
+				} else {
+					updatedCount++
+					log.Printf("✅ Updated path for: %s", media.Title)
+				}
+			} else {
+				notFoundCount++
+				log.Printf("❌ File not found in current storage: %s", filename)
+			}
 		}
 	}
 	
-	repairedPaths = len(allMedia) - brokenPaths
-	
-	duration := time.Since(startTime)
-	log.Printf("✅ Path repair completed in %v", duration)
-	log.Printf("📊 Repair Statistics:")
-	log.Printf("   📁 Total media entries: %d", len(allMedia))
-	log.Printf("   ✅ Paths working: %d", repairedPaths)
-	log.Printf("   ❌ Paths still broken: %d", brokenPaths)
-	
-	if brokenPaths > 0 {
-		log.Printf("⚠️ %d paths could not be automatically repaired", brokenPaths)
-		log.Printf("💡 Consider running a full sync to handle remaining issues")
-	}
+	log.Printf("📊 Drive change detection completed:")
+	log.Printf("   ✅ Paths updated: %d", updatedCount)
+	log.Printf("   ❌ Files not found: %d", notFoundCount)
 	
 	return nil
 }
 
-// GetBrokenPathsReport returns a detailed report of broken media paths
-func (s *MediaScanner) GetBrokenPathsReport() (map[string]interface{}, error) {
+// SmartPathResolution performs intelligent path resolution for moved files
+func (s *MediaScanner) SmartPathResolution() error {
+	log.Printf("🧠 Starting smart path resolution...")
+	
+	// Get all media from database
 	allMedia, err := s.getAllMediaFromDatabase()
 	if err != nil {
-		return nil, err
+		return fmt.Errorf("failed to get media from database: %v", err)
 	}
 	
-	var brokenMedia []map[string]interface{}
-	var workingCount int
+	var resolvedCount int
 	
 	for _, media := range allMedia {
-		if _, err := os.Stat(media.FilePath); os.IsNotExist(err) {
-			brokenMedia = append(brokenMedia, map[string]interface{}{
-				"id":       media.ID,
-				"title":    media.Title,
-				"path":     media.FilePath,
-				"fileSize": media.FileSize,
-				"type":     media.Type,
-			})
-		} else {
-			workingCount++
-		}
-	}
-	
-	report := map[string]interface{}{
-		"totalMedia":    len(allMedia),
-		"workingPaths":  workingCount,
-		"brokenPaths":   len(brokenMedia),
-		"brokenMedia":   brokenMedia,
-		"healthScore":   float64(workingCount) / float64(len(allMedia)) * 100,
-	}
-	
-	return report, nil
-}
-
-// scheduleAssetGeneration schedules asset generation with batch-aware resource management
-func (s *MediaScanner) scheduleAssetGeneration(media *models.Media, path string, needsThumbnail, needsPreview bool) {
-	// Use a more intelligent scheduling approach for batch processing
-	if needsThumbnail {
-		go func() {
-			// Smart queue management - check load and adjust timing
-			queueDelay := s.calculateQueueDelay("thumbnail")
-			if queueDelay > 0 {
-				log.Printf("⏳ Delaying thumbnail generation for %s by %v (queue management)", media.Title, queueDelay)
-				time.Sleep(queueDelay)
-			}
-			
-			// Generate thumbnail with batch-optimized retry logic
-			if err := s.generateAssetWithRetry("thumbnail", media, path); err != nil {
-				log.Printf("❌ Failed to generate thumbnail for %s: %v", media.Title, err)
-			}
-		}()
-	}
-	
-	if needsPreview {
-		log.Printf("🎬 Scheduling optimized preview generation for: %s", media.Title)
-		go func() {
-			// Longer delay for previews as they're more resource intensive
-			queueDelay := s.calculateQueueDelay("preview")
-			if queueDelay > 0 {
-				log.Printf("⏳ Delaying preview generation for %s by %v (queue management)", media.Title, queueDelay)
-				time.Sleep(queueDelay)
-			}
-			
-			// Generate preview with batch-optimized retry logic
-			if err := s.generateAssetWithRetry("preview", media, path); err != nil {
-				log.Printf("❌ Failed to generate preview for %s: %v", media.Title, err)
-			}
-		}()
-	}
-}
-
-// calculateQueueDelay calculates appropriate delay based on current system load
-func (s *MediaScanner) calculateQueueDelay(assetType string) time.Duration {
-	// Check if thumbnail service is available and healthy
-	if s.thumbnailService == nil {
-		return 0
-	}
-	
-	// Check queue health
-	if !s.thumbnailService.IsQueueHealthy() {
-		// Calculate delay based on asset type and current load
-		baseDelay := 5 * time.Second
-		if assetType == "preview" {
-			baseDelay = 10 * time.Second // Previews need more resources
+		// Skip if file already exists
+		if _, err := os.Stat(media.FilePath); err == nil {
+			continue
 		}
 		
-		// Add some randomization to prevent thundering herd
-		randomDelay := time.Duration(float64(baseDelay) * (0.5 + (float64(time.Now().UnixNano()%1000) / 2000.0)))
-		return randomDelay
-	}
-	
-	return 0
-}
-
-// generateAssetWithRetry generates assets with intelligent retry logic
-func (s *MediaScanner) generateAssetWithRetry(assetType string, media *models.Media, path string) error {
-	maxRetries := 3
-	baseDelay := 2 * time.Second
-	
-	for attempt := 1; attempt <= maxRetries; attempt++ {
-		var err error
-		var assetPath string
-		
-		switch assetType {
-		case "thumbnail":
-			assetPath, err = s.thumbnailService.GenerateThumbnailAsync(path, media.ID, media.Title)
-			if err == nil && assetPath != "" {
-				media.ThumbnailPath = assetPath
-				s.mediaService.UpdateMedia(media)
-				log.Printf("✅ Batch-optimized thumbnail generated for: %s", media.Title)
-				return nil
-			}
-		case "preview":
-			assetPath, err = s.thumbnailService.GeneratePreviewClipAsync(path, media.ID, media.Title)
-			if err == nil && assetPath != "" {
-				media.PreviewPath = assetPath
-				media.PreviewClipPath = assetPath
-				s.mediaService.UpdateMedia(media)
-				log.Printf("🎬 Batch-optimized preview generated for: %s", media.Title)
-				return nil
-			}
-		}
-		
-		if err != nil {
-			if attempt == maxRetries {
-				return fmt.Errorf("failed after %d attempts: %v", maxRetries, err)
-			}
+		// Try multiple resolution strategies
+		newPath := s.resolveMediaPath(&media)
+		if newPath != "" && newPath != media.FilePath {
+			log.Printf("🎯 Smart resolution: %s -> %s", media.FilePath, newPath)
 			
-			// Exponential backoff with jitter
-			delay := time.Duration(attempt) * baseDelay
-			jitter := time.Duration(float64(delay) * (0.1 + (float64(time.Now().UnixNano()%100) / 1000.0)))
-			totalDelay := delay + jitter
-			
-			log.Printf("⚠️ %s generation attempt %d failed for %s, retrying in %v: %v", 
-				assetType, attempt, media.Title, totalDelay, err)
-			time.Sleep(totalDelay)
+			media.FilePath = newPath
+			if updateErr := s.GetMediaService().UpdateMedia(&media); updateErr != nil {
+				log.Printf("❌ Failed to update resolved path for media %d: %v", media.ID, updateErr)
+			} else {
+				resolvedCount++
+				log.Printf("✅ Resolved path for: %s", media.Title)
+			}
 		}
 	}
 	
-	return fmt.Errorf("all retry attempts failed")
+	log.Printf("📊 Smart path resolution completed: %d paths resolved", resolvedCount)
+	return nil
 }
 
-// OptimizeBatchProcessing adjusts scanner settings for optimal batch processing
-func (s *MediaScanner) OptimizeBatchProcessing() {
-	// Adjust worker count based on system capabilities
-	if s.maxWorkers < 4 {
-		s.maxWorkers = 4
-		log.Printf("🔧 Increased workers to %d for better batch processing", s.maxWorkers)
+// resolveMediaPath tries multiple strategies to resolve a media file's new path
+func (s *MediaScanner) resolveMediaPath(media *models.Media) string {
+	filename := filepath.Base(media.FilePath)
+	
+	// Strategy 1: Search by exact filename in current media path
+	if newPath := s.findFileInCurrentStorage(filename, media.FilePath); newPath != "" {
+		return newPath
 	}
 	
-	// Optimize batch size for current workload
-	if s.batchSize < 10 {
-		s.batchSize = 15
-		log.Printf("🔧 Increased batch size to %d for better throughput", s.batchSize)
+	// Strategy 2: Search by title similarity
+	if media.Title != "" {
+		if newPath := s.findMediaFileByTitle(media.Title); newPath != "" {
+			return newPath
+		}
 	}
 	
-	// Initialize queues with larger capacity for batch processing
-	if cap(s.priorityQueue) < 200 {
-		s.priorityQueue = make(chan FileInfo, 200)
-		s.lowPriorityQueue = make(chan FileInfo, 1000)
-		log.Printf("🔧 Increased queue capacity for batch processing")
+	// Strategy 3: Try common path transformations
+	commonTransformations := []struct {
+		from string
+		to   string
+	}{
+		{"/media/azad/Movies1/", s.GetMediaPath() + "/"},
+		{"/media/azad/Movies2/", s.GetMediaPath() + "/"},
+		{"/media/azad/Movies3/", s.GetMediaPath() + "/"},
+		{"/mnt/media/", s.GetMediaPath() + "/"},
+		{"/mnt/usb/", s.GetMediaPath() + "/"},
+		{"/home/media/", s.GetMediaPath() + "/"},
+		{"/Volumes/", s.GetMediaPath() + "/"},
 	}
+	
+	for _, transform := range commonTransformations {
+		if strings.HasPrefix(media.FilePath, transform.from) {
+			newPath := strings.Replace(media.FilePath, transform.from, transform.to, 1)
+			if _, err := os.Stat(newPath); err == nil {
+				return newPath
+			}
+		}
+	}
+	
+	return ""
+}
+
+// validatePreviewFile validates that a generated preview file is valid
+func (s *MediaScanner) validatePreviewFile(path string) bool {
+	if path == "" {
+		return false
+	}
+	
+	// Check if file exists
+	stat, err := os.Stat(path)
+	if err != nil {
+		log.Printf("⚠️ Preview file not found: %s", path)
+		return false
+	}
+	
+	// Check file size (should be at least 1KB)
+	if stat.Size() < 1024 {
+		log.Printf("⚠️ Preview file too small (%d bytes): %s", stat.Size(), path)
+		return false
+	}
+	
+	// Check if it's a valid video file using FFprobe
+	cmd := exec.Command("ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", path)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		log.Printf("⚠️ Preview file validation failed: %s - %v", path, err)
+		return false
+	} else {
+		// Parse the output to check duration
+		var probeData struct {
+			Format struct {
+				Duration string `json:"duration"`
+			} `json:"format"`
+		}
+		
+		if json.Unmarshal(output, &probeData) == nil {
+			if duration, err := strconv.ParseFloat(probeData.Format.Duration, 64); err == nil {
+				if duration > 5 { // Should be at least 5 seconds
+					log.Printf("✅ Preview file validated: %s (%.1fs, %d bytes)", path, duration, stat.Size())
+					return true
+				} else {
+					log.Printf("⚠️ Preview file too short (%.1fs): %s", duration, path)
+				}
+			}
+		}
+	}
+	
+	return false
 }
 
 // BatchScanMediaLibrary performs an optimized batch scan of the media library
 func (s *MediaScanner) BatchScanMediaLibrary() error {
-	s.stats.StartTime = time.Now()
-	log.Printf("🚀 Starting batch-optimized media library scan at: %s", s.mediaPath)
-
-	// Enable batch mode to disable ALAC auto-extraction during scanning
-	if s.alacService != nil {
-		s.alacService.SetBatchMode(true)
-		defer s.alacService.SetBatchMode(false) // Re-enable after scanning
-	}
-
-	// Optimize settings for batch processing
-	s.OptimizeBatchProcessing()
+	s.SetStartTime(time.Now())
+	mediaPath := s.GetMediaPath()
+	log.Printf("🚀 Starting batch-optimized media library scan at: %s", mediaPath)
 
 	// Check if media path exists
-	if _, err := os.Stat(s.mediaPath); os.IsNotExist(err) {
-		log.Printf("❌ Media path does not exist: %s", s.mediaPath)
-		return fmt.Errorf("media path does not exist: %s", s.mediaPath)
+	if _, err := os.Stat(mediaPath); os.IsNotExist(err) {
+		log.Printf("❌ Media path does not exist: %s", mediaPath)
+		return fmt.Errorf("media path does not exist: %s", mediaPath)
 	}
 
-	// Phase 1: Fast file discovery with pre-filtering
-	log.Printf("📂 Phase 1: Batch file discovery...")
-	files, err := s.batchDiscoverFiles()
+	// Phase 1: Fast file discovery
+	log.Printf("📂 Phase 1: File discovery...")
+	files, err := s.discoverFiles()
 	if err != nil {
-		return fmt.Errorf("batch file discovery failed: %v", err)
+		return fmt.Errorf("file discovery failed: %v", err)
 	}
 
-	s.stats.TotalFiles = len(files)
+	s.SetTotalFiles(len(files))
+	stats := s.GetScanStats()
 	log.Printf("📊 Discovered %d files (%d videos, %d subtitles)", 
-		s.stats.TotalFiles, 
+		stats.TotalFiles, 
 		s.countFilesByType(files, true, false),
 		s.countFilesByType(files, false, true))
 
-	// Phase 2: Intelligent batch processing
-	log.Printf("⚡ Phase 2: Intelligent batch processing...")
+	// Phase 2: Process files
+	log.Printf("⚡ Phase 2: Processing files...")
 	if err := s.processFilesBatch(files); err != nil {
-		log.Printf("⚠️ Some batches had errors: %v", err)
+		log.Printf("⚠️ Some files had errors: %v", err)
 	}
 
-	// Phase 3: Results and cleanup
-	s.stats.ScanDuration = time.Since(s.stats.StartTime)
+	// Phase 3: Results
+	scanStats := s.GetScanStats()
+	s.SetScanDuration(time.Since(scanStats.StartTime))
 	s.logScanResults()
-
-	// Refresh recommendations after batch processing
-	if s.recommendationService != nil && s.stats.ProcessedFiles > 0 {
-		log.Println("🔄 Refreshing recommendations after batch scan...")
-		if err := s.recommendationService.RefreshRecommendations(); err != nil {
-			log.Printf("⚠️ Warning: Failed to refresh recommendations: %v", err)
-		} else {
-			log.Println("✅ Recommendations refreshed successfully")
-		}
-	}
 
 	return nil
 }
 
-// batchDiscoverFiles performs optimized file discovery for batch processing
-func (s *MediaScanner) batchDiscoverFiles() ([]FileInfo, error) {
-	var files []FileInfo
-	var mu sync.Mutex
-	
-	// Pre-allocate with estimated capacity
-	files = make([]FileInfo, 0, 2000)
-	
-	// Use buffered channel for better performance
-	fileChan := make(chan FileInfo, 2000)
-	done := make(chan bool)
-	
-	// Start collector goroutine with batch collection
-	go func() {
-		defer close(done)
-		batch := make([]FileInfo, 0, 100)
-		
-		for file := range fileChan {
-			batch = append(batch, file)
-			
-			// Process in mini-batches for better memory usage
-			if len(batch) >= 100 {
-				mu.Lock()
-				files = append(files, batch...)
-				mu.Unlock()
-				batch = batch[:0] // Reset batch
-			}
-		}
-		
-		// Process remaining files
-		if len(batch) > 0 {
-			mu.Lock()
-			files = append(files, batch...)
-			mu.Unlock()
-		}
-	}()
-
-	// Parallel directory walking with worker pool
-	var wg sync.WaitGroup
-	walkSemaphore := make(chan struct{}, 4) // Limit concurrent directory walkers
-	
-	err := filepath.Walk(s.mediaPath, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			log.Printf("⚠️ Error accessing path %s: %v", path, err)
-			return nil // Continue scanning
-		}
-
-		if info.IsDir() {
-			// Skip hidden and system directories
-			dirName := filepath.Base(path)
-			if strings.HasPrefix(dirName, ".") || dirName == "System Volume Information" {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-
-		// Skip files matching skip patterns
-		fileName := filepath.Base(path)
-		for _, pattern := range s.skipPatterns {
-			if matched, _ := filepath.Match(pattern, fileName); matched {
-				return nil
-			}
-		}
-
-		// Ultra-fast file type detection
-		ext := strings.ToLower(filepath.Ext(path))
-		isVideo := s.isVideoFileByExtension(ext)
-		isSubtitle := s.isSubtitleFileByExtension(ext)
-
-		if isVideo || isSubtitle {
-			wg.Add(1)
-			go func(p string, i os.FileInfo) {
-				defer wg.Done()
-				
-				walkSemaphore <- struct{}{}
-				defer func() { <-walkSemaphore }()
-				
-				fileInfo := FileInfo{
-					Path:       p,
-					Info:       i,
-					IsVideo:    isVideo,
-					IsSubtitle: isSubtitle,
-				}
-				
-				select {
-				case fileChan <- fileInfo:
-				default:
-					// Channel full, add directly (fallback)
-					mu.Lock()
-					files = append(files, fileInfo)
-					mu.Unlock()
-				}
-			}(path, info)
-		}
-
-		return nil
-	})
-	
-	wg.Wait()
-	close(fileChan)
-	<-done // Wait for collector to finish
-
-	return files, err
-}
-
 // logSyncResults logs the final sync statistics
 func (s *MediaScanner) logSyncResults(total, valid, invalid, updated, orphaned int) {
-	log.Printf("✅ Database-Storage sync completed in %v", s.stats.ScanDuration)
+	scanStats := s.GetScanStats()
+	log.Printf("✅ Database-Storage sync completed in %v", scanStats.ScanDuration)
 	log.Printf("📊 Sync Statistics:")
 	log.Printf("   📁 Total database entries: %d", total)
 	log.Printf("   ✅ Valid entries: %d", valid)
 	log.Printf("   ❌ Invalid entries: %d", invalid)
 	log.Printf("   🔄 Updated entries: %d", updated)
 	log.Printf("   🆕 Orphaned files found: %d", orphaned)
-	log.Printf("   ✅ Successfully processed: %d", s.stats.ProcessedFiles)
-	log.Printf("   ❌ Errors: %d", s.stats.ErrorFiles)
+	log.Printf("   ✅ Successfully processed: %d", scanStats.ProcessedFiles)
+	log.Printf("   ❌ Errors: %d", scanStats.ErrorFiles)
 	
 	if total > 0 {
 		syncRate := float64(valid+updated) / float64(total) * 100
 		log.Printf("   📈 Sync success rate: %.1f%%", syncRate)
 	}
 }
+
+// extractMetadataWithCacheLocal extracts metadata from file path with caching
+func (s *MediaScanner) extractMetadataWithCacheLocal(path string) *core.FileMetadata {
+	// Check cache first
+	if cachedMetadata, exists := s.GetMetadataCacheEntry(path); exists {
+		return cachedMetadata
+	}
+	
+	// Extract metadata
+	extractedMetadata := s.extractMetadataFromPath(path)
+	
+	// Cache the result
+	s.SetMetadataCache(path, extractedMetadata)
+	
+	return extractedMetadata
+}
+
+// extractMetadataFromPath extracts metadata from file path
+func (s *MediaScanner) extractMetadataFromPath(path string) *core.FileMetadata {
+	filename := filepath.Base(path)
+	
+	metadata := &core.FileMetadata{
+		Type:    "movie", // Default type
+		Quality: "1080p", // Default quality
+	}
+	
+	// Extract title from filename
+	if s.GetTMDBService() != nil {
+		metadata.Title = s.GetTMDBService().CleanTitle(filename)
+	} else {
+		metadata.Title = s.cleanTitle(filename)
+	}
+	
+	// Detect if it's a TV series episode
+	if s.isEpisodeFile(filename) {
+		metadata.Type = "episode"
+		metadata.SeriesTitle, metadata.Season, metadata.Episode = s.extractEpisodeInfo(filename)
+	}
+	
+	// Extract quality from filename
+	metadata.Quality = s.extractQuality(filename)
+	
+	// Extract year from filename
+	metadata.Year = s.extractYear(filename)
+	
+	// Extract genres from path
+	metadata.Genres = s.extractGenresFromPath(path, metadata.Title)
+	
+	return metadata
+}
+
+// isEpisodeFile checks if filename indicates a TV episode
+func (s *MediaScanner) isEpisodeFile(filename string) bool {
+	patterns := []string{
+		`[Ss]\d{2}[Ee]\d{2}`, // S01E01 format
+		`\d{1,2}x\d{2}`,      // 1x01 format
+		`Episode\s*\d+`,      // Episode 1 format
+	}
+	
+	for _, pattern := range patterns {
+		if matched, _ := regexp.MatchString(pattern, filename); matched {
+			return true
+		}
+	}
+	
+	return false
+}
+
+// extractEpisodeInfo extracts series title, season, and episode from filename
+func (s *MediaScanner) extractEpisodeInfo(filename string) (string, int, int) {
+	// S01E01 format
+	re := regexp.MustCompile(`(.+?)[Ss](\d{2})[Ee](\d{2})`)
+	matches := re.FindStringSubmatch(filename)
+	if len(matches) == 4 {
+		seriesTitle := s.cleanTitle(matches[1])
+		season, _ := strconv.Atoi(matches[2])
+		episode, _ := strconv.Atoi(matches[3])
+		return seriesTitle, season, episode
+	}
+	
+	// 1x01 format
+	re = regexp.MustCompile(`(.+?)(\d{1,2})x(\d{2})`)
+	matches = re.FindStringSubmatch(filename)
+	if len(matches) == 4 {
+		seriesTitle := s.cleanTitle(matches[1])
+		season, _ := strconv.Atoi(matches[2])
+		episode, _ := strconv.Atoi(matches[3])
+		return seriesTitle, season, episode
+	}
+	
+	return "", 0, 0
+}
+
+// extractQuality extracts video quality from filename
+func (s *MediaScanner) extractQuality(filename string) string {
+	qualities := []string{"2160p", "1440p", "1080p", "720p", "480p", "360p"}
+	
+	for _, quality := range qualities {
+		if strings.Contains(strings.ToLower(filename), strings.ToLower(quality)) {
+			return quality
+		}
+	}
+	
+	return "1080p" // Default quality
+}
+
+// extractYear extracts year from filename
+func (s *MediaScanner) extractYear(filename string) int {
+	re := regexp.MustCompile(`\b(19|20)\d{2}\b`)
+	matches := re.FindStringSubmatch(filename)
+	if len(matches) > 0 {
+		year, _ := strconv.Atoi(matches[0])
+		return year
+	}
+	
+	return 0
+}
+
+// cleanTitle cleans a title string (simple version)
+func (s *MediaScanner) cleanTitle(title string) string {
+	// Remove file extension
+	title = strings.TrimSuffix(title, filepath.Ext(title))
+	
+	// Replace common separators with spaces
+	title = strings.ReplaceAll(title, ".", " ")
+	title = strings.ReplaceAll(title, "_", " ")
+	title = strings.ReplaceAll(title, "-", " ")
+	
+	// Remove common patterns
+	patterns := []string{
+		`\[.*?\]`,     // Remove brackets
+		`\(.*?\)`,     // Remove parentheses
+		`\d{4}p`,      // Remove resolution
+		`x264|x265|h264|h265`, // Remove codecs
+		`BluRay|WEBRip|DVDRip|HDTV`, // Remove sources
+	}
+	
+	for _, pattern := range patterns {
+		re := regexp.MustCompile(pattern)
+		title = re.ReplaceAllString(title, " ")
+	}
+	
+	// Clean up multiple spaces
+	title = regexp.MustCompile(`\s+`).ReplaceAllString(title, " ")
+	title = strings.TrimSpace(title)
+	
+	// Apply title case
+	if title != "" {
+		words := strings.Fields(title)
+		for i, word := range words {
+			if len(word) > 0 {
+				words[i] = strings.ToUpper(string(word[0])) + strings.ToLower(word[1:])
+			}
+		}
+		title = strings.Join(words, " ")
+	}
+	
+	return title
+}
+
+// extractMetadata extracts metadata from file path (wrapper for extractMetadataFromPath)
+func (s *MediaScanner) extractMetadata(path string) *core.FileMetadata {
+	return s.extractMetadataFromPath(path)
+}
+

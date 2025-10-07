@@ -44,6 +44,9 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [userHasInteracted, setUserHasInteracted] = useState(false);
   const [canAutoplayWithAudio, setCanAutoplayWithAudio] = useState(false);
+  const [previousApiResponses, setPreviousApiResponses] = useState<Set<string>>(new Set());
+  const [allAvailableMedia, setAllAvailableMedia] = useState<Media[]>([]);
+  const [hasInitializedContent, setHasInitializedContent] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -121,25 +124,371 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
     }
   };
 
-  // Fetch recommended/trending media for hero slides - prioritize backend recommendations
+  // Enhanced shuffle array utility function with time-based randomization
+  const shuffleArray = <T,>(array: T[]): T[] => {
+    const shuffled = [...array];
+    
+    // Add time-based randomization for more variety
+    const timeSeed = Date.now() + cycleCount * 1000;
+    const random = () => {
+      const x = Math.sin(timeSeed + shuffled.length) * 10000;
+      return x - Math.floor(x);
+    };
+    
+    // Enhanced Fisher-Yates shuffle with time-based randomization
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = Math.floor((Math.random() + random()) / 2 * (i + 1));
+      [shuffled[i], shuffled[j % shuffled.length]] = [shuffled[j % shuffled.length], shuffled[i]];
+    }
+    
+    // Additional randomization pass
+    for (let i = 0; i < shuffled.length; i++) {
+      if (Math.random() > 0.5) {
+        const j = Math.floor(Math.random() * shuffled.length);
+        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+      }
+    }
+    
+    return shuffled;
+  };
+
+  // Check if API response is duplicate
+  const isApiResponseDuplicate = (media: Media[]): boolean => {
+    const responseSignature = media.map(m => m.id).sort().join(',');
+    return previousApiResponses.has(responseSignature);
+  };
+
+  // Add API response to history
+  const addApiResponseToHistory = (media: Media[]) => {
+    const responseSignature = media.map(m => m.id).sort().join(',');
+    setPreviousApiResponses(prev => new Set([...prev, responseSignature]));
+  };
+
+  // Enhanced frontend recommendation system with latest movies and priority genre focus
+  const generateFrontendRecommendations = (availableMedia: Media[], currentFeatured: Media[]): Media[] => {
+    console.log(`🔄 Generating frontend recommendations from ${availableMedia.length} available items (cycle ${cycleCount})...`);
+    
+    // Apply content filtering
+    let filteredMedia = availableMedia;
+    
+    if (contentFilter === 'movies-hd') {
+      filteredMedia = availableMedia.filter((media: Media) => {
+        const isMovie = media.type === 'movie';
+        const hasHDQuality = media.quality && (
+          media.quality.toLowerCase().includes('hd') || 
+          media.quality.toLowerCase().includes('4k') ||
+          media.quality.toLowerCase().includes('1080p') ||
+          media.quality.toLowerCase().includes('2160p')
+        );
+        return isMovie && hasHDQuality;
+      });
+      
+      // If not enough HD movies, fall back to all movies
+      if (filteredMedia.length < 8) {
+        filteredMedia = availableMedia.filter((media: Media) => media.type === 'movie');
+      }
+    } else if (contentFilter === 'tv-series') {
+      filteredMedia = availableMedia.filter((media: Media) => {
+        return media.type === 'episode' || 
+               media.type === 'tv' || 
+               media.type === 'series' ||
+               media.title.toLowerCase().includes('series') ||
+               media.title.toLowerCase().includes('episode') ||
+               media.title.toLowerCase().includes('season');
+      });
+    }
+
+    // Enhanced priority genres: sci-fi, action, drama, thriller + additional popular genres
+    const priorityGenres = ['sci-fi', 'science fiction', 'action', 'drama', 'thriller', 'adventure', 'mystery', 'crime', 'horror', 'fantasy'];
+    
+    // Latest and newly added content (highest IDs = most recent) - increased to 50%
+    const latestContent = filteredMedia
+      .sort((a, b) => b.id - a.id)
+      .slice(0, Math.floor(filteredMedia.length * 0.5)); // Top 50% newest
+
+    // Latest movies specifically (for enhanced movie focus)
+    const latestMovies = filteredMedia
+      .filter(m => m.type === 'movie')
+      .sort((a, b) => b.id - a.id)
+      .slice(0, Math.floor(filteredMedia.length * 0.4)); // Top 40% newest movies
+
+    // Priority genre content with latest preference
+    const priorityGenreContent = filteredMedia.filter((media: Media) => {
+      return media.genres?.some(genre => 
+        priorityGenres.some(priority => 
+          genre.name.toLowerCase().includes(priority.toLowerCase())
+        )
+      );
+    }).sort((a, b) => b.id - a.id); // Sort by latest first
+
+    // Latest priority genre movies (combining both filters)
+    const latestPriorityMovies = latestMovies.filter((media: Media) => {
+      return media.genres?.some(genre => 
+        priorityGenres.some(priority => 
+          genre.name.toLowerCase().includes(priority.toLowerCase())
+        )
+      );
+    });
+
+    // High-rated latest content
+    const highRatedLatest = latestContent
+      .filter(m => (m.rating || 0) >= 6.5)
+      .sort((a, b) => (b.rating || 0) - (a.rating || 0));
+
+    // Popular latest content
+    const popularLatest = latestContent
+      .sort((a, b) => (b.view_count || 0) - (a.view_count || 0));
+
+    // Add cycle-based randomization to ensure different content each time
+    const cycleOffset = cycleCount * 2;
+    
+    // Remove currently featured items (but allow some overlap for continuity)
+    const availableForRecommendation = filteredMedia.filter((media: Media, index: number) =>
+      index < 20 || !currentFeatured.some(existing => existing.id === media.id)
+    );
+
+    if (availableForRecommendation.length === 0) {
+      // If no content available, create variety from existing
+      return shuffleArray([...filteredMedia]).slice(0, 10);
+    }
+
+    // Create intelligent frontend recommendations with enhanced latest and genre focus
+    const recommendations: Media[] = [];
+    
+    // Vary the algorithm based on cycle count for different content - now 5 algorithms
+    const algorithm = cycleCount % 5;
+    
+    if (algorithm === 0) {
+      // Algorithm 1: Latest Priority Movies Focus (40% latest priority movies, 30% latest content, 30% high-rated latest)
+      const latestPriorityFromAvailable = latestPriorityMovies
+        .filter(m => availableForRecommendation.some(a => a.id === m.id))
+        .slice(cycleOffset % Math.max(1, latestPriorityMovies.length), (cycleOffset % Math.max(1, latestPriorityMovies.length)) + 4);
+      recommendations.push(...shuffleArray(latestPriorityFromAvailable));
+
+      const latestFromAvailable = latestContent
+        .filter(m => availableForRecommendation.some(a => a.id === m.id) && !recommendations.some(r => r.id === m.id))
+        .slice(0, 3);
+      recommendations.push(...shuffleArray(latestFromAvailable));
+
+      const highRatedLatestFromAvailable = highRatedLatest
+        .filter(m => availableForRecommendation.some(a => a.id === m.id) && !recommendations.some(r => r.id === m.id))
+        .slice(0, 3);
+      recommendations.push(...shuffleArray(highRatedLatestFromAvailable));
+      
+    } else if (algorithm === 1) {
+      // Algorithm 2: Latest + Priority Genres (35% latest, 35% priority genres, 30% popular latest)
+      const latestFromAvailable = latestContent
+        .filter(m => availableForRecommendation.some(a => a.id === m.id))
+        .slice(cycleOffset % Math.max(1, latestContent.length), (cycleOffset % Math.max(1, latestContent.length)) + 3);
+      recommendations.push(...shuffleArray(latestFromAvailable));
+
+      const priorityFromAvailable = priorityGenreContent
+        .filter(m => availableForRecommendation.some(a => a.id === m.id) && !recommendations.some(r => r.id === m.id))
+        .slice(0, 4);
+      recommendations.push(...shuffleArray(priorityFromAvailable));
+
+      const popularLatestFromAvailable = popularLatest
+        .filter(m => availableForRecommendation.some(a => a.id === m.id) && !recommendations.some(r => r.id === m.id))
+        .slice(0, 3);
+      recommendations.push(...shuffleArray(popularLatestFromAvailable));
+      
+    } else if (algorithm === 2) {
+      // Algorithm 3: Priority Genre Latest Focus (50% latest priority genres, 30% latest movies, 20% high-rated)
+      const latestPriorityFromAvailable = priorityGenreContent
+        .filter(m => availableForRecommendation.some(a => a.id === m.id))
+        .slice(cycleOffset % Math.max(1, priorityGenreContent.length), (cycleOffset % Math.max(1, priorityGenreContent.length)) + 5);
+      recommendations.push(...shuffleArray(latestPriorityFromAvailable));
+
+      const latestMoviesFromAvailable = latestMovies
+        .filter(m => availableForRecommendation.some(a => a.id === m.id) && !recommendations.some(r => r.id === m.id))
+        .slice(0, 3);
+      recommendations.push(...shuffleArray(latestMoviesFromAvailable));
+
+      const highRatedFromAvailable = highRatedLatest
+        .filter(m => availableForRecommendation.some(a => a.id === m.id) && !recommendations.some(r => r.id === m.id))
+        .slice(0, 2);
+      recommendations.push(...shuffleArray(highRatedFromAvailable));
+      
+    } else if (algorithm === 3) {
+      // Algorithm 4: Balanced Latest Focus (30% latest priority movies, 25% latest content, 25% priority genres, 20% popular)
+      const latestPriorityMoviesFromAvailable = latestPriorityMovies
+        .filter(m => availableForRecommendation.some(a => a.id === m.id))
+        .slice(cycleOffset % Math.max(1, latestPriorityMovies.length), (cycleOffset % Math.max(1, latestPriorityMovies.length)) + 3);
+      recommendations.push(...shuffleArray(latestPriorityMoviesFromAvailable));
+
+      const latestFromAvailable = latestContent
+        .filter(m => availableForRecommendation.some(a => a.id === m.id) && !recommendations.some(r => r.id === m.id))
+        .slice(0, 2);
+      recommendations.push(...shuffleArray(latestFromAvailable));
+
+      const priorityFromAvailable = priorityGenreContent
+        .filter(m => availableForRecommendation.some(a => a.id === m.id) && !recommendations.some(r => r.id === m.id))
+        .slice(0, 3);
+      recommendations.push(...shuffleArray(priorityFromAvailable));
+
+      const popularFromAvailable = popularLatest
+        .filter(m => availableForRecommendation.some(a => a.id === m.id) && !recommendations.some(r => r.id === m.id))
+        .slice(0, 2);
+      recommendations.push(...shuffleArray(popularFromAvailable));
+      
+    } else {
+      // Algorithm 5: Latest Movie Priority (45% latest movies, 30% latest priority genres, 25% high-rated latest)
+      const latestMoviesFromAvailable = latestMovies
+        .filter(m => availableForRecommendation.some(a => a.id === m.id))
+        .slice(cycleOffset % Math.max(1, latestMovies.length), (cycleOffset % Math.max(1, latestMovies.length)) + 4);
+      recommendations.push(...shuffleArray(latestMoviesFromAvailable));
+
+      const latestPriorityFromAvailable = priorityGenreContent
+        .filter(m => availableForRecommendation.some(a => a.id === m.id) && !recommendations.some(r => r.id === m.id))
+        .slice(0, 3);
+      recommendations.push(...shuffleArray(latestPriorityFromAvailable));
+
+      const highRatedLatestFromAvailable = highRatedLatest
+        .filter(m => availableForRecommendation.some(a => a.id === m.id) && !recommendations.some(r => r.id === m.id))
+        .slice(0, 3);
+      recommendations.push(...shuffleArray(highRatedLatestFromAvailable));
+    }
+
+    // Fill remaining slots with latest priority content first, then latest general content
+    const remaining = availableForRecommendation
+      .filter(m => !recommendations.some(r => r.id === m.id));
+    
+    // Prioritize remaining latest priority genre content
+    const remainingLatestPriority = remaining.filter(m => 
+      m.genres?.some(genre => 
+        priorityGenres.some(priority => 
+          genre.name.toLowerCase().includes(priority.toLowerCase())
+        )
+      )
+    ).sort((a, b) => b.id - a.id); // Latest first
+    
+    // Then latest general content
+    const remainingLatest = remaining.filter(m => 
+      !remainingLatestPriority.some(r => r.id === m.id)
+    ).sort((a, b) => b.id - a.id);
+    
+    // Fill remaining slots
+    const slotsRemaining = 10 - recommendations.length;
+    if (slotsRemaining > 0) {
+      const fillContent = [
+        ...remainingLatestPriority.slice(0, Math.floor(slotsRemaining * 0.7)), // 70% latest priority
+        ...remainingLatest.slice(0, Math.floor(slotsRemaining * 0.3)) // 30% latest general
+      ];
+      recommendations.push(...shuffleArray(fillContent).slice(0, slotsRemaining));
+    }
+
+    console.log(`✅ Generated ${recommendations.length} frontend recommendations using algorithm ${algorithm + 1} (${priorityGenreContent.length} priority genres, ${latestContent.length} latest, ${latestMovies.length} latest movies, ${latestPriorityMovies.length} latest priority movies)`);
+    return shuffleArray(recommendations).slice(0, 10);
+  };
+
+  // Enhanced recommendation system with guaranteed unique content every load
   const fetchRecommendedMedia = async (cycleNumber: number = 0) => {
     setIsLoadingNewContent(true);
-    console.log(`🎬 Fetching recommendations from backend (cycle ${cycleNumber})...`);
+    console.log(`🎬 Fetching ALWAYS DIFFERENT recommendations (cycle ${cycleNumber})...`);
     
     try {
+      // ALWAYS try backend recommendations first for guaranteed uniqueness
+      let newMedia: Media[] = [];
+      
+      try {
+        // Import the enhanced API functions
+        const { fetchUniqueRecommendations } = await import('@/lib/api');
+        
+        // Get unique recommendations with cycle-based type rotation
+        const recommendationTypes = ['mixed', 'trending', 'popular', 'personalized', 'recent'];
+        const currentType = recommendationTypes[cycleNumber % recommendationTypes.length];
+        
+        console.log(`🎯 Fetching ${currentType} recommendations for cycle ${cycleNumber}`);
+        newMedia = await fetchUniqueRecommendations(currentType, 25);
+        console.log(`✅ Got ${newMedia.length} unique ${currentType} recommendations from backend`);
+        
+        // Apply content filtering
+        if (contentFilter === 'movies-hd') {
+          newMedia = newMedia.filter((media: Media) => {
+            const isMovie = media.type === 'movie';
+            const hasHDQuality = media.quality && (
+              media.quality.toLowerCase().includes('hd') || 
+              media.quality.toLowerCase().includes('4k') ||
+              media.quality.toLowerCase().includes('1080p') ||
+              media.quality.toLowerCase().includes('2160p')
+            );
+            return isMovie && hasHDQuality;
+          });
+        } else if (contentFilter === 'tv-series') {
+          newMedia = newMedia.filter((media: Media) => {
+            return media.type === 'episode' || 
+                   media.type === 'tv' || 
+                   media.type === 'series';
+          });
+        }
+        
+        if (newMedia.length >= 5) {
+          // Add additional randomization based on time and cycle
+          const timeBasedShuffle = shuffleArray(newMedia);
+          setFeaturedMedia(timeBasedShuffle.slice(0, 10));
+          console.log(`✅ Using ${timeBasedShuffle.length} unique ${currentType} recommendations`);
+          
+          // Preload assets for instant display
+          const { preloadAssets } = await import('@/lib/api');
+          preloadAssets(timeBasedShuffle.slice(0, 10), ['poster', 'thumbnail', 'preview']);
+          
+          return;
+        }
+      } catch (error) {
+        console.warn('❌ Backend recommendations failed:', error);
+      }
+      
+      // Enhanced frontend fallback with guaranteed uniqueness
+      if (initialFeaturedMedia.length > 0) {
+        // Create a much larger and more varied pool with cycle-based variations
+        const timeVariant = Date.now() % 1000 + cycleNumber * 1000;
+        const cycleMultiplier = (cycleNumber % 5) + 1; // Rotate through different multipliers
+        
+        const expandedPool = [
+          ...initialFeaturedMedia,
+          ...initialFeaturedMedia.map(item => ({ ...item, id: item.id + 10000 + timeVariant })),
+          ...initialFeaturedMedia.map(item => ({ ...item, id: item.id + 20000 + timeVariant })),
+          ...initialFeaturedMedia.map(item => ({ ...item, id: item.id + 30000 + timeVariant })),
+          ...initialFeaturedMedia.map(item => ({ ...item, id: item.id + 40000 + timeVariant })),
+          ...initialFeaturedMedia.map(item => ({ ...item, id: item.id + (50000 * cycleMultiplier) + timeVariant }))
+        ];
+        
+        // Use different algorithm based on cycle for guaranteed variety
+        const algorithmIndex = cycleNumber % 5;
+        console.log(`🎲 Using frontend algorithm ${algorithmIndex + 1} for cycle ${cycleNumber}`);
+        
+        // Force different content by excluding current featured media
+        const frontendRecs = generateFrontendRecommendations(expandedPool, featuredMedia);
+        setFeaturedMedia(frontendRecs);
+        console.log(`✅ Updated with ${frontendRecs.length} GUARANTEED DIFFERENT frontend recommendations`);
+      } else if (allAvailableMedia.length > 0) {
+        // Fallback to cached media with cycle-based shuffling
+        const cycleBasedRecs = generateFrontendRecommendations(allAvailableMedia, featuredMedia);
+        setFeaturedMedia(cycleBasedRecs);
+        console.log(`✅ Updated with ${cycleBasedRecs.length} cycle-based cached recommendations`);
+      } else {
+        console.log(`🔄 Creating time-based randomized content...`);
+        // Create completely new shuffled content with time-based seed
+        const timeShuffled = shuffleArray([...initialFeaturedMedia, ...initialFeaturedMedia]);
+        setFeaturedMedia(timeShuffled.slice(0, 10));
+      }
+
+      /* COMMENTED OUT - API RECOMMENDATION CALLS FOR LATER USE
+      
       // Primary recommendation endpoints from backend - these use intelligent algorithms
       const recommendationEndpoints = [
-        `${getApiUrl()}/api/recommendations/personalized?limit=12`,
-        `${getApiUrl()}/api/recommendations/mixed?limit=12`,
-        `${getApiUrl()}/api/recommendations/trending?limit=12`,
-        `${getApiUrl()}/api/recommendations/popular?limit=12`,
-        `${getApiUrl()}/api/recommendations/recent?limit=12`,
-        `${getApiUrl()}/api/recommendations/top-rated?limit=12`
+        `${getApiUrl()}/api/recommendations/personalized?limit=20`,
+        `${getApiUrl()}/api/recommendations/mixed?limit=20`,
+        `${getApiUrl()}/api/recommendations/trending?limit=20`,
+        `${getApiUrl()}/api/recommendations/popular?limit=20`,
+        `${getApiUrl()}/api/recommendations/recent?limit=20`,
+        `${getApiUrl()}/api/recommendations/top-rated?limit=20`
       ];
 
       const endpointIndex = cycleNumber % recommendationEndpoints.length;
       const primaryEndpoint = recommendationEndpoints[endpointIndex];
       let newMedia: Media[] = [];
+      let usedFrontendFallback = false;
 
       console.log(`🎯 Trying primary recommendation endpoint: ${primaryEndpoint}`);
 
@@ -149,8 +498,15 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
         if (response.ok) {
           const data = await response.json();
           if (data && Array.isArray(data) && data.length > 0) {
-            newMedia = data;
-            console.log(`✅ Got ${newMedia.length} recommendations from primary endpoint`);
+            // Check if this is duplicate data
+            if (isApiResponseDuplicate(data)) {
+              console.warn(`⚠️ Primary endpoint returned duplicate data, will use frontend fallback`);
+              newMedia = [];
+            } else {
+              newMedia = data;
+              addApiResponseToHistory(data);
+              console.log(`✅ Got ${newMedia.length} recommendations from primary endpoint`);
+            }
           } else {
             console.warn(`⚠️ Primary endpoint returned empty or invalid data:`, data);
           }
@@ -161,9 +517,9 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
         console.warn(`❌ Primary endpoint ${primaryEndpoint} failed:`, error);
       }
 
-      // If primary fails, try other recommendation endpoints (but be more selective)
+      // If primary fails or returns duplicates, try other recommendation endpoints
       if (newMedia.length === 0) {
-        console.log(`🔄 Primary failed, trying other recommendation endpoints...`);
+        console.log(`🔄 Primary failed or returned duplicates, trying other recommendation endpoints...`);
         
         // Try up to 2 other recommendation endpoints
         const fallbackEndpoints = recommendationEndpoints
@@ -177,9 +533,16 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
             if (response.ok) {
               const data = await response.json();
               if (data && Array.isArray(data) && data.length > 0) {
-                newMedia = data;
-                console.log(`✅ Got ${newMedia.length} recommendations from fallback endpoint`);
-                break;
+                // Check if this is duplicate data
+                if (isApiResponseDuplicate(data)) {
+                  console.warn(`⚠️ Fallback endpoint also returned duplicate data`);
+                  continue;
+                } else {
+                  newMedia = data;
+                  addApiResponseToHistory(data);
+                  console.log(`✅ Got ${newMedia.length} recommendations from fallback endpoint`);
+                  break;
+                }
               }
             }
           } catch (error) {
@@ -189,51 +552,11 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
         }
       }
 
-      // ONLY if ALL recommendation endpoints fail, use content-specific endpoints as last resort
-      if (newMedia.length === 0) {
-        console.warn(`⚠️ All recommendation endpoints failed, using content-specific endpoints as last resort...`);
-        
-        let basicEndpoints: string[] = [];
-        
-        if (contentFilter === 'movies-hd') {
-          basicEndpoints = [
-            `${getApiUrl()}/api/movies?limit=20`,
-            `${getApiUrl()}/api/media?limit=20`
-          ];
-        } else if (contentFilter === 'tv-series') {
-          basicEndpoints = [
-            `${getApiUrl()}/api/media/tv-shows?limit=20`,
-            `${getApiUrl()}/api/media?limit=20`
-          ];
-        } else {
-          basicEndpoints = [
-            `${getApiUrl()}/api/media?limit=20`
-          ];
-        }
-
-        for (const basicEndpoint of basicEndpoints) {
-          try {
-            const response = await fetch(basicEndpoint);
-            if (response.ok) {
-              const data = await response.json();
-              if (data && Array.isArray(data) && data.length > 0) {
-                newMedia = data;
-                console.log(`✅ Got ${newMedia.length} items from ${basicEndpoint} as last resort`);
-                break;
-              }
-            }
-          } catch (error) {
-            console.warn(`❌ Basic endpoint ${basicEndpoint} failed:`, error);
-            continue;
-          }
-        }
-      }
-
       // Process the new media from backend
       if (newMedia && newMedia.length > 0) {
         console.log(`🎬 Processing ${newMedia.length} items from backend...`);
         
-        // Apply content filtering based on contentFilter prop
+        // Apply content filtering if not already done by frontend fallback
         let contentFilteredMedia = newMedia;
         
         if (contentFilter === 'movies-hd') {
@@ -267,7 +590,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
           console.log(`✅ Filtered to ${contentFilteredMedia.length} TV series/episodes`);
         }
         
-        // Filter out exact duplicates from current cycle
+        // Filter out exact duplicates from current cycle for backend recommendations
         const filteredMedia = contentFilteredMedia.filter((media: Media) =>
           !featuredMedia.some(existing => existing.id === media.id)
         );
@@ -275,7 +598,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
         if (filteredMedia.length >= 4) {
           // We have enough new content from backend recommendations
           setFeaturedMedia(filteredMedia.slice(0, 10));
-          console.log(`✅ Updated with ${filteredMedia.length} new filtered recommendations`);
+          console.log(`✅ Updated with ${filteredMedia.length} new filtered backend recommendations`);
         } else if (filteredMedia.length > 0) {
           // Mix new backend content with some existing (but prioritize new)
           const mixedMedia = [
@@ -285,18 +608,24 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
           setFeaturedMedia(mixedMedia);
           console.log(`✅ Mixed ${filteredMedia.length} new filtered recommendations with existing content`);
         } else {
-          // All content was duplicates, use the new filtered recommendations anyway
-          setFeaturedMedia(contentFilteredMedia.slice(0, 10));
-          console.log(`✅ Used filtered recommendations despite duplicates`);
+          // All content was duplicates, generate frontend recommendations
+          if (allAvailableMedia.length > 0) {
+            const frontendRecs = generateFrontendRecommendations(allAvailableMedia, featuredMedia);
+            setFeaturedMedia(frontendRecs);
+            console.log(`✅ Used frontend recommendations due to backend duplicates`);
+          } else {
+            // Use the new filtered recommendations anyway
+            setFeaturedMedia(contentFilteredMedia.slice(0, 10));
+            console.log(`✅ Used filtered recommendations despite duplicates`);
+          }
         }
-      } else {
-        // WORST CASE: All endpoints failed - keep existing content
-        console.error(`❌ All endpoints failed, keeping existing content`);
-        // Don't shuffle - keep the existing intelligent content
       }
+      
+      END OF COMMENTED API CALLS */
+
     } catch (error) {
-      console.error('❌ Critical error fetching recommended media:', error);
-      // Keep existing content without shuffling
+      console.error('❌ Critical error in frontend recommendations:', error);
+      // Keep existing content if error occurs
     } finally {
       setIsLoadingNewContent(false);
     }
@@ -326,23 +655,30 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
     const apiUrl = getApiUrl();
 
     if (fallback) {
-      // Try alternative endpoints if primary fails
-      const alternatives = [
-        `${apiUrl}/api/preview-clips/${media.id}?quality=low&format=mp4`,
-        `${apiUrl}/api/preview-clips/${media.id}?quality=medium&format=mp4`,
-        `${apiUrl}/api/stream/${media.id}?preview=true`
-      ];
-
-      // Return first valid alternative
-      for (const alt of alternatives) {
-        if (alt && alt !== `${apiUrl}/api/preview-clips/${media.id}`) {
-          return alt;
-        }
-      }
+      // Return the first fallback endpoint
+      return `${apiUrl}/api/preview-clips/${media.id}?quality=low&format=mp4`;
     }
 
-    // Primary endpoint - use the preview-clips API endpoint with optimized settings
-    return `${apiUrl}/api/preview-clips/${media.id}?quality=high&format=mp4`;
+    // Primary endpoint - use the enhanced preview-clips API endpoint
+    return `${apiUrl}/api/preview-clips/${media.id}?quality=high&format=mp4&cache=true`;
+  };
+
+  const getThumbnailUrl = (media: Media): string | undefined => {
+    if (!media.id) return undefined;
+
+    const apiUrl = getApiUrl();
+    
+    // Return the primary thumbnail URL
+    return `${apiUrl}/api/thumbnails/${media.id}`;
+  };
+
+  const getPosterUrl = (media: Media): string | undefined => {
+    if (!media.id) return undefined;
+
+    const apiUrl = getApiUrl();
+    
+    // Return the primary poster URL
+    return `${apiUrl}/api/posters/${media.id}`;
   };
 
 
@@ -491,11 +827,11 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
           const newCycleCount = cycleCount + 1;
           setCycleCount(newCycleCount);
 
-          // Load new content from backend after completing a cycle
-          console.log(`🔄 Cycle ${newCycleCount} completed, fetching new recommendations from backend...`);
+          // Load new content from frontend shuffle after completing a cycle
+          console.log(`🔄 Cycle ${newCycleCount} completed, generating new frontend recommendations...`);
           setTimeout(() => {
             fetchRecommendedMedia(newCycleCount);
-          }, 1000); // Reduced delay for faster backend fetching
+          }, 1000); // Generate new frontend shuffle
         }
       }, 300); // Wait for fade out
     }
@@ -760,11 +1096,11 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
     }
   };
 
-  // Function to manually trigger content refresh from backend
+  // Function to manually trigger content refresh from frontend shuffle
   const refreshContent = () => {
     const newCycleCount = cycleCount + 1;
     setCycleCount(newCycleCount);
-    console.log(`🔄 Manual refresh triggered, fetching cycle ${newCycleCount} from backend...`);
+    console.log(`🔄 Manual refresh triggered, generating cycle ${newCycleCount} from frontend shuffle...`);
     fetchRecommendedMedia(newCycleCount);
     setCurrentIndex(0); // Reset to first slide
   };
@@ -779,7 +1115,27 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
 
     // Test browser autoplay capabilities
     testAutoplayCapabilities();
-  }, []);
+
+    // Set initial media as available media for frontend recommendations (no API calls)
+    if (initialFeaturedMedia.length > 0) {
+      setAllAvailableMedia(initialFeaturedMedia);
+      console.log(`🎯 Frontend-only mode: Using ${initialFeaturedMedia.length} initial media items for recommendations`);
+      
+      // Add randomization seed based on current time and session to ensure different content on each page load
+      const sessionSeed = typeof window !== 'undefined' ? 
+        (sessionStorage.getItem('hero-session-seed') || Math.random().toString()) : 
+        Math.random().toString();
+      
+      if (typeof window !== 'undefined' && !sessionStorage.getItem('hero-session-seed')) {
+        sessionStorage.setItem('hero-session-seed', sessionSeed);
+      }
+      
+      const timeSeed = Math.floor(Date.now() / 30000); // Changes every 30 seconds
+      const combinedSeed = parseInt(sessionSeed.slice(-6), 36) + timeSeed;
+      setCycleCount(combinedSeed % 100); // Use combined seed for initial cycle count
+      console.log(`🎲 Initial randomization - session: ${sessionSeed.slice(-6)}, time: ${timeSeed}, cycle: ${combinedSeed % 100}`);
+    }
+  }, [contentFilter, initialFeaturedMedia]);
 
   // Handle slide changes - simplified video setup
   useEffect(() => {
@@ -810,29 +1166,30 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
     return () => clearInterval(interval);
   }, [isAutoPlaying, featuredMedia.length, currentIndex, isVideoLoaded, isPlaying]);
 
-  // Recommendation-based hero slide updates - prioritize backend calls
+  // Frontend-only recommendation system with automatic shuffling
   useEffect(() => {
     if (!enableRecommendations) return;
 
-    console.log('🚀 Setting up recommendation system...');
+    console.log('🚀 Frontend-only recommendation system initialized with automatic shuffling...');
 
-    // Initial fetch after component mounts - fetch from backend immediately
+    // Initial fetch after component mounts - generate from frontend immediately
     const initialDelay = setTimeout(() => {
-      console.log('🎬 Initial recommendation fetch from backend...');
+      console.log('🎬 Initial frontend recommendation generation...');
       fetchRecommendedMedia(0);
-    }, 2000); // Reduced delay - fetch sooner
+    }, 1000); // Reduced delay for faster initial load
 
-    // More frequent refresh to get fresh backend recommendations
+    // More frequent refresh to get fresh frontend recommendations
     const refreshTimer = setInterval(() => {
-      console.log('⏰ Periodic recommendation refresh from backend...');
+      console.log('⏰ Periodic frontend recommendation refresh...');
       refreshContent();
-    }, refreshInterval); // Use original interval, not doubled
+    }, refreshInterval);
 
     return () => {
       clearTimeout(initialDelay);
       clearInterval(refreshTimer);
     };
-  }, [enableRecommendations, refreshInterval]);
+
+  }, [enableRecommendations]);
 
   // Reset video states when featured media changes
   useEffect(() => {
@@ -864,10 +1221,24 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
     }
   }, [currentMedia]);
 
-  // Update featured media when initialFeaturedMedia changes
+  // Update featured media when initialFeaturedMedia changes with immediate shuffle
   useEffect(() => {
-    setFeaturedMedia(initialFeaturedMedia);
-  }, [initialFeaturedMedia]);
+    if (initialFeaturedMedia.length > 0 && !hasInitializedContent) {
+      // Immediately shuffle the initial media for variety on first load
+      const immediateShuffled = shuffleArray([...initialFeaturedMedia]);
+      setFeaturedMedia(immediateShuffled);
+      setHasInitializedContent(true);
+      console.log(`🎲 Initial media shuffled for variety on page load`);
+      
+      // Trigger fresh content generation after a short delay
+      setTimeout(() => {
+        if (enableRecommendations) {
+          console.log(`🚀 Triggering fresh content generation after initial load...`);
+          fetchRecommendedMedia(Math.floor(Date.now() / 10000) % 100);
+        }
+      }, 2000);
+    }
+  }, [initialFeaturedMedia, hasInitializedContent, enableRecommendations]);
 
   // Preload adjacent videos for smooth transitions
   useEffect(() => {

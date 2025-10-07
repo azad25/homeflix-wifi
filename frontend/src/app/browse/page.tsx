@@ -8,7 +8,8 @@ import VideoPlayer from "../../components/VideoPlayer";
 import Navbar from "../../components/Navbar";
 import RecentlyWatched from "../../components/RecentlyWatched";
 import LazyMediaGrid from "../../components/LazyMediaGrid";
-import { getApiUrl } from "../../lib/api";
+import { getApiUrl, fetchUniqueRecommendations, preloadAssets } from "../../lib/api";
+import NetflixMediaCard from "../../components/NetflixMediaCard";
 import { 
   NetflixHorizontalRow, 
   ScrollXHero, 
@@ -87,52 +88,22 @@ export default function BrowsePage() {
 
   const fetchFeaturedMedia = async () => {
     try {
-      const apiUrl = getApiUrl();
+      console.log('🎬 Fetching unique featured media with session awareness...');
       
-      // Prioritize backend recommendation endpoints
-      const recommendationEndpoints = [
-        `${apiUrl}/api/recommendations/personalized?limit=20`,
-        `${apiUrl}/api/recommendations/mixed?limit=20`,
-        `${apiUrl}/api/recommendations/trending?limit=20`,
-        `${apiUrl}/api/recommendations/popular?limit=20`
-      ];
-
+      // Use enhanced unique recommendations
       let featured: Media[] = [];
       
-      console.log('🎬 Fetching featured media from backend recommendations...');
-      
-      for (const endpoint of recommendationEndpoints) {
-        try {
-          console.log(`🎯 Trying: ${endpoint}`);
-          const response = await fetch(endpoint);
-          if (response.ok) {
-            const data = await response.json();
-            if (data && Array.isArray(data) && data.length > 0) {
-              featured = data;
-              console.log(`✅ Got ${featured.length} items from backend recommendations`);
-              break;
-            }
-          }
-        } catch (error) {
-          console.warn(`❌ Failed to fetch from ${endpoint}:`, error);
-          continue;
-        }
-      }
-
-      // Only use movies endpoint as fallback for browse page
-      if (featured.length === 0) {
-        console.warn('⚠️ All recommendation endpoints failed, using movies endpoint as fallback');
-        try {
-          const response = await fetch(`${apiUrl}/api/movies?limit=20`);
-          if (response.ok) {
-            const data = await response.json();
-            if (data && Array.isArray(data) && data.length > 0) {
-              featured = data;
-              console.log(`✅ Got ${featured.length} items from movies endpoint`);
-            }
-          }
-        } catch (error) {
-          console.warn('❌ Movies endpoint also failed:', error);
+      try {
+        featured = await fetchUniqueRecommendations('mixed', 20);
+        console.log(`✅ Got ${featured.length} unique recommendations`);
+      } catch (error) {
+        console.warn('❌ Unique recommendations failed, using fallback');
+        
+        // Fallback to regular API
+        const apiUrl = getApiUrl();
+        const response = await fetch(`${apiUrl}/api/movies?limit=20`);
+        if (response.ok) {
+          featured = await response.json();
         }
       }
 
@@ -171,6 +142,11 @@ export default function BrowsePage() {
       }
 
       setFeaturedMedia(featured);
+      
+      // Preload assets for hero section
+      if (featured.length > 0) {
+        preloadAssets(featured, ['poster', 'thumbnail', 'preview']);
+      }
     } catch (error) {
       console.error("Error fetching featured media:", error);
       // Fallback to highest rated from allMedia
@@ -360,14 +336,31 @@ export default function BrowsePage() {
             <ScrollReveal direction="up" delay={0.3}>
               <div className="px-4 md:px-8 lg:px-16">
                 {filteredMedia.length > 0 ? (
-                  <LazyMediaGrid
-                    media={displayedMedia}
-                    onPlay={handlePlay}
-                    onInfo={handleInfo}
-                    loading={loadingMore}
-                    hasMore={hasMore}
-                    onLoadMore={handleLoadMore}
-                  />
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+                    {displayedMedia.map((media, index) => (
+                      <NetflixMediaCard
+                        key={media.id}
+                        media={media}
+                        onPlay={handlePlay}
+                        onInfo={handleInfo}
+                        priority={index < 12 ? 'high' : 'normal'}
+                        showPreviewOnHover={true}
+                      />
+                    ))}
+                    
+                    {/* Load More Button */}
+                    {hasMore && (
+                      <div className="col-span-full flex justify-center mt-8">
+                        <button
+                          onClick={handleLoadMore}
+                          disabled={loadingMore}
+                          className="bg-red-600 hover:bg-red-700 disabled:bg-gray-600 text-white px-8 py-3 rounded-lg font-semibold transition-colors"
+                        >
+                          {loadingMore ? 'Loading...' : 'Load More'}
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 ) : (
                   <div className="text-center py-16">
                     <FloatingElement>

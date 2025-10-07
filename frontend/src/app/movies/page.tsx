@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import Navbar from "@/components/Navbar";
 import { Media } from '../../types/media';
 import VideoPlayer from "@/components/VideoPlayer";
-import { getApiUrl } from '@/lib/api';
+import { getApiUrl, fetchUniqueRecommendations, preloadAssets } from '@/lib/api';
 import { ScrollXHero, NetflixHorizontalRow, ParallaxSection, GradientBackground, ScrollReveal } from '@/components/scrollx';
 import RecentlyWatched from '@/components/RecentlyWatched';
 
@@ -44,9 +44,30 @@ export default function MoviesPage() {
       const allMedia = await moviesResponse.json();
       const movies = allMedia.filter((item: Media) => item.type === "movie");
       
-      // Set featured movies for hero section
-      const sortedMovies = movies.sort((a: Media, b: Media) => (b.rating || 0) - (a.rating || 0));
-      setFeaturedMovies(sortedMovies.slice(0, 5));
+      // Get unique movie recommendations for hero section
+      let featuredMoviesList: Media[] = [];
+      try {
+        console.log('🎬 Fetching unique movie recommendations...');
+        const recommendations = await fetchUniqueRecommendations('mixed', 20);
+        const movieRecommendations = recommendations.filter((item: Media) => item.type === 'movie');
+        
+        if (movieRecommendations.length >= 5) {
+          featuredMoviesList = movieRecommendations.slice(0, 8);
+          console.log(`✅ Using ${featuredMoviesList.length} unique movie recommendations`);
+        } else {
+          // Fallback to highest rated movies
+          featuredMoviesList = movies
+            .sort((a: Media, b: Media) => (b.rating || 0) - (a.rating || 0))
+            .slice(0, 8);
+        }
+      } catch (error) {
+        console.warn('⚠️ Movie recommendations failed, using fallback');
+        featuredMoviesList = movies
+          .sort((a: Media, b: Media) => (b.rating || 0) - (a.rating || 0))
+          .slice(0, 8);
+      }
+      
+      setFeaturedMovies(featuredMoviesList);
 
       // Categorize movies by genre
       setActionMovies(movies.filter((m: Media) => 
@@ -72,6 +93,16 @@ export default function MoviesPage() {
       // Recent and popular
       setRecentMovies(movies.sort((a: Media, b: Media) => b.id - a.id).slice(0, 20));
       setPopularMovies(movies.sort((a: Media, b: Media) => (b.view_count ?? 0) - (a.view_count ?? 0)).slice(0, 20));
+      
+      // Preload assets for better performance
+      const allMoviesForPreload = [
+        ...featuredMoviesList,
+        ...movies.slice(0, 20)
+      ];
+      
+      if (allMoviesForPreload.length > 0) {
+        preloadAssets(allMoviesForPreload, ['poster', 'thumbnail', 'preview']);
+      }
       
       setLoading(false);
     } catch (error) {

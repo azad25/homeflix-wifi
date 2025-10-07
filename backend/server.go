@@ -33,7 +33,7 @@ func main() {
 
 	// Initialize services
 	mediaService := services.NewMediaService(db)
-	streamService := services.NewOptimizedStreamService(cfg.CacheSize, cfg.ChunkSize)
+	streamService := services.NewOptimizedStreamService(int64(cfg.CacheSize), int64(cfg.ChunkSize))
 	thumbnailService := services.NewThumbnailService()
 	userService := services.NewUserService(db)
 	recommendationService := services.NewRecommendationService(db)

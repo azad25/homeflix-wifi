@@ -51,12 +51,47 @@ export const getPlaybackProgress = async (
     });
 
     if (response.ok) {
-      return await response.json();
+      const data = await response.json();
+      return data;
     }
+    
+    // If not found, create initial progress
+    if (response.status === 404 || response.status === 500) {
+      console.log(`No progress found for media ${mediaId}, creating initial progress...`);
+      
+      // Create initial progress with 0 values
+      await updatePlaybackProgress(mediaId, 0, 1, userID); // Use duration of 1 to avoid division by zero
+      
+      // Return default progress
+      return {
+        media_id: mediaId,
+        position: 0,
+        duration: 0,
+        progress: 0,
+        completed: false,
+        last_watched: new Date().toISOString()
+      };
+    }
+    
     return null;
   } catch (error) {
     console.error('Error getting playback progress:', error);
-    return null;
+    
+    // Try to create initial progress on error
+    try {
+      await updatePlaybackProgress(mediaId, 0, 1, userID);
+      return {
+        media_id: mediaId,
+        position: 0,
+        duration: 0,
+        progress: 0,
+        completed: false,
+        last_watched: new Date().toISOString()
+      };
+    } catch (createError) {
+      console.error('Error creating initial progress:', createError);
+      return null;
+    }
   }
 };
 
@@ -139,4 +174,25 @@ export const getRecentlyWatched = async (
 export const formatProgress = (progressSeconds: number, durationSeconds: number): number => {
   const progressPercent = (progressSeconds / durationSeconds) * 100;
   return Math.min(Math.max(progressPercent, 0), 100);
+};
+
+export const initializePlaybackProgress = async (
+  mediaId: number,
+  userID: string = '1'
+): Promise<void> => {
+  try {
+    const apiUrl = getApiUrl();
+    const response = await fetch(`${apiUrl}/api/playback/initialize/${mediaId}`, {
+      method: 'POST',
+      headers: {
+        'X-User-ID': userID,
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to initialize playback progress');
+    }
+  } catch (error) {
+    console.error('Error initializing playback progress:', error);
+  }
 };

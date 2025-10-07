@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 
@@ -21,6 +22,12 @@ func TrackView(mediaService *services.MediaService, playbackService *services.Pl
 		userID := c.GetHeader("X-User-ID")
 		if userID == "" {
 			userID = "anonymous"
+		}
+
+		// Ensure playback progress exists for this user and media
+		if err := playbackService.EnsurePlaybackProgress(userID, uint(mediaID)); err != nil {
+			// Log error but don't fail the request
+			fmt.Printf("Warning: Failed to ensure playback progress for user %s, media %d: %v\n", userID, mediaID, err)
 		}
 
 		// Add to recently watched
@@ -73,6 +80,28 @@ func UpdatePlaybackProgress(playbackService *services.PlaybackService) gin.Handl
 	}
 }
 
+func InitializePlaybackProgress(playbackService *services.PlaybackService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		mediaID, err := strconv.Atoi(c.Param("id"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid media ID"})
+			return
+		}
+
+		userID := c.GetHeader("X-User-ID")
+		if userID == "" {
+			userID = "anonymous"
+		}
+
+		if err := playbackService.EnsurePlaybackProgress(userID, uint(mediaID)); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to initialize progress"})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{"message": "Progress initialized successfully"})
+	}
+}
+
 func GetPlaybackProgress(playbackService *services.PlaybackService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		mediaID, err := strconv.Atoi(c.Param("id"))
@@ -89,6 +118,19 @@ func GetPlaybackProgress(playbackService *services.PlaybackService) gin.HandlerF
 		progress, err := playbackService.GetPlaybackProgress(userID, uint(mediaID))
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get progress"})
+			return
+		}
+
+		// If no progress found, return a default progress object
+		if progress == nil {
+			defaultProgress := map[string]interface{}{
+				"media_id":  mediaID,
+				"position":  0,
+				"duration":  0,
+				"progress":  0,
+				"completed": false,
+			}
+			c.JSON(http.StatusOK, defaultProgress)
 			return
 		}
 

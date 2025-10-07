@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import Navbar from "@/components/Navbar";
 import VideoPlayer from '@/components/VideoPlayer';
 import PageTransition from '@/components/PageTransition';
-import { getApiUrl } from '@/lib/api';
+import { getApiUrl, fetchUniqueRecommendations, preloadAssets } from '@/lib/api';
 import { Media } from '@/types/media';
 import { ScrollXHero, NetflixHorizontalRow } from '@/components/scrollx';
 import RecentlyWatched from '@/components/RecentlyWatched';
@@ -46,27 +46,18 @@ export default function Home() {
       // Fetch all media
       const allMedia = await apiCall(API_ENDPOINTS.media);
       
-      // Get random high-quality movies and TV shows for hero section
-      // Try to get recommendations from backend first
+      // Get unique recommendations for hero section
       let highQualityMedia: Media[] = [];
       try {
-        const recommendationResponse = await fetch(`${getApiUrl()}/api/recommendations/mixed?limit=10`);
-        if (recommendationResponse.ok) {
-          const recommendedData = await recommendationResponse.json();
-          if (recommendedData && Array.isArray(recommendedData) && recommendedData.length > 0) {
-            highQualityMedia = recommendedData;
-            console.log('✅ Using backend recommendations for featured content');
-          }
-        }
+        console.log('🎬 Fetching unique recommendations for home page...');
+        highQualityMedia = await fetchUniqueRecommendations('mixed', 15);
+        console.log(`✅ Got ${highQualityMedia.length} unique recommendations for home page`);
       } catch (error) {
-        console.warn('⚠️ Backend recommendations failed, using fallback');
-      }
-
-      // Fallback only if backend recommendations failed
-      if (highQualityMedia.length === 0) {
+        console.warn('⚠️ Enhanced recommendations failed, using fallback');
+        // Fallback to high-rated content
         highQualityMedia = allMedia
           .filter((item: Media) => (item.rating || 0) >= 6.0)
-          .slice(0, 10); // Don't shuffle - keep database order which might be intelligent
+          .slice(0, 10);
       }
       
       // Mix movies and TV shows, prioritize higher rated content
@@ -142,6 +133,18 @@ export default function Home() {
         .sort((a: Media, b: Media) => (b.rating || 0) - (a.rating || 0))
         .slice(0, 20);
       setHorrorMovies(horrorMovies);
+      
+      // Preload assets for better performance
+      const allContentForPreload = [
+        ...featuredSelection,
+        ...recentMovies.slice(0, 10),
+        ...popularMovies.slice(0, 10),
+        ...trendingNow.slice(0, 10)
+      ];
+      
+      if (allContentForPreload.length > 0) {
+        preloadAssets(allContentForPreload, ['poster', 'thumbnail', 'preview']);
+      }
       
       setLoading(false);
     } catch (error) {

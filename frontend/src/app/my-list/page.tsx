@@ -7,7 +7,8 @@ import Image from 'next/image';
 import Navbar from "@/components/Navbar";
 import { Media } from '../../types/media';
 import VideoPlayer from "@/components/VideoPlayer";
-import { getApiUrl } from '@/lib/api';
+import { getApiUrl, preloadAssets } from '@/lib/api';
+import NetflixMediaCard from '@/components/NetflixMediaCard';
 import { MagneticButton } from '@/components/scrollx';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
@@ -36,6 +37,12 @@ export default function MyListPage() {
       const apiUrl = getApiUrl();
       const wishlistMedia = await fetchWishlistMedia(apiUrl);
       setWatchlist(wishlistMedia);
+      
+      // Preload assets for better performance
+      if (wishlistMedia.length > 0) {
+        preloadAssets(wishlistMedia, ['poster', 'thumbnail']);
+      }
+      
       setLoading(false);
     } catch (error) {
       console.error("Error fetching wishlist:", error);
@@ -156,116 +163,20 @@ export default function MyListPage() {
           </p>
         </div>
 
-        {/* Watchlist Grid */}
+        {/* Watchlist Grid - Netflix Style */}
         {filteredList.length > 0 ? (
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-6">
-            {filteredList.map((media) => (
-              <div
-                key={media.id}
-                className="group relative bg-gray-900 rounded-lg overflow-hidden hover:scale-105 transition-all duration-300"
-              >
-                {/* Thumbnail */}
-                <div className="aspect-[2/3] bg-gradient-to-br from-gray-800 to-gray-900 flex items-center justify-center relative">
-                  {media.poster_path || media.thumbnail_path ? (
-                    <Image
-                      src={`http://${window.location.hostname === 'localhost' ? 'localhost' : window.location.hostname}:8252/api/posters/${media.id}`}
-                      alt={media.title}
-                      fill
-                      className="object-cover"
-                      onError={(e) => {
-                        const target = e.target as HTMLImageElement;
-                        // First try to fallback to thumbnail
-                        if (target.src.includes('/api/posters/')) {
-                          target.src = `http://${window.location.hostname === 'localhost' ? 'localhost' : window.location.hostname}:8252/api/thumbnails/${media.id}`;
-                        } else {
-                          // If thumbnail also fails, hide the image and show fallback
-                          e.currentTarget.style.display = 'none';
-                          e.currentTarget.nextElementSibling?.classList.remove('hidden');
-                        }
-                      }}
-                    />
-                  ) : null}
-                  <div className={`flex items-center justify-center w-full h-full ${media.thumbnail_path ? 'hidden' : ''}`}>
-                    {media.type === "movie" ? (
-                      <Film className="w-12 h-12 text-gray-600" />
-                    ) : (
-                      <Tv className="w-12 h-12 text-gray-600" />
-                    )}
-                  </div>
-
-                  {/* Type Badge */}
-                  <div className="absolute top-2 left-2">
-                    <span className={`px-2 py-1 rounded text-xs font-bold ${media.type === "movie" ? "bg-red-600" : "bg-blue-600"
-                      } text-white`}>
-                      {media.type === "movie" ? "MOVIE" : "TV"}
-                    </span>
-                  </div>
-
-                  {/* Remove Button */}
-                  <button
-                    onClick={() => handleRemoveFromList(media.id)}
-                    className="absolute top-2 right-2 bg-black bg-opacity-70 hover:bg-opacity-90 text-white p-2 rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-300"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-
-                  {/* Hover Overlay */}
-                  <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-60 transition-all duration-300 flex items-center justify-center opacity-0 group-hover:opacity-100">
-                    <div className="flex gap-2">
-                      <Button
-                        onClick={() => handlePlay(media)}
-                        size="sm"
-                        className="bg-white text-black hover:bg-gray-200"
-                      >
-                        <Play className="w-4 h-4 mr-1 fill-current" />
-                        Play
-                      </Button>
-                      <Button
-                        onClick={() => handleInfo(media)}
-                        size="sm"
-                        variant="outline"
-                        className="border-white text-white hover:bg-white hover:text-black"
-                      >
-                        <Info className="w-4 h-4" />
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Content Info */}
-                <div className="p-4">
-                  <h3 className="text-white font-semibold text-sm mb-2 line-clamp-2 leading-tight">
-                    {media.title}
-                  </h3>
-
-                  <div className="flex items-center justify-between text-xs text-gray-400 mb-2">
-                    <span>{media.type === "movie" ? "Movie" : "TV Show"}</span>
-                    {(media.rating || 0) > 0 && (
-                      <span className="flex items-center gap-1">
-                        <span className="text-yellow-400">★</span>
-                        {(media.rating || 0).toFixed(1)}
-                      </span>
-                    )}
-                  </div>
-
-                  {(media.duration || 0) > 0 && (
-                    <div className="text-xs text-gray-400 mb-2">
-                      {formatDuration(media.duration || 0)}
-                    </div>
-                  )}
-
-                  {/* Genres */}
-                  <div className="flex flex-wrap gap-1">
-                    {(media.genres || []).slice(0, 2).map((genre, index) => (
-                      <span
-                        key={index}
-                        className="text-xs bg-gray-800 text-gray-300 px-2 py-1 rounded"
-                      >
-                        {genre.name}
-                      </span>
-                    ))}
-                  </div>
-                </div>
+            {filteredList.map((media, index) => (
+              <div key={media.id} className="relative">
+                <NetflixMediaCard
+                  media={media}
+                  onPlay={handlePlay}
+                  onInfo={handleInfo}
+                  onAddToList={() => handleRemoveFromList(media.id)}
+                  isInList={true}
+                  priority={index < 12 ? 'high' : 'normal'}
+                  showPreviewOnHover={true}
+                />
               </div>
             ))}
           </div>

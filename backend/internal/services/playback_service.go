@@ -18,6 +18,11 @@ func NewPlaybackService(db *gorm.DB) *PlaybackService {
 
 // UpdatePlaybackProgress updates or creates playback progress for a user
 func (s *PlaybackService) UpdatePlaybackProgress(userID string, mediaID uint, position, duration float64) error {
+	// Ensure duration is valid
+	if duration <= 0 {
+		return fmt.Errorf("invalid duration: %f", duration)
+	}
+	
 	progress := (position / duration) * 100
 	completed := progress >= 90 // Consider 90%+ as completed
 
@@ -48,13 +53,59 @@ func (s *PlaybackService) UpdatePlaybackProgress(userID string, mediaID uint, po
 	return s.db.Save(&playbackProgress).Error
 }
 
-// GetPlaybackProgress gets playback progress for a specific media item
+// EnsurePlaybackProgress ensures a progress record exists for a user and media
+func (s *PlaybackService) EnsurePlaybackProgress(userID string, mediaID uint) error {
+	var count int64
+	s.db.Model(&models.PlaybackProgress{}).Where("user_id = ? AND media_id = ?", userID, mediaID).Count(&count)
+	
+	if count == 0 {
+		// Create initial progress record
+		progress := models.PlaybackProgress{
+			UserID:      userID,
+			MediaID:     mediaID,
+			Position:    0,
+			Duration:    0,
+			Progress:    0,
+			Completed:   false,
+			LastWatched: time.Now(),
+		}
+		return s.db.Create(&progress).Error
+	}
+	
+	return nil
+}
+
+// GetPlaybackProgress gets playback progress for a specific media item, creates if not found
 func (s *PlaybackService) GetPlaybackProgress(userID string, mediaID uint) (*models.PlaybackProgress, error) {
 	var progress models.PlaybackProgress
 	err := s.db.Preload("Media").Where("user_id = ? AND media_id = ?", userID, mediaID).First(&progress).Error
+	
 	if err == gorm.ErrRecordNotFound {
-		return nil, nil
+		// Create a new progress record with 0 progress
+		progress = models.PlaybackProgress{
+			UserID:      userID,
+			MediaID:     mediaID,
+			Position:    0,
+			Duration:    0,
+			Progress:    0,
+			Completed:   false,
+			LastWatched: time.Now(),
+		}
+		
+		// Save the new progress record
+		if createErr := s.db.Create(&progress).Error; createErr != nil {
+			return nil, createErr
+		}
+		
+		// Reload with Media preloaded
+		err = s.db.Preload("Media").Where("user_id = ? AND media_id = ?", userID, mediaID).First(&progress).Error
+		if err != nil {
+			return nil, err
+		}
+		
+		return &progress, nil
 	}
+	
 	return &progress, err
 }
 

@@ -40,10 +40,13 @@ const NetflixCard: React.FC<NetflixCardProps> = ({
   const apiUrl = getApiUrl();
 
   const getThumbnailUrl = () => {
-    if (media.poster_path) {
-      return `${apiUrl}/api/posters/${media.id}`;
-    }
+    // Always try thumbnails first for better compatibility
     return `${apiUrl}/api/thumbnails/${media.id}`;
+  };
+
+  const getPosterUrl = () => {
+    // Separate poster URL for fallback
+    return `${apiUrl}/api/posters/${media.id}`;
   };
 
   const getPreviewUrl = () => {
@@ -73,10 +76,32 @@ const NetflixCard: React.FC<NetflixCardProps> = ({
       clearTimeout(hideTimeoutRef.current);
     }
 
-    // Netflix-like delay before showing preview (1 second)
+    // Netflix-like delay before showing preview (800ms for faster response)
     hoverTimeoutRef.current = setTimeout(() => {
       setShowPreview(true);
-    }, 1000);
+
+      // Start video preview immediately when showPreview is true
+      if (videoRef.current) {
+        const video = videoRef.current;
+        video.currentTime = 0;
+        video.muted = isMuted;
+        video.play().then(() => {
+          setIsPlaying(true);
+          setIsVideoLoaded(true);
+        }).catch((error) => {
+          console.log('Video autoplay failed:', error);
+          // Try muted fallback
+          video.muted = true;
+          video.play().then(() => {
+            setIsPlaying(true);
+            setIsVideoLoaded(true);
+          }).catch(() => {
+            setIsVideoLoaded(false);
+            setShowPreview(false);
+          });
+        });
+      }
+    }, 800);
   };
 
   const handleMouseLeave = () => {
@@ -99,18 +124,31 @@ const NetflixCard: React.FC<NetflixCardProps> = ({
 
   const handleVideoLoad = () => {
     setIsVideoLoaded(true);
-    if (videoRef.current && showPreview) {
-      videoRef.current.play().then(() => {
+    if (videoRef.current && showPreview && isHovered) {
+      const video = videoRef.current;
+      video.currentTime = 0;
+      video.muted = isMuted;
+      video.play().then(() => {
         setIsPlaying(true);
-      }).catch(() => {
-        setIsVideoLoaded(false);
+      }).catch((error) => {
+        console.log('Video play failed on load:', error);
+        // Try muted fallback
+        video.muted = true;
+        video.play().then(() => {
+          setIsPlaying(true);
+        }).catch(() => {
+          setIsVideoLoaded(false);
+          setShowPreview(false);
+        });
       });
     }
   };
 
   const handleVideoError = () => {
+    console.log('Video error occurred for media:', media.id);
     setIsVideoLoaded(false);
     setShowPreview(false);
+    setIsPlaying(false);
   };
 
   const handlePlayClick = () => {
@@ -146,6 +184,23 @@ const NetflixCard: React.FC<NetflixCardProps> = ({
     return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
   };
 
+  // Check if media has priority genres (sci-fi, action, drama, thriller)
+  const hasPriorityGenres = (media: Media) => {
+    const priorityGenres = ['sci-fi', 'science fiction', 'action', 'drama', 'thriller', 'adventure', 'mystery', 'crime'];
+    return media.genres?.some(genre =>
+      priorityGenres.some(priority =>
+        genre.name.toLowerCase().includes(priority.toLowerCase())
+      )
+    );
+  };
+
+  // Check if media is newly added (high ID suggests recent addition)
+  const isNewlyAdded = (media: Media) => {
+    // Simple heuristic: if ID is in top 30% of typical range, consider it new
+    // This can be adjusted based on your media ID patterns
+    return media.id > 1000; // Adjust this threshold as needed
+  };
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -172,50 +227,75 @@ const NetflixCard: React.FC<NetflixCardProps> = ({
           position: isHovered ? 'relative' : 'relative',
         }}
       >
-        {/* Thumbnail Image with Lazy Loading */}
+        {/* Thumbnail Image with Lazy Loading and Fallback */}
         {!imageError ? (
           <LazyImage
-            src={getThumbnailUrl()}
+            src={media.poster_path ? getPosterUrl() : getThumbnailUrl()}
             alt={media.title}
             fill
             sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
             className={`transition-opacity duration-300 ${showPreview && isVideoLoaded ? 'opacity-0' : 'opacity-100'
               }`}
             priority={priority}
-            onError={handleImageError}
+            onError={() => {
+              // Try thumbnail fallback if poster fails
+              if (media.poster_path) {
+                const img = document.querySelector(`img[alt="${media.title}"]`) as HTMLImageElement;
+                if (img) {
+                  img.src = getThumbnailUrl();
+                  return;
+                }
+              }
+              handleImageError();
+            }}
             loaderSize="medium"
             showLoader={true}
-            fallbackSrc={`${getApiUrl()}/api/thumbnails/${media.id}`}
+            fallbackSrc={getThumbnailUrl()}
           />
         ) : (
           <div className="w-full h-full bg-gradient-to-br from-gray-700 via-gray-800 to-gray-900 flex items-center justify-center">
             <div className="text-white text-center">
               <div className="text-3xl mb-2">🎬</div>
-              <div className="text-sm font-medium">{media.title}</div>
+              <div className="text-sm font-medium line-clamp-2 px-2">{media.title}</div>
+              <div className="text-xs text-gray-400 mt-1">No Image Available</div>
             </div>
           </div>
         )}
 
         {/* Preview Video with Lazy Loading */}
         {showPreview && (
-          <LazyVideo
+          <video
             ref={videoRef}
             src={getPreviewUrl()}
-            className={`absolute inset-0 w-full h-full transition-opacity duration-300 ${isVideoLoaded ? 'opacity-100' : 'opacity-0'
+            className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-300 ${isVideoLoaded ? 'opacity-100' : 'opacity-0'
               }`}
             muted={isMuted}
             loop
             playsInline
-            onCanPlay={handleVideoLoad}
+            preload="metadata"
+            onLoadedData={handleVideoLoad}
             onError={handleVideoError}
-            loaderSize="small"
-            showLoader={false}
-            priority={false}
+            onCanPlay={handleVideoLoad}
+            crossOrigin="anonymous"
           />
         )}
 
         {/* Gradient Overlay */}
         <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
+
+        {/* Priority Genre Badge */}
+        {hasPriorityGenres(media) && (
+          <div className="absolute top-2 left-2 bg-red-600 text-white text-xs px-2 py-1 rounded-md font-semibold">
+            FEATURED
+          </div>
+        )}
+
+        {/* New Content Badge */}
+        {isNewlyAdded(media) && (
+          <div className="absolute top-2 right-2 bg-green-600 text-white text-xs px-2 py-1 rounded-md font-semibold">
+            NEW
+          </div>
+        )}
 
         {/* Quick Play Button (center) */}
         <AnimatePresence>
@@ -294,6 +374,12 @@ const NetflixCard: React.FC<NetflixCardProps> = ({
                 <>
                   <span className="text-gray-400">•</span>
                   <span className="text-yellow-400">⭐ {media.rating}</span>
+                </>
+              )}
+              {isNewlyAdded(media) && (
+                <>
+                  <span className="text-gray-400">•</span>
+                  <span className="text-green-400 font-semibold">NEW</span>
                 </>
               )}
             </div>

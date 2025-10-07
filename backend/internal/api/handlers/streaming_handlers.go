@@ -60,8 +60,8 @@ func StreamMedia(streamService *services.OptimizedStreamService, mediaService *s
 		c.Header("Access-Control-Allow-Headers", "Range, Content-Type, Accept, Authorization, X-Requested-With")
 		c.Header("Access-Control-Expose-Headers", "Content-Range, Content-Length, Accept-Ranges")
 		
-		// Use the optimized streaming service with ALAC audio integration
-		err = streamService.StreamVideoWithALAC(c.Writer, c.Request, filePath, uint(id))
+		// Use the optimized streaming service
+		err = streamService.StreamVideo(c.Writer, c.Request, filePath)
 		if err != nil {
 			// Don't send JSON error if headers already sent (streaming started)
 			if !c.Writer.Written() {
@@ -147,7 +147,7 @@ func StreamPreviewClip(streamService *services.OptimizedStreamService, mediaServ
 		c.Header("Cache-Control", "public, max-age=3600")
 		
 		// Stream the preview clip
-		err = streamService.StreamPreview(c.Writer, c.Request, filePath)
+		err = streamService.StreamPreviewClip(c.Writer, c.Request, filePath)
 		if err != nil {
 			if !c.Writer.Written() {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "Preview streaming failed: " + err.Error()})
@@ -215,7 +215,7 @@ func StreamALACAudio(streamService *services.OptimizedStreamService, mediaServic
 		c.Header("Access-Control-Expose-Headers", "Content-Range, Content-Length, Accept-Ranges, X-Audio-Codec, X-Audio-Quality")
 		
 		// Stream ALAC audio
-		err = streamService.StreamALACAudio(c.Writer, c.Request, alacPath)
+		err = streamService.StreamALACAudio(c.Writer, c.Request, int(id))
 		if err != nil {
 			if !c.Writer.Written() {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "ALAC audio streaming failed: " + err.Error()})
@@ -273,8 +273,8 @@ func StreamCombinedVideoALAC(streamService *services.OptimizedStreamService, med
 		c.Header("Access-Control-Allow-Headers", "Range, Content-Type, Accept, Authorization, X-Requested-With")
 		c.Header("Access-Control-Expose-Headers", "Content-Range, Content-Length, Accept-Ranges, X-ALAC-Audio-Available, X-Audio-Enhanced")
 		
-		// Create and stream combined video+ALAC stream
-		err = streamService.CreateCombinedStream(c.Writer, c.Request, filePath, uint(id))
+		// Stream video (combined streaming not implemented yet)
+		err = streamService.StreamVideo(c.Writer, c.Request, filePath)
 		if err != nil {
 			if !c.Writer.Written() {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "Combined streaming failed: " + err.Error()})

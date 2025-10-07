@@ -4,7 +4,8 @@ import React, { useState, useEffect } from "react";
 import { useRouter } from 'next/navigation';
 import Navbar from "@/components/Navbar";
 import VideoPlayer from '@/components/VideoPlayer';
-import { getApiUrl } from '@/lib/api';
+import { getApiUrl, fetchUniqueRecommendations, preloadAssets } from '@/lib/api';
+import NetflixMediaCard from '@/components/NetflixMediaCard';
 import { Media } from '@/types/media';
 import { ScrollXHero, ScrollXCarousel, ParallaxSection, GradientBackground, ScrollReveal } from '@/components/scrollx';
 import RecentlyWatched from '@/components/RecentlyWatched';
@@ -48,46 +49,28 @@ export default function TVSeries() {
       );
 
       // Get high-quality series for hero section
-      // Try to get TV series recommendations from backend first
+      // Try to get TV series recommendations from enhanced backend
       let highQualitySeries: Media[] = [];
       try {
-        const recommendationEndpoints = [
-          `${getApiUrl()}/api/recommendations/personalized?limit=20`,
-          `${getApiUrl()}/api/recommendations/mixed?limit=20`,
-          `${getApiUrl()}/api/recommendations/trending?limit=20`,
-          `${getApiUrl()}/api/recommendations/recent?limit=20`
-        ];
-
-        for (const endpoint of recommendationEndpoints) {
-          try {
-            const recommendationResponse = await fetch(endpoint);
-            if (recommendationResponse.ok) {
-              const recommendedData = await recommendationResponse.json();
-              if (recommendedData && Array.isArray(recommendedData) && recommendedData.length > 0) {
-                // Filter for TV series/episodes only
-                const tvContent = recommendedData.filter((item: Media) => 
-                  item.type === 'episode' || 
-                  item.type === 'tv' || 
-                  item.type === 'series' ||
-                  item.title.toLowerCase().includes('series') ||
-                  item.title.toLowerCase().includes('episode') ||
-                  item.title.toLowerCase().includes('season')
-                );
-                
-                if (tvContent.length >= 5) {
-                  highQualitySeries = tvContent;
-                  console.log(`✅ Using backend recommendations for TV series from ${endpoint}`);
-                  break;
-                }
-              }
-            }
-          } catch (error) {
-            console.warn(`❌ Failed to fetch TV recommendations from ${endpoint}:`, error);
-            continue;
-          }
+        console.log('🎬 Fetching unique TV series recommendations...');
+        const recommendations = await fetchUniqueRecommendations('mixed', 30);
+        
+        // Filter for TV series/episodes only
+        const tvContent = recommendations.filter((item: Media) => 
+          item.type === 'episode' || 
+          item.type === 'tv' || 
+          item.type === 'series' ||
+          item.title.toLowerCase().includes('series') ||
+          item.title.toLowerCase().includes('episode') ||
+          item.title.toLowerCase().includes('season')
+        );
+        
+        if (tvContent.length >= 5) {
+          highQualitySeries = tvContent;
+          console.log(`✅ Using ${tvContent.length} unique TV recommendations from backend`);
         }
       } catch (error) {
-        console.warn('⚠️ Backend recommendations failed for TV series, using fallback');
+        console.warn('⚠️ Enhanced TV recommendations failed, using fallback');
       }
 
       // Fallback to TV shows endpoint if recommendations don't have enough TV content
@@ -140,6 +123,11 @@ export default function TVSeries() {
         item.genres?.some(genre => genre.name.toLowerCase().includes('drama'))
       ).slice(0, 20));
 
+      // Preload assets for better performance
+      if (allSeries.length > 0) {
+        preloadAssets(allSeries.slice(0, 20), ['poster', 'thumbnail', 'preview']);
+      }
+
     } catch (error) {
       console.error("Error fetching TV series data:", error);
     } finally {
@@ -153,7 +141,12 @@ export default function TVSeries() {
   };
 
   const handleInfo = (media: Media) => {
-    router.push(`/movie/${media.id}`);
+    // Check if it's a TV series/episode and route accordingly
+    if (media.type === 'episode' || media.type === 'tv' || media.type === 'series') {
+      router.push(`/tv-series/${media.id}`);
+    } else {
+      router.push(`/movie/${media.id}`);
+    }
   };
 
   if (loading) {
