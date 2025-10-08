@@ -71,7 +71,7 @@ mkdir -p subtitles
 mkdir -p optimized
 
 # Create media directory
-MEDIA_PATH="/media/azad/Movies"
+MEDIA_PATH="/media/azad/Movies1"
 if [ ! -d "$MEDIA_PATH" ]; then
     echo "📁 Creating media directory: $MEDIA_PATH"
     sudo mkdir -p "$MEDIA_PATH"

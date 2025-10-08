@@ -78,8 +78,8 @@ func NewMediaScanner(mediaService interfaces.MediaServiceInterface, thumbnailSer
 		tmdbService:           tmdbService,
 		recommendationService: recommendationService,
 		mediaPath:             mediaPath,
-		maxWorkers:       8, // Increased worker count for faster processing
-		batchSize:        20, // Larger batch size
+		maxWorkers:       1, // Single worker for i5-4590 stability
+		batchSize:        5, // Small batch size for i5-4590
 		scanCache:        make(map[string]time.Time),
 		fileHashCache:    make(map[string]string),
 		metadataCache:    make(map[string]*FileMetadata),
@@ -155,19 +155,27 @@ func (s *MediaScanner) BatchScanMediaLibrary() error {
 	return nil
 }
 
-// SetMaxWorkers updates the maximum number of workers
+// SetMaxWorkers updates the maximum number of workers (capped for i5-4590)
 func (s *MediaScanner) SetMaxWorkers(workers int) {
-	if workers > 0 && workers <= 32 {
+	// Cap at 1 for i5-4590 stability
+	if workers > 1 {
+		workers = 1
+	}
+	if workers > 0 {
 		s.maxWorkers = workers
-		log.Printf("⚙️ Updated max workers to %d", workers)
+		log.Printf("⚙️ Updated max workers to %d (capped for i5-4590)", workers)
 	}
 }
 
-// SetBatchSize updates the batch size
+// SetBatchSize updates the batch size (capped for i5-4590)
 func (s *MediaScanner) SetBatchSize(size int) {
-	if size > 0 && size <= 100 {
+	// Cap at 5 for i5-4590 stability
+	if size > 5 {
+		size = 5
+	}
+	if size > 0 {
 		s.batchSize = size
-		log.Printf("⚙️ Updated batch size to %d", size)
+		log.Printf("⚙️ Updated batch size to %d (capped for i5-4590)", size)
 	}
 }
 

@@ -6,18 +6,20 @@ import { useRouter } from 'next/navigation';
 import { Media } from "../../types/media";
 import VideoPlayer from "../../components/VideoPlayer";
 import Navbar from "../../components/Navbar";
-import RecentlyWatched from "../../components/RecentlyWatched";
-import LazyMediaGrid from "../../components/LazyMediaGrid";
-import { getApiUrl, fetchUniqueRecommendations, preloadAssets } from "../../lib/api";
+import RecentlyWatched from '@/components/RecentlyWatched';
+import BrowseSearchBar from '@/components/BrowseSearchBar';
+import { getApiUrl } from "../../lib/api";
+import { useGlobalCache, useBatchCache } from "@/hooks/useGlobalCache";
+import { fetchMedia, fetchGenres, fetchRecommendations } from "@/lib/globalApiCache";
 import NetflixMediaCard from "../../components/NetflixMediaCard";
 import { 
   NetflixHorizontalRow, 
-  ScrollXHero, 
   ParallaxSection, 
   GradientBackground, 
   ScrollReveal, 
   MagneticButton,
-  FloatingElement
+  FloatingElement,
+  ScrollXHero
 } from '@/components/scrollx';
 
 interface Genre {
@@ -60,42 +62,47 @@ export default function BrowsePage() {
     loadMoreMedia(1);
   }, [filteredMedia]);
 
+  // Use global cache for data fetching
+  const { data: mediaData, loading: mediaLoading } = useGlobalCache<Media[]>(
+    `${getApiUrl()}/api/media`,
+    {},
+    { customTTL: 15 * 60 * 1000 } // 15 minutes cache
+  );
+  
+  const { data: genresData, loading: genresLoading } = useGlobalCache<Genre[]>(
+    `${getApiUrl()}/api/genres`,
+    {},
+    { customTTL: 2 * 60 * 60 * 1000 } // 2 hours cache for genres
+  );
+
   const fetchData = async () => {
-    setLoading(true);
-    try {
-      const apiUrl = getApiUrl();
-      
-      // Fetch all media and genres
-      const [mediaResponse, genresResponse] = await Promise.all([
-        fetch(`${apiUrl}/api/media`),
-        fetch(`${apiUrl}/api/genres`)
-      ]);
-      const mediaData = await mediaResponse.json();
-      const genresData = await genresResponse.json();
-      
+    // Data is now loaded automatically via hooks
+    if (mediaData) {
       setAllMedia(mediaData);
-      setGenres(genresData);
-      
-      // Fetch featured media from recommendations with fallback
-      await fetchFeaturedMedia();
-      
-      setLoading(false);
-    } catch (error) {
-      console.error("Error fetching data:", error);
-      setLoading(false);
     }
+    if (genresData) {
+      setGenres(genresData);
+    }
+    
+    // Fetch featured media from recommendations with fallback
+    await fetchFeaturedMedia();
   };
+  
+  // Update loading state based on cache loading
+  useEffect(() => {
+    setLoading(mediaLoading || genresLoading);
+  }, [mediaLoading, genresLoading]);
 
   const fetchFeaturedMedia = async () => {
     try {
-      console.log('🎬 Fetching unique featured media with session awareness...');
+      console.log('🎬 Fetching featured media with global cache...');
       
-      // Use enhanced unique recommendations
+      // Use global cached recommendations
       let featured: Media[] = [];
       
       try {
-        featured = await fetchUniqueRecommendations('mixed', 20);
-        console.log(`✅ Got ${featured.length} unique recommendations`);
+        featured = await fetchRecommendations('mixed', 20);
+        console.log(`✅ Got ${featured.length} cached recommendations`);
       } catch (error) {
         console.warn('❌ Unique recommendations failed, using fallback');
         
@@ -143,9 +150,9 @@ export default function BrowsePage() {
 
       setFeaturedMedia(featured);
       
-      // Preload assets for hero section
+      // Assets are now preloaded automatically via global cache system
       if (featured.length > 0) {
-        preloadAssets(featured, ['poster', 'thumbnail', 'preview']);
+        console.log(`🚀 Featured media assets will be cached automatically`);
       }
     } catch (error) {
       console.error("Error fetching featured media:", error);
@@ -205,7 +212,15 @@ export default function BrowsePage() {
   };
 
   const handleInfo = (media: Media) => {
-    router.push(`/movie/${media.id}`);
+    // Route TV series/episodes to TV series info page
+    if (media.type === 'episode' || media.type === 'tv' || media.type === 'series') {
+      // For episodes, route to the series info page using series_id if available
+      const seriesId = media.series_id || media.id;
+      router.push(`/tv-series/${media.uuid || seriesId}`);
+    } else {
+      // Route movies to movie info page
+      router.push(`/movie/${media.uuid || media.id}`);
+    }
   };
 
   const handleSearch = (query: string) => {
@@ -260,7 +275,7 @@ export default function BrowsePage() {
 
       {/* Main Content with Parallax Background */}
       <div className="relative bg-gradient-to-b from-red-900/20 via-black to-black">
-        <div className="relative z-10 py-20">
+        <div className="relative z-10 pt-8 pb-24">
           {/* Search and Filter Controls */}
           <ParallaxSection speed={0.2}>
             <ScrollReveal direction="up" delay={0.1}>
@@ -331,10 +346,31 @@ export default function BrowsePage() {
             </ScrollReveal>
           </ParallaxSection>
 
+          {/* Browse Search Bar */}
+          <ParallaxSection speed={0.35}>
+            <ScrollReveal direction="up" delay={0.25}>
+              <div className="px-4 md:px-8 lg:px-16 mb-12">
+                <div className="text-center mb-8">
+                  <h2 className="text-2xl md:text-3xl font-bold text-white mb-4">
+                    Find Your Next Watch
+                  </h2>
+                  <p className="text-gray-400 text-lg">
+                    Search through our entire collection
+                  </p>
+                </div>
+                <BrowseSearchBar
+                  onSearch={handleSearch}
+                  initialValue={searchQuery}
+                  placeholder="Search movies, TV shows, actors, directors..."
+                />
+              </div>
+            </ScrollReveal>
+          </ParallaxSection>
+
           {/* Content Grid with Lazy Loading */}
           <ParallaxSection speed={0.4}>
             <ScrollReveal direction="up" delay={0.3}>
-              <div className="px-4 md:px-8 lg:px-16">
+              <div className="px-4 md:px-8 lg:px-16 pb-8">
                 {filteredMedia.length > 0 ? (
                   <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
                     {displayedMedia.map((media, index) => (

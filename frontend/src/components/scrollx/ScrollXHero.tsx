@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { motion, useScroll, useTransform, useSpring, AnimatePresence } from 'framer-motion';
 import { Play, Info, ChevronLeft, ChevronRight, Film, Tv, Volume2 } from 'lucide-react';
 import { Media } from '@/types/media';
@@ -68,32 +68,32 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
   const y = useTransform(scrollYProgress, [0, 1], [0, -200]);
   const opacity = useTransform(scrollYProgress, [0, 0.5], [1, 0]);
 
-  const currentMedia = featuredMedia[currentIndex] || featuredMedia[0];
+  const currentMedia = useMemo(() => featuredMedia[currentIndex] || featuredMedia[0], [featuredMedia, currentIndex]);
 
-  // Global audio preference management
-  const getGlobalAudioPreference = (): boolean => {
-    if (typeof window === 'undefined') return true; // SSR fallback
+  // Memoized audio preference management
+  const getGlobalAudioPreference = useCallback((): boolean => {
+    if (typeof window === 'undefined') return true;
     const saved = localStorage.getItem('scrollx-audio-muted');
-    return saved !== null ? JSON.parse(saved) : true; // Default to muted
-  };
+    return saved !== null ? JSON.parse(saved) : true;
+  }, []);
 
-  const setGlobalAudioPreference = (muted: boolean) => {
+  const setGlobalAudioPreference = useCallback((muted: boolean) => {
     if (typeof window === 'undefined') return;
     localStorage.setItem('scrollx-audio-muted', JSON.stringify(muted));
-  };
+  }, []);
 
-  const hasUserEverUnmuted = (): boolean => {
+  const hasUserEverUnmuted = useCallback((): boolean => {
     if (typeof window === 'undefined') return false;
     return localStorage.getItem('scrollx-user-has-unmuted') === 'true';
-  };
+  }, []);
 
-  const setUserHasUnmuted = () => {
+  const setUserHasUnmuted = useCallback(() => {
     if (typeof window === 'undefined') return;
     localStorage.setItem('scrollx-user-has-unmuted', 'true');
-  };
+  }, []);
 
-  // Test browser autoplay capabilities
-  const testAutoplayCapabilities = async () => {
+  // Memoized autoplay capability test
+  const testAutoplayCapabilities = useCallback(async () => {
     try {
       const video = document.createElement('video');
       video.muted = true;
@@ -122,50 +122,34 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
     } catch {
       setCanAutoplayWithAudio(false);
     }
-  };
+  }, []);
 
-  // Enhanced shuffle array utility function with time-based randomization
-  const shuffleArray = <T,>(array: T[]): T[] => {
+  // Optimized shuffle array utility function
+  const shuffleArray = useCallback(<T,>(array: T[]): T[] => {
     const shuffled = [...array];
     
-    // Add time-based randomization for more variety
-    const timeSeed = Date.now() + cycleCount * 1000;
-    const random = () => {
-      const x = Math.sin(timeSeed + shuffled.length) * 10000;
-      return x - Math.floor(x);
-    };
-    
-    // Enhanced Fisher-Yates shuffle with time-based randomization
+    // Simple Fisher-Yates shuffle - more performant
     for (let i = shuffled.length - 1; i > 0; i--) {
-      const j = Math.floor((Math.random() + random()) / 2 * (i + 1));
-      [shuffled[i], shuffled[j % shuffled.length]] = [shuffled[j % shuffled.length], shuffled[i]];
-    }
-    
-    // Additional randomization pass
-    for (let i = 0; i < shuffled.length; i++) {
-      if (Math.random() > 0.5) {
-        const j = Math.floor(Math.random() * shuffled.length);
-        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-      }
+      const j = Math.floor(Math.random() * (i + 1));
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
     }
     
     return shuffled;
-  };
+  }, []);
 
-  // Check if API response is duplicate
-  const isApiResponseDuplicate = (media: Media[]): boolean => {
+  // Memoized API response duplicate checking
+  const isApiResponseDuplicate = useCallback((media: Media[]): boolean => {
     const responseSignature = media.map(m => m.id).sort().join(',');
     return previousApiResponses.has(responseSignature);
-  };
+  }, [previousApiResponses]);
 
-  // Add API response to history
-  const addApiResponseToHistory = (media: Media[]) => {
+  const addApiResponseToHistory = useCallback((media: Media[]) => {
     const responseSignature = media.map(m => m.id).sort().join(',');
     setPreviousApiResponses(prev => new Set([...prev, responseSignature]));
-  };
+  }, []);
 
-  // Enhanced frontend recommendation system with latest movies and priority genre focus
-  const generateFrontendRecommendations = (availableMedia: Media[], currentFeatured: Media[]): Media[] => {
+  // Optimized frontend recommendation system
+  const generateFrontendRecommendations = useCallback((availableMedia: Media[], currentFeatured: Media[]): Media[] => {
     console.log(`🔄 Generating frontend recommendations from ${availableMedia.length} available items (cycle ${cycleCount})...`);
     
     // Apply content filtering
@@ -377,12 +361,12 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
       recommendations.push(...shuffleArray(fillContent).slice(0, slotsRemaining));
     }
 
-    console.log(`✅ Generated ${recommendations.length} frontend recommendations using algorithm ${algorithm + 1} (${priorityGenreContent.length} priority genres, ${latestContent.length} latest, ${latestMovies.length} latest movies, ${latestPriorityMovies.length} latest priority movies)`);
+    console.log(`✅ Generated ${recommendations.length} frontend recommendations using algorithm ${algorithm + 1}`);
     return shuffleArray(recommendations).slice(0, 10);
-  };
+  }, [contentFilter, cycleCount, shuffleArray]);
 
   // Enhanced recommendation system with guaranteed unique content every load
-  const fetchRecommendedMedia = async (cycleNumber: number = 0) => {
+  const fetchRecommendedMedia = useCallback(async (cycleNumber: number = 0) => {
     setIsLoadingNewContent(true);
     console.log(`🎬 Fetching ALWAYS DIFFERENT recommendations (cycle ${cycleNumber})...`);
     
@@ -629,7 +613,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
     } finally {
       setIsLoadingNewContent(false);
     }
-  };
+  }, [contentFilter, generateFrontendRecommendations, initialFeaturedMedia, allAvailableMedia, featuredMedia, shuffleArray]);
 
   const handlePlay = async () => {
     setIsPlayButtonLoading(true);
@@ -719,8 +703,8 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
     }
   };
 
-  // Generate preview clip if needed
-  const generatePreviewClipIfNeeded = async (media: Media) => {
+  // Optimized preview clip generation
+  const generatePreviewClipIfNeeded = useCallback(async (media: Media) => {
     try {
       const generateUrl = `${getApiUrl()}/api/admin/preview-clips/${media.id}/generate`;
       console.log(`Attempting to generate preview clip for media ${media.id}...`);
@@ -740,18 +724,18 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
               video.load();
             }
           }
-        }, 3000); // Wait 3 seconds for generation
+        }, 3000);
       } else {
         console.warn(`Failed to generate preview clip for media ${media.id}:`, response.status);
       }
     } catch (error) {
       console.warn(`Error generating preview clip for media ${media.id}:`, error);
     }
-  };
+  }, [currentMedia, getVideoUrl]);
 
 
 
-  const getBackgroundImageUrl = (media: Media) => {
+  const getBackgroundImageUrl = useCallback((media: Media) => {
     const host = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
     const apiUrl = `http://${host === 'localhost' ? 'localhost' : host}:8252`;
 
@@ -772,10 +756,10 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
 
     // Default fallback
     return `${apiUrl}/api/thumbnails/1`;
-  };
+  }, []);
 
-  // Stop all video/audio playback
-  const stopAllPlayback = () => {
+  // Optimized playback control
+  const stopAllPlayback = useCallback(() => {
     // Stop main video
     if (videoRef.current) {
       const video = videoRef.current;
@@ -804,9 +788,9 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
     setIsPlaying(false);
     setIsVideoLoaded(false);
     setVideoLoaded(false);
-  };
+  }, [muteAll]);
 
-  const nextSlide = () => {
+  const nextSlide = useCallback(() => {
     if (featuredMedia.length > 1 && !isTransitioning) {
       setIsTransitioning(true);
 
@@ -826,18 +810,20 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
         if (nextIndex === 0 && currentIndex === featuredMedia.length - 1) {
           const newCycleCount = cycleCount + 1;
           setCycleCount(newCycleCount);
-
-          // Load new content from frontend shuffle after completing a cycle
-          console.log(`🔄 Cycle ${newCycleCount} completed, generating new frontend recommendations...`);
+          console.log(`🔄 Cycle ${newCycleCount} completed, fetching new content...`);
+          
+          // Fetch new content after completing a cycle (with delay to prevent conflicts)
           setTimeout(() => {
-            fetchRecommendedMedia(newCycleCount);
-          }, 1000); // Generate new frontend shuffle
+            if (!isLoadingNewContent) {
+              fetchRecommendedMedia(newCycleCount);
+            }
+          }, 2000);
         }
       }, 300); // Wait for fade out
     }
-  };
+  }, [featuredMedia.length, isTransitioning, stopAllPlayback, cycleCount, currentIndex, fetchRecommendedMedia, isLoadingNewContent]);
 
-  const prevSlide = () => {
+  const prevSlide = useCallback(() => {
     if (featuredMedia.length > 1 && !isTransitioning) {
       setIsTransitioning(true);
 
@@ -851,9 +837,27 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
       setTimeout(() => {
         setCurrentIndex((prev) => (prev - 1 + featuredMedia.length) % featuredMedia.length);
         setIsTransitioning(false);
-      }, 300); // Wait for fade out
+      }, 300);
     }
-  };
+  }, [featuredMedia.length, isTransitioning, stopAllPlayback]);
+
+  const goToSlide = useCallback((index: number) => {
+    if (index !== currentIndex && !isTransitioning) {
+      setIsTransitioning(true);
+
+      // Stop all current playback before transitioning
+      stopAllPlayback();
+
+      // Fade out current content
+      setBackgroundLoaded(false);
+      setVideoLoaded(false);
+
+      setTimeout(() => {
+        setCurrentIndex(index);
+        setIsTransitioning(false);
+      }, 300);
+    }
+  }, [currentIndex, isTransitioning, stopAllPlayback]);
 
   // Preload videos for smooth transitions
   const preloadVideo = (media: Media) => {
@@ -1035,31 +1039,31 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
     return null;
   };
 
-  const formatDuration = (seconds: number) => {
+  const formatDuration = useCallback((seconds: number) => {
     const hours = Math.floor(seconds / 3600);
     const minutes = Math.floor((seconds % 3600) / 60);
     return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
-  };
+  }, []);
 
-  const getTitleSizeClass = () => {
+  const getTitleSizeClass = useCallback(() => {
     const titleLength = currentMedia.title.length;
     if (titleLength > 50) return 'text-2xl md:text-3xl lg:text-4xl';
     if (titleLength > 35) return 'text-2xl md:text-4xl lg:text-5xl';
     if (titleLength > 25) return 'text-3xl md:text-5xl lg:text-6xl';
     if (titleLength > 15) return 'text-4xl md:text-6xl lg:text-7xl';
     return 'text-5xl md:text-7xl lg:text-8xl';
-  };
+  }, [currentMedia.title]);
 
-  const getGenreBasedStyling = () => {
+  const getGenreBasedStyling = useCallback(() => {
     const genres = currentMedia.genres?.map(g => g.name.toLowerCase()) || [];
     if (genres.includes('horror') || genres.includes('thriller')) return 'font-black tracking-wider';
     if (genres.includes('comedy') || genres.includes('family')) return 'font-extrabold tracking-wide';
     if (genres.includes('drama') || genres.includes('romance')) return 'font-bold tracking-normal';
     if (genres.includes('action') || genres.includes('adventure')) return 'font-black tracking-widest';
     return 'font-bold tracking-wide';
-  };
+  }, [currentMedia.genres]);
 
-  const getGenreGradient = () => {
+  const getGenreGradient = useCallback(() => {
     const genres = currentMedia.genres?.map(g => g.name.toLowerCase()) || [];
     if (genres.includes('horror') || genres.includes('thriller'))
       return 'linear-gradient(135deg, #ff0000, #8b0000, #ffffff)';
@@ -1072,40 +1076,19 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
     if (genres.includes('sci-fi') || genres.includes('fantasy'))
       return 'linear-gradient(135deg, #00bfff, #4169e1, #ffffff)';
     return 'linear-gradient(135deg, #e50914, #ffffff, #ffffff)';
-  };
-
-  const goToSlide = (index: number) => {
-    if (index !== currentIndex && !isTransitioning) {
-      setIsTransitioning(true);
-      setIsAutoPlaying(false);
-
-      // Stop all current playback before transitioning
-      stopAllPlayback();
-
-      // Fade out current content
-      setBackgroundLoaded(false);
-      setVideoLoaded(false);
-
-      setTimeout(() => {
-        setCurrentIndex(index);
-        setIsVideoLoaded(false);
-        setIsPlaying(false);
-        setIsTransitioning(false);
-        setTimeout(() => setIsAutoPlaying(true), 5000);
-      }, 300); // Wait for fade out
-    }
-  };
-
-  // Function to manually trigger content refresh from frontend shuffle
-  const refreshContent = () => {
+  }, [currentMedia.genres]);
+  // Optimized content refresh function - only manual refresh
+  const refreshContent = useCallback(() => {
+    if (isLoadingNewContent) return; // Prevent multiple simultaneous refreshes
+    
     const newCycleCount = cycleCount + 1;
     setCycleCount(newCycleCount);
-    console.log(`🔄 Manual refresh triggered, generating cycle ${newCycleCount} from frontend shuffle...`);
+    console.log(`🔄 Manual refresh triggered, generating cycle ${newCycleCount}...`);
     fetchRecommendedMedia(newCycleCount);
-    setCurrentIndex(0); // Reset to first slide
-  };
+    setCurrentIndex(0);
+  }, [cycleCount, fetchRecommendedMedia, isLoadingNewContent]);
 
-  // Initialize audio preferences and test autoplay capabilities
+  // Initialize audio preferences and test autoplay capabilities - run once
   useEffect(() => {
     const savedMutedState = getGlobalAudioPreference();
     const userHasUnmutedBefore = hasUserEverUnmuted();
@@ -1119,23 +1102,9 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
     // Set initial media as available media for frontend recommendations (no API calls)
     if (initialFeaturedMedia.length > 0) {
       setAllAvailableMedia(initialFeaturedMedia);
-      console.log(`🎯 Frontend-only mode: Using ${initialFeaturedMedia.length} initial media items for recommendations`);
-      
-      // Add randomization seed based on current time and session to ensure different content on each page load
-      const sessionSeed = typeof window !== 'undefined' ? 
-        (sessionStorage.getItem('hero-session-seed') || Math.random().toString()) : 
-        Math.random().toString();
-      
-      if (typeof window !== 'undefined' && !sessionStorage.getItem('hero-session-seed')) {
-        sessionStorage.setItem('hero-session-seed', sessionSeed);
-      }
-      
-      const timeSeed = Math.floor(Date.now() / 30000); // Changes every 30 seconds
-      const combinedSeed = parseInt(sessionSeed.slice(-6), 36) + timeSeed;
-      setCycleCount(combinedSeed % 100); // Use combined seed for initial cycle count
-      console.log(`🎲 Initial randomization - session: ${sessionSeed.slice(-6)}, time: ${timeSeed}, cycle: ${combinedSeed % 100}`);
+      console.log(`🎯 Frontend-only mode: Using ${initialFeaturedMedia.length} initial media items`);
     }
-  }, [contentFilter, initialFeaturedMedia]);
+  }, []); // Run only once on mount
 
   // Handle slide changes - simplified video setup
   useEffect(() => {
@@ -1154,72 +1123,59 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
 
   // Auto-slide functionality with enhanced timing
   useEffect(() => {
-    if (!isAutoPlaying || featuredMedia.length <= 1) return;
+    if (!isAutoPlaying || featuredMedia.length <= 1 || isTransitioning) return;
 
     // Longer duration for video content, shorter for images
-    const slideDuration = hasVideoContent(currentMedia) && isVideoLoaded && isPlaying ? 20000 : 8000;
+    const slideDuration = hasVideoContent(currentMedia) && isVideoLoaded && isPlaying ? 25000 : 10000;
 
     const interval = setInterval(() => {
-      nextSlide();
+      if (!isTransitioning) {
+        nextSlide();
+      }
     }, slideDuration);
 
     return () => clearInterval(interval);
-  }, [isAutoPlaying, featuredMedia.length, currentIndex, isVideoLoaded, isPlaying]);
+  }, [isAutoPlaying, featuredMedia.length, currentIndex, isVideoLoaded, isPlaying, isTransitioning, nextSlide, currentMedia]);
 
-  // Frontend-only recommendation system with automatic shuffling
+  // Frontend-only recommendation system with controlled refreshing
   useEffect(() => {
-    if (!enableRecommendations) return;
+    if (!enableRecommendations || hasInitializedContent) return;
 
-    console.log('🚀 Frontend-only recommendation system initialized with automatic shuffling...');
+    console.log('🚀 Frontend-only recommendation system initialized...');
 
-    // Initial fetch after component mounts - generate from frontend immediately
+    // Only do initial setup, no automatic refreshing
     const initialDelay = setTimeout(() => {
       console.log('🎬 Initial frontend recommendation generation...');
       fetchRecommendedMedia(0);
-    }, 1000); // Reduced delay for faster initial load
-
-    // More frequent refresh to get fresh frontend recommendations
-    const refreshTimer = setInterval(() => {
-      console.log('⏰ Periodic frontend recommendation refresh...');
-      refreshContent();
-    }, refreshInterval);
+    }, 2000);
 
     return () => {
       clearTimeout(initialDelay);
-      clearInterval(refreshTimer);
     };
 
-  }, [enableRecommendations]);
+  }, [enableRecommendations, hasInitializedContent, fetchRecommendedMedia]);
 
-  // Reset video states when featured media changes
+  // Reset video states when featured media changes - debounced
   useEffect(() => {
-    if (featuredMedia.length > 0) {
+    if (featuredMedia.length > 0 && isLoadingNewContent) {
       setIsVideoLoaded(false);
       setIsPlaying(false);
       setBackgroundLoaded(false);
       setVideoLoaded(false);
       setIsTransitioning(false);
-      // Reset to first slide when content changes
-      if (isLoadingNewContent) {
-        setCurrentIndex(0);
-      }
+      setCurrentIndex(0);
     }
-  }, [featuredMedia, isLoadingNewContent]);
+  }, [featuredMedia.length, isLoadingNewContent]);
 
-  // Handle media without video content and check preview clip availability
+  // Handle media without video content - simplified
   useEffect(() => {
-    if (currentMedia) {
-      if (!hasVideoContent(currentMedia)) {
-        // For media without video, ensure video states are false
-        setIsVideoLoaded(false);
-        setVideoLoaded(false);
-        setIsPlaying(false);
-      } else {
-        // Check if preview clip is actually available
-        checkPreviewClipAvailability(currentMedia);
-      }
+    if (currentMedia && !hasVideoContent(currentMedia)) {
+      // For media without video, ensure video states are false
+      setIsVideoLoaded(false);
+      setVideoLoaded(false);
+      setIsPlaying(false);
     }
-  }, [currentMedia]);
+  }, [currentMedia?.id]);
 
   // Update featured media when initialFeaturedMedia changes with immediate shuffle
   useEffect(() => {
@@ -1229,40 +1185,31 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
       setFeaturedMedia(immediateShuffled);
       setHasInitializedContent(true);
       console.log(`🎲 Initial media shuffled for variety on page load`);
-      
-      // Trigger fresh content generation after a short delay
-      setTimeout(() => {
-        if (enableRecommendations) {
-          console.log(`🚀 Triggering fresh content generation after initial load...`);
-          fetchRecommendedMedia(Math.floor(Date.now() / 10000) % 100);
-        }
-      }, 2000);
     }
-  }, [initialFeaturedMedia, hasInitializedContent, enableRecommendations]);
+  }, [initialFeaturedMedia, hasInitializedContent, shuffleArray]);
 
-  // Preload adjacent videos for smooth transitions
+  // Preload adjacent videos for smooth transitions - debounced
   useEffect(() => {
-    if (featuredMedia.length > 1) {
-      // Preload current, next, and previous videos
-      const currentIdx = currentIndex;
-      const nextIdx = (currentIndex + 1) % featuredMedia.length;
-      const prevIdx = (currentIndex - 1 + featuredMedia.length) % featuredMedia.length;
+    if (featuredMedia.length > 1 && !isTransitioning) {
+      const timeoutId = setTimeout(() => {
+        // Preload current, next, and previous videos
+        const currentIdx = currentIndex;
+        const nextIdx = (currentIndex + 1) % featuredMedia.length;
+        const prevIdx = (currentIndex - 1 + featuredMedia.length) % featuredMedia.length;
 
-      // Preload in order of priority
-      setTimeout(() => preloadVideo(featuredMedia[currentIdx]), 100);
-      setTimeout(() => preloadVideo(featuredMedia[nextIdx]), 500);
-      setTimeout(() => preloadVideo(featuredMedia[prevIdx]), 1000);
+        // Preload in order of priority
+        setTimeout(() => preloadVideo(featuredMedia[currentIdx]), 100);
+        setTimeout(() => preloadVideo(featuredMedia[nextIdx]), 500);
+        setTimeout(() => preloadVideo(featuredMedia[prevIdx]), 1000);
+      }, 500);
+
+      return () => clearTimeout(timeoutId);
     }
-  }, [currentIndex, featuredMedia]);
+  }, [currentIndex, featuredMedia.length, isTransitioning, featuredMedia, preloadVideo]);
 
-  // Reset video states when media changes - simplified
+  // Reset video states when media changes - optimized
   useEffect(() => {
-    if (currentMedia) {
-      stopAllPlayback();
-      setIsVideoLoaded(false);
-      setIsPlaying(false);
-      setVideoLoaded(false);
-
+    if (currentMedia?.id) {
       const videoUrl = getVideoUrl(currentMedia);
       if (!videoUrl) return;
 
@@ -1279,7 +1226,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
         video.load();
       }
     }
-  }, [currentMedia]);
+  }, [currentMedia?.id, getVideoUrl]);
 
   // Simplified video loading and autoplay
   useEffect(() => {

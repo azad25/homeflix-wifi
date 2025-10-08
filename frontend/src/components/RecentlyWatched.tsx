@@ -5,6 +5,7 @@ import { Play, Clock, MoreHorizontal } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { Media } from '@/types/media';
 import { getApiUrl } from '@/lib/api';
+import { useGlobalCache } from '@/hooks/useGlobalCache';
 import { ScrollXCarousel, GlassCard, MagneticButton } from '@/components/scrollx';
 
 interface RecentlyWatchedItem {
@@ -26,32 +27,16 @@ export const RecentlyWatched: React.FC<RecentlyWatchedProps> = ({
   onPlay,
   onInfo
 }) => {
-  const [recentItems, setRecentItems] = useState<RecentlyWatchedItem[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    fetchRecentlyWatched();
-  }, []);
-
-  const fetchRecentlyWatched = async () => {
-    try {
-      const apiUrl = getApiUrl();
-      const response = await fetch(`${apiUrl}/api/playback/recently-watched`, {
-        headers: {
-          'X-User-ID': '1' // Default user for now
-        }
-      });
-      
-      if (response.ok) {
-        const data = await response.json();
-        setRecentItems(data || []);
+  // Use global cache for recently watched data
+  const { data: recentItems, loading } = useGlobalCache<RecentlyWatchedItem[]>(
+    `${getApiUrl()}/api/playback/recently-watched`,
+    {
+      headers: {
+        'X-User-ID': '1' // Default user for now
       }
-    } catch (error) {
-      console.error('Failed to fetch recently watched:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
+    },
+    { customTTL: 5 * 60 * 1000 } // 5 minutes cache for recently watched
+  );
 
   const formatProgress = (progressSeconds: number, durationSeconds: number) => {
     const progressPercent = (progressSeconds / durationSeconds) * 100;
@@ -97,7 +82,7 @@ export const RecentlyWatched: React.FC<RecentlyWatchedProps> = ({
     );
   }
 
-  if (recentItems.length === 0) {
+  if (!recentItems || recentItems.length === 0) {
     return null;
   }
 
@@ -108,7 +93,7 @@ export const RecentlyWatched: React.FC<RecentlyWatchedProps> = ({
       </h2>
       
       <div className="flex gap-4 overflow-x-auto scrollbar-hide px-4 md:px-12 pb-4">
-        {recentItems.map((item, index) => (
+        {recentItems?.map((item, index) => (
           <motion.div
             key={item.id}
             initial={{ opacity: 0, x: 50 }}

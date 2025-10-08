@@ -63,7 +63,7 @@ func main() {
 	recommendationServiceAdapter := adapters.NewRecommendationServiceAdapter(recommendationService)
 
 	// Initialize media scanner with adapted services
-	mediaScanner := scanner.NewMediaScanner(mediaServiceAdapter, thumbnailServiceAdapter, posterServiceAdapter, geminiServiceAdapter, celeryServiceAdapter, alacServiceAdapter, tmdbServiceAdapter, recommendationServiceAdapter, cfg.MediaPath)
+	mediaScanner := scanner.NewMediaScanner(cfg.MediaPath, mediaServiceAdapter, thumbnailServiceAdapter, posterServiceAdapter, geminiServiceAdapter, celeryServiceAdapter, alacServiceAdapter, tmdbServiceAdapter, recommendationServiceAdapter)
 
 	// Initialize watcher service for real-time file monitoring
 	watchPaths := []string{cfg.MediaPath}

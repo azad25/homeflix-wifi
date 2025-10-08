@@ -24,6 +24,9 @@ export const API_ENDPOINTS = {
   media: '/api/media',
   genres: '/api/genres',
   series: '/api/series',
+  seriesById: (id: number) => `/api/series/${id}`,
+  seriesSeasons: (id: number) => `/api/series/${id}/seasons`,
+  seriesSeasonEpisodes: (id: number, season: number) => `/api/series/${id}/seasons/${season}/episodes`,
   stream: (id: number) => `/api/stream/${id}`,
   thumbnails: (id: number) => `/api/thumbnails/${id}`,
   previewClips: (id: number) => `/api/preview-clips/${id}`,
@@ -228,5 +231,66 @@ export const smartSearch = async (query: string) => {
   } catch (error) {
     console.error('Smart search failed:', error);
     throw error;
+  }
+};
+
+// Hierarchical TV Series API calls
+export const fetchAllSeries = async () => {
+  try {
+    return await apiCall(API_ENDPOINTS.series);
+  } catch (error) {
+    console.error('Failed to fetch all series:', error);
+    throw error;
+  }
+};
+
+export const fetchSeriesById = async (id: number) => {
+  try {
+    return await apiCall(API_ENDPOINTS.seriesById(id));
+  } catch (error) {
+    console.error(`Failed to fetch series ${id}:`, error);
+    throw error;
+  }
+};
+
+export const fetchSeriesSeasons = async (id: number) => {
+  try {
+    return await apiCall(API_ENDPOINTS.seriesSeasons(id));
+  } catch (error) {
+    console.error(`Failed to fetch seasons for series ${id}:`, error);
+    throw error;
+  }
+};
+
+export const fetchSeasonEpisodes = async (seriesId: number, seasonNumber: number) => {
+  try {
+    return await apiCall(API_ENDPOINTS.seriesSeasonEpisodes(seriesId, seasonNumber));
+  } catch (error) {
+    console.error(`Failed to fetch episodes for series ${seriesId} season ${seasonNumber}:`, error);
+    throw error;
+  }
+};
+
+// Enhanced series data fetching with fallback to old API
+export const fetchSeriesWithFallback = async (id: number) => {
+  try {
+    // Try new hierarchical API first
+    const series = await fetchSeriesById(id);
+    const seasons = await fetchSeriesSeasons(id);
+    
+    return {
+      ...series,
+      seasons: seasons || []
+    };
+  } catch (error) {
+    console.warn('Hierarchical series API failed, falling back to old API:', error);
+    
+    // Fallback to old media API
+    try {
+      return await apiCall(`/api/media/${id}`);
+    } catch (fallbackError) {
+      console.error('Both series APIs failed:', fallbackError);
+      throw fallbackError;
+    }
   }
 };

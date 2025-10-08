@@ -1,5 +1,6 @@
 export interface Media {
   id: number;
+  uuid?: string;
   title: string;
   original_title?: string;
   type: string; // "movie" or "episode"

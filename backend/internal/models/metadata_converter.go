@@ -2,6 +2,7 @@ package models
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -119,15 +120,76 @@ func (m *Media) SyncGenres() {
 	}
 }
 
-// GetDisplayTitle returns a formatted title for display
+// GetDisplayTitle returns a formatted title for display without year
 func (m *Media) GetDisplayTitle() string {
+	// For TV series episodes, return clean title without season/episode for frontend
+	if m.Type == "episode" {
+		if m.OriginalTitle != "" {
+			return stripYearFromTitle(m.OriginalTitle)
+		}
+		// Extract series title from episode title (remove S01E01 patterns)
+		seriesTitle := stripSeasonEpisodeFromTitle(m.Title)
+		return stripYearFromTitle(seriesTitle)
+	}
+	// For movies, just remove year
+	return stripYearFromTitle(m.Title)
+}
+
+// GetFullTitle returns the complete title with season/episode for database storage
+func (m *Media) GetFullTitle() string {
 	if m.Type == "episode" && m.Season != nil && m.Episode != nil {
 		if m.OriginalTitle != "" {
-			return fmt.Sprintf("%s S%dE%d", m.OriginalTitle, *m.Season, *m.Episode)
+			return fmt.Sprintf("%s S%dE%d", stripYearFromTitle(m.OriginalTitle), *m.Season, *m.Episode)
+		} else {
+			return fmt.Sprintf("%s S%dE%d", stripYearFromTitle(m.Title), *m.Season, *m.Episode)
 		}
-		return fmt.Sprintf("%s S%dE%d", m.Title, *m.Season, *m.Episode)
 	}
 	return m.Title
+}
+
+// stripSeasonEpisodeFromTitle removes season/episode patterns from titles
+func stripSeasonEpisodeFromTitle(title string) string {
+	if title == "" {
+		return title
+	}
+	
+	// Remove S01E01, S1E1, 1x01 patterns
+	patterns := []string{
+		`\s*[Ss]\d{1,2}[Ee]\d{1,2}.*$`,  // S01E01, S1E1 at end
+		`\s*\d{1,2}x\d{1,2}.*$`,         // 1x01 at end
+		`\s*[Ss]eason\s*\d+.*$`,         // Season 1
+		`\s*[Ee]pisode\s*\d+.*$`,        // Episode 1
+	}
+	
+	cleaned := title
+	for _, pattern := range patterns {
+		re := regexp.MustCompile(pattern)
+		cleaned = re.ReplaceAllString(cleaned, "")
+	}
+	
+	return strings.TrimSpace(cleaned)
+}
+
+// stripYearFromTitle removes year patterns from titles
+func stripYearFromTitle(title string) string {
+	if title == "" {
+		return title
+	}
+	
+	// Remove year patterns like "(2023)", " (2023)", " 2023", etc.
+	// Pattern matches: space + optional opening paren + 4 digits + optional closing paren + optional space at end
+	re := regexp.MustCompile(`\s*\(?(\d{4})\)?\s*$`)
+	cleaned := re.ReplaceAllString(title, "")
+	
+	// Also remove year patterns in the middle like "Movie (2023) Extended"
+	re2 := regexp.MustCompile(`\s*\((\d{4})\)\s*`)
+	cleaned = re2.ReplaceAllString(cleaned, " ")
+	
+	// Clean up any double spaces
+	re3 := regexp.MustCompile(`\s+`)
+	cleaned = re3.ReplaceAllString(cleaned, " ")
+	
+	return strings.TrimSpace(cleaned)
 }
 
 // GetQualityBadge returns a quality badge for UI display

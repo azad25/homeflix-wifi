@@ -11,28 +11,24 @@ import (
 func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamService *services.OptimizedStreamService, thumbnailService *services.ThumbnailService, userService *services.UserService, recommendationService *services.RecommendationService, playbackService *services.PlaybackService, geminiService *services.GeminiService, celeryService *services.CeleryService, alacService *services.ALACAudioService, tmdbService *services.TMDBService, mediaScanner *scanner.MediaScanner, watcherService *services.WatcherService) {
 	api := r.Group("/api")
 	{
-		// Media endpoints
+		// Media routes
 		api.GET("/media", handlers.GetAllMedia(mediaService))
-		api.GET("/media/:id", handlers.GetMediaByID(mediaService))
 		api.GET("/media/movies", handlers.GetMovies(mediaService))
 		api.GET("/media/tv-shows", handlers.GetTVShows(mediaService))
-		api.GET("/movies", handlers.GetMovies(mediaService))
-		api.GET("/genre/:genre", handlers.GetMediaByGenre(mediaService))
-		api.GET("/search", handlers.SearchMedia(mediaService))
+		api.GET("/media/:id", handlers.GetMediaByID(mediaService))
+		api.GET("/media/genre/:genre", handlers.GetMediaByGenre(mediaService))
 		api.GET("/media/search", handlers.SearchMedia(mediaService))
-		api.GET("/search/advanced", handlers.SearchMediaAdvanced(mediaService))
-		api.GET("/media/trending", handlers.GetTrendingMedia(mediaService))
-		api.GET("/trending", handlers.GetTrendingMedia(mediaService))
-		api.GET("/media/popular", handlers.GetPopularMedia(mediaService))
-		api.GET("/popular", handlers.GetPopularMedia(mediaService))
-		api.GET("/media/recent", handlers.GetRecentMedia(mediaService))
-		api.GET("/recent", handlers.GetRecentMedia(mediaService))
+
+		// Hierarchical TV series routes
+		api.GET("/series", handlers.GetAllSeries(mediaService))
+		api.GET("/series/:id", handlers.GetSeriesByID(mediaService))
+		api.GET("/series/:id/seasons", handlers.GetSeasonsBySeriesID(mediaService))
+		api.GET("/series/:id/seasons/:season/episodes", handlers.GetEpisodesBySeriesAndSeason(mediaService))
 
 		// Genre endpoints
 		api.GET("/genres", handlers.GetAllGenres(mediaService))
 		api.GET("/genres/:id", handlers.GetGenreByID(mediaService))
 		api.POST("/genres", handlers.CreateGenre(mediaService))
-		api.PUT("/genres/:id", handlers.UpdateGenre(mediaService))
 		api.DELETE("/genres/:id", handlers.DeleteGenre(mediaService))
 		api.GET("/genres/stats", handlers.GetGenreStats(mediaService))
 

@@ -6,6 +6,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Media } from '../types/media';
 import { getApiUrl } from '../lib/api';
 import RedLoader from './RedLoader';
+import FastLoadingImage from './FastLoadingImage';
+import UltraFastVideo from './UltraFastVideo';
 
 interface NetflixHeroSectionProps {
   featuredMedia?: Media[];
@@ -187,23 +189,28 @@ const NetflixHeroSection: React.FC<NetflixHeroSectionProps> = ({
           className="absolute inset-0"
         >
           {/* Background Image (always present) */}
-          <div
-            className="absolute inset-0 bg-cover bg-center bg-no-repeat"
-            style={{
-              backgroundImage: `url(${getBackgroundImageUrl(currentMedia)})`,
-            }}
+          <FastLoadingImage
+            src={getBackgroundImageUrl(currentMedia)}
+            alt={currentMedia.title}
+            className="absolute inset-0 w-full h-full object-cover"
+            priority="high"
+            fallbackSrc={getThumbnailUrl(currentMedia)}
           />
           
           {/* Background Video (Netflix-style) */}
           {isVideoLoaded && (
-            <video
-              ref={videoRef}
-              src={getVideoUrl(currentMedia)}
+            <UltraFastVideo
+              media={currentMedia}
               className="absolute inset-0 w-full h-full object-cover"
               muted={isMuted}
               loop
-              playsInline
-              preload="metadata"
+              autoPlay
+              onCanPlay={() => setIsPlaying(true)}
+              onError={() => {
+                setIsVideoLoaded(false);
+                setIsPlaying(false);
+              }}
+              quality="high"
             />
           )}
           

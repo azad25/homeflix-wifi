@@ -160,6 +160,10 @@ func (a *ThumbnailServiceAdapter) GeneratePreviewClip(path string, mediaID uint,
 	return a.service.GeneratePreviewClip(path, mediaID, title)
 }
 
+func (a *ThumbnailServiceAdapter) GeneratePreviewClipWithEpisodeInfo(path string, mediaID uint, title string, season *int, episode *int) (string, error) {
+	return a.service.GeneratePreviewClipWithEpisodeInfo(path, mediaID, title, season, episode)
+}
+
 func (a *ThumbnailServiceAdapter) ThumbnailExists(mediaID uint, title string) bool {
 	return a.service.ThumbnailExists(mediaID, title)
 }

@@ -5,7 +5,7 @@ import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Media } from '../../types/media';
 import NetflixMovieCard from './NetflixMovieCard';
-import MagneticButton from './MagneticButton';
+import RedLoader from '../RedLoader';
 
 interface NetflixHorizontalRowProps {
   title: string;
@@ -16,6 +16,7 @@ interface NetflixHorizontalRowProps {
   variant?: 'portrait' | 'landscape';
   size?: 'small' | 'medium' | 'large';
   showTitle?: boolean;
+  loading?: boolean;
 }
 
 const NetflixHorizontalRow: React.FC<NetflixHorizontalRowProps> = ({
@@ -26,7 +27,8 @@ const NetflixHorizontalRow: React.FC<NetflixHorizontalRowProps> = ({
   priority = false,
   variant = 'portrait',
   size = 'medium',
-  showTitle = true
+  showTitle = true,
+  loading = false
 }) => {
   const [scrollPosition, setScrollPosition] = useState(0);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
@@ -89,6 +91,23 @@ const NetflixHorizontalRow: React.FC<NetflixHorizontalRowProps> = ({
     setScrollPosition(scrollContainerRef.current.scrollLeft);
   };
 
+  if (loading) {
+    return (
+      <div className="relative group mb-8">
+        {showTitle && (
+          <div className="px-4 md:px-8 lg:px-16 mb-4">
+            <h2 className="text-white text-xl md:text-2xl font-bold">
+              {title}
+            </h2>
+          </div>
+        )}
+        <div className="flex items-center justify-center py-12">
+          <RedLoader size="medium" />
+        </div>
+      </div>
+    );
+  }
+
   if (!media || media.length === 0) return null;
 
   return (
@@ -121,12 +140,12 @@ const NetflixHorizontalRow: React.FC<NetflixHorizontalRowProps> = ({
               exit={{ opacity: 0, x: -10 }}
               className="absolute left-2 top-1/2 transform -translate-y-1/2 z-50"
             >
-              <MagneticButton
+              <button
                 onClick={scrollLeft}
-                className="bg-black/80 backdrop-blur-sm text-white p-3 rounded-full hover:bg-black/90 transition-all duration-300 border border-white/20 shadow-lg"
+                className="bg-black/80 backdrop-blur-sm text-white p-3 rounded-full hover:bg-black/90 hover:scale-110 transition-all duration-300 border border-white/20 shadow-lg cursor-pointer"
               >
                 <ChevronLeft className="w-6 h-6" />
-              </MagneticButton>
+              </button>
             </motion.div>
           )}
         </AnimatePresence>
@@ -140,12 +159,12 @@ const NetflixHorizontalRow: React.FC<NetflixHorizontalRowProps> = ({
               exit={{ opacity: 0, x: 10 }}
               className="absolute right-2 top-1/2 transform -translate-y-1/2 z-50"
             >
-              <MagneticButton
+              <button
                 onClick={scrollRight}
-                className="bg-black/80 backdrop-blur-sm text-white p-3 rounded-full hover:bg-black/90 transition-all duration-300 border border-white/20 shadow-lg"
+                className="bg-black/80 backdrop-blur-sm text-white p-3 rounded-full hover:bg-black/90 hover:scale-110 transition-all duration-300 border border-white/20 shadow-lg cursor-pointer"
               >
                 <ChevronRight className="w-6 h-6" />
-              </MagneticButton>
+              </button>
             </motion.div>
           )}
         </AnimatePresence>

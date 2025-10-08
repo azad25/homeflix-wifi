@@ -582,6 +582,65 @@ func (s *MediaService) GetTVShows() ([]models.Media, error) {
 	return media, err
 }
 
+
+// GetSeasonsBySeriesID returns all seasons for a specific series
+func (s *MediaService) GetSeasonsBySeriesID(seriesID uint) ([]map[string]interface{}, error) {
+	var episodes []models.Media
+	err := s.db.Preload("Genres").Preload("Subtitles").
+		Where("series_id = ? OR id = ?", seriesID, seriesID).
+		Where("type = ?", "episode").
+		Order("COALESCE(season_number, season, 1), COALESCE(episode_number, episode, 1)").
+		Find(&episodes).Error
+	
+	if err != nil {
+		return nil, err
+	}
+	
+	// Group episodes by season
+	seasonMap := make(map[int][]models.Media)
+	for _, ep := range episodes {
+		season := 1
+		if ep.SeasonNumber != nil {
+			season = *ep.SeasonNumber
+		} else if ep.Season != nil {
+			season = *ep.Season
+		}
+		seasonMap[season] = append(seasonMap[season], ep)
+	}
+	
+	// Convert to season objects
+	var seasons []map[string]interface{}
+	for seasonNum, seasonEpisodes := range seasonMap {
+		season := map[string]interface{}{
+			"season_number": seasonNum,
+			"name":         fmt.Sprintf("Season %d", seasonNum),
+			"episode_count": len(seasonEpisodes),
+			"episodes":     seasonEpisodes,
+		}
+		seasons = append(seasons, season)
+	}
+	
+	return seasons, nil
+}
+
+// GetEpisodesBySeriesAndSeason returns episodes for a specific series and season
+func (s *MediaService) GetEpisodesBySeriesAndSeason(seriesID uint, seasonNumber int) ([]models.Media, error) {
+	var episodes []models.Media
+	err := s.db.Preload("Genres").Preload("Subtitles").
+		Where("series_id = ? OR id = ?", seriesID, seriesID).
+		Where("type = ?", "episode").
+		Where("COALESCE(season_number, season, 1) = ?", seasonNumber).
+		Order("COALESCE(episode_number, episode, 1)").
+		Find(&episodes).Error
+	
+	// Add fallback thumbnail paths
+	for i := range episodes {
+		s.ensureThumbnailFallback(&episodes[i])
+	}
+	
+	return episodes, err
+}
+
 // UpdateAllMediaGenres updates genres for all media (placeholder implementation)
 func (s *MediaService) UpdateAllMediaGenres() error {
 	// This would typically involve analyzing media files and updating genres

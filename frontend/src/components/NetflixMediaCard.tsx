@@ -3,7 +3,9 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Play, Info, Plus, Check } from 'lucide-react';
 import { Media } from '@/types/media';
-import { getApiUrl, loadAssetWithFallback } from '@/lib/api';
+import { getApiUrl } from '@/lib/api';
+import { useAssetCache } from '@/hooks/useGlobalCache';
+import { globalCachedFetch } from '@/lib/globalApiCache';
 
 interface NetflixMediaCardProps {
   media: Media;
@@ -26,47 +28,21 @@ const NetflixMediaCard: React.FC<NetflixMediaCardProps> = ({
 }) => {
   const [isHovered, setIsHovered] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
-  const [posterUrl, setPosterUrl] = useState<string>('');
-  const [thumbnailUrl, setThumbnailUrl] = useState<string>('');
-  const [previewUrl, setPreviewUrl] = useState<string>('');
   const [imageError, setImageError] = useState(false);
   const [previewError, setPreviewError] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
+  
+  // Use global cache for assets
+  const { data: posterUrl, loading: posterLoading } = useAssetCache('poster', media.id);
+  const { data: thumbnailUrl, loading: thumbnailLoading } = useAssetCache('thumbnail', media.id);
+  const { data: previewUrl, loading: previewLoading } = useAssetCache('preview-clips', media.id);
+  
+  const isLoading = posterLoading || thumbnailLoading || (showPreviewOnHover && previewLoading);
   
   const videoRef = useRef<HTMLVideoElement>(null);
   const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const previewTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Load assets on mount
-  useEffect(() => {
-    loadAssets();
-  }, [media.id]);
-
-  const loadAssets = async () => {
-    setIsLoading(true);
-    try {
-      // Load poster first (priority), then thumbnail as fallback
-      const [poster, thumbnail, preview] = await Promise.allSettled([
-        loadAssetWithFallback('poster', media.id),
-        loadAssetWithFallback('thumbnail', media.id),
-        showPreviewOnHover ? loadAssetWithFallback('preview', media.id) : Promise.resolve('')
-      ]);
-
-      if (poster.status === 'fulfilled') {
-        setPosterUrl(poster.value);
-      } else if (thumbnail.status === 'fulfilled') {
-        setThumbnailUrl(thumbnail.value);
-      }
-
-      if (preview.status === 'fulfilled' && preview.value) {
-        setPreviewUrl(preview.value);
-      }
-    } catch (error) {
-      console.warn('Failed to load assets for media:', media.id);
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  // Assets are now loaded automatically via global cache hooks
 
   const handleMouseEnter = () => {
     setIsHovered(true);
@@ -118,9 +94,24 @@ const NetflixMediaCard: React.FC<NetflixMediaCardProps> = ({
 
   const getDisplayImage = () => {
     if (imageError) {
-      return thumbnailUrl || posterUrl;
+      return thumbnailUrl || posterUrl || '';
     }
-    return posterUrl || thumbnailUrl;
+    return posterUrl || thumbnailUrl || '';
+  };
+
+  // Generate fallback image URL with multiple attempts
+  const getFallbackImageUrl = () => {
+    const apiUrl = getApiUrl();
+    const attempts = [
+      `${apiUrl}/api/posters/${media.id}`,
+      `${apiUrl}/api/thumbnails/${media.id}`,
+      `${apiUrl}/api/assets/posters/${media.id}`,
+      `${apiUrl}/api/assets/thumbnails/${media.id}`,
+      // Cache busting fallback
+      `${apiUrl}/api/posters/${media.id}?t=${Date.now()}`,
+      `${apiUrl}/api/thumbnails/${media.id}?t=${Date.now()}`
+    ];
+    return attempts;
   };
 
   const formatRating = (rating: number) => {
@@ -165,23 +156,50 @@ const NetflixMediaCard: React.FC<NetflixMediaCardProps> = ({
           </video>
         )}
 
-        {/* Poster/Thumbnail Image */}
+        {/* Poster/Thumbnail Image with Enhanced Fallback */}
         {!showPreview && getDisplayImage() && (
           <img
             src={getDisplayImage()}
             alt={media.title}
             className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
-            onError={handleImageError}
+            onError={() => {
+              // Try fallback URLs on error
+              const fallbackUrls = getFallbackImageUrl();
+              const img = document.createElement('img');
+              let currentIndex = 0;
+              
+              const tryNextFallback = () => {
+                if (currentIndex < fallbackUrls.length) {
+                  img.src = fallbackUrls[currentIndex];
+                  img.onload = () => {
+                    // If this fallback works, update the main image
+                    const mainImg = document.querySelector(`img[alt="${media.title}"]`) as HTMLImageElement;
+                    if (mainImg) mainImg.src = fallbackUrls[currentIndex];
+                  };
+                  img.onerror = () => {
+                    currentIndex++;
+                    tryNextFallback();
+                  };
+                } else {
+                  handleImageError();
+                }
+              };
+              
+              tryNextFallback();
+            }}
             loading={priority === 'high' ? 'eager' : 'lazy'}
           />
         )}
 
-        {/* Fallback for missing images */}
+        {/* Enhanced Fallback for missing images */}
         {!getDisplayImage() && !isLoading && (
           <div className="absolute inset-0 bg-gradient-to-br from-gray-700 to-gray-900 flex items-center justify-center">
             <div className="text-center text-gray-400">
-              <div className="text-2xl mb-2">🎬</div>
-              <div className="text-xs font-medium">{media.title}</div>
+              <div className="text-3xl mb-2">{media.type === 'movie' ? '🎬' : '📺'}</div>
+              <div className="text-xs font-medium px-2 leading-tight">{media.title}</div>
+              <div className="text-xs text-gray-500 mt-1">
+                {media.type === 'episode' ? 'TV Series' : media.type?.toUpperCase()}
+              </div>
             </div>
           </div>
         )}

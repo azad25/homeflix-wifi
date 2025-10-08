@@ -8,8 +8,8 @@ import { getApiUrl } from '@/lib/api';
 import Image from 'next/image';
 
 interface EpisodeListProps {
-  seriesId: number;
-  currentEpisodeId?: number;
+  seriesId: number | string;
+  currentEpisodeId?: number | string;
   onEpisodeSelect: (episode: Media) => void;
 }
 
@@ -36,11 +36,11 @@ const EpisodeList: React.FC<EpisodeListProps> = ({
       // Filter episodes for this series and season
       const seriesEpisodes = allMedia.filter(
         (m: Media) => 
-          m.series_id === seriesId && 
-          m.season_number === selectedSeason &&
+          (m.series_id === seriesId || m.uuid === seriesId) && 
+          (m.season_number === selectedSeason || m.season === selectedSeason) &&
           m.type === 'episode'
       ).sort((a: Media, b: Media) => 
-        (a.episode_number || 0) - (b.episode_number || 0)
+        (a.episode_number || a.episode || 0) - (b.episode_number || b.episode || 0)
       );
       
       setEpisodes(seriesEpisodes);
@@ -140,12 +140,12 @@ const EpisodeList: React.FC<EpisodeListProps> = ({
                 <div className="relative flex-shrink-0">
                   <div className="w-40 h-24 bg-zinc-800 rounded overflow-hidden relative">
                     <Image
-                      src={`${getApiUrl()}/api/posters/${episode.id}`}
+                      src={`${getApiUrl()}/api/posters/${episode.uuid || episode.id}`}
                       alt={episode.title}
                       fill
                       onError={(e) => {
                         const target = e.target as HTMLImageElement;
-                        target.src = `${getApiUrl()}/api/thumbnails/${episode.id}`;
+                        target.src = `${getApiUrl()}/api/thumbnails/${episode.uuid || episode.id}`;
                         // If thumbnail also fails, hide the image
                         target.onerror = () => {
                           target.style.display = 'none';

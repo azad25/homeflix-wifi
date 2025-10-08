@@ -3,12 +3,14 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Play, Info, Plus, Check, ChevronDown, Volume2, VolumeX, Clock, Star, ThumbsUp } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import Image from 'next/image';
 import { Media } from '@/types/media';
 import { getApiUrl } from '@/lib/api';
 import { useRouter } from 'next/navigation';
 import { useAudio } from '@/contexts/EnhancedAudioContext';
 import { cleanMovieTitle } from '@/lib/titleUtils';
+import FastLoadingImage from '../FastLoadingImage';
+import UltraFastPreview from '../UltraFastPreview';
+import RedLoader from '../RedLoader';
 
 interface NetflixMovieCardProps {
   media: Media;
@@ -41,6 +43,7 @@ const NetflixMovieCard: React.FC<NetflixMovieCardProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [imageError, setImageError] = useState(false);
   const [fallbackError, setFallbackError] = useState(false);
+  const [imageLoading, setImageLoading] = useState(true);
   const videoRef = useRef<HTMLVideoElement>(null);
   const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const { setCurrentAudioElement, muteAll } = useAudio();
@@ -187,11 +190,13 @@ const NetflixMovieCard: React.FC<NetflixMovieCardProps> = ({
 
   const handleVideoLoad = () => {
     setIsVideoLoaded(true);
+    setIsPlaying(true);
   };
 
-  const handleVideoError = () => {
+  const handleVideoError = (error?: any) => {
     setIsVideoLoaded(false);
     setIsPlaying(false);
+    console.error('Video preview error:', error);
   };
 
   const formatDuration = (seconds: number) => {
@@ -240,16 +245,16 @@ const NetflixMovieCard: React.FC<NetflixMovieCardProps> = ({
       >
         {/* Thumbnail Image */}
         {!fallbackError ? (
-          <Image
+          <FastLoadingImage
             src={imageError ? getFallbackThumbnailUrl() : getThumbnailUrl()}
             alt={cleanMovieTitle(media.title)}
-            fill
-            sizes="(max-width: 768px) 50vw, (max-width: 1200px) 33vw, 25vw"
-            className={`object-cover transition-opacity duration-300 ${
+            className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-300 ${
               showPreview && isVideoLoaded ? 'opacity-0' : 'opacity-100'
             }`}
-            loading={priority ? "eager" : "lazy"}
+            priority={priority ? "high" : "low"}
             onError={handleImageError}
+            onLoad={() => setImageLoading(false)}
+            fallbackSrc={getFallbackThumbnailUrl()}
           />
         ) : (
           <div className="w-full h-full bg-gradient-to-br from-gray-700 via-gray-800 to-gray-900 flex items-center justify-center">
@@ -262,16 +267,15 @@ const NetflixMovieCard: React.FC<NetflixMovieCardProps> = ({
 
         {/* Preview Video */}
         {showPreview && (
-          <video
-            ref={videoRef}
-            src={getPreviewUrl()}
+          <UltraFastPreview
+            media={media}
             className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-300 ${
               isVideoLoaded ? 'opacity-100' : 'opacity-0'
             }`}
             muted={isMuted}
             loop
-            playsInline
-            onLoadedData={handleVideoLoad}
+            autoPlay
+            onCanPlay={handleVideoLoad}
             onError={handleVideoError}
           />
         )}
@@ -311,7 +315,7 @@ const NetflixMovieCard: React.FC<NetflixMovieCardProps> = ({
                 className="bg-white/20 backdrop-blur-sm rounded-full p-3 hover:bg-white/30 transition-all duration-200 cursor-pointer border border-white/30"
               >
                 {isLoading ? (
-                  <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  <RedLoader size="small" />
                 ) : (
                   <Play className="w-6 h-6 text-white fill-white" />
                 )}
@@ -377,7 +381,7 @@ const NetflixMovieCard: React.FC<NetflixMovieCardProps> = ({
                 className="bg-white text-black px-3 py-1.5 rounded-md font-bold hover:bg-gray-200 transition-colors duration-200 flex items-center gap-2 cursor-pointer text-sm"
               >
                 {isLoading ? (
-                  <div className="w-3 h-3 border-2 border-black border-t-transparent rounded-full animate-spin" />
+                  <RedLoader size="small" />
                 ) : (
                   <Play className="w-3 h-3 fill-current" />
                 )}

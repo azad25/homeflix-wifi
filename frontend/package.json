@@ -4,13 +4,16 @@
   "private": true,
   "scripts": {
     "dev": "next dev --turbopack -p 3008 -H 0.0.0.0",
-    "build": "next build --turbopack",
+    "build": "SKIP_ENV_VALIDATION=true next build --turbopack",
+    "build-no-lint": "next build --turbopack",
     "start": "next start -p 3008 -H 0.0.0.0",
     "lint": "eslint"
   },
   "dependencies": {
     "@radix-ui/react-select": "^2.2.6",
     "@radix-ui/react-slot": "^1.2.3",
+    "@tanstack/react-query": "^5.90.2",
+    "@tanstack/react-query-devtools": "^5.90.2",
     "@videojs/themes": "^1.0.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

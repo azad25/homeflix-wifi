@@ -8,11 +8,11 @@ services:
     environment:
       - PORT=8251
       - DATABASE_URL=./homeflix.db
-      - MEDIA_PATH=/media/azad/Movies
+      - MEDIA_PATH=/media/azad/Movies1
       - THUMBNAIL_PATH=./thumbnails
       - LOG_LEVEL=info
     volumes:
-      - /media/azad/Movies:/media/azad/Movies:ro
+      - /media/azad/Movies1:/media/azad/Movies1:ro
       - ./backend/thumbnails:/app/thumbnails
       - ./backend/posters:/app/posters
     restart: unless-stopped

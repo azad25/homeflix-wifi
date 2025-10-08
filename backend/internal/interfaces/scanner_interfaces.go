@@ -74,6 +74,7 @@ type MediaServiceInterface interface {
 type ThumbnailServiceInterface interface {
 	GenerateThumbnail(path string, mediaID uint, title string) (string, error)
 	GeneratePreviewClip(path string, mediaID uint, title string) (string, error)
+	GeneratePreviewClipWithEpisodeInfo(path string, mediaID uint, title string, season *int, episode *int) (string, error)
 	GenerateThumbnailAsync(path string, mediaID uint, title string) (string, error)
 	GeneratePreviewClipAsync(path string, mediaID uint, title string) (string, error)
 	ThumbnailExists(mediaID uint, title string) bool

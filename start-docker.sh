@@ -21,7 +21,7 @@ echo "✅ Docker found!"
 LOCAL_IP=$(ip route get 1.1.1.1 | grep -oP 'src \K\S+' 2>/dev/null || hostname -I | awk '{print $1}')
 
 # Create media directory if it doesn't exist
-MEDIA_PATH="/media/azad/Movies"
+MEDIA_PATH="/media/azad/Movies1"
 if [ ! -d "$MEDIA_PATH" ]; then
     echo "📁 Creating media directory: $MEDIA_PATH"
     sudo mkdir -p "$MEDIA_PATH"

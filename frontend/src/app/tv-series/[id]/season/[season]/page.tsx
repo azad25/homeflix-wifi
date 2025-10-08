@@ -52,7 +52,7 @@ export default function SeasonPage() {
     try {
       const apiUrl = getApiUrl();
       
-      // Get series info
+      // Get series info - handle both UUID and ID
       const seriesResponse = await fetch(`${apiUrl}/api/media/${params.id}`);
       const seriesData = await seriesResponse.json();
       setSeries(seriesData);
@@ -73,7 +73,7 @@ export default function SeasonPage() {
         
         if (!belongsToSeries) return false;
         
-        const episodeSeasonNum = extractSeasonNumber(media.title);
+        const episodeSeasonNum = extractSeasonNumber(media.title) || media.season_number;
         return episodeSeasonNum === seasonNumber;
       });
 
@@ -148,7 +148,7 @@ export default function SeasonPage() {
 
   const handleInfo = (episode: Episode) => {
     if (episode.media) {
-      router.push(`/movie/${episode.media.id}`);
+      router.push(`/movie/${episode.media.uuid || episode.media.id}`);
     }
   };
 

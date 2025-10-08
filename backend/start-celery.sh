@@ -44,26 +44,26 @@ echo "📁 Created processing directories"
 # Start Celery workers in background
 echo "🔥 Starting Celery workers..."
 
-# High Priority Queues
+# Optimized for i5-4590 (4 cores) - Total: 8 workers max
 echo "  🤖 Starting Metadata worker (High Priority)..."
-celery -A celery_app worker -Q metadata -n metadata_worker@%h --loglevel=info --concurrency=4 --detach
+celery -A celery_app worker -Q metadata -n metadata_worker@%h --loglevel=info --concurrency=2 --max-tasks-per-child=50 --detach
 
 echo "  🖼️ Starting Thumbnails worker (High Priority)..."
-celery -A celery_app worker -Q thumbnails -n thumbnails_worker@%h --loglevel=info --concurrency=6 --detach
+celery -A celery_app worker -Q thumbnails -n thumbnails_worker@%h --loglevel=info --concurrency=2 --max-tasks-per-child=30 --detach
 
 # Medium Priority Queues
 echo "  🎬 Starting Posters worker (Medium Priority)..."
-celery -A celery_app worker -Q posters -n posters_worker@%h --loglevel=info --concurrency=3 --detach
+celery -A celery_app worker -Q posters -n posters_worker@%h --loglevel=info --concurrency=1 --max-tasks-per-child=50 --detach
 
 echo "  📹 Starting Video Processing worker (Medium Priority)..."
-celery -A celery_app worker -Q video_processing -n video_worker@%h --loglevel=info --concurrency=2 --detach
+celery -A celery_app worker -Q video_processing -n video_worker@%h --loglevel=info --concurrency=1 --max-tasks-per-child=20 --detach
 
 # Low Priority Queues
 echo "  📝 Starting Subtitles worker (Low Priority)..."
-celery -A celery_app worker -Q subtitles -n subtitles_worker@%h --loglevel=info --concurrency=2 --detach
+celery -A celery_app worker -Q subtitles -n subtitles_worker@%h --loglevel=info --concurrency=1 --max-tasks-per-child=50 --detach
 
 echo "  🔍 Starting Scanning worker (Low Priority)..."
-celery -A celery_app worker -Q scanning -n scanning_worker@%h --loglevel=info --concurrency=1 --detach
+celery -A celery_app worker -Q scanning -n scanning_worker@%h --loglevel=info --concurrency=1 --max-tasks-per-child=100 --detach
 
 # Start Celery Bridge Service
 echo "  🌉 Starting Celery Bridge Service..."

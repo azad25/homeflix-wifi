@@ -4,7 +4,8 @@ import React, { useState, useEffect } from 'react';
 import { RotateCcw } from 'lucide-react';
 import { Media } from '@/types/media';
 import { getApiUrl } from '@/lib/api';
-import NetflixCard from './NetflixCard';
+import ContinueWatchingCard from './ContinueWatchingCard';
+import { useGlobalCache } from '@/hooks/useGlobalCache';
 
 interface ContinueWatchingItem {
   id: number;
@@ -28,109 +29,66 @@ export const ContinueWatching: React.FC<ContinueWatchingProps> = ({
   onInfo
 }) => {
   const [continueItems, setContinueItems] = useState<ContinueWatchingItem[]>([]);
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  
+  // Use global cache for continue watching data
+  const { data: continueData, loading } = useGlobalCache<ContinueWatchingItem[]>(
+    `${getApiUrl()}/api/playback/continue?limit=20`,
+    { headers: { 'X-User-ID': '1' } },
+    { customTTL: 2 * 60 * 1000 } // 2 minutes cache for user progress data
+  );
 
   useEffect(() => {
-    fetchContinueWatching();
-  }, []);
-
-  const fetchContinueWatching = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const apiUrl = getApiUrl();
-      const response = await fetch(`${apiUrl}/api/playback/continue?limit=20`, {
-        headers: {
-          'X-User-ID': '1' // Default user for now
-        }
-      });
+    // Update continue watching items when cache data is available
+    if (continueData) {
+      // Filter and process the data
+      const validItems = continueData
+        .filter((item: ContinueWatchingItem) => {
+          // Must have valid media data
+          if (!item.media || !item.media.id || !item.media.title) {
+            return false;
+          }
+          
+          // Must have meaningful progress (not at beginning or end)
+          if (item.progress === undefined || item.progress <= 1 || item.progress >= 98) {
+            return false;
+          }
+          
+          // Must have valid position and duration
+          if (item.position === undefined || item.duration === undefined || item.duration <= 0) {
+            return false;
+          }
+          
+          // Filter out test content
+          const title = item.media.title.toLowerCase();
+          if (title.includes('test_') || title.includes('placeholder_') || title.includes('sample_')) {
+            return false;
+          }
+          
+          return true;
+        })
+        // Remove duplicates based on media_id
+        .filter((item: ContinueWatchingItem, index: number, array: ContinueWatchingItem[]) => {
+          return array.findIndex(i => i.media_id === item.media_id) === index;
+        })
+        // Sort by last watched (most recent first)
+        .sort((a: ContinueWatchingItem, b: ContinueWatchingItem) => {
+          return new Date(b.last_watched).getTime() - new Date(a.last_watched).getTime();
+        })
+        // Limit to 10 items
+        .slice(0, 10);
       
-      if (response.ok) {
-        const data = await response.json();
-        
-        // Filter out duplicates, invalid items, and ensure we have real content
-        const validItems = (data || [])
-          .filter((item: ContinueWatchingItem) => {
-            // Must have valid media object
-            if (!item.media || !item.media.id || !item.media.title) {
-              return false;
-            }
-            
-            // More lenient progress filtering (between 1% and 98%)
-            if (item.progress === undefined || item.progress <= 1 || item.progress >= 98) {
-              return false;
-            }
-            
-            // Must have valid position and duration (more lenient)
-            if (item.position === undefined || item.duration === undefined || item.duration <= 0) {
-              return false;
-            }
-            
-            // Filter out obvious placeholder or test content
-            const title = item.media.title.toLowerCase();
-            if (title.includes('test_') || title.includes('placeholder_') || title.includes('sample_')) {
-              return false;
-            }
-            
-            return true;
-          })
-          // Remove duplicates based on media_id
-          .filter((item: ContinueWatchingItem, index: number, array: ContinueWatchingItem[]) => {
-            return array.findIndex(i => i.media_id === item.media_id) === index;
-          })
-          // Sort by last watched (most recent first)
-          .sort((a: ContinueWatchingItem, b: ContinueWatchingItem) => {
-            return new Date(b.last_watched).getTime() - new Date(a.last_watched).getTime();
-          })
-          // Limit to 10 items
-          .slice(0, 10);
-        
-        setContinueItems(validItems);
-        console.log(`✅ Loaded ${validItems.length} valid continue watching items`);
-        
-        // Debug logging for continue watching data
-        if (data && data.length > 0) {
-          console.log('� Contintue watching raw data:', data.length, 'items');
-          console.log('📊 Sample item:', data[0]);
-          console.log('📊 Filtered to:', validItems.length, 'valid items');
-        } else {
-          console.log('📝 No continue watching data returned from API');
-        }
-
-        // Additional debugging for filtered items
-        if (data && data.length > 0 && validItems.length === 0) {
-          console.log('🔍 All items were filtered out. Checking reasons...');
-          data.forEach((item: ContinueWatchingItem, idx: number) => {
-            if (idx < 5) { // Check first 5 items
-              const reasons = [];
-              if (!item.media || !item.media.id || !item.media.title) reasons.push('invalid media');
-              if (item.progress === undefined || item.progress <= 1 || item.progress >= 98) reasons.push(`progress: ${item.progress}%`);
-              if (item.position === undefined || item.duration === undefined || item.duration <= 0) reasons.push('invalid position/duration');
-              const title = item.media?.title?.toLowerCase() || '';
-              if (title.includes('test_') || title.includes('placeholder_') || title.includes('sample_')) reasons.push('test content');
-              
-              console.log(`🔍 Item ${idx + 1} (${item.media?.title}): filtered because: ${reasons.join(', ')}`);
-            }
-          });
-        }
-      } else if (response.status === 404) {
-        // No continue watching data found - this is normal for new users
-        setContinueItems([]);
-        console.log('📝 No continue watching data found - user hasn\'t started watching anything yet');
-      } else {
-        // Log the response for debugging
-        const errorText = await response.text();
-        console.error('❌ Continue watching API error:', response.status, errorText);
-        throw new Error(`Failed to fetch continue watching items: ${response.status}`);
-      }
-    } catch (error) {
-      console.error('Failed to fetch continue watching:', error);
-      setError('Failed to load continue watching items');
-    } finally {
-      setLoading(false);
+      setContinueItems(validItems);
+      setError(null);
+      console.log(`✅ Loaded ${validItems.length} valid continue watching items`);
     }
+  }, [continueData]);
+
+  const refreshData = () => {
+    // Force refresh by invalidating cache
+    window.location.reload();
   };
+
 
 
 
@@ -168,7 +126,7 @@ export const ContinueWatching: React.FC<ContinueWatchingProps> = ({
           <div className="bg-red-900/20 border border-red-500/30 rounded-lg p-6 text-center">
             <p className="text-red-400 mb-4">{error}</p>
             <button
-              onClick={fetchContinueWatching}
+              onClick={refreshData}
               className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg transition-colors"
             >
               Try Again
@@ -190,7 +148,7 @@ export const ContinueWatching: React.FC<ContinueWatchingProps> = ({
           Continue Watching
         </h2>
         <button
-          onClick={fetchContinueWatching}
+          onClick={refreshData}
           className="text-gray-400 hover:text-white transition-colors p-2 rounded-lg hover:bg-white/10"
           title="Refresh"
         >
@@ -206,25 +164,13 @@ export const ContinueWatching: React.FC<ContinueWatchingProps> = ({
             }
           `}</style>
           {continueItems.map((item, index) => (
-            <div key={item.id} className="flex-none w-64 md:w-80 relative">
-              <NetflixCard
-                media={item.media}
-                onPlay={(media) => onPlay(media, item.position)}
+            <div key={item.id} className="flex-none w-64 md:w-80">
+              <ContinueWatchingCard
+                item={item}
+                onPlay={onPlay}
                 onInfo={onInfo}
-                priority={index < 3}
-                delay={index * 100}
+                priority={index < 3 ? "high" : "normal"}
               />
-              {/* Progress indicator */}
-              <div className="absolute bottom-2 left-2 right-2 bg-black/50 rounded-full h-1">
-                <div 
-                  className="bg-red-600 h-full rounded-full transition-all duration-300"
-                  style={{ width: `${Math.min(Math.max(item.progress, 0), 100)}%` }}
-                />
-              </div>
-              {/* Progress text */}
-              <div className="absolute bottom-4 right-2 bg-black/70 text-white text-xs px-2 py-1 rounded">
-                {Math.round(item.progress)}%
-              </div>
             </div>
           ))}
         </div>

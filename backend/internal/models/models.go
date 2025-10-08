@@ -218,3 +218,4 @@ type Recommendation struct {
 	Clicked     bool    `json:"clicked"`     // track if user clicked on recommendation
 	ClickedAt   *time.Time `json:"clicked_at,omitempty"`
 }
+

@@ -7,7 +7,8 @@ import Image from 'next/image';
 import Navbar from "@/components/Navbar";
 import { Media } from '../../types/media';
 import VideoPlayer from "@/components/VideoPlayer";
-import { getApiUrl, preloadAssets } from '@/lib/api';
+import { getApiUrl } from '@/lib/api';
+import { useGlobalCache } from '@/hooks/useGlobalCache';
 import NetflixMediaCard from '@/components/NetflixMediaCard';
 import { MagneticButton } from '@/components/scrollx';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -22,34 +23,26 @@ export default function MyListPage() {
   const [sortBy, setSortBy] = useState<string>("added");
   const [selectedMedia, setSelectedMedia] = useState<Media | null>(null);
   const [isPlayerOpen, setIsPlayerOpen] = useState(false);
-  const [loading, setLoading] = useState(true);
+  
+  // Use global cache for wishlist data
+  const { data: wishlistData, loading } = useGlobalCache<Media[]>(
+    `${getApiUrl()}/api/wishlist`,
+    {},
+    { customTTL: 5 * 60 * 1000 } // 5 minutes cache for user data
+  );
 
   useEffect(() => {
-    fetchWatchlist();
-  }, []);
+    // Update watchlist when cache data is available
+    if (wishlistData) {
+      setWatchlist(wishlistData);
+    }
+  }, [wishlistData]);
 
   useEffect(() => {
     filterAndSortList();
   }, [watchlist, filterType, sortBy]);
 
-  const fetchWatchlist = async () => {
-    try {
-      const apiUrl = getApiUrl();
-      const wishlistMedia = await fetchWishlistMedia(apiUrl);
-      setWatchlist(wishlistMedia);
-      
-      // Preload assets for better performance
-      if (wishlistMedia.length > 0) {
-        preloadAssets(wishlistMedia, ['poster', 'thumbnail']);
-      }
-      
-      setLoading(false);
-    } catch (error) {
-      console.error("Error fetching wishlist:", error);
-      setWatchlist([]);
-      setLoading(false);
-    }
-  };
+  // Wishlist data is now loaded automatically via global cache
 
   const filterAndSortList = () => {
     let filtered = [...watchlist];
@@ -116,8 +109,8 @@ export default function MyListPage() {
     <div className="min-h-screen bg-gradient-to-b from-red-900/20 via-black to-black">
       <Navbar />
 
-      {/* Header Section */}
-      <div className="pt-20 px-4 md:px-8 lg:px-16">
+      {/* Content Grid */}
+      <div className="pt-24 px-4 md:px-8 lg:px-16 pb-24">
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
           <div>
             <h1 className="text-4xl font-bold text-white mb-2 flex items-center gap-3 tracking-wider">

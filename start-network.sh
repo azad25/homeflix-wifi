@@ -20,7 +20,7 @@ echo "   Frontend:    http://$LOCAL_IP:3006"
 echo ""
 
 # Set environment variables
-export MEDIA_PATH=${MEDIA_PATH:-"/media/azad/Movies"}
+export MEDIA_PATH=${MEDIA_PATH:-"/media/azad/Movies1"}
 export THUMBNAIL_PATH=${THUMBNAIL_PATH:-"./thumbnails"}
 export DATABASE_URL=${DATABASE_URL:-"./homeflix.db"}
 export PORT=8251

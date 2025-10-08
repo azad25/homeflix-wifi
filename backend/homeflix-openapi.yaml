@@ -1,0 +1,2517 @@
+openapi: 3.0.3
+info:
+  title: HomeFlix API
+  description: |
+    A comprehensive Netflix clone API for streaming personal media collections.
+    
+    Features:
+    - Media library management with automatic scanning
+    - High-quality video streaming with HLS/DASH support
+    - ALAC lossless audio streaming with spatial audio
+    - AI-powered metadata generation and recommendations
+    - Distributed task processing with Celery
+    - Real-time file monitoring and processing
+    
+    Built with Go backend, Next.js frontend, and modern streaming technologies.
+  version: 1.0.0
+  contact:
+    name: HomeFlix API Support
+    url: https://github.com/homeflix/homeflix
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://localhost:8251/api
+    description: Development server
+  - url: https://api.homeflix.local/api
+    description: Production server
+
+paths:
+  # Media Management Endpoints
+  /media:
+    get:
+      tags: [Media]
+      summary: Get all media
+      description: Retrieve all media items in the library
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 100
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+        - name: genre
+          in: query
+          schema:
+            type: string
+        - name: type
+          in: query
+          schema:
+            type: string
+            enum: [movie, tv-show, episode]
+      responses:
+        '200':
+          description: List of media items
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Media'
+                  total:
+                    type: integer
+                  limit:
+                    type: integer
+                  offset:
+                    type: integer
+
+  /media/{id}:
+    get:
+      tags: [Media]
+      summary: Get media by ID
+      description: Retrieve a specific media item by UUID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Media item details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Media'
+        '404':
+          description: Media not found
+
+  /media/movies:
+    get:
+      tags: [Media]
+      summary: Get all movies
+      description: Retrieve all movie items
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: genre
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of movies
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Media'
+
+  /media/tv-shows:
+    get:
+      tags: [Media]
+      summary: Get all TV shows
+      description: Retrieve all TV show series
+      responses:
+        '200':
+          description: List of TV shows
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Media'
+
+  /media/trending:
+    get:
+      tags: [Media]
+      summary: Get trending media
+      description: Retrieve currently trending media items
+      responses:
+        '200':
+          description: List of trending media
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Media'
+
+  /media/popular:
+    get:
+      tags: [Media]
+      summary: Get popular media
+      description: Retrieve popular media items based on view counts
+      responses:
+        '200':
+          description: List of popular media
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Media'
+
+  /media/recent:
+    get:
+      tags: [Media]
+      summary: Get recent media
+      description: Retrieve recently added media items
+      responses:
+        '200':
+          description: List of recent media
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Media'
+
+  /search:
+    get:
+      tags: [Search]
+      summary: Search media
+      description: Search for media by title, genre, actor, director, etc.
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Search query
+        - name: type
+          in: query
+          schema:
+            type: string
+            enum: [movie, tv-show, episode]
+        - name: genre
+          in: query
+          schema:
+            type: string
+        - name: year
+          in: query
+          schema:
+            type: integer
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: Search results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  results:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Media'
+                  total:
+                    type: integer
+                  query:
+                    type: string
+
+  /search/advanced:
+    get:
+      tags: [Search]
+      summary: Advanced search
+      description: Advanced search with multiple filters
+      parameters:
+        - name: title
+          in: query
+          schema:
+            type: string
+        - name: genre
+          in: query
+          schema:
+            type: string
+        - name: year_min
+          in: query
+          schema:
+            type: integer
+        - name: year_max
+          in: query
+          schema:
+            type: integer
+        - name: rating_min
+          in: query
+          schema:
+            type: number
+            format: float
+        - name: duration_min
+          in: query
+          schema:
+            type: integer
+        - name: duration_max
+          in: query
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Advanced search results
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Media'
+
+  # Alias endpoints for backward compatibility
+  /movies:
+    get:
+      tags: [Media]
+      summary: Get all movies (alias)
+      description: Alias for /media/movies
+      responses:
+        '200':
+          description: List of movies
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Media'
+
+  /trending:
+    get:
+      tags: [Media]
+      summary: Get trending media (alias)
+      description: Alias for /media/trending
+      responses:
+        '200':
+          description: List of trending media
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Media'
+
+  /popular:
+    get:
+      tags: [Media]
+      summary: Get popular media (alias)
+      description: Alias for /media/popular
+      responses:
+        '200':
+          description: List of popular media
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Media'
+
+  /recent:
+    get:
+      tags: [Media]
+      summary: Get recent media (alias)
+      description: Alias for /media/recent
+      responses:
+        '200':
+          description: List of recent media
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Media'
+
+  /genre/{genre}:
+    get:
+      tags: [Media]
+      summary: Get media by genre
+      description: Retrieve media items filtered by genre
+      parameters:
+        - name: genre
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Media items in genre
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Media'
+
+  /media/search:
+    get:
+      tags: [Search]
+      summary: Search media (alias)
+      description: Alias for /search endpoint
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Search results
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Media'
+
+  # TV Series and Season Endpoints
+  /media/series-with-seasons:
+    get:
+      tags: [Media]
+      summary: Get series with seasons
+      description: Get all TV series with their seasons and episodes
+      responses:
+        '200':
+          description: Series with nested seasons
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  allOf:
+                    - $ref: '#/components/schemas/Media'
+                    - type: object
+                      properties:
+                        seasons:
+                          type: array
+                          items:
+                            $ref: '#/components/schemas/Season'
+
+  /media/series/{id}/seasons:
+    get:
+      tags: [Media]
+      summary: Get series seasons
+      description: Get seasons for specific TV series
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Series with seasons
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Media'
+                  - type: object
+                    properties:
+                      seasons:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Season'
+
+  /media/series/{id}/seasons-list:
+    get:
+      tags: [Media]
+      summary: Get seasons list
+      description: Get list of seasons for TV series
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: List of seasons
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Season'
+
+  /media/tv-series-hero:
+    get:
+      tags: [Media]
+      summary: Get TV series for hero section
+      description: Get TV series optimized for hero section display
+      responses:
+        '200':
+          description: TV series for hero section
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Media'
+
+  # Streaming Endpoints
+  /stream/{id}:
+    get:
+      tags: [Streaming]
+      summary: Stream media content
+      description: Stream video content with automatic ALAC audio integration
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: quality
+          in: query
+          schema:
+            type: string
+            enum: [auto, 1080p, 720p, 480p, 360p]
+            default: auto
+        - name: format
+          in: query
+          schema:
+            type: string
+            enum: [mp4, hls, dash]
+            default: mp4
+      responses:
+        '200':
+          description: Video stream
+          content:
+            video/mp4:
+              schema:
+                type: string
+                format: binary
+            application/vnd.apple.mpegurl:
+              schema:
+                type: string
+                format: binary
+            application/dash+xml:
+              schema:
+                type: string
+                format: binary
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /preview-clips/{id}:
+    get:
+      tags: [Streaming]
+      summary: Stream preview clip
+      description: Stream short preview clip for media
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Preview clip stream
+          content:
+            video/mp4:
+              schema:
+                type: string
+                format: binary
+
+  /media/{id}/alac-audio:
+    get:
+      tags: [Streaming]
+      summary: Stream ALAC audio
+      description: Stream high-quality ALAC audio for media
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: ALAC audio stream
+          content:
+            audio/alac:
+              schema:
+                type: string
+                format: binary
+
+  # Asset Endpoints
+  /thumbnails/{id}:
+    get:
+      tags: [Assets]
+      summary: Get thumbnail
+      description: Retrieve thumbnail image for media
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: size
+          in: query
+          schema:
+            type: string
+            enum: [small, medium, large]
+            default: medium
+      responses:
+        '200':
+          description: Thumbnail image
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+            image/png:
+              schema:
+                type: string
+                format: binary
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags: [Assets]
+      summary: Generate thumbnail
+      description: Generate thumbnail for media (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Thumbnail generation started
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  task_id:
+                    type: string
+
+  /posters/{id}:
+    get:
+      tags: [Assets]
+      summary: Get poster
+      description: Retrieve poster image for media
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Poster image
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+            image/png:
+              schema:
+                type: string
+                format: binary
+
+  /previews/{id}:
+    get:
+      tags: [Assets]
+      summary: Get preview
+      description: Retrieve preview content for media
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Preview content
+          content:
+            video/mp4:
+              schema:
+                type: string
+                format: binary
+
+  /subtitles/{id}:
+    get:
+      tags: [Assets]
+      summary: Get subtitles
+      description: Retrieve subtitle files for media
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: lang
+          in: query
+          schema:
+            type: string
+            default: en
+      responses:
+        '200':
+          description: Subtitle file
+          content:
+            text/vtt:
+              schema:
+                type: string
+            application/x-subrip:
+              schema:
+                type: string
+
+  # ALAC Audio Endpoints
+  /audio/alac/{id}:
+    get:
+      tags: [ALAC Audio]
+      summary: Get ALAC audio
+      description: Retrieve high-quality ALAC audio stream
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: ALAC audio stream
+          content:
+            audio/alac:
+              schema:
+                type: string
+                format: binary
+
+  /audio/alac/{id}/extract:
+    post:
+      tags: [ALAC Audio]
+      summary: Extract ALAC audio
+      description: Extract ALAC audio from media file
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: ALAC extraction started
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  task_id:
+                    type: string
+
+  /audio/alac/{id}/metadata:
+    get:
+      tags: [ALAC Audio]
+      summary: Get ALAC metadata
+      description: Retrieve ALAC audio metadata
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: ALAC metadata
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ALACMetadata'
+
+  /audio/alac/{id}/spatial/{layout}:
+    post:
+      tags: [ALAC Audio]
+      summary: Convert to spatial audio
+      description: Convert ALAC audio to spatial audio format
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: layout
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [stereo, 5.1, 7.1, 7.1.4, atmos]
+      responses:
+        '200':
+          description: Spatial audio conversion started
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  task_id:
+                    type: string
+
+  /audio/formats:
+    get:
+      tags: [ALAC Audio]
+      summary: Get supported audio formats
+      description: Retrieve list of supported audio formats
+      responses:
+        '200':
+          description: Supported audio formats
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  formats:
+                    type: array
+                    items:
+                      type: string
+                  codecs:
+                    type: array
+                    items:
+                      type: string
+
+  # Alternative Asset Endpoints
+  /assets/thumbnails/{id}:
+    get:
+      tags: [Assets]
+      summary: Get thumbnail (alternative endpoint)
+      description: Alternative endpoint for thumbnail retrieval
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Thumbnail image
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+
+  /assets/previews/{id}:
+    get:
+      tags: [Assets]
+      summary: Get preview (alternative endpoint)
+      description: Alternative endpoint for preview retrieval
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Preview content
+          content:
+            video/mp4:
+              schema:
+                type: string
+                format: binary
+
+  /assets/posters/{id}:
+    get:
+      tags: [Assets]
+      summary: Get poster (alternative endpoint)
+      description: Alternative endpoint for poster retrieval
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Poster image
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+
+  # Additional ALAC Audio Endpoints
+  /admin/alac/cleanup-oversized:
+    post:
+      tags: [ALAC Audio]
+      summary: Cleanup oversized audio files
+      description: Remove oversized ALAC audio files to free space
+      responses:
+        '200':
+          description: Cleanup started
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  files_removed:
+                    type: integer
+
+  /audio/alac/{id}/info:
+    get:
+      tags: [ALAC Audio]
+      summary: Get audio file info
+      description: Get detailed information about ALAC audio file
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Audio file information
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ALACMetadata'
+
+  # Playback Initialization
+  /playback/initialize/{id}:
+    post:
+      tags: [Playback]
+      summary: Initialize playback progress
+      description: Initialize playback tracking for media
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Playback initialized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaybackProgress'
+
+  /playback/recently-watched:
+    get:
+      tags: [Playback]
+      summary: Get recently watched (alias)
+      description: Alias for /playback/recent
+      responses:
+        '200':
+          description: Recently watched media
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Media'
+
+  # Enhanced Recommendation Endpoints
+  /recommendations/unique:
+    get:
+      tags: [Recommendations]
+      summary: Get unique recommendations
+      description: Get unique content recommendations
+      responses:
+        '200':
+          description: Unique recommendations
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ScoredMedia'
+
+  /recommendations/trending:
+    get:
+      tags: [Recommendations]
+      summary: Get trending recommendations
+      description: Get smart trending recommendations
+      responses:
+        '200':
+          description: Trending recommendations
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ScoredMedia'
+
+  /recommendations/popular:
+    get:
+      tags: [Recommendations]
+      summary: Get popular recommendations
+      description: Get popular content recommendations
+      responses:
+        '200':
+          description: Popular recommendations
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ScoredMedia'
+
+  /recommendations/recent:
+    get:
+      tags: [Recommendations]
+      summary: Get recent recommendations
+      description: Get recommendations for recent content
+      responses:
+        '200':
+          description: Recent recommendations
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ScoredMedia'
+
+  /recommendations/top-rated:
+    get:
+      tags: [Recommendations]
+      summary: Get top-rated recommendations
+      description: Get high-rated content recommendations
+      responses:
+        '200':
+          description: Top-rated recommendations
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ScoredMedia'
+
+  /recommendations/genre:
+    get:
+      tags: [Recommendations]
+      summary: Get genre recommendations
+      description: Get recommendations by genre
+      parameters:
+        - name: genre
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Genre-based recommendations
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ScoredMedia'
+
+  /recommendations/mixed:
+    get:
+      tags: [Recommendations]
+      summary: Get mixed recommendations
+      description: Get mixed content recommendations
+      responses:
+        '200':
+          description: Mixed recommendations
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ScoredMedia'
+
+  /recommendations/personalized:
+    get:
+      tags: [Recommendations]
+      summary: Get personalized recommendations
+      description: Get personalized content recommendations
+      responses:
+        '200':
+          description: Personalized recommendations
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ScoredMedia'
+
+  /recommendations/smart-trending:
+    get:
+      tags: [Recommendations]
+      summary: Get smart trending recommendations
+      description: Get enhanced smart trending recommendations
+      responses:
+        '200':
+          description: Smart trending recommendations
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ScoredMedia'
+
+  # Recommendation Endpoints
+  /recommendations:
+    get:
+      tags: [Recommendations]
+      summary: Get recommendations
+      description: Get AI-powered content recommendations
+      parameters:
+        - name: category
+          in: query
+          schema:
+            type: string
+            enum: [trending, top_picks, continue_watching, because_you_watched, new_releases]
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: user_id
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of recommendations
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ScoredMedia'
+
+  /recommendations/similar/{id}:
+    get:
+      tags: [Recommendations]
+      summary: Get similar content
+      description: Get content similar to specified media
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 10
+      responses:
+        '200':
+          description: Similar content recommendations
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ScoredMedia'
+
+  /recommendations/continue-watching:
+    get:
+      tags: [Recommendations]
+      summary: Get continue watching
+      description: Get content to continue watching
+      responses:
+        '200':
+          description: Continue watching recommendations
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Media'
+
+  /recommendations/track-click/{id}:
+    post:
+      tags: [Recommendations]
+      summary: Track recommendation click
+      description: Track when user clicks on a recommendation
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Click tracked successfully
+
+  # Playback Tracking Endpoints
+  /track-view/{id}:
+    post:
+      tags: [Playback]
+      summary: Track media view
+      description: Track when media is viewed
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: View tracked successfully
+
+  /playback/progress:
+    post:
+      tags: [Playback]
+      summary: Update playback progress
+      description: Update viewing progress for media
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlaybackProgress'
+      responses:
+        '200':
+          description: Progress updated successfully
+
+  /playback/progress/{id}:
+    get:
+      tags: [Playback]
+      summary: Get playback progress
+      description: Get viewing progress for specific media
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Playback progress
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaybackProgress'
+
+  /playback/recent:
+    get:
+      tags: [Playback]
+      summary: Get recently watched
+      description: Get recently watched media
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: Recently watched media
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Media'
+
+  /playback/history:
+    get:
+      tags: [Playback]
+      summary: Get watch history
+      description: Get complete watch history
+      responses:
+        '200':
+          description: Watch history
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/WatchHistoryEntry'
+
+  /playback/stats:
+    get:
+      tags: [Playback]
+      summary: Get watch statistics
+      description: Get viewing statistics
+      responses:
+        '200':
+          description: Watch statistics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WatchStats'
+
+  # My List Endpoints
+  /mylist/{id}:
+    post:
+      tags: [My List]
+      summary: Add to my list
+      description: Add media to user's watchlist
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Added to my list successfully
+    delete:
+      tags: [My List]
+      summary: Remove from my list
+      description: Remove media from user's watchlist
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Removed from my list successfully
+
+  /mylist:
+    get:
+      tags: [My List]
+      summary: Get my list
+      description: Get user's watchlist
+      responses:
+        '200':
+          description: User's watchlist
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Media'
+
+  /mylist/check/{id}:
+    get:
+      tags: [My List]
+      summary: Check if in my list
+      description: Check if media is in user's watchlist
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Check result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  in_list:
+                    type: boolean
+
+  # Genre Management Endpoints
+  /genres:
+    get:
+      tags: [Admin]
+      summary: Get all genres
+      description: Retrieve all available genres
+      responses:
+        '200':
+          description: List of genres
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Genre'
+    post:
+      tags: [Admin]
+      summary: Create genre
+      description: Create a new genre
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                description:
+                  type: string
+      responses:
+        '201':
+          description: Genre created successfully
+
+  /genres/{id}:
+    get:
+      tags: [Admin]
+      summary: Get genre by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Genre details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Genre'
+    put:
+      tags: [Admin]
+      summary: Update genre
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                description:
+                  type: string
+      responses:
+        '200':
+          description: Genre updated successfully
+    delete:
+      tags: [Admin]
+      summary: Delete genre
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Genre deleted successfully
+
+  # Admin Media Management
+  /admin/media/{id}/metadata:
+    put:
+      tags: [Admin]
+      summary: Update media metadata
+      description: Update metadata for specific media item
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Media'
+      responses:
+        '200':
+          description: Metadata updated successfully
+
+  /admin/media/{id}/generate-metadata:
+    post:
+      tags: [Admin]
+      summary: Generate AI metadata
+      description: Generate metadata using AI services
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Metadata generation started
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  task_id:
+                    type: string
+
+  /admin/scan/full:
+    post:
+      tags: [Admin]
+      summary: Start full media scan
+      description: Start comprehensive media library scan
+      responses:
+        '200':
+          description: Full scan started
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  scan_id:
+                    type: string
+
+  /admin/scan/incremental:
+    post:
+      tags: [Admin]
+      summary: Start incremental scan
+      description: Scan for new and modified media files
+      responses:
+        '200':
+          description: Incremental scan started
+
+  /admin/scan/stats:
+    get:
+      tags: [Admin]
+      summary: Get scan statistics
+      description: Get media scanning statistics
+      responses:
+        '200':
+          description: Scan statistics
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total_files:
+                    type: integer
+                  processed_files:
+                    type: integer
+                  failed_files:
+                    type: integer
+                  last_scan:
+                    type: string
+                    format: date-time
+
+  # File Watcher Management
+  /admin/watcher/start:
+    post:
+      tags: [Admin]
+      summary: Start file watcher
+      description: Start real-time file monitoring
+      responses:
+        '200':
+          description: File watcher started
+
+  /admin/watcher/stop:
+    post:
+      tags: [Admin]
+      summary: Stop file watcher
+      description: Stop real-time file monitoring
+      responses:
+        '200':
+          description: File watcher stopped
+
+  /admin/watcher/status:
+    get:
+      tags: [Admin]
+      summary: Get watcher status
+      description: Get file watcher status
+      responses:
+        '200':
+          description: Watcher status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  active:
+                    type: boolean
+                  files_watched:
+                    type: integer
+                  last_event:
+                    type: string
+                    format: date-time
+
+  # Celery Task Management
+  /celery/queues/status:
+    get:
+      tags: [Celery]
+      summary: Get queue status
+      description: Get status of all Celery task queues
+      responses:
+        '200':
+          description: Queue status information
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  queues:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/QueueStatus'
+
+  /celery/queues/{queue}/length:
+    get:
+      tags: [Celery]
+      summary: Get queue length
+      description: Get number of pending tasks in queue
+      parameters:
+        - name: queue
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [metadata, thumbnails, posters, video_processing, subtitles, scanning]
+      responses:
+        '200':
+          description: Queue length
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  queue:
+                    type: string
+                  length:
+                    type: integer
+
+  /celery/queues/{queue}/purge:
+    delete:
+      tags: [Celery]
+      summary: Purge queue
+      description: Clear all pending tasks from queue
+      parameters:
+        - name: queue
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [metadata, thumbnails, posters, video_processing, subtitles, scanning]
+      responses:
+        '200':
+          description: Queue purged successfully
+
+  # Additional Admin Endpoints
+  /genres/stats:
+    get:
+      tags: [Admin]
+      summary: Get genre statistics
+      description: Get statistics for all genres
+      responses:
+        '200':
+          description: Genre statistics
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total_genres:
+                    type: integer
+                  most_popular:
+                    type: string
+                  genre_distribution:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        genre:
+                          type: string
+                        count:
+                          type: integer
+
+  /admin/update-genres:
+    post:
+      tags: [Admin]
+      summary: Update all media genres
+      description: Update genre information for all media
+      responses:
+        '200':
+          description: Genre update started
+
+  /admin/media/{id}/assets:
+    get:
+      tags: [Admin]
+      summary: Get media assets
+      description: Get all assets for media item
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Media assets
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  thumbnail:
+                    type: string
+                  poster:
+                    type: string
+                  preview:
+                    type: string
+                  subtitles:
+                    type: array
+                    items:
+                      type: string
+
+  /admin/media/{id}/upload-asset:
+    post:
+      tags: [Admin]
+      summary: Upload media asset
+      description: Upload asset file for media
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                type:
+                  type: string
+                  enum: [thumbnail, poster, preview, subtitle]
+      responses:
+        '200':
+          description: Asset uploaded successfully
+
+  /admin/media/{id}/delete-asset:
+    delete:
+      tags: [Admin]
+      summary: Delete media asset
+      description: Delete asset file for media
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: type
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [thumbnail, poster, preview, subtitle]
+      responses:
+        '200':
+          description: Asset deleted successfully
+
+  /admin/assets/{filename}:
+    get:
+      tags: [Admin]
+      summary: Serve asset file
+      description: Serve static asset file
+      parameters:
+        - name: filename
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Asset file
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+
+  /admin/media/{id}/update-with-tmdb:
+    post:
+      tags: [Admin]
+      summary: Update with TMDB
+      description: Update media metadata using TMDB
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: TMDB update started
+
+  /admin/media/{id}/fetch-tmdb:
+    post:
+      tags: [Admin]
+      summary: Fetch TMDB data
+      description: Alternative endpoint to fetch TMDB data
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: TMDB fetch started
+
+  /admin/generate-recommendations:
+    post:
+      tags: [Admin]
+      summary: Generate AI recommendations
+      description: Generate recommendations using AI
+      responses:
+        '200':
+          description: Recommendation generation started
+
+  /admin/recommendations/refresh:
+    post:
+      tags: [Admin]
+      summary: Refresh all recommendations
+      description: Refresh recommendation cache
+      responses:
+        '200':
+          description: Recommendations refreshed
+
+  # Preview Clip Admin Endpoints
+  /admin/preview-clips/{id}/generate:
+    post:
+      tags: [Admin]
+      summary: Generate preview clip
+      description: Generate preview clip for media
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Preview generation started
+
+  /admin/preview-clips/{id}/generate-optimized:
+    post:
+      tags: [Admin]
+      summary: Generate optimized preview clip
+      description: Generate optimized preview clip for media
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Optimized preview generation started
+
+  /admin/thumbnails/batch:
+    post:
+      tags: [Admin]
+      summary: Generate thumbnails batch
+      description: Generate thumbnails for multiple media items
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                media_ids:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+      responses:
+        '200':
+          description: Batch thumbnail generation started
+
+  /admin/preview-clips/batch:
+    post:
+      tags: [Admin]
+      summary: Generate preview clips batch
+      description: Generate preview clips for multiple media items
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                media_ids:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+      responses:
+        '200':
+          description: Batch preview generation started
+
+  /admin/preview-clips/regenerate-missing:
+    post:
+      tags: [Admin]
+      summary: Regenerate missing previews
+      description: Regenerate preview clips for media missing them
+      responses:
+        '200':
+          description: Missing preview regeneration started
+
+  /admin/thumbnail-service/stats:
+    get:
+      tags: [Admin]
+      summary: Get thumbnail service stats
+      description: Get thumbnail service statistics
+      responses:
+        '200':
+          description: Thumbnail service statistics
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total_thumbnails:
+                    type: integer
+                  generated_today:
+                    type: integer
+                  failed_today:
+                    type: integer
+                  queue_length:
+                    type: integer
+
+  /admin/thumbnail-service/jobs/{jobId}:
+    get:
+      tags: [Admin]
+      summary: Get job status
+      description: Get status of thumbnail generation job
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Job status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskResult'
+
+  /admin/media/{id}/thumbnail:
+    put:
+      tags: [Admin]
+      summary: Update thumbnail path
+      description: Update thumbnail path for media (used by Python tasks)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                thumbnail_path:
+                  type: string
+      responses:
+        '200':
+          description: Thumbnail path updated
+
+  /admin/media/{id}/preview:
+    put:
+      tags: [Admin]
+      summary: Update preview path
+      description: Update preview path for media (used by Python tasks)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                preview_path:
+                  type: string
+      responses:
+        '200':
+          description: Preview path updated
+
+  # Advanced Scanner Endpoints
+  /admin/scan/superfast:
+    post:
+      tags: [Admin]
+      summary: Start superfast scan
+      description: Start high-speed media scan
+      responses:
+        '200':
+          description: Superfast scan started
+
+  /admin/scan/sync:
+    post:
+      tags: [Admin]
+      summary: Start scan and sync
+      description: Start media scan with database sync
+      responses:
+        '200':
+          description: Scan and sync started
+
+  /admin/scan/database-sync:
+    post:
+      tags: [Admin]
+      summary: Start database sync
+      description: Sync media database with file system
+      responses:
+        '200':
+          description: Database sync started
+
+  /admin/scan/cleanup-invalid:
+    post:
+      tags: [Admin]
+      summary: Cleanup invalid entries
+      description: Remove invalid entries from database
+      responses:
+        '200':
+          description: Cleanup started
+
+  /admin/scan/regenerate-assets:
+    post:
+      tags: [Admin]
+      summary: Regenerate all assets
+      description: Regenerate all thumbnails, previews, and posters
+      responses:
+        '200':
+          description: Asset regeneration started
+
+  /admin/scan/regenerate-previews:
+    post:
+      tags: [Admin]
+      summary: Regenerate preview clips
+      description: Regenerate all preview clips
+      responses:
+        '200':
+          description: Preview regeneration started
+
+  /admin/scan/regenerate-missing-previews:
+    post:
+      tags: [Admin]
+      summary: Regenerate missing preview clips
+      description: Regenerate only missing preview clips
+      responses:
+        '200':
+          description: Missing preview regeneration started
+
+  /admin/scan/config:
+    put:
+      tags: [Admin]
+      summary: Configure scanner
+      description: Update scanner configuration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                max_workers:
+                  type: integer
+                batch_size:
+                  type: integer
+                scan_interval:
+                  type: integer
+      responses:
+        '200':
+          description: Scanner configured
+
+  /admin/scan/workers/{workers}:
+    put:
+      tags: [Admin]
+      summary: Set max workers
+      description: Set maximum number of scanner workers
+      parameters:
+        - name: workers
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Max workers updated
+
+  /admin/scan/batch-size/{size}:
+    put:
+      tags: [Admin]
+      summary: Set batch size
+      description: Set scanner batch size
+      parameters:
+        - name: size
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Batch size updated
+
+  # File Watcher Additional Endpoints
+  /admin/watcher/scan/manual:
+    post:
+      tags: [Admin]
+      summary: Trigger manual scan
+      description: Trigger manual file scan via watcher
+      responses:
+        '200':
+          description: Manual scan triggered
+
+  /admin/watcher/scan/incremental:
+    post:
+      tags: [Admin]
+      summary: Trigger incremental scan
+      description: Trigger incremental scan via watcher
+      responses:
+        '200':
+          description: Incremental scan triggered
+
+components:
+  schemas:
+    Media:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: Internal database ID
+        uuid:
+          type: string
+          format: uuid
+          description: Public UUID identifier
+        title:
+          type: string
+          description: Media title
+        original_title:
+          type: string
+          description: Original title in native language
+        description:
+          type: string
+          description: Plot summary or description
+        tagline:
+          type: string
+          description: Short promotional tagline
+        type:
+          type: string
+          enum: [movie, tv-show, episode]
+          description: Media type
+        genre:
+          type: string
+          description: Primary genre
+        genres:
+          type: array
+          items:
+            type: string
+          description: All genres
+        year:
+          type: integer
+          description: Release year
+        release_date:
+          type: string
+          format: date
+          description: Release date
+        duration:
+          type: integer
+          description: Duration in minutes
+        rating:
+          type: number
+          format: float
+          description: Rating (0-10)
+        imdb_rating:
+          type: number
+          format: float
+          description: IMDb rating
+        tmdb_rating:
+          type: number
+          format: float
+          description: TMDB rating
+        view_count:
+          type: integer
+          description: Number of views
+        file_path:
+          type: string
+          description: File system path
+        file_size:
+          type: integer
+          format: int64
+          description: File size in bytes
+        resolution:
+          type: string
+          description: Video resolution (e.g., "1920x1080")
+        codec:
+          type: string
+          description: Video codec
+        audio_codec:
+          type: string
+          description: Audio codec
+        subtitle_languages:
+          type: array
+          items:
+            type: string
+          description: Available subtitle languages
+        thumbnail_path:
+          type: string
+          description: Thumbnail image path
+        poster_path:
+          type: string
+          description: Poster image path
+        preview_path:
+          type: string
+          description: Preview clip path
+        backdrop_path:
+          type: string
+          description: Backdrop image path
+        directors:
+          type: array
+          items:
+            type: string
+          description: Directors
+        actors:
+          type: array
+          items:
+            type: string
+          description: Main actors
+        writers:
+          type: array
+          items:
+            type: string
+          description: Writers
+        production_companies:
+          type: array
+          items:
+            type: string
+          description: Production companies
+        countries:
+          type: array
+          items:
+            type: string
+          description: Production countries
+        languages:
+          type: array
+          items:
+            type: string
+          description: Spoken languages
+        series_id:
+          type: integer
+          description: Parent series ID (for episodes)
+        season_id:
+          type: integer
+          description: Season ID (for episodes)
+        season_number:
+          type: integer
+          description: Season number (for episodes)
+        episode_number:
+          type: integer
+          description: Episode number (for episodes)
+        tmdb_id:
+          type: integer
+          description: TMDB database ID
+        imdb_id:
+          type: string
+          description: IMDb ID
+        created_at:
+          type: string
+          format: date-time
+          description: Creation timestamp
+        updated_at:
+          type: string
+          format: date-time
+          description: Last update timestamp
+      required:
+        - uuid
+        - title
+        - type
+        - file_path
+
+    ScoredMedia:
+      allOf:
+        - $ref: '#/components/schemas/Media'
+        - type: object
+          properties:
+            score:
+              type: number
+              format: float
+              description: Recommendation score (0-1)
+            reason:
+              type: string
+              description: Reason for recommendation
+
+    PlaybackProgress:
+      type: object
+      properties:
+        media_id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+        progress:
+          type: number
+          format: float
+          description: Progress percentage (0-1)
+        duration:
+          type: integer
+          description: Total duration in seconds
+        current_time:
+          type: integer
+          description: Current playback time in seconds
+        completed:
+          type: boolean
+        last_watched:
+          type: string
+          format: date-time
+      required:
+        - media_id
+        - progress
+
+    WatchHistoryEntry:
+      type: object
+      properties:
+        media:
+          $ref: '#/components/schemas/Media'
+        watched_at:
+          type: string
+          format: date-time
+        progress:
+          type: number
+          format: float
+        completed:
+          type: boolean
+
+    WatchStats:
+      type: object
+      properties:
+        total_watch_time:
+          type: integer
+          description: Total watch time in minutes
+        movies_watched:
+          type: integer
+        episodes_watched:
+          type: integer
+        favorite_genres:
+          type: array
+          items:
+            type: string
+        watch_streak:
+          type: integer
+          description: Current watch streak in days
+
+    ALACMetadata:
+      type: object
+      properties:
+        format:
+          type: string
+        sample_rate:
+          type: integer
+        bit_depth:
+          type: integer
+        channels:
+          type: integer
+        duration:
+          type: number
+          format: float
+        file_size:
+          type: integer
+          format: int64
+        spatial_audio:
+          type: boolean
+        layout:
+          type: string
+          enum: [stereo, 5.1, 7.1, 7.1.4, atmos]
+
+    Season:
+      type: object
+      properties:
+        id:
+          type: integer
+        series_id:
+          type: integer
+        season_number:
+          type: integer
+        title:
+          type: string
+        description:
+          type: string
+        release_date:
+          type: string
+          format: date
+        episode_count:
+          type: integer
+        episodes:
+          type: array
+          items:
+            $ref: '#/components/schemas/Media'
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    QueueStatus:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Queue name
+        length:
+          type: integer
+          description: Number of pending tasks
+        workers:
+          type: integer
+          description: Number of active workers
+        processed:
+          type: integer
+          description: Total processed tasks
+        failed:
+          type: integer
+          description: Total failed tasks
+        last_activity:
+          type: string
+          format: date-time
+          description: Last queue activity
+
+    TaskResult:
+      type: object
+      properties:
+        task_id:
+          type: string
+        status:
+          type: string
+          enum: [pending, started, success, failure, retry, revoked]
+        result:
+          type: object
+        error:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+
+    Genre:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        description:
+          type: string
+        media_count:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+          description: Error message
+        code:
+          type: integer
+          description: Error code
+        details:
+          type: string
+          description: Additional error details
+
+  responses:
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    
+    BadRequest:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    
+    InternalError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+tags:
+  - name: Media
+    description: Media library management
+  - name: Search
+    description: Media search functionality
+  - name: Streaming
+    description: Video and audio streaming
+  - name: Assets
+    description: Thumbnails, posters, and previews
+  - name: ALAC Audio
+    description: High-quality ALAC audio streaming
+  - name: Recommendations
+    description: AI-powered content recommendations
+  - name: Playback
+    description: Playback tracking and analytics
+  - name: My List
+    description: User watchlist management
+  - name: Admin
+    description: Administrative operations
+  - name: Celery
+    description: Task queue management

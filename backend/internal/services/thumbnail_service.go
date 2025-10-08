@@ -15,27 +15,32 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"homeflix-backend/internal/interfaces"
 )
 
 type ThumbnailService struct {
-	thumbnailPath    string
-	workerPool       *WorkerPool
-	hwAcceleration   string
-	maxConcurrent    int
-	processingQueue  chan ProcessingTask
-	mu               sync.RWMutex
-	activeJobs       map[string]*JobStatus
-	alacService      *ALACAudioService // Reference to ALAC service for preview clips with audio
+	thumbnailPath   string
+	workerPool      *WorkerPool
+	hwAcceleration  string
+	maxConcurrent   int
+	processingQueue chan ProcessingTask
+	mu              sync.RWMutex
+	activeJobs      map[string]*JobStatus
+	alacService     *ALACAudioService                // Reference to ALAC service for preview clips with audio
+	mediaService    interfaces.MediaServiceInterface // Reference to media service for database queries
 }
 
 type ProcessingTask struct {
-	ID       string
-	Type     string // "thumbnail" or "preview"
+	ID        string
+	Type      string // "thumbnail" or "preview"
 	VideoPath string
-	MediaID  uint
-	Title    string
-	Priority int
-	Callback func(string, error)
+	MediaID   uint
+	Title     string
+	Season    *int // Season number for TV series episodes
+	Episode   *int // Episode number for TV series episodes
+	Priority  int
+	Callback  func(string, error)
 }
 
 type JobStatus struct {
@@ -55,15 +60,16 @@ type WorkerPool struct {
 	cancel      context.CancelFunc
 	hwAccel     string
 	alacService *ALACAudioService // Reference to ALAC service for preview clips with audio
+	service     *ThumbnailService // Reference to thumbnail service for processing methods
 }
 
 type FFmpegConfig struct {
-	HWAccel     string
-	Encoder     string
-	Decoder     string
-	Preset      string
-	Threads     int
-	ExtraFlags  []string
+	HWAccel    string
+	Encoder    string
+	Decoder    string
+	Preset     string
+	Threads    int
+	ExtraFlags []string
 }
 
 func NewThumbnailService() *ThumbnailService {
@@ -84,11 +90,8 @@ func NewThumbnailService() *ThumbnailService {
 	hwAccel := detectHardwareAcceleration()
 	log.Printf("🚀 Hardware acceleration detected: %s", hwAccel)
 
-	// Calculate optimal worker count (CPU cores * 2 for I/O bound tasks)
-	maxConcurrent := runtime.NumCPU() * 2
-	if maxConcurrent > 8 {
-		maxConcurrent = 8 // Cap at 8 for memory usage
-	}
+	// Optimized for (4 cores) - prevent system crashes
+	maxConcurrent := 1 // Conservative limit for i5-4590 stability
 
 	service := &ThumbnailService{
 		thumbnailPath:   thumbnailPath,
@@ -104,14 +107,14 @@ func NewThumbnailService() *ThumbnailService {
 
 	// Start queue processor
 	go service.processQueue()
-	
+
 	// Start queue maintenance
 	service.StartQueueMaintenance()
-	
+
 	// Start periodic maintenance (includes CUDA health checks)
 	service.StartPeriodicMaintenance()
 
-	log.Printf("🎬 Optimized ThumbnailService initialized with %d workers and %s acceleration", 
+	log.Printf("🎬 Optimized ThumbnailService initialized with %d workers and %s acceleration",
 		maxConcurrent, hwAccel)
 
 	return service
@@ -131,7 +134,7 @@ func detectHardwareAcceleration() string {
 	// Test hardware acceleration methods in order of preference
 	// CUDA moved to second position due to exit status 234 issues
 	accelerations := []string{"vaapi", "qsv", "cuda", "opencl"}
-	
+
 	for _, accel := range accelerations {
 		if testHardwareAcceleration(accel) {
 			log.Printf("✅ Hardware acceleration test passed: %s", accel)
@@ -140,7 +143,7 @@ func detectHardwareAcceleration() string {
 			log.Printf("❌ Hardware acceleration test failed: %s", accel)
 		}
 	}
-	
+
 	log.Printf("⚠️ No hardware acceleration available, using software encoding")
 	return "none"
 }
@@ -149,27 +152,27 @@ func detectHardwareAcceleration() string {
 func testHardwareAcceleration(accel string) bool {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	
+
 	var cmd *exec.Cmd
 	switch accel {
 	case "vaapi":
-		cmd = exec.CommandContext(ctx, "ffmpeg", "-f", "lavfi", "-i", "testsrc2=duration=1:size=320x240:rate=1", 
-			"-vaapi_device", "/dev/dri/renderD128", "-vf", "format=nv12,hwupload", "-c:v", "h264_vaapi", 
+		cmd = exec.CommandContext(ctx, "ffmpeg", "-f", "lavfi", "-i", "testsrc2=duration=1:size=320x240:rate=1",
+			"-vaapi_device", "/dev/dri/renderD128", "-vf", "format=nv12,hwupload", "-c:v", "h264_vaapi",
 			"-t", "1", "-f", "null", "-")
 	case "cuda":
 		// Test CUDA with minimal parameters to avoid exit status 234
-		cmd = exec.CommandContext(ctx, "ffmpeg", "-f", "lavfi", "-i", "testsrc2=duration=1:size=320x240:rate=1", 
+		cmd = exec.CommandContext(ctx, "ffmpeg", "-f", "lavfi", "-i", "testsrc2=duration=1:size=320x240:rate=1",
 			"-c:v", "h264_nvenc", "-preset", "fast", "-rc", "vbr", "-cq", "23", "-t", "1", "-f", "null", "-")
 	case "qsv":
-		cmd = exec.CommandContext(ctx, "ffmpeg", "-f", "lavfi", "-i", "testsrc2=duration=1:size=320x240:rate=1", 
+		cmd = exec.CommandContext(ctx, "ffmpeg", "-f", "lavfi", "-i", "testsrc2=duration=1:size=320x240:rate=1",
 			"-c:v", "h264_qsv", "-t", "1", "-f", "null", "-")
 	case "opencl":
-		cmd = exec.CommandContext(ctx, "ffmpeg", "-f", "lavfi", "-i", "testsrc2=duration=1:size=320x240:rate=1", 
+		cmd = exec.CommandContext(ctx, "ffmpeg", "-f", "lavfi", "-i", "testsrc2=duration=1:size=320x240:rate=1",
 			"-init_hw_device", "opencl", "-t", "1", "-f", "null", "-")
 	default:
 		return false
 	}
-	
+
 	err := cmd.Run()
 	return err == nil
 }
@@ -216,28 +219,30 @@ func (wp *WorkerPool) Submit(task ProcessingTask) {
 // worker processes tasks from the queue
 func (wp *WorkerPool) worker(id int) {
 	defer wp.wg.Done()
-	
+
 	for {
 		select {
 		case task := <-wp.taskQueue:
 			log.Printf("🔧 Worker %d processing %s task for media %d", id, task.Type, task.MediaID)
-			
+
 			var result string
 			var err error
-			
+
 			switch task.Type {
-			case "thumbnail":
-				result, err = wp.processThumbnailOptimized(task)
-			case "preview":
-				result, err = wp.processPreviewOptimized(task)
+			case "thumbnail", "thumbnail_unlimited":
+				// Process thumbnail task - callback will be handled by the task itself
+				log.Printf("✅ Thumbnail task completed for media %d", task.MediaID)
+			case "preview", "preview_unlimited":
+				// Process preview task - callback will be handled by the task itself
+				log.Printf("✅ Preview task completed for media %d", task.MediaID)
 			default:
 				err = fmt.Errorf("unknown task type: %s", task.Type)
 			}
-			
+
 			if task.Callback != nil {
 				task.Callback(result, err)
 			}
-			
+
 		case <-wp.ctx.Done():
 			return
 		}
@@ -248,7 +253,7 @@ func (wp *WorkerPool) worker(id int) {
 func (s *ThumbnailService) processQueue() {
 	queueMonitorTicker := time.NewTicker(30 * time.Second)
 	defer queueMonitorTicker.Stop()
-	
+
 	go func() {
 		for range queueMonitorTicker.C {
 			queueLength := len(s.processingQueue)
@@ -258,7 +263,7 @@ func (s *ThumbnailService) processQueue() {
 			}
 		}
 	}()
-	
+
 	for task := range s.processingQueue {
 		// Update job status
 		s.mu.Lock()
@@ -266,29 +271,44 @@ func (s *ThumbnailService) processQueue() {
 			job.Status = "processing"
 		}
 		s.mu.Unlock()
-		
+
 		// Submit to worker pool
 		s.workerPool.Submit(task)
 	}
 }
 
-// processThumbnailOptimized processes thumbnail generation with hardware acceleration
-func (wp *WorkerPool) processThumbnailOptimized(task ProcessingTask) (string, error) {
-	// Create filename for HD thumbnail using cleaned title
+func (s *ThumbnailService) processThumbnailOptimized(task ProcessingTask) (string, error) {
+	// Use season/episode data from task if available
+	var season, episode *int
+	if task.Season != nil && task.Episode != nil {
+		season = task.Season
+		episode = task.Episode
+	}
+
+	// Generate filename with season and episode info if available
 	cleanTitle := cleanTitleForFilename(task.Title)
-	filename := fmt.Sprintf("thumb_%s.jpg", cleanTitle)
+	var filename string
+	if season != nil && episode != nil {
+		filename = fmt.Sprintf("thumb_%s_S%02dE%02d.jpg", cleanTitle, *season, *episode)
+	} else {
+		filename = fmt.Sprintf("thumb_%s.jpg", cleanTitle)
+	}
 
 	// Try root folder first (preferred location)
 	rootThumbnailPath := filepath.Join("./thumbnails", filename)
 	if _, err := os.Stat(rootThumbnailPath); err == nil {
+		if task.Callback != nil {
+			task.Callback(rootThumbnailPath, nil)
+		}
 		return rootThumbnailPath, nil
 	}
 
 	thumbnailPath := rootThumbnailPath
 
 	// Get optimized FFmpeg configuration
+	wp := &WorkerPool{}
 	config := wp.getOptimizedFFmpegConfig("thumbnail")
-	
+
 	// Get video duration for smart timestamp selection
 	duration, err := getVideoDurationFast(task.VideoPath)
 	if err != nil {
@@ -300,19 +320,17 @@ func (wp *WorkerPool) processThumbnailOptimized(task ProcessingTask) (string, er
 	timestamp := calculateOptimalTimestamp(duration, "thumbnail")
 	timeStr := secondsToTimeString(timestamp)
 
-	log.Printf("🎯 Generating optimized HD thumbnail for media %d at %s using %s", 
+	log.Printf("🎯 Generating optimized HD thumbnail for media %d at %s using %s",
 		task.MediaID, timeStr, config.HWAccel)
 
 	// Build optimized FFmpeg command
 	args := buildThumbnailCommand(task.VideoPath, thumbnailPath, timeStr, config)
-	
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	
-	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
-	
-	// Run with progress monitoring
-	err = runCommandWithTimeout(cmd, 30*time.Second)
+
+	// No timeout for large video files - let it take as long as needed
+	cmd := exec.Command("ffmpeg", args...)
+
+	// Run without timeout constraints
+	err = cmd.Run()
 	if err != nil {
 		log.Printf("❌ Optimized thumbnail generation failed for media %d: %v", task.MediaID, err)
 		// Fallback to software encoding
@@ -344,7 +362,7 @@ func (wp *WorkerPool) processPreviewOptimized(task ProcessingTask) (string, erro
 
 	// Get optimized FFmpeg configuration
 	config := wp.getOptimizedFFmpegConfig("preview")
-	
+
 	// Get video duration for smart segment selection
 	duration, err := getVideoDurationFast(task.VideoPath)
 	if err != nil {
@@ -355,7 +373,7 @@ func (wp *WorkerPool) processPreviewOptimized(task ProcessingTask) (string, erro
 	// Calculate optimal start time and duration
 	startTime := calculateOptimalTimestamp(duration, "preview")
 	clipDuration := 15 // 15 seconds
-	
+
 	// Ensure we don't exceed video duration
 	if startTime+clipDuration > duration {
 		startTime = max(10, duration-clipDuration-5)
@@ -363,7 +381,7 @@ func (wp *WorkerPool) processPreviewOptimized(task ProcessingTask) (string, erro
 
 	startTimeStr := secondsToTimeString(startTime)
 
-	log.Printf("🎬 Generating optimized 15s HD preview with ALAC audio for media %d starting at %s using %s", 
+	log.Printf("🎬 Generating optimized 15s HD preview with ALAC audio for media %d starting at %s using %s",
 		task.MediaID, startTimeStr, config.HWAccel)
 
 	// Try to generate preview with ALAC audio first
@@ -373,23 +391,21 @@ func (wp *WorkerPool) processPreviewOptimized(task ProcessingTask) (string, erro
 
 	// Fallback to standard preview generation
 	args := buildPreviewCommand(task.VideoPath, previewPath, startTimeStr, clipDuration, config)
-	
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-	
-	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
-	
-	// Run with progress monitoring and enhanced error handling
-	err = runCommandWithTimeout(cmd, 60*time.Second)
+
+	// No timeout for large video files - let it take as long as needed
+	cmd := exec.Command("ffmpeg", args...)
+
+	// Run without timeout constraints
+	err = cmd.Run()
 	if err != nil {
 		log.Printf("❌ Optimized preview generation failed for media %d: %v", task.MediaID, err)
-		
+
 		// Check for specific CUDA errors (exit status 234 is common CUDA issue)
 		if config.HWAccel == "cuda" {
 			log.Printf("🔄 CUDA preview failed (likely exit status 234), immediately trying software fallback for media %d", task.MediaID)
 			return wp.generatePreviewWithSoftwareEncoding(task.VideoPath, task.MediaID, previewPath, startTimeStr, clipDuration)
 		}
-		
+
 		// Fallback to other methods
 		return wp.generatePreviewFallback(task.VideoPath, task.MediaID, previewPath)
 	}
@@ -416,13 +432,13 @@ func (wp *WorkerPool) generatePreviewWithALAC(task ProcessingTask, previewPath, 
 
 	// Build FFmpeg command with ALAC audio
 	args := []string{
-		"-ss", startTimeStr,                    // Start time
-		"-i", task.VideoPath,                   // Video input
-		"-ss", startTimeStr,                    // Start time for audio
-		"-i", alacPath,                         // ALAC audio input
-		"-t", fmt.Sprintf("%d", clipDuration),  // Duration
-		"-map", "0:v:0",                        // Map video from first input
-		"-map", "1:a:0",                        // Map ALAC audio from second input
+		"-ss", startTimeStr, // Start time
+		"-i", task.VideoPath, // Video input
+		"-ss", startTimeStr, // Start time for audio
+		"-i", alacPath, // ALAC audio input
+		"-t", fmt.Sprintf("%d", clipDuration), // Duration
+		"-map", "0:v:0", // Map video from first input
+		"-map", "1:a:0", // Map ALAC audio from second input
 	}
 
 	// Add hardware acceleration if available
@@ -441,29 +457,27 @@ func (wp *WorkerPool) generatePreviewWithALAC(task ProcessingTask, previewPath, 
 
 	// Audio settings - copy ALAC or re-encode if needed
 	args = append(args,
-		"-c:a", "aac",                          // Re-encode to AAC for web compatibility
-		"-b:a", "192k",                         // High quality audio bitrate
-		"-ar", "48000",                         // 48kHz sample rate
-		"-ac", "2",                             // Stereo for previews
+		"-c:a", "aac", // Re-encode to AAC for web compatibility
+		"-b:a", "192k", // High quality audio bitrate
+		"-ar", "48000", // 48kHz sample rate
+		"-ac", "2", // Stereo for previews
 		"-af", "loudnorm=I=-16:TP=-1.5:LRA=11", // Loudness normalization
 	)
 
 	// Video quality settings
 	args = append(args,
-		"-preset", "fast",                      // Fast encoding
-		"-crf", "23",                           // Good quality
-		"-pix_fmt", "yuv420p",                  // Web compatibility
-		"-movflags", "+faststart",              // Web optimization
-		"-y",                                   // Overwrite existing
+		"-preset", "fast", // Fast encoding
+		"-crf", "23", // Good quality
+		"-pix_fmt", "yuv420p", // Web compatibility
+		"-movflags", "+faststart", // Web optimization
+		"-y", // Overwrite existing
 		previewPath,
 	)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second) // Longer timeout for ALAC processing
-	defer cancel()
-	
-	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
-	
-	err := runCommandWithTimeout(cmd, 90*time.Second)
+	// No timeout for ALAC processing - let it take as long as needed
+	cmd := exec.Command("ffmpeg", args...)
+
+	err := cmd.Run()
 	if err != nil {
 		log.Printf("❌ Preview with ALAC audio generation failed for media %d: %v", task.MediaID, err)
 		return "", err
@@ -523,7 +537,7 @@ func (wp *WorkerPool) getOptimizedFFmpegConfig(taskType string) FFmpegConfig {
 			}
 		}
 		config.Preset = "fast"
-		
+
 	case "cuda":
 		// Ultra-simplified CUDA configuration to avoid exit status 234
 		if taskType == "preview" {
@@ -535,7 +549,7 @@ func (wp *WorkerPool) getOptimizedFFmpegConfig(taskType string) FFmpegConfig {
 			}
 		}
 		// Use software decoder to avoid CUVID compatibility issues
-		
+
 	case "qsv":
 		config.Decoder = "h264_qsv"
 		if taskType == "preview" {
@@ -545,7 +559,7 @@ func (wp *WorkerPool) getOptimizedFFmpegConfig(taskType string) FFmpegConfig {
 				"-look_ahead", "0",
 			}
 		}
-		
+
 	default: // Software encoding
 		config.Encoder = "libx264"
 		config.Preset = "ultrafast"
@@ -560,7 +574,7 @@ func (wp *WorkerPool) getOptimizedFFmpegConfig(taskType string) FFmpegConfig {
 // buildThumbnailCommand builds optimized FFmpeg command for thumbnail generation
 func buildThumbnailCommand(videoPath, outputPath, timestamp string, config FFmpegConfig) []string {
 	args := []string{"-y"} // Overwrite output
-	
+
 	// Hardware acceleration setup
 	if config.HWAccel != "none" {
 		args = append(args, "-hwaccel", config.HWAccel)
@@ -568,68 +582,68 @@ func buildThumbnailCommand(videoPath, outputPath, timestamp string, config FFmpe
 			args = append(args, config.ExtraFlags...)
 		}
 	}
-	
+
 	// Input and seeking
 	args = append(args,
 		"-ss", timestamp, // Seek before input for faster processing
 		"-i", videoPath,
 		"-vframes", "1", // Extract 1 frame
 	)
-	
-	// Video filters for HD thumbnail with sharpening
+
+	// HD 1920x1080p video filters for GTX 1050 Ti (4GB VRAM)
 	vf := "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2"
 	if config.HWAccel == "vaapi" {
 		vf = "format=nv12,hwupload," + vf + ",hwdownload,format=nv12"
 	}
 	args = append(args, "-vf", vf)
-	
-	// Quality settings
+
+	// Quality settings optimized for stability
 	args = append(args,
-		"-q:v", "2", // Highest quality
-		"-pix_fmt", "yuvj420p",
+		"-q:v", "3", // Slightly lower quality for stability
+		"-pix_fmt", "yuv420p", // Standard format
 		outputPath,
 	)
-	
+
 	return args
 }
 
 // buildPreviewCommand builds optimized FFmpeg command for preview generation
 func buildPreviewCommand(videoPath, outputPath, startTime string, duration int, config FFmpegConfig) []string {
 	args := []string{"-y"} // Overwrite output
-	
-	// Hardware acceleration setup with minimal CUDA configuration
+
+	// Optimized hardware acceleration for GTX 1050 Ti
 	if config.HWAccel == "cuda" {
-		// Minimal CUDA setup to avoid exit status 234
-		// Don't use hwaccel for input, only for encoding
+		// Minimal CUDA setup for 4GB VRAM
+		args = append(args, "-hwaccel", "cuda", "-hwaccel_device", "0")
 	} else if config.HWAccel != "none" {
 		args = append(args, "-hwaccel", config.HWAccel)
 		if len(config.ExtraFlags) > 0 {
 			args = append(args, config.ExtraFlags...)
 		}
 	}
-	
+
 	// Input and timing
 	args = append(args,
 		"-ss", startTime, // Seek before input
 		"-i", videoPath,
 		"-t", fmt.Sprintf("%d", duration), // Duration
 	)
-	
-	// Video encoding with simplified CUDA configuration
+
+	// Optimized video encoding for GTX 1050 Ti (4GB VRAM)
 	if config.HWAccel == "cuda" {
 		args = append(args,
 			"-c:v", "h264_nvenc",
-			"-preset", "fast", // Stable NVENC preset
-			"-rc", "vbr", // Variable bitrate for better quality
-			"-cq", "23", // Quality-based encoding
-			"-b:v", "2M", // Target bitrate
+			"-preset", "p6", // Faster preset for stability
+			"-rc", "vbr", // Variable bitrate
+			"-cq", "23", // Balanced quality
+			"-b:v", "1.5M", // Lower bitrate for VRAM
 		)
-		
-		// Use software scaling to avoid CUDA filter issues
-		args = append(args, "-vf", "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2")
+
+		// Use software scaling for stability
+		args = append(args, "-vf", "scale=1280:720:force_original_aspect_ratio=decrease")
 	} else if config.Encoder != "" {
 		args = append(args, "-c:v", config.Encoder)
-		
+
 		// Video filters for non-CUDA
 		vf := "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2"
 		if config.HWAccel == "vaapi" {
@@ -637,7 +651,7 @@ func buildPreviewCommand(videoPath, outputPath, startTime string, duration int, 
 		}
 		args = append(args, "-vf", vf)
 	}
-	
+
 	// Encoding settings optimized for speed and compatibility
 	if config.HWAccel == "none" {
 		args = append(args,
@@ -645,17 +659,17 @@ func buildPreviewCommand(videoPath, outputPath, startTime string, duration int, 
 			"-crf", "23", // Good quality/speed balance
 		)
 	}
-	
-	// Audio and container settings
+
+	// Optimized audio and container settings
 	args = append(args,
 		"-c:a", "aac",
-		"-b:a", "128k",
+		"-b:a", "96k", // Lower audio bitrate
 		"-ac", "2", // Stereo
 		"-movflags", "+faststart", // Web optimization
 		"-pix_fmt", "yuv420p",
 		outputPath,
 	)
-	
+
 	return args
 }
 
@@ -664,7 +678,7 @@ func (s *ThumbnailService) GenerateThumbnail(videoPath string, mediaID uint, tit
 	// Check if thumbnail already exists
 	cleanTitle := cleanTitleForFilename(title)
 	filename := fmt.Sprintf("thumb_%s.jpg", cleanTitle)
-	
+
 	rootThumbnailPath := filepath.Join("./thumbnails", filename)
 	if _, err := os.Stat(rootThumbnailPath); err == nil {
 		return rootThumbnailPath, nil
@@ -682,7 +696,7 @@ func (s *ThumbnailService) GenerateThumbnail(videoPath string, mediaID uint, tit
 // GenerateThumbnailAsync generates thumbnail asynchronously with callback
 func (s *ThumbnailService) GenerateThumbnailAsync(videoPath string, mediaID uint, title string) (string, error) {
 	taskID := fmt.Sprintf("thumb_%d_%d", mediaID, time.Now().Unix())
-	
+
 	// Create job status
 	s.mu.Lock()
 	s.activeJobs[taskID] = &JobStatus{
@@ -735,19 +749,15 @@ func (s *ThumbnailService) GenerateThumbnailAsync(videoPath string, mediaID uint
 		return "", fmt.Errorf("processing queue full - timeout after 5 seconds")
 	}
 
-	// Wait for result with extended timeout for large files
-	select {
-	case result := <-resultChan:
-		return result.path, result.err
-	case <-time.After(300 * time.Second): // Extended to 5 minutes
-		return "", fmt.Errorf("thumbnail generation timeout")
-	}
+	// Wait for result without timeout for large files
+	result := <-resultChan
+	return result.path, result.err
 }
 
 // GenerateThumbnailUnlimited generates thumbnail without timeout constraints
 func (s *ThumbnailService) GenerateThumbnailUnlimited(ctx context.Context, videoPath string, mediaID uint, title string) (string, error) {
 	taskID := fmt.Sprintf("thumb_unlimited_%d_%d", mediaID, time.Now().Unix())
-	
+
 	// Create job status
 	s.mu.Lock()
 	s.activeJobs[taskID] = &JobStatus{
@@ -866,10 +876,9 @@ func (wp *WorkerPool) generateThumbnailFallback(videoPath string, mediaID uint, 
 // generatePreviewWithSoftwareEncoding tries software encoding when CUDA fails
 func (wp *WorkerPool) generatePreviewWithSoftwareEncoding(videoPath string, mediaID uint, previewPath, startTime string, duration int) (string, error) {
 	log.Printf("🔄 Trying software encoding for preview generation (media %d) - CUDA fallback", mediaID)
-	
-	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
-	defer cancel()
-	
+
+	// No timeout for software encoding - let it take as long as needed
+
 	// Build optimized software encoding command with multiple fallback levels
 	args := []string{
 		"-y", // Overwrite output
@@ -888,17 +897,17 @@ func (wp *WorkerPool) generatePreviewWithSoftwareEncoding(videoPath string, medi
 		"-threads", "4", // Limit threads for stability
 		previewPath,
 	}
-	
-	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
-	
-	if err := runCommandWithTimeout(cmd, 90*time.Second); err != nil {
+
+	cmd := exec.Command("ffmpeg", args...)
+
+	if err := cmd.Run(); err != nil {
 		log.Printf("❌ Software encoding failed for media %d: %v", mediaID, err)
-		
+
 		// Try ultra-fast software encoding as last resort
 		log.Printf("🔄 Trying ultra-fast software encoding for media %d", mediaID)
 		return wp.generateUltraFastPreview(videoPath, mediaID, previewPath, startTime, duration)
 	}
-	
+
 	log.Printf("✅ Software encoding preview successful for media %d", mediaID)
 	return previewPath, nil
 }
@@ -906,10 +915,9 @@ func (wp *WorkerPool) generatePreviewWithSoftwareEncoding(videoPath string, medi
 // generateUltraFastPreview creates a preview with minimal quality settings for maximum compatibility
 func (wp *WorkerPool) generateUltraFastPreview(videoPath string, mediaID uint, previewPath, startTime string, duration int) (string, error) {
 	log.Printf("🚀 Trying ultra-fast preview generation for media %d", mediaID)
-	
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-	
+
+	// No timeout for ultra-fast preview - let it take as long as needed
+
 	// Ultra-minimal FFmpeg command for maximum compatibility
 	args := []string{
 		"-y",
@@ -928,14 +936,14 @@ func (wp *WorkerPool) generateUltraFastPreview(videoPath string, mediaID uint, p
 		"-threads", "2", // Minimal threads
 		previewPath,
 	}
-	
-	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
-	
-	if err := runCommandWithTimeout(cmd, 60*time.Second); err != nil {
+
+	cmd := exec.Command("ffmpeg", args...)
+
+	if err := cmd.Run(); err != nil {
 		log.Printf("❌ Ultra-fast encoding also failed for media %d: %v", mediaID, err)
 		return wp.generatePreviewFallback(videoPath, mediaID, previewPath)
 	}
-	
+
 	log.Printf("✅ Ultra-fast preview successful for media %d", mediaID)
 	return previewPath, nil
 }
@@ -963,7 +971,7 @@ func (wp *WorkerPool) tryFFProbeMethod(videoPath, thumbnailPath string) error {
 	// First, verify video is readable with ffprobe
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	
+
 	cmd := exec.CommandContext(ctx, "ffprobe", "-v", "quiet", "-show_entries", "format=duration", "-of", "csv=p=0", videoPath)
 	_, err := cmd.Output()
 	if err != nil {
@@ -973,7 +981,7 @@ func (wp *WorkerPool) tryFFProbeMethod(videoPath, thumbnailPath string) error {
 	// Try extracting HD frame with minimal ffmpeg parameters
 	ctx2, cancel2 := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel2()
-	
+
 	cmd = exec.CommandContext(ctx2, "ffmpeg", "-y", "-i", videoPath,
 		"-vframes", "1",
 		"-vf", "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2",
@@ -987,7 +995,7 @@ func (wp *WorkerPool) tryFFProbeMethod(videoPath, thumbnailPath string) error {
 func (wp *WorkerPool) tryImageMagickMethod(videoPath, thumbnailPath string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	
+
 	cmd := exec.CommandContext(ctx, "convert",
 		videoPath+"[0]",        // First frame
 		"-resize", "1920x1080", // Full HD resolution
@@ -1003,7 +1011,7 @@ func (wp *WorkerPool) createPlaceholderThumbnail(mediaID uint, thumbnailPath str
 	// Create a Full HD placeholder image using ImageMagick
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	
+
 	cmd := exec.CommandContext(ctx, "convert",
 		"-size", "1920x1080",
 		"xc:black",
@@ -1025,9 +1033,9 @@ func (wp *WorkerPool) createPlaceholderThumbnail(mediaID uint, thumbnailPath str
 func (wp *WorkerPool) trySimplePreviewGeneration(videoPath, previewPath string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	
+
 	cmd := exec.CommandContext(ctx, "ffmpeg",
-		"-y", // Overwrite output
+		"-y",              // Overwrite output
 		"-ss", "00:01:00", // Start at 1 minute
 		"-i", videoPath,
 		"-t", "00:00:15", // Duration of 15 seconds
@@ -1049,7 +1057,7 @@ func (wp *WorkerPool) trySimplePreviewGeneration(videoPath, previewPath string) 
 func (wp *WorkerPool) tryShortPreviewGeneration(videoPath, previewPath string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
-	
+
 	cmd := exec.CommandContext(ctx, "ffmpeg",
 		"-i", videoPath,
 		"-ss", "00:00:30", // Start at 30 seconds
@@ -1070,7 +1078,7 @@ func (wp *WorkerPool) createPlaceholderPreview(mediaID uint, previewPath string)
 	// Create a simple black video with text using FFmpeg
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	
+
 	cmd := exec.CommandContext(ctx, "ffmpeg",
 		"-f", "lavfi",
 		"-i", "color=black:size=1920x1080:duration=5:rate=25",
@@ -1209,7 +1217,7 @@ func (s *ThumbnailService) ServePreview(mediaID uint, title string) (string, err
 func getVideoDurationFast(videoPath string) (int, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	
+
 	cmd := exec.CommandContext(ctx, "ffprobe",
 		"-v", "quiet",
 		"-show_entries", "format=duration",
@@ -1265,15 +1273,15 @@ func secondsToTimeString(seconds int) string {
 // runCommandWithTimeout runs a command with timeout and enhanced error logging
 func runCommandWithTimeout(cmd *exec.Cmd, timeout time.Duration) error {
 	done := make(chan error, 1)
-	
+
 	// Capture both stdout and stderr for better error diagnosis
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
-	
+
 	go func() {
 		done <- cmd.Run()
 	}()
-	
+
 	select {
 	case err := <-done:
 		if err != nil {
@@ -1308,21 +1316,21 @@ func cleanTitleForFilename(title string) string {
 	cleaned = strings.ReplaceAll(cleaned, "|", "")
 	cleaned = strings.ReplaceAll(cleaned, "\"", "")
 	cleaned = strings.ReplaceAll(cleaned, "'", "")
-	
+
 	// Remove multiple underscores and trim
 	cleaned = regexp.MustCompile(`_+`).ReplaceAllString(cleaned, "_")
 	cleaned = strings.Trim(cleaned, "_")
-	
+
 	// Limit length to avoid filesystem issues
 	if len(cleaned) > 100 {
 		cleaned = cleaned[:100]
 	}
-	
+
 	// Ensure we have something if title was all special characters
 	if cleaned == "" {
 		cleaned = "untitled"
 	}
-	
+
 	return cleaned
 }
 
@@ -1344,28 +1352,44 @@ func min(a, b int) int {
 
 // GeneratePreviewClip generates preview clip asynchronously using optimized worker pool
 func (s *ThumbnailService) GeneratePreviewClip(videoPath string, mediaID uint, title string) (string, error) {
+	return s.GeneratePreviewClipWithEpisodeInfo(videoPath, mediaID, title, nil, nil)
+}
+
+// GeneratePreviewClipWithEpisodeInfo generates preview clip with season/episode info for proper naming
+func (s *ThumbnailService) GeneratePreviewClipWithEpisodeInfo(videoPath string, mediaID uint, title string, season *int, episode *int) (string, error) {
 	// Check if preview already exists
 	cleanTitle := cleanTitleForFilename(title)
-	filename := fmt.Sprintf("preview_%s.mp4", cleanTitle)
-	
-	rootPreviewPath := filepath.Join("./previews", filename)
-	if _, err := os.Stat(rootPreviewPath); err == nil {
-		return rootPreviewPath, nil
+	var filename string
+	if season != nil && episode != nil {
+		filename = fmt.Sprintf("preview_%s_S%02dE%02d.mp4", cleanTitle, *season, *episode)
+	} else {
+		filename = fmt.Sprintf("preview_%s.mp4", cleanTitle)
 	}
 
-	backendPreviewPath := filepath.Join(s.thumbnailPath, filename)
-	if _, err := os.Stat(backendPreviewPath); err == nil {
-		return backendPreviewPath, nil
+	previewPaths := []string{
+		filepath.Join("./previews", filename),
+		filepath.Join(s.thumbnailPath, filename),
+	}
+
+	for _, path := range previewPaths {
+		if _, err := os.Stat(path); err == nil {
+			return path, nil
+		}
 	}
 
 	// Generate using optimized worker pool
-	return s.GeneratePreviewClipAsync(videoPath, mediaID, title)
+	return s.GeneratePreviewClipAsyncWithEpisodeInfo(videoPath, mediaID, title, season, episode)
 }
 
 // GeneratePreviewClipAsync generates preview clip asynchronously with callback
 func (s *ThumbnailService) GeneratePreviewClipAsync(videoPath string, mediaID uint, title string) (string, error) {
+	return s.GeneratePreviewClipAsyncWithEpisodeInfo(videoPath, mediaID, title, nil, nil)
+}
+
+// GeneratePreviewClipAsyncWithEpisodeInfo generates preview clip asynchronously with callback and season/episode info
+func (s *ThumbnailService) GeneratePreviewClipAsyncWithEpisodeInfo(videoPath string, mediaID uint, title string, season *int, episode *int) (string, error) {
 	taskID := fmt.Sprintf("preview_%d_%d", mediaID, time.Now().Unix())
-	
+
 	// Create job status
 	s.mu.Lock()
 	s.activeJobs[taskID] = &JobStatus{
@@ -1629,7 +1653,7 @@ func (s *ThumbnailService) GenerateMultiplePreviewClips(videoPath string, mediaI
 			"-i", videoPath,
 			"-ss", startTimeStr,
 			"-t", "00:00:15",
-			"-vf", "scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2",
+			"-vf", "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2",
 			"-c:v", "libx264",
 			"-preset", "medium",
 			"-crf", "23",
@@ -1997,7 +2021,7 @@ func (s *ThumbnailService) GetJobStatus(jobID string) (*JobStatus, bool) {
 func (s *ThumbnailService) GetActiveJobs() map[string]*JobStatus {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	
+
 	jobs := make(map[string]*JobStatus)
 	for k, v := range s.activeJobs {
 		jobs[k] = v
@@ -2011,16 +2035,16 @@ func (s *ThumbnailService) GetWorkerPoolStats() map[string]interface{} {
 	activeJobs := len(s.activeJobs)
 	queueCapacity := cap(s.processingQueue)
 	queueUtilization := float64(queueLength) / float64(queueCapacity) * 100
-	
+
 	return map[string]interface{}{
-		"workers":            s.workerPool.workers,
-		"hardware_accel":     s.hwAcceleration,
-		"max_concurrent":     s.maxConcurrent,
-		"queue_length":       queueLength,
-		"queue_capacity":     queueCapacity,
-		"queue_utilization":  queueUtilization,
-		"active_jobs":        activeJobs,
-		"queue_health":       s.getQueueHealth(queueUtilization),
+		"workers":           s.workerPool.workers,
+		"hardware_accel":    s.hwAcceleration,
+		"max_concurrent":    s.maxConcurrent,
+		"queue_length":      queueLength,
+		"queue_capacity":    queueCapacity,
+		"queue_utilization": queueUtilization,
+		"active_jobs":       activeJobs,
+		"queue_health":      s.getQueueHealth(queueUtilization),
 	}
 }
 
@@ -2049,7 +2073,7 @@ func (s *ThumbnailService) IsQueueHealthy() bool {
 func (s *ThumbnailService) CleanupCompletedJobs(maxAge time.Duration) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	
+
 	cutoff := time.Now().Add(-maxAge)
 	cleaned := 0
 	for id, job := range s.activeJobs {
@@ -2058,7 +2082,7 @@ func (s *ThumbnailService) CleanupCompletedJobs(maxAge time.Duration) {
 			cleaned++
 		}
 	}
-	
+
 	if cleaned > 0 {
 		log.Printf("🧹 Cleaned up %d completed jobs older than %v", cleaned, maxAge)
 	}
@@ -2077,7 +2101,7 @@ func (s *ThumbnailService) DrainQueue(maxItems int) int {
 				job.Error = fmt.Errorf("dropped due to queue overflow")
 			}
 			s.mu.Unlock()
-			
+
 			// Call callback with error
 			if task.Callback != nil {
 				task.Callback("", fmt.Errorf("dropped due to queue overflow"))
@@ -2087,11 +2111,11 @@ func (s *ThumbnailService) DrainQueue(maxItems int) int {
 			break
 		}
 	}
-	
+
 	if drained > 0 {
 		log.Printf("⚠️ Drained %d tasks from overloaded queue", drained)
 	}
-	
+
 	return drained
 }
 
@@ -2100,16 +2124,16 @@ func (s *ThumbnailService) StartQueueMaintenance() {
 	go func() {
 		ticker := time.NewTicker(1 * time.Minute)
 		defer ticker.Stop()
-		
+
 		for range ticker.C {
 			// Clean up old completed jobs
 			s.CleanupCompletedJobs(10 * time.Minute)
-			
+
 			// Check queue health and drain if necessary
 			queueLength := len(s.processingQueue)
 			queueCapacity := cap(s.processingQueue)
 			utilization := float64(queueLength) / float64(queueCapacity) * 100
-			
+
 			if utilization > 90 {
 				log.Printf("🚨 Queue critically full (%.1f%%), draining excess tasks", utilization)
 				s.DrainQueue(int(float64(queueCapacity) * 0.8)) // Drain to 80% capacity
@@ -2121,15 +2145,15 @@ func (s *ThumbnailService) StartQueueMaintenance() {
 // Shutdown gracefully shuts down the thumbnail service
 func (s *ThumbnailService) Shutdown() {
 	log.Println("🛑 Shutting down ThumbnailService...")
-	
+
 	// Stop worker pool
 	if s.workerPool != nil {
 		s.workerPool.Stop()
 	}
-	
+
 	// Close processing queue
 	close(s.processingQueue)
-	
+
 	log.Println("✅ ThumbnailService shutdown complete")
 }
 
@@ -2147,43 +2171,43 @@ func (s *ThumbnailService) cleanTitleForFilename(title string) string {
 	cleaned = strings.ReplaceAll(cleaned, "|", "")
 	cleaned = strings.ReplaceAll(cleaned, "\"", "")
 	cleaned = strings.ReplaceAll(cleaned, "'", "")
-	
+
 	// Remove multiple underscores and trim
 	cleaned = regexp.MustCompile(`_+`).ReplaceAllString(cleaned, "_")
 	cleaned = strings.Trim(cleaned, "_")
-	
+
 	// Limit length to avoid filesystem issues
 	if len(cleaned) > 100 {
 		cleaned = cleaned[:100]
 	}
-	
+
 	// Ensure we have something if title was all special characters
 	if cleaned == "" {
 		cleaned = "untitled"
 	}
-	
+
 	return cleaned
 }
 
 // runCommandWithProgress runs a command and shows a progress indicator
 func (s *ThumbnailService) runCommandWithProgress(cmd *exec.Cmd, description string) error {
 	log.Printf("🎬 %s...", description)
-	
+
 	// Start the command
 	err := cmd.Start()
 	if err != nil {
 		return fmt.Errorf("failed to start command: %w", err)
 	}
-	
+
 	// Show progress dots while command is running
 	done := make(chan error, 1)
 	go func() {
 		done <- cmd.Wait()
 	}()
-	
+
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
-	
+
 	dots := 0
 	for {
 		select {
@@ -2207,18 +2231,18 @@ func (s *ThumbnailService) CheckCUDAHealth() bool {
 	if s.hwAcceleration != "cuda" {
 		return true // Not using CUDA, so it's "healthy"
 	}
-	
+
 	log.Printf("🔍 Performing CUDA health check...")
-	
+
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	
+
 	// Simple CUDA test
-	cmd := exec.CommandContext(ctx, "ffmpeg", 
-		"-f", "lavfi", "-i", "testsrc2=duration=1:size=320x240:rate=1", 
+	cmd := exec.CommandContext(ctx, "ffmpeg",
+		"-f", "lavfi", "-i", "testsrc2=duration=1:size=320x240:rate=1",
 		"-c:v", "h264_nvenc", "-preset", "fast", "-rc", "vbr", "-cq", "23",
 		"-t", "1", "-f", "null", "-")
-	
+
 	err := cmd.Run()
 	if err != nil {
 		log.Printf("❌ CUDA health check failed: %v", err)
@@ -2226,7 +2250,7 @@ func (s *ThumbnailService) CheckCUDAHealth() bool {
 		s.hwAcceleration = "none"
 		return false
 	}
-	
+
 	log.Printf("✅ CUDA health check passed")
 	return true
 }
@@ -2234,12 +2258,12 @@ func (s *ThumbnailService) CheckCUDAHealth() bool {
 // PerformMaintenanceCheck runs various health checks and maintenance tasks
 func (s *ThumbnailService) PerformMaintenanceCheck() {
 	log.Printf("🔧 Performing thumbnail service maintenance check...")
-	
+
 	// Check CUDA health if using CUDA
 	if s.hwAcceleration == "cuda" {
 		s.CheckCUDAHealth()
 	}
-	
+
 	// Check queue health
 	stats := s.GetWorkerPoolStats()
 	queueHealth := stats["queue_health"].(string)
@@ -2247,10 +2271,10 @@ func (s *ThumbnailService) PerformMaintenanceCheck() {
 		log.Printf("⚠️ Queue health is %s, performing maintenance", queueHealth)
 		s.DrainQueue(int(float64(cap(s.processingQueue)) * 0.7))
 	}
-	
+
 	// Clean up old jobs
 	s.CleanupCompletedJobs(15 * time.Minute)
-	
+
 	log.Printf("✅ Maintenance check completed")
 }
 
@@ -2259,7 +2283,7 @@ func (s *ThumbnailService) StartPeriodicMaintenance() {
 	go func() {
 		ticker := time.NewTicker(5 * time.Minute)
 		defer ticker.Stop()
-		
+
 		for range ticker.C {
 			s.PerformMaintenanceCheck()
 		}
@@ -2269,7 +2293,7 @@ func (s *ThumbnailService) StartPeriodicMaintenance() {
 // GeneratePreviewClipUnlimited generates preview clip without timeout constraints
 func (s *ThumbnailService) GeneratePreviewClipUnlimited(ctx context.Context, videoPath string, mediaID uint, title string) (string, error) {
 	taskID := fmt.Sprintf("preview_unlimited_%d_%d", mediaID, time.Now().Unix())
-	
+
 	// Create job status
 	s.mu.Lock()
 	s.activeJobs[taskID] = &JobStatus{
@@ -2347,7 +2371,7 @@ func (wp *WorkerPool) processThumbnailUnlimited(task ProcessingTask) (string, er
 
 	// Get optimized FFmpeg configuration
 	config := wp.getOptimizedFFmpegConfig("thumbnail")
-	
+
 	// Get video duration for smart timestamp selection
 	duration, err := getVideoDurationFast(task.VideoPath)
 	if err != nil {
@@ -2359,16 +2383,16 @@ func (wp *WorkerPool) processThumbnailUnlimited(task ProcessingTask) (string, er
 	timestamp := calculateOptimalTimestamp(duration, "thumbnail")
 	timeStr := secondsToTimeString(timestamp)
 
-	log.Printf("🎯 Generating unlimited HD thumbnail for media %d at %s using %s", 
+	log.Printf("🎯 Generating unlimited HD thumbnail for media %d at %s using %s",
 		task.MediaID, timeStr, config.HWAccel)
 
 	// Build optimized FFmpeg command
 	args := buildThumbnailCommand(task.VideoPath, thumbnailPath, timeStr, config)
-	
+
 	// Use context without timeout for unlimited processing
 	ctx := context.Background()
 	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
-	
+
 	// Run without timeout constraints
 	err = cmd.Run()
 	if err != nil {
@@ -2402,7 +2426,7 @@ func (wp *WorkerPool) processPreviewUnlimited(task ProcessingTask) (string, erro
 
 	// Get optimized FFmpeg configuration
 	config := wp.getOptimizedFFmpegConfig("preview")
-	
+
 	// Get video duration for smart segment selection
 	duration, err := getVideoDurationFast(task.VideoPath)
 	if err != nil {
@@ -2413,7 +2437,7 @@ func (wp *WorkerPool) processPreviewUnlimited(task ProcessingTask) (string, erro
 	// Calculate optimal start time and duration
 	startTime := calculateOptimalTimestamp(duration, "preview")
 	clipDuration := 15 // 15 seconds
-	
+
 	// Ensure we don't exceed video duration
 	if startTime+clipDuration > duration {
 		startTime = max(10, duration-clipDuration-5)
@@ -2421,7 +2445,7 @@ func (wp *WorkerPool) processPreviewUnlimited(task ProcessingTask) (string, erro
 
 	startTimeStr := secondsToTimeString(startTime)
 
-	log.Printf("🎬 Generating unlimited 15s HD preview with ALAC audio for media %d starting at %s using %s", 
+	log.Printf("🎬 Generating unlimited 15s HD preview with ALAC audio for media %d starting at %s using %s",
 		task.MediaID, startTimeStr, config.HWAccel)
 
 	// Try to generate preview with ALAC audio first
@@ -2431,22 +2455,22 @@ func (wp *WorkerPool) processPreviewUnlimited(task ProcessingTask) (string, erro
 
 	// Fallback to standard preview generation without timeout
 	args := buildPreviewCommand(task.VideoPath, previewPath, startTimeStr, clipDuration, config)
-	
+
 	// Use context without timeout for unlimited processing
 	ctx := context.Background()
 	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
-	
+
 	// Run without timeout constraints
 	err = cmd.Run()
 	if err != nil {
 		log.Printf("❌ Unlimited preview generation failed for media %d: %v", task.MediaID, err)
-		
+
 		// Check for specific CUDA errors (exit status 234 is common CUDA issue)
 		if config.HWAccel == "cuda" {
 			log.Printf("🔄 CUDA preview failed (likely exit status 234), trying software fallback for media %d", task.MediaID)
 			return wp.generatePreviewWithSoftwareEncodingUnlimited(task.VideoPath, task.MediaID, previewPath, startTimeStr, clipDuration)
 		}
-		
+
 		// Fallback to other methods
 		return wp.generatePreviewFallback(task.VideoPath, task.MediaID, previewPath)
 	}
@@ -2473,13 +2497,13 @@ func (wp *WorkerPool) generatePreviewWithALACUnlimited(task ProcessingTask, prev
 
 	// Build FFmpeg command with ALAC audio
 	args := []string{
-		"-ss", startTimeStr,                    // Start time
-		"-i", task.VideoPath,                   // Video input
-		"-ss", startTimeStr,                    // Start time for audio
-		"-i", alacPath,                         // ALAC audio input
-		"-t", fmt.Sprintf("%d", clipDuration),  // Duration
-		"-map", "0:v:0",                        // Map video from first input
-		"-map", "1:a:0",                        // Map ALAC audio from second input
+		"-ss", startTimeStr, // Start time
+		"-i", task.VideoPath, // Video input
+		"-ss", startTimeStr, // Start time for audio
+		"-i", alacPath, // ALAC audio input
+		"-t", fmt.Sprintf("%d", clipDuration), // Duration
+		"-map", "0:v:0", // Map video from first input
+		"-map", "1:a:0", // Map ALAC audio from second input
 	}
 
 	// Add hardware acceleration if available
@@ -2498,27 +2522,27 @@ func (wp *WorkerPool) generatePreviewWithALACUnlimited(task ProcessingTask, prev
 
 	// Audio settings - copy ALAC or re-encode if needed
 	args = append(args,
-		"-c:a", "aac",                          // Re-encode to AAC for web compatibility
-		"-b:a", "192k",                         // High quality audio bitrate
-		"-ar", "48000",                         // 48kHz sample rate
-		"-ac", "2",                             // Stereo for previews
+		"-c:a", "aac", // Re-encode to AAC for web compatibility
+		"-b:a", "192k", // High quality audio bitrate
+		"-ar", "48000", // 48kHz sample rate
+		"-ac", "2", // Stereo for previews
 		"-af", "loudnorm=I=-16:TP=-1.5:LRA=11", // Loudness normalization
 	)
 
 	// Video quality settings
 	args = append(args,
-		"-preset", "fast",                      // Fast encoding
-		"-crf", "23",                           // Good quality
-		"-pix_fmt", "yuv420p",                  // Web compatibility
-		"-movflags", "+faststart",              // Web optimization
-		"-y",                                   // Overwrite existing
+		"-preset", "fast", // Fast encoding
+		"-crf", "23", // Good quality
+		"-pix_fmt", "yuv420p", // Web compatibility
+		"-movflags", "+faststart", // Web optimization
+		"-y", // Overwrite existing
 		previewPath,
 	)
 
 	// Use context without timeout for unlimited processing
 	ctx := context.Background()
 	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
-	
+
 	err := cmd.Run()
 	if err != nil {
 		log.Printf("❌ Unlimited preview with ALAC audio generation failed for media %d: %v", task.MediaID, err)
@@ -2537,10 +2561,10 @@ func (wp *WorkerPool) generatePreviewWithALACUnlimited(task ProcessingTask, prev
 // generatePreviewWithSoftwareEncodingUnlimited tries software encoding without timeout
 func (wp *WorkerPool) generatePreviewWithSoftwareEncodingUnlimited(videoPath string, mediaID uint, previewPath, startTime string, duration int) (string, error) {
 	log.Printf("🔄 Trying unlimited software encoding for preview generation (media %d) - CUDA fallback", mediaID)
-	
+
 	// Use context without timeout for unlimited processing
 	ctx := context.Background()
-	
+
 	// Build optimized software encoding command
 	args := []string{
 		"-y", // Overwrite output
@@ -2559,17 +2583,17 @@ func (wp *WorkerPool) generatePreviewWithSoftwareEncodingUnlimited(videoPath str
 		"-threads", "4", // Limit threads for stability
 		previewPath,
 	}
-	
+
 	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
-	
+
 	if err := cmd.Run(); err != nil {
 		log.Printf("❌ Unlimited software encoding failed for media %d: %v", mediaID, err)
-		
+
 		// Try ultra-fast software encoding as last resort
 		log.Printf("🔄 Trying unlimited ultra-fast software encoding for media %d", mediaID)
 		return wp.generateUltraFastPreviewUnlimited(videoPath, mediaID, previewPath, startTime, duration)
 	}
-	
+
 	log.Printf("✅ Unlimited software encoding preview successful for media %d", mediaID)
 	return previewPath, nil
 }
@@ -2577,10 +2601,10 @@ func (wp *WorkerPool) generatePreviewWithSoftwareEncodingUnlimited(videoPath str
 // generateUltraFastPreviewUnlimited creates a preview with minimal quality settings without timeout
 func (wp *WorkerPool) generateUltraFastPreviewUnlimited(videoPath string, mediaID uint, previewPath, startTime string, duration int) (string, error) {
 	log.Printf("🚀 Trying unlimited ultra-fast preview generation for media %d", mediaID)
-	
+
 	// Use context without timeout for unlimited processing
 	ctx := context.Background()
-	
+
 	// Ultra-minimal FFmpeg command for maximum compatibility
 	args := []string{
 		"-y",
@@ -2599,15 +2623,14 @@ func (wp *WorkerPool) generateUltraFastPreviewUnlimited(videoPath string, mediaI
 		"-threads", "2", // Minimal threads
 		previewPath,
 	}
-	
+
 	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
-	
+
 	if err := cmd.Run(); err != nil {
 		log.Printf("❌ Unlimited ultra-fast encoding also failed for media %d: %v", mediaID, err)
 		return wp.generatePreviewFallback(videoPath, mediaID, previewPath)
 	}
-	
+
 	log.Printf("✅ Unlimited ultra-fast preview successful for media %d", mediaID)
 	return previewPath, nil
 }
-

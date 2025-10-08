@@ -728,20 +728,21 @@ func generatePreviewWithAudioFallback(media *models.Media) (string, error) {
 	outputPath := fmt.Sprintf("%s/preview_%d_%s_audio_fallback.mp4", previewDir, media.ID,
 		strings.ReplaceAll(media.Title, " ", "_"))
 
-	// FFmpeg command with audio codec fallback (ALAC -> AAC conversion)
+	// Optimized FFmpeg command for i5-4590 system
 	cmd := exec.Command("ffmpeg",
 		"-i", media.FilePath,
 		"-ss", "60", // Start at 1 minute
-		"-t", "30", // 30 second duration
-		"-vf", "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2",
+		"-t", "10", // Reduced to 10 seconds for stability
+		"-vf", "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2", // HD 1920x1080p quality
 		"-c:v", "libx264",
 		"-preset", "fast",
 		"-crf", "23",
 		"-c:a", "aac", // Force AAC audio codec
-		"-b:a", "128k", // Audio bitrate
+		"-b:a", "96k", // Lower audio bitrate
 		"-ac", "2", // Stereo audio
 		"-ar", "44100", // Sample rate
 		"-movflags", "+faststart",
+		"-threads", "2", // Limit threads for i5-4590
 		"-y", // Overwrite output file
 		outputPath)
 
@@ -755,38 +756,39 @@ func generatePreviewWithAudioFallback(media *models.Media) (string, error) {
 	return outputPath, nil
 }
 
-// generateLowerQualityPreview generates 720p preview with audio conversion
+// generateLowerQualityPreview generates HD 1080p preview with audio conversion
 func generateLowerQualityPreview(media *models.Media) (string, error) {
 	previewDir := "previews"
 	if _, err := os.Stat(previewDir); os.IsNotExist(err) {
 		os.MkdirAll(previewDir, 0755)
 	}
 
-	outputPath := fmt.Sprintf("%s/preview_%d_%s_720p.mp4", previewDir, media.ID,
+	outputPath := fmt.Sprintf("%s/preview_%d_%s_HD.mp4", previewDir, media.ID,
 		strings.ReplaceAll(media.Title, " ", "_"))
 
-	// FFmpeg command for 720p with audio conversion
+	// Optimized FFmpeg command for i5-4590 HD preview
 	cmd := exec.Command("ffmpeg",
 		"-i", media.FilePath,
 		"-ss", "60", // Start at 1 minute
-		"-t", "30", // 30 second duration
-		"-vf", "scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2",
+		"-t", "15", // Reduced duration for stability
+		"-vf", "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2", // HD 1920x1080p quality
 		"-c:v", "libx264",
-		"-preset", "ultrafast", // Faster encoding
-		"-crf", "28", // Lower quality for faster processing
+		"-preset", "fast", // Faster preset for i5-4590
+		"-crf", "23", // Balanced quality
 		"-c:a", "aac", // Force AAC audio codec
 		"-b:a", "96k", // Lower audio bitrate
 		"-ac", "2", // Stereo audio
 		"-ar", "44100", // Sample rate
 		"-movflags", "+faststart",
+		"-threads", "2", // Limit threads for stability
 		"-y", // Overwrite output file
 		outputPath)
 
-	log.Printf("🔧 Running FFmpeg 720p preview: %s", cmd.String())
+	log.Printf("🔧 Running FFmpeg HD preview: %s", cmd.String())
 
 	if output, err := cmd.CombinedOutput(); err != nil {
-		log.Printf("❌ FFmpeg 720p preview failed: %v\nOutput: %s", err, string(output))
-		return "", fmt.Errorf("ffmpeg 720p preview failed: %v", err)
+		log.Printf("❌ FFmpeg HD preview failed: %v\nOutput: %s", err, string(output))
+		return "", fmt.Errorf("ffmpeg HD preview failed: %v", err)
 	}
 
 	return outputPath, nil
@@ -802,17 +804,18 @@ func generateVideoOnlyPreview(media *models.Media) (string, error) {
 	outputPath := fmt.Sprintf("%s/preview_%d_%s_video_only.mp4", previewDir, media.ID,
 		strings.ReplaceAll(media.Title, " ", "_"))
 
-	// FFmpeg command without audio
+	// Optimized FFmpeg command for video-only preview
 	cmd := exec.Command("ffmpeg",
 		"-i", media.FilePath,
 		"-ss", "60", // Start at 1 minute
-		"-t", "30", // 30 second duration
-		"-vf", "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2",
+		"-t", "10", // Short duration for stability
+		"-vf", "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2", // HD 1920x1080p quality
 		"-c:v", "libx264",
-		"-preset", "fast",
-		"-crf", "23",
+		"-preset", "ultrafast", // Fastest preset for video-only
+		"-crf", "25", // Lower quality for speed
 		"-an", // No audio
 		"-movflags", "+faststart",
+		"-threads", "2", // Limit threads for i5-4590
 		"-y", // Overwrite output file
 		outputPath)
 

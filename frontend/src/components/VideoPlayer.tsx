@@ -44,6 +44,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
   const [isMobile, setIsMobile] = useState(false);
   const [showResumeNotification, setShowResumeNotification] = useState(false);
   const [resumeTime, setResumeTime] = useState(0);
+  const progressSaveIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const getStreamUrl = (mediaId: number, quality?: string, format?: string) => {
     const baseUrl = `${getApiUrl()}/api/stream/${mediaId}`;
@@ -368,6 +369,13 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
 
     video.currentTime = newTime;
     setCurrentTime(newTime);
+    
+    // Save progress immediately when clicking progress bar
+    if (video.duration > 0) {
+      updatePlaybackProgress(media.id, newTime, video.duration, '1').catch(error => {
+        console.log('Failed to save progress after progress click:', error);
+      });
+    }
   };
 
   const handleSeekStart = (e: React.MouseEvent | React.TouchEvent) => {
@@ -415,6 +423,13 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
     const newTime = (parseFloat(e.target.value) / 100) * duration;
     video.currentTime = newTime;
     setCurrentTime(newTime);
+    
+    // Save progress immediately when seeking
+    if (video.duration > 0) {
+      updatePlaybackProgress(media.id, newTime, video.duration, '1').catch(error => {
+        console.log('Failed to save progress after seek:', error);
+      });
+    }
   };
 
   const formatTime = (time: number) => {
@@ -583,12 +598,20 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
     const handleTimeUpdate = () => {
       if (!isDragging) {
         setCurrentTime(video.currentTime);
-        // Update playback progress every 10 seconds
-        if (Math.floor(video.currentTime) % 10 === 0 && video.duration > 0) {
+        // Update playback progress every 5 seconds for better accuracy
+        if (Math.floor(video.currentTime) % 5 === 0 && video.duration > 0) {
           updatePlaybackProgress(media.id, video.currentTime, video.duration, '1').catch(error => {
             console.log('Failed to update playback progress:', error);
           });
         }
+      }
+    };
+
+    const saveProgressNow = () => {
+      if (video.duration > 0) {
+        updatePlaybackProgress(media.id, video.currentTime, video.duration, '1').catch(error => {
+          console.log('Failed to save progress:', error);
+        });
       }
     };
 
@@ -603,6 +626,12 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
         setIsMuted(false);
       }
 
+      // Start periodic progress saving every 10 seconds
+      if (progressSaveIntervalRef.current) {
+        clearInterval(progressSaveIntervalRef.current);
+      }
+      progressSaveIntervalRef.current = setInterval(saveProgressNow, 10000);
+
       // Track view when playback starts
       trackView(media.id).catch(error => {
         console.log('Failed to track view:', error);
@@ -612,17 +641,25 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
     const handlePause = () => {
       console.log('Video paused');
       setIsPlaying(false);
-      // Update progress when paused
-      if (video.duration > 0) {
-        updatePlaybackProgress(media.id, video.currentTime, video.duration, '1').catch(error => {
-          console.log('Failed to update playback progress on pause:', error);
-        });
+      
+      // Clear periodic progress saving
+      if (progressSaveIntervalRef.current) {
+        clearInterval(progressSaveIntervalRef.current);
       }
+      
+      // Save progress immediately when paused
+      saveProgressNow();
     };
 
     const handleEnded = () => {
       console.log('Video ended');
       setIsPlaying(false);
+      
+      // Clear periodic progress saving
+      if (progressSaveIntervalRef.current) {
+        clearInterval(progressSaveIntervalRef.current);
+      }
+      
       // Mark as completed when ended
       if (video.duration > 0) {
         updatePlaybackProgress(media.id, video.duration, video.duration, '1').catch(error => {
@@ -737,6 +774,39 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
       document.removeEventListener('mousemove', handleMouseMove);
     };
   }, [isOpen, isPlaying]);
+
+  // Cleanup and save progress when component unmounts or video player closes
+  useEffect(() => {
+    return () => {
+      // Clear progress saving interval
+      if (progressSaveIntervalRef.current) {
+        clearInterval(progressSaveIntervalRef.current);
+      }
+      
+      // Save final progress before unmounting
+      const video = videoRef.current;
+      if (video && video.duration > 0 && video.currentTime > 0) {
+        updatePlaybackProgress(media.id, video.currentTime, video.duration, '1').catch(error => {
+          console.log('Failed to save final progress:', error);
+        });
+      }
+    };
+  }, [media.id]);
+
+  // Save progress when video player closes
+  useEffect(() => {
+    if (!isOpen && progressSaveIntervalRef.current) {
+      clearInterval(progressSaveIntervalRef.current);
+      
+      // Save progress before closing
+      const video = videoRef.current;
+      if (video && video.duration > 0 && video.currentTime > 0) {
+        updatePlaybackProgress(media.id, video.currentTime, video.duration, '1').catch(error => {
+          console.log('Failed to save progress on close:', error);
+        });
+      }
+    }
+  }, [isOpen, media.id]);
 
   if (!isOpen) return null;
 

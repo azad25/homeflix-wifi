@@ -21,7 +21,7 @@ check_dependency "ffmpeg"
 echo "✅ All dependencies found!"
 
 # Create media directory if it doesn't exist
-MEDIA_PATH="/media/azad/Movies"
+MEDIA_PATH="/media/azad/Movies1"
 if [ ! -d "$MEDIA_PATH" ]; then
     echo "📁 Creating media directory: $MEDIA_PATH"
     sudo mkdir -p "$MEDIA_PATH"

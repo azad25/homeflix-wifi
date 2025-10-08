@@ -106,6 +106,83 @@ func GetTVShows(mediaService *services.MediaService) gin.HandlerFunc {
 	}
 }
 
+// GetAllSeries returns all TV series
+func GetAllSeries(mediaService *services.MediaService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		series, err := mediaService.GetAllSeries()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, series)
+	}
+}
+
+// GetSeriesByID returns a specific series by ID
+func GetSeriesByID(mediaService *services.MediaService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		idStr := c.Param("id")
+		id, err := strconv.ParseUint(idStr, 10, 32)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid series ID"})
+			return
+		}
+
+		series, err := mediaService.GetSeriesByID(uint(id))
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Series not found"})
+			return
+		}
+		c.JSON(http.StatusOK, series)
+	}
+}
+
+// GetSeasonsBySeriesID returns all seasons for a specific series
+func GetSeasonsBySeriesID(mediaService *services.MediaService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		idStr := c.Param("id")
+		id, err := strconv.ParseUint(idStr, 10, 32)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid series ID"})
+			return
+		}
+
+		seasons, err := mediaService.GetSeasonsBySeriesID(uint(id))
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, seasons)
+	}
+}
+
+// GetEpisodesBySeriesAndSeason returns episodes for a specific series and season
+func GetEpisodesBySeriesAndSeason(mediaService *services.MediaService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		idStr := c.Param("id")
+		seasonStr := c.Param("season")
+		
+		id, err := strconv.ParseUint(idStr, 10, 32)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid series ID"})
+			return
+		}
+		
+		season, err := strconv.Atoi(seasonStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid season number"})
+			return
+		}
+
+		episodes, err := mediaService.GetEpisodesBySeriesAndSeason(uint(id), season)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, episodes)
+	}
+}
+
 func GetMediaByGenre(mediaService *services.MediaService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		genre := c.Param("genre")

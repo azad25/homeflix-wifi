@@ -50,7 +50,14 @@ func (ap *AssetProcessor) GenerateAssetsWithoutTimeout(media *models.Media) erro
 func (ap *AssetProcessor) generateThumbnailUnlimited(media *models.Media) error {
 	// Check if thumbnail already exists
 	cleanTitle := cleanTitleForFilename(media.Title)
-	filename := fmt.Sprintf("thumb_%s.jpg", cleanTitle)
+	
+	// Include season and episode numbers for TV series episodes to avoid conflicts
+	var filename string
+	if media.Type == "episode" && media.Season != nil && media.Episode != nil {
+		filename = fmt.Sprintf("thumb_%s_S%02dE%02d.jpg", cleanTitle, *media.Season, *media.Episode)
+	} else {
+		filename = fmt.Sprintf("thumb_%s.jpg", cleanTitle)
+	}
 	
 	thumbnailPaths := []string{
 		filepath.Join("./thumbnails", filename),
@@ -82,7 +89,14 @@ func (ap *AssetProcessor) generateThumbnailUnlimited(media *models.Media) error 
 func (ap *AssetProcessor) generatePreviewClipUnlimited(media *models.Media) error {
 	// Check if preview already exists
 	cleanTitle := cleanTitleForFilename(media.Title)
-	filename := fmt.Sprintf("preview_%s.mp4", cleanTitle)
+	
+	// Include season and episode numbers for TV series episodes to avoid conflicts
+	var filename string
+	if media.Type == "episode" && media.Season != nil && media.Episode != nil {
+		filename = fmt.Sprintf("preview_%s_S%02dE%02d.mp4", cleanTitle, *media.Season, *media.Episode)
+	} else {
+		filename = fmt.Sprintf("preview_%s.mp4", cleanTitle)
+	}
 	
 	previewPaths := []string{
 		filepath.Join("./previews", filename),
@@ -100,8 +114,8 @@ func (ap *AssetProcessor) generatePreviewClipUnlimited(media *models.Media) erro
 	
 	log.Printf("🎬 Generating preview clip without timeout for: %s", media.Title)
 	
-	// Generate using thumbnail service
-	previewPath, err := ap.scanner.GetThumbnailService().GeneratePreviewClip(media.FilePath, media.ID, media.Title)
+	// Generate using thumbnail service with season/episode info
+	previewPath, err := ap.scanner.GetThumbnailService().GeneratePreviewClipWithEpisodeInfo(media.FilePath, media.ID, media.Title, media.Season, media.Episode)
 	if err != nil {
 		return fmt.Errorf("preview clip generation failed: %v", err)
 	}
