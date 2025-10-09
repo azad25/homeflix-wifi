@@ -3,9 +3,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Play, Info, Plus, Check } from 'lucide-react';
 import { Media } from '@/types/media';
-import { getApiUrl } from '@/lib/api';
-import { useAssetUrl } from '@/hooks/useGlobalCache';
-import { globalCachedFetch } from '@/lib/globalApiCache';
+import { getApiUrl, loadAssetWithFallback } from '@/lib/api';
 
 interface NetflixMediaCardProps {
   media: Media;
@@ -28,26 +26,49 @@ const NetflixMediaCard: React.FC<NetflixMediaCardProps> = ({
 }) => {
   const [isHovered, setIsHovered] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
+  const [thumbnailUrl, setThumbnailUrl] = useState<string>('');
+  const [previewUrl, setPreviewUrl] = useState<string>('');
   const [imageError, setImageError] = useState(false);
   const [previewError, setPreviewError] = useState(false);
-  
-  // Use global cache for assets - backend expects numeric IDs, not UUIDs
-  const { data: posterUrl, loading: posterLoading } = useAssetUrl('posters', media.id.toString());
-  const { data: thumbnailUrl, loading: thumbnailLoading } = useAssetUrl('thumbnails', media.id.toString());
-  const { data: previewUrl, loading: previewLoading } = useAssetUrl('previews', media.id.toString());
-  
-  const isLoading = posterLoading || thumbnailLoading || (showPreviewOnHover && previewLoading);
+  const [isLoading, setIsLoading] = useState(true);
   
   const videoRef = useRef<HTMLVideoElement>(null);
   const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const previewTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Assets are now loaded automatically via global cache hooks
+  // Load assets on mount
+  useEffect(() => {
+    loadAssets();
+  }, [media.id]);
+
+  const loadAssets = async () => {
+    setIsLoading(true);
+    try {
+      // Load thumbnail and preview only
+      const [thumbnail, preview] = await Promise.allSettled([
+        loadAssetWithFallback('thumbnail', media.id),
+        loadAssetWithFallback('preview', media.id)
+      ]);
+
+      if (thumbnail.status === 'fulfilled') {
+        setThumbnailUrl(thumbnail.value);
+      }
+
+      if (preview.status === 'fulfilled' && preview.value) {
+        setPreviewUrl(preview.value);
+      }
+    } catch (error) {
+      console.warn('Failed to load assets for media:', media.id);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const handleMouseEnter = () => {
     setIsHovered(true);
     
-    if (showPreviewOnHover && previewUrl && !previewError) {
+    // Always try to show preview on hover if available
+    if (previewUrl && !previewError) {
       // Delay preview to avoid triggering on quick hovers
       hoverTimeoutRef.current = setTimeout(() => {
         setShowPreview(true);
@@ -93,17 +114,8 @@ const NetflixMediaCard: React.FC<NetflixMediaCardProps> = ({
   };
 
   const getDisplayImage = () => {
-    if (imageError) {
-      return thumbnailUrl || posterUrl || '';
-    }
-    return posterUrl || thumbnailUrl || '';
-  };
-
-  // Generate fallback image URL with multiple attempts
-  // DISABLED: Return placeholder to prevent CORS errors
-  const getImageUrls = () => {
-    const placeholder = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjQwMCIgdmlld0JveD0iMCAwIDMwMCA0MDAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIzMDAiIGhlaWdodD0iNDAwIiBmaWxsPSJncmFkaWVudChsaW5lYXIsIDQ1ZGVnLCAjMTExLCAjMzMzKSIvPgo8dGV4dCB4PSIxNTAiIHk9IjIwMCIgZm9udC1mYW1pbHk9IkFyaWFsIiBmb250LXNpemU9IjI0IiBmaWxsPSIjZTUwOTE0IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj5Ib21lRmxpeDwvdGV4dD4KPHN2Zz4=';
-    return [placeholder, placeholder, placeholder];
+    // Only use thumbnails
+    return thumbnailUrl;
   };
 
   const formatRating = (rating: number) => {
@@ -148,31 +160,23 @@ const NetflixMediaCard: React.FC<NetflixMediaCardProps> = ({
           </video>
         )}
 
-        {/* Poster/Thumbnail Image with Enhanced Fallback */}
+        {/* Thumbnail Image */}
         {!showPreview && getDisplayImage() && (
           <img
             src={getDisplayImage()}
             alt={media.title}
             className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
-            onError={() => {
-              // DISABLED: Use placeholder instead of fallback URLs to prevent CORS errors
-              const placeholder = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjQwMCIgdmlld0JveD0iMCAwIDMwMCA0MDAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIzMDAiIGhlaWdodD0iNDAwIiBmaWxsPSJncmFkaWVudChsaW5lYXIsIDQ1ZGVnLCAjMTExLCAjMzMzKSIvPgo8dGV4dCB4PSIxNTAiIHk9IjIwMCIgZm9udC1mYW1pbHk9IkFyaWFsIiBmb250LXNpemU9IjI0IiBmaWxsPSIjZTUwOTE0IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj5Ib21lRmxpeDwvdGV4dD4KPHN2Zz4=';
-              const mainImg = document.querySelector(`img[alt="${media.title}"]`) as HTMLImageElement;
-              if (mainImg) mainImg.src = placeholder;
-            }}
+            onError={handleImageError}
             loading={priority === 'high' ? 'eager' : 'lazy'}
           />
         )}
 
-        {/* Enhanced Fallback for missing images */}
+        {/* Fallback for missing images */}
         {!getDisplayImage() && !isLoading && (
           <div className="absolute inset-0 bg-gradient-to-br from-gray-700 to-gray-900 flex items-center justify-center">
             <div className="text-center text-gray-400">
-              <div className="text-3xl mb-2">{media.type === 'movie' ? '🎬' : '📺'}</div>
-              <div className="text-xs font-medium px-2 leading-tight">{media.title}</div>
-              <div className="text-xs text-gray-500 mt-1">
-                {media.type === 'episode' ? 'TV Series' : media.type?.toUpperCase()}
-              </div>
+              <div className="text-2xl mb-2">🎬</div>
+              <div className="text-xs font-medium">{media.title}</div>
             </div>
           </div>
         )}

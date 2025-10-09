@@ -271,9 +271,6 @@ export default function MoviePage() {
     if (media.banner_path) {
       return `${apiUrl}/api/admin/assets/${media.banner_path.split('/').pop()}`;
     }
-    if (media.poster_path) {
-      return `${apiUrl}/api/posters/${media.id}`;
-    }
     return `${apiUrl}/api/thumbnails/${media.id}`;
   };
 
@@ -452,17 +449,17 @@ export default function MoviePage() {
 
         </div>
 
-        {/* Hero Content */}
-        <div className="absolute inset-0 flex items-end z-20">
+        {/* Hero Content - Bottom Left */}
+        <div className="absolute bottom-0 left-0 z-20 p-6 md:p-8 lg:p-12">
           <div
-            className="w-full h-full flex items-end"
+            className="flex flex-col justify-end"
             onMouseEnter={() => setIsHoveringTitle(true)}
             onMouseLeave={() => setIsHoveringTitle(false)}
           >
-            <ParticleField count={50} className="absolute inset-0 opacity-30" />
+            <ParticleField count={30} className="absolute inset-0 opacity-20" />
 
-            <div className="container mx-auto px-6 md:px-12 lg:px-16 relative z-10">
-              <div className="max-w-4xl w-full">
+            <div className="relative z-10 max-w-2xl">
+              <div className="w-full">
                 {/* Title that appears immediately */}
                 <motion.div
                   initial={{ opacity: 0, y: 50 }}
@@ -477,16 +474,6 @@ export default function MoviePage() {
                   className="mb-6"
                 >
                   <GenreTitle media={media} className="mb-4" />
-
-                  {/* Year below title */}
-                  <motion.div
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.6, delay: 0.4 }}
-                    className="text-white/80 text-lg font-medium"
-                  >
-                    {media.year || (media.release_date && new Date(media.release_date).getFullYear()) || new Date().getFullYear()}
-                  </motion.div>
                 </motion.div>
 
                 {/* Tagline with hover reveal */}
@@ -528,12 +515,12 @@ export default function MoviePage() {
                   {media.rating && (
                     <span className="flex items-center gap-1 text-green-400 font-semibold">
                       <Star className="w-4 h-4" />
-                      {media.rating}
+                      {media.rating.toFixed(1)}
                     </span>
                   )}
                   <span className="flex items-center gap-1">
                     <Calendar className="w-4 h-4" />
-                    {new Date().getFullYear()}
+                    {media.year || (media.release_date && new Date(media.release_date).getFullYear()) || new Date().getFullYear()}
                   </span>
                   {media.duration && (
                     <span className="flex items-center gap-1">
@@ -640,98 +627,84 @@ export default function MoviePage() {
 
       </div>
 
-      {/* Details Section */}
+      {/* Details Section - Bottom Left */}
       <div className="relative z-10 bg-black pt-16 pb-24">
         <div className="container mx-auto px-6 md:px-12 lg:px-16">
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-12">
-            <div className="lg:col-span-2">
+          <div className="flex justify-start">
+            <div className="w-full max-w-2xl">
               {/* Media Info */}
-              <div className="mb-12">
-                <h2 className="text-2xl font-bold text-white mb-6">About {cleanMovieTitle(media.title)}</h2>
-                <div className="space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="bg-gradient-to-r from-black/80 via-black/60 to-transparent p-8 rounded-2xl backdrop-blur-sm border border-white/10 shadow-2xl">
+                <h2 className="text-2xl font-bold text-white mb-8">About {cleanMovieTitle(media.title)}</h2>
+                <div className="space-y-8">
+                  <div className="grid grid-cols-1 gap-8">
                     <div>
-                      <div className="flex items-center gap-2 mb-3">
-                        <Info className="w-5 h-5 text-red-500" />
-                        <h3 className="text-lg font-semibold text-white">Details</h3>
+                      <div className="flex items-center gap-3 mb-6">
+                        <Info className="w-6 h-6 text-red-500" />
+                        <h3 className="text-xl font-semibold text-white">Details</h3>
                       </div>
-                      <div className="space-y-2">
+                      <div className="space-y-4 pl-9">
                         <div className="flex">
                           <span className="w-32 text-white/60">Type</span>
                           <span className="text-white capitalize">{media.type}</span>
                         </div>
                         {media.genres && media.genres.length > 0 && (
-                          <div className="flex">
-                            <span className="w-32 text-white/60">Genres</span>
-                            <span className="text-white">
-                              {media.genres.map((g) => g.name).join(', ')}
-                            </span>
+                          <div className="flex flex-col gap-3">
+                            <span className="text-white/60 font-medium">Genres</span>
+                            <div className="flex flex-wrap gap-2">
+                              {media.genres.map((genre, index) => (
+                                <span
+                                  key={index}
+                                  className="px-3 py-1.5 bg-gradient-to-r from-red-600/20 to-red-500/20 text-red-300 text-sm font-medium rounded-full border border-red-500/30 hover:from-red-600/30 hover:to-red-500/30 transition-all duration-200"
+                                >
+                                  {genre.name}
+                                </span>
+                              ))}
+                            </div>
                           </div>
                         )}
                         {media.duration && (
                           <div className="flex">
-                            <span className="w-32 text-white/60">Duration</span>
+                            <span className="w-32 text-white/60 font-medium">Duration</span>
                             <span className="text-white">{formatRuntime(Math.floor(media.duration / 60))}</span>
                           </div>
                         )}
                         {media.director && (
                           <div className="flex">
-                            <span className="w-32 text-white/60">Director</span>
-                            <span className="text-white">{media.director}</span>
-                          </div>
-                        )}
-                        {media.stars && (
-                          <div className="flex">
-                            <span className="w-32 text-white/60">Cast</span>
-                            <span className="text-white">{media.stars}</span>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    <div>
-                      <h3 className="text-lg font-semibold text-white mb-3">Production</h3>
-                      <div className="space-y-2">
-                        {media.director && (
-                          <div className="flex">
-                            <span className="w-32 text-white/60">Director</span>
+                            <span className="w-32 text-white/60 font-medium">Director</span>
                             <span className="text-white">{Array.isArray(media.director) ? media.director.join(', ') : media.director}</span>
                           </div>
                         )}
-                        {media.writers && media.writers.length > 0 && (
-                          <div className="flex">
-                            <span className="w-32 text-white/60">Writers</span>
-                            <span className="text-white">{media.writers.join(', ')}</span>
-                          </div>
-                        )}
-                        {media.producers && media.producers.length > 0 && (
-                          <div className="flex">
-                            <span className="w-32 text-white/60">Producers</span>
-                            <span className="text-white">{media.producers.join(', ')}</span>
+                        {media.stars && media.stars.length > 0 && (
+                          <div className="flex flex-col gap-3">
+                            <span className="text-white/60 font-medium">Cast</span>
+                            <div className="flex flex-wrap gap-2">
+                              {media.stars.slice(0, 6).map((star: string, index: number) => (
+                                <span
+                                  key={index}
+                                  className="px-3 py-1.5 bg-gradient-to-r from-blue-600/20 to-blue-500/20 text-blue-300 text-sm font-medium rounded-full border border-blue-500/30 hover:from-blue-600/30 hover:to-blue-500/30 transition-all duration-200"
+                                >
+                                  {star.trim()}
+                                </span>
+                              ))}
+                            </div>
                           </div>
                         )}
                         {media.release_date && (
                           <div className="flex">
-                            <span className="w-32 text-white/60">Release Date</span>
+                            <span className="w-32 text-white/60 font-medium">Release Date</span>
                             <span className="text-white">{formatDate(media.release_date)}</span>
                           </div>
                         )}
                         {media.country && (
                           <div className="flex">
-                            <span className="w-32 text-white/60">Country</span>
+                            <span className="w-32 text-white/60 font-medium">Country</span>
                             <span className="text-white">{media.country}</span>
                           </div>
                         )}
                         {media.language && (
                           <div className="flex">
-                            <span className="w-32 text-white/60">Language</span>
+                            <span className="w-32 text-white/60 font-medium">Language</span>
                             <span className="text-white">{media.language}</span>
-                          </div>
-                        )}
-                        {media.status && (
-                          <div className="flex">
-                            <span className="w-32 text-white/60">Status</span>
-                            <span className="text-white">{media.status}</span>
                           </div>
                         )}
                       </div>
@@ -933,6 +906,25 @@ export default function MoviePage() {
                   </div>
                 </div>
               </div>
+            </div>
+
+            {/* Sidebar */}
+            <div className="space-y-6 ml-6">
+              {media.genres && media.genres.length > 0 && (
+                <div>
+                  <h3 className="text-lg font-semibold text-white mb-2">Genres</h3>
+                  <div className="flex flex-wrap gap-2">
+                    {media.genres.map((genre) => (
+                      <span
+                        key={genre.id}
+                        className="px-3 py-1 bg-white/10 text-white/90 rounded-full text-sm"
+                      >
+                        {genre.name}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Cast & Crew Section */}
               {(media.stars && media.stars.length > 0) || (media.director && media.director.length > 0) ? (
@@ -1023,25 +1015,6 @@ export default function MoviePage() {
                   </div>
                 </div>
               ) : null}
-            </div>
-
-            {/* Sidebar */}
-            <div className="space-y-6">
-              {media.genres && media.genres.length > 0 && (
-                <div>
-                  <h3 className="text-lg font-semibold text-white mb-2">Genres</h3>
-                  <div className="flex flex-wrap gap-2">
-                    {media.genres.map((genre) => (
-                      <span
-                        key={genre.id}
-                        className="px-3 py-1 bg-white/10 text-white/90 rounded-full text-sm"
-                      >
-                        {genre.name}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
             </div>
           </div>
         </div>

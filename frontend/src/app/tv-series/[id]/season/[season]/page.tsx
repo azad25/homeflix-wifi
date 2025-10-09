@@ -52,29 +52,28 @@ export default function SeasonPage() {
     try {
       const apiUrl = getApiUrl();
       
-      // Use cached API calls
-      const { globalCachedFetch } = await import('@/lib/globalApiCache');
-      
-      // Get series info - handle both UUID and ID
-      const seriesData = await globalCachedFetch(`${apiUrl}/api/media/${params.id}`);
+      // Get series info
+      const seriesResponse = await fetch(`${apiUrl}/api/media/${params.id}`);
+      const seriesData = await seriesResponse.json();
       setSeries(seriesData);
 
-      // Get episodes for this specific series and season
-      const seasonNumber = parseInt(params.season as string);
-      const episodeData = await globalCachedFetch(`${apiUrl}/api/media?type=episode&series_id=${params.id}&season=${seasonNumber}&limit=100`);
+      // Get all episodes
+      const allMediaResponse = await fetch(`${apiUrl}/api/media`);
+      const allMedia = await allMediaResponse.json();
       
       // Filter episodes for this series and season
-      const seriesEpisodes = episodeData.filter((media: Media) => {
+      const seasonNumber = parseInt(params.season as string);
+      const seriesEpisodes = allMedia.filter((media: Media) => {
         const belongsToSeries = media.type === 'episode' && (
-          media.series_id === seriesData.id ||
           media.title.toLowerCase().includes(seriesData.title.toLowerCase()) ||
+          media.series_id === seriesData.id ||
           (media.file_path && seriesData.file_path && 
            media.file_path.includes(seriesData.file_path.split('/').slice(0, -1).join('/')))
         );
         
         if (!belongsToSeries) return false;
         
-        const episodeSeasonNum = extractSeasonNumber(media.title) || media.season_number;
+        const episodeSeasonNum = extractSeasonNumber(media.title);
         return episodeSeasonNum === seasonNumber;
       });
 
@@ -95,8 +94,8 @@ export default function SeasonPage() {
 
       setEpisodes(episodeList);
 
-      // Calculate total seasons from the episodes we already have
-      const allSeriesEpisodes = episodeData.filter((media: Media) => {
+      // Calculate total seasons
+      const allSeriesEpisodes = allMedia.filter((media: Media) => {
         return media.type === 'episode' && (
           media.title.toLowerCase().includes(seriesData.title.toLowerCase()) ||
           media.series_id === seriesData.id
@@ -114,7 +113,7 @@ export default function SeasonPage() {
       // Preload assets
       if (episodeList.length > 0) {
         const mediaList = episodeList.map(ep => ep.media!).filter(Boolean);
-        preloadAssets(mediaList, ['poster', 'thumbnail']);
+        preloadAssets(mediaList, ['thumbnail']);
       }
 
     } catch (error) {

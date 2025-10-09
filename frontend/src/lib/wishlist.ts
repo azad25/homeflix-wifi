@@ -108,9 +108,11 @@ export const fetchWishlistMedia = async (apiUrl: string): Promise<Media[]> => {
     const wishlistIds = getWishlist();
     if (wishlistIds.length === 0) return [];
 
-    // Use cached API call to fetch media
-    const { globalCachedFetch } = await import('@/lib/globalApiCache');
-    const allMedia: Media[] = await globalCachedFetch(`${apiUrl}/api/media?limit=1000`);
+    // Fetch all media and filter by wishlist IDs
+    const response = await fetch(`${apiUrl}/api/media`);
+    if (!response.ok) throw new Error('Failed to fetch media');
+    
+    const allMedia: Media[] = await response.json();
     return allMedia.filter(media => wishlistIds.includes(media.id));
   } catch (error) {
     console.error('Error fetching wishlist media:', error);

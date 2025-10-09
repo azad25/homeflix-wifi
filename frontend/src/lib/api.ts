@@ -24,9 +24,6 @@ export const API_ENDPOINTS = {
   media: '/api/media',
   genres: '/api/genres',
   series: '/api/series',
-  seriesById: (id: number) => `/api/series/${id}`,
-  seriesSeasons: (id: number) => `/api/series/${id}/seasons`,
-  seriesSeasonEpisodes: (id: number, season: number) => `/api/series/${id}/seasons/${season}/episodes`,
   stream: (id: number) => `/api/stream/${id}`,
   thumbnails: (id: number) => `/api/thumbnails/${id}`,
   previewClips: (id: number) => `/api/preview-clips/${id}`,
@@ -44,177 +41,137 @@ export const API_ENDPOINTS = {
   }
 };
 
-// DISABLED: Asset URL builders - return placeholder to prevent server crashes
-export const getAssetUrl = (type: 'thumbnail' | 'preview' | 'poster', id: number, fallback = true) => {
-  // DISABLED: Return placeholder to prevent CORS and server crashes
-  const placeholder = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjQwMCIgdmlld0JveD0iMCAwIDMwMCA0MDAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIzMDAiIGhlaWdodD0iNDAwIiBmaWxsPSJncmFkaWVudChsaW5lYXIsIDQ1ZGVnLCAjMTExLCAjMzMzKSIvPgo8dGV4dCB4PSIxNTAiIHk9IjIwMCIgZm9udC1mYW1pbHk9IkFyaWFsIiBmb250LXNpemU9IjI0IiBmaWxsPSIjZTUwOTE0IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj5Ib21lRmxpeDwvdGV4dD4KPHN2Zz4=';
-  return fallback ? [placeholder, placeholder] : placeholder;
-};
-
-// DISABLED: Asset loading - return placeholder to prevent server crashes
-export const loadAssetWithFallback = async (type: 'thumbnail' | 'preview' | 'poster', id: number): Promise<string> => {
-  // DISABLED: Return placeholder to prevent CORS and server crashes
-  const placeholder = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjQwMCIgdmlld0JveD0iMCAwIDMwMCA0MDAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIzMDAiIGhlaWdodD0iNDAwIiBmaWxsPSJncmFkaWVudChsaW5lYXIsIDQ1ZGVnLCAjMTExLCAjMzMzKSIvPgo8dGV4dCB4PSIxNTAiIHk9IjIwMCIgZm9udC1mYW1pbHk9IkFyaWFsIiBmb250LXNpemU9IjI0IiBmaWxsPSIjZTUwOTE0IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj5Ib21lRmxpeDwvdGV4dD4KPHN2Zz4=';
-  return Promise.resolve(placeholder);
-};
-
-// DISABLED: Asset preloading - no-op to prevent server crashes
-export const preloadAssets = (mediaList: any[], types: ('thumbnail' | 'poster' | 'preview')[] = ['poster', 'thumbnail']) => {
-  // DISABLED: Return resolved promise to prevent server crashes from asset preloading
-  return Promise.resolve([]);
-};
-
-// Request deduplication map to prevent concurrent identical requests
-const pendingRequests = new Map<string, Promise<any>>();
-
-// Request debouncing map
-const debouncedRequests = new Map<string, NodeJS.Timeout>();
-
-// Generate unique request key for deduplication
-const getRequestKey = (url: string, options?: RequestInit): string => {
-  const method = options?.method || 'GET';
-  const body = options?.body || '';
-  return `${method}:${url}:${body}`;
-};
-
-// Enhanced API call with retry logic and request deduplication
-export const apiCallWithRetry = async (urls: string | string[], options?: RequestInit, maxRetries = 3) => {
-  const urlsToTry = Array.isArray(urls) ? urls : [urls];
-  const requestKey = getRequestKey(urlsToTry[0], options);
+// Enhanced asset URL builders with fallback support (thumbnails and previews only)
+export const getAssetUrl = (type: 'thumbnail' | 'preview', id: number, fallback = true) => {
+  const baseUrl = getApiUrl();
+  const primaryUrl = `${baseUrl}/api/${type === 'preview' ? 'preview-clips' : `${type}s`}/${id}`;
   
-  // Check if identical request is already pending
-  if (pendingRequests.has(requestKey)) {
-    console.log(`🔄 Deduplicating request: ${requestKey}`);
-    return pendingRequests.get(requestKey)!;
+  if (!fallback) {
+    return primaryUrl;
   }
   
-  const requestPromise = (async () => {
+  // Return array of URLs to try in order with cache busting
+  const timestamp = Date.now();
+  return [
+    primaryUrl,
+    `${baseUrl}/api/assets/${type}s/${id}`,
+    `${baseUrl}/api/${type === 'preview' ? 'previews' : `${type}s`}/${id}`,
+    `${baseUrl}/api/${type}s/${id}?t=${timestamp}`, // Cache busting
+  ];
+};
+
+// Netflix-like asset loading with preloading and caching (thumbnails and previews only)
+export const loadAssetWithFallback = async (type: 'thumbnail' | 'preview', id: number): Promise<string> => {
+  const urls = getAssetUrl(type, id, true) as string[];
+  
+  for (const url of urls) {
     try {
-      for (let i = 0; i < urlsToTry.length; i++) {
-        const url = urlsToTry[i];
-        
-        for (let retry = 0; retry < maxRetries; retry++) {
-          try {
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+      const response = await fetch(url, { method: 'HEAD' });
+      if (response.ok) {
+        return url;
+      }
+    } catch (error) {
+      continue;
+    }
+  }
+  
+  // Return first URL as fallback even if it fails
+  return urls[0];
+};
 
-            const response = await fetch(url, {
-              ...options,
-              signal: controller.signal,
-              headers: {
-                'Content-Type': 'application/json',
-                ...options?.headers,
-              },
-            });
-
-            clearTimeout(timeoutId);
-
-            if (response.ok) {
-              return response;
-            }
-            
-            // If this is the last URL and last retry, throw the error
-            if (i === urlsToTry.length - 1 && retry === maxRetries - 1) {
-              throw new Error(`Server disconnected: ${response.status} ${response.statusText}`);
-            }
-            
-            // If not the last retry for this URL, wait a bit before retrying
-            if (retry < maxRetries - 1) {
-              await new Promise(resolve => setTimeout(resolve, 2000 * (retry + 1)));
-            }
-            
-          } catch (error) {
-            // If this is the last URL and last retry, throw the error
-            if (i === urlsToTry.length - 1 && retry === maxRetries - 1) {
-              if (error instanceof Error && error.name === 'AbortError') {
-                throw new Error('Server connection timeout - server may be disconnected');
-              }
-              throw new Error(`Server connection failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
-            }
-            
-            // If not the last retry for this URL, wait a bit before retrying
-            if (retry < maxRetries - 1) {
-              await new Promise(resolve => setTimeout(resolve, 2000 * (retry + 1)));
-            }
+// Preload assets for Netflix-like performance (thumbnails and previews only)
+export const preloadAssets = (mediaList: any[], types: ('thumbnail' | 'preview')[] = ['thumbnail']) => {
+  const preloadPromises: Promise<void>[] = [];
+  
+  mediaList.slice(0, 20).forEach(media => { // Preload first 20 items
+    types.forEach(type => {
+      const promise = loadAssetWithFallback(type, media.id)
+        .then(url => {
+          // Preload the image/video
+          if (type === 'preview') {
+            const video = document.createElement('video');
+            video.preload = 'metadata';
+            video.src = url;
+          } else {
+            const img = new Image();
+            img.src = url;
           }
+        })
+        .catch(() => {}); // Ignore preload errors
+      
+      preloadPromises.push(promise);
+    });
+  });
+  
+  return Promise.allSettled(preloadPromises);
+};
+
+// Enhanced API call with retry logic for assets
+export const apiCallWithRetry = async (urls: string | string[], options?: RequestInit, maxRetries = 3) => {
+  const urlsToTry = Array.isArray(urls) ? urls : [urls];
+  
+  for (let i = 0; i < urlsToTry.length; i++) {
+    const url = urlsToTry[i];
+    
+    for (let retry = 0; retry < maxRetries; retry++) {
+      try {
+        const response = await fetch(url, {
+          ...options,
+          headers: {
+            'Content-Type': 'application/json',
+            ...options?.headers,
+          },
+        });
+
+        if (response.ok) {
+          return response;
+        }
+        
+        // If this is the last URL and last retry, throw the error
+        if (i === urlsToTry.length - 1 && retry === maxRetries - 1) {
+          throw new Error(`API call failed: ${response.status} ${response.statusText}`);
+        }
+        
+        // If not the last retry for this URL, wait a bit before retrying
+        if (retry < maxRetries - 1) {
+          await new Promise(resolve => setTimeout(resolve, 1000 * (retry + 1)));
+        }
+        
+      } catch (error) {
+        // If this is the last URL and last retry, throw the error
+        if (i === urlsToTry.length - 1 && retry === maxRetries - 1) {
+          throw error;
+        }
+        
+        // If not the last retry for this URL, wait a bit before retrying
+        if (retry < maxRetries - 1) {
+          await new Promise(resolve => setTimeout(resolve, 1000 * (retry + 1)));
         }
       }
-      
-      throw new Error('All API endpoints failed - server may be disconnected');
-    } finally {
-      // Remove from pending requests when done
-      pendingRequests.delete(requestKey);
     }
-  })();
+  }
   
-  // Store the promise to deduplicate concurrent requests
-  pendingRequests.set(requestKey, requestPromise);
-  
-  return requestPromise;
+  throw new Error('All API endpoints failed');
 };
 
-// Debounced API call function
-export const debouncedApiCall = async (endpoint: string, options?: RequestInit, debounceMs: number = 100): Promise<any> => {
-  const requestKey = getRequestKey(endpoint, options);
-  
-  return new Promise((resolve, reject) => {
-    // Clear existing debounce timer
-    if (debouncedRequests.has(requestKey)) {
-      clearTimeout(debouncedRequests.get(requestKey)!);
-    }
-    
-    // Set new debounce timer
-    const timer = setTimeout(async () => {
-      try {
-        const result = await apiCall(endpoint, options);
-        resolve(result);
-      } catch (error) {
-        reject(error);
-      } finally {
-        debouncedRequests.delete(requestKey);
-      }
-    }, debounceMs);
-    
-    debouncedRequests.set(requestKey, timer);
-  });
-};
-
-// Helper function to make API calls with deduplication
+// Helper function to make API calls
 export const apiCall = async (endpoint: string, options?: RequestInit) => {
   const baseUrl = getApiUrl();
   const url = `${baseUrl}${endpoint}`;
-  const requestKey = getRequestKey(url, options);
   
-  // Check if identical request is already pending
-  if (pendingRequests.has(requestKey)) {
-    console.log(`🔄 Deduplicating API call: ${endpoint}`);
-    const response = await pendingRequests.get(requestKey)!;
-    return response.clone().json();
-  }
-  
-  const requestPromise = fetch(url, {
+  const response = await fetch(url, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
       ...options?.headers,
     },
   });
-  
-  // Store the promise for deduplication
-  pendingRequests.set(requestKey, requestPromise);
-  
-  try {
-    const response = await requestPromise;
-    
-    if (!response.ok) {
-      throw new Error(`API call failed: ${response.status} ${response.statusText}`);
-    }
 
-    return response.json();
-  } finally {
-    // Remove from pending requests when done
-    pendingRequests.delete(requestKey);
+  if (!response.ok) {
+    throw new Error(`API call failed: ${response.status} ${response.statusText}`);
   }
+
+  return response.json();
 };
 // Session management for unique recommendations
 let sessionId: string | null = null;
@@ -271,66 +228,5 @@ export const smartSearch = async (query: string) => {
   } catch (error) {
     console.error('Smart search failed:', error);
     throw error;
-  }
-};
-
-// Hierarchical TV Series API calls
-export const fetchAllSeries = async () => {
-  try {
-    return await apiCall(API_ENDPOINTS.series);
-  } catch (error) {
-    console.error('Failed to fetch all series:', error);
-    throw error;
-  }
-};
-
-export const fetchSeriesById = async (id: number) => {
-  try {
-    return await apiCall(API_ENDPOINTS.seriesById(id));
-  } catch (error) {
-    console.error(`Failed to fetch series ${id}:`, error);
-    throw error;
-  }
-};
-
-export const fetchSeriesSeasons = async (id: number) => {
-  try {
-    return await apiCall(API_ENDPOINTS.seriesSeasons(id));
-  } catch (error) {
-    console.error(`Failed to fetch seasons for series ${id}:`, error);
-    throw error;
-  }
-};
-
-export const fetchSeasonEpisodes = async (seriesId: number, seasonNumber: number) => {
-  try {
-    return await apiCall(API_ENDPOINTS.seriesSeasonEpisodes(seriesId, seasonNumber));
-  } catch (error) {
-    console.error(`Failed to fetch episodes for series ${seriesId} season ${seasonNumber}:`, error);
-    throw error;
-  }
-};
-
-// Enhanced series data fetching with fallback to old API
-export const fetchSeriesWithFallback = async (id: number) => {
-  try {
-    // Try new hierarchical API first
-    const series = await fetchSeriesById(id);
-    const seasons = await fetchSeriesSeasons(id);
-    
-    return {
-      ...series,
-      seasons: seasons || []
-    };
-  } catch (error) {
-    console.warn('Hierarchical series API failed, falling back to old API:', error);
-    
-    // Fallback to old media API
-    try {
-      return await apiCall(`/api/media/${id}`);
-    } catch (fallbackError) {
-      console.error('Both series APIs failed:', fallbackError);
-      throw fallbackError;
-    }
   }
 };

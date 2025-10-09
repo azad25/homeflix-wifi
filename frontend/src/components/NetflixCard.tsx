@@ -1,28 +1,13 @@
 "use client";
 
-import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { Play, Plus, ThumbsUp, ChevronDown, Check, VolumeX, Volume2 } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { Play, Plus, ThumbsUp, ChevronDown, Volume2, VolumeX, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Media } from '@/types/media';
-import { getApiUrl, getAssetUrl } from '@/lib/api';
-import { videoPreloadPool, lazyLoadManager, assetUrlCache, loadingStateManager } from '@/lib/performanceOptimizer';
-import UltraFastPreview from './UltraFastPreview';
-import FastLoadingImage from './FastLoadingImage';
-import FastLoadingVideo from './FastLoadingVideo';
-import RedLoader from './RedLoader';
-
-// Debounce utility for performance
-const debounce = (func: Function, wait: number) => {
-  let timeout: NodeJS.Timeout;
-  return function executedFunction(...args: any[]) {
-    const later = () => {
-      clearTimeout(timeout);
-      func(...args);
-    };
-    clearTimeout(timeout);
-    timeout = setTimeout(later, wait);
-  };
-};
+import LazyImage from './LazyImage';
+import LazyVideo from './LazyVideo';
+import { Media } from '../types/media';
+import { getApiUrl } from '../lib/api';
+import { addToWishlist, removeFromWishlist, isInWishlist } from '../lib/wishlist';
 
 interface NetflixCardProps {
   media: Media;
@@ -45,74 +30,77 @@ const NetflixCard: React.FC<NetflixCardProps> = ({
   const [isMuted, setIsMuted] = useState(true);
   const [isPlaying, setIsPlaying] = useState(false);
   const [imageError, setImageError] = useState(false);
-  const [imageLoaded, setImageLoaded] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [inWishlist, setInWishlist] = useState(false);
-  const [isIntersecting, setIsIntersecting] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement>(null);
-  const cardRef = useRef<HTMLDivElement>(null);
   const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const hideTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const apiUrl = getApiUrl();
 
-  // Memoized URL generators for better performance
-  const thumbnailUrl = useMemo(() => {
-    const urls = getAssetUrl('thumbnail', media.id, true);
-    return Array.isArray(urls) ? urls[0] : urls;
-  }, [media.id]);
+  const getThumbnailUrl = () => {
+    // Always try thumbnails first for better compatibility
+    return `${apiUrl}/api/thumbnails/${media.id}`;
+  };
 
-  const posterUrl = useMemo(() => {
-    const urls = getAssetUrl('poster', media.id, true);
-    return Array.isArray(urls) ? urls[0] : urls;
-  }, [media.id]);
 
-  const previewUrl = useMemo(() => {
-    return getAssetUrl('preview', media.id, false);
-  }, [media.id]);
-
-  // Intersection Observer for lazy loading
-  useEffect(() => {
-    if (!cardRef.current) return;
-    
-    lazyLoadManager.observe(cardRef.current, () => {
-      setIsIntersecting(true);
-      // Video preloading can be added here if needed
-    });
-
-    return () => {
-      if (cardRef.current) {
-        lazyLoadManager.unobserve(cardRef.current);
-      }
-    };
-  }, [previewUrl, priority]);
+  const getPreviewUrl = () => {
+    if (media.preview_clip_path) {
+      return `${apiUrl}/api/admin/assets/${media.preview_clip_path.split('/').pop()}`;
+    }
+    if (media.trailer_path) {
+      return `${apiUrl}/api/admin/assets/${media.trailer_path.split('/').pop()}`;
+    }
+    return `${apiUrl}/api/preview-clips/${media.id}`;
+  };
 
   useEffect(() => {
+    // Check if media is in wishlist
+    setInWishlist(isInWishlist(media.id));
+
     return () => {
       if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
       if (hideTimeoutRef.current) clearTimeout(hideTimeoutRef.current);
     };
-  }, []);
+  }, [media.id]);
 
-  // Debounced hover handler for better performance
-  const handleMouseEnter = useCallback(() => {
+  const handleMouseEnter = () => {
     setIsHovered(true);
-    
+
     if (hideTimeoutRef.current) {
       clearTimeout(hideTimeoutRef.current);
     }
 
+    // Netflix-like delay before showing preview (800ms for faster response)
     hoverTimeoutRef.current = setTimeout(() => {
       setShowPreview(true);
-      if (previewUrl && videoRef.current) {
-        videoRef.current.src = previewUrl as string;
-        videoRef.current.load();
+
+      // Start video preview immediately when showPreview is true
+      if (videoRef.current) {
+        const video = videoRef.current;
+        video.currentTime = 0;
+        video.muted = isMuted;
+        video.play().then(() => {
+          setIsPlaying(true);
+          setIsVideoLoaded(true);
+        }).catch((error) => {
+          console.log('Video autoplay failed:', error);
+          // Try muted fallback
+          video.muted = true;
+          video.play().then(() => {
+            setIsPlaying(true);
+            setIsVideoLoaded(true);
+          }).catch(() => {
+            setIsVideoLoaded(false);
+            setShowPreview(false);
+          });
+        });
       }
     }, 800);
-  }, [media.id, previewUrl]);
+  };
 
-  const handleMouseLeave = useCallback(() => {
+  const handleMouseLeave = () => {
     setIsHovered(false);
 
     if (hoverTimeoutRef.current) {
@@ -128,9 +116,9 @@ const NetflixCard: React.FC<NetflixCardProps> = ({
         videoRef.current.currentTime = 0;
       }
     }, 300);
-  }, []);
+  };
 
-  const handleVideoLoad = useCallback(() => {
+  const handleVideoLoad = () => {
     setIsVideoLoaded(true);
     if (videoRef.current && showPreview && isHovered) {
       const video = videoRef.current;
@@ -150,57 +138,67 @@ const NetflixCard: React.FC<NetflixCardProps> = ({
         });
       });
     }
-  }, [showPreview, isHovered, isMuted]);
+  };
 
-  const handleVideoError = useCallback(() => {
+  const handleVideoError = () => {
     console.log('Video error occurred for media:', media.id);
     setIsVideoLoaded(false);
     setShowPreview(false);
     setIsPlaying(false);
-  }, [media.id]);
+  };
 
-  const handlePlayClick = useCallback(() => {
+  const handlePlayClick = () => {
     setIsLoading(true);
     setTimeout(() => {
       onPlay(media);
       setIsLoading(false);
     }, 500);
-  }, [onPlay, media]);
+  };
 
-  const handleImageError = useCallback(() => {
+  const handleImageError = () => {
     setImageError(true);
-  }, []);
+  };
 
-  const handleWishlistToggle = useCallback((e: React.MouseEvent) => {
+  const handleWishlistToggle = (e: React.MouseEvent) => {
     e.stopPropagation();
-    // Simple toggle for now - can be enhanced with actual wishlist context later
-    setInWishlist(!inWishlist);
-  }, [inWishlist]);
 
-  const formatDuration = useCallback((seconds: number) => {
+    let success = false;
+    if (inWishlist) {
+      success = removeFromWishlist(media.id);
+    } else {
+      success = addToWishlist(media.id);
+    }
+
+    if (success) {
+      setInWishlist(!inWishlist);
+    }
+  };
+
+  const formatDuration = (seconds: number) => {
     const hours = Math.floor(seconds / 3600);
     const minutes = Math.floor((seconds % 3600) / 60);
     return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
-  }, []);
+  };
 
-  // Memoized genre and content checks for performance
-  const hasPriorityGenres = useMemo(() => {
+  // Check if media has priority genres (sci-fi, action, drama, thriller)
+  const hasPriorityGenres = (media: Media) => {
     const priorityGenres = ['sci-fi', 'science fiction', 'action', 'drama', 'thriller', 'adventure', 'mystery', 'crime'];
     return media.genres?.some(genre =>
       priorityGenres.some(priority =>
         genre.name.toLowerCase().includes(priority.toLowerCase())
       )
-    ) || false;
-  }, [media.genres]);
+    );
+  };
 
-  const isNewlyAdded = useMemo(() => {
+  // Check if media is newly added (high ID suggests recent addition)
+  const isNewlyAdded = (media: Media) => {
     // Simple heuristic: if ID is in top 30% of typical range, consider it new
+    // This can be adjusted based on your media ID patterns
     return media.id > 1000; // Adjust this threshold as needed
-  }, [media.id]);
+  };
 
   return (
     <motion.div
-      ref={cardRef}
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5, delay: delay / 1000 }}
@@ -225,33 +223,46 @@ const NetflixCard: React.FC<NetflixCardProps> = ({
           position: isHovered ? 'relative' : 'relative',
         }}
       >
-        {/* Ultra-Fast Thumbnail Image */}
-        <FastLoadingImage
-          src={media.poster_path ? posterUrl : thumbnailUrl}
-          alt={media.title}
-          className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-300 ${showPreview && isVideoLoaded ? 'opacity-0' : 'opacity-100'}`}
-          priority={priority ? 'high' : 'medium'}
-          fallbackSrc={thumbnailUrl}
-          showLoader={true}
-          loaderSize="medium"
-          preload={priority}
-          onLoad={() => setImageLoaded(true)}
-          onError={handleImageError}
-        />
+        {/* Thumbnail Image with Lazy Loading */}
+        {!imageError ? (
+          <LazyImage
+            src={getThumbnailUrl()}
+            alt={media.title}
+            fill
+            sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+            className={`transition-opacity duration-300 ${showPreview && isVideoLoaded ? 'opacity-0' : 'opacity-100'
+              }`}
+            priority={priority}
+            onError={handleImageError}
+            loaderSize="medium"
+            showLoader={true}
+            fallbackSrc={getThumbnailUrl()}
+          />
+        ) : (
+          <div className="w-full h-full bg-gradient-to-br from-gray-700 via-gray-800 to-gray-900 flex items-center justify-center">
+            <div className="text-white text-center">
+              <div className="text-3xl mb-2">🎬</div>
+              <div className="text-sm font-medium line-clamp-2 px-2">{media.title}</div>
+              <div className="text-xs text-gray-400 mt-1">No Image Available</div>
+            </div>
+          </div>
+        )}
 
-        {/* Preview Video */}
+        {/* Preview Video with Lazy Loading */}
         {showPreview && (
           <video
             ref={videoRef}
-            className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-300 ${
-              isVideoLoaded ? 'opacity-100' : 'opacity-0'
-            }`}
-            autoPlay
+            src={getPreviewUrl()}
+            className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-300 ${isVideoLoaded ? 'opacity-100' : 'opacity-0'
+              }`}
             muted={isMuted}
             loop
             playsInline
+            preload="metadata"
             onLoadedData={handleVideoLoad}
             onError={handleVideoError}
+            onCanPlay={handleVideoLoad}
+            crossOrigin="anonymous"
           />
         )}
 
@@ -259,14 +270,14 @@ const NetflixCard: React.FC<NetflixCardProps> = ({
         <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
 
         {/* Priority Genre Badge */}
-        {hasPriorityGenres && (
+        {hasPriorityGenres(media) && (
           <div className="absolute top-2 left-2 bg-red-600 text-white text-xs px-2 py-1 rounded-md font-semibold">
             FEATURED
           </div>
         )}
 
         {/* New Content Badge */}
-        {isNewlyAdded && (
+        {isNewlyAdded(media) && (
           <div className="absolute top-2 right-2 bg-green-600 text-white text-xs px-2 py-1 rounded-md font-semibold">
             NEW
           </div>
@@ -281,11 +292,6 @@ const NetflixCard: React.FC<NetflixCardProps> = ({
               exit={{ opacity: 0, scale: 0.8 }}
               className="absolute inset-0 flex items-center justify-center"
             >
-              {isLoading && (
-                <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
-                  <RedLoader size="small" />
-                </div>
-              )}
               <button
                 onClick={(e) => {
                   e.stopPropagation();
@@ -356,7 +362,7 @@ const NetflixCard: React.FC<NetflixCardProps> = ({
                   <span className="text-yellow-400">⭐ {media.rating}</span>
                 </>
               )}
-              {isNewlyAdded && (
+              {isNewlyAdded(media) && (
                 <>
                   <span className="text-gray-400">•</span>
                   <span className="text-green-400 font-semibold">NEW</span>

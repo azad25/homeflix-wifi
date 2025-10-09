@@ -29,9 +29,7 @@ export default function HoverVideoCard({
 
   const apiUrl = getApiUrl();
   const getThumbnailUrl = () => {
-    if (media.poster_path) {
-      return `${apiUrl}/api/posters/${media.id}`;
-    }
+    // Always prioritize thumbnails first for consistent display
     return `${apiUrl}/api/thumbnails/${media.id}`;
   };
   const thumbnailUrl = getThumbnailUrl();

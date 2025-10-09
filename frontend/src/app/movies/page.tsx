@@ -6,9 +6,7 @@ import { useRouter } from 'next/navigation';
 import Navbar from "@/components/Navbar";
 import { Media } from '../../types/media';
 import VideoPlayer from "@/components/VideoPlayer";
-import { getApiUrl } from '@/lib/api';
-import { useGlobalCache, useRecommendations } from '@/hooks/useGlobalCache';
-import { fetchMedia } from '@/lib/globalApiCache';
+import { getApiUrl, fetchUniqueRecommendations, preloadAssets } from '@/lib/api';
 import { ScrollXHero, NetflixHorizontalRow, ParallaxSection, GradientBackground, ScrollReveal } from '@/components/scrollx';
 import RecentlyWatched from '@/components/RecentlyWatched';
 
@@ -24,83 +22,93 @@ export default function MoviesPage() {
   const [popularMovies, setPopularMovies] = useState<Media[]>([]);
   const [selectedMedia, setSelectedMedia] = useState<Media | null>(null);
   const [isPlayerOpen, setIsPlayerOpen] = useState(false);
-  
-  // Use global cache for movies data
-  const { data: allMediaData, loading } = useGlobalCache<Media[]>(
-    `${getApiUrl()}/api/media`,
-    {},
-    { customTTL: 10 * 60 * 1000 } // 10 minutes cache
-  );
-  
-  // Use global cache for movie recommendations
-  const { data: movieRecommendations } = useRecommendations('movies', 20);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Process cached data when available
-    if (allMediaData && allMediaData.length > 0) {
-      const movies = allMediaData.filter((item: Media) => item.type === "movie");
-      processMoviesData(movies);
-    }
+    fetchMoviesData();
     
-    if (movieRecommendations && movieRecommendations.length > 0) {
-      setFeaturedMovies(movieRecommendations.slice(0, 8));
-    }
-  }, [allMediaData, movieRecommendations]);
+    // Set up auto-refresh every 5 minutes for recommendations
+    const interval = setInterval(() => {
+      fetchMoviesData();
+    }, 5 * 60 * 1000); // 5 minutes in milliseconds
+    
+    return () => clearInterval(interval);
+  }, []);
 
+  const fetchMoviesData = async () => {
+    try {
+      const apiUrl = getApiUrl();
+      
+      // Fetch all movies
+      const moviesResponse = await fetch(`${apiUrl}/api/media`);
+      const allMedia = await moviesResponse.json();
+      const movies = allMedia.filter((item: Media) => item.type === "movie");
+      
+      // Get unique movie recommendations for hero section
+      let featuredMoviesList: Media[] = [];
+      try {
+        console.log('🎬 Fetching unique movie recommendations...');
+        const recommendations = await fetchUniqueRecommendations('mixed', 20);
+        const movieRecommendations = recommendations.filter((item: Media) => item.type === 'movie');
+        
+        if (movieRecommendations.length >= 5) {
+          featuredMoviesList = movieRecommendations.slice(0, 8);
+          console.log(`✅ Using ${featuredMoviesList.length} unique movie recommendations`);
+        } else {
+          // Fallback to highest rated movies
+          featuredMoviesList = movies
+            .sort((a: Media, b: Media) => (b.rating || 0) - (a.rating || 0))
+            .slice(0, 8);
+        }
+      } catch (error) {
+        console.warn('⚠️ Movie recommendations failed, using fallback');
+        featuredMoviesList = movies
+          .sort((a: Media, b: Media) => (b.rating || 0) - (a.rating || 0))
+          .slice(0, 8);
+      }
+      
+      setFeaturedMovies(featuredMoviesList);
 
-  const processMoviesData = (movies: Media[]) => {
-    // Categorize movies by genre
-    const actionMovies = movies.filter((movie: Media) => 
-      movie.genres && movie.genres.some(genre => 
-        (typeof genre === 'string' ? genre : genre.name).toLowerCase().includes('action')
-      )
-    ).slice(0, 20);
-    
-    const comedyMovies = movies.filter((movie: Media) => 
-      movie.genres && movie.genres.some(genre => 
-        (typeof genre === 'string' ? genre : genre.name).toLowerCase().includes('comedy')
-      )
-    ).slice(0, 20);
-    
-    const dramaMovies = movies.filter((movie: Media) => 
-      movie.genres && movie.genres.some(genre => 
-        (typeof genre === 'string' ? genre : genre.name).toLowerCase().includes('drama')
-      )
-    ).slice(0, 20);
-    
-    const horrorMovies = movies.filter((movie: Media) => 
-      movie.genres && movie.genres.some(genre => {
-        const genreName = (typeof genre === 'string' ? genre : genre.name).toLowerCase();
-        return genreName.includes('horror') || genreName.includes('thriller');
-      })
-    ).slice(0, 20);
-    
-    const sciFiMovies = movies.filter((movie: Media) => 
-      movie.genres && movie.genres.some(genre => {
-        const genreName = (typeof genre === 'string' ? genre : genre.name).toLowerCase();
-        return genreName.includes('sci-fi') || genreName.includes('science fiction') || genreName.includes('fantasy');
-      })
-    ).slice(0, 20);
-    
-    // Get recent movies (sorted by year)
-    const recentMovies = movies
-      .filter((movie: Media) => movie.year && movie.year >= 2020)
-      .sort((a: Media, b: Media) => (b.year || 0) - (a.year || 0))
-      .slice(0, 20);
-    
-    // Get popular movies (sorted by rating)
-    const popularMovies = movies
-      .filter((movie: Media) => movie.rating && movie.rating > 7.0)
-      .sort((a: Media, b: Media) => (b.rating || 0) - (a.rating || 0))
-      .slice(0, 20);
-    
-    setActionMovies(actionMovies);
-    setComedyMovies(comedyMovies);
-    setDramaMovies(dramaMovies);
-    setHorrorMovies(horrorMovies);
-    setSciFiMovies(sciFiMovies);
-    setRecentMovies(recentMovies);
-    setPopularMovies(popularMovies);
+      // Categorize movies by genre
+      setActionMovies(movies.filter((m: Media) => 
+        m.genres?.some(g => g.name.toLowerCase().includes('action'))
+      ).slice(0, 20));
+      
+      setComedyMovies(movies.filter((m: Media) => 
+        m.genres?.some(g => g.name.toLowerCase().includes('comedy'))
+      ).slice(0, 20));
+      
+      setDramaMovies(movies.filter((m: Media) => 
+        m.genres?.some(g => g.name.toLowerCase().includes('drama'))
+      ).slice(0, 20));
+      
+      setHorrorMovies(movies.filter((m: Media) => 
+        m.genres?.some(g => g.name.toLowerCase().includes('horror'))
+      ).slice(0, 20));
+      
+      setSciFiMovies(movies.filter((m: Media) => 
+        m.genres?.some(g => g.name.toLowerCase().includes('sci-fi') || g.name.toLowerCase().includes('science'))
+      ).slice(0, 20));
+
+      // Recent and popular
+      setRecentMovies(movies.sort((a: Media, b: Media) => b.id - a.id).slice(0, 20));
+      setPopularMovies(movies.sort((a: Media, b: Media) => (b.view_count ?? 0) - (a.view_count ?? 0)).slice(0, 20));
+      
+      // Preload assets for better performance
+      const allMoviesForPreload = [
+        ...featuredMoviesList,
+        ...movies.slice(0, 20)
+      ];
+      
+      if (allMoviesForPreload.length > 0) {
+        preloadAssets(allMoviesForPreload, ['thumbnail', 'preview']);
+      }
+      
+      setLoading(false);
+    } catch (error) {
+      console.error("Error fetching movies:", error);
+      setLoading(false);
+    }
   };
 
   const handlePlay = (media: Media, startTime?: number) => {

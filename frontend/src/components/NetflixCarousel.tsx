@@ -4,8 +4,6 @@ import React, { useRef, useState, useEffect } from "react";
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import NetflixCard from './NetflixCard';
 import { Media } from '../types/media';
-import RedLoader from './RedLoader';
-import { motion, AnimatePresence } from 'framer-motion';
 
 interface NetflixCarouselProps {
   title: string;
@@ -13,7 +11,6 @@ interface NetflixCarouselProps {
   onPlay: (media: Media) => void;
   onInfo: (media: Media) => void;
   priority?: boolean;
-  loading?: boolean;
 }
 
 const NetflixCarousel: React.FC<NetflixCarouselProps> = ({
@@ -22,7 +19,6 @@ const NetflixCarousel: React.FC<NetflixCarouselProps> = ({
   onPlay,
   onInfo,
   priority = false,
-  loading = false,
 }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
@@ -61,19 +57,6 @@ const NetflixCarousel: React.FC<NetflixCarouselProps> = ({
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, [media]);
-
-  if (loading) {
-    return (
-      <div className="relative mb-12">
-        <h2 className="text-xl md:text-2xl font-bold text-white mb-4 px-4 md:px-12">
-          {title}
-        </h2>
-        <div className="flex items-center justify-center py-8">
-          <RedLoader size="medium" />
-        </div>
-      </div>
-    );
-  }
 
   if (!media || media.length === 0) return null;
 

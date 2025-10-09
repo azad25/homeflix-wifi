@@ -6,7 +6,6 @@ import RedLoader from './RedLoader';
 
 interface LazyVideoProps extends React.VideoHTMLAttributes<HTMLVideoElement> {
   src: string;
-  poster?: string;
   fallbackSrc?: string;
   loaderSize?: 'small' | 'medium' | 'large';
   showLoader?: boolean;
@@ -22,7 +21,6 @@ interface LazyVideoProps extends React.VideoHTMLAttributes<HTMLVideoElement> {
 
 const LazyVideo = forwardRef<HTMLVideoElement, LazyVideoProps>(({
   src,
-  poster,
   fallbackSrc,
   loaderSize = 'medium',
   showLoader = true,
@@ -199,7 +197,6 @@ const LazyVideo = forwardRef<HTMLVideoElement, LazyVideoProps>(({
             onLoadStart={handleLoadStart}
             onCanPlay={handleCanPlay}
             onError={handleError}
-            poster={poster}
             preload={priority ? 'auto' : 'metadata'}
             crossOrigin="anonymous"
             playsInline

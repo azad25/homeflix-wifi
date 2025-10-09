@@ -5,14 +5,13 @@ import { useParams, useRouter } from "next/navigation";
 import { ArrowLeft, Play, Plus, Check, Share, Download, Info, Star, Clock, Calendar, Globe, Users, Award, Film, Tv, User, Mic, ChevronDown, ChevronUp, Volume2, VolumeX, PlayCircle } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Media } from '@/types/media';
-import { getApiUrl, preloadAssets, fetchSeriesWithFallback, fetchSeriesSeasons, fetchSeasonEpisodes } from '@/lib/api';
+import { getApiUrl, preloadAssets } from '@/lib/api';
 import RedLoader from '@/components/RedLoader';
 import LazyImage from '@/components/LazyImage';
 import LazyVideo from '@/components/LazyVideo';
 import Navbar from '@/components/Navbar';
 import VideoPlayer from '@/components/VideoPlayer';
 import NetflixMediaCard from '@/components/NetflixMediaCard';
-import SeasonSelector from '@/components/SeasonSelector';
 import {
   ParallaxSection,
   ScrollReveal,
@@ -28,7 +27,6 @@ interface Season {
   season_number: number;
   name: string;
   overview: string;
-  poster_path?: string;
   air_date?: string;
   episode_count: number;
   episodes?: Episode[];
@@ -38,14 +36,11 @@ interface Episode {
   id: number;
   episode_number: number;
   name: string;
-  title: string;
   overview: string;
   still_path?: string;
   air_date?: string;
   runtime?: number;
   vote_average?: number;
-  type: string;
-  media_type?: string;
 }
 
 export default function TVSeriesPage() {
@@ -60,27 +55,20 @@ export default function TVSeriesPage() {
   const [isInMyList, setIsInMyList] = useState(false);
   const [showFullDescription, setShowFullDescription] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [loadingEpisodes, setLoadingEpisodes] = useState(false);
   const [isVideoLoaded, setIsVideoLoaded] = useState(false);
   const [isVideoPlaying, setIsVideoPlaying] = useState(false);
   const [showTitleOverlay, setShowTitleOverlay] = useState(true);
   const [isHoveringTitle, setIsHoveringTitle] = useState(false);
-  const [continueWatching, setContinueWatching] = useState<{episode: Media, progress: number, position?: number} | null>(null);
-  const [startTime, setStartTime] = useState<number>(0);
+  const [continueWatching, setContinueWatching] = useState<{episode: Media, progress: number} | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
     if (params.id) {
       fetchSeriesData();
       checkMyList();
-    }
-  }, [params.id]);
-
-  useEffect(() => {
-    if (episodes.length > 0) {
       loadContinueWatching();
     }
-  }, [episodes]);
+  }, [params.id]);
 
   useEffect(() => {
     if (!loading && series) {
@@ -93,81 +81,20 @@ export default function TVSeriesPage() {
 
   const fetchSeriesData = async () => {
     try {
-      const seriesId = Number(params.id);
-      
-      // Try new hierarchical API first
-      try {
-        console.log('🔄 Fetching series data using hierarchical API...');
-        
-        // Get series info using new API
-        const seriesData = await fetchSeriesWithFallback(seriesId);
-        setSeries(seriesData);
-
-        // Get seasons using new hierarchical API
-        const seasonsData = await fetchSeriesSeasons(seriesId);
-        console.log('📺 Seasons data:', seasonsData);
-
-        if (seasonsData && seasonsData.length > 0) {
-          // Convert backend season format to frontend format
-          const seasonsArray: Season[] = seasonsData.map((season: any) => ({
-            id: season.season_number,
-            season_number: season.season_number,
-            name: season.name || `Season ${season.season_number}`,
-            overview: `Season ${season.season_number} of ${seriesData.title}`,
-            episode_count: season.episode_count || season.episodes?.length || 0,
-            episodes: season.episodes?.map((ep: any) => ({
-              id: ep.id,
-              episode_number: extractEpisodeNumber(ep.title) || ep.episode_number || 1,
-              name: ep.title,
-              overview: ep.description || '',
-              still_path: ep.thumbnail_path,
-              air_date: ep.release_date,
-              runtime: ep.duration ? Math.floor(ep.duration / 60) : undefined,
-              vote_average: ep.rating
-            })) || []
-          }));
-
-          setSeasons(seasonsArray.sort((a, b) => a.season_number - b.season_number));
-
-          // Collect all episodes for the episodes state
-          const allEpisodes: Media[] = [];
-          seasonsData.forEach((season: any) => {
-            if (season.episodes) {
-              allEpisodes.push(...season.episodes);
-            }
-          });
-          setEpisodes(allEpisodes);
-
-          // Preload assets for better performance
-          if (allEpisodes.length > 0) {
-            preloadAssets(allEpisodes.slice(0, 12), ['poster', 'thumbnail']);
-          }
-
-          console.log('✅ Successfully loaded hierarchical series data');
-          return;
-        }
-      } catch (hierarchicalError) {
-        console.warn('⚠️ Hierarchical API failed, falling back to old method:', hierarchicalError);
-      }
-
-      // Fallback to old flat media structure
-      console.log('🔄 Using fallback method...');
       const apiUrl = getApiUrl();
       
-      // Use cached API calls
-      const { globalCachedFetch } = await import('@/lib/globalApiCache');
-      
-      // Get series info - handle both UUID and ID
-      const seriesData = await globalCachedFetch(`${apiUrl}/api/media/${params.id}`);
+      // Get series info
+      const seriesResponse = await fetch(`${apiUrl}/api/media/${params.id}`);
+      const seriesData = await seriesResponse.json();
       setSeries(seriesData);
 
-      // Get episodes for this specific series
-      const seriesEpisodes = await globalCachedFetch(`${apiUrl}/api/media?type=episode&series_id=${params.id}&limit=200`);
+      // Get all episodes for this series
+      const allMediaResponse = await fetch(`${apiUrl}/api/media`);
+      const allMedia = await allMediaResponse.json();
       
-      // Additional filtering if needed
-      const filteredEpisodes = seriesEpisodes.filter((media: Media) => {
+      // Filter episodes that belong to this series
+      const seriesEpisodes = allMedia.filter((media: Media) => {
         return media.type === 'episode' && (
-          media.series_id === seriesData.id ||
           media.title.toLowerCase().includes(seriesData.title.toLowerCase()) ||
           media.series_id === seriesData.id ||
           (media.file_path && seriesData.file_path && 
@@ -175,27 +102,24 @@ export default function TVSeriesPage() {
         );
       });
 
-      setEpisodes(filteredEpisodes);
+      setEpisodes(seriesEpisodes);
 
       // Group episodes by season
       const seasonMap = new Map<number, Episode[]>();
-      filteredEpisodes.forEach((episode: Media) => {
-        const seasonNum = extractSeasonNumber(episode.title) || episode.season_number || 1;
+      seriesEpisodes.forEach((episode: Media) => {
+        const seasonNum = extractSeasonNumber(episode.title) || 1;
         if (!seasonMap.has(seasonNum)) {
           seasonMap.set(seasonNum, []);
         }
         seasonMap.get(seasonNum)?.push({
           id: episode.id,
-          episode_number: extractEpisodeNumber(episode.title) || episode.episode_number || 1,
+          episode_number: extractEpisodeNumber(episode.title) || 1,
           name: episode.title,
-          title: episode.title,
           overview: episode.description || '',
           still_path: episode.thumbnail_path,
           air_date: episode.release_date,
           runtime: episode.duration ? Math.floor(episode.duration / 60) : undefined,
-          vote_average: episode.rating,
-          type: 'episode',
-          media_type: 'tv'
+          vote_average: episode.rating
         });
       });
 
@@ -213,7 +137,7 @@ export default function TVSeriesPage() {
 
       // Preload assets for better performance
       if (seriesEpisodes.length > 0) {
-        preloadAssets(seriesEpisodes.slice(0, 12), ['poster', 'thumbnail']);
+        preloadAssets(seriesEpisodes.slice(0, 12), ['thumbnail']);
       }
 
     } catch (error) {
@@ -239,140 +163,38 @@ export default function TVSeriesPage() {
     return null;
   };
 
-  // Load episodes for a specific season using hierarchical API
-  const loadSeasonEpisodes = async (seasonNumber: number) => {
-    try {
-      const seriesId = Number(params.id);
-      console.log(`🔄 Loading episodes for season ${seasonNumber}...`);
-      
-      const seasonEpisodes = await fetchSeasonEpisodes(seriesId, seasonNumber);
-      
-      if (seasonEpisodes && seasonEpisodes.length > 0) {
-        console.log(`✅ Loaded ${seasonEpisodes.length} episodes for season ${seasonNumber}`);
-        
-        // Update the specific season with loaded episodes
-        setSeasons(prevSeasons => 
-          prevSeasons.map(season => 
-            season.season_number === seasonNumber 
-              ? {
-                  ...season,
-                  episodes: seasonEpisodes.map((ep: any) => ({
-                    id: ep.id,
-                    episode_number: extractEpisodeNumber(ep.title) || ep.episode_number || 1,
-                    name: ep.title,
-                    title: ep.title,
-                    overview: ep.overview || '',
-                    still_path: ep.thumbnail_path || null,
-                    air_date: ep.release_date || '',
-                    runtime: ep.duration || 0,
-                    vote_average: ep.rating || 0,
-                    type: 'episode',
-                    media_type: 'tv'
-                  }))
-                }
-              : season
-          )
-        );
-        
-        // Set current episodes for display
-        setEpisodes(seasonEpisodes);
-      }
-    } catch (error) {
-      console.error('Error loading season episodes:', error);
-    } finally {
-      setLoadingEpisodes(false);
-    }
+  const checkMyList = () => {
+    // Implementation for checking if series is in user's list
+    setIsInMyList(false);
   };
 
-  // Handle season selection with dynamic episode loading
-  const handleSeasonChange = async (seasonNumber: number) => {
-    setSelectedSeason(seasonNumber);
-    
-    // Check if season already has episodes loaded
-    const selectedSeasonData = seasons.find(s => s.season_number === seasonNumber);
-    
-    if (!selectedSeasonData?.episodes || selectedSeasonData.episodes.length === 0) {
-      // Load episodes for this season
-      await loadSeasonEpisodes(seasonNumber);
-    } else {
-      // Use already loaded episodes
-      setEpisodes(selectedSeasonData.episodes);
-    }
-  };
-
-  const checkMyList = async () => {
-    try {
-      if (!series) return;
+  const loadContinueWatching = () => {
+    // Check for continue watching episode
+    if (episodes.length > 0) {
+      // Find the episode with progress
+      const episodeWithProgress = episodes.find(ep => {
+        const progress = localStorage.getItem(`progress_${ep.id}`);
+        return progress && JSON.parse(progress).progress > 0;
+      });
       
-      const apiUrl = getApiUrl();
-      const response = await fetch(`${apiUrl}/api/mylist/check/${series.id}`);
-      if (response.ok) {
-        const data = await response.json();
-        setIsInMyList(data.inMyList || false);
-      }
-    } catch (error) {
-      console.error('Error checking my list:', error);
-      setIsInMyList(false);
-    }
-  };
-
-
-  const loadContinueWatching = async () => {
-    try {
-      const apiUrl = getApiUrl();
-      const response = await fetch(`${apiUrl}/api/playback/continue`);
-      
-      if (response.ok) {
-        const continueData = await response.json();
-        
-        // Find continue watching episode for this series
-        const seriesContinue = continueData.find((item: any) => {
-          return episodes.some(ep => ep.id === item.media_id);
+      if (episodeWithProgress) {
+        const progressData = JSON.parse(localStorage.getItem(`progress_${episodeWithProgress.id}`) || '{}');
+        setContinueWatching({
+          episode: episodeWithProgress,
+          progress: progressData.progress || 0
         });
-        
-        if (seriesContinue) {
-          const episode = episodes.find(ep => ep.id === seriesContinue.media_id);
-          if (episode) {
-            setContinueWatching({
-              episode,
-              progress: seriesContinue.progress || 0,
-              position: seriesContinue.position || 0
-            });
-          }
-        }
-      }
-    } catch (error) {
-      console.error('Error loading continue watching:', error);
-      // Fallback to localStorage
-      if (episodes.length > 0) {
-        const episodeWithProgress = episodes.find(ep => {
-          const progress = localStorage.getItem(`progress_${ep.id}`);
-          return progress && JSON.parse(progress).progress > 0;
-        });
-        
-        if (episodeWithProgress) {
-          const progressData = JSON.parse(localStorage.getItem(`progress_${episodeWithProgress.id}`) || '{}');
-          setContinueWatching({
-            episode: episodeWithProgress,
-            progress: progressData.progress || 0
-          });
-        }
       }
     }
   };
 
-  const handlePlay = (media?: Media, startTime?: number) => {
+  const handlePlay = (media?: Media) => {
     if (media) {
       setSelectedMedia(media);
-      setStartTime(startTime || 0);
     } else if (continueWatching) {
       setSelectedMedia(continueWatching.episode);
-      // Use position in seconds directly from backend API
-      setStartTime(continueWatching.position || 0);
     } else if (episodes.length > 0) {
       // Start with first episode of first season
       setSelectedMedia(episodes[0]);
-      setStartTime(0);
     }
     setIsPlayerOpen(true);
   };
@@ -380,15 +202,6 @@ export default function TVSeriesPage() {
   const handleSeasonSelect = (seasonNumber: number) => {
     setSelectedSeason(seasonNumber);
     router.push(`/tv-series/${params.id}/season/${seasonNumber}`);
-  };
-
-  const handleEpisodePlay = (episode: Media) => {
-    setSelectedMedia(episode);
-    setIsPlayerOpen(true);
-  };
-
-  const handleEpisodeInfo = (episode: Media) => {
-    router.push(`/movie/${episode.id}`);
   };
 
   const toggleMyList = () => {
@@ -399,9 +212,6 @@ export default function TVSeriesPage() {
     const apiUrl = getApiUrl();
     if (media.banner_path) {
       return `${apiUrl}/api/admin/assets/${media.banner_path.split('/').pop()}`;
-    }
-    if (media.poster_path) {
-      return `${apiUrl}/api/posters/${media.id}`;
     }
     return `${apiUrl}/api/thumbnails/${media.id}`;
   };
@@ -655,23 +465,57 @@ export default function TVSeriesPage() {
       <div className="relative z-10 bg-black pt-16 pb-24">
         <div className="container mx-auto px-6 md:px-12 lg:px-16">
           <ScrollReveal direction="up" delay={0.2}>
-            <SeasonSelector
-              seasons={seasons}
-              selectedSeason={selectedSeason}
-              onSeasonChange={handleSeasonChange}
-              onEpisodePlay={(episode: any) => {
-                setSelectedMedia(episode);
-                setIsPlayerOpen(true);
-              }}
-              loading={loadingEpisodes}
-            />
+            <h2 className="text-3xl font-bold text-white mb-8">Seasons</h2>
+            
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
+              {seasons.map((season) => (
+                <motion.div
+                  key={season.id}
+                  className="group cursor-pointer"
+                  onClick={() => handleSeasonSelect(season.season_number)}
+                  whileHover={{ scale: 1.05 }}
+                  transition={{ duration: 0.2 }}
+                >
+                  <GlassCard className="p-6 text-center hover:bg-white/10 transition-all duration-300">
+                    <div className="w-16 h-16 bg-red-600 rounded-full flex items-center justify-center mx-auto mb-4 group-hover:bg-red-500 transition-colors">
+                      <span className="text-2xl font-bold text-white">{season.season_number}</span>
+                    </div>
+                    
+                    <h3 className="text-xl font-semibold text-white mb-2">{season.name}</h3>
+                    <p className="text-white/60 text-sm mb-3">{season.episode_count} Episodes</p>
+                    
+                    {season.overview && (
+                      <p className="text-white/80 text-sm line-clamp-3">
+                        {season.overview}
+                      </p>
+                    )}
+                  </GlassCard>
+                </motion.div>
+              ))}
+            </div>
           </ScrollReveal>
-        </div>
-      </div>
 
-      {/* Series Details */}
-      <div className="relative z-10 bg-black pt-16 pb-24">
-        <div className="container mx-auto px-6 md:px-12 lg:px-16">
+          {/* Latest Episodes Preview */}
+          {episodes.length > 0 && (
+            <ScrollReveal direction="up" delay={0.4}>
+              <div className="mt-16">
+                <h2 className="text-3xl font-bold text-white mb-8">Latest Episodes</h2>
+                
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+                  {episodes.slice(0, 8).map((episode, index) => (
+                    <NetflixMediaCard
+                      key={episode.id}
+                      media={episode}
+                      onPlay={handlePlay}
+                      onInfo={(media) => router.push(`/movie/${media.id}`)}
+                      priority={index < 4 ? 'high' : 'normal'}
+                      showPreviewOnHover={true}
+                    />
+                  ))}
+                </div>
+              </div>
+            </ScrollReveal>
+          )}
 
           {/* Series Details */}
           <ScrollReveal direction="up" delay={0.6}>
@@ -753,7 +597,7 @@ export default function TVSeriesPage() {
           media={selectedMedia}
           isOpen={isPlayerOpen}
           onClose={() => setIsPlayerOpen(false)}
-          startTime={startTime}
+          startTime={continueWatching?.progress || 0}
         />
       )}
     </div>

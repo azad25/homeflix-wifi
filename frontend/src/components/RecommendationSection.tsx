@@ -1,19 +1,12 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from 'react';
-import { ChevronLeft, ChevronRight, Play, Info, Plus, Star, Clock, ThumbsUp, ChevronDown } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { Media } from '@/types/media';
 import { getApiUrl } from '@/lib/api';
+import { Play, Plus, ThumbsUp, ChevronDown, Star, Clock } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import NetflixCard from './NetflixCard';
-import FastLoadingImage from './FastLoadingImage';
-import LazyImage from './LazyImage';
 import Image from 'next/image';
-import { useGlobalCache, useRecommendations, useContinueWatching } from '@/hooks/useGlobalCache';
-import { globalCachedFetch } from '@/lib/globalApiCache';
-import { assetBatcher } from '@/lib/assetBatcher';
-import { getSafeAssetUrl } from '@/lib/errorHandling';
 
 // Add Netflix-style scrollbar hiding and overflow handling
 const netflixScrollStyles = `
@@ -56,10 +49,10 @@ const RecommendationSection: React.FC<RecommendationSectionProps> = ({
 }) => {
   const [personalizedRecommendations, setPersonalizedRecommendations] = useState<Media[]>([]);
   const [similarRecommendations, setSimilarRecommendations] = useState<Media[]>([]);
-  const [trendingRecommendationsState, setTrendingRecommendationsState] = useState<Media[]>([]);
+  const [trendingRecommendations, setTrendingRecommendations] = useState<Media[]>([]);
   const [continueWatching, setContinueWatching] = useState<Media[]>([]);
   const [genreRecommendations, setGenreRecommendations] = useState<Media[]>([]);
-  const [mixedRecommendationsState, setMixedRecommendationsState] = useState<Media[]>([]);
+  const [mixedRecommendations, setMixedRecommendations] = useState<Media[]>([]);
   const [topRatedRecommendations, setTopRatedRecommendations] = useState<Media[]>([]);
   const [latestMoviesRecommendations, setLatestMoviesRecommendations] = useState<Media[]>([]);
   const [loading, setLoading] = useState(true);
@@ -67,31 +60,18 @@ const RecommendationSection: React.FC<RecommendationSectionProps> = ({
   const [previousApiResponses, setPreviousApiResponses] = useState<Set<string>>(new Set());
   const [refreshCount, setRefreshCount] = useState(0);
 
-  // Use single recommendation hook to reduce API calls - fetch mixed recommendations only
-  const { data: mixedRecommendationsData, loading: mixedLoading } = useRecommendations('mixed', 50);
-  
-  // Reduce API calls by using cached data and frontend generation for other categories
-  const recommendationsLoading = mixedLoading;
-
   useEffect(() => {
-    // Debounce the initial fetch to prevent rapid successive calls
-    const debounceTimer = setTimeout(() => {
-      if (mixedRecommendationsData) {
-        fetchRecommendations();
-      }
-    }, 500); // Increased debounce to reduce API calls
+    fetchRecommendations();
+    initializeMediaCache();
 
-    return () => clearTimeout(debounceTimer);
-  }, [currentMedia.id, mixedRecommendationsData]);
-
-  // Separate effect for periodic refresh with much longer interval
-  useEffect(() => {
+    // Set up auto-refresh every 3 minutes for more dynamic content
     const interval = setInterval(() => {
       setRefreshCount(prev => prev + 1);
-    }, 30 * 60 * 1000); // Increased to 30 minutes to reduce API load
+      fetchRecommendations();
+    }, 3 * 60 * 1000); // 3 minutes in milliseconds
 
     return () => clearInterval(interval);
-  }, []);
+  }, [currentMedia.id]);
 
   // Additional effect to trigger frontend shuffling every 2 minutes
   useEffect(() => {
@@ -104,30 +84,28 @@ const RecommendationSection: React.FC<RecommendationSectionProps> = ({
         const newLatestMovies = generateLatestMoviesRecommendations(allAvailableMedia, 20);
 
         setTopRatedRecommendations(newTopRated);
-        setMixedRecommendationsState(newYouMightLike);
+        setMixedRecommendations(newYouMightLike);
         setLatestMoviesRecommendations(newLatestMovies);
       }
     }
   }, [refreshCount, allAvailableMedia, currentMedia]);
 
-  // Use global cache for media initialization with longer cache and rate limiting
-  const { data: mediaData } = useGlobalCache<Media[]>(
-    `${getApiUrl()}/api/media?limit=100`,
-    {},
-    { 
-      customTTL: 30 * 60 * 1000, // 30 minutes cache
-      staleWhileRevalidate: true,
-      refetchInterval: undefined // Disable auto-refetch
+  // Initialize media cache for frontend fallback
+  const initializeMediaCache = async () => {
+    try {
+      const apiUrl = getApiUrl();
+      const response = await fetch(`${apiUrl}/api/media?limit=100`);
+      if (response.ok) {
+        const data = await response.json();
+        if (data && Array.isArray(data)) {
+          setAllAvailableMedia(data);
+          console.log(`✅ Cached ${data.length} media items for recommendation fallback`);
+        }
+      }
+    } catch (error) {
+      console.warn('⚠️ Failed to initialize media cache for recommendations:', error);
     }
-  );
-
-  // Update available media when cache data changes
-  useEffect(() => {
-    if (mediaData && Array.isArray(mediaData)) {
-      setAllAvailableMedia(mediaData);
-      console.log(`✅ Cached ${mediaData.length} media items for recommendation fallback`);
-    }
-  }, [mediaData]);
+  };
 
   // Shuffle array utility function
   const shuffleArray = <T,>(array: T[]): T[] => {
@@ -334,72 +312,120 @@ const RecommendationSection: React.FC<RecommendationSectionProps> = ({
 
   const fetchRecommendations = async () => {
     try {
+      const apiUrl = getApiUrl();
+
+      // Fetch multiple recommendation categories in parallel
+      const fetchPromises = [
+        // Personalized recommendations
+        fetch(`${apiUrl}/api/recommendations/personalized?limit=20`).then(res => res.json()).catch(() => []),
+
+        // Similar content based on current media
+        fetch(`${apiUrl}/api/recommendations/similar?limit=20`).then(res => res.json()).catch(() => []),
+
+        // Trending content
+        fetch(`${apiUrl}/api/recommendations/trending?limit=20`).then(res => res.json()).catch(() => []),
+
+        // Continue watching
+        fetch(`${apiUrl}/api/recommendations/continue-watching`).then(res => res.json()).catch(() => []),
+
+        // Genre-based recommendations
+        currentMedia.genres && currentMedia.genres.length > 0
+          ? fetch(`${apiUrl}/api/recommendations/genre?genre=${encodeURIComponent(currentMedia.genres[0].name)}&limit=20`).then(res => res.json()).catch(() => [])
+          : Promise.resolve([]),
+
+        // Mixed recommendations
+        fetch(`${apiUrl}/api/recommendations/mixed?limit=20`).then(res => res.json()).catch(() => []),
+
+        // Top rated content
+        fetch(`${apiUrl}/api/recommendations/top-rated?limit=20`).then(res => res.json()).catch(() => [])
+      ];
+
+      const [
+        personalizedData,
+        similarData,
+        trendingData,
+        continueWatchingData,
+        genreData,
+        mixedData,
+        topRatedData
+      ] = await Promise.all(fetchPromises);
+
       // Filter out current media from all recommendations
       const filterCurrentMedia = (media: Media[]) =>
         media.filter(m => m.id !== currentMedia.id);
 
-      // Process optimized recommendations - distribute mixed data across categories
-      const filteredMixed = filterCurrentMedia(mixedRecommendationsData || []);
-      // Generate trending and continue watching from mixed data to reduce API calls
-      const filteredTrending = filteredMixed.slice(0, 20);
-      const filteredContinueWatching = filteredMixed.slice(20, 30);
+      // Process regular recommendations (no fallback needed for these)
+      setPersonalizedRecommendations(filterCurrentMedia(personalizedData || []));
+      setSimilarRecommendations(filterCurrentMedia(similarData || []));
+      setTrendingRecommendations(filterCurrentMedia(trendingData || []));
+      setContinueWatching(filterCurrentMedia(continueWatchingData || []));
+      setGenreRecommendations(filterCurrentMedia(genreData || []));
 
-      // Distribute mixed recommendations across multiple categories for UI variety
-      const mixedChunks = [
-        filteredMixed.slice(0, 7),  // Personalized
-        filteredMixed.slice(7, 14), // Similar
-        filteredMixed.slice(14, 21) // Genre-based
-      ];
+      // Process Top Rated with intelligent fallback
+      let processedTopRated = filterCurrentMedia(topRatedData || []);
+      if (processedTopRated.length === 0 || isApiResponseDuplicate(processedTopRated, 'top-rated')) {
+        console.log('🔄 Top Rated API returned duplicates or empty, using frontend fallback...');
+        if (allAvailableMedia.length > 0) {
+          processedTopRated = generateFrontendRecommendations(allAvailableMedia, currentMedia, 'top-rated', 20);
+        }
+      } else {
+        addApiResponseToHistory(processedTopRated, 'top-rated');
+        // Add some randomization even to API results for freshness
+        processedTopRated = shuffleArray(processedTopRated);
+      }
+      setTopRatedRecommendations(processedTopRated);
 
-      setPersonalizedRecommendations(mixedChunks[0]);
-      setSimilarRecommendations(mixedChunks[1]);
-      setTrendingRecommendationsState(filteredTrending);
-      setContinueWatching(filteredContinueWatching);
-      setGenreRecommendations(mixedChunks[2]);
+      // Process "You Might Also Like" (Mixed) with intelligent fallback
+      let processedMixed = filterCurrentMedia(mixedData || []);
+      if (processedMixed.length === 0 || isApiResponseDuplicate(processedMixed, 'you-might-like')) {
+        console.log('🔄 You Might Like API returned duplicates or empty, using frontend fallback...');
+        if (allAvailableMedia.length > 0) {
+          processedMixed = generateFrontendRecommendations(allAvailableMedia, currentMedia, 'you-might-like', 20);
+        }
+      } else {
+        addApiResponseToHistory(processedMixed, 'you-might-like');
+        // Add some randomization even to API results for freshness
+        processedMixed = shuffleArray(processedMixed);
+      }
+      setMixedRecommendations(processedMixed);
 
-      console.log('✅ Recommendations fetched successfully:', {
-        personalized: mixedChunks[0].length,
-        similar: mixedChunks[1].length,
-        trending: filteredTrending.length,
-        continueWatching: filteredContinueWatching.length,
-        genre: mixedChunks[2].length
-      });
+      // Generate latest movies recommendations using frontend logic
+      if (allAvailableMedia.length > 0) {
+        const latestMoviesRecs = generateLatestMoviesRecommendations(allAvailableMedia, 20);
+        setLatestMoviesRecommendations(latestMoviesRecs);
+      }
 
       setLoading(false);
     } catch (error) {
-      console.error('❌ Failed to fetch recommendations:', error);
-      
-      // Enhanced fallback: Use frontend-generated recommendations
+      console.error('Error fetching recommendations:', error);
+
+      // Fallback to frontend recommendations if API completely fails
       if (allAvailableMedia.length > 0) {
-        console.log('🔄 Falling back to frontend-generated recommendations...');
-        const fallbackPersonalized = generateFrontendRecommendations(allAvailableMedia, currentMedia, 'top-rated', 15);
-        const fallbackSimilar = generateFrontendRecommendations(allAvailableMedia, currentMedia, 'you-might-like', 15);
-        const fallbackTrending = generateLatestMoviesRecommendations(allAvailableMedia, 15);
-        
-        setPersonalizedRecommendations(fallbackPersonalized);
-        setSimilarRecommendations(fallbackSimilar);
-        setTrendingRecommendationsState(fallbackTrending);
-        setContinueWatching([]);
-        setGenreRecommendations(fallbackPersonalized.slice(0, 10));
-        
-        console.log('✅ Frontend fallback recommendations generated');
+        console.log('🔄 API failed completely, using frontend fallback for all recommendations...');
+        const topRatedFallback = generateFrontendRecommendations(allAvailableMedia, currentMedia, 'top-rated', 20);
+        const youMightLikeFallback = generateFrontendRecommendations(allAvailableMedia, currentMedia, 'you-might-like', 20);
+        const latestMoviesFallback = generateLatestMoviesRecommendations(allAvailableMedia, 20);
+
+        setTopRatedRecommendations(topRatedFallback);
+        setMixedRecommendations(youMightLikeFallback);
+        setLatestMoviesRecommendations(latestMoviesFallback);
       }
-      
+
       setLoading(false);
-    }  
+    }
   };
 
-  const trackRecommendationClick = async (media: Media) => {
+  const handleRecommendationClick = async (media: Media) => {
     try {
-      // Use global cache for analytics tracking (no cache needed)
-      await globalCachedFetch(`${getApiUrl()}/api/recommendations/track-click/${media.id}`, {
+      const apiUrl = getApiUrl();
+      // Track recommendation click for analytics
+      await fetch(`${apiUrl}/api/recommendations/track-click/${media.id}`, {
         method: 'POST'
-      }, {
-        bypassCache: true // Don't cache POST requests
       });
     } catch (error) {
-      // Silently fail - analytics shouldn't block user interaction
+      console.error('Error tracking recommendation click:', error);
     }
+    onInfo(media);
   };
 
   // Netflix-style Card Component
@@ -455,18 +481,20 @@ const RecommendationSection: React.FC<RecommendationSectionProps> = ({
     };
 
     const getImageUrl = (media: Media) => {
-      // Use safe asset URL with error handling and caching
-      return getSafeAssetUrl('thumbnails', media.id.toString(), media.title);
+      const apiUrl = getApiUrl();
+      // Always use thumbnails for better compatibility in recommendations
+      return `${apiUrl}/api/thumbnails/${media.id}`;
     };
 
-    const getPosterUrl = (media: Media) => {
-      // Use safe asset URL with error handling and caching
-      return getSafeAssetUrl('posters', media.id.toString(), media.title);
-    };
 
     const getPreviewVideoUrl = (media: Media) => {
-      // Use safe asset URL with error handling to prevent 404 flooding
-      return getSafeAssetUrl('previews', media.id.toString(), media.title);
+      const apiUrl = getApiUrl();
+      // Try preview clips first (optimized for previews)
+      if (media.preview_clip_path) {
+        return `${apiUrl}/api/admin/assets/${media.preview_clip_path.split('/').pop()}`;
+      }
+      // Fallback to preview clips endpoint
+      return `${apiUrl}/api/preview-clips/${media.id}`;
     };
 
     // Cleanup timeouts on unmount
@@ -507,19 +535,13 @@ const RecommendationSection: React.FC<RecommendationSectionProps> = ({
             {/* Thumbnail Image with Fallback */}
             <div className="relative w-full h-full">
               <Image
-                src={media.poster_path ? getPosterUrl(media) : getImageUrl(media)}
+                src={getImageUrl(media)}
                 alt={media.title}
                 fill
                 className={`object-cover transition-opacity duration-300 ${imageLoaded ? (showVideo && videoLoaded ? 'opacity-0' : 'opacity-100') : 'opacity-0'
                   }`}
                 onLoad={() => setImageLoaded(true)}
                 onError={() => {
-                  // Try thumbnail fallback if poster fails
-                  const img = document.querySelector(`img[alt="${media.title}"]`) as HTMLImageElement;
-                  if (img && media.poster_path && img.src.includes('/posters/')) {
-                    img.src = getImageUrl(media);
-                    return;
-                  }
                   // If still fails, show placeholder
                   setImageLoaded(false);
                 }}
@@ -623,16 +645,16 @@ const RecommendationSection: React.FC<RecommendationSectionProps> = ({
               <div className="relative w-full aspect-video rounded-t-lg overflow-hidden">
                 {/* Background Image */}
                 <Image
-                  src={media.poster_path ? getPosterUrl(media) : getImageUrl(media)}
+                  src={getImageUrl(media)}
                   alt={media.title}
                   fill
                   className={`object-cover transition-opacity duration-300 ${showVideo && videoLoaded ? 'opacity-0' : 'opacity-100'
                     }`}
                   onError={() => {
-                    // Try thumbnail fallback if poster fails
+                    // Handle image error gracefully
                     const img = document.querySelector(`img[alt="${media.title}"]`) as HTMLImageElement;
-                    if (img && media.poster_path && img.src.includes('/posters/')) {
-                      img.src = getImageUrl(media);
+                    if (img) {
+                      img.style.display = 'none';
                     }
                   }}
                   sizes="400px"
@@ -691,8 +713,7 @@ const RecommendationSection: React.FC<RecommendationSectionProps> = ({
                   <motion.button
                     onClick={(e) => {
                       e.stopPropagation();
-                      trackRecommendationClick(media);
-                      onInfo(media);
+                      handleRecommendationClick(media);
                     }}
                     className="bg-gray-700 text-white rounded-full p-2 hover:bg-gray-600 transition-colors ml-auto"
                     whileHover={{ scale: 1.1 }}
@@ -859,28 +880,23 @@ const RecommendationSection: React.FC<RecommendationSectionProps> = ({
       )}
 
       {/* Trending Now */}
-      {trendingRecommendationsState.length > 0 && (
-        <NetflixRow title="Trending Now" media={trendingRecommendationsState} />
-      )}
-
-      {/* Continue Watching */}
-      {continueWatching.length > 0 && (
-        <NetflixRow title="Continue Watching" media={continueWatching} />
-      )}
-
-      {/* You Might Like */}
-      {mixedRecommendationsState.length > 0 && (
-        <NetflixRow title="You Might Like" media={mixedRecommendationsState} />
-      )}
-
-      {/* Top Rated */}
-      {topRatedRecommendations.length > 0 && (
-        <NetflixRow title="Top Rated" media={topRatedRecommendations} />
+      {trendingRecommendations.length > 0 && (
+        <NetflixRow title="Trending Now" media={trendingRecommendations} />
       )}
 
       {/* Latest Movies */}
       {latestMoviesRecommendations.length > 0 && (
         <NetflixRow title="Latest Movies" media={latestMoviesRecommendations} />
+      )}
+
+      {/* Top Rated Content */}
+      {topRatedRecommendations.length > 0 && (
+        <NetflixRow title="Top Rated" media={topRatedRecommendations} />
+      )}
+
+      {/* Mixed Recommendations - Fallback section */}
+      {mixedRecommendations.length > 0 && (
+        <NetflixRow title="You Might Also Like" media={mixedRecommendations} />
       )}
     </div>
   );

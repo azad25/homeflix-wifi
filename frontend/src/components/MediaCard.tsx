@@ -32,10 +32,7 @@ const MediaCard: React.FC<MediaCardProps> = ({
   };
 
   const getImageUrl = (media: Media) => {
-    // Prefer poster for movies, thumbnail for episodes/series
-    if (media.poster_path && media.type === 'movie') {
-      return `${getApiUrl()}/api/posters/${media.id}`;
-    }
+    // Always prioritize thumbnails first for consistent display
     return `${getApiUrl()}/api/thumbnails/${media.id}`;
   };
 

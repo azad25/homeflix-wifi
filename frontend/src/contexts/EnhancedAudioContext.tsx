@@ -57,32 +57,11 @@ export const EnhancedAudioProvider: React.FC<{ children: React.ReactNode }> = ({
   const [dolbyAtmosEnabled, setDolbyAtmosEnabled] = useState(true);
   const [masterVolume, setMasterVolumeState] = useState(0.8);
   const [audioMetadata, setAudioMetadata] = useState<any>(null);
-  const [userInteracted, setUserInteracted] = useState(false);
 
-  // Wait for user interaction before initializing audio
+  // Initialize enhanced audio on mount
   useEffect(() => {
-    const handleUserInteraction = () => {
-      if (!userInteracted) {
-        setUserInteracted(true);
-        initializeEnhancedAudio();
-        // Remove listeners after first interaction
-        document.removeEventListener('click', handleUserInteraction);
-        document.removeEventListener('keydown', handleUserInteraction);
-        document.removeEventListener('touchstart', handleUserInteraction);
-      }
-    };
-
-    // Listen for user interactions
-    document.addEventListener('click', handleUserInteraction);
-    document.addEventListener('keydown', handleUserInteraction);
-    document.addEventListener('touchstart', handleUserInteraction);
-
-    return () => {
-      document.removeEventListener('click', handleUserInteraction);
-      document.removeEventListener('keydown', handleUserInteraction);
-      document.removeEventListener('touchstart', handleUserInteraction);
-    };
-  }, [userInteracted]);
+    initializeEnhancedAudio();
+  }, []);
 
   const initializeEnhancedAudio = useCallback(async (): Promise<boolean> => {
     try {
@@ -101,17 +80,13 @@ export const EnhancedAudioProvider: React.FC<{ children: React.ReactNode }> = ({
       if (success) {
         // Get the global ALAC engine instance
         const { alacAudioEngine } = await import('../lib/audio/alacAudioEngine');
-        
-        // Resume AudioContext if suspended (requires user gesture)
-        await alacAudioEngine.resumeContext();
-        
         setAlacEngine(alacAudioEngine);
         setIsALACEnabled(true);
 
         // Initialize spatial processor if enabled
         if (spatialAudioEnabled && alacAudioEngine.isSupported()) {
           const audioContext = (alacAudioEngine as any).audioContext;
-          if (audioContext && audioContext.state === 'running') {
+          if (audioContext) {
             const processor = new SpatialAudioProcessor(audioContext, {
               enableHRTF: true,
               enableRoomSimulation: true,

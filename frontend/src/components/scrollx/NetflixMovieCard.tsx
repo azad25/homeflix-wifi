@@ -3,14 +3,12 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Play, Info, Plus, Check, ChevronDown, Volume2, VolumeX, Clock, Star, ThumbsUp } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import Image from 'next/image';
 import { Media } from '@/types/media';
-import { getApiUrl, getAssetUrl } from '@/lib/api';
+import { getApiUrl } from '@/lib/api';
 import { useRouter } from 'next/navigation';
 import { useAudio } from '@/contexts/EnhancedAudioContext';
 import { cleanMovieTitle } from '@/lib/titleUtils';
-import FastLoadingImage from '../FastLoadingImage';
-import UltraFastPreview from '../UltraFastPreview';
-import RedLoader from '../RedLoader';
 
 interface NetflixMovieCardProps {
   media: Media;
@@ -43,7 +41,6 @@ const NetflixMovieCard: React.FC<NetflixMovieCardProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [imageError, setImageError] = useState(false);
   const [fallbackError, setFallbackError] = useState(false);
-  const [imageLoading, setImageLoading] = useState(true);
   const videoRef = useRef<HTMLVideoElement>(null);
   const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const { setCurrentAudioElement, muteAll } = useAudio();
@@ -52,17 +49,22 @@ const NetflixMovieCard: React.FC<NetflixMovieCardProps> = ({
   const apiUrl = getApiUrl();
   
   const getThumbnailUrl = () => {
-    const urls = getAssetUrl('thumbnail', media.id, true);
-    return Array.isArray(urls) ? urls[0] : urls;
+    // Always prioritize thumbnails first for consistent display
+    return `${apiUrl}/api/thumbnails/${media.id}`;
   };
 
-  const getFallbackThumbnailUrl = () => {
-    const urls = getAssetUrl('thumbnail', media.id, true);
-    return Array.isArray(urls) ? urls[1] : urls;
-  };
 
   const getPreviewUrl = () => {
-    return getAssetUrl('preview', media.id, false);
+    // First try to get the actual media file for full experience
+    if (media.file_path) {
+      return `${apiUrl}/api/stream/${media.id}`;
+    }
+    // Fallback to trailer if available
+    if (media.trailer_path) {
+      return `${apiUrl}/api/admin/assets/${media.trailer_path.split('/').pop()}`;
+    }
+    // Final fallback to preview clips
+    return `${apiUrl}/api/preview-clips/${media.id}`;
   };
 
   const sizeClasses = {
@@ -85,12 +87,45 @@ const NetflixMovieCard: React.FC<NetflixMovieCardProps> = ({
       clearTimeout(hideTimeoutRef.current);
     }
 
+    // Netflix-like delay before showing preview
     hoverTimeoutRef.current = setTimeout(() => {
       setShowPreview(true);
-      const previewUrl = getPreviewUrl();
-      if (previewUrl && videoRef.current) {
-        videoRef.current.src = previewUrl as string;
-        videoRef.current.load();
+      
+      // Start video preview
+      if (videoRef.current && isHovered) {
+        const video = videoRef.current;
+        
+        const handleLoadedData = () => {
+          setIsVideoLoaded(true);
+          // Register as current audio source and mute others
+          muteAll();
+          setCurrentAudioElement(video);
+          
+          // Try to play with sound first
+          video.muted = false;
+          video.volume = 0.3;
+          video.play().then(() => {
+            setIsPlaying(true);
+          }).catch(() => {
+            // Fallback to muted if autoplay with sound fails
+            video.muted = true;
+            video.play().then(() => {
+              setIsPlaying(true);
+            }).catch(() => {
+              setIsVideoLoaded(false);
+              setIsPlaying(false);
+            });
+          });
+        };
+
+        const handleVideoError = () => {
+          setIsVideoLoaded(false);
+          setIsPlaying(false);
+        };
+
+        video.addEventListener('loadeddata', handleLoadedData);
+        video.addEventListener('error', handleVideoError);
+        video.load();
       }
     }, 800);
   };
@@ -142,13 +177,11 @@ const NetflixMovieCard: React.FC<NetflixMovieCardProps> = ({
 
   const handleVideoLoad = () => {
     setIsVideoLoaded(true);
-    setIsPlaying(true);
   };
 
-  const handleVideoError = (error?: any) => {
+  const handleVideoError = () => {
     setIsVideoLoaded(false);
     setIsPlaying(false);
-    console.error('Video preview error:', error);
   };
 
   const formatDuration = (seconds: number) => {
@@ -197,16 +230,16 @@ const NetflixMovieCard: React.FC<NetflixMovieCardProps> = ({
       >
         {/* Thumbnail Image */}
         {!fallbackError ? (
-          <FastLoadingImage
-            src={imageError ? getFallbackThumbnailUrl() : getThumbnailUrl()}
+          <Image
+            src={getThumbnailUrl()}
             alt={cleanMovieTitle(media.title)}
-            className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-300 ${
+            fill
+            sizes="(max-width: 768px) 50vw, (max-width: 1200px) 33vw, 25vw"
+            className={`object-cover transition-opacity duration-300 ${
               showPreview && isVideoLoaded ? 'opacity-0' : 'opacity-100'
             }`}
-            priority={priority ? "high" : "low"}
+            loading={priority ? "eager" : "lazy"}
             onError={handleImageError}
-            onLoad={() => setImageLoading(false)}
-            fallbackSrc={getFallbackThumbnailUrl()}
           />
         ) : (
           <div className="w-full h-full bg-gradient-to-br from-gray-700 via-gray-800 to-gray-900 flex items-center justify-center">
@@ -221,10 +254,10 @@ const NetflixMovieCard: React.FC<NetflixMovieCardProps> = ({
         {showPreview && (
           <video
             ref={videoRef}
+            src={getPreviewUrl()}
             className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-300 ${
               isVideoLoaded ? 'opacity-100' : 'opacity-0'
             }`}
-            autoPlay
             muted={isMuted}
             loop
             playsInline
@@ -268,7 +301,7 @@ const NetflixMovieCard: React.FC<NetflixMovieCardProps> = ({
                 className="bg-white/20 backdrop-blur-sm rounded-full p-3 hover:bg-white/30 transition-all duration-200 cursor-pointer border border-white/30"
               >
                 {isLoading ? (
-                  <RedLoader size="small" />
+                  <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin" />
                 ) : (
                   <Play className="w-6 h-6 text-white fill-white" />
                 )}
@@ -334,7 +367,7 @@ const NetflixMovieCard: React.FC<NetflixMovieCardProps> = ({
                 className="bg-white text-black px-3 py-1.5 rounded-md font-bold hover:bg-gray-200 transition-colors duration-200 flex items-center gap-2 cursor-pointer text-sm"
               >
                 {isLoading ? (
-                  <RedLoader size="small" />
+                  <div className="w-3 h-3 border-2 border-black border-t-transparent rounded-full animate-spin" />
                 ) : (
                   <Play className="w-3 h-3 fill-current" />
                 )}

@@ -16,10 +16,10 @@ const GenreTitle: React.FC<GenreTitleProps> = ({ media, className = "" }) => {
   
   // Calculate responsive font size based on title length
   const getTitleSize = (titleLength: number) => {
-    if (titleLength > 30) return 'text-2xl md:text-4xl lg:text-5xl xl:text-6xl';
-    if (titleLength > 20) return 'text-3xl md:text-5xl lg:text-6xl xl:text-7xl';
-    if (titleLength > 15) return 'text-4xl md:text-6xl lg:text-7xl xl:text-8xl';
-    return 'text-4xl md:text-6xl lg:text-7xl xl:text-8xl';
+    if (titleLength > 30) return 'text-xl md:text-2xl lg:text-3xl xl:text-4xl';
+    if (titleLength > 20) return 'text-2xl md:text-3xl lg:text-4xl xl:text-5xl';
+    if (titleLength > 15) return 'text-2xl md:text-4xl lg:text-5xl xl:text-6xl';
+    return 'text-3xl md:text-4xl lg:text-5xl xl:text-6xl';
   };
   
   const titleSizeClass = getTitleSize(title.length);

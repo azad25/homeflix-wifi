@@ -6,9 +6,7 @@ import { useRouter } from 'next/navigation';
 import { Media } from "../../types/media";
 import VideoPlayer from "../../components/VideoPlayer";
 import Navbar from "../../components/Navbar";
-import { getApiUrl } from "../../lib/api";
-import { useGlobalCache, useSearchCache } from "@/hooks/useGlobalCache";
-import { searchMedia, fetchMedia } from "@/lib/globalApiCache";
+import { getApiUrl, smartSearch, preloadAssets } from "../../lib/api";
 import NetflixMediaCard from "../../components/NetflixMediaCard";
 import { 
   NetflixHorizontalRow, 
@@ -32,7 +30,6 @@ export default function SearchPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<Media[]>([]);
   const [allGenres, setAllGenres] = useState<string[]>([]);
-  const [showFilters, setShowFilters] = useState(false);
   const [filters, setFilters] = useState<SearchFilters>({
     type: "all",
     genre: "all",
@@ -42,25 +39,12 @@ export default function SearchPage() {
   });
   const [selectedMedia, setSelectedMedia] = useState<Media | null>(null);
   const [isPlayerOpen, setIsPlayerOpen] = useState(false);
-  
-  // Use global cache for search with debouncing
-  const { data: cachedSearchResults, loading: searchLoading } = useSearchCache(searchQuery, 500);
-  
-  // Use global cache for genres
-  const { data: genresData } = useGlobalCache<any[]>(
-    `${getApiUrl()}/api/genres`,
-    {},
-    { customTTL: 2 * 60 * 60 * 1000 } // 2 hours cache
-  );
-  const loading = searchLoading;
+  const [loading, setLoading] = useState(false);
+  const [showFilters, setShowFilters] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
 
   useEffect(() => {
-    // Update genres when cache data is available
-    if (genresData) {
-      const uniqueGenres = [...new Set(genresData.map(g => g.name))];
-      setAllGenres(uniqueGenres);
-    }
+    fetchGenres();
     
     // Check for search query in URL
     const urlParams = new URLSearchParams(window.location.search);
@@ -68,64 +52,103 @@ export default function SearchPage() {
     if (queryParam) {
       setSearchQuery(queryParam);
       setHasSearched(true);
+      performSearch();
     }
-  }, [genresData]);
+  }, []);
 
-  // Update search results when cached data changes
   useEffect(() => {
-    if (cachedSearchResults && searchQuery.trim()) {
-      let results = cachedSearchResults;
+    if (searchQuery.trim() || hasSearched) {
+      // Debounce search to avoid too many API calls
+      const timeoutId = setTimeout(() => {
+        performSearch();
+      }, 300);
+      
+      return () => clearTimeout(timeoutId);
+    }
+  }, [searchQuery, filters]);
+
+  const fetchGenres = async () => {
+    try {
+      const apiUrl = getApiUrl();
+      
+      const response = await fetch(`${apiUrl}/api/media`);
+      const allMedia = await response.json();
+      
+      const genres = new Set<string>();
+      allMedia.forEach((media: Media) => {
+        (media.genres || []).forEach(genre => genres.add(genre.name));
+      });
+      
+      setAllGenres(Array.from(genres).sort());
+    } catch (error) {
+      console.error("Error fetching genres:", error);
+    }
+  };
+
+  const performSearch = async () => {
+    setLoading(true);
+    try {
+      let results: Media[] = [];
+      
+      if (searchQuery.trim()) {
+        // Use enhanced smart search
+        results = await smartSearch(searchQuery);
+        console.log(`🔍 Smart search returned ${results.length} results for "${searchQuery}"`);
+      } else {
+        // Get all media if no search query
+        const apiUrl = getApiUrl();
+        const response = await fetch(`${apiUrl}/api/media`);
+        results = await response.json();
+      }
       
       // Apply filters
       if (filters.type !== 'all') {
-        results = results.filter((media: Media) => media.type === filters.type);
+        results = results.filter(media => media.type === filters.type);
       }
       
       if (filters.genre !== 'all') {
-        results = results.filter((media: Media) => 
+        results = results.filter(media => 
           (media.genres || []).some((genre: any) => genre.name === filters.genre)
         );
       }
       
       if (filters.rating !== 'all') {
         const minRating = parseFloat(filters.rating);
-        results = results.filter((media: Media) => (media.rating || 0) >= minRating);
+        results = results.filter(media => (media.rating || 0) >= minRating);
       }
       
-      // Sort results
-      if (filters.sortBy !== 'relevance') {
+      // Sort results (smart search already provides relevance-based ordering)
+      if (filters.sortBy !== 'relevance' || !searchQuery.trim()) {
         switch (filters.sortBy) {
           case 'title':
-            results.sort((a: Media, b: Media) => a.title.localeCompare(b.title));
+            results.sort((a, b) => a.title.localeCompare(b.title));
             break;
           case 'rating':
-            results.sort((a: Media, b: Media) => (b.rating || 0) - (a.rating || 0));
+            results.sort((a, b) => (b.rating || 0) - (a.rating || 0));
             break;
           case 'year':
-            results.sort((a: Media, b: Media) => (b.year || 0) - (a.year || 0));
+            results.sort((a, b) => b.id - a.id);
             break;
           case 'popular':
-            results.sort((a: Media, b: Media) => (b.view_count || 0) - (a.view_count || 0));
+            results.sort((a, b) => (b.view_count || 0) - (a.view_count || 0));
             break;
         }
       }
       
       setSearchResults(results);
       setHasSearched(true);
-    }
-  }, [cachedSearchResults, searchQuery, filters]);
-
-  // Genres are now loaded automatically via global cache
-
-  const performSearch = (query: string) => {
-    setSearchQuery(query);
-    if (!query.trim()) {
+      
+      // Preload assets for better performance
+      if (results.length > 0) {
+        preloadAssets(results.slice(0, 12), ['thumbnail']);
+      }
+      
+    } catch (error) {
+      console.error("Error performing search:", error);
       setSearchResults([]);
-      setHasSearched(false);
-    } else {
-      setHasSearched(true);
+    } finally {
+      setLoading(false);
     }
-    // Search results are now handled automatically via useSearchCache hook
   };
 
   const handlePlay = (media: Media) => {
@@ -137,7 +160,7 @@ export default function SearchPage() {
     router.push(`/movie/${media.id}`);
   };
 
-  const handleSearchInput = (query: string) => {
+  const handleSearch = (query: string) => {
     setSearchQuery(query);
     setHasSearched(true);
   };
@@ -162,15 +185,15 @@ export default function SearchPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-red-900/20 via-black to-black text-white">
-      <Navbar onSearch={handleSearchInput} />
+      <Navbar onSearch={handleSearch} />
 
       {/* Main Content with Parallax Background */}
       <div className="relative bg-gradient-to-b from-red-900/20 via-black to-black">
-        <div className="relative z-10 pt-24 pb-24">
+        <div className="relative z-10 py-20">
           {/* Search Header */}
           <ParallaxSection speed={0.2}>
             <ScrollReveal direction="up" delay={0.1}>
-              <div className="px-4 md:px-8 lg:px-16 mb-16">
+              <div className="px-4 md:px-8 lg:px-16 mb-12">
                 <div className="text-center mb-8">
                   <h1 className="text-4xl md:text-6xl font-bold text-white mb-6 flex items-center justify-center gap-4 tracking-wider">
                     <FloatingElement>

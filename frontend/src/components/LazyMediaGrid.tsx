@@ -138,7 +138,7 @@ const LazyMediaCard: React.FC<{
     <div ref={cardRef} className="group relative">
       <div className="aspect-[2/3] bg-gray-800 rounded-lg overflow-hidden relative">
         <LazyImage
-          src={`${getApiUrl()}/api/posters/${media.id}`}
+          src={`${getApiUrl()}/api/thumbnails/${media.id}`}
           alt={media.title}
           fallbackSrc={`${getApiUrl()}/api/thumbnails/${media.id}`}
           className="w-full h-full transition-transform duration-300 group-hover:scale-105"

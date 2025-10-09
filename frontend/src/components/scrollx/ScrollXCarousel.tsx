@@ -189,9 +189,6 @@ const ScrollXMediaCard: React.FC<ScrollXMediaCardProps> = ({
 
   const getThumbnailUrl = () => {
     const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
-    if (media.poster_path) {
-      return `${apiUrl}/api/posters/${media.id}`;
-    }
     return `${apiUrl}/api/thumbnails/${media.id}`;
   };
 

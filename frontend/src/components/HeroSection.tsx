@@ -28,12 +28,9 @@ const HeroSection: React.FC<HeroSectionProps> = ({
   const currentMedia = featuredMedia[currentIndex] || featuredMedia[0];
 
   const getHeroImageUrl = (media: Media) => {
-    // Priority: banner -> poster -> thumbnail
+    // Priority: banner -> thumbnail only
     if (media.banner_path) {
       return `${getApiUrl()}/api/admin/assets/${media.banner_path.split('/').pop()}`;
-    }
-    if (media.poster_path) {
-      return `${getApiUrl()}/api/posters/${media.id}`;
     }
     return `${getApiUrl()}/api/thumbnails/${media.id}`;
   };

@@ -6,9 +6,7 @@ import { useRouter } from 'next/navigation';
 import Navbar from "@/components/Navbar";
 import VideoPlayer from '@/components/VideoPlayer';
 import PageTransition from '@/components/PageTransition';
-import { getApiUrl } from '@/lib/api';
-import { useGlobalCache, useBatchCache, useRecommendations } from '@/hooks/useGlobalCache';
-import { fetchMedia, fetchRecommendations } from '@/lib/globalApiCache';
+import { getApiUrl, fetchUniqueRecommendations, preloadAssets } from '@/lib/api';
 import { Media } from '@/types/media';
 import { ScrollXHero, NetflixHorizontalRow } from '@/components/scrollx';
 import RecentlyWatched from '@/components/RecentlyWatched';
@@ -28,113 +26,177 @@ export default function Home() {
   const [searchResults, setSearchResults] = useState<Media[]>([]);
   const [selectedMedia, setSelectedMedia] = useState<Media | null>(null);
   const [isPlayerOpen, setIsPlayerOpen] = useState(false);
-  
-  // Use global cache for media data
-  const { data: allMediaData, loading } = useGlobalCache<Media[]>(
-    `${getApiUrl()}/api/media`,
-    {},
-    { customTTL: 10 * 60 * 1000 } // 10 minutes cache
-  );
-  
-  // Use global cache for recommendations
-  const { data: recommendationsData } = useRecommendations('trending', 20);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Process cached data when available
-    if (allMediaData && allMediaData.length > 0) {
-      processMediaData(allMediaData);
-    }
+    fetchInitialData();
     
-    if (recommendationsData && recommendationsData.length > 0) {
-      setFeaturedMedia(recommendationsData.slice(0, 8));
-    }
-  }, [allMediaData, recommendationsData]);
+    // Set up auto-refresh every 5 minutes for recommendations
+    const interval = setInterval(() => {
+      fetchInitialData();
+    }, 5 * 60 * 1000); // 5 minutes in milliseconds
+    
+    return () => clearInterval(interval);
+  }, []);
 
-  const processMediaData = (allMedia: Media[]) => {
-    // Recent movies (latest by ID)
-    const recentMovies = allMedia
-      .filter((item: Media) => item.type === "movie")
-      .sort((a: Media, b: Media) => b.id - a.id)
-      .slice(0, 20);
-    setRecentMovies(recentMovies);
-    
-    // Popular movies (most viewed)
-    const popularMovies = allMedia
-      .filter((item: Media) => item.type === "movie")
-      .sort((a: Media, b: Media) => (b.view_count || 0) - (a.view_count || 0))
-      .slice(0, 20);
-    setPopularMovies(popularMovies);
-    
-    // Popular series (most viewed TV shows)
-    const popularSeries = allMedia
-      .filter((item: Media) => item.type === "episode")
-      .sort((a: Media, b: Media) => (b.view_count || 0) - (a.view_count || 0))
-      .slice(0, 20);
-    setPopularSeries(popularSeries);
-    
-    // Trending now (highest rated recent content)
-    const trendingNow = allMedia
-      .sort((a: Media, b: Media) => (b.rating || 0) - (a.rating || 0))
-      .slice(0, 20);
-    setTrendingNow(trendingNow);
-    
-    // Genre-based collections
-    const actionMovies = allMedia
-      .filter((item: Media) => 
-        item.type === "movie" && 
-        (item.genres || []).some(genre => {
-          const genreName = (typeof genre === 'string' ? genre : genre.name).toLowerCase();
-          return genreName.includes('action');
-        })
-      )
-      .sort((a: Media, b: Media) => (b.rating || 0) - (a.rating || 0))
-      .slice(0, 20);
-    setActionMovies(actionMovies);
-    
-    const comedyMovies = allMedia
-      .filter((item: Media) => 
-        item.type === "movie" && 
-        (item.genres || []).some(genre => {
-          const genreName = (typeof genre === 'string' ? genre : genre.name).toLowerCase();
-          return genreName.includes('comedy');
-        })
-      )
-      .sort((a: Media, b: Media) => (b.rating || 0) - (a.rating || 0))
-      .slice(0, 20);
-    setComedyMovies(comedyMovies);
-    
-    const dramaMovies = allMedia
-      .filter((item: Media) => 
-        item.type === "movie" && 
-        (item.genres || []).some(genre => {
-          const genreName = (typeof genre === 'string' ? genre : genre.name).toLowerCase();
-          return genreName.includes('drama');
-        })
-      )
-      .sort((a: Media, b: Media) => (b.rating || 0) - (a.rating || 0))
-      .slice(0, 20);
-    setDramaMovies(dramaMovies);
-    
-    const horrorMovies = allMedia
-      .filter((item: Media) => 
-        item.type === "movie" && 
-        (item.genres || []).some(genre => {
-          const genreName = (typeof genre === 'string' ? genre : genre.name).toLowerCase();
-          return genreName.includes('horror') || genreName.includes('thriller');
-        })
-      )
-      .sort((a: Media, b: Media) => (b.rating || 0) - (a.rating || 0))
-      .slice(0, 20);
-    setHorrorMovies(horrorMovies);
+  const fetchInitialData = async () => {
+    try {
+      const { getApiUrl, API_ENDPOINTS, apiCall } = await import('../lib/api');
+      
+      // Fetch all media
+      const allMedia = await apiCall(API_ENDPOINTS.media);
+      
+      // Get unique recommendations for hero section
+      let highQualityMedia: Media[] = [];
+      try {
+        console.log('🎬 Fetching unique recommendations for home page...');
+        highQualityMedia = await fetchUniqueRecommendations('mixed', 15);
+        console.log(`✅ Got ${highQualityMedia.length} unique recommendations for home page`);
+      } catch (error) {
+        console.warn('⚠️ Enhanced recommendations failed, using fallback');
+        // Fallback to high-rated content
+        highQualityMedia = allMedia
+          .filter((item: Media) => (item.rating || 0) >= 6.0)
+          .slice(0, 10);
+      }
+      
+      // Mix movies and TV shows, prioritize higher rated content
+      const featuredSelection = highQualityMedia
+        .sort((a: Media, b: Media) => (b.rating || 0) - (a.rating || 0))
+        .slice(0, 5);
+      
+      setFeaturedMedia(featuredSelection.length > 0 ? featuredSelection : allMedia.slice(0, 5));
+      
+      // Recent movies (latest by ID)
+      const recentMovies = allMedia
+        .filter((item: Media) => item.type === "movie")
+        .sort((a: Media, b: Media) => b.id - a.id)
+        .slice(0, 20);
+      setRecentMovies(recentMovies);
+      
+      // Popular movies (most viewed)
+      const popularMovies = allMedia
+        .filter((item: Media) => item.type === "movie")
+        .sort((a: Media, b: Media) => (b.view_count || 0) - (a.view_count || 0))
+        .slice(0, 20);
+      setPopularMovies(popularMovies);
+      
+      // Popular series (most viewed TV shows)
+      const popularSeries = allMedia
+        .filter((item: Media) => item.type === "episode")
+        .sort((a: Media, b: Media) => (b.view_count || 0) - (a.view_count || 0))
+        .slice(0, 20);
+      setPopularSeries(popularSeries);
+      
+      // Trending now (highest rated recent content)
+      const trendingNow = allMedia
+        .sort((a: Media, b: Media) => (b.rating || 0) - (a.rating || 0))
+        .slice(0, 20);
+      setTrendingNow(trendingNow);
+      
+      // Genre-based collections
+      const actionMovies = allMedia
+        .filter((item: Media) => 
+          item.type === "movie" && 
+          (item.genres || []).some(genre => genre.name.toLowerCase().includes('action'))
+        )
+        .sort((a: Media, b: Media) => (b.rating || 0) - (a.rating || 0))
+        .slice(0, 20);
+      setActionMovies(actionMovies);
+      
+      const comedyMovies = allMedia
+        .filter((item: Media) => 
+          item.type === "movie" && 
+          (item.genres || []).some(genre => genre.name.toLowerCase().includes('comedy'))
+        )
+        .sort((a: Media, b: Media) => (b.rating || 0) - (a.rating || 0))
+        .slice(0, 20);
+      setComedyMovies(comedyMovies);
+      
+      const dramaMovies = allMedia
+        .filter((item: Media) => 
+          item.type === "movie" && 
+          (item.genres || []).some(genre => genre.name.toLowerCase().includes('drama'))
+        )
+        .sort((a: Media, b: Media) => (b.rating || 0) - (a.rating || 0))
+        .slice(0, 20);
+      setDramaMovies(dramaMovies);
+      
+      const horrorMovies = allMedia
+        .filter((item: Media) => 
+          item.type === "movie" && 
+          (item.genres || []).some(genre => 
+            genre.name.toLowerCase().includes('horror') || 
+            genre.name.toLowerCase().includes('thriller')
+          )
+        )
+        .sort((a: Media, b: Media) => (b.rating || 0) - (a.rating || 0))
+        .slice(0, 20);
+      setHorrorMovies(horrorMovies);
+      
+      // Preload assets for better performance
+      const allContentForPreload = [
+        ...featuredSelection,
+        ...recentMovies.slice(0, 10),
+        ...popularMovies.slice(0, 10),
+        ...trendingNow.slice(0, 10)
+      ];
+      
+      if (allContentForPreload.length > 0) {
+        preloadAssets(allContentForPreload, ['thumbnail', 'preview']);
+      }
+      
+      setLoading(false);
+    } catch (error) {
+      console.error("Error fetching data:", error);
+      setLoading(false);
+    }
   };
 
+  const setMockData = () => {
+    const mockMediaList: Media[] = [
+      {
+        id: 1,
+        title: "Epic Adventure",
+        description: "Experience the ultimate entertainment with this amazing content. Watch now and immerse yourself in a world of endless possibilities.",
+        type: "movie",
+        rating: 8.5,
+        duration: 7200,
+        genres: [{ name: "Action" }, { name: "Adventure" }, { name: "Sci-Fi" }],
+        view_count: 1250,
+      },
+      {
+        id: 2,
+        title: "Thrilling Drama",
+        description: "A captivating story that will keep you on the edge of your seat from start to finish.",
+        type: "movie",
+        rating: 9.1,
+        duration: 6900,
+        genres: [{ name: "Drama" }, { name: "Thriller" }, { name: "Mystery" }],
+        view_count: 2100,
+      },
+      {
+        id: 3,
+        title: "Comedy Gold",
+        description: "Laugh out loud with this hilarious comedy that brings joy and entertainment to your screen.",
+        type: "movie",
+        rating: 7.8,
+        duration: 5400,
+        genres: [{ name: "Comedy" }, { name: "Romance" }, { name: "Family" }],
+        view_count: 890,
+      }
+    ];
 
+    setFeaturedMedia(mockMediaList);
+    setRecentMovies(mockMediaList);
+    setPopularSeries(mockMediaList);
+  };
 
   const handleSearch = async (query: string) => {
     try {
       const apiUrl = getApiUrl();
-      const { globalCachedFetch } = await import('@/lib/globalApiCache');
-      const data = await globalCachedFetch(`${apiUrl}/api/search?q=${encodeURIComponent(query)}`);
+      const response = await fetch(`${apiUrl}/api/search?q=${encodeURIComponent(query)}`);
+      const data = await response.json();
       setSearchResults(data.media || []);
     } catch (error) {
       console.error("Error searching:", error);

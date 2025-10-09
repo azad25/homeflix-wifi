@@ -44,17 +44,85 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
   const [isMobile, setIsMobile] = useState(false);
   const [showResumeNotification, setShowResumeNotification] = useState(false);
   const [resumeTime, setResumeTime] = useState(0);
-  const progressSaveIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  const getStreamUrl = (quality?: string) => {
-    console.log(`⚠️ Stream URL generation disabled for media ${media.id} to prevent server crashes`);
-    return undefined;
-  };
+  const getStreamUrl = (mediaId: number, quality?: string, format?: string) => {
+    const baseUrl = `${getApiUrl()}/api/stream/${mediaId}`;
+    const params = new URLSearchParams();
 
-  const getSubtitleUrl = () => {
-    // DISABLED: Subtitle URL generation to prevent server crashes
-    console.log(`⚠️ Subtitle URL generation disabled for media ${media.id} to prevent server crashes`);
-    return undefined;
+    // Ultra-enhanced Netflix-level optimization parameters
+    params.set('optimize', 'netflix-level');
+    params.set('buffer', 'ultra-aggressive');
+    params.set('latency', 'zero');
+    params.set('preload', 'instant');
+
+    // Bandwidth detection and hints
+    const connection = (navigator as any).connection;
+    if (connection) {
+      params.set('bandwidth-hint', (connection.downlink * 1024 * 1024).toString());
+      params.set('network-type', connection.effectiveType || 'unknown');
+    }
+
+    if (quality) {
+      params.set('quality', quality);
+    } else {
+      // Enhanced auto-detect quality based on device and network
+      const userAgent = navigator.userAgent.toLowerCase();
+      const isLocalNetwork = window.location.hostname === 'localhost' ||
+        window.location.hostname.startsWith('192.168.') ||
+        window.location.hostname.startsWith('10.') ||
+        window.location.hostname.startsWith('172.');
+
+      if (isLocalNetwork) {
+        // Ultra-high quality for local network
+        if (userAgent.includes('mobile')) {
+          params.set('quality', '1080p'); // 1080p for mobile on local network
+        } else {
+          params.set('quality', '4k-ultra'); // Ultra 4K for desktop on local network
+        }
+      } else {
+        if (userAgent.includes('mobile')) {
+          params.set('quality', 'high');
+        } else {
+          params.set('quality', '4k');
+        }
+      }
+    }
+
+    if (format) {
+      params.set('format', format);
+    }
+
+    // Enhanced device-specific optimizations
+    const userAgent = navigator.userAgent.toLowerCase();
+    if (userAgent.includes('mac')) {
+      params.set('device', 'mac');
+      params.set('hardware-accel', 'videotoolbox');
+    } else if (userAgent.includes('windows')) {
+      params.set('device', 'windows');
+      params.set('hardware-accel', 'dxva');
+    } else if (userAgent.includes('linux')) {
+      params.set('device', 'linux');
+      params.set('hardware-accel', 'vaapi');
+    } else if (userAgent.includes('ios')) {
+      params.set('device', 'ios');
+      params.set('hardware-accel', 'metal');
+    } else if (userAgent.includes('android')) {
+      params.set('device', 'android');
+      params.set('hardware-accel', 'mediacodec');
+    }
+
+    // Screen resolution optimization
+    const screenWidth = window.screen.width;
+    const screenHeight = window.screen.height;
+    params.set('screen-resolution', `${screenWidth}x${screenHeight}`);
+
+    // Memory and performance hints
+    const memory = (navigator as any).deviceMemory;
+    if (memory) {
+      params.set('device-memory', memory.toString());
+    }
+
+    return `${baseUrl}?${params.toString()}`;
   };
 
   // Detect mobile device
@@ -91,12 +159,11 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
     const fetchNextEpisode = async () => {
       if (media.type === 'episode' && media.series_id && media.season_number && media.episode_number) {
         try {
-          // Use cached API call to avoid excessive requests
-          const { globalCachedFetch } = await import('@/lib/globalApiCache');
-          const episodeData: Media[] = await globalCachedFetch(`${getApiUrl()}/api/media?type=episode&series_id=${media.series_id}&season=${media.season_number}&limit=50`);
+          const response = await fetch(`${getApiUrl()}/api/media`);
+          const allMedia: Media[] = await response.json();
 
           // Find next episode
-          const next = episodeData.find((m: Media) =>
+          const next = allMedia.find((m: Media) =>
             m.series_id === media.series_id &&
             m.season_number === media.season_number &&
             m.episode_number === (media.episode_number || 0) + 1
@@ -104,8 +171,11 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
 
           // If no next episode in current season, try first episode of next season
           if (!next) {
-            const nextSeasonData: Media[] = await globalCachedFetch(`${getApiUrl()}/api/media?type=episode&series_id=${media.series_id}&season=${(media.season_number || 0) + 1}&limit=1`);
-            const nextSeason = nextSeasonData.find((m: Media) => m.episode_number === 1);
+            const nextSeason = allMedia.find((m: Media) =>
+              m.series_id === media.series_id &&
+              m.season_number === (media.season_number || 0) + 1 &&
+              m.episode_number === 1
+            );
             setNextEpisode(nextSeason || null);
           } else {
             setNextEpisode(next);
@@ -161,8 +231,20 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
   };
 
   const togglePlay = () => {
-    console.log(`⚠️ Video playback disabled for media ${media.id} to prevent server crashes`);
-    setIsPlaying(!isPlaying);
+    const video = videoRef.current;
+    if (!video) return;
+
+    if (isPlaying) {
+      video.pause();
+    } else {
+      // Always ensure sound is on when playing
+      video.muted = false;
+      video.volume = volume > 0 ? volume : 0.8;
+      setIsMuted(false);
+      video.play().catch(error => {
+        console.log('Play failed:', error);
+      });
+    }
   };
 
   const toggleMute = () => {
@@ -286,13 +368,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
 
     video.currentTime = newTime;
     setCurrentTime(newTime);
-    
-    // Save progress immediately when clicking progress bar
-    if (video.duration > 0) {
-      updatePlaybackProgress(media.id, newTime, video.duration, '1').catch(error => {
-        console.log('Failed to save progress after progress click:', error);
-      });
-    }
   };
 
   const handleSeekStart = (e: React.MouseEvent | React.TouchEvent) => {
@@ -340,13 +415,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
     const newTime = (parseFloat(e.target.value) / 100) * duration;
     video.currentTime = newTime;
     setCurrentTime(newTime);
-    
-    // Save progress immediately when seeking
-    if (video.duration > 0) {
-      updatePlaybackProgress(media.id, newTime, video.duration, '1').catch(error => {
-        console.log('Failed to save progress after seek:', error);
-      });
-    }
   };
 
   const formatTime = (time: number) => {
@@ -515,20 +583,12 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
     const handleTimeUpdate = () => {
       if (!isDragging) {
         setCurrentTime(video.currentTime);
-        // Update playback progress every 5 seconds for better accuracy
-        if (Math.floor(video.currentTime) % 5 === 0 && video.duration > 0) {
+        // Update playback progress every 10 seconds
+        if (Math.floor(video.currentTime) % 10 === 0 && video.duration > 0) {
           updatePlaybackProgress(media.id, video.currentTime, video.duration, '1').catch(error => {
             console.log('Failed to update playback progress:', error);
           });
         }
-      }
-    };
-
-    const saveProgressNow = () => {
-      if (video.duration > 0) {
-        updatePlaybackProgress(media.id, video.currentTime, video.duration, '1').catch(error => {
-          console.log('Failed to save progress:', error);
-        });
       }
     };
 
@@ -543,12 +603,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
         setIsMuted(false);
       }
 
-      // Start periodic progress saving every 10 seconds
-      if (progressSaveIntervalRef.current) {
-        clearInterval(progressSaveIntervalRef.current);
-      }
-      progressSaveIntervalRef.current = setInterval(saveProgressNow, 10000);
-
       // Track view when playback starts
       trackView(media.id).catch(error => {
         console.log('Failed to track view:', error);
@@ -558,25 +612,17 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
     const handlePause = () => {
       console.log('Video paused');
       setIsPlaying(false);
-      
-      // Clear periodic progress saving
-      if (progressSaveIntervalRef.current) {
-        clearInterval(progressSaveIntervalRef.current);
+      // Update progress when paused
+      if (video.duration > 0) {
+        updatePlaybackProgress(media.id, video.currentTime, video.duration, '1').catch(error => {
+          console.log('Failed to update playback progress on pause:', error);
+        });
       }
-      
-      // Save progress immediately when paused
-      saveProgressNow();
     };
 
     const handleEnded = () => {
       console.log('Video ended');
       setIsPlaying(false);
-      
-      // Clear periodic progress saving
-      if (progressSaveIntervalRef.current) {
-        clearInterval(progressSaveIntervalRef.current);
-      }
-      
       // Mark as completed when ended
       if (video.duration > 0) {
         updatePlaybackProgress(media.id, video.duration, video.duration, '1').catch(error => {
@@ -692,50 +738,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
     };
   }, [isOpen, isPlaying]);
 
-  // Cleanup and save progress when component unmounts or video player closes
-  useEffect(() => {
-    return () => {
-      // Clear progress saving interval
-      if (progressSaveIntervalRef.current) {
-        clearInterval(progressSaveIntervalRef.current);
-      }
-      
-      // Save final progress before unmounting
-      const video = videoRef.current;
-      if (video && video.duration > 0 && video.currentTime > 0) {
-        updatePlaybackProgress(media.id, video.currentTime, video.duration, '1').catch(error => {
-          console.log('Failed to save final progress:', error);
-        });
-      }
-    };
-  }, [media.id]);
-
-  // Save progress when video player closes
-  useEffect(() => {
-    if (!isOpen && progressSaveIntervalRef.current) {
-      clearInterval(progressSaveIntervalRef.current);
-      
-      // Save progress before closing
-      const video = videoRef.current;
-      if (video && video.duration > 0 && video.currentTime > 0) {
-        updatePlaybackProgress(media.id, video.currentTime, video.duration, '1').catch(error => {
-          console.log('Failed to save progress on close:', error);
-        });
-      }
-    }
-  }, [isOpen, media.id]);
-
   if (!isOpen) return null;
-
-  useEffect(() => {
-    if (videoRef.current && media) {
-      const video = videoRef.current;
-      console.log(`⚠️ Video loading disabled for media ${media.id} to prevent server crashes`);
-      
-      // Show placeholder instead of loading actual video
-      video.poster = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTkyMCIgaGVpZ2h0PSIxMDgwIiB2aWV3Qm94PSIwIDAgMTkyMCAxMDgwIiBmaWxsPSJub25lIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPgo8cmVjdCB3aWR0aD0iMTkyMCIgaGVpZ2h0PSIxMDgwIiBmaWxsPSJncmFkaWVudChsaW5lYXIsIDQ1ZGVnLCAjMTExLCAjMzMzKSIvPgo8dGV4dCB4PSI5NjAiIHk9IjU0MCIgZm9udC1mYW1pbHk9IkFyaWFsIiBmb250LXNpemU9IjQ4IiBmaWxsPSIjZTUwOTE0IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj5WaWRlbyBEaXNhYmxlZCB0byBQcmV2ZW50IFNlcnZlciBDcmFzaGVzPC90ZXh0Pgo8L3N2Zz4=';
-    }
-  }, [media]);
 
   return (
     <AnimatePresence>
@@ -759,7 +762,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
           onEnded={() => setIsPlaying(false)}
           onError={(e) => {
             console.error('Video error:', e);
-            console.log('Video loading disabled to prevent server crashes');
+            console.log('Video src:', getStreamUrl(media.id));
           }}
           onClick={(e) => {
             // Ensure sound is always on when clicking video
@@ -803,8 +806,16 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
           }}
           preload="auto"
           muted={false}
+          crossOrigin="anonymous"
         >
-          {/* DISABLED: Video sources to prevent server crashes */}
+          {/* Ultra-enhanced multi-source strategy with instant loading */}
+          <source src={getStreamUrl(media.id, '4k-ultra', 'mp4')} type="video/mp4; codecs=&quot;avc1.640028, mp4a.40.2&quot;" />
+          <source src={getStreamUrl(media.id, '4k', 'mp4')} type="video/mp4; codecs=&quot;avc1.42E01E, mp4a.40.2&quot;" />
+          <source src={getStreamUrl(media.id, 'high', 'webm')} type="video/webm; codecs=&quot;vp9.2, opus&quot;" />
+          <source src={getStreamUrl(media.id, 'high', 'mp4')} type="video/mp4; codecs=&quot;avc1.42E01E, mp4a.40.2&quot;" />
+          <source src={getStreamUrl(media.id, 'medium', 'webm')} type="video/webm; codecs=&quot;vp9, opus&quot;" />
+          <source src={getStreamUrl(media.id, 'medium', 'mp4')} type="video/mp4" />
+          <source src={getStreamUrl(media.id, 'low', 'mp4')} type="video/mp4" />
 
           {/* Subtitles */}
           {availableSubtitles.map((subtitle, index) => (
@@ -822,9 +833,13 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
           <p className="text-white text-center p-8">
             Your browser does not support the video tag or this video format.
             <br />
-            <span className="text-blue-400">
+            <a
+              href={getStreamUrl(media.id)}
+              download={media.title}
+              className="text-blue-400 hover:text-blue-300 underline"
+            >
               Download the video file
-            </span>
+            </a>
           </p>
         </video>
 

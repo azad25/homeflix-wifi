@@ -10,7 +10,6 @@ import { FolderTree, GlassCard, ScrollReveal, MagneticButton } from '@/component
 import { motion } from 'framer-motion';
 
 interface MediaAssets {
-  poster?: string;
   banner?: string;
   thumbnail?: string;
   trailer?: string;
@@ -87,7 +86,7 @@ export default function SettingsPage() {
     }
   };
 
-  const handleFileUpload = async (file: File, type: 'poster' | 'banner' | 'thumbnail' | 'trailer') => {
+  const handleFileUpload = async (file: File, type: 'banner' | 'thumbnail' | 'trailer') => {
     if (!selectedMedia) return;
 
     setUploading(true);
@@ -115,7 +114,7 @@ export default function SettingsPage() {
     }
   };
 
-  const handleDeleteAsset = async (type: 'poster' | 'banner' | 'thumbnail' | 'trailer') => {
+  const handleDeleteAsset = async (type: 'banner' | 'thumbnail' | 'trailer') => {
     if (!selectedMedia) return;
 
     try {
@@ -147,12 +146,12 @@ export default function SettingsPage() {
     onDelete, 
     uploading 
   }: { 
-    type: 'poster' | 'banner' | 'thumbnail' | 'trailer';
+    type: 'banner' | 'thumbnail' | 'trailer';
     label: string;
     accept: string;
     mediaAssets: MediaAssets;
-    onUpload: (file: File, type: 'poster' | 'banner' | 'thumbnail' | 'trailer') => void;
-    onDelete: (type: 'poster' | 'banner' | 'thumbnail' | 'trailer') => void;
+    onUpload: (file: File, type: 'banner' | 'thumbnail' | 'trailer') => void;
+    onDelete: (type: 'banner' | 'thumbnail' | 'trailer') => void;
     uploading: boolean;
   }) => (
     <motion.div 
@@ -332,15 +331,6 @@ export default function SettingsPage() {
                     </div>
                     
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      <NetflixFileUploadSection 
-                        type="poster" 
-                        label="Movie Poster" 
-                        accept="image/*" 
-                        mediaAssets={mediaAssets}
-                        onUpload={handleFileUpload}
-                        onDelete={handleDeleteAsset}
-                        uploading={uploading}
-                      />
                       <NetflixFileUploadSection 
                         type="banner" 
                         label="Hero Banner (4K)" 

@@ -34,9 +34,6 @@ const SimpleMediaCard: React.FC<SimpleMediaCardProps> = ({
     return `${apiUrl}/api/thumbnails/${media.id}`;
   };
 
-  const getPosterUrl = () => {
-    return `${apiUrl}/api/posters/${media.id}`;
-  };
 
   const handlePlayClick = () => {
     setIsLoading(true);
@@ -80,26 +77,16 @@ const SimpleMediaCard: React.FC<SimpleMediaCardProps> = ({
           transformOrigin: 'center center',
         }}
       >
-        {/* Thumbnail Image with Fallback */}
+        {/* Thumbnail Image */}
         {!imageError ? (
           <LazyImage
-            src={media.poster_path ? getPosterUrl() : getThumbnailUrl()}
+            src={getThumbnailUrl()}
             alt={media.title}
             fill
             sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
             className="transition-opacity duration-300 opacity-100"
             priority={priority}
-            onError={() => {
-              // Try thumbnail fallback if poster fails
-              if (media.poster_path) {
-                const img = document.querySelector(`img[alt="${media.title}"]`) as HTMLImageElement;
-                if (img && img.src.includes('/posters/')) {
-                  img.src = getThumbnailUrl();
-                  return;
-                }
-              }
-              handleImageError();
-            }}
+            onError={handleImageError}
             loaderSize="medium"
             showLoader={true}
             fallbackSrc={getThumbnailUrl()}

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, useScroll, useTransform, useSpring, AnimatePresence } from 'framer-motion';
 import { Play, Info, ChevronLeft, ChevronRight, Film, Tv, Volume2 } from 'lucide-react';
 import { Media } from '@/types/media';
@@ -68,32 +68,32 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
   const y = useTransform(scrollYProgress, [0, 1], [0, -200]);
   const opacity = useTransform(scrollYProgress, [0, 0.5], [1, 0]);
 
-  const currentMedia = useMemo(() => featuredMedia[currentIndex] || featuredMedia[0], [featuredMedia, currentIndex]);
+  const currentMedia = featuredMedia[currentIndex] || featuredMedia[0];
 
-  // Memoized audio preference management
-  const getGlobalAudioPreference = useCallback((): boolean => {
-    if (typeof window === 'undefined') return true;
+  // Global audio preference management
+  const getGlobalAudioPreference = (): boolean => {
+    if (typeof window === 'undefined') return true; // SSR fallback
     const saved = localStorage.getItem('scrollx-audio-muted');
-    return saved !== null ? JSON.parse(saved) : true;
-  }, []);
+    return saved !== null ? JSON.parse(saved) : true; // Default to muted
+  };
 
-  const setGlobalAudioPreference = useCallback((muted: boolean) => {
+  const setGlobalAudioPreference = (muted: boolean) => {
     if (typeof window === 'undefined') return;
     localStorage.setItem('scrollx-audio-muted', JSON.stringify(muted));
-  }, []);
+  };
 
-  const hasUserEverUnmuted = useCallback((): boolean => {
+  const hasUserEverUnmuted = (): boolean => {
     if (typeof window === 'undefined') return false;
     return localStorage.getItem('scrollx-user-has-unmuted') === 'true';
-  }, []);
+  };
 
-  const setUserHasUnmuted = useCallback(() => {
+  const setUserHasUnmuted = () => {
     if (typeof window === 'undefined') return;
     localStorage.setItem('scrollx-user-has-unmuted', 'true');
-  }, []);
+  };
 
-  // Memoized autoplay capability test
-  const testAutoplayCapabilities = useCallback(async () => {
+  // Test browser autoplay capabilities
+  const testAutoplayCapabilities = async () => {
     try {
       const video = document.createElement('video');
       video.muted = true;
@@ -122,34 +122,50 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
     } catch {
       setCanAutoplayWithAudio(false);
     }
-  }, []);
+  };
 
-  // Optimized shuffle array utility function
-  const shuffleArray = useCallback(<T,>(array: T[]): T[] => {
+  // Enhanced shuffle array utility function with time-based randomization
+  const shuffleArray = <T,>(array: T[]): T[] => {
     const shuffled = [...array];
     
-    // Simple Fisher-Yates shuffle - more performant
+    // Add time-based randomization for more variety
+    const timeSeed = Date.now() + cycleCount * 1000;
+    const random = () => {
+      const x = Math.sin(timeSeed + shuffled.length) * 10000;
+      return x - Math.floor(x);
+    };
+    
+    // Enhanced Fisher-Yates shuffle with time-based randomization
     for (let i = shuffled.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+      const j = Math.floor((Math.random() + random()) / 2 * (i + 1));
+      [shuffled[i], shuffled[j % shuffled.length]] = [shuffled[j % shuffled.length], shuffled[i]];
+    }
+    
+    // Additional randomization pass
+    for (let i = 0; i < shuffled.length; i++) {
+      if (Math.random() > 0.5) {
+        const j = Math.floor(Math.random() * shuffled.length);
+        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+      }
     }
     
     return shuffled;
-  }, []);
+  };
 
-  // Memoized API response duplicate checking
-  const isApiResponseDuplicate = useCallback((media: Media[]): boolean => {
+  // Check if API response is duplicate
+  const isApiResponseDuplicate = (media: Media[]): boolean => {
     const responseSignature = media.map(m => m.id).sort().join(',');
     return previousApiResponses.has(responseSignature);
-  }, [previousApiResponses]);
+  };
 
-  const addApiResponseToHistory = useCallback((media: Media[]) => {
+  // Add API response to history
+  const addApiResponseToHistory = (media: Media[]) => {
     const responseSignature = media.map(m => m.id).sort().join(',');
     setPreviousApiResponses(prev => new Set([...prev, responseSignature]));
-  }, []);
+  };
 
-  // Optimized frontend recommendation system
-  const generateFrontendRecommendations = useCallback((availableMedia: Media[], currentFeatured: Media[]): Media[] => {
+  // Enhanced frontend recommendation system with latest movies and priority genre focus
+  const generateFrontendRecommendations = (availableMedia: Media[], currentFeatured: Media[]): Media[] => {
     console.log(`🔄 Generating frontend recommendations from ${availableMedia.length} available items (cycle ${cycleCount})...`);
     
     // Apply content filtering
@@ -361,21 +377,66 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
       recommendations.push(...shuffleArray(fillContent).slice(0, slotsRemaining));
     }
 
-    console.log(`✅ Generated ${recommendations.length} frontend recommendations using algorithm ${algorithm + 1}`);
+    console.log(`✅ Generated ${recommendations.length} frontend recommendations using algorithm ${algorithm + 1} (${priorityGenreContent.length} priority genres, ${latestContent.length} latest, ${latestMovies.length} latest movies, ${latestPriorityMovies.length} latest priority movies)`);
     return shuffleArray(recommendations).slice(0, 10);
-  }, [contentFilter, cycleCount, shuffleArray]);
+  };
 
-  // DISABLED: Enhanced recommendation system to prevent server crashes
-  const fetchRecommendedMedia = useCallback(async (cycleNumber: number = 0) => {
+  // Enhanced recommendation system with guaranteed unique content every load
+  const fetchRecommendedMedia = async (cycleNumber: number = 0) => {
     setIsLoadingNewContent(true);
-    console.log(`🎬 Using frontend-only recommendations (cycle ${cycleNumber}) - API calls disabled`);
+    console.log(`🎬 Fetching ALWAYS DIFFERENT recommendations (cycle ${cycleNumber})...`);
     
     try {
-      // DISABLED: All backend API calls to prevent server overload
+      // ALWAYS try backend recommendations first for guaranteed uniqueness
       let newMedia: Media[] = [];
       
-      // Skip all backend API calls that were causing server crashes
-      console.log('⚠️ Backend API calls disabled to prevent server crashes');
+      try {
+        // Import the enhanced API functions
+        const { fetchUniqueRecommendations } = await import('@/lib/api');
+        
+        // Get unique recommendations with cycle-based type rotation
+        const recommendationTypes = ['mixed', 'trending', 'popular', 'personalized', 'recent'];
+        const currentType = recommendationTypes[cycleNumber % recommendationTypes.length];
+        
+        console.log(`🎯 Fetching ${currentType} recommendations for cycle ${cycleNumber}`);
+        newMedia = await fetchUniqueRecommendations(currentType, 25);
+        console.log(`✅ Got ${newMedia.length} unique ${currentType} recommendations from backend`);
+        
+        // Apply content filtering
+        if (contentFilter === 'movies-hd') {
+          newMedia = newMedia.filter((media: Media) => {
+            const isMovie = media.type === 'movie';
+            const hasHDQuality = media.quality && (
+              media.quality.toLowerCase().includes('hd') || 
+              media.quality.toLowerCase().includes('4k') ||
+              media.quality.toLowerCase().includes('1080p') ||
+              media.quality.toLowerCase().includes('2160p')
+            );
+            return isMovie && hasHDQuality;
+          });
+        } else if (contentFilter === 'tv-series') {
+          newMedia = newMedia.filter((media: Media) => {
+            return media.type === 'episode' || 
+                   media.type === 'tv' || 
+                   media.type === 'series';
+          });
+        }
+        
+        if (newMedia.length >= 5) {
+          // Add additional randomization based on time and cycle
+          const timeBasedShuffle = shuffleArray(newMedia);
+          setFeaturedMedia(timeBasedShuffle.slice(0, 10));
+          console.log(`✅ Using ${timeBasedShuffle.length} unique ${currentType} recommendations`);
+          
+          // Preload assets for instant display
+          const { preloadAssets } = await import('@/lib/api');
+          preloadAssets(timeBasedShuffle.slice(0, 10), ['thumbnail', 'preview']);
+          
+          return;
+        }
+      } catch (error) {
+        console.warn('❌ Backend recommendations failed:', error);
+      }
       
       // Enhanced frontend fallback with guaranteed uniqueness
       if (initialFeaturedMedia.length > 0) {
@@ -568,7 +629,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
     } finally {
       setIsLoadingNewContent(false);
     }
-  }, [contentFilter, generateFrontendRecommendations, initialFeaturedMedia, allAvailableMedia, featuredMedia, shuffleArray]);
+  };
 
   const handlePlay = async () => {
     setIsPlayButtonLoading(true);
@@ -588,61 +649,120 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
     }
   };
 
-  // Memoized URL generation to prevent repeated API calls
-  const urlCache = useRef<Map<string, string>>(new Map());
-  
-  const getVideoUrl = useCallback((media: Media, fallback: boolean = false): string | undefined => {
-    // DISABLED: Return undefined to prevent server crashes
-    return undefined;
-  }, []);
+  const getVideoUrl = (media: Media, fallback: boolean = false): string | undefined => {
+    if (!media.id) return undefined;
 
-  const getThumbnailUrl = useCallback((media: Media): string | undefined => {
-    // DISABLED: Return undefined to prevent server crashes
-    return undefined;
-  }, []);
+    const apiUrl = getApiUrl();
 
-  const getPosterUrl = useCallback((media: Media): string | undefined => {
-    // DISABLED: Return undefined to prevent server crashes
-    return undefined;
-  }, []);
+    if (fallback) {
+      // Return the first fallback endpoint
+      return `${apiUrl}/api/preview-clips/${media.id}?quality=low&format=mp4`;
+    }
 
-
-
-  // DISABLED: Always return false to prevent video loading that crashes server
-  const hasVideoContent = (media: Media) => {
-    // Always return false to prevent server crashes from video requests
-    return false;
+    // Primary endpoint - use the enhanced preview-clips API endpoint
+    return `${apiUrl}/api/preview-clips/${media.id}?quality=high&format=mp4&cache=true`;
   };
 
-  // DISABLED: Asset availability checking to prevent server crashes
-  const assetAvailabilityCache = useRef<Map<string, { available: boolean, timestamp: number }>>(new Map());
-  const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes cache
+  const getThumbnailUrl = (media: Media): string | undefined => {
+    if (!media.id) return undefined;
 
-  // DISABLED: Preview clip availability checking to prevent server overload
-  const checkPreviewClipAvailability = useCallback(async (media: Media) => {
-    // Always return false to prevent HEAD requests that crash server
-    console.log(`⚠️ Preview clip availability check disabled for media ${media.id} to prevent server crashes`);
-    return false;
-  }, []);
-
-  // DISABLED: Preview clip generation to prevent server crashes
-  const generationRequests = useRef<Set<string>>(new Set());
-  
-  const generatePreviewClipIfNeeded = useCallback(async (media: Media) => {
-    // DISABLED: All preview clip generation to prevent server crashes
-    console.log(`⚠️ Preview clip generation disabled for media ${media.id} to prevent server crashes`);
-    return;
-  }, []);
+    const apiUrl = getApiUrl();
+    
+    // Return the primary thumbnail URL
+    return `${apiUrl}/api/thumbnails/${media.id}`;
+  };
 
 
 
-  const getBackgroundImageUrl = useCallback((media: Media) => {
-    // Return a placeholder to prevent API calls that crash server
-    return 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTkyMCIgaGVpZ2h0PSIxMDgwIiB2aWV3Qm94PSIwIDAgMTkyMCAxMDgwIiBmaWxsPSJub25lIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPgo8cmVjdCB3aWR0aD0iMTkyMCIgaGVpZ2h0PSIxMDgwIiBmaWxsPSJncmFkaWVudChsaW5lYXIsIDQ1ZGVnLCAjMTExLCAjMzMzKSIvPgo8dGV4dCB4PSI5NjAiIHk9IjU0MCIgZm9udC1mYW1pbHk9IkFyaWFsIiBmb250LXNpemU9IjQ4IiBmaWxsPSIjZTUwOTE0IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj5Ib21lRmxpeDwvdGV4dD4KPHN2Zz4=';
-  }, []);
 
-  // Optimized playback control
-  const stopAllPlayback = useCallback(() => {
+  // Check if media has video content (preview clip or can generate one)
+  const hasVideoContent = (media: Media) => {
+    // Check if we have a media ID and either a preview clip path or file path
+    // The backend will serve preview clips if they exist, or generate them on-demand
+    return !!(media.id && media.file_path);
+  };
+
+  // Debug function to check preview clip availability
+  const checkPreviewClipAvailability = async (media: Media) => {
+    if (!media.id) return false;
+    
+    try {
+      const videoUrl = getVideoUrl(media);
+      if (!videoUrl) return false;
+      
+      const response = await fetch(videoUrl, { method: 'HEAD' });
+      const isAvailable = response.ok;
+      
+      if (!isAvailable) {
+        console.log(`Preview clip not available for media ${media.id} (${media.title})`);
+        console.log(`Tried URL: ${videoUrl}`);
+        console.log(`Response status: ${response.status}`);
+        
+        // Try to generate preview clip if it doesn't exist
+        await generatePreviewClipIfNeeded(media);
+      } else {
+        console.log(`Preview clip available for media ${media.id} (${media.title})`);
+      }
+      
+      return isAvailable;
+    } catch (error) {
+      console.warn(`Error checking preview clip for media ${media.id}:`, error);
+      return false;
+    }
+  };
+
+  // Generate preview clip if needed
+  const generatePreviewClipIfNeeded = async (media: Media) => {
+    try {
+      const generateUrl = `${getApiUrl()}/api/admin/preview-clips/${media.id}/generate`;
+      console.log(`Attempting to generate preview clip for media ${media.id}...`);
+      
+      const response = await fetch(generateUrl, { method: 'POST' });
+      
+      if (response.ok) {
+        console.log(`Preview clip generation started for media ${media.id}`);
+        
+        // Wait a bit and then try to reload the video
+        setTimeout(() => {
+          if (videoRef.current && currentMedia?.id === media.id) {
+            const video = videoRef.current;
+            const newVideoUrl = getVideoUrl(media);
+            if (newVideoUrl) {
+              video.src = newVideoUrl;
+              video.load();
+            }
+          }
+        }, 3000); // Wait 3 seconds for generation
+      } else {
+        console.warn(`Failed to generate preview clip for media ${media.id}:`, response.status);
+      }
+    } catch (error) {
+      console.warn(`Error generating preview clip for media ${media.id}:`, error);
+    }
+  };
+
+
+
+  const getBackgroundImageUrl = (media: Media) => {
+    const host = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
+    const apiUrl = `http://${host === 'localhost' ? 'localhost' : host}:8252`;
+
+    // Always try thumbnail first as it's most reliable
+    if (media.id) {
+      return `${apiUrl}/api/thumbnails/${media.id}`;
+    }
+
+    // Try banner for hero backgrounds
+    if (media.banner_path) {
+      return `${apiUrl}/api/admin/assets/${media.banner_path.split('/').pop()}`;
+    }
+
+    // Default fallback
+    return `${apiUrl}/api/thumbnails/1`;
+  };
+
+  // Stop all video/audio playback
+  const stopAllPlayback = () => {
     // Stop main video
     if (videoRef.current) {
       const video = videoRef.current;
@@ -671,9 +791,9 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
     setIsPlaying(false);
     setIsVideoLoaded(false);
     setVideoLoaded(false);
-  }, [muteAll]);
+  };
 
-  const nextSlide = useCallback(() => {
+  const nextSlide = () => {
     if (featuredMedia.length > 1 && !isTransitioning) {
       setIsTransitioning(true);
 
@@ -693,20 +813,18 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
         if (nextIndex === 0 && currentIndex === featuredMedia.length - 1) {
           const newCycleCount = cycleCount + 1;
           setCycleCount(newCycleCount);
-          console.log(`🔄 Cycle ${newCycleCount} completed, fetching new content...`);
-          
-          // Fetch new content after completing a cycle (with delay to prevent conflicts)
+
+          // Load new content from frontend shuffle after completing a cycle
+          console.log(`🔄 Cycle ${newCycleCount} completed, generating new frontend recommendations...`);
           setTimeout(() => {
-            if (!isLoadingNewContent) {
-              fetchRecommendedMedia(newCycleCount);
-            }
-          }, 2000);
+            fetchRecommendedMedia(newCycleCount);
+          }, 1000); // Generate new frontend shuffle
         }
       }, 300); // Wait for fade out
     }
-  }, [featuredMedia.length, isTransitioning, stopAllPlayback, cycleCount, currentIndex, fetchRecommendedMedia, isLoadingNewContent]);
+  };
 
-  const prevSlide = useCallback(() => {
+  const prevSlide = () => {
     if (featuredMedia.length > 1 && !isTransitioning) {
       setIsTransitioning(true);
 
@@ -720,37 +838,56 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
       setTimeout(() => {
         setCurrentIndex((prev) => (prev - 1 + featuredMedia.length) % featuredMedia.length);
         setIsTransitioning(false);
-      }, 300);
+      }, 300); // Wait for fade out
     }
-  }, [featuredMedia.length, isTransitioning, stopAllPlayback]);
+  };
 
-  const goToSlide = useCallback((index: number) => {
-    if (index !== currentIndex && !isTransitioning) {
-      setIsTransitioning(true);
+  // Preload videos for smooth transitions
+  const preloadVideo = (media: Media) => {
+    if (!hasVideoContent(media)) return;
 
-      // Stop all current playback before transitioning
-      stopAllPlayback();
+    const videoId = media.id.toString();
 
-      // Fade out current content
-      setBackgroundLoaded(false);
-      setVideoLoaded(false);
-
-      setTimeout(() => {
-        setCurrentIndex(index);
-        setIsTransitioning(false);
-      }, 300);
+    if (preloadRefs.current.has(videoId)) {
+      const existingVideo = preloadRefs.current.get(videoId);
+      if (existingVideo) {
+        existingVideo.pause();
+        existingVideo.currentTime = 0;
+        existingVideo.muted = true;
+        existingVideo.volume = 0;
+      }
+      return;
     }
-  }, [currentIndex, isTransitioning, stopAllPlayback]);
 
-  // DISABLED: Video preloading to prevent server crashes
-  const preloadQueue = useRef<Set<string>>(new Set());
-  const MAX_PRELOAD_CONCURRENT = 0; // Disabled to prevent server overload
-  
-  const preloadVideo = useCallback((media: Media) => {
-    // DISABLED: All video preloading to prevent server crashes
-    console.log(`⚠️ Video preloading disabled for media ${media.id} to prevent server crashes`);
-    return;
-  }, []);
+    const video = document.createElement('video');
+    video.preload = 'metadata';
+    video.muted = true;
+    video.loop = true;
+    video.playsInline = true;
+    video.setAttribute('playsinline', 'true');
+    video.setAttribute('webkit-playsinline', 'true');
+    video.crossOrigin = 'anonymous';
+    video.volume = 0;
+
+    const videoUrl = getVideoUrl(media);
+    if (videoUrl) {
+      video.src = videoUrl;
+
+      video.addEventListener('error', () => {
+        preloadRefs.current.delete(videoId);
+      });
+
+      video.addEventListener('loadeddata', () => {
+        video.pause();
+        video.currentTime = 0;
+        video.muted = true;
+        video.volume = 0;
+      });
+
+      preloadRefs.current.set(videoId, video);
+      video.load();
+    }
+  };
 
   // Get preloaded video or create new one
   const getPreloadedVideo = (media: Media) => {
@@ -885,31 +1022,31 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
     return null;
   };
 
-  const formatDuration = useCallback((seconds: number) => {
+  const formatDuration = (seconds: number) => {
     const hours = Math.floor(seconds / 3600);
     const minutes = Math.floor((seconds % 3600) / 60);
     return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
-  }, []);
+  };
 
-  const getTitleSizeClass = useCallback(() => {
+  const getTitleSizeClass = () => {
     const titleLength = currentMedia.title.length;
     if (titleLength > 50) return 'text-2xl md:text-3xl lg:text-4xl';
     if (titleLength > 35) return 'text-2xl md:text-4xl lg:text-5xl';
     if (titleLength > 25) return 'text-3xl md:text-5xl lg:text-6xl';
     if (titleLength > 15) return 'text-4xl md:text-6xl lg:text-7xl';
     return 'text-5xl md:text-7xl lg:text-8xl';
-  }, [currentMedia.title]);
+  };
 
-  const getGenreBasedStyling = useCallback(() => {
+  const getGenreBasedStyling = () => {
     const genres = currentMedia.genres?.map(g => g.name.toLowerCase()) || [];
     if (genres.includes('horror') || genres.includes('thriller')) return 'font-black tracking-wider';
     if (genres.includes('comedy') || genres.includes('family')) return 'font-extrabold tracking-wide';
     if (genres.includes('drama') || genres.includes('romance')) return 'font-bold tracking-normal';
     if (genres.includes('action') || genres.includes('adventure')) return 'font-black tracking-widest';
     return 'font-bold tracking-wide';
-  }, [currentMedia.genres]);
+  };
 
-  const getGenreGradient = useCallback(() => {
+  const getGenreGradient = () => {
     const genres = currentMedia.genres?.map(g => g.name.toLowerCase()) || [];
     if (genres.includes('horror') || genres.includes('thriller'))
       return 'linear-gradient(135deg, #ff0000, #8b0000, #ffffff)';
@@ -922,19 +1059,40 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
     if (genres.includes('sci-fi') || genres.includes('fantasy'))
       return 'linear-gradient(135deg, #00bfff, #4169e1, #ffffff)';
     return 'linear-gradient(135deg, #e50914, #ffffff, #ffffff)';
-  }, [currentMedia.genres]);
-  // Optimized content refresh function - only manual refresh
-  const refreshContent = useCallback(() => {
-    if (isLoadingNewContent) return; // Prevent multiple simultaneous refreshes
-    
+  };
+
+  const goToSlide = (index: number) => {
+    if (index !== currentIndex && !isTransitioning) {
+      setIsTransitioning(true);
+      setIsAutoPlaying(false);
+
+      // Stop all current playback before transitioning
+      stopAllPlayback();
+
+      // Fade out current content
+      setBackgroundLoaded(false);
+      setVideoLoaded(false);
+
+      setTimeout(() => {
+        setCurrentIndex(index);
+        setIsVideoLoaded(false);
+        setIsPlaying(false);
+        setIsTransitioning(false);
+        setTimeout(() => setIsAutoPlaying(true), 5000);
+      }, 300); // Wait for fade out
+    }
+  };
+
+  // Function to manually trigger content refresh from frontend shuffle
+  const refreshContent = () => {
     const newCycleCount = cycleCount + 1;
     setCycleCount(newCycleCount);
-    console.log(`🔄 Manual refresh triggered, generating cycle ${newCycleCount}...`);
+    console.log(`🔄 Manual refresh triggered, generating cycle ${newCycleCount} from frontend shuffle...`);
     fetchRecommendedMedia(newCycleCount);
-    setCurrentIndex(0);
-  }, [cycleCount, fetchRecommendedMedia, isLoadingNewContent]);
+    setCurrentIndex(0); // Reset to first slide
+  };
 
-  // Initialize audio preferences and test autoplay capabilities - run once
+  // Initialize audio preferences and test autoplay capabilities
   useEffect(() => {
     const savedMutedState = getGlobalAudioPreference();
     const userHasUnmutedBefore = hasUserEverUnmuted();
@@ -948,71 +1106,107 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
     // Set initial media as available media for frontend recommendations (no API calls)
     if (initialFeaturedMedia.length > 0) {
       setAllAvailableMedia(initialFeaturedMedia);
-      console.log(`🎯 Frontend-only mode: Using ${initialFeaturedMedia.length} initial media items`);
+      console.log(`🎯 Frontend-only mode: Using ${initialFeaturedMedia.length} initial media items for recommendations`);
+      
+      // Add randomization seed based on current time and session to ensure different content on each page load
+      const sessionSeed = typeof window !== 'undefined' ? 
+        (sessionStorage.getItem('hero-session-seed') || Math.random().toString()) : 
+        Math.random().toString();
+      
+      if (typeof window !== 'undefined' && !sessionStorage.getItem('hero-session-seed')) {
+        sessionStorage.setItem('hero-session-seed', sessionSeed);
+      }
+      
+      const timeSeed = Math.floor(Date.now() / 30000); // Changes every 30 seconds
+      const combinedSeed = parseInt(sessionSeed.slice(-6), 36) + timeSeed;
+      setCycleCount(combinedSeed % 100); // Use combined seed for initial cycle count
+      console.log(`🎲 Initial randomization - session: ${sessionSeed.slice(-6)}, time: ${timeSeed}, cycle: ${combinedSeed % 100}`);
     }
-  }, []); // Run only once on mount
+  }, [contentFilter, initialFeaturedMedia]);
 
-  // DISABLED: Video setup to prevent server crashes
+  // Handle slide changes - simplified video setup
   useEffect(() => {
-    // All video setup disabled to prevent server crashes
-    console.log('⚠️ Video setup disabled to prevent server crashes');
+    if (videoRef.current && currentMedia && hasVideoContent(currentMedia) && !isTransitioning) {
+      const video = videoRef.current;
+      const shouldPlayWithAudio = !isMuted && hasUserEverUnmuted() && canAutoplayWithAudio;
+
+      // Small delay to ensure video element is ready after slide change
+      setTimeout(() => {
+        if (video && hasVideoContent(currentMedia) && video.readyState >= 3 && video.paused) {
+          playVideoWithAudio(video, shouldPlayWithAudio);
+        }
+      }, 300);
+    }
   }, [currentIndex, currentMedia, isMuted, isTransitioning, canAutoplayWithAudio]);
 
-  // Auto-slide functionality with fixed timing (no video checks)
+  // Auto-slide functionality with enhanced timing
   useEffect(() => {
-    if (!isAutoPlaying || featuredMedia.length <= 1 || isTransitioning) return;
+    if (!isAutoPlaying || featuredMedia.length <= 1) return;
 
-    // Fixed duration since video content is disabled
-    const slideDuration = 8000; // 8 seconds per slide
+    // Longer duration for video content, shorter for images
+    const slideDuration = hasVideoContent(currentMedia) && isVideoLoaded && isPlaying ? 20000 : 8000;
 
     const interval = setInterval(() => {
-      if (!isTransitioning) {
-        nextSlide();
-      }
+      nextSlide();
     }, slideDuration);
 
     return () => clearInterval(interval);
-  }, [isAutoPlaying, featuredMedia.length, currentIndex, isTransitioning, nextSlide]);
+  }, [isAutoPlaying, featuredMedia.length, currentIndex, isVideoLoaded, isPlaying]);
 
-  // Frontend-only recommendation system with controlled refreshing
+  // Frontend-only recommendation system with automatic shuffling
   useEffect(() => {
-    if (!enableRecommendations || hasInitializedContent) return;
+    if (!enableRecommendations) return;
 
-    console.log('🚀 Frontend-only recommendation system initialized...');
+    console.log('🚀 Frontend-only recommendation system initialized with automatic shuffling...');
 
-    // Only do initial setup, no automatic refreshing
+    // Initial fetch after component mounts - generate from frontend immediately
     const initialDelay = setTimeout(() => {
       console.log('🎬 Initial frontend recommendation generation...');
       fetchRecommendedMedia(0);
-    }, 2000);
+    }, 1000); // Reduced delay for faster initial load
+
+    // More frequent refresh to get fresh frontend recommendations
+    const refreshTimer = setInterval(() => {
+      console.log('⏰ Periodic frontend recommendation refresh...');
+      refreshContent();
+    }, refreshInterval);
 
     return () => {
       clearTimeout(initialDelay);
+      clearInterval(refreshTimer);
     };
 
-  }, [enableRecommendations, hasInitializedContent, fetchRecommendedMedia]);
+  }, [enableRecommendations]);
 
-  // Reset video states when featured media changes - debounced
+  // Reset video states when featured media changes
   useEffect(() => {
-    if (featuredMedia.length > 0 && isLoadingNewContent) {
+    if (featuredMedia.length > 0) {
       setIsVideoLoaded(false);
       setIsPlaying(false);
       setBackgroundLoaded(false);
       setVideoLoaded(false);
       setIsTransitioning(false);
-      setCurrentIndex(0);
+      // Reset to first slide when content changes
+      if (isLoadingNewContent) {
+        setCurrentIndex(0);
+      }
     }
-  }, [featuredMedia.length, isLoadingNewContent]);
+  }, [featuredMedia, isLoadingNewContent]);
 
-  // Handle media without video content - simplified
+  // Handle media without video content and check preview clip availability
   useEffect(() => {
-    if (currentMedia && !hasVideoContent(currentMedia)) {
-      // For media without video, ensure video states are false
-      setIsVideoLoaded(false);
-      setVideoLoaded(false);
-      setIsPlaying(false);
+    if (currentMedia) {
+      if (!hasVideoContent(currentMedia)) {
+        // For media without video, ensure video states are false
+        setIsVideoLoaded(false);
+        setVideoLoaded(false);
+        setIsPlaying(false);
+      } else {
+        // Check if preview clip is actually available
+        checkPreviewClipAvailability(currentMedia);
+      }
     }
-  }, [currentMedia?.id]);
+  }, [currentMedia]);
 
   // Update featured media when initialFeaturedMedia changes with immediate shuffle
   useEffect(() => {
@@ -1022,31 +1216,40 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
       setFeaturedMedia(immediateShuffled);
       setHasInitializedContent(true);
       console.log(`🎲 Initial media shuffled for variety on page load`);
+      
+      // Trigger fresh content generation after a short delay
+      setTimeout(() => {
+        if (enableRecommendations) {
+          console.log(`🚀 Triggering fresh content generation after initial load...`);
+          fetchRecommendedMedia(Math.floor(Date.now() / 10000) % 100);
+        }
+      }, 2000);
     }
-  }, [initialFeaturedMedia, hasInitializedContent, shuffleArray]);
+  }, [initialFeaturedMedia, hasInitializedContent, enableRecommendations]);
 
-  // Preload adjacent videos for smooth transitions - debounced
+  // Preload adjacent videos for smooth transitions
   useEffect(() => {
-    if (featuredMedia.length > 1 && !isTransitioning) {
-      const timeoutId = setTimeout(() => {
-        // Preload current, next, and previous videos
-        const currentIdx = currentIndex;
-        const nextIdx = (currentIndex + 1) % featuredMedia.length;
-        const prevIdx = (currentIndex - 1 + featuredMedia.length) % featuredMedia.length;
+    if (featuredMedia.length > 1) {
+      // Preload current, next, and previous videos
+      const currentIdx = currentIndex;
+      const nextIdx = (currentIndex + 1) % featuredMedia.length;
+      const prevIdx = (currentIndex - 1 + featuredMedia.length) % featuredMedia.length;
 
-        // Preload in order of priority
-        setTimeout(() => preloadVideo(featuredMedia[currentIdx]), 100);
-        setTimeout(() => preloadVideo(featuredMedia[nextIdx]), 500);
-        setTimeout(() => preloadVideo(featuredMedia[prevIdx]), 1000);
-      }, 500);
-
-      return () => clearTimeout(timeoutId);
+      // Preload in order of priority
+      setTimeout(() => preloadVideo(featuredMedia[currentIdx]), 100);
+      setTimeout(() => preloadVideo(featuredMedia[nextIdx]), 500);
+      setTimeout(() => preloadVideo(featuredMedia[prevIdx]), 1000);
     }
-  }, [currentIndex, featuredMedia.length, isTransitioning, featuredMedia, preloadVideo]);
+  }, [currentIndex, featuredMedia]);
 
-  // Reset video states when media changes - optimized
+  // Reset video states when media changes - simplified
   useEffect(() => {
-    if (currentMedia?.id) {
+    if (currentMedia) {
+      stopAllPlayback();
+      setIsVideoLoaded(false);
+      setIsPlaying(false);
+      setVideoLoaded(false);
+
       const videoUrl = getVideoUrl(currentMedia);
       if (!videoUrl) return;
 
@@ -1063,7 +1266,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
         video.load();
       }
     }
-  }, [currentMedia?.id, getVideoUrl]);
+  }, [currentMedia]);
 
   // Simplified video loading and autoplay
   useEffect(() => {
@@ -1210,7 +1413,6 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
       img.onerror = () => {
         // If primary image fails, try fallback URLs
         const fallbackUrls = [
-          `${getApiUrl()}/api/posters/${currentMedia.id}`,
           `${getApiUrl()}/api/thumbnails/${currentMedia.id}`,
           // Generic fallback
           'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTkyMCIgaGVpZ2h0PSIxMDgwIiB2aWV3Qm94PSIwIDAgMTkyMCAxMDgwIiBmaWxsPSJub25lIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPgo8cmVjdCB3aWR0aD0iMTkyMCIgaGVpZ2h0PSIxMDgwIiBmaWxsPSIjMTExMTExIi8+CjxwYXRoIGQ9Ik05NjAgNTQwTDEwODAgNDIwVjY2MEw5NjAgNTQwWiIgZmlsbD0iIzMzMzMzMyIvPgo8L3N2Zz4K'
@@ -1272,8 +1474,11 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
                 // ALAC audio stream available, optimize video for ALAC playback
                 if (videoRef.current) {
                   videoRef.current.volume = spatialAudioEnabled ? 0.9 : 0.7; // Higher volume for ALAC
-                  // Note: AudioContext creation removed to comply with user gesture requirements
-                  // ALAC audio processing will be handled by the EnhancedAudioContext after user interaction
+                  // Set audio processing parameters for ALAC
+                  const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+                  if (audioContext.sampleRate >= 48000) {
+                    // High sample rate supported for ALAC audio
+                  }
                 }
               }
             })
@@ -1373,7 +1578,6 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
                 <video
                   ref={videoRef}
                   key={`video-${currentMedia.id}`}
-                  poster={getBackgroundImageUrl(currentMedia)}
                   className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-300 ${videoLoaded && isPlaying ? 'opacity-100' : 'opacity-0'
                     }`}
                   style={{
