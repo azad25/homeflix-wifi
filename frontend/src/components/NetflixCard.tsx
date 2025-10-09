@@ -4,7 +4,7 @@ import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { Play, Plus, ThumbsUp, ChevronDown, Check, VolumeX, Volume2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Media } from '@/types/media';
-import { getApiUrl } from '@/lib/api';
+import { getApiUrl, getAssetUrl } from '@/lib/api';
 import { videoPreloadPool, lazyLoadManager, assetUrlCache, loadingStateManager } from '@/lib/performanceOptimizer';
 import UltraFastPreview from './UltraFastPreview';
 import FastLoadingImage from './FastLoadingImage';
@@ -59,22 +59,18 @@ const NetflixCard: React.FC<NetflixCardProps> = ({
 
   // Memoized URL generators for better performance
   const thumbnailUrl = useMemo(() => {
-    return assetUrlCache.getUrl('thumbnail', media.id, apiUrl);
-  }, [media.id, apiUrl]);
+    const urls = getAssetUrl('thumbnail', media.id, true);
+    return Array.isArray(urls) ? urls[0] : urls;
+  }, [media.id]);
 
   const posterUrl = useMemo(() => {
-    return assetUrlCache.getUrl('poster', media.id, apiUrl);
-  }, [media.id, apiUrl]);
+    const urls = getAssetUrl('poster', media.id, true);
+    return Array.isArray(urls) ? urls[0] : urls;
+  }, [media.id]);
 
   const previewUrl = useMemo(() => {
-    if (media.preview_clip_path) {
-      return `${apiUrl}/api/admin/assets/${media.preview_clip_path.split('/').pop()}`;
-    }
-    if (media.trailer_path) {
-      return `${apiUrl}/api/admin/assets/${media.trailer_path.split('/').pop()}`;
-    }
-    return assetUrlCache.getUrl('preview', media.id, apiUrl);
-  }, [media.id, media.preview_clip_path, media.trailer_path, apiUrl]);
+    return getAssetUrl('preview', media.id, false);
+  }, [media.id]);
 
   // Intersection Observer for lazy loading
   useEffect(() => {
@@ -82,10 +78,7 @@ const NetflixCard: React.FC<NetflixCardProps> = ({
     
     lazyLoadManager.observe(cardRef.current, () => {
       setIsIntersecting(true);
-      // Preload video with high priority if this is a priority card
-      if (priority) {
-        videoPreloadPool.preloadVideo(previewUrl, 'high');
-      }
+      // Video preloading can be added here if needed
     });
 
     return () => {
@@ -103,56 +96,21 @@ const NetflixCard: React.FC<NetflixCardProps> = ({
   }, []);
 
   // Debounced hover handler for better performance
-  const handleMouseEnter = useCallback(debounce(() => {
-    if (!isIntersecting) return; // Only show preview if card is visible
-    
+  const handleMouseEnter = useCallback(() => {
     setIsHovered(true);
-
+    
     if (hideTimeoutRef.current) {
       clearTimeout(hideTimeoutRef.current);
     }
 
-    // Optimized delay - increased to 1200ms to reduce server load
     hoverTimeoutRef.current = setTimeout(() => {
       setShowPreview(true);
-
-      // Try to get preloaded video first
-      const preloadedVideo = videoPreloadPool.getPreloadedVideo(previewUrl);
-      if (preloadedVideo && videoRef.current) {
-        // Use preloaded video
-        videoRef.current.src = preloadedVideo.src;
-        videoRef.current.currentTime = 0;
-        videoRef.current.muted = isMuted;
-        videoRef.current.play().then(() => {
-          setIsPlaying(true);
-          setIsVideoLoaded(true);
-        }).catch(() => {
-          setIsVideoLoaded(false);
-          setShowPreview(false);
-        });
-      } else if (videoRef.current) {
-        // Fallback to regular loading
-        const video = videoRef.current;
-        video.currentTime = 0;
-        video.muted = isMuted;
-        video.play().then(() => {
-          setIsPlaying(true);
-          setIsVideoLoaded(true);
-        }).catch((error) => {
-          console.log('Video autoplay failed:', error);
-          // Try muted fallback
-          video.muted = true;
-          video.play().then(() => {
-            setIsPlaying(true);
-            setIsVideoLoaded(true);
-          }).catch(() => {
-            setIsVideoLoaded(false);
-            setShowPreview(false);
-          });
-        });
+      if (previewUrl && videoRef.current) {
+        videoRef.current.src = previewUrl as string;
+        videoRef.current.load();
       }
-    }, 1200);
-  }, 300), [isIntersecting, isMuted, previewUrl]);
+    }, 800);
+  }, [media.id, previewUrl]);
 
   const handleMouseLeave = useCallback(() => {
     setIsHovered(false);
@@ -281,22 +239,18 @@ const NetflixCard: React.FC<NetflixCardProps> = ({
           onError={handleImageError}
         />
 
-        {/* Ultra-Fast Video Preview */}
-        {showPreview && isIntersecting && (
-          <UltraFastPreview
-            media={media}
-            className="absolute inset-0 w-full h-full"
-            autoPlay={true}
+        {/* Preview Video */}
+        {showPreview && (
+          <video
+            ref={videoRef}
+            className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-300 ${
+              isVideoLoaded ? 'opacity-100' : 'opacity-0'
+            }`}
+            autoPlay
             muted={isMuted}
-            loop={true}
-            quality="auto"
-            delay={200}
-            onLoadStart={() => setIsLoading(true)}
-            onCanPlay={() => {
-              setIsVideoLoaded(true);
-              setIsPlaying(true);
-              setIsLoading(false);
-            }}
+            loop
+            playsInline
+            onLoadedData={handleVideoLoad}
             onError={handleVideoError}
           />
         )}

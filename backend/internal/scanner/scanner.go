@@ -3114,20 +3114,36 @@ func (s *MediaScanner) handleInvalidMediaEntry(media *models.Media) error {
 	return nil
 }
 
-// regenerateAllAssets forces regeneration of all assets for the given media
+// regenerateAllAssets intelligently regenerates only missing assets for the given media
 func (s *MediaScanner) regenerateAllAssets(mediaList []models.Media) {
-	log.Printf("🎨 Starting asset regeneration for %d media items...", len(mediaList))
+	log.Printf("🎨 Starting intelligent asset check for %d media items...", len(mediaList))
+
+	// First pass: count how many actually need assets
+	var mediaNeedingAssets []models.Media
+	for _, media := range mediaList {
+		needsThumbnail, needsPreview, needsPoster := s.checkMissingAssets(&media)
+		if needsThumbnail || needsPreview || needsPoster {
+			mediaNeedingAssets = append(mediaNeedingAssets, media)
+		}
+	}
+
+	if len(mediaNeedingAssets) == 0 {
+		log.Printf("✅ All assets already exist for %d media items - skipping regeneration", len(mediaList))
+		return
+	}
+
+	log.Printf("🎨 Found %d media items needing assets out of %d total", len(mediaNeedingAssets), len(mediaList))
 
 	// Process in batches to avoid overwhelming the system
-	batchSize := 5
-	for i := 0; i < len(mediaList); i += batchSize {
+	batchSize := 3 // Reduced batch size for stability
+	for i := 0; i < len(mediaNeedingAssets); i += batchSize {
 		end := i + batchSize
-		if end > len(mediaList) {
-			end = len(mediaList)
+		if end > len(mediaNeedingAssets) {
+			end = len(mediaNeedingAssets)
 		}
 
-		batch := mediaList[i:end]
-		log.Printf("🎨 Processing asset batch %d-%d of %d", i+1, end, len(mediaList))
+		batch := mediaNeedingAssets[i:end]
+		log.Printf("🎨 Processing asset batch %d-%d of %d (only missing assets)", i+1, end, len(mediaNeedingAssets))
 
 		// Process batch in parallel
 		var wg sync.WaitGroup
@@ -3142,53 +3158,79 @@ func (s *MediaScanner) regenerateAllAssets(mediaList []models.Media) {
 		wg.Wait()
 
 		// Small delay between batches to prevent system overload
-		if end < len(mediaList) {
-			time.Sleep(2 * time.Second)
+		if end < len(mediaNeedingAssets) {
+			time.Sleep(3 * time.Second) // Slightly longer delay
 		}
 	}
 
-	log.Printf("✅ Asset regeneration completed for %d media items", len(mediaList))
+	log.Printf("✅ Intelligent asset generation completed - processed %d media items (skipped %d with existing assets)", 
+		len(mediaNeedingAssets), len(mediaList)-len(mediaNeedingAssets))
 }
 
-// regeneratePreviewClipsBatch processes preview clip generation in optimized batches
+// regeneratePreviewClipsBatch intelligently processes preview clip generation only for missing previews
 func (s *MediaScanner) regeneratePreviewClipsBatch(mediaList []models.Media) {
-	log.Printf("🎬 Starting preview clip batch generation for %d media items...", len(mediaList))
+	log.Printf("🎬 Starting intelligent preview clip check for %d media items...", len(mediaList))
+
+	// First pass: filter media that actually need preview clips
+	var mediaNeedingPreviews []models.Media
+	for _, media := range mediaList {
+		_, needsPreview, _ := s.checkMissingAssets(&media)
+		if needsPreview {
+			mediaNeedingPreviews = append(mediaNeedingPreviews, media)
+		}
+	}
+
+	if len(mediaNeedingPreviews) == 0 {
+		log.Printf("✅ All preview clips already exist for %d media items - skipping generation", len(mediaList))
+		return
+	}
+
+	log.Printf("🎬 Found %d media items needing preview clips out of %d total", len(mediaNeedingPreviews), len(mediaList))
 
 	// Use smaller batch size for preview clips as they're more resource intensive
-	batchSize := 3
-	totalBatches := (len(mediaList) + batchSize - 1) / batchSize
+	batchSize := 2 // Further reduced for stability
+	totalBatches := (len(mediaNeedingPreviews) + batchSize - 1) / batchSize
 
-	for i := 0; i < len(mediaList); i += batchSize {
+	for i := 0; i < len(mediaNeedingPreviews); i += batchSize {
 		end := i + batchSize
-		if end > len(mediaList) {
-			end = len(mediaList)
+		if end > len(mediaNeedingPreviews) {
+			end = len(mediaNeedingPreviews)
 		}
 
-		batch := mediaList[i:end]
+		batch := mediaNeedingPreviews[i:end]
 		batchNum := (i / batchSize) + 1
-		log.Printf("🎬 Processing preview batch %d/%d (%d-%d of %d)", batchNum, totalBatches, i+1, end, len(mediaList))
+		log.Printf("🎬 Processing preview batch %d/%d (%d-%d of %d) - only missing previews", 
+			batchNum, totalBatches, i+1, end, len(mediaNeedingPreviews))
 
 		// Process batch sequentially to avoid overwhelming ffmpeg
 		for _, media := range batch {
 			s.regeneratePreviewClipForMedia(&media)
 
 			// Small delay between each preview generation to prevent system overload
-			time.Sleep(1 * time.Second)
+			time.Sleep(2 * time.Second) // Increased delay
 		}
 
 		// Longer delay between batches for preview clips
-		if end < len(mediaList) {
-			log.Printf("⏸️ Batch %d/%d completed, waiting 5 seconds before next batch...", batchNum, totalBatches)
-			time.Sleep(5 * time.Second)
+		if end < len(mediaNeedingPreviews) {
+			log.Printf("⏸️ Batch %d/%d completed, waiting 8 seconds before next batch...", batchNum, totalBatches)
+			time.Sleep(8 * time.Second) // Increased delay
 		}
 	}
 
-	log.Printf("✅ Preview clip batch generation completed for %d media items", len(mediaList))
+	log.Printf("✅ Intelligent preview clip generation completed - processed %d media items (skipped %d with existing previews)", 
+		len(mediaNeedingPreviews), len(mediaList)-len(mediaNeedingPreviews))
 }
 
-// regeneratePreviewClipForMedia regenerates preview clip for a single media item with fallback handling
+// regeneratePreviewClipForMedia regenerates preview clip only if missing for a single media item
 func (s *MediaScanner) regeneratePreviewClipForMedia(media *models.Media) {
-	log.Printf("🎬 Generating preview clip for: %s", media.Title)
+	// Double-check if preview is actually needed (avoid redundant work)
+	_, needsPreview, _ := s.checkMissingAssets(media)
+	if !needsPreview {
+		log.Printf("✅ Preview already exists for: %s - skipping", media.Title)
+		return
+	}
+
+	log.Printf("🎬 Generating missing preview clip for: %s", media.Title)
 
 	// Check if file still exists
 	if _, err := os.Stat(media.FilePath); os.IsNotExist(err) {
@@ -3452,9 +3494,9 @@ func (s *MediaScanner) scheduleAssetGeneration(media *models.Media, path string,
 	s.scheduleAssetGenerationWithFallbacks(media, path, needsThumbnail, needsPreview)
 }
 
-// regenerateMediaAssets regenerates all assets for a single media item
+// regenerateMediaAssets regenerates only missing assets for a single media item
 func (s *MediaScanner) regenerateMediaAssets(media *models.Media) {
-	log.Printf("🎨 Regenerating assets for: %s", media.Title)
+	log.Printf("🎨 Checking assets for: %s", media.Title)
 
 	// Check if file still exists
 	if _, err := os.Stat(media.FilePath); os.IsNotExist(err) {
@@ -3462,46 +3504,61 @@ func (s *MediaScanner) regenerateMediaAssets(media *models.Media) {
 		return
 	}
 
-	// Generate thumbnail
-	go func() {
-		if _, err := s.GetThumbnailService().GenerateThumbnailAsync(media.FilePath, media.ID, media.Title); err != nil {
-			log.Printf("❌ Failed to regenerate thumbnail for %s: %v", media.Title, err)
-		} else {
-			// Update media record with thumbnail path
-			thumbnailPath := s.GetThumbnailService().GetThumbnailPath(media.ID, media.Title)
-			if thumbnailPath != "" {
-				media.ThumbnailPath = thumbnailPath
-				s.GetMediaService().UpdateMedia(media)
+	// Check which assets are missing or invalid
+	needsThumbnail, needsPreview, needsPoster := s.checkMissingAssets(media)
+
+	if !needsThumbnail && !needsPreview && !needsPoster {
+		log.Printf("✅ All assets exist for: %s", media.Title)
+		return
+	}
+
+	log.Printf("🎨 Generating missing assets for %s (thumbnail: %v, preview: %v, poster: %v)", 
+		media.Title, needsThumbnail, needsPreview, needsPoster)
+
+	// Generate thumbnail only if missing
+	if needsThumbnail {
+		go func() {
+			if _, err := s.GetThumbnailService().GenerateThumbnailAsync(media.FilePath, media.ID, media.Title); err != nil {
+				log.Printf("❌ Failed to generate thumbnail for %s: %v", media.Title, err)
+			} else {
+				// Update media record with thumbnail path
+				thumbnailPath := s.GetThumbnailService().GetThumbnailPath(media.ID, media.Title)
+				if thumbnailPath != "" {
+					media.ThumbnailPath = thumbnailPath
+					s.GetMediaService().UpdateMedia(media)
+				}
+				log.Printf("✅ Thumbnail generated for: %s", media.Title)
 			}
-			log.Printf("✅ Thumbnail regenerated for: %s", media.Title)
-		}
-	}()
+		}()
+	}
 
-	// Generate preview
-	go func() {
-		if previewPath, err := s.GetThumbnailService().GeneratePreviewClipAsync(media.FilePath, media.ID, media.Title); err != nil {
-			log.Printf("❌ Failed to regenerate preview for %s: %v", media.Title, err)
-		} else {
-			// Update media record with preview paths
-			media.PreviewPath = previewPath
-			media.PreviewClipPath = previewPath
-			s.GetMediaService().UpdateMedia(media)
-			log.Printf("✅ Preview regenerated for: %s", media.Title)
-		}
-	}()
+	// Generate preview only if missing
+	if needsPreview {
+		go func() {
+			if previewPath, err := s.GetThumbnailService().GeneratePreviewClipAsync(media.FilePath, media.ID, media.Title); err != nil {
+				log.Printf("❌ Failed to generate preview for %s: %v", media.Title, err)
+			} else {
+				// Update media record with preview paths
+				media.PreviewPath = previewPath
+				media.PreviewClipPath = previewPath
+				s.GetMediaService().UpdateMedia(media)
+				log.Printf("✅ Preview generated for: %s", media.Title)
+			}
+		}()
+	}
 
-	// Generate poster
-	if s.GetPosterService() != nil {
+	// Generate poster only if missing
+	if needsPoster && s.GetPosterService() != nil {
 		go func() {
 			if err := s.GetPosterService().DownloadPoster(media.Title, media.ID); err != nil {
-				log.Printf("❌ Failed to regenerate poster for %s: %v", media.Title, err)
+				log.Printf("❌ Failed to generate poster for %s: %v", media.Title, err)
 			} else {
 				posterPath := s.GetPosterService().GetPosterPath(media.ID, media.Title)
 				if posterPath != "" {
 					media.PosterPath = posterPath
 					s.GetMediaService().UpdateMedia(media)
 				}
-				log.Printf("✅ Poster regenerated for: %s", media.Title)
+				log.Printf("✅ Poster generated for: %s", media.Title)
 			}
 		}()
 	}
@@ -3518,6 +3575,79 @@ func (s *MediaScanner) regenerateMediaAssets(media *models.Media) {
 			}
 		}()
 	}
+}
+
+// checkMissingAssets checks which assets are missing or invalid for a media item
+func (s *MediaScanner) checkMissingAssets(media *models.Media) (needsThumbnail, needsPreview, needsPoster bool) {
+	// Check thumbnail
+	needsThumbnail = s.isAssetMissing(media.ThumbnailPath, "thumbnail", media.ID, media.Title)
+	
+	// Check preview clip
+	needsPreview = s.isAssetMissing(media.PreviewPath, "preview", media.ID, media.Title) || 
+				   s.isAssetMissing(media.PreviewClipPath, "preview_clip", media.ID, media.Title)
+	
+	// Check poster
+	needsPoster = s.isAssetMissing(media.PosterPath, "poster", media.ID, media.Title)
+	
+	return needsThumbnail, needsPreview, needsPoster
+}
+
+// isAssetMissing checks if an asset file is missing or invalid
+func (s *MediaScanner) isAssetMissing(assetPath, assetType string, mediaID uint, mediaTitle string) bool {
+	// If no path in database, asset is missing
+	if assetPath == "" {
+		log.Printf("🔍 %s path empty for media %d (%s)", assetType, mediaID, mediaTitle)
+		return true
+	}
+	
+	// Check if file exists on disk - try path as-is first
+	if _, err := os.Stat(assetPath); err == nil {
+		// File exists, continue with size/validity checks
+	} else {
+		// If relative path, try resolving to backend directory
+		if !strings.HasPrefix(assetPath, "/") && !strings.HasPrefix(assetPath, "./") {
+			backendPath := fmt.Sprintf("./backend/%s", assetPath)
+			if _, err := os.Stat(backendPath); err == nil {
+				log.Printf("✅ Resolved relative %s path: %s -> %s", assetType, assetPath, backendPath)
+				assetPath = backendPath // Use resolved path for further checks
+			} else {
+				log.Printf("🔍 %s file missing: %s for media %d (%s)", assetType, assetPath, mediaID, mediaTitle)
+				return true
+			}
+		} else {
+			log.Printf("🔍 %s file missing: %s for media %d (%s)", assetType, assetPath, mediaID, mediaTitle)
+			return true
+		}
+	}
+	
+	// Check file size (should be at least 1KB for thumbnails/posters, 10KB for previews)
+	stat, err := os.Stat(assetPath)
+	if err != nil {
+		log.Printf("🔍 Cannot stat %s file: %s for media %d (%s)", assetType, assetPath, mediaID, mediaTitle)
+		return true
+	}
+	
+	minSize := int64(1024) // 1KB for thumbnails/posters
+	if assetType == "preview" || assetType == "preview_clip" {
+		minSize = 10240 // 10KB for preview clips
+	}
+	
+	if stat.Size() < minSize {
+		log.Printf("🔍 %s file too small (%d bytes): %s for media %d (%s)", 
+			assetType, stat.Size(), assetPath, mediaID, mediaTitle)
+		return true
+	}
+	
+	// Additional validation for preview clips (check if it's a valid video)
+	if assetType == "preview" || assetType == "preview_clip" {
+		if !s.validatePreviewFile(assetPath) {
+			log.Printf("🔍 %s file invalid: %s for media %d (%s)", assetType, assetPath, mediaID, mediaTitle)
+			return true
+		}
+	}
+	
+	log.Printf("✅ %s exists and valid: %s for media %d (%s)", assetType, assetPath, mediaID, mediaTitle)
+	return false
 }
 
 // updateMediaWithTMDBMetadata updates media with TMDB metadata

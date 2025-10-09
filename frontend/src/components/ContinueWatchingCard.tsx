@@ -4,7 +4,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Play, Info } from 'lucide-react';
 import { Media } from '@/types/media';
 import { getApiUrl } from '@/lib/api';
-import { useAssetCache } from '@/hooks/useGlobalCache';
+import { useAssetUrl } from '@/hooks/useGlobalCache';
 
 interface ContinueWatchingItem {
   id: number;
@@ -36,9 +36,9 @@ const ContinueWatchingCard: React.FC<ContinueWatchingCardProps> = ({
   const [imageError, setImageError] = useState(false);
   const [previewError, setPreviewError] = useState(false);
   
-  // Use global cache for assets
-  const { data: thumbnailUrl, loading: thumbnailLoading } = useAssetCache('thumbnail', item.media.id);
-  const { data: previewUrl, loading: previewLoading } = useAssetCache('preview-clips', item.media.id);
+  // Use global cache for assets - backend expects numeric IDs, not UUIDs
+  const { data: thumbnailUrl, loading: thumbnailLoading } = useAssetUrl('thumbnails', item.media.id.toString());
+  const { data: previewUrl, loading: previewLoading } = useAssetUrl('previews', item.media.id.toString());
   
   const videoRef = useRef<HTMLVideoElement>(null);
   const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);

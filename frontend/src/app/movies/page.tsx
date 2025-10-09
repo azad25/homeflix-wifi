@@ -7,7 +7,7 @@ import Navbar from "@/components/Navbar";
 import { Media } from '../../types/media';
 import VideoPlayer from "@/components/VideoPlayer";
 import { getApiUrl } from '@/lib/api';
-import { useGlobalCache, useRecommendationCache } from '@/hooks/useGlobalCache';
+import { useGlobalCache, useRecommendations } from '@/hooks/useGlobalCache';
 import { fetchMedia } from '@/lib/globalApiCache';
 import { ScrollXHero, NetflixHorizontalRow, ParallaxSection, GradientBackground, ScrollReveal } from '@/components/scrollx';
 import RecentlyWatched from '@/components/RecentlyWatched';
@@ -33,7 +33,7 @@ export default function MoviesPage() {
   );
   
   // Use global cache for movie recommendations
-  const { data: movieRecommendations } = useRecommendationCache('movies', 20);
+  const { data: movieRecommendations } = useRecommendations('movies', 20);
 
   useEffect(() => {
     // Process cached data when available

@@ -343,3 +343,174 @@ func generateMixedWithSession(allMedia []models.Media, sessionID string, limit i
 
 	return finalRecommendations
 }
+
+// GetRecommendations is the main recommendations handler that routes based on category
+func GetRecommendations(recommendationService *services.RecommendationService, mediaService *services.MediaService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		category := c.Query("category")
+		limit := 20
+		if limitStr := c.Query("limit"); limitStr != "" {
+			if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= 100 {
+				limit = l
+			}
+		}
+
+		userID := uint(1)
+		if userIDStr := c.Query("user_id"); userIDStr != "" {
+			if uid, err := strconv.ParseUint(userIDStr, 10, 32); err == nil {
+				userID = uint(uid)
+			}
+		}
+
+		log.Printf("🎯 Main recommendations handler - category: %s, limit: %d, userID: %d", category, limit, userID)
+
+		var media []models.Media
+		var err error
+
+		// Route to appropriate handler based on category
+		switch category {
+		case "trending":
+			media, err = recommendationService.GetTrendingRecommendations(limit)
+		case "top_picks":
+			media, err = recommendationService.GetRecommendationsForUser(userID, limit)
+		case "continue_watching":
+			media, err = recommendationService.GetContinueWatching(userID)
+		case "because_you_watched":
+			media, err = recommendationService.GetSimilarMedia(userID, limit)
+		case "new_releases":
+			media, err = recommendationService.GetTrendingRecommendations(limit)
+		case "popular":
+			media, err = recommendationService.GetRecommendationsForUser(userID, limit)
+		case "mixed":
+			// Use the enhanced mixed recommendations
+			sessionID := getOrCreateSessionID(c)
+			// Get all media for mixed recommendations
+			allMedia, err := mediaService.GetAllMedia()
+			if err != nil {
+				// Fallback to trending if we can't get all media
+				media, err = recommendationService.GetTrendingRecommendations(limit)
+				break
+			}
+			recommendations := generateMixedWithSession(allMedia, sessionID, limit)
+			c.Header("X-Session-ID", sessionID)
+			c.JSON(http.StatusOK, recommendations)
+			return
+		default:
+			// Default to trending recommendations
+			media, err = recommendationService.GetTrendingRecommendations(limit)
+		}
+
+		// Handle errors with fallback
+		if err != nil {
+			log.Printf("❌ Primary recommendation method failed for category %s: %v", category, err)
+			// Fallback to trending recommendations
+			media, err = recommendationService.GetTrendingRecommendations(limit)
+			if err != nil {
+				// Final fallback to default recommendations
+				media, err = recommendationService.GetDefaultRecommendations(limit)
+				if err != nil {
+					log.Printf("❌ All recommendation methods failed: %v", err)
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch recommendations"})
+					return
+				}
+			}
+		}
+
+		log.Printf("✅ Successfully fetched %d recommendations for category: %s", len(media), category)
+		c.JSON(http.StatusOK, media)
+	}
+}
+
+// GetSimilarMediaByID gets similar content for a specific media ID
+func GetSimilarMediaByID(recommendationService *services.RecommendationService, mediaService *services.MediaService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		mediaIDStr := c.Param("id")
+		mediaID, err := strconv.ParseUint(mediaIDStr, 10, 32)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid media ID"})
+			return
+		}
+
+		limit := 10
+		if limitStr := c.Query("limit"); limitStr != "" {
+			if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= 50 {
+				limit = l
+			}
+		}
+
+		log.Printf("🔍 Getting similar media for ID: %d, limit: %d", mediaID, limit)
+
+		// Get the target media first to understand its properties
+		targetMedia, err := mediaService.GetMediaByID(uint(mediaID))
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Media not found"})
+			return
+		}
+
+		// Get all media to find similar ones
+		allMedia, err := mediaService.GetAllMedia()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch media"})
+			return
+		}
+
+		// Find similar media based on genre, type, and other attributes
+		var similarMedia []models.Media
+		for _, media := range allMedia {
+			if media.ID == uint(mediaID) {
+				continue // Skip the target media itself
+			}
+
+			// Check similarity based on genre and type
+			if media.Type == targetMedia.Type && sharesSimilarGenres(media.GenreNames, targetMedia.GenreNames) {
+				similarMedia = append(similarMedia, media)
+			}
+		}
+
+		// Limit results
+		if len(similarMedia) > limit {
+			similarMedia = similarMedia[:limit]
+		}
+
+		// If we don't have enough similar media, fallback to trending
+		if len(similarMedia) < limit {
+			trending, err := recommendationService.GetTrendingRecommendations(limit - len(similarMedia))
+			if err == nil {
+				// Add trending media that aren't already in the list
+				existingIDs := make(map[uint]bool)
+				existingIDs[uint(mediaID)] = true // Exclude target media
+				for _, item := range similarMedia {
+					existingIDs[item.ID] = true
+				}
+
+				for _, item := range trending {
+					if !existingIDs[item.ID] && len(similarMedia) < limit {
+						similarMedia = append(similarMedia, item)
+						existingIDs[item.ID] = true
+					}
+				}
+			}
+		}
+
+		log.Printf("✅ Found %d similar media items for ID: %d", len(similarMedia), mediaID)
+		c.JSON(http.StatusOK, similarMedia)
+	}
+}
+
+// sharesSimilarGenres checks if two genre arrays have overlapping genres
+func sharesSimilarGenres(genres1, genres2 []string) bool {
+	if len(genres1) == 0 || len(genres2) == 0 {
+		return false
+	}
+	
+	// Check for any overlapping genres
+	for _, genre1 := range genres1 {
+		for _, genre2 := range genres2 {
+			if genre1 == genre2 {
+				return true
+			}
+		}
+	}
+	
+	return false
+}

@@ -154,18 +154,20 @@ export default function TVSeriesPage() {
       console.log('🔄 Using fallback method...');
       const apiUrl = getApiUrl();
       
+      // Use cached API calls
+      const { globalCachedFetch } = await import('@/lib/globalApiCache');
+      
       // Get series info - handle both UUID and ID
-      const seriesResponse = await fetch(`${apiUrl}/api/media/${params.id}`);
-      const seriesData = await seriesResponse.json();
+      const seriesData = await globalCachedFetch(`${apiUrl}/api/media/${params.id}`);
       setSeries(seriesData);
 
-      // Get all episodes for this series
-      const allMediaResponse = await fetch(`${apiUrl}/api/media`);
-      const allMedia = await allMediaResponse.json();
+      // Get episodes for this specific series
+      const seriesEpisodes = await globalCachedFetch(`${apiUrl}/api/media?type=episode&series_id=${params.id}&limit=200`);
       
-      // Filter episodes that belong to this series
-      const seriesEpisodes = allMedia.filter((media: Media) => {
+      // Additional filtering if needed
+      const filteredEpisodes = seriesEpisodes.filter((media: Media) => {
         return media.type === 'episode' && (
+          media.series_id === seriesData.id ||
           media.title.toLowerCase().includes(seriesData.title.toLowerCase()) ||
           media.series_id === seriesData.id ||
           (media.file_path && seriesData.file_path && 
@@ -173,11 +175,11 @@ export default function TVSeriesPage() {
         );
       });
 
-      setEpisodes(seriesEpisodes);
+      setEpisodes(filteredEpisodes);
 
       // Group episodes by season
       const seasonMap = new Map<number, Episode[]>();
-      seriesEpisodes.forEach((episode: Media) => {
+      filteredEpisodes.forEach((episode: Media) => {
         const seasonNum = extractSeasonNumber(episode.title) || episode.season_number || 1;
         if (!seasonMap.has(seasonNum)) {
           seasonMap.set(seasonNum, []);
@@ -325,11 +327,11 @@ export default function TVSeriesPage() {
         
         // Find continue watching episode for this series
         const seriesContinue = continueData.find((item: any) => {
-          return episodes.some(ep => ep.id === item.media_id || ep.uuid === item.media_id);
+          return episodes.some(ep => ep.id === item.media_id);
         });
         
         if (seriesContinue) {
-          const episode = episodes.find(ep => ep.id === seriesContinue.media_id || ep.uuid === seriesContinue.media_id);
+          const episode = episodes.find(ep => ep.id === seriesContinue.media_id);
           if (episode) {
             setContinueWatching({
               episode,
@@ -386,7 +388,7 @@ export default function TVSeriesPage() {
   };
 
   const handleEpisodeInfo = (episode: Media) => {
-    router.push(`/movie/${episode.uuid || episode.id}`);
+    router.push(`/movie/${episode.id}`);
   };
 
   const toggleMyList = () => {

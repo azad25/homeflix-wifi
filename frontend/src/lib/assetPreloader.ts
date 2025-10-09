@@ -28,222 +28,32 @@ class AssetPreloader {
   private currentLoads = 0;
 
   /**
-   * Preload an image with intelligent caching
+   * DISABLED: Preload an image - returns placeholder to prevent server crashes
    */
   async preloadImage(url: string, options: PreloadOptions = {}): Promise<HTMLImageElement> {
-    const { priority = 'medium', timeout = 10000, retries = 2 } = options;
-
-    // Check if already cached
-    const cached = this.cache.get(url);
-    if (cached && cached.loaded && cached.type === 'image') {
-      return cached.element as HTMLImageElement;
-    }
-
-    // Check if already loading
-    if (this.loadingQueue.has(url)) {
-      return this.waitForLoad(url) as Promise<HTMLImageElement>;
-    }
-
-    // Wait for available slot if at max concurrent loads
-    await this.waitForAvailableSlot();
-
-    this.loadingQueue.add(url);
-    this.currentLoads++;
-
-    try {
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-      
-      // Add to cache immediately
-      const asset: PreloadedAsset = {
-        url,
-        type: 'image',
-        element: img,
-        loaded: false,
-        loading: true,
-        error: false,
-        priority,
-        timestamp: Date.now()
-      };
-      this.cache.set(url, asset);
-
-      const loadPromise = new Promise<HTMLImageElement>((resolve, reject) => {
-        let attempts = 0;
-
-        const attemptLoad = () => {
-          attempts++;
-          
-          const timeoutId = setTimeout(() => {
-            if (attempts < retries) {
-              console.warn(`Image load timeout, retrying (${attempts}/${retries}): ${url}`);
-              attemptLoad();
-            } else {
-              asset.loading = false;
-              asset.error = true;
-              reject(new Error(`Image load timeout after ${retries} attempts: ${url}`));
-            }
-          }, timeout);
-
-          img.onload = () => {
-            clearTimeout(timeoutId);
-            asset.loaded = true;
-            asset.loading = false;
-            asset.error = false;
-            resolve(img);
-          };
-
-          img.onerror = () => {
-            clearTimeout(timeoutId);
-            if (attempts < retries) {
-              console.warn(`Image load error, retrying (${attempts}/${retries}): ${url}`);
-              setTimeout(attemptLoad, 1000 * attempts); // Exponential backoff
-            } else {
-              asset.loading = false;
-              asset.error = true;
-              reject(new Error(`Image load failed after ${retries} attempts: ${url}`));
-            }
-          };
-
-          img.src = url;
-        };
-
-        attemptLoad();
-      });
-
-      const result = await loadPromise;
-      this.cleanupCache();
-      return result;
-
-    } finally {
-      this.loadingQueue.delete(url);
-      this.currentLoads--;
-    }
+    // DISABLED: Return placeholder image to prevent server requests
+    const img = new Image();
+    img.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjQwMCIgdmlld0JveD0iMCAwIDMwMCA0MDAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIzMDAiIGhlaWdodD0iNDAwIiBmaWxsPSJncmFkaWVudChsaW5lYXIsIDQ1ZGVnLCAjMTExLCAjMzMzKSIvPgo8dGV4dCB4PSIxNTAiIHk9IjIwMCIgZm9udC1mYW1pbHk9IkFyaWFsIiBmb250LXNpemU9IjI0IiBmaWxsPSIjZTUwOTE0IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj5Ib21lRmxpeDwvdGV4dD4KPHN2Zz4=';
+    return Promise.resolve(img);
   }
 
   /**
-   * Preload a video with intelligent caching
+   * DISABLED: Preload a video - returns empty video element to prevent server crashes
    */
   async preloadVideo(url: string, options: PreloadOptions = {}): Promise<HTMLVideoElement> {
-    const { priority = 'medium', timeout = 15000, retries = 2 } = options;
-
-    // Check if already cached
-    const cached = this.cache.get(url);
-    if (cached && cached.loaded && cached.type === 'video') {
-      return cached.element as HTMLVideoElement;
-    }
-
-    // Check if already loading
-    if (this.loadingQueue.has(url)) {
-      return this.waitForLoad(url) as Promise<HTMLVideoElement>;
-    }
-
-    // Wait for available slot if at max concurrent loads
-    await this.waitForAvailableSlot();
-
-    this.loadingQueue.add(url);
-    this.currentLoads++;
-
-    try {
-      const video = document.createElement('video');
-      video.crossOrigin = 'anonymous';
-      video.muted = true;
-      video.playsInline = true;
-      video.preload = 'metadata';
-      video.setAttribute('playsinline', 'true');
-      video.setAttribute('webkit-playsinline', 'true');
-
-      // Add to cache immediately
-      const asset: PreloadedAsset = {
-        url,
-        type: 'video',
-        element: video,
-        loaded: false,
-        loading: true,
-        error: false,
-        priority,
-        timestamp: Date.now()
-      };
-      this.cache.set(url, asset);
-
-      const loadPromise = new Promise<HTMLVideoElement>((resolve, reject) => {
-        let attempts = 0;
-
-        const attemptLoad = () => {
-          attempts++;
-          
-          const timeoutId = setTimeout(() => {
-            if (attempts < retries) {
-              console.warn(`Video load timeout, retrying (${attempts}/${retries}): ${url}`);
-              attemptLoad();
-            } else {
-              asset.loading = false;
-              asset.error = true;
-              reject(new Error(`Video load timeout after ${retries} attempts: ${url}`));
-            }
-          }, timeout);
-
-          video.onloadeddata = () => {
-            clearTimeout(timeoutId);
-            asset.loaded = true;
-            asset.loading = false;
-            asset.error = false;
-            resolve(video);
-          };
-
-          video.onerror = () => {
-            clearTimeout(timeoutId);
-            if (attempts < retries) {
-              console.warn(`Video load error, retrying (${attempts}/${retries}): ${url}`);
-              setTimeout(attemptLoad, 1000 * attempts); // Exponential backoff
-            } else {
-              asset.loading = false;
-              asset.error = true;
-              reject(new Error(`Video load failed after ${retries} attempts: ${url}`));
-            }
-          };
-
-          video.src = url;
-          video.load();
-        };
-
-        attemptLoad();
-      });
-
-      const result = await loadPromise;
-      this.cleanupCache();
-      return result;
-
-    } finally {
-      this.loadingQueue.delete(url);
-      this.currentLoads--;
-    }
+    // DISABLED: Return empty video element to prevent server requests
+    const video = document.createElement('video');
+    video.muted = true;
+    video.playsInline = true;
+    return Promise.resolve(video);
   }
 
   /**
-   * Batch preload multiple assets with priority handling
+   * DISABLED: Batch preload - no-op to prevent server crashes
    */
   async preloadBatch(assets: Array<{ url: string; type: 'image' | 'video'; priority?: 'high' | 'medium' | 'low' }>): Promise<void> {
-    // Sort by priority
-    const sortedAssets = assets.sort((a, b) => {
-      const priorityOrder = { high: 3, medium: 2, low: 1 };
-      return priorityOrder[b.priority || 'medium'] - priorityOrder[a.priority || 'medium'];
-    });
-
-    // Process in chunks to avoid overwhelming the browser
-    const chunkSize = 3;
-    for (let i = 0; i < sortedAssets.length; i += chunkSize) {
-      const chunk = sortedAssets.slice(i, i + chunkSize);
-      
-      await Promise.allSettled(
-        chunk.map(asset => {
-          if (asset.type === 'image') {
-            return this.preloadImage(asset.url, { priority: asset.priority });
-          } else {
-            return this.preloadVideo(asset.url, { priority: asset.priority });
-          }
-        })
-      );
-    }
+    // DISABLED: No-op to prevent server crashes from batch asset requests
+    return Promise.resolve();
   }
 
   /**

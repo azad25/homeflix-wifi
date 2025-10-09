@@ -114,6 +114,9 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		api.POST("/admin/media/:id/update-with-tmdb", handlers.UpdateMediaWithTMDB(mediaService, tmdbService))
 		api.POST("/admin/generate-recommendations", handlers.GenerateRecommendations(geminiService))
 
+		// Main recommendations endpoint (handles category-based routing)
+		api.GET("/recommendations", handlers.GetRecommendations(recommendationService, mediaService))
+		
 		// Enhanced recommendation endpoints with session awareness
 		api.GET("/recommendations/unique", handlers.GetUniqueRecommendations(recommendationService, mediaService))
 		api.GET("/recommendations/trending", handlers.GetSmartTrendingRecommendationsEnhanced(recommendationService, mediaService))
@@ -127,6 +130,7 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		api.GET("/recommendations/personalized", handlers.GetPersonalizedRecommendationsEnhanced(recommendationService, mediaService))
 		api.GET("/recommendations/smart-trending", handlers.GetSmartTrendingRecommendationsEnhanced(recommendationService, mediaService))
 		api.GET("/recommendations/similar", handlers.GetSimilarRecommendations(recommendationService))
+		api.GET("/recommendations/similar/:id", handlers.GetSimilarMediaByID(recommendationService, mediaService))
 		api.GET("/recommendations/continue-watching", handlers.GetContinueWatchingRecommendations(recommendationService))
 		api.POST("/admin/recommendations/refresh", handlers.RefreshAllRecommendations(recommendationService))
 

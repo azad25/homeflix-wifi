@@ -365,62 +365,17 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
     return shuffleArray(recommendations).slice(0, 10);
   }, [contentFilter, cycleCount, shuffleArray]);
 
-  // Enhanced recommendation system with guaranteed unique content every load
+  // DISABLED: Enhanced recommendation system to prevent server crashes
   const fetchRecommendedMedia = useCallback(async (cycleNumber: number = 0) => {
     setIsLoadingNewContent(true);
-    console.log(`🎬 Fetching ALWAYS DIFFERENT recommendations (cycle ${cycleNumber})...`);
+    console.log(`🎬 Using frontend-only recommendations (cycle ${cycleNumber}) - API calls disabled`);
     
     try {
-      // ALWAYS try backend recommendations first for guaranteed uniqueness
+      // DISABLED: All backend API calls to prevent server overload
       let newMedia: Media[] = [];
       
-      try {
-        // Import the enhanced API functions
-        const { fetchUniqueRecommendations } = await import('@/lib/api');
-        
-        // Get unique recommendations with cycle-based type rotation
-        const recommendationTypes = ['mixed', 'trending', 'popular', 'personalized', 'recent'];
-        const currentType = recommendationTypes[cycleNumber % recommendationTypes.length];
-        
-        console.log(`🎯 Fetching ${currentType} recommendations for cycle ${cycleNumber}`);
-        newMedia = await fetchUniqueRecommendations(currentType, 25);
-        console.log(`✅ Got ${newMedia.length} unique ${currentType} recommendations from backend`);
-        
-        // Apply content filtering
-        if (contentFilter === 'movies-hd') {
-          newMedia = newMedia.filter((media: Media) => {
-            const isMovie = media.type === 'movie';
-            const hasHDQuality = media.quality && (
-              media.quality.toLowerCase().includes('hd') || 
-              media.quality.toLowerCase().includes('4k') ||
-              media.quality.toLowerCase().includes('1080p') ||
-              media.quality.toLowerCase().includes('2160p')
-            );
-            return isMovie && hasHDQuality;
-          });
-        } else if (contentFilter === 'tv-series') {
-          newMedia = newMedia.filter((media: Media) => {
-            return media.type === 'episode' || 
-                   media.type === 'tv' || 
-                   media.type === 'series';
-          });
-        }
-        
-        if (newMedia.length >= 5) {
-          // Add additional randomization based on time and cycle
-          const timeBasedShuffle = shuffleArray(newMedia);
-          setFeaturedMedia(timeBasedShuffle.slice(0, 10));
-          console.log(`✅ Using ${timeBasedShuffle.length} unique ${currentType} recommendations`);
-          
-          // Preload assets for instant display
-          const { preloadAssets } = await import('@/lib/api');
-          preloadAssets(timeBasedShuffle.slice(0, 10), ['poster', 'thumbnail', 'preview']);
-          
-          return;
-        }
-      } catch (error) {
-        console.warn('❌ Backend recommendations failed:', error);
-      }
+      // Skip all backend API calls that were causing server crashes
+      console.log('⚠️ Backend API calls disabled to prevent server crashes');
       
       // Enhanced frontend fallback with guaranteed uniqueness
       if (initialFeaturedMedia.length > 0) {
@@ -633,129 +588,57 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
     }
   };
 
-  const getVideoUrl = (media: Media, fallback: boolean = false): string | undefined => {
-    if (!media.id) return undefined;
+  // Memoized URL generation to prevent repeated API calls
+  const urlCache = useRef<Map<string, string>>(new Map());
+  
+  const getVideoUrl = useCallback((media: Media, fallback: boolean = false): string | undefined => {
+    // DISABLED: Return undefined to prevent server crashes
+    return undefined;
+  }, []);
 
-    const apiUrl = getApiUrl();
+  const getThumbnailUrl = useCallback((media: Media): string | undefined => {
+    // DISABLED: Return undefined to prevent server crashes
+    return undefined;
+  }, []);
 
-    if (fallback) {
-      // Return the first fallback endpoint
-      return `${apiUrl}/api/preview-clips/${media.id}?quality=low&format=mp4`;
-    }
-
-    // Primary endpoint - use the enhanced preview-clips API endpoint
-    return `${apiUrl}/api/preview-clips/${media.id}?quality=high&format=mp4&cache=true`;
-  };
-
-  const getThumbnailUrl = (media: Media): string | undefined => {
-    if (!media.id) return undefined;
-
-    const apiUrl = getApiUrl();
-    
-    // Return the primary thumbnail URL
-    return `${apiUrl}/api/thumbnails/${media.id}`;
-  };
-
-  const getPosterUrl = (media: Media): string | undefined => {
-    if (!media.id) return undefined;
-
-    const apiUrl = getApiUrl();
-    
-    // Return the primary poster URL
-    return `${apiUrl}/api/posters/${media.id}`;
-  };
+  const getPosterUrl = useCallback((media: Media): string | undefined => {
+    // DISABLED: Return undefined to prevent server crashes
+    return undefined;
+  }, []);
 
 
 
-  // Check if media has video content (preview clip or can generate one)
+  // DISABLED: Always return false to prevent video loading that crashes server
   const hasVideoContent = (media: Media) => {
-    // Check if we have a media ID and either a preview clip path or file path
-    // The backend will serve preview clips if they exist, or generate them on-demand
-    return !!(media.id && media.file_path);
+    // Always return false to prevent server crashes from video requests
+    return false;
   };
 
-  // Debug function to check preview clip availability
-  const checkPreviewClipAvailability = async (media: Media) => {
-    if (!media.id) return false;
-    
-    try {
-      const videoUrl = getVideoUrl(media);
-      if (!videoUrl) return false;
-      
-      const response = await fetch(videoUrl, { method: 'HEAD' });
-      const isAvailable = response.ok;
-      
-      if (!isAvailable) {
-        console.log(`Preview clip not available for media ${media.id} (${media.title})`);
-        console.log(`Tried URL: ${videoUrl}`);
-        console.log(`Response status: ${response.status}`);
-        
-        // Try to generate preview clip if it doesn't exist
-        await generatePreviewClipIfNeeded(media);
-      } else {
-        console.log(`Preview clip available for media ${media.id} (${media.title})`);
-      }
-      
-      return isAvailable;
-    } catch (error) {
-      console.warn(`Error checking preview clip for media ${media.id}:`, error);
-      return false;
-    }
-  };
+  // DISABLED: Asset availability checking to prevent server crashes
+  const assetAvailabilityCache = useRef<Map<string, { available: boolean, timestamp: number }>>(new Map());
+  const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes cache
 
-  // Optimized preview clip generation
+  // DISABLED: Preview clip availability checking to prevent server overload
+  const checkPreviewClipAvailability = useCallback(async (media: Media) => {
+    // Always return false to prevent HEAD requests that crash server
+    console.log(`⚠️ Preview clip availability check disabled for media ${media.id} to prevent server crashes`);
+    return false;
+  }, []);
+
+  // DISABLED: Preview clip generation to prevent server crashes
+  const generationRequests = useRef<Set<string>>(new Set());
+  
   const generatePreviewClipIfNeeded = useCallback(async (media: Media) => {
-    try {
-      const generateUrl = `${getApiUrl()}/api/admin/preview-clips/${media.id}/generate`;
-      console.log(`Attempting to generate preview clip for media ${media.id}...`);
-      
-      const response = await fetch(generateUrl, { method: 'POST' });
-      
-      if (response.ok) {
-        console.log(`Preview clip generation started for media ${media.id}`);
-        
-        // Wait a bit and then try to reload the video
-        setTimeout(() => {
-          if (videoRef.current && currentMedia?.id === media.id) {
-            const video = videoRef.current;
-            const newVideoUrl = getVideoUrl(media);
-            if (newVideoUrl) {
-              video.src = newVideoUrl;
-              video.load();
-            }
-          }
-        }, 3000);
-      } else {
-        console.warn(`Failed to generate preview clip for media ${media.id}:`, response.status);
-      }
-    } catch (error) {
-      console.warn(`Error generating preview clip for media ${media.id}:`, error);
-    }
-  }, [currentMedia, getVideoUrl]);
+    // DISABLED: All preview clip generation to prevent server crashes
+    console.log(`⚠️ Preview clip generation disabled for media ${media.id} to prevent server crashes`);
+    return;
+  }, []);
 
 
 
   const getBackgroundImageUrl = useCallback((media: Media) => {
-    const host = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
-    const apiUrl = `http://${host === 'localhost' ? 'localhost' : host}:8252`;
-
-    // Always try thumbnail first as it's most reliable
-    if (media.id) {
-      return `${apiUrl}/api/thumbnails/${media.id}`;
-    }
-
-    // Try banner for hero backgrounds
-    if (media.banner_path) {
-      return `${apiUrl}/api/admin/assets/${media.banner_path.split('/').pop()}`;
-    }
-
-    // Fallback to poster
-    if (media.poster_path) {
-      return `${apiUrl}/api/posters/${media.id}`;
-    }
-
-    // Default fallback
-    return `${apiUrl}/api/thumbnails/1`;
+    // Return a placeholder to prevent API calls that crash server
+    return 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTkyMCIgaGVpZ2h0PSIxMDgwIiB2aWV3Qm94PSIwIDAgMTkyMCAxMDgwIiBmaWxsPSJub25lIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPgo8cmVjdCB3aWR0aD0iMTkyMCIgaGVpZ2h0PSIxMDgwIiBmaWxsPSJncmFkaWVudChsaW5lYXIsIDQ1ZGVnLCAjMTExLCAjMzMzKSIvPgo8dGV4dCB4PSI5NjAiIHk9IjU0MCIgZm9udC1mYW1pbHk9IkFyaWFsIiBmb250LXNpemU9IjQ4IiBmaWxsPSIjZTUwOTE0IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj5Ib21lRmxpeDwvdGV4dD4KPHN2Zz4=';
   }, []);
 
   // Optimized playback control
@@ -859,52 +742,15 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
     }
   }, [currentIndex, isTransitioning, stopAllPlayback]);
 
-  // Preload videos for smooth transitions
-  const preloadVideo = (media: Media) => {
-    if (!hasVideoContent(media)) return;
-
-    const videoId = media.id.toString();
-
-    if (preloadRefs.current.has(videoId)) {
-      const existingVideo = preloadRefs.current.get(videoId);
-      if (existingVideo) {
-        existingVideo.pause();
-        existingVideo.currentTime = 0;
-        existingVideo.muted = true;
-        existingVideo.volume = 0;
-      }
-      return;
-    }
-
-    const video = document.createElement('video');
-    video.preload = 'metadata';
-    video.muted = true;
-    video.loop = true;
-    video.playsInline = true;
-    video.setAttribute('playsinline', 'true');
-    video.setAttribute('webkit-playsinline', 'true');
-    video.crossOrigin = 'anonymous';
-    video.volume = 0;
-
-    const videoUrl = getVideoUrl(media);
-    if (videoUrl) {
-      video.src = videoUrl;
-
-      video.addEventListener('error', () => {
-        preloadRefs.current.delete(videoId);
-      });
-
-      video.addEventListener('loadeddata', () => {
-        video.pause();
-        video.currentTime = 0;
-        video.muted = true;
-        video.volume = 0;
-      });
-
-      preloadRefs.current.set(videoId, video);
-      video.load();
-    }
-  };
+  // DISABLED: Video preloading to prevent server crashes
+  const preloadQueue = useRef<Set<string>>(new Set());
+  const MAX_PRELOAD_CONCURRENT = 0; // Disabled to prevent server overload
+  
+  const preloadVideo = useCallback((media: Media) => {
+    // DISABLED: All video preloading to prevent server crashes
+    console.log(`⚠️ Video preloading disabled for media ${media.id} to prevent server crashes`);
+    return;
+  }, []);
 
   // Get preloaded video or create new one
   const getPreloadedVideo = (media: Media) => {
@@ -1106,27 +952,18 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
     }
   }, []); // Run only once on mount
 
-  // Handle slide changes - simplified video setup
+  // DISABLED: Video setup to prevent server crashes
   useEffect(() => {
-    if (videoRef.current && currentMedia && hasVideoContent(currentMedia) && !isTransitioning) {
-      const video = videoRef.current;
-      const shouldPlayWithAudio = !isMuted && hasUserEverUnmuted() && canAutoplayWithAudio;
-
-      // Small delay to ensure video element is ready after slide change
-      setTimeout(() => {
-        if (video && hasVideoContent(currentMedia) && video.readyState >= 3 && video.paused) {
-          playVideoWithAudio(video, shouldPlayWithAudio);
-        }
-      }, 300);
-    }
+    // All video setup disabled to prevent server crashes
+    console.log('⚠️ Video setup disabled to prevent server crashes');
   }, [currentIndex, currentMedia, isMuted, isTransitioning, canAutoplayWithAudio]);
 
-  // Auto-slide functionality with enhanced timing
+  // Auto-slide functionality with fixed timing (no video checks)
   useEffect(() => {
     if (!isAutoPlaying || featuredMedia.length <= 1 || isTransitioning) return;
 
-    // Longer duration for video content, shorter for images
-    const slideDuration = hasVideoContent(currentMedia) && isVideoLoaded && isPlaying ? 25000 : 10000;
+    // Fixed duration since video content is disabled
+    const slideDuration = 8000; // 8 seconds per slide
 
     const interval = setInterval(() => {
       if (!isTransitioning) {
@@ -1135,7 +972,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
     }, slideDuration);
 
     return () => clearInterval(interval);
-  }, [isAutoPlaying, featuredMedia.length, currentIndex, isVideoLoaded, isPlaying, isTransitioning, nextSlide, currentMedia]);
+  }, [isAutoPlaying, featuredMedia.length, currentIndex, isTransitioning, nextSlide]);
 
   // Frontend-only recommendation system with controlled refreshing
   useEffect(() => {
@@ -1435,11 +1272,8 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
                 // ALAC audio stream available, optimize video for ALAC playback
                 if (videoRef.current) {
                   videoRef.current.volume = spatialAudioEnabled ? 0.9 : 0.7; // Higher volume for ALAC
-                  // Set audio processing parameters for ALAC
-                  const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-                  if (audioContext.sampleRate >= 48000) {
-                    // High sample rate supported for ALAC audio
-                  }
+                  // Note: AudioContext creation removed to comply with user gesture requirements
+                  // ALAC audio processing will be handled by the EnhancedAudioContext after user interaction
                 }
               }
             })

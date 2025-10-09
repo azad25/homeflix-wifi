@@ -36,17 +36,9 @@ export default function TVSeries() {
     try {
       const apiUrl = getApiUrl();
       
-      // Fetch all media data
-      const response = await fetch(`${apiUrl}/api/media`);
-      const allMedia = await response.json();
-
-      // Filter for TV series/episodes only
-      const allSeries = allMedia.filter((item: Media) => 
-        item.type === 'episode' || 
-        item.type === 'tv' || 
-        item.title.toLowerCase().includes('series') ||
-        item.title.toLowerCase().includes('episode')
-      );
+      // Use cached API call for TV shows data
+      const { globalCachedFetch } = await import('@/lib/globalApiCache');
+      const allSeries = await globalCachedFetch(`${apiUrl}/api/media/tv-shows?limit=100`);
 
       // Get high-quality series for hero section
       // Try to get TV series recommendations from enhanced backend

@@ -10,8 +10,15 @@ interface UseGlobalCacheOptions {
   enabled?: boolean;
   staleWhileRevalidate?: boolean;
   refetchOnWindowFocus?: boolean;
+  refetchOnMount?: boolean;
   refetchInterval?: number;
+  staleTime?: number;
+  cacheTime?: number;
   customTTL?: number;
+  retry?: number;
+  retryDelay?: number;
+  onSuccess?: (data: any) => void;
+  onError?: (error: Error) => void;
 }
 
 interface UseGlobalCacheResult<T> {
@@ -32,10 +39,15 @@ export function useGlobalCache<T = any>(
 ): UseGlobalCacheResult<T> {
   const {
     enabled = true,
-    staleWhileRevalidate = true,
-    refetchOnWindowFocus = false,
-    refetchInterval,
-    customTTL
+    refetchInterval = 0, // Disabled by default to prevent polling
+    refetchOnWindowFocus = false, // Disabled to prevent excessive requests
+    refetchOnMount = true,
+    staleTime = 5 * 60 * 1000, // 5 minutes stale time to reduce requests
+    cacheTime = 30 * 60 * 1000, // Increased to 30 minutes
+    retry = 2, // Reduced retries to prevent request flooding
+    retryDelay = 2000, // Increased delay between retries
+    onSuccess,
+    onError
   } = hookOptions;
 
   const [data, setData] = useState<T | null>(null);
@@ -65,19 +77,22 @@ export function useGlobalCache<T = any>(
         ...options,
         signal: abortControllerRef.current.signal
       }, {
-        staleWhileRevalidate,
-        customTTL
+        customTTL: cacheTime,
+        staleWhileRevalidate: true
       });
 
       setData(result);
+      if (onSuccess) onSuccess(result);
     } catch (err) {
       if (err instanceof Error && err.name !== 'AbortError') {
         setError(err);
+        console.warn(`API request failed for ${url}:`, err.message);
+        if (onError) onError(err);
       }
     } finally {
       setLoading(false);
     }
-  }, [url, enabled, staleWhileRevalidate, customTTL, options]);
+  }, [url, enabled, staleTime, cacheTime, retry, retryDelay, options, onSuccess, onError]);
 
   const refetch = useCallback(async () => {
     await fetchData(true);
@@ -93,31 +108,35 @@ export function useGlobalCache<T = any>(
     }
   }, [url]);
 
-  // Initial fetch
+  // Initial fetch with debouncing
   useEffect(() => {
-    fetchData();
+    const debounceTimer = setTimeout(() => {
+      fetchData();
+    }, 50); // 50ms debounce for initial fetch
     
     return () => {
+      clearTimeout(debounceTimer);
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
       }
     };
   }, [fetchData]);
 
-  // Refetch interval
+  // Refetch interval (only if explicitly set)
   useEffect(() => {
-    if (refetchInterval && enabled) {
-      intervalRef.current = setInterval(() => {
-        fetchData(false); // Don't show loading for interval refetches
-      }, refetchInterval);
+    if (!refetchInterval || refetchInterval <= 0 || !enabled) return;
 
-      return () => {
-        if (intervalRef.current) {
-          clearInterval(intervalRef.current);
-        }
-      };
-    }
-  }, [refetchInterval, enabled, fetchData]);
+    // Minimum interval of 30 seconds to prevent excessive polling
+    const safeInterval = Math.max(refetchInterval, 30000);
+    
+    const interval = setInterval(() => {
+      if (!document.hidden && !loading) { // Only refetch when tab is visible and not already loading
+        refetch();
+      }
+    }, safeInterval);
+
+    return () => clearInterval(interval);
+  }, [refetchInterval, enabled, refetch, loading]);
 
   // Refetch on window focus
   useEffect(() => {
@@ -215,23 +234,36 @@ export function useCacheStats() {
 }
 
 /**
- * Hook for media-specific caching patterns
+ * Hook for continue watching with optimized caching
  */
-export function useMediaCache(endpoint: string = '', options?: RequestInit) {
-  return useGlobalCache(`/api/media${endpoint}`, options, {
-    customTTL: 15 * 60 * 1000, // 15 minutes for media data
-    staleWhileRevalidate: true
+export function useContinueWatching(userId?: string) {
+  return useGlobalCache('/api/recommendations/continue-watching', {}, {
+    staleTime: 5 * 60 * 1000, // Increased to 5 minutes to reduce polling
+    cacheTime: 15 * 60 * 1000, // Increased to 15 minutes
+    refetchInterval: 0, // Disabled automatic polling - major cause of API flooding
+    refetchOnWindowFocus: false // Disabled to prevent excessive requests
   });
 }
 
 /**
- * Hook for recommendation-specific caching patterns
+ * Specialized hook for recommendations with appropriate caching
  */
-export function useRecommendationCache(category: string = 'mixed', limit: number = 25) {
-  return useGlobalCache(`/api/recommendations/${category}?limit=${limit}`, {}, {
-    customTTL: 5 * 60 * 1000, // 5 minutes for recommendations
-    staleWhileRevalidate: true,
-    refetchInterval: 5 * 60 * 1000 // Auto-refresh every 5 minutes
+export function useRecommendations(category?: string, limit?: number, userId?: string) {
+  const url = `/api/recommendations${
+    category || limit || userId 
+      ? `?${new URLSearchParams({
+          ...(category && { category }),
+          ...(limit && { limit: limit.toString() }),
+          ...(userId && { user_id: userId })
+        }).toString()}`
+      : ''
+  }`;
+
+  return useGlobalCache(url, {}, {
+    staleTime: 15 * 60 * 1000, // Increased to 15 minutes
+    cacheTime: 30 * 60 * 1000, // Increased to 30 minutes
+    refetchInterval: 0, // Disabled automatic refetching to prevent polling
+    refetchOnWindowFocus: false // Disabled to prevent excessive requests
   });
 }
 
@@ -253,18 +285,26 @@ export function useSearchCache(query: string, debounceMs: number = 300) {
     debouncedQuery.trim() ? `/api/search?q=${encodeURIComponent(debouncedQuery)}` : null,
     {},
     {
-      customTTL: 10 * 60 * 1000, // 10 minutes for search results
-      staleWhileRevalidate: true
+      staleTime: 10 * 60 * 1000, // Increased to 10 minutes
+      cacheTime: 30 * 60 * 1000, // Increased to 30 minutes
+      refetchInterval: 0, // Disabled automatic polling
+      refetchOnWindowFocus: false // Disabled to prevent excessive requests
     }
   );
 }
 
 /**
- * Hook for asset URLs with caching
+ * Hook for asset URLs (thumbnails, posters, previews) with very long caching
  */
-export function useAssetCache(type: 'thumbnail' | 'poster' | 'preview-clips', id: string | number) {
-  return useGlobalCache(`/api/${type}/${id}`, {}, {
-    customTTL: 60 * 60 * 1000, // 1 hour for assets
-    staleWhileRevalidate: true
+export function useAssetUrl(type: 'thumbnails' | 'posters' | 'previews', id: string) {
+  const url = `/api/${type}/${id}`;
+  
+  return useGlobalCache(url, {}, {
+    staleTime: 2 * 60 * 60 * 1000, // Increased to 2 hours
+    cacheTime: 7 * 24 * 60 * 60 * 1000, // Increased to 7 days for assets
+    refetchOnWindowFocus: false,
+    refetchInterval: 0,
+    retry: 1, // Reduced retries for assets to prevent 404 flooding
+    retryDelay: 5000 // Longer delay for asset retries
   });
 }

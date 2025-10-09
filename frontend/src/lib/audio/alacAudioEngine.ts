@@ -53,14 +53,18 @@ export class ALACAudioEngine {
 
     try {
       // Create AudioContext with high sample rate for lossless quality
+      // Note: AudioContext creation should only happen after user gesture
       this.audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({
         sampleRate: this.config.sampleRate,
         latencyHint: 'playback'
       });
 
-      // Resume context if suspended (required by browsers)
+      // Check if context is suspended (requires user gesture)
       if (this.audioContext.state === 'suspended') {
-        await this.audioContext.resume();
+        console.log('🎵 AudioContext suspended - waiting for user interaction');
+        // Don't automatically resume - let the calling code handle this
+        // This prevents the "AudioContext was not allowed to start" warning
+        return;
       }
 
       await this.setupAudioPipeline();
@@ -70,6 +74,22 @@ export class ALACAudioEngine {
     } catch (error) {
       console.error('❌ Failed to initialize ALAC Audio Engine:', error);
       throw error;
+    }
+  }
+
+  async resumeContext(): Promise<void> {
+    if (this.audioContext && this.audioContext.state === 'suspended') {
+      try {
+        await this.audioContext.resume();
+        if (!this.isInitialized) {
+          await this.setupAudioPipeline();
+          this.isInitialized = true;
+          console.log('🎵 ALAC Audio Engine resumed and initialized');
+        }
+      } catch (error) {
+        console.error('❌ Failed to resume AudioContext:', error);
+        throw error;
+      }
     }
   }
 

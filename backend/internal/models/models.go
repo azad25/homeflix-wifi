@@ -3,6 +3,7 @@ package models
 import (
 	"time"
 
+	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
@@ -12,6 +13,9 @@ type Media struct {
 	CreatedAt   time.Time      `json:"created_at"`
 	UpdatedAt   time.Time      `json:"updated_at"`
 	DeletedAt   gorm.DeletedAt `json:"-" gorm:"index"`
+	
+	// UUID field for API compatibility
+	UUID string `json:"uuid" gorm:"unique"`
 	
 	// Basic info - matching media.json structure
 	Title         string `json:"title" gorm:"not null"`
@@ -76,8 +80,10 @@ type Media struct {
 	
 	// Series info (for episodes)
 	SeriesID      *uint   `json:"series_id,omitempty"`
-	Series        *Series `json:"series,omitempty"`
-	Season        *int    `json:"season,omitempty"`
+	Series        *Series `json:"series,omitempty" gorm:"foreignKey:SeriesID"`
+	SeasonID      *uint   `json:"season_id,omitempty"`
+	SeasonRef     *Season `json:"season_ref,omitempty" gorm:"foreignKey:SeasonID"`
+	Season        *int    `json:"season_number_legacy,omitempty"`
 	Episode       *int    `json:"episode,omitempty"`
 	SeasonNumber  *int    `json:"season_number,omitempty"`
 	EpisodeNumber *int    `json:"episode_number,omitempty"`
@@ -93,12 +99,21 @@ type Media struct {
 	LastUpdated string `json:"last_updated"`
 }
 
+// BeforeCreate hook to generate UUID for Media
+func (m *Media) BeforeCreate(tx *gorm.DB) error {
+	if m.UUID == "" {
+		m.UUID = uuid.New().String()
+	}
+	return nil
+}
+
 // Series represents a TV series
 type Series struct {
 	ID          uint           `json:"id" gorm:"primarykey"`
 	CreatedAt   time.Time      `json:"created_at"`
 	UpdatedAt   time.Time      `json:"updated_at"`
 	DeletedAt   gorm.DeletedAt `json:"-" gorm:"index"`
+	UUID        string         `json:"uuid" gorm:"unique"`
 	
 	Title       string    `json:"title" gorm:"not null"`
 	Description string    `json:"description"`
@@ -107,14 +122,45 @@ type Series struct {
 	Status      string    `json:"status"` // "ongoing", "completed", "cancelled"
 	
 	// Relationships
-	Episodes []Media `json:"episodes" gorm:"foreignKey:SeriesID"`
-	Genres   []Genre `json:"genres" gorm:"many2many:series_genres;"`
+	Episodes []Media  `json:"episodes" gorm:"foreignKey:SeriesID"`
+	Seasons  []Season `json:"seasons" gorm:"foreignKey:SeriesID"`
+	Genres   []Genre  `json:"genres" gorm:"many2many:series_genres;"`
 	
 	// Metadata
 	TotalSeasons int    `json:"total_seasons"`
 	TotalEpisodes int   `json:"total_episodes"`
 	PosterPath    string `json:"poster_path"`
 	BackdropPath  string `json:"backdrop_path"`
+}
+
+// Season represents a season within a TV series
+type Season struct {
+	ID          uint           `json:"id" gorm:"primarykey"`
+	CreatedAt   time.Time      `json:"created_at"`
+	UpdatedAt   time.Time      `json:"updated_at"`
+	DeletedAt   gorm.DeletedAt `json:"-" gorm:"index"`
+	
+	SeriesID     uint      `json:"series_id" gorm:"not null"`
+	Series       *Series   `json:"series,omitempty"`
+	SeasonNumber int       `json:"season_number" gorm:"not null"`
+	Title        string    `json:"title"`
+	Description  string    `json:"description"`
+	ReleaseDate  time.Time `json:"release_date"`
+	PosterPath   string    `json:"poster_path"`
+	
+	// Relationships
+	Episodes []Media `json:"episodes" gorm:"foreignKey:SeasonID"`
+	
+	// Metadata
+	EpisodeCount int `json:"episode_count"`
+}
+
+// BeforeCreate hook to generate UUID for Series
+func (s *Series) BeforeCreate(tx *gorm.DB) error {
+	if s.UUID == "" {
+		s.UUID = uuid.New().String()
+	}
+	return nil
 }
 
 // Genre represents a media genre

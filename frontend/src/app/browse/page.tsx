@@ -46,22 +46,6 @@ export default function BrowsePage() {
   const [hasMore, setHasMore] = useState(true);
   const ITEMS_PER_PAGE = 24;
 
-  useEffect(() => {
-    fetchData();
-  }, []);
-
-  useEffect(() => {
-    filterAndSortMedia();
-  }, [allMedia, selectedGenre, sortBy, searchQuery]);
-
-  useEffect(() => {
-    // Reset pagination when filters change
-    setCurrentPage(1);
-    setDisplayedMedia([]);
-    setHasMore(true);
-    loadMoreMedia(1);
-  }, [filteredMedia]);
-
   // Use global cache for data fetching
   const { data: mediaData, loading: mediaLoading } = useGlobalCache<Media[]>(
     `${getApiUrl()}/api/media`,
@@ -75,25 +59,44 @@ export default function BrowsePage() {
     { customTTL: 2 * 60 * 60 * 1000 } // 2 hours cache for genres
   );
 
-  const fetchData = async () => {
-    // Data is now loaded automatically via hooks
+  // Update data when cache loads
+  useEffect(() => {
     if (mediaData) {
       setAllMedia(mediaData);
     }
+  }, [mediaData]);
+
+  useEffect(() => {
     if (genresData) {
       setGenres(genresData);
     }
-    
-    // Fetch featured media from recommendations with fallback
-    await fetchFeaturedMedia();
-  };
-  
+  }, [genresData]);
+
   // Update loading state based on cache loading
   useEffect(() => {
     setLoading(mediaLoading || genresLoading);
   }, [mediaLoading, genresLoading]);
 
-  const fetchFeaturedMedia = async () => {
+  // Fetch featured media when allMedia is available
+  useEffect(() => {
+    if (allMedia.length > 0) {
+      fetchFeaturedMedia();
+    }
+  }, [allMedia]);
+
+  useEffect(() => {
+    filterAndSortMedia();
+  }, [allMedia, selectedGenre, sortBy, searchQuery]);
+
+  useEffect(() => {
+    // Reset pagination when filters change
+    setCurrentPage(1);
+    setDisplayedMedia([]);
+    setHasMore(true);
+    loadMoreMedia(1);
+  }, [filteredMedia]);
+
+  const fetchFeaturedMedia = useCallback(async () => {
     try {
       console.log('🎬 Fetching featured media with global cache...');
       
@@ -164,7 +167,7 @@ export default function BrowsePage() {
         setFeaturedMedia(featured);
       }
     }
-  };
+  }, [allMedia]);
 
   const filterAndSortMedia = () => {
     let filtered = [...allMedia];
@@ -216,10 +219,10 @@ export default function BrowsePage() {
     if (media.type === 'episode' || media.type === 'tv' || media.type === 'series') {
       // For episodes, route to the series info page using series_id if available
       const seriesId = media.series_id || media.id;
-      router.push(`/tv-series/${media.uuid || seriesId}`);
+      router.push(`/tv-series/${seriesId}`);
     } else {
       // Route movies to movie info page
-      router.push(`/movie/${media.uuid || media.id}`);
+      router.push(`/movie/${media.id}`);
     }
   };
 

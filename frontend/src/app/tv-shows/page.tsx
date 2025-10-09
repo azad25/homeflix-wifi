@@ -7,7 +7,7 @@ import Navbar from "@/components/Navbar";
 import { Media } from '../../types/media';
 import VideoPlayer from "@/components/VideoPlayer";
 import { getApiUrl } from '@/lib/api';
-import { useGlobalCache, useRecommendationCache } from '@/hooks/useGlobalCache';
+import { useGlobalCache, useRecommendations } from '@/hooks/useGlobalCache';
 import { ScrollXHero, NetflixHorizontalRow, ParallaxSection, GradientBackground, ScrollReveal } from '@/components/scrollx';
 import { Button } from "@/components/ui/button";
 
@@ -42,7 +42,7 @@ export default function TVShowsPage() {
   );
   
   // Use global cache for TV series recommendations
-  const { data: tvRecommendations } = useRecommendationCache('tv-series', 20);
+  const { data: tvRecommendations } = useRecommendations('tv-series', 20);
 
   useEffect(() => {
     // Process cached data when available

@@ -44,137 +44,177 @@ export const API_ENDPOINTS = {
   }
 };
 
-// Enhanced asset URL builders with fallback support
+// DISABLED: Asset URL builders - return placeholder to prevent server crashes
 export const getAssetUrl = (type: 'thumbnail' | 'preview' | 'poster', id: number, fallback = true) => {
-  const baseUrl = getApiUrl();
-  const primaryUrl = `${baseUrl}/api/${type === 'preview' ? 'preview-clips' : `${type}s`}/${id}`;
-  
-  if (!fallback) {
-    return primaryUrl;
-  }
-  
-  // Return array of URLs to try in order with cache busting
-  const timestamp = Date.now();
-  return [
-    primaryUrl,
-    `${baseUrl}/api/assets/${type}s/${id}`,
-    `${baseUrl}/api/${type === 'preview' ? 'previews' : `${type}s`}/${id}`,
-    `${baseUrl}/api/${type}s/${id}?t=${timestamp}`, // Cache busting
-  ];
+  // DISABLED: Return placeholder to prevent CORS and server crashes
+  const placeholder = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjQwMCIgdmlld0JveD0iMCAwIDMwMCA0MDAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIzMDAiIGhlaWdodD0iNDAwIiBmaWxsPSJncmFkaWVudChsaW5lYXIsIDQ1ZGVnLCAjMTExLCAjMzMzKSIvPgo8dGV4dCB4PSIxNTAiIHk9IjIwMCIgZm9udC1mYW1pbHk9IkFyaWFsIiBmb250LXNpemU9IjI0IiBmaWxsPSIjZTUwOTE0IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj5Ib21lRmxpeDwvdGV4dD4KPHN2Zz4=';
+  return fallback ? [placeholder, placeholder] : placeholder;
 };
 
-// Netflix-like asset loading with preloading and caching
+// DISABLED: Asset loading - return placeholder to prevent server crashes
 export const loadAssetWithFallback = async (type: 'thumbnail' | 'preview' | 'poster', id: number): Promise<string> => {
-  const urls = getAssetUrl(type, id, true) as string[];
-  
-  for (const url of urls) {
-    try {
-      const response = await fetch(url, { method: 'HEAD' });
-      if (response.ok) {
-        return url;
-      }
-    } catch (error) {
-      continue;
-    }
-  }
-  
-  // Return first URL as fallback even if it fails
-  return urls[0];
+  // DISABLED: Return placeholder to prevent CORS and server crashes
+  const placeholder = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjQwMCIgdmlld0JveD0iMCAwIDMwMCA0MDAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIzMDAiIGhlaWdodD0iNDAwIiBmaWxsPSJncmFkaWVudChsaW5lYXIsIDQ1ZGVnLCAjMTExLCAjMzMzKSIvPgo8dGV4dCB4PSIxNTAiIHk9IjIwMCIgZm9udC1mYW1pbHk9IkFyaWFsIiBmb250LXNpemU9IjI0IiBmaWxsPSIjZTUwOTE0IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj5Ib21lRmxpeDwvdGV4dD4KPHN2Zz4=';
+  return Promise.resolve(placeholder);
 };
 
-// Preload assets for Netflix-like performance
+// DISABLED: Asset preloading - no-op to prevent server crashes
 export const preloadAssets = (mediaList: any[], types: ('thumbnail' | 'poster' | 'preview')[] = ['poster', 'thumbnail']) => {
-  const preloadPromises: Promise<void>[] = [];
-  
-  mediaList.slice(0, 20).forEach(media => { // Preload first 20 items
-    types.forEach(type => {
-      const promise = loadAssetWithFallback(type, media.id)
-        .then(url => {
-          // Preload the image/video
-          if (type === 'preview') {
-            const video = document.createElement('video');
-            video.preload = 'metadata';
-            video.src = url;
-          } else {
-            const img = new Image();
-            img.src = url;
-          }
-        })
-        .catch(() => {}); // Ignore preload errors
-      
-      preloadPromises.push(promise);
-    });
-  });
-  
-  return Promise.allSettled(preloadPromises);
+  // DISABLED: Return resolved promise to prevent server crashes from asset preloading
+  return Promise.resolve([]);
 };
 
-// Enhanced API call with retry logic for assets
+// Request deduplication map to prevent concurrent identical requests
+const pendingRequests = new Map<string, Promise<any>>();
+
+// Request debouncing map
+const debouncedRequests = new Map<string, NodeJS.Timeout>();
+
+// Generate unique request key for deduplication
+const getRequestKey = (url: string, options?: RequestInit): string => {
+  const method = options?.method || 'GET';
+  const body = options?.body || '';
+  return `${method}:${url}:${body}`;
+};
+
+// Enhanced API call with retry logic and request deduplication
 export const apiCallWithRetry = async (urls: string | string[], options?: RequestInit, maxRetries = 3) => {
   const urlsToTry = Array.isArray(urls) ? urls : [urls];
+  const requestKey = getRequestKey(urlsToTry[0], options);
   
-  for (let i = 0; i < urlsToTry.length; i++) {
-    const url = urlsToTry[i];
-    
-    for (let retry = 0; retry < maxRetries; retry++) {
-      try {
-        const response = await fetch(url, {
-          ...options,
-          headers: {
-            'Content-Type': 'application/json',
-            ...options?.headers,
-          },
-        });
-
-        if (response.ok) {
-          return response;
-        }
-        
-        // If this is the last URL and last retry, throw the error
-        if (i === urlsToTry.length - 1 && retry === maxRetries - 1) {
-          throw new Error(`API call failed: ${response.status} ${response.statusText}`);
-        }
-        
-        // If not the last retry for this URL, wait a bit before retrying
-        if (retry < maxRetries - 1) {
-          await new Promise(resolve => setTimeout(resolve, 1000 * (retry + 1)));
-        }
-        
-      } catch (error) {
-        // If this is the last URL and last retry, throw the error
-        if (i === urlsToTry.length - 1 && retry === maxRetries - 1) {
-          throw error;
-        }
-        
-        // If not the last retry for this URL, wait a bit before retrying
-        if (retry < maxRetries - 1) {
-          await new Promise(resolve => setTimeout(resolve, 1000 * (retry + 1)));
-        }
-      }
-    }
+  // Check if identical request is already pending
+  if (pendingRequests.has(requestKey)) {
+    console.log(`🔄 Deduplicating request: ${requestKey}`);
+    return pendingRequests.get(requestKey)!;
   }
   
-  throw new Error('All API endpoints failed');
+  const requestPromise = (async () => {
+    try {
+      for (let i = 0; i < urlsToTry.length; i++) {
+        const url = urlsToTry[i];
+        
+        for (let retry = 0; retry < maxRetries; retry++) {
+          try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+
+            const response = await fetch(url, {
+              ...options,
+              signal: controller.signal,
+              headers: {
+                'Content-Type': 'application/json',
+                ...options?.headers,
+              },
+            });
+
+            clearTimeout(timeoutId);
+
+            if (response.ok) {
+              return response;
+            }
+            
+            // If this is the last URL and last retry, throw the error
+            if (i === urlsToTry.length - 1 && retry === maxRetries - 1) {
+              throw new Error(`Server disconnected: ${response.status} ${response.statusText}`);
+            }
+            
+            // If not the last retry for this URL, wait a bit before retrying
+            if (retry < maxRetries - 1) {
+              await new Promise(resolve => setTimeout(resolve, 2000 * (retry + 1)));
+            }
+            
+          } catch (error) {
+            // If this is the last URL and last retry, throw the error
+            if (i === urlsToTry.length - 1 && retry === maxRetries - 1) {
+              if (error instanceof Error && error.name === 'AbortError') {
+                throw new Error('Server connection timeout - server may be disconnected');
+              }
+              throw new Error(`Server connection failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+            }
+            
+            // If not the last retry for this URL, wait a bit before retrying
+            if (retry < maxRetries - 1) {
+              await new Promise(resolve => setTimeout(resolve, 2000 * (retry + 1)));
+            }
+          }
+        }
+      }
+      
+      throw new Error('All API endpoints failed - server may be disconnected');
+    } finally {
+      // Remove from pending requests when done
+      pendingRequests.delete(requestKey);
+    }
+  })();
+  
+  // Store the promise to deduplicate concurrent requests
+  pendingRequests.set(requestKey, requestPromise);
+  
+  return requestPromise;
 };
 
-// Helper function to make API calls
+// Debounced API call function
+export const debouncedApiCall = async (endpoint: string, options?: RequestInit, debounceMs: number = 100): Promise<any> => {
+  const requestKey = getRequestKey(endpoint, options);
+  
+  return new Promise((resolve, reject) => {
+    // Clear existing debounce timer
+    if (debouncedRequests.has(requestKey)) {
+      clearTimeout(debouncedRequests.get(requestKey)!);
+    }
+    
+    // Set new debounce timer
+    const timer = setTimeout(async () => {
+      try {
+        const result = await apiCall(endpoint, options);
+        resolve(result);
+      } catch (error) {
+        reject(error);
+      } finally {
+        debouncedRequests.delete(requestKey);
+      }
+    }, debounceMs);
+    
+    debouncedRequests.set(requestKey, timer);
+  });
+};
+
+// Helper function to make API calls with deduplication
 export const apiCall = async (endpoint: string, options?: RequestInit) => {
   const baseUrl = getApiUrl();
   const url = `${baseUrl}${endpoint}`;
+  const requestKey = getRequestKey(url, options);
   
-  const response = await fetch(url, {
+  // Check if identical request is already pending
+  if (pendingRequests.has(requestKey)) {
+    console.log(`🔄 Deduplicating API call: ${endpoint}`);
+    const response = await pendingRequests.get(requestKey)!;
+    return response.clone().json();
+  }
+  
+  const requestPromise = fetch(url, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
       ...options?.headers,
     },
   });
+  
+  // Store the promise for deduplication
+  pendingRequests.set(requestKey, requestPromise);
+  
+  try {
+    const response = await requestPromise;
+    
+    if (!response.ok) {
+      throw new Error(`API call failed: ${response.status} ${response.statusText}`);
+    }
 
-  if (!response.ok) {
-    throw new Error(`API call failed: ${response.status} ${response.statusText}`);
+    return response.json();
+  } finally {
+    // Remove from pending requests when done
+    pendingRequests.delete(requestKey);
   }
-
-  return response.json();
 };
 // Session management for unique recommendations
 let sessionId: string | null = null;

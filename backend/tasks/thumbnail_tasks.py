@@ -7,6 +7,7 @@ High-priority queue for generating video thumbnails and preview clips
 import os
 import subprocess
 import logging
+import re
 from typing import Dict, Any, List
 from celery import current_app
 from celery.utils.log import get_task_logger
@@ -46,8 +47,8 @@ def generate_thumbnail(self, media_id: int, file_path: str, output_dir: str = No
         if output_dir.startswith('./backend/'):
             output_dir = './thumbnails'
         
-        # Generate thumbnail filename
-        thumbnail_filename = f"thumb_{media_id}.jpg"
+        # Generate unique thumbnail filename with series/season/episode info
+        thumbnail_filename = generate_unique_filename(media_id, file_path, "thumb", ".jpg")
         thumbnail_path = os.path.join(output_dir, thumbnail_filename)
         
         # Try HD thumbnail generation first
@@ -190,8 +191,8 @@ def generate_preview_clip(self, media_id: int, file_path: str, output_dir: str =
         if output_dir.startswith('./backend/'):
             output_dir = './previews'
         
-        # Generate preview clip filename
-        preview_filename = f"preview_{media_id}.mp4"
+        # Generate unique preview clip filename with series/season/episode info
+        preview_filename = generate_unique_filename(media_id, file_path, "preview", ".mp4")
         preview_path = os.path.join(output_dir, preview_filename)
         
         # Try HD preview generation with fallback methods
@@ -342,7 +343,7 @@ def generate_multiple_thumbnails(media_id: int, file_path: str, count: int = 5) 
             # Calculate timestamp (skip first 10% and last 10%)
             timestamp = int((duration * 0.1) + (i * (duration * 0.8) / count))
             
-            thumbnail_filename = f"thumb_{media_id}_{i+1}.jpg"
+            thumbnail_filename = generate_unique_filename(media_id, file_path, f"thumb_{i+1}", ".jpg")
             thumbnail_path = os.path.join(output_dir, thumbnail_filename)
             
             cmd = [
@@ -552,3 +553,112 @@ def create_placeholder_preview(media_id: int, preview_path: str) -> bool:
     #     logger.error(f"Failed to create placeholder preview: {e}")
     # 
     # return False
+
+def generate_unique_filename(media_id: int, file_path: str, prefix: str, extension: str) -> str:
+    """
+    Generate unique filename for TV series episodes with season/episode numbers
+    
+    Args:
+        media_id: Database ID of the media
+        file_path: Path to the video file
+        prefix: Filename prefix (e.g., 'thumb', 'preview')
+        extension: File extension (e.g., '.jpg', '.mp4')
+        
+    Returns:
+        Unique filename with series/season/episode info
+    """
+    try:
+        # Get media info from API to determine if it's a TV series episode
+        media_info = get_media_info_from_api(media_id)
+        
+        if media_info and media_info.get('type') == 'episode':
+            # Extract series info
+            series_title = media_info.get('series_title', 'Unknown_Series')
+            season = media_info.get('season', 0)
+            episode = media_info.get('episode', 0)
+            
+            # Clean series title for filename
+            clean_series = sanitize_filename(series_title)
+            
+            # Generate filename with series/season/episode info
+            if season > 0 and episode > 0:
+                filename = f"{prefix}_{media_id}_{clean_series}_S{season:02d}E{episode:02d}{extension}"
+            else:
+                filename = f"{prefix}_{media_id}_{clean_series}_Episode{extension}"
+        else:
+            # For movies, try to get clean title
+            title = media_info.get('title', 'Unknown') if media_info else 'Unknown'
+            clean_title = sanitize_filename(title)
+            filename = f"{prefix}_{media_id}_{clean_title}{extension}"
+            
+        logger.info(f"📝 Generated unique filename: {filename}")
+        return filename
+        
+    except Exception as e:
+        logger.warning(f"⚠️ Failed to generate unique filename, using fallback: {e}")
+        # Fallback to simple naming
+        return f"{prefix}_{media_id}{extension}"
+
+def get_media_info_from_api(media_id: int) -> dict:
+    """
+    Fetch media information from API to determine series/season/episode info
+    
+    Args:
+        media_id: Database ID of the media
+        
+    Returns:
+        Dict with media information or None if failed
+    """
+    try:
+        import requests
+        api_url = os.getenv('API_URL', 'http://localhost:8251')
+        
+        response = requests.get(
+            f"{api_url}/api/media/{media_id}",
+            timeout=5
+        )
+        
+        if response.status_code == 200:
+            return response.json()
+        else:
+            logger.warning(f"⚠️ Failed to fetch media info: HTTP {response.status_code}")
+            return None
+            
+    except Exception as e:
+        logger.error(f"API media info fetch error: {e}")
+        return None
+
+def sanitize_filename(filename: str) -> str:
+    """
+    Sanitize filename by removing invalid characters and limiting length
+    
+    Args:
+        filename: Original filename
+        
+    Returns:
+        Sanitized filename safe for filesystem
+    """
+    if not filename:
+        return "Unknown"
+    
+    # Remove or replace invalid characters
+    sanitized = re.sub(r'[<>:"/\\|?*]', '_', filename)
+    
+    # Remove extra spaces and replace with underscores
+    sanitized = re.sub(r'\s+', '_', sanitized.strip())
+    
+    # Remove year patterns in parentheses for cleaner filenames
+    sanitized = re.sub(r'\s*\(\d{4}\)\s*', '', sanitized)
+    
+    # Limit length to prevent filesystem issues
+    if len(sanitized) > 50:
+        sanitized = sanitized[:50]
+    
+    # Remove trailing underscores
+    sanitized = sanitized.strip('_')
+    
+    # Ensure we have something
+    if not sanitized:
+        sanitized = "Unknown"
+    
+    return sanitized

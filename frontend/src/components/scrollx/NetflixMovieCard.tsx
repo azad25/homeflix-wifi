@@ -4,7 +4,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Play, Info, Plus, Check, ChevronDown, Volume2, VolumeX, Clock, Star, ThumbsUp } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Media } from '@/types/media';
-import { getApiUrl } from '@/lib/api';
+import { getApiUrl, getAssetUrl } from '@/lib/api';
 import { useRouter } from 'next/navigation';
 import { useAudio } from '@/contexts/EnhancedAudioContext';
 import { cleanMovieTitle } from '@/lib/titleUtils';
@@ -52,32 +52,17 @@ const NetflixMovieCard: React.FC<NetflixMovieCardProps> = ({
   const apiUrl = getApiUrl();
   
   const getThumbnailUrl = () => {
-    // Try poster first for portrait variant, fallback to thumbnail
-    if (variant === 'portrait') {
-      return `${apiUrl}/api/posters/${media.id}`;
-    }
-    return `${apiUrl}/api/thumbnails/${media.id}`;
+    const urls = getAssetUrl('thumbnail', media.id, true);
+    return Array.isArray(urls) ? urls[0] : urls;
   };
 
   const getFallbackThumbnailUrl = () => {
-    // If poster fails, try thumbnail, and vice versa
-    if (variant === 'portrait') {
-      return `${apiUrl}/api/thumbnails/${media.id}`;
-    }
-    return `${apiUrl}/api/posters/${media.id}`;
+    const urls = getAssetUrl('thumbnail', media.id, true);
+    return Array.isArray(urls) ? urls[1] : urls;
   };
 
   const getPreviewUrl = () => {
-    // First try to get the actual media file for full experience
-    if (media.file_path) {
-      return `${apiUrl}/api/stream/${media.id}`;
-    }
-    // Fallback to trailer if available
-    if (media.trailer_path) {
-      return `${apiUrl}/api/admin/assets/${media.trailer_path.split('/').pop()}`;
-    }
-    // Final fallback to preview clips
-    return `${apiUrl}/api/preview-clips/${media.id}`;
+    return getAssetUrl('preview', media.id, false);
   };
 
   const sizeClasses = {
@@ -100,45 +85,12 @@ const NetflixMovieCard: React.FC<NetflixMovieCardProps> = ({
       clearTimeout(hideTimeoutRef.current);
     }
 
-    // Netflix-like delay before showing preview
     hoverTimeoutRef.current = setTimeout(() => {
       setShowPreview(true);
-      
-      // Start video preview
-      if (videoRef.current && isHovered) {
-        const video = videoRef.current;
-        
-        const handleLoadedData = () => {
-          setIsVideoLoaded(true);
-          // Register as current audio source and mute others
-          muteAll();
-          setCurrentAudioElement(video);
-          
-          // Try to play with sound first
-          video.muted = false;
-          video.volume = 0.3;
-          video.play().then(() => {
-            setIsPlaying(true);
-          }).catch(() => {
-            // Fallback to muted if autoplay with sound fails
-            video.muted = true;
-            video.play().then(() => {
-              setIsPlaying(true);
-            }).catch(() => {
-              setIsVideoLoaded(false);
-              setIsPlaying(false);
-            });
-          });
-        };
-
-        const handleVideoError = () => {
-          setIsVideoLoaded(false);
-          setIsPlaying(false);
-        };
-
-        video.addEventListener('loadeddata', handleLoadedData);
-        video.addEventListener('error', handleVideoError);
-        video.load();
+      const previewUrl = getPreviewUrl();
+      if (previewUrl && videoRef.current) {
+        videoRef.current.src = previewUrl as string;
+        videoRef.current.load();
       }
     }, 800);
   };
@@ -267,15 +219,16 @@ const NetflixMovieCard: React.FC<NetflixMovieCardProps> = ({
 
         {/* Preview Video */}
         {showPreview && (
-          <UltraFastPreview
-            media={media}
+          <video
+            ref={videoRef}
             className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-300 ${
               isVideoLoaded ? 'opacity-100' : 'opacity-0'
             }`}
+            autoPlay
             muted={isMuted}
             loop
-            autoPlay
-            onCanPlay={handleVideoLoad}
+            playsInline
+            onLoadedData={handleVideoLoad}
             onError={handleVideoError}
           />
         )}

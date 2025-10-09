@@ -401,7 +401,13 @@ func (t *TMDBService) GenerateMediaMetadata(filePath, title string) (*interfaces
 }
 
 // CleanTitle is a public method that exposes the title cleaning functionality
+// For TV series episodes, it preserves season/episode information for unique identification
 func (t *TMDBService) CleanTitle(title string) string {
+	// Check if this is a TV series episode first
+	if t.isEpisodeFile(title) {
+		return t.cleanEpisodeTitle(title)
+	}
+	
 	cleaned := t.cleanTitle(title)
 	
 	// Safety check - never return empty title
@@ -457,6 +463,50 @@ func (t *TMDBService) removeYearFromTitle(title string) string {
 	title = strings.TrimSpace(title)
 	
 	return title
+}
+
+// isEpisodeFile detects if a filename represents a TV series episode
+func (t *TMDBService) isEpisodeFile(title string) bool {
+	// Check for common episode patterns
+	episodePatterns := []string{
+		`S\d{1,2}E\d{1,2}`,     // S01E01, S1E1
+		`\d{1,2}x\d{1,2}`,      // 1x01, 12x05
+		`Episode\s+\d+`,        // Episode 1, Episode 12
+		`Ep\s*\d+`,             // Ep1, Ep 12
+		`E\d{1,2}`,             // E01, E1
+	}
+	
+	for _, pattern := range episodePatterns {
+		if matched, _ := regexp.MatchString(`(?i)`+pattern, title); matched {
+			return true
+		}
+	}
+	
+	return false
+}
+
+// cleanEpisodeTitle cleans episode titles while preserving season/episode information
+func (t *TMDBService) cleanEpisodeTitle(title string) string {
+	// Extract season/episode info first
+	seasonEpisodePattern := regexp.MustCompile(`(?i)(S\d{1,2}E\d{1,2}|\d{1,2}x\d{1,2}|Episode\s+\d+|Ep\s*\d+|E\d{1,2})`)
+	seasonEpisodeMatch := seasonEpisodePattern.FindString(title)
+	
+	// Clean the title using standard cleaning
+	cleaned := t.cleanTitle(title)
+	
+	// If we found season/episode info and it's not in the cleaned title, append it
+	if seasonEpisodeMatch != "" {
+		// Normalize the season/episode format
+		normalizedSE := strings.ToUpper(seasonEpisodeMatch)
+		normalizedSE = regexp.MustCompile(`\s+`).ReplaceAllString(normalizedSE, "")
+		
+		// Check if season/episode info is already in cleaned title
+		if !strings.Contains(strings.ToUpper(cleaned), normalizedSE) {
+			cleaned = cleaned + " " + normalizedSE
+		}
+	}
+	
+	return cleaned
 }
 
 func (t *TMDBService) cleanTitle(title string) string {

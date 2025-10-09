@@ -7,7 +7,7 @@ import Navbar from "@/components/Navbar";
 import VideoPlayer from '@/components/VideoPlayer';
 import PageTransition from '@/components/PageTransition';
 import { getApiUrl } from '@/lib/api';
-import { useGlobalCache, useBatchCache, useRecommendationCache } from '@/hooks/useGlobalCache';
+import { useGlobalCache, useBatchCache, useRecommendations } from '@/hooks/useGlobalCache';
 import { fetchMedia, fetchRecommendations } from '@/lib/globalApiCache';
 import { Media } from '@/types/media';
 import { ScrollXHero, NetflixHorizontalRow } from '@/components/scrollx';
@@ -37,7 +37,7 @@ export default function Home() {
   );
   
   // Use global cache for recommendations
-  const { data: recommendationsData } = useRecommendationCache('trending', 20);
+  const { data: recommendationsData } = useRecommendations('trending', 20);
 
   useEffect(() => {
     // Process cached data when available
@@ -133,8 +133,8 @@ export default function Home() {
   const handleSearch = async (query: string) => {
     try {
       const apiUrl = getApiUrl();
-      const response = await fetch(`${apiUrl}/api/search?q=${encodeURIComponent(query)}`);
-      const data = await response.json();
+      const { globalCachedFetch } = await import('@/lib/globalApiCache');
+      const data = await globalCachedFetch(`${apiUrl}/api/search?q=${encodeURIComponent(query)}`);
       setSearchResults(data.media || []);
     } catch (error) {
       console.error("Error searching:", error);

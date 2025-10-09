@@ -7,25 +7,25 @@
 import { apiCache, mediaCache, recommendationCache, assetCache } from './apiCache';
 import { getApiUrl } from './api';
 
-// Cache configuration for different API endpoint types
+// Cache configuration for different API endpoint types - reduced for real-time data
 const CACHE_CONFIGS = {
-  // Media data - longer cache since it changes infrequently
-  media: { ttl: 15 * 60 * 1000, maxSize: 200 }, // 15 minutes
+  // Media data - short cache for real-time updates
+  media: { ttl: 30 * 1000, maxSize: 200 }, // Reduced to 30 seconds
   
-  // Recommendations - shorter cache for freshness
-  recommendations: { ttl: 5 * 60 * 1000, maxSize: 100 }, // 5 minutes
+  // Recommendations - short cache for fresh content
+  recommendations: { ttl: 60 * 1000, maxSize: 100 }, // Reduced to 1 minute
   
-  // Search results - medium cache
-  search: { ttl: 10 * 60 * 1000, maxSize: 150 }, // 10 minutes
+  // Search results - short cache
+  search: { ttl: 30 * 1000, maxSize: 150 }, // Reduced to 30 seconds
   
-  // Assets (thumbnails, posters, previews) - long cache
-  assets: { ttl: 60 * 60 * 1000, maxSize: 500 }, // 1 hour
+  // Assets (thumbnails, posters, previews) - moderate cache
+  assets: { ttl: 5 * 60 * 1000, maxSize: 500 }, // Reduced to 5 minutes
   
-  // Genres and static data - very long cache
-  static: { ttl: 2 * 60 * 60 * 1000, maxSize: 50 }, // 2 hours
+  // Genres and static data - moderate cache
+  static: { ttl: 10 * 60 * 1000, maxSize: 50 }, // Reduced to 10 minutes
   
-  // User-specific data - short cache
-  user: { ttl: 2 * 60 * 1000, maxSize: 100 }, // 2 minutes
+  // User-specific data - very short cache for real-time updates
+  user: { ttl: 15 * 1000, maxSize: 100 }, // Reduced to 15 seconds
   
   // Admin operations - no cache
   admin: { ttl: 0, maxSize: 0 }
@@ -33,6 +33,16 @@ const CACHE_CONFIGS = {
 
 // Request deduplication map
 const pendingRequests = new Map<string, Promise<any>>();
+
+// Request rate limiting - more aggressive limits
+const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
+const RATE_LIMIT_WINDOW = 60000; // 1 minute
+const RATE_LIMIT_MAX_REQUESTS = 15; // Further reduced to 15 requests per minute per endpoint
+
+// Request throttling for rapid successive calls
+const throttleMap = new Map<string, { lastCall: number; delay: number }>();
+const MIN_REQUEST_INTERVAL = 100; // Minimum 100ms between identical requests
+const BURST_THRESHOLD = 5; // Max 5 requests in burst before throttling
 
 // Hit rate tracking
 let totalRequests = 0;
@@ -75,6 +85,56 @@ function generateCacheKey(url: string, options?: RequestInit): string {
 }
 
 /**
+ * Check rate limit for endpoint
+ */
+function checkRateLimit(endpoint: string): boolean {
+  const now = Date.now();
+  const key = endpoint.split('?')[0]; // Remove query params for rate limiting
+  
+  const limit = rateLimitMap.get(key);
+  if (!limit || now > limit.resetTime) {
+    // Reset or initialize rate limit
+    rateLimitMap.set(key, { count: 1, resetTime: now + RATE_LIMIT_WINDOW });
+    return true;
+  }
+  
+  if (limit.count >= RATE_LIMIT_MAX_REQUESTS) {
+    console.warn(`⚠️ Rate limit exceeded for: ${key} (${limit.count}/${RATE_LIMIT_MAX_REQUESTS})`);
+    return false;
+  }
+  
+  limit.count++;
+  return true;
+}
+
+/**
+ * Check throttling for rapid successive requests
+ */
+function checkThrottle(cacheKey: string): boolean {
+  const now = Date.now();
+  const throttle = throttleMap.get(cacheKey);
+  
+  if (!throttle) {
+    throttleMap.set(cacheKey, { lastCall: now, delay: 0 });
+    return true;
+  }
+  
+  const timeSinceLastCall = now - throttle.lastCall;
+  
+  // If too soon since last call, throttle
+  if (timeSinceLastCall < MIN_REQUEST_INTERVAL + throttle.delay) {
+    console.log(`🚫 Throttling request: ${cacheKey} (${timeSinceLastCall}ms since last call)`);
+    return false;
+  }
+  
+  // Increase delay for rapid successive calls
+  const newDelay = timeSinceLastCall < 1000 ? Math.min(throttle.delay + 50, 500) : 0;
+  throttleMap.set(cacheKey, { lastCall: now, delay: newDelay });
+  
+  return true;
+}
+
+/**
  * Global cached fetch function that automatically handles all API requests
  */
 export async function globalCachedFetch<T = any>(
@@ -100,22 +160,63 @@ export async function globalCachedFetch<T = any>(
   const cacheKey = generateCacheKey(url, options);
   const cache = getCacheInstance(cacheType);
   
-  // Check cache first
-  const cached = cache.get<T>(cacheKey);
-  if (cached) {
-    cacheHits++;
-    return cached;
-  }
-  
-  // Check for pending request (deduplication)
+  // Check if identical request is already pending
   const pending = pendingRequests.get(cacheKey);
   if (pending) {
+    console.log(`🔄 Deduplicating request: ${url}`);
     return pending;
   }
-  
-  // Get stale data for fallback
-  const stale = staleWhileRevalidate ? cache.getStale<T>(cacheKey) : null;
-  
+
+  // Check throttling for rapid requests
+  if (!checkThrottle(cacheKey)) {
+    // If throttled, return cached data if available
+    const cached = cache.get<T>(cacheKey);
+    if (cached) {
+      console.log(`🚫 Throttled, serving cached data: ${url}`);
+      return cached;
+    }
+    // For throttled requests without cache, wait briefly then retry
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+
+  // Check rate limit
+  if (!checkRateLimit(url)) {
+    // If rate limited, try to return cached data even if stale
+    const cached = cache.get<T>(cacheKey);
+    if (cached) {
+      console.log(`⚠️ Rate limited, serving cached data: ${url}`);
+      return cached;
+    }
+    throw new Error(`Rate limit exceeded and no cached data available for: ${url}`);
+  }
+
+  // Check cache first (unless bypassing)
+  if (!bypassCache) {
+    const cached = cache.get<T>(cacheKey);
+    if (cached) {
+      cacheHits++;
+      console.log(`✅ Cache hit for: ${url}`);
+      return cached;
+    }
+    
+    // Stale-while-revalidate: return stale data immediately, fetch fresh in background
+    const stale = staleWhileRevalidate ? cache.getStale<T>(cacheKey) : null;
+    if (stale) {
+      cacheHits++;
+      console.log(`🔄 Serving stale data for: ${url}`);
+      
+      // Fetch fresh data in background (with deduplication)
+      if (!pendingRequests.has(cacheKey)) {
+        const backgroundPromise = makeRequestWithCache<T>(url, options, cache, cacheKey, customTTL || config.ttl)
+          .catch(console.error)
+          .finally(() => pendingRequests.delete(cacheKey));
+        pendingRequests.set(cacheKey, backgroundPromise);
+      }
+      
+      return stale;
+    }
+  }
+
   // Make new request
   const requestPromise = makeRequestWithCache<T>(url, options, cache, cacheKey, customTTL || config.ttl);
   pendingRequests.set(cacheKey, requestPromise);
@@ -125,6 +226,7 @@ export async function globalCachedFetch<T = any>(
     return result;
   } catch (error) {
     // Return stale data if available and request fails
+    const stale = staleWhileRevalidate ? cache.getStale<T>(cacheKey) : null;
     if (stale) {
       console.warn(`API request failed, returning stale data for: ${url}`, error);
       return stale;
@@ -218,12 +320,16 @@ export const fetchContinueWatching = () =>
 export const searchMedia = (query: string) => 
   globalCachedFetch(`${getApiUrl()}/api/search?q=${encodeURIComponent(query)}`);
 
-// Asset API calls
-export const fetchThumbnail = (id: string | number) => 
-  globalCachedFetch(`${getApiUrl()}/api/thumbnails/${id}`);
+// DISABLED: Asset API calls - return placeholder to prevent CORS errors
+export const fetchThumbnail = (id: string | number) => {
+  const placeholder = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjQwMCIgdmlld0JveD0iMCAwIDMwMCA0MDAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIzMDAiIGhlaWdodD0iNDAwIiBmaWxsPSJncmFkaWVudChsaW5lYXIsIDQ1ZGVnLCAjMTExLCAjMzMzKSIvPgo8dGV4dCB4PSIxNTAiIHk9IjIwMCIgZm9udC1mYW1pbHk9IkFyaWFsIiBmb250LXNpemU9IjI0IiBmaWxsPSIjZTUwOTE0IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj5Ib21lRmxpeDwvdGV4dD4KPHN2Zz4=';
+  return Promise.resolve({ url: placeholder, blob: () => Promise.resolve(new Blob()) });
+};
 
-export const fetchPoster = (id: string | number) => 
-  globalCachedFetch(`${getApiUrl()}/api/posters/${id}`);
+export const fetchPoster = (id: string | number) => {
+  const placeholder = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjQwMCIgdmlld0JveD0iMCAwIDMwMCA0MDAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIzMDAiIGhlaWdodD0iNDAwIiBmaWxsPSJncmFkaWVudChsaW5lYXIsIDQ1ZGVnLCAjMTExLCAjMzMzKSIvPgo8dGV4dCB4PSIxNTAiIHk9IjIwMCIgZm9udC1mYW1pbHk9IkFyaWFsIiBmb250LXNpemU9IjI0IiBmaWxsPSIjZTUwOTE0IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj5Ib21lRmxpeDwvdGV4dD4KPHN2Zz4=';
+  return Promise.resolve({ url: placeholder, blob: () => Promise.resolve(new Blob()) });
+};
 
 export const fetchPreviewClip = (id: string | number) => 
   globalCachedFetch(`${getApiUrl()}/api/preview-clips/${id}`);

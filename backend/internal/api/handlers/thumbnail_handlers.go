@@ -1002,9 +1002,20 @@ func GetPosterEnhanced(mediaService *services.MediaService) gin.HandlerFunc {
 func serveThumbnailWithFallbacks(media *models.Media, thumbnailService *services.ThumbnailService) (string, error) {
 	// Strategy 1: Use existing thumbnail path from database
 	if media.ThumbnailPath != "" {
+		// Try the path as-is first
 		if _, err := os.Stat(media.ThumbnailPath); err == nil {
 			return media.ThumbnailPath, nil
 		}
+		
+		// If relative path, try resolving to backend directory
+		if !strings.HasPrefix(media.ThumbnailPath, "/") && !strings.HasPrefix(media.ThumbnailPath, "./") {
+			backendPath := fmt.Sprintf("./backend/%s", media.ThumbnailPath)
+			if _, err := os.Stat(backendPath); err == nil {
+				log.Printf("✅ Resolved relative thumbnail path: %s -> %s", media.ThumbnailPath, backendPath)
+				return backendPath, nil
+			}
+		}
+		
 		log.Printf("⚠️ Database thumbnail path invalid: %s", media.ThumbnailPath)
 	}
 
@@ -1013,13 +1024,28 @@ func serveThumbnailWithFallbacks(media *models.Media, thumbnailService *services
 		return thumbnailPath, nil
 	}
 
-	// Strategy 3: Look for thumbnails in common locations
-	cleanTitle := cleanTitleForFilename(media.Title)
+	// Strategy 3: Look for thumbnails in common locations using multiple naming patterns
+	uniqueFilename := generateUniqueFilename(media.ID, media.Title, nil, nil, "thumb", ".jpg")
+	
+	// Clean title for actual file pattern matching
+	cleanTitle := strings.ReplaceAll(media.Title, " ", "_")
+	cleanTitle = strings.ReplaceAll(cleanTitle, ":", "")
+	cleanTitle = strings.ReplaceAll(cleanTitle, "(", "")
+	cleanTitle = strings.ReplaceAll(cleanTitle, ")", "")
+	cleanTitle = strings.ReplaceAll(cleanTitle, "'", "")
+	cleanTitle = strings.ReplaceAll(cleanTitle, "\"", "")
+	
 	possiblePaths := []string{
-		fmt.Sprintf("./thumbnails/thumb_%s.jpg", cleanTitle),
-		fmt.Sprintf("./backend/thumbnails/thumb_%s.jpg", cleanTitle),
+		// Original expected patterns
+		fmt.Sprintf("./thumbnails/%s", uniqueFilename),
+		fmt.Sprintf("./backend/thumbnails/%s", uniqueFilename),
 		fmt.Sprintf("./thumbnails/thumb_%d.jpg", media.ID),
 		fmt.Sprintf("./backend/thumbnails/thumb_%d.jpg", media.ID),
+		// Actual file patterns found in filesystem
+		fmt.Sprintf("./backend/thumbnails/thumb_%s.jpg", cleanTitle),
+		fmt.Sprintf("./thumbnails/thumb_%s.jpg", cleanTitle),
+		fmt.Sprintf("./backend/thumbnails/thumb_%d_%s.jpg", media.ID, cleanTitle),
+		fmt.Sprintf("./thumbnails/thumb_%d_%s.jpg", media.ID, cleanTitle),
 	}
 
 	for _, path := range possiblePaths {
@@ -1035,17 +1061,39 @@ func serveThumbnailWithFallbacks(media *models.Media, thumbnailService *services
 func servePreviewWithFallbacks(media *models.Media, thumbnailService *services.ThumbnailService) (string, error) {
 	// Strategy 1: Use existing preview path from database
 	if media.PreviewPath != "" {
+		// Try the path as-is first
 		if _, err := os.Stat(media.PreviewPath); err == nil {
 			return media.PreviewPath, nil
 		}
+		
+		// If relative path, try resolving to backend directory
+		if !strings.HasPrefix(media.PreviewPath, "/") && !strings.HasPrefix(media.PreviewPath, "./") {
+			backendPath := fmt.Sprintf("./backend/%s", media.PreviewPath)
+			if _, err := os.Stat(backendPath); err == nil {
+				log.Printf("✅ Resolved relative preview path: %s -> %s", media.PreviewPath, backendPath)
+				return backendPath, nil
+			}
+		}
+		
 		log.Printf("⚠️ Database preview path invalid: %s", media.PreviewPath)
 	}
 
 	// Strategy 2: Use preview clip path from database
 	if media.PreviewClipPath != "" {
+		// Try the path as-is first
 		if _, err := os.Stat(media.PreviewClipPath); err == nil {
 			return media.PreviewClipPath, nil
 		}
+		
+		// If relative path, try resolving to backend directory
+		if !strings.HasPrefix(media.PreviewClipPath, "/") && !strings.HasPrefix(media.PreviewClipPath, "./") {
+			backendPath := fmt.Sprintf("./backend/%s", media.PreviewClipPath)
+			if _, err := os.Stat(backendPath); err == nil {
+				log.Printf("✅ Resolved relative preview clip path: %s -> %s", media.PreviewClipPath, backendPath)
+				return backendPath, nil
+			}
+		}
+		
 		log.Printf("⚠️ Database preview clip path invalid: %s", media.PreviewClipPath)
 	}
 
@@ -1054,13 +1102,28 @@ func servePreviewWithFallbacks(media *models.Media, thumbnailService *services.T
 		return previewPath, nil
 	}
 
-	// Strategy 4: Look for previews in common locations
-	cleanTitle := cleanTitleForFilename(media.Title)
+	// Strategy 4: Look for previews in common locations using multiple naming patterns
+	uniqueFilename := generateUniqueFilename(media.ID, media.Title, nil, nil, "preview", ".mp4")
+	
+	// Clean title for actual file pattern matching
+	cleanTitle := strings.ReplaceAll(media.Title, " ", "_")
+	cleanTitle = strings.ReplaceAll(cleanTitle, ":", "")
+	cleanTitle = strings.ReplaceAll(cleanTitle, "(", "")
+	cleanTitle = strings.ReplaceAll(cleanTitle, ")", "")
+	cleanTitle = strings.ReplaceAll(cleanTitle, "'", "")
+	cleanTitle = strings.ReplaceAll(cleanTitle, "\"", "")
+	
 	possiblePaths := []string{
-		fmt.Sprintf("./previews/preview_%s.mp4", cleanTitle),
-		fmt.Sprintf("./backend/previews/preview_%s.mp4", cleanTitle),
+		// Original expected patterns
+		fmt.Sprintf("./previews/%s", uniqueFilename),
+		fmt.Sprintf("./backend/previews/%s", uniqueFilename),
 		fmt.Sprintf("./previews/preview_%d.mp4", media.ID),
 		fmt.Sprintf("./backend/previews/preview_%d.mp4", media.ID),
+		// Actual file patterns found in filesystem
+		fmt.Sprintf("./backend/previews/preview_%s.mp4", cleanTitle),
+		fmt.Sprintf("./previews/preview_%s.mp4", cleanTitle),
+		fmt.Sprintf("./backend/previews/preview_%d_%s.mp4", media.ID, cleanTitle),
+		fmt.Sprintf("./previews/preview_%d_%s.mp4", media.ID, cleanTitle),
 	}
 
 	for _, path := range possiblePaths {
@@ -1076,21 +1139,46 @@ func servePreviewWithFallbacks(media *models.Media, thumbnailService *services.T
 func servePosterWithFallbacks(media *models.Media) (string, error) {
 	// Strategy 1: Use existing poster path from database
 	if media.PosterPath != "" {
+		// Try the path as-is first
 		if _, err := os.Stat(media.PosterPath); err == nil {
 			return media.PosterPath, nil
 		}
+		
+		// If relative path, try resolving to backend directory
+		if !strings.HasPrefix(media.PosterPath, "/") && !strings.HasPrefix(media.PosterPath, "./") {
+			backendPath := fmt.Sprintf("./backend/%s", media.PosterPath)
+			if _, err := os.Stat(backendPath); err == nil {
+				log.Printf("✅ Resolved relative poster path: %s -> %s", media.PosterPath, backendPath)
+				return backendPath, nil
+			}
+		}
+		
 		log.Printf("⚠️ Database poster path invalid: %s", media.PosterPath)
 	}
 
-	// Strategy 2: Look for posters in common locations
-	cleanTitle := cleanTitleForFilename(media.Title)
+	// Strategy 2: Look for posters in common locations using multiple naming patterns
+	uniqueFilename := generateUniqueFilename(media.ID, media.Title, nil, nil, "poster", ".jpg")
+	
+	// Clean title for actual file pattern matching
+	cleanTitle := strings.ReplaceAll(media.Title, " ", "_")
+	cleanTitle = strings.ReplaceAll(cleanTitle, ":", "")
+	cleanTitle = strings.ReplaceAll(cleanTitle, "(", "")
+	cleanTitle = strings.ReplaceAll(cleanTitle, ")", "")
+	cleanTitle = strings.ReplaceAll(cleanTitle, "'", "")
+	cleanTitle = strings.ReplaceAll(cleanTitle, "\"", "")
+	
 	possiblePosterPaths := []string{
-		fmt.Sprintf("./posters/poster_%s.jpg", cleanTitle),
-		fmt.Sprintf("./backend/posters/poster_%s.jpg", cleanTitle),
+		// Original expected patterns
+		fmt.Sprintf("./posters/%s", uniqueFilename),
+		fmt.Sprintf("./backend/posters/%s", uniqueFilename),
 		fmt.Sprintf("./posters/poster_%d.jpg", media.ID),
 		fmt.Sprintf("./backend/posters/poster_%d.jpg", media.ID),
-		fmt.Sprintf("./assets/posters/poster_%s.jpg", cleanTitle),
 		fmt.Sprintf("./assets/posters/poster_%d.jpg", media.ID),
+		// Actual file patterns found in filesystem
+		fmt.Sprintf("./backend/posters/poster_%s.jpg", cleanTitle),
+		fmt.Sprintf("./posters/poster_%s.jpg", cleanTitle),
+		fmt.Sprintf("./backend/posters/poster_%d_%s.jpg", media.ID, cleanTitle),
+		fmt.Sprintf("./posters/poster_%d_%s.jpg", media.ID, cleanTitle),
 	}
 
 	for _, path := range possiblePosterPaths {
@@ -1126,6 +1214,19 @@ func servePosterWithFallbacks(media *models.Media) (string, error) {
 	}
 
 	return "", fmt.Errorf("no poster or thumbnail found for media %d", media.ID)
+}
+
+// generateUniqueFilename creates unique filename for TV series episodes with season/episode numbers
+func generateUniqueFilename(mediaID uint, title string, season *int, episode *int, prefix, extension string) string {
+	// For TV series episodes, include season/episode info
+	if season != nil && episode != nil && *season > 0 && *episode > 0 {
+		cleanTitle := cleanTitleForFilename(title)
+		return fmt.Sprintf("%s_%d_%s_S%02dE%02d%s", prefix, mediaID, cleanTitle, *season, *episode, extension)
+	}
+	
+	// For movies or episodes without season/episode info
+	cleanTitle := cleanTitleForFilename(title)
+	return fmt.Sprintf("%s_%d_%s%s", prefix, mediaID, cleanTitle, extension)
 }
 
 // cleanTitleForFilename cleans a title to be safe for use in filenames

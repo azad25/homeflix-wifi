@@ -31,16 +31,21 @@ export const ContinueWatching: React.FC<ContinueWatchingProps> = ({
   const [continueItems, setContinueItems] = useState<ContinueWatchingItem[]>([]);
   const [error, setError] = useState<string | null>(null);
   
-  // Use global cache for continue watching data
+  // Use global cache for continue watching data with longer cache and debouncing
   const { data: continueData, loading } = useGlobalCache<ContinueWatchingItem[]>(
     `${getApiUrl()}/api/playback/continue?limit=20`,
     { headers: { 'X-User-ID': '1' } },
-    { customTTL: 2 * 60 * 1000 } // 2 minutes cache for user progress data
+    { 
+      customTTL: 5 * 60 * 1000, // 5 minutes cache for user progress data
+      staleWhileRevalidate: true,
+      refetchInterval: undefined // Disable auto-refetch to prevent excessive calls
+    }
   );
 
   useEffect(() => {
-    // Update continue watching items when cache data is available
-    if (continueData) {
+    // Debounce updates to prevent rapid successive processing
+    const debounceTimer = setTimeout(() => {
+      if (continueData) {
       // Filter and process the data
       const validItems = continueData
         .filter((item: ContinueWatchingItem) => {
@@ -78,10 +83,13 @@ export const ContinueWatching: React.FC<ContinueWatchingProps> = ({
         // Limit to 10 items
         .slice(0, 10);
       
-      setContinueItems(validItems);
-      setError(null);
-      console.log(`✅ Loaded ${validItems.length} valid continue watching items`);
-    }
+        setContinueItems(validItems);
+        setError(null);
+        console.log(`✅ Loaded ${validItems.length} valid continue watching items`);
+      }
+    }, 100); // 100ms debounce
+
+    return () => clearTimeout(debounceTimer);
   }, [continueData]);
 
   const refreshData = () => {

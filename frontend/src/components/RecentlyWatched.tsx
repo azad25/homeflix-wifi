@@ -27,7 +27,7 @@ export const RecentlyWatched: React.FC<RecentlyWatchedProps> = ({
   onPlay,
   onInfo
 }) => {
-  // Use global cache for recently watched data
+  // Use global cache for recently watched data with longer cache and debouncing
   const { data: recentItems, loading } = useGlobalCache<RecentlyWatchedItem[]>(
     `${getApiUrl()}/api/playback/recently-watched`,
     {
@@ -35,7 +35,11 @@ export const RecentlyWatched: React.FC<RecentlyWatchedProps> = ({
         'X-User-ID': '1' // Default user for now
       }
     },
-    { customTTL: 5 * 60 * 1000 } // 5 minutes cache for recently watched
+    { 
+      customTTL: 10 * 60 * 1000, // 10 minutes cache for recently watched
+      staleWhileRevalidate: true,
+      refetchInterval: undefined // Disable auto-refetch to prevent excessive calls
+    }
   );
 
   const formatProgress = (progressSeconds: number, durationSeconds: number) => {

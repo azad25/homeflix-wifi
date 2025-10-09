@@ -30,13 +30,13 @@ const EpisodeList: React.FC<EpisodeListProps> = ({
 
   const fetchEpisodes = async () => {
     try {
-      const response = await fetch(`${getApiUrl()}/api/media`);
-      const allMedia = await response.json();
+      const { globalCachedFetch } = await import('@/lib/globalApiCache');
+      const episodeData = await globalCachedFetch(`${getApiUrl()}/api/media?type=episode&series_id=${seriesId}&season=${selectedSeason}&limit=100`);
       
       // Filter episodes for this series and season
-      const seriesEpisodes = allMedia.filter(
+      const seriesEpisodes = episodeData.filter(
         (m: Media) => 
-          (m.series_id === seriesId || m.uuid === seriesId) && 
+          m.series_id === seriesId && 
           (m.season_number === selectedSeason || m.season === selectedSeason) &&
           m.type === 'episode'
       ).sort((a: Media, b: Media) => 
@@ -140,12 +140,12 @@ const EpisodeList: React.FC<EpisodeListProps> = ({
                 <div className="relative flex-shrink-0">
                   <div className="w-40 h-24 bg-zinc-800 rounded overflow-hidden relative">
                     <Image
-                      src={`${getApiUrl()}/api/posters/${episode.uuid || episode.id}`}
+                      src={`${getApiUrl()}/api/posters/${episode.id}`}
                       alt={episode.title}
                       fill
                       onError={(e) => {
                         const target = e.target as HTMLImageElement;
-                        target.src = `${getApiUrl()}/api/thumbnails/${episode.uuid || episode.id}`;
+                        target.src = `${getApiUrl()}/api/thumbnails/${episode.id}`;
                         // If thumbnail also fails, hide the image
                         target.onerror = () => {
                           target.style.display = 'none';

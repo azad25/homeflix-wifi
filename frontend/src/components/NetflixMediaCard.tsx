@@ -4,7 +4,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Play, Info, Plus, Check } from 'lucide-react';
 import { Media } from '@/types/media';
 import { getApiUrl } from '@/lib/api';
-import { useAssetCache } from '@/hooks/useGlobalCache';
+import { useAssetUrl } from '@/hooks/useGlobalCache';
 import { globalCachedFetch } from '@/lib/globalApiCache';
 
 interface NetflixMediaCardProps {
@@ -31,10 +31,10 @@ const NetflixMediaCard: React.FC<NetflixMediaCardProps> = ({
   const [imageError, setImageError] = useState(false);
   const [previewError, setPreviewError] = useState(false);
   
-  // Use global cache for assets
-  const { data: posterUrl, loading: posterLoading } = useAssetCache('poster', media.id);
-  const { data: thumbnailUrl, loading: thumbnailLoading } = useAssetCache('thumbnail', media.id);
-  const { data: previewUrl, loading: previewLoading } = useAssetCache('preview-clips', media.id);
+  // Use global cache for assets - backend expects numeric IDs, not UUIDs
+  const { data: posterUrl, loading: posterLoading } = useAssetUrl('posters', media.id.toString());
+  const { data: thumbnailUrl, loading: thumbnailLoading } = useAssetUrl('thumbnails', media.id.toString());
+  const { data: previewUrl, loading: previewLoading } = useAssetUrl('previews', media.id.toString());
   
   const isLoading = posterLoading || thumbnailLoading || (showPreviewOnHover && previewLoading);
   
@@ -100,18 +100,10 @@ const NetflixMediaCard: React.FC<NetflixMediaCardProps> = ({
   };
 
   // Generate fallback image URL with multiple attempts
-  const getFallbackImageUrl = () => {
-    const apiUrl = getApiUrl();
-    const attempts = [
-      `${apiUrl}/api/posters/${media.id}`,
-      `${apiUrl}/api/thumbnails/${media.id}`,
-      `${apiUrl}/api/assets/posters/${media.id}`,
-      `${apiUrl}/api/assets/thumbnails/${media.id}`,
-      // Cache busting fallback
-      `${apiUrl}/api/posters/${media.id}?t=${Date.now()}`,
-      `${apiUrl}/api/thumbnails/${media.id}?t=${Date.now()}`
-    ];
-    return attempts;
+  // DISABLED: Return placeholder to prevent CORS errors
+  const getImageUrls = () => {
+    const placeholder = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjQwMCIgdmlld0JveD0iMCAwIDMwMCA0MDAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIzMDAiIGhlaWdodD0iNDAwIiBmaWxsPSJncmFkaWVudChsaW5lYXIsIDQ1ZGVnLCAjMTExLCAjMzMzKSIvPgo8dGV4dCB4PSIxNTAiIHk9IjIwMCIgZm9udC1mYW1pbHk9IkFyaWFsIiBmb250LXNpemU9IjI0IiBmaWxsPSIjZTUwOTE0IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj5Ib21lRmxpeDwvdGV4dD4KPHN2Zz4=';
+    return [placeholder, placeholder, placeholder];
   };
 
   const formatRating = (rating: number) => {
@@ -163,29 +155,10 @@ const NetflixMediaCard: React.FC<NetflixMediaCardProps> = ({
             alt={media.title}
             className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
             onError={() => {
-              // Try fallback URLs on error
-              const fallbackUrls = getFallbackImageUrl();
-              const img = document.createElement('img');
-              let currentIndex = 0;
-              
-              const tryNextFallback = () => {
-                if (currentIndex < fallbackUrls.length) {
-                  img.src = fallbackUrls[currentIndex];
-                  img.onload = () => {
-                    // If this fallback works, update the main image
-                    const mainImg = document.querySelector(`img[alt="${media.title}"]`) as HTMLImageElement;
-                    if (mainImg) mainImg.src = fallbackUrls[currentIndex];
-                  };
-                  img.onerror = () => {
-                    currentIndex++;
-                    tryNextFallback();
-                  };
-                } else {
-                  handleImageError();
-                }
-              };
-              
-              tryNextFallback();
+              // DISABLED: Use placeholder instead of fallback URLs to prevent CORS errors
+              const placeholder = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjQwMCIgdmlld0JveD0iMCAwIDMwMCA0MDAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIzMDAiIGhlaWdodD0iNDAwIiBmaWxsPSJncmFkaWVudChsaW5lYXIsIDQ1ZGVnLCAjMTExLCAjMzMzKSIvPgo8dGV4dCB4PSIxNTAiIHk9IjIwMCIgZm9udC1mYW1pbHk9IkFyaWFsIiBmb250LXNpemU9IjI0IiBmaWxsPSIjZTUwOTE0IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj5Ib21lRmxpeDwvdGV4dD4KPHN2Zz4=';
+              const mainImg = document.querySelector(`img[alt="${media.title}"]`) as HTMLImageElement;
+              if (mainImg) mainImg.src = placeholder;
             }}
             loading={priority === 'high' ? 'eager' : 'lazy'}
           />

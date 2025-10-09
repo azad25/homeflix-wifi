@@ -285,14 +285,8 @@ func (s *ThumbnailService) processThumbnailOptimized(task ProcessingTask) (strin
 		episode = task.Episode
 	}
 
-	// Generate filename with season and episode info if available
-	cleanTitle := cleanTitleForFilename(task.Title)
-	var filename string
-	if season != nil && episode != nil {
-		filename = fmt.Sprintf("thumb_%s_S%02dE%02d.jpg", cleanTitle, *season, *episode)
-	} else {
-		filename = fmt.Sprintf("thumb_%s.jpg", cleanTitle)
-	}
+	// Generate unique filename with season and episode info if available
+	filename := generateUniqueFilename(task.MediaID, task.Title, season, episode, "thumb", ".jpg")
 
 	// Try root folder first (preferred location)
 	rootThumbnailPath := filepath.Join("./thumbnails", filename)
@@ -348,9 +342,8 @@ func (s *ThumbnailService) processThumbnailOptimized(task ProcessingTask) (strin
 
 // processPreviewOptimized processes preview generation with hardware acceleration and ALAC audio
 func (wp *WorkerPool) processPreviewOptimized(task ProcessingTask) (string, error) {
-	// Create filename for HD preview clip using cleaned title
-	cleanTitle := cleanTitleForFilename(task.Title)
-	filename := fmt.Sprintf("preview_%s.mp4", cleanTitle)
+	// Create unique filename for HD preview clip
+	filename := generateUniqueFilename(task.MediaID, task.Title, nil, nil, "preview", ".mp4")
 
 	// Try root folder first (preferred location)
 	rootPreviewPath := filepath.Join("./previews", filename)
@@ -675,9 +668,8 @@ func buildPreviewCommand(videoPath, outputPath, startTime string, duration int, 
 
 // GenerateThumbnail generates thumbnail asynchronously using optimized worker pool
 func (s *ThumbnailService) GenerateThumbnail(videoPath string, mediaID uint, title string) (string, error) {
-	// Check if thumbnail already exists
-	cleanTitle := cleanTitleForFilename(title)
-	filename := fmt.Sprintf("thumb_%s.jpg", cleanTitle)
+	// Check if thumbnail already exists using unique naming
+	filename := generateUniqueFilename(mediaID, title, nil, nil, "thumb", ".jpg")
 
 	rootThumbnailPath := filepath.Join("./thumbnails", filename)
 	if _, err := os.Stat(rootThumbnailPath); err == nil {
@@ -1170,8 +1162,7 @@ func (s *ThumbnailService) createPlaceholderThumbnail(mediaID uint, thumbnailPat
 
 // ServeThumbnail serves a thumbnail file
 func (s *ThumbnailService) ServeThumbnail(mediaID uint, title string) (string, error) {
-	cleanTitle := s.cleanTitleForFilename(title)
-	filename := fmt.Sprintf("thumb_%s.jpg", cleanTitle)
+	filename := generateUniqueFilename(mediaID, title, nil, nil, "thumb", ".jpg")
 
 	// Check root folder first
 	rootThumbnailPath := filepath.Join("./thumbnails", filename)
@@ -1190,8 +1181,7 @@ func (s *ThumbnailService) ServeThumbnail(mediaID uint, title string) (string, e
 
 // ServePreviewClip serves a preview clip file
 func (s *ThumbnailService) ServePreviewClip(mediaID uint, title string) (string, error) {
-	cleanTitle := s.cleanTitleForFilename(title)
-	filename := fmt.Sprintf("preview_%s.mp4", cleanTitle)
+	filename := generateUniqueFilename(mediaID, title, nil, nil, "preview", ".mp4")
 
 	// Check root folder first
 	rootPreviewPath := filepath.Join("./previews", filename)
@@ -1302,6 +1292,19 @@ func runCommandWithTimeout(cmd *exec.Cmd, timeout time.Duration) error {
 	}
 }
 
+// generateUniqueFilename creates unique filename for TV series episodes with season/episode numbers
+func generateUniqueFilename(mediaID uint, title string, season *int, episode *int, prefix, extension string) string {
+	// For TV series episodes, include season/episode info
+	if season != nil && episode != nil && *season > 0 && *episode > 0 {
+		cleanTitle := cleanTitleForFilename(title)
+		return fmt.Sprintf("%s_%d_%s_S%02dE%02d%s", prefix, mediaID, cleanTitle, *season, *episode, extension)
+	}
+	
+	// For movies or episodes without season/episode info
+	cleanTitle := cleanTitleForFilename(title)
+	return fmt.Sprintf("%s_%d_%s%s", prefix, mediaID, cleanTitle, extension)
+}
+
 // cleanTitleForFilename creates a safe filename from a title
 func cleanTitleForFilename(title string) string {
 	// Remove or replace characters that are not safe for filenames
@@ -1316,14 +1319,17 @@ func cleanTitleForFilename(title string) string {
 	cleaned = strings.ReplaceAll(cleaned, "|", "")
 	cleaned = strings.ReplaceAll(cleaned, "\"", "")
 	cleaned = strings.ReplaceAll(cleaned, "'", "")
+	
+	// Remove year patterns in parentheses for cleaner filenames
+	cleaned = regexp.MustCompile(`\s*\(\d{4}\)\s*`).ReplaceAllString(cleaned, "")
 
 	// Remove multiple underscores and trim
 	cleaned = regexp.MustCompile(`_+`).ReplaceAllString(cleaned, "_")
 	cleaned = strings.Trim(cleaned, "_")
 
 	// Limit length to avoid filesystem issues
-	if len(cleaned) > 100 {
-		cleaned = cleaned[:100]
+	if len(cleaned) > 50 {
+		cleaned = cleaned[:50]
 	}
 
 	// Ensure we have something if title was all special characters
@@ -1357,14 +1363,8 @@ func (s *ThumbnailService) GeneratePreviewClip(videoPath string, mediaID uint, t
 
 // GeneratePreviewClipWithEpisodeInfo generates preview clip with season/episode info for proper naming
 func (s *ThumbnailService) GeneratePreviewClipWithEpisodeInfo(videoPath string, mediaID uint, title string, season *int, episode *int) (string, error) {
-	// Check if preview already exists
-	cleanTitle := cleanTitleForFilename(title)
-	var filename string
-	if season != nil && episode != nil {
-		filename = fmt.Sprintf("preview_%s_S%02dE%02d.mp4", cleanTitle, *season, *episode)
-	} else {
-		filename = fmt.Sprintf("preview_%s.mp4", cleanTitle)
-	}
+	// Check if preview already exists using unique naming
+	filename := generateUniqueFilename(mediaID, title, season, episode, "preview", ".mp4")
 
 	previewPaths := []string{
 		filepath.Join("./previews", filename),
@@ -1550,8 +1550,7 @@ func (s *ThumbnailService) secondsToTimeString(seconds int) string {
 }
 
 func (s *ThumbnailService) GetThumbnailPath(mediaID uint, title string) string {
-	cleanTitle := s.cleanTitleForFilename(title)
-	filename := fmt.Sprintf("thumb_%s.jpg", cleanTitle)
+	filename := generateUniqueFilename(mediaID, title, nil, nil, "thumb", ".jpg")
 
 	// Check root folder first
 	rootPath := filepath.Join("./thumbnails", filename)
@@ -1564,8 +1563,7 @@ func (s *ThumbnailService) GetThumbnailPath(mediaID uint, title string) string {
 }
 
 func (s *ThumbnailService) GetPreviewPath(mediaID uint, title string) string {
-	cleanTitle := s.cleanTitleForFilename(title)
-	filename := fmt.Sprintf("preview_%s.mp4", cleanTitle)
+	filename := generateUniqueFilename(mediaID, title, nil, nil, "preview", ".mp4")
 
 	// Check root folder first
 	rootPath := filepath.Join("./previews", filename)
@@ -1578,8 +1576,7 @@ func (s *ThumbnailService) GetPreviewPath(mediaID uint, title string) string {
 }
 
 func (s *ThumbnailService) ThumbnailExists(mediaID uint, title string) bool {
-	cleanTitle := s.cleanTitleForFilename(title)
-	filename := fmt.Sprintf("thumb_%s.jpg", cleanTitle)
+	filename := generateUniqueFilename(mediaID, title, nil, nil, "thumb", ".jpg")
 
 	// Check root folder first
 	rootPath := filepath.Join("./thumbnails", filename)
@@ -1594,8 +1591,7 @@ func (s *ThumbnailService) ThumbnailExists(mediaID uint, title string) bool {
 }
 
 func (s *ThumbnailService) PreviewExists(mediaID uint, title string) bool {
-	cleanTitle := s.cleanTitleForFilename(title)
-	filename := fmt.Sprintf("preview_%s.mp4", cleanTitle)
+	filename := generateUniqueFilename(mediaID, title, nil, nil, "preview", ".mp4")
 
 	// Check root folder first
 	rootPath := filepath.Join("./previews", filename)
@@ -2357,9 +2353,8 @@ func (s *ThumbnailService) GeneratePreviewClipUnlimited(ctx context.Context, vid
 
 // processThumbnailUnlimited processes thumbnail generation without timeout
 func (wp *WorkerPool) processThumbnailUnlimited(task ProcessingTask) (string, error) {
-	// Create filename for HD thumbnail using cleaned title
-	cleanTitle := cleanTitleForFilename(task.Title)
-	filename := fmt.Sprintf("thumb_%s.jpg", cleanTitle)
+	// Create unique filename for HD thumbnail
+	filename := generateUniqueFilename(task.MediaID, task.Title, nil, nil, "thumb", ".jpg")
 
 	// Try root folder first (preferred location)
 	rootThumbnailPath := filepath.Join("./thumbnails", filename)
@@ -2412,9 +2407,8 @@ func (wp *WorkerPool) processThumbnailUnlimited(task ProcessingTask) (string, er
 
 // processPreviewUnlimited processes preview generation without timeout
 func (wp *WorkerPool) processPreviewUnlimited(task ProcessingTask) (string, error) {
-	// Create filename for HD preview clip using cleaned title
-	cleanTitle := cleanTitleForFilename(task.Title)
-	filename := fmt.Sprintf("preview_%s.mp4", cleanTitle)
+	// Create unique filename for HD preview clip
+	filename := generateUniqueFilename(task.MediaID, task.Title, nil, nil, "preview", ".mp4")
 
 	// Try root folder first (preferred location)
 	rootPreviewPath := filepath.Join("./previews", filename)
