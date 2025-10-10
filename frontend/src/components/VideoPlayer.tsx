@@ -1,10 +1,12 @@
 "use client";
 
 import React, { useRef, useEffect, useState, useCallback } from "react";
-import { Play, Pause, Volume2, VolumeX, Maximize, RotateCcw, RotateCw, X, Minimize, Subtitles } from 'lucide-react';
+import { Play, Pause, Volume2, VolumeX, Maximize, RotateCcw, RotateCw, X, Minimize, Subtitles, Tv } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { getApiUrl } from '@/lib/api';
 import RedLoader from './RedLoader';
+import CastButton from './CastButton';
+import { useChromecast, CastMedia } from '@/hooks/useChromecast';
 
 import { updatePlaybackProgress, getPlaybackProgress, trackView, initializePlaybackProgress } from '@/lib/playback';
 import NextEpisodePreview from './NextEpisodePreview';
@@ -22,6 +24,19 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // Chromecast integration
+  const {
+    castState,
+    connect: connectToCast,
+    disconnect: disconnectFromCast,
+    loadMedia: loadCastMedia,
+    play: playCast,
+    pause: pauseCast,
+    seek: seekCast,
+    setVolume: setCastVolume,
+    setMuted: setCastMuted,
+  } = useChromecast();
 
 
 
@@ -44,6 +59,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
   const [isMobile, setIsMobile] = useState(false);
   const [showResumeNotification, setShowResumeNotification] = useState(false);
   const [resumeTime, setResumeTime] = useState(0);
+  const [isCasting, setIsCasting] = useState(false);
 
   const getStreamUrl = (mediaId: number, quality?: string, format?: string) => {
     const baseUrl = `${getApiUrl()}/api/stream/${mediaId}`;
@@ -191,6 +207,64 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
     }
   }, [media, isOpen]);
 
+  // Handle cast state changes
+  useEffect(() => {
+    setIsCasting(castState.isConnected);
+    
+    // Update local state with cast state when casting
+    if (castState.isConnected) {
+      setIsPlaying(castState.playerState === 'PLAYING');
+      setCurrentTime(castState.currentTime);
+      setDuration(castState.duration);
+      setVolume(castState.volumeLevel);
+      setIsMuted(castState.isMuted);
+    }
+  }, [castState]);
+
+  // Handle cast button click
+  const handleCastClick = useCallback(() => {
+    if (castState.isConnected) {
+      disconnectFromCast();
+    } else {
+      connectToCast();
+    }
+  }, [castState.isConnected, connectToCast, disconnectFromCast]);
+
+  // Load media to cast device when connected
+  useEffect(() => {
+    if (castState.isConnected && media && !isCasting) {
+      const streamUrl = getStreamUrl(media.id, '4k', 'mp4');
+      const thumbnailUrl = `${getApiUrl()}/api/thumbnails/${media.id}`;
+      
+      const castMedia: CastMedia = {
+        contentId: streamUrl,
+        contentType: 'video/mp4',
+        title: media.title,
+        subtitle: media.type === 'episode' 
+          ? `S${media.season_number}E${media.episode_number}` 
+          : `${media.year || ''} • ${media.genres || ''}`,
+        metadata: {
+          title: media.title,
+          subtitle: media.type === 'episode' 
+            ? `S${media.season_number}E${media.episode_number}` 
+            : `${media.year || ''} • ${media.genres || ''}`,
+          images: [{
+            url: thumbnailUrl
+          }]
+        }
+      };
+      
+      loadCastMedia(castMedia);
+      setIsCasting(true);
+      
+      // Pause local video when casting starts
+      const video = videoRef.current;
+      if (video && !video.paused) {
+        video.pause();
+      }
+    }
+  }, [castState.isConnected, media, loadCastMedia, isCasting]);
+
   const handlePlayNext = () => {
     if (nextEpisode && onPlayNext) {
       onPlayNext(nextEpisode);
@@ -231,6 +305,16 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
   };
 
   const togglePlay = () => {
+    if (isCasting && castState.isConnected) {
+      // Control cast device playback
+      if (castState.playerState === 'PLAYING') {
+        pauseCast();
+      } else {
+        playCast();
+      }
+      return;
+    }
+
     const video = videoRef.current;
     if (!video) return;
 
@@ -248,6 +332,12 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
   };
 
   const toggleMute = () => {
+    if (isCasting && castState.isConnected) {
+      // Control cast device volume
+      setCastMuted(!castState.isMuted);
+      return;
+    }
+
     const video = videoRef.current;
     if (!video) return;
     if (isMuted) {
@@ -261,12 +351,24 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
   };
 
   const seekForward = (seconds: number) => {
+    if (isCasting && castState.isConnected) {
+      const newTime = Math.min(castState.currentTime + seconds, castState.duration);
+      seekCast(newTime);
+      return;
+    }
+
     const video = videoRef.current;
     if (!video) return;
     video.currentTime = Math.min(video.currentTime + seconds, duration);
   };
 
   const seekBackward = (seconds: number) => {
+    if (isCasting && castState.isConnected) {
+      const newTime = Math.max(castState.currentTime - seconds, 0);
+      seekCast(newTime);
+      return;
+    }
+
     const video = videoRef.current;
     if (!video) return;
     video.currentTime = Math.max(video.currentTime - seconds, 0);
@@ -341,12 +443,19 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
   };
 
   const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const video = videoRef.current;
-    if (!video) return;
     const newVolume = parseFloat(e.target.value) / 100;
-
     // Ensure minimum volume of 0.1 to keep sound audible
     const adjustedVolume = Math.max(0.1, newVolume);
+
+    if (isCasting && castState.isConnected) {
+      // Control cast device volume
+      setCastVolume(adjustedVolume);
+      setVolume(adjustedVolume);
+      return;
+    }
+
+    const video = videoRef.current;
+    if (!video) return;
 
     video.volume = adjustedVolume;
     setVolume(adjustedVolume);
@@ -355,15 +464,23 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
   };
 
   const handleProgressClick = (e: React.MouseEvent<HTMLDivElement> | React.TouchEvent<HTMLDivElement>) => {
-    const video = videoRef.current;
     const progressBar = e.currentTarget;
-    if (!video || !progressBar) return;
+    if (!progressBar) return;
 
     const rect = progressBar.getBoundingClientRect();
     const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
     const clickX = clientX - rect.left;
     const width = rect.width;
     const percentage = Math.max(0, Math.min(1, clickX / width));
+    
+    if (isCasting && castState.isConnected) {
+      const newTime = percentage * castState.duration;
+      seekCast(newTime);
+      return;
+    }
+
+    const video = videoRef.current;
+    if (!video) return;
     const newTime = percentage * duration;
 
     video.currentTime = newTime;
@@ -376,8 +493,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
     setDragStartTime(currentTime);
 
     const handleMove = (moveEvent: MouseEvent | TouchEvent) => {
-      const video = videoRef.current;
-      if (!video || !duration) return;
+      const currentDuration = isCasting && castState.isConnected ? castState.duration : duration;
+      if (!currentDuration) return;
 
       const progressBar = (e.target as HTMLElement).closest('.progress-container');
       if (!progressBar) return;
@@ -387,10 +504,18 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
       const clickX = clientX - rect.left;
       const width = rect.width;
       const percentage = Math.max(0, Math.min(1, clickX / width));
-      const newTime = percentage * duration;
+      const newTime = percentage * currentDuration;
 
       setCurrentTime(newTime);
-      video.currentTime = newTime;
+      
+      if (isCasting && castState.isConnected) {
+        seekCast(newTime);
+      } else {
+        const video = videoRef.current;
+        if (video) {
+          video.currentTime = newTime;
+        }
+      }
     };
 
     const handleEnd = () => {
@@ -875,6 +1000,16 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                 </div>
 
                 <div className="flex items-center gap-4">
+                  {/* Cast Button */}
+                  <CastButton
+                    isAvailable={castState.isAvailable}
+                    isConnected={castState.isConnected}
+                    isConnecting={castState.isConnecting}
+                    deviceName={castState.deviceName}
+                    onClick={handleCastClick}
+                    className="p-3 bg-black/50 rounded-full hover:bg-black/70 border border-white/20 hover:border-blue-500/50 transition-all"
+                  />
+                  
                   <button
                     onClick={() => onClose()}
                     className="text-white hover:text-red-500 transition-colors p-3 bg-black/50 rounded-full hover:bg-black/70 border border-white/20 hover:border-red-500/50 z-50"
@@ -945,16 +1080,30 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
 
                     {/* Progress Fill */}
                     <div
-                      className={`absolute top-0 left-0 h-full bg-red-600 rounded-lg transition-all pointer-events-none ${isDragging ? 'duration-0' : 'duration-200'
-                        }`}
-                      style={{ width: `${duration > 0 ? (currentTime / duration) * 100 : 0}%` }}
+                      className={`absolute top-0 left-0 h-full bg-red-600 rounded-lg transition-all pointer-events-none ${
+                        isDragging ? 'duration-0' : 'duration-200'
+                      }`}
+                      style={{ 
+                        width: `${(
+                          isCasting && castState.isConnected 
+                            ? (castState.duration > 0 ? (castState.currentTime / castState.duration) * 100 : 0)
+                            : (duration > 0 ? (currentTime / duration) * 100 : 0)
+                        )}%` 
+                      }}
                     />
 
                     {/* Progress Handle */}
                     <div
-                      className={`absolute top-1/2 transform -translate-y-1/2 -translate-x-1/2 w-3 h-3 bg-red-600 rounded-full transition-all duration-200 pointer-events-none ${isDragging || isBuffering ? 'opacity-100 scale-125' : 'opacity-0 group-hover:opacity-100'
-                        }`}
-                      style={{ left: `${duration > 0 ? (currentTime / duration) * 100 : 0}%` }}
+                      className={`absolute top-1/2 transform -translate-y-1/2 -translate-x-1/2 w-3 h-3 bg-red-600 rounded-full transition-all duration-200 pointer-events-none ${
+                        isDragging || isBuffering ? 'opacity-100 scale-125' : 'opacity-0 group-hover:opacity-100'
+                      }`}
+                      style={{ 
+                        left: `${(
+                          isCasting && castState.isConnected 
+                            ? (castState.duration > 0 ? (castState.currentTime / castState.duration) * 100 : 0)
+                            : (duration > 0 ? (currentTime / duration) * 100 : 0)
+                        )}%` 
+                      }}
                     />
 
                     {/* Buffering indicator */}
@@ -970,11 +1119,18 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                   <div className="relative">
                     <div className="absolute bottom-2 left-0 right-0 pointer-events-none">
                       <div
-                        className={`absolute bg-black/80 text-white text-xs px-2 py-1 rounded transition-opacity duration-200 transform -translate-x-1/2 ${isDragging ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
-                          }`}
-                        style={{ left: `${duration > 0 ? (currentTime / duration) * 100 : 0}%` }}
+                        className={`absolute bg-black/80 text-white text-xs px-2 py-1 rounded transition-opacity duration-200 transform -translate-x-1/2 ${
+                          isDragging ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+                        }`}
+                        style={{ 
+                          left: `${(
+                            isCasting && castState.isConnected 
+                              ? (castState.duration > 0 ? (castState.currentTime / castState.duration) * 100 : 0)
+                              : (duration > 0 ? (currentTime / duration) * 100 : 0)
+                          )}%` 
+                        }}
                       >
-                        {formatTime(currentTime)}
+                        {formatTime(isCasting && castState.isConnected ? castState.currentTime : currentTime)}
                       </div>
                     </div>
                   </div>
@@ -988,7 +1144,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                       className="text-white hover:text-white/70 transition-colors"
                       title={isPlaying ? "Pause (Space)" : "Play (Space)"}
                     >
-                      {isPlaying ? (
+                      {(isCasting && castState.isConnected ? castState.playerState === 'PLAYING' : isPlaying) ? (
                         <Pause className="w-8 h-8" />
                       ) : (
                         <Play className="w-8 h-8 fill-current" />
@@ -1021,7 +1177,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                         className="text-white hover:text-white/70 transition-colors"
                         title={isMuted ? "Unmute (m)" : "Mute (m)"}
                       >
-                        {isMuted ? (
+                        {(isCasting && castState.isConnected ? castState.isMuted : isMuted) ? (
                           <VolumeX className="w-6 h-6" />
                         ) : (
                           <Volume2 className="w-6 h-6" />
@@ -1034,7 +1190,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                           type="range"
                           min="0"
                           max="100"
-                          value={isMuted ? 0 : volume * 100}
+                          value={(isCasting && castState.isConnected ? castState.isMuted : isMuted) ? 0 : (isCasting && castState.isConnected ? castState.volumeLevel : volume) * 100}
                           onChange={handleVolumeChange}
                           className="w-20 h-1 bg-white/30 rounded-lg appearance-none cursor-pointer"
                           style={{
@@ -1074,12 +1230,30 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                       </button>
 
                       <span className="text-white text-sm">
-                        {formatTime(currentTime)} / {formatTime(duration)}
+                        {formatTime(isCasting && castState.isConnected ? castState.currentTime : currentTime)} / {formatTime(isCasting && castState.isConnected ? castState.duration : duration)}
                       </span>
+                      
+                      {/* Cast status indicator */}
+                      {isCasting && castState.isConnected && (
+                        <div className="flex items-center gap-2 text-blue-400 text-sm">
+                          <Tv className="w-4 h-4" />
+                          <span>Casting to {castState.deviceName}</span>
+                        </div>
+                      )}
                     </div>
                   </div>
 
                   <div className="flex items-center gap-4">
+                    {/* Cast Button in bottom controls */}
+                    <CastButton
+                      isAvailable={castState.isAvailable}
+                      isConnected={castState.isConnected}
+                      isConnecting={castState.isConnecting}
+                      deviceName={castState.deviceName}
+                      onClick={handleCastClick}
+                      className=""
+                    />
+                    
                     <button
                       onClick={toggleFullscreen}
                       className="text-white hover:text-white/70 transition-colors"
