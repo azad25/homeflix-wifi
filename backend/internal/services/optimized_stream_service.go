@@ -55,6 +55,10 @@ type StreamSession struct {
 	// Instant streaming enhancements
 	ChunkWorkers chan struct{}
 	IsLargeFile  bool
+
+	// Request tracking for proper cleanup
+	ActiveRequests int
+	CancelChan     chan struct{}
 }
 
 type BandwidthDetector struct {
@@ -69,17 +73,17 @@ func NewOptimizedStreamService(cacheSize, chunkSize int64) *OptimizedStreamServi
 		maxWorkers = 128 // Cap at 128 for memory management
 	}
 
-	// Adaptive chunk size for instant streaming
+	// Ultra-optimized chunk size for HD/4K streaming
 	if chunkSize == 0 {
-		chunkSize = 16 * 1024 * 1024 // 16MB chunks for large files
+		chunkSize = 64 * 1024 * 1024 // 64MB chunks for HD/4K files (4x larger)
 	}
 
-	// 2GB buffer for ultra-fast streaming
-	bufferSize := int64(2 * 1024 * 1024 * 1024)
+	// 8GB buffer for ultra-fast HD/4K streaming
+	bufferSize := int64(8 * 1024 * 1024 * 1024)
 
-	// 4GB cache for maximum hit rates
+	// 16GB cache for maximum HD/4K hit rates
 	if cacheSize == 0 {
-		cacheSize = int64(4 * 1024 * 1024 * 1024) // 4GB cache
+		cacheSize = int64(16 * 1024 * 1024 * 1024) // 16GB cache
 	}
 
 	service := &OptimizedStreamService{
@@ -87,8 +91,8 @@ func NewOptimizedStreamService(cacheSize, chunkSize int64) *OptimizedStreamServi
 		bufferSize:        bufferSize,
 		cacheSize:         cacheSize,
 		maxWorkers:        maxWorkers,
-		flushInterval:     0,  // No artificial delays for instant streaming
-		preloadChunks:     32, // Preload first 32 chunks (512MB) for instant startup
+		flushInterval:     0,   // No artificial delays for instant streaming
+		preloadChunks:     128, // Preload first 128 chunks (8GB) for instant HD/4K startup
 		chunkCache:        make(map[string][]byte),
 		activeStreams:     make(map[string]*StreamSession),
 		mmapCache:         make(map[string][]byte),
@@ -137,13 +141,46 @@ func (s *OptimizedStreamService) StreamVideo(w http.ResponseWriter, r *http.Requ
 	fileSize := fileInfo.Size()
 	isLargeFile := fileSize > 1024*1024*1024 // Files > 1GB are considered large
 
+	// Detect HD/4K files for ultra-optimization
+	isHD4KFile := fileSize > 5*1024*1024*1024     // Files > 5GB are likely HD/4K
+	isUltra4KFile := fileSize > 20*1024*1024*1024 // Files > 20GB are likely Ultra 4K
+
+	// Detect video quality and apply optimizations
+	quality, isHD4K := s.detectVideoQuality(fileSize)
+	s.optimizeForQuality(quality, isHD4K)
+
 	// Create or get stream session
 	sessionKey := fmt.Sprintf("%s_%d", filePath, fileSize)
 	session := s.getOrCreateSession(sessionKey, filePath, fileSize)
 	session.IsLargeFile = isLargeFile
 
-	// For large files on LAN, use memory mapping for instant access
-	if isLargeFile && isLocalNetwork {
+	// Increment active request counter
+	s.streamsMutex.Lock()
+	session.ActiveRequests++
+	s.streamsMutex.Unlock()
+
+	// Set up cleanup on request completion
+	defer func() {
+		s.streamsMutex.Lock()
+		session.ActiveRequests--
+		if session.ActiveRequests <= 0 {
+			// Signal cancellation to background goroutines
+			select {
+			case <-session.CancelChan:
+				// Already closed
+			default:
+				close(session.CancelChan)
+			}
+		}
+		s.streamsMutex.Unlock()
+	}()
+
+	// For HD/4K files, use aggressive memory mapping for instant access
+	if (isHD4KFile || isUltra4KFile) && isLocalNetwork {
+		if err := s.setupMemoryMapping(session); err != nil {
+			log.Printf("⚠️ Memory mapping failed, falling back to optimized streaming: %v", err)
+		}
+	} else if isLargeFile && isLocalNetwork {
 		if err := s.setupMemoryMapping(session); err != nil {
 			log.Printf("⚠️ Memory mapping failed, falling back to optimized streaming: %v", err)
 		}
@@ -163,8 +200,14 @@ func (s *OptimizedStreamService) streamFullFileOptimized(w http.ResponseWriter, 
 	// Set optimized headers with TCP optimizations
 	s.setOptimizedHeaders(w, fileSize, isLocalNetwork)
 
-	// For large files on LAN, use sendfile for zero-copy streaming
-	if session.IsLargeFile && isLocalNetwork && s.sendfileEnabled {
+	// Detect HD/4K files for ultra-optimization
+	isHD4KFile := fileSize > 5*1024*1024*1024     // Files > 5GB are likely HD/4K
+	isUltra4KFile := fileSize > 20*1024*1024*1024 // Files > 20GB are likely Ultra 4K
+
+	// For HD/4K files on LAN, use sendfile for zero-copy streaming
+	if (isHD4KFile || isUltra4KFile) && isLocalNetwork && s.sendfileEnabled {
+		return s.streamWithSendfile(w, r, file, fileSize)
+	} else if session.IsLargeFile && isLocalNetwork && s.sendfileEnabled {
 		return s.streamWithSendfile(w, r, file, fileSize)
 	}
 
@@ -198,8 +241,8 @@ func (s *OptimizedStreamService) streamWithSendfile(w http.ResponseWriter, r *ht
 	// Set TCP_NODELAY for instant packet delivery
 	if tcpConn, ok := conn.(*net.TCPConn); ok {
 		tcpConn.SetNoDelay(true)
-		tcpConn.SetWriteBuffer(16 * 1024 * 1024) // 16MB write buffer
-		tcpConn.SetReadBuffer(16 * 1024 * 1024)  // 16MB read buffer
+		tcpConn.SetWriteBuffer(128 * 1024 * 1024) // 128MB write buffer for HD/4K
+		tcpConn.SetReadBuffer(128 * 1024 * 1024)  // 128MB read buffer for HD/4K
 	}
 
 	// Write HTTP headers manually for zero-copy path
@@ -216,8 +259,8 @@ func (s *OptimizedStreamService) streamWithSendfile(w http.ResponseWriter, r *ht
 			// Sendfile system call for zero-copy transfer
 			offset := int64(0)
 			for offset < fileSize {
-				// Send in 64MB chunks for optimal performance
-				chunkSize := int64(64 * 1024 * 1024)
+				// Send in 256MB chunks for optimal HD/4K performance
+				chunkSize := int64(256 * 1024 * 1024)
 				if offset+chunkSize > fileSize {
 					chunkSize = fileSize - offset
 				}
@@ -243,7 +286,7 @@ func (s *OptimizedStreamService) streamFromMemoryMap(w http.ResponseWriter, mmap
 	// Calculate optimal chunk size for memory-mapped streaming
 	chunkSize := s.chunkSize
 	if isLocalNetwork {
-		chunkSize *= 8 // 8x chunk size for local network (128MB chunks)
+		chunkSize *= 16 // 16x chunk size for local network HD/4K streaming (1GB chunks)
 	}
 
 	flusher, canFlush := w.(http.Flusher)
@@ -428,20 +471,24 @@ func (s *OptimizedStreamService) streamWithOptimizedIO(w http.ResponseWriter, fi
 func (s *OptimizedStreamService) getAdaptiveBufferSize(fileSize int64, isLocalNetwork bool) int64 {
 	baseBuffer := s.bufferSize
 
-	// Scale buffer size based on file size
-	if fileSize > 20*1024*1024*1024 { // > 20GB
-		baseBuffer = 512 * 1024 * 1024 // 512MB
+	// Ultra-optimized scaling for HD/4K files
+	if fileSize > 50*1024*1024*1024 { // > 50GB (Ultra 4K)
+		baseBuffer = 4 * 1024 * 1024 * 1024 // 4GB
+	} else if fileSize > 30*1024*1024*1024 { // > 30GB (4K)
+		baseBuffer = 2 * 1024 * 1024 * 1024 // 2GB
+	} else if fileSize > 20*1024*1024*1024 { // > 20GB (HD)
+		baseBuffer = 1 * 1024 * 1024 * 1024 // 1GB
 	} else if fileSize > 10*1024*1024*1024 { // > 10GB
-		baseBuffer = 256 * 1024 * 1024 // 256MB
+		baseBuffer = 512 * 1024 * 1024 // 512MB
 	} else if fileSize > 5*1024*1024*1024 { // > 5GB
-		baseBuffer = 128 * 1024 * 1024 // 128MB
+		baseBuffer = 256 * 1024 * 1024 // 256MB
 	} else if fileSize > 1024*1024*1024 { // > 1GB
-		baseBuffer = 64 * 1024 * 1024 // 64MB
+		baseBuffer = 128 * 1024 * 1024 // 128MB
 	}
 
-	// Additional boost for local network
+	// Aggressive boost for local network HD/4K streaming
 	if isLocalNetwork {
-		baseBuffer *= 2
+		baseBuffer *= 4 // 4x boost for local network
 	}
 
 	return baseBuffer
@@ -458,8 +505,8 @@ func (s *OptimizedStreamService) setupMemoryMapping(session *StreamSession) erro
 	}
 	s.mmapMutex.RUnlock()
 
-	// Only map files smaller than 8GB to avoid address space issues
-	if session.FileSize > 8*1024*1024*1024 {
+	// Only map files smaller than 32GB to avoid address space issues (increased for HD/4K)
+	if session.FileSize > 32*1024*1024*1024 {
 		return fmt.Errorf("file too large for memory mapping: %d bytes", session.FileSize)
 	}
 
@@ -509,14 +556,21 @@ func (s *OptimizedStreamService) getOrCreateSession(sessionKey, filePath string,
 			Quality:         "auto",
 			Format:          "mp4",
 			ChunkWorkers:    make(chan struct{}, s.parallelWorkers),
+			ActiveRequests:  0,
+			CancelChan:      make(chan struct{}),
 		}
 		s.activeStreams[sessionKey] = session
 
-		// Start preloading first chunks for instant startup
-		go s.preloadSessionChunks(session)
+		// Start aggressive preloading for HD/4K files (with cancellation check)
+		if session.FileSize > 5*1024*1024*1024 {
+			// Use parallel preloading for HD/4K files
+			go s.preloadSessionChunksParallel(session)
+		} else {
+			go s.preloadSessionChunks(session)
+		}
 
-		// Create memory mapping for instant access
-		s.createMemoryMapping(session)
+		// Create memory mapping for instant access (with cancellation check)
+		go s.createMemoryMapping(session)
 	} else {
 		session.LastAccess = time.Now()
 	}
@@ -532,8 +586,28 @@ func (s *OptimizedStreamService) preloadSessionChunks(session *StreamSession) {
 	}
 	defer file.Close()
 
+	// Detect HD/4K files for aggressive preloading
+	isHD4KFile := session.FileSize > 5*1024*1024*1024
+	isUltra4KFile := session.FileSize > 20*1024*1024*1024
+
+	// Adaptive preloading based on file size
+	preloadChunks := s.preloadChunks
+	if isUltra4KFile {
+		preloadChunks = 256 // Preload 256 chunks (16GB) for Ultra 4K
+	} else if isHD4KFile {
+		preloadChunks = 200 // Preload 200 chunks (12.8GB) for HD/4K
+	}
+
 	buffer := make([]byte, s.chunkSize)
-	for i := 0; i < s.preloadChunks; i++ {
+	for i := 0; i < preloadChunks; i++ {
+		// Check for cancellation signal
+		select {
+		case <-session.CancelChan:
+			log.Printf("🛑 Preloading cancelled: %s", session.FilePath)
+			return
+		default:
+		}
+
 		offset := int64(i) * s.chunkSize
 		if offset >= session.FileSize {
 			break
@@ -558,11 +632,108 @@ func (s *OptimizedStreamService) preloadSessionChunks(session *StreamSession) {
 		}
 	}
 
-	log.Printf("🚀 Preloaded %d chunks for instant startup: %s", len(session.PreloadedChunks), session.FilePath)
+	log.Printf("🚀 Preloaded %d chunks (%dMB) for instant HD/4K startup: %s",
+		len(session.PreloadedChunks),
+		(len(session.PreloadedChunks)*int(s.chunkSize))/(1024*1024),
+		session.FilePath)
+}
+
+// preloadSessionChunksParallel preloads chunks using parallel workers for HD/4K files
+func (s *OptimizedStreamService) preloadSessionChunksParallel(session *StreamSession) {
+	// Detect HD/4K files for aggressive preloading
+	isHD4KFile := session.FileSize > 5*1024*1024*1024
+	isUltra4KFile := session.FileSize > 20*1024*1024*1024
+
+	// Adaptive preloading based on file size
+	preloadChunks := s.preloadChunks
+	if isUltra4KFile {
+		preloadChunks = 256 // Preload 256 chunks (16GB) for Ultra 4K
+	} else if isHD4KFile {
+		preloadChunks = 200 // Preload 200 chunks (12.8GB) for HD/4K
+	}
+
+	// Use parallel workers for HD/4K preloading
+	maxWorkers := s.parallelWorkers
+	if maxWorkers > 16 {
+		maxWorkers = 16 // Cap parallel preloading workers
+	}
+
+	workers := make(chan struct{}, maxWorkers)
+	var wg sync.WaitGroup
+
+	for i := 0; i < preloadChunks; i++ {
+		// Check for cancellation signal
+		select {
+		case <-session.CancelChan:
+			log.Printf("🛑 Parallel preloading cancelled: %s", session.FilePath)
+			return
+		default:
+		}
+
+		offset := int64(i) * s.chunkSize
+		if offset >= session.FileSize {
+			break
+		}
+
+		// Acquire worker
+		workers <- struct{}{}
+		wg.Add(1)
+
+		go func(chunkOffset int64) {
+			defer func() {
+				<-workers // Release worker
+				wg.Done()
+			}()
+
+			// Check for cancellation before each chunk
+			select {
+			case <-session.CancelChan:
+				return
+			default:
+			}
+
+			file, err := os.Open(session.FilePath)
+			if err != nil {
+				return
+			}
+			defer file.Close()
+
+			if _, err := file.Seek(chunkOffset, 0); err != nil {
+				return
+			}
+
+			buffer := make([]byte, s.chunkSize)
+			n, err := file.Read(buffer)
+			if n > 0 {
+				chunkData := make([]byte, n)
+				copy(chunkData, buffer[:n])
+				session.PreloadedChunks[chunkOffset] = chunkData
+			}
+
+			if err != nil && err != io.EOF {
+				return
+			}
+		}(offset)
+	}
+
+	wg.Wait()
+
+	log.Printf("🚀 Parallel preloaded %d chunks (%dMB) for instant HD/4K startup: %s",
+		len(session.PreloadedChunks),
+		(len(session.PreloadedChunks)*int(s.chunkSize))/(1024*1024),
+		session.FilePath)
 }
 
 // createMemoryMapping creates memory mapping for instant access
 func (s *OptimizedStreamService) createMemoryMapping(session *StreamSession) {
+	// Check for cancellation signal before starting
+	select {
+	case <-session.CancelChan:
+		log.Printf("🛑 Memory mapping cancelled: %s", session.FilePath)
+		return
+	default:
+	}
+
 	file, err := os.Open(session.FilePath)
 	if err != nil {
 		return
@@ -574,10 +745,27 @@ func (s *OptimizedStreamService) createMemoryMapping(session *StreamSession) {
 		return
 	}
 
+	// Check for cancellation signal after file operations
+	select {
+	case <-session.CancelChan:
+		log.Printf("🛑 Memory mapping cancelled during file operations: %s", session.FilePath)
+		return
+	default:
+	}
+
 	// Create memory mapping
 	mmapData, err := syscall.Mmap(int(file.Fd()), 0, int(fileInfo.Size()), syscall.PROT_READ, syscall.MAP_SHARED)
 	if err != nil {
 		return
+	}
+
+	// Final cancellation check before storing
+	select {
+	case <-session.CancelChan:
+		log.Printf("🛑 Memory mapping cancelled before storing, cleaning up: %s", session.FilePath)
+		syscall.Munmap(mmapData)
+		return
+	default:
 	}
 
 	// Store memory mapping
@@ -657,10 +845,34 @@ func (s *OptimizedStreamService) maintainCache() {
 	for range ticker.C {
 		s.cacheMutex.Lock()
 
-		// Clean up old sessions
+		// Clean up old sessions and cancelled sessions
 		s.streamsMutex.Lock()
 		for key, session := range s.activeStreams {
+			shouldCleanup := false
+
+			// Check if session is expired by time
 			if time.Since(session.LastAccess) > 30*time.Minute {
+				shouldCleanup = true
+			}
+
+			// Check if session has no active requests and cancellation was requested
+			if session.ActiveRequests <= 0 {
+				select {
+				case <-session.CancelChan:
+					shouldCleanup = true
+				default:
+				}
+			}
+
+			if shouldCleanup {
+				// Signal cancellation to any remaining background goroutines
+				select {
+				case <-session.CancelChan:
+					// Already closed
+				default:
+					close(session.CancelChan)
+				}
+
 				// Cleanup memory mapping if exists
 				if session.MmapData != nil {
 					s.mmapMutex.Lock()
@@ -838,7 +1050,7 @@ func (s *OptimizedStreamService) streamRangeWithChunkingOptimized(w http.Respons
 	// Calculate optimal chunk size based on range and network
 	chunkSize := s.chunkSize
 	if isLocalNetwork {
-		chunkSize *= 4 // 4x chunk size for local network
+		chunkSize *= 8 // 8x chunk size for local network HD/4K streaming
 	}
 
 	// Adjust chunk size for small ranges
@@ -922,4 +1134,60 @@ func (s *OptimizedStreamService) setPartialContentHeaders(w http.ResponseWriter,
 	}
 
 	w.WriteHeader(http.StatusPartialContent)
+}
+
+// detectVideoQuality detects video quality based on file size and optimizes streaming accordingly
+func (s *OptimizedStreamService) detectVideoQuality(fileSize int64) (string, bool) {
+	if fileSize > 50*1024*1024*1024 { // > 50GB
+		return "ultra-4k", true
+	} else if fileSize > 20*1024*1024*1024 { // > 20GB
+		return "4k", true
+	} else if fileSize > 5*1024*1024*1024 { // > 5GB
+		return "hd", true
+	} else if fileSize > 1024*1024*1024 { // > 1GB
+		return "sd", false
+	}
+	return "low", false
+}
+
+// optimizeForQuality applies quality-specific optimizations
+func (s *OptimizedStreamService) optimizeForQuality(quality string, isHD4K bool) {
+	if isHD4K {
+		log.Printf("🎬 Applying HD/4K optimizations for %s quality", quality)
+		// Additional optimizations can be added here
+	}
+}
+
+// CancelStreamSession cancels a streaming session and stops all background operations
+func (s *OptimizedStreamService) CancelStreamSession(filePath string) {
+	sessionKey := fmt.Sprintf("%s_", filePath)
+
+	s.streamsMutex.Lock()
+	defer s.streamsMutex.Unlock()
+
+	// Find and cancel matching sessions
+	for key, session := range s.activeStreams {
+		if strings.HasPrefix(key, sessionKey) {
+			// Signal cancellation to background goroutines
+			select {
+			case <-session.CancelChan:
+				// Already closed
+			default:
+				close(session.CancelChan)
+			}
+
+			// Cleanup memory mapping
+			if session.MmapData != nil {
+				s.mmapMutex.Lock()
+				if mmapData, exists := s.mmapCache[session.FilePath]; exists {
+					syscall.Munmap(mmapData)
+					delete(s.mmapCache, session.FilePath)
+				}
+				s.mmapMutex.Unlock()
+			}
+
+			delete(s.activeStreams, key)
+			log.Printf("🛑 Cancelled streaming session: %s", session.FilePath)
+		}
+	}
 }
