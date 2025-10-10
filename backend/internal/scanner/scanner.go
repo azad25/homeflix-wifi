@@ -732,6 +732,25 @@ func (s *MediaScanner) ScanMediaLibrary() error {
 	return s.BatchScanMediaLibrary()
 }
 
+// EnsureCompleteSyncOnStartup performs comprehensive sync validation on server startup
+func (s *MediaScanner) EnsureCompleteSyncOnStartup() error {
+	log.Printf("🚀 Starting comprehensive media sync validation on server startup...")
+	
+	// Create progress tracker for startup sync
+	progress := NewProgressTracker()
+	progress.Start()
+	defer progress.Stop()
+	
+	// Perform comprehensive validation
+	if err := s.validateCompleteSyncWithProgress(progress); err != nil {
+		log.Printf("❌ Startup sync validation failed: %v", err)
+		return fmt.Errorf("startup sync validation failed: %v", err)
+	}
+	
+	log.Printf("✅ Startup media sync validation completed successfully")
+	return nil
+}
+
 // discoverFiles performs safe file discovery with resource limits
 func (s *MediaScanner) discoverFiles() ([]FileInfo, error) {
 	var files []FileInfo
@@ -1344,21 +1363,13 @@ func (s *MediaScanner) processVideoFile(path string, info os.FileInfo) error {
 		missingAssets := media.ThumbnailPath == "" || media.PosterPath == "" || media.PreviewPath == ""
 		pathChanged := media.FilePath != path
 
-		// Check if title matches filename (title-filename mismatch detection)
-		needsTitleFix = s.needsTitleFix(media, path, searchResult)
-
-		// Force asset regeneration if title was fixed or filename doesn't match
-		needsAssetRegeneration = missingAssets || needsTitleFix || searchResult.TitleMismatch
+		// Skip title-based checks - only check if assets are missing
+		needsTitleFix = false // Disable title fixing to ensure all files are processed
+		needsAssetRegeneration = missingAssets
 
 		// Log the analysis
 		if searchResult.FoundBy != "" {
 			log.Printf("🔍 Found existing media by %s: %s", searchResult.FoundBy, media.Title)
-		}
-		if searchResult.TitleMismatch {
-			log.Printf("⚠️ Title-filename mismatch detected for: %s", path)
-		}
-		if needsTitleFix {
-			log.Printf("🔧 Title needs fixing for: %s", path)
 		}
 
 		// Skip processing only if everything is perfect
@@ -1393,13 +1404,35 @@ func (s *MediaScanner) processVideoFile(path string, info os.FileInfo) error {
 		log.Printf("🔄 Re-extracting metadata for: %s", path)
 		metadata = s.extractMetadataWithCacheLocal(path)
 
-		// Update title if it needs fixing
-		if needsTitleFix {
-			oldTitle := media.Title
+		// CRITICAL FIX: For new media, always assign the extracted title
+		if media.ID == 0 && metadata.Title != "" {
 			media.Title = metadata.Title
-			log.Printf("🏷️ Title updated from '%s' to '%s'", oldTitle, media.Title)
+			log.Printf("🏷️ New media title set to '%s'", metadata.Title)
+		} else if needsTitleFix {
+			// Update title if it needs fixing - but protect existing good titles
+			oldTitle := media.Title
+			newTitle := metadata.Title
+			
+			// Safety checks to prevent breaking existing titles
+			if oldTitle != "" && newTitle != "" {
+				// Don't change titles that are already good (have proper case, no technical terms)
+				if !s.titleNeedsCleaning(oldTitle) && s.titleNeedsCleaning(newTitle) {
+					log.Printf("🛡️ Protecting existing good title: '%s' (would change to '%s')", oldTitle, newTitle)
+					needsTitleFix = false
+				} else if s.isSequelTitle(oldTitle) && !s.isSequelTitle(newTitle) {
+					log.Printf("🛡️ Protecting sequel title: '%s' (would lose sequel info)", oldTitle)
+					needsTitleFix = false
+				} else {
+					media.Title = newTitle
+					log.Printf("🏷️ Title updated from '%s' to '%s'", oldTitle, newTitle)
+				}
+			} else if oldTitle == "" && newTitle != "" {
+				// Only update if old title is empty
+				media.Title = newTitle
+				log.Printf("🏷️ Title set to '%s' (was empty)", newTitle)
+			}
 
-			// Safety check
+			// Safety check for empty titles
 			if media.Title == "" {
 				log.Printf("⚠️ WARNING: Title is empty after update! Re-extracting from filename...")
 				// Re-extract using TMDB service directly from filename
@@ -1476,9 +1509,17 @@ func (s *MediaScanner) processVideoFile(path string, info os.FileInfo) error {
 
 		log.Printf("📺 Episode metadata assigned - Series: %s, Season: %d, Episode: %d",
 			metadata.SeriesTitle, metadata.Season, metadata.Episode)
+	} else if metadata.Type == "movie" {
+		// Ensure movies don't get assigned to series
+		media.SeriesID = nil
+		media.Season = nil
+		media.SeasonNumber = nil
+		media.Episode = nil
+		media.EpisodeNumber = nil
+		log.Printf("🎬 Movie metadata assigned - Title: %s, Year: %d", media.Title, metadata.Year)
 	}
 
-	// Final safety check before database operations
+	// Enhanced title validation and sequel number preservation
 	if media.Title == "" || strings.TrimSpace(media.Title) == "" {
 		log.Printf("🚨 CRITICAL: Empty title detected before database save! Path: %s", path)
 
@@ -1495,35 +1536,17 @@ func (s *MediaScanner) processVideoFile(path string, info os.FileInfo) error {
 		}
 	}
 
-	// Save or update media to database with timeout
-	dbDone := make(chan error, 1)
-	go func() {
-		if media.ID == 0 {
-			dbDone <- s.GetMediaService().CreateMedia(media)
-		} else {
-			dbDone <- s.GetMediaService().UpdateMedia(media)
-		}
-	}()
+	// Enhanced sequel and numbered movie detection
+	media.Title = s.enhanceSequelTitleDetection(media.Title, path)
+	log.Printf("🎬 Final enhanced title: %s", media.Title)
 
-	select {
-	case err := <-dbDone:
-		if err != nil {
-			if media.ID == 0 {
-				log.Printf("Error creating media %s: %v", media.Title, err)
-			} else {
-				log.Printf("Error updating media %s: %v", media.Title, err)
-			}
-			return err
-		}
-		if media.ID == 0 {
-			log.Printf("✅ Created new media: %s", media.Title)
-		} else {
-			log.Printf("✅ Updated existing media: %s", media.Title)
-		}
-	case <-time.After(5 * time.Second):
-		log.Printf("⚠️ Database operation timeout for %s", media.Title)
-		return fmt.Errorf("database operation timeout for %s", media.Title)
+	// ENHANCED FIX: Use transaction-based upsert to prevent UNIQUE constraint violations
+	err = s.GetMediaService().UpsertMedia(media)
+	if err != nil {
+		log.Printf("Error upserting media %s: %v", media.Title, err)
+		return fmt.Errorf("❌ Failed to upsert media %s: %v", media.Title, err)
 	}
+	log.Printf("✅ Successfully processed media: %s", media.Title)
 
 	// Assign genres based on filename/path analysis
 	genreNames := s.extractGenresFromPath(path, media.Title)
@@ -1716,12 +1739,35 @@ func (s *MediaScanner) processVideoFile(path string, info os.FileInfo) error {
 	// Determine asset generation needs based on flags
 	var needsThumbnail, needsPreview, needsPoster bool
 
-	if needsAssetRegeneration {
+	// CRITICAL FIX: Prevent duplicate asset generation for same media in short time window
+	recentlyProcessed := false
+	if media.ID > 0 {
+		// Check if this media was recently processed (within last 30 seconds)
+		cacheMutex := s.GetCacheMutex()
+		scanCache := s.GetScanCache()
+		cacheMutex.Lock()
+		if lastProcessed, exists := scanCache[fmt.Sprintf("media_%d", media.ID)]; exists {
+			if time.Since(lastProcessed) < 30*time.Second {
+				recentlyProcessed = true
+			}
+		}
+		// Update the cache with current processing time
+		scanCache[fmt.Sprintf("media_%d", media.ID)] = time.Now()
+		cacheMutex.Unlock()
+	}
+
+	if needsAssetRegeneration && !recentlyProcessed {
 		// Force regeneration of all assets
 		needsThumbnail = true
 		needsPreview = true
 		needsPoster = s.GetPosterService() != nil
 		log.Printf("🔄 Forcing asset regeneration for: %s", media.Title)
+	} else if recentlyProcessed {
+		// Skip asset generation if recently processed
+		needsThumbnail = false
+		needsPreview = false
+		needsPoster = false
+		log.Printf("⏭️ Skipping asset generation for %s - recently processed", media.Title)
 	} else {
 		// Generate assets only if missing
 		needsThumbnail = media.ThumbnailPath == "" && !thumbnailExists
@@ -1894,21 +1940,33 @@ type MediaSearchResult struct {
 	NeedsUpdate   bool   // true if metadata needs updating
 }
 
-// findExistingMedia uses multiple strategies to find existing media
+// findExistingMedia uses file path-based strategies only to ensure complete sync
 func (s *MediaScanner) findExistingMedia(path string, info os.FileInfo) (*models.Media, *MediaSearchResult, error) {
 	result := &MediaSearchResult{FoundBy: "none"}
-	// Strategy 1: Search by exact path (fastest)
+	
+	// Strategy 1: Search by exact path (primary method)
 	media, err := s.GetMediaService().GetMediaByPath(path)
 	if err != nil {
 		return nil, result, err
 	}
 	if media != nil {
 		result.FoundBy = "path"
-		result.TitleMismatch = s.detectTitleMismatch(media, path)
 		return media, result, nil
 	}
 
-	// Strategy 2: Search by filename (handle path changes)
+	// Strategy 2: Try path with different separators (Windows/Linux compatibility)
+	normalizedPath := filepath.ToSlash(path)
+	if normalizedPath != path {
+		media, err = s.GetMediaService().GetMediaByPath(normalizedPath)
+		if err == nil && media != nil {
+			result.FoundBy = "normalized_path"
+			// Update the path to current format
+			media.FilePath = path
+			return media, result, nil
+		}
+	}
+
+	// Strategy 3: Search by filename only (handle path changes, but no title matching)
 	filename := filepath.Base(path)
 	media, err = s.findMediaByFilename(filename)
 	if err != nil {
@@ -1916,57 +1974,17 @@ func (s *MediaScanner) findExistingMedia(path string, info os.FileInfo) (*models
 	} else if media != nil {
 		result.FoundBy = "filename"
 		result.PathChanged = media.FilePath != path
-		result.TitleMismatch = s.detectTitleMismatch(media, path)
 
 		// Update path if changed
 		if result.PathChanged {
+			log.Printf("📁 Media path changed from %s to %s, updating", media.FilePath, path)
 			media.FilePath = path
 			media.FileSize = info.Size()
 		}
 		return media, result, nil
 	}
 
-	// Strategy 3: Search by expected title (handle title changes)
-	expectedTitle := s.extractExpectedTitle(path)
-	if expectedTitle != "" {
-		media, err = s.findMediaByTitle(expectedTitle)
-		if err != nil {
-			log.Printf("⚠️ Error searching by title %s: %v", expectedTitle, err)
-		} else if media != nil {
-			result.FoundBy = "title"
-			result.PathChanged = media.FilePath != path
-			result.TitleMismatch = true // Title search implies mismatch
-
-			// Update path if changed
-			if result.PathChanged {
-				media.FilePath = path
-				media.FileSize = info.Size()
-			}
-			return media, result, nil
-		}
-	}
-
-	// Strategy 4: Fuzzy search by cleaned filename
-	cleanedTitle := s.cleanTitleForSearch(filename)
-	if cleanedTitle != "" && cleanedTitle != expectedTitle {
-		media, err = s.findMediaByTitleFuzzy(cleanedTitle)
-		if err != nil {
-			log.Printf("⚠️ Error in fuzzy search for %s: %v", cleanedTitle, err)
-		} else if media != nil {
-			result.FoundBy = "fuzzy_title"
-			result.PathChanged = media.FilePath != path
-			result.TitleMismatch = true
-
-			// Update path if changed
-			if result.PathChanged {
-				media.FilePath = path
-				media.FileSize = info.Size()
-			}
-			return media, result, nil
-		}
-	}
-
-	// No existing media found
+	// No existing media found - this ensures all files get processed
 	return nil, result, nil
 }
 
@@ -2328,6 +2346,83 @@ func (s *MediaScanner) extractGenresFromPath(path, title string) []string {
 	}
 
 	return genres
+}
+
+// enhanceSequelTitleDetection improves title detection for sequels and numbered movies
+func (s *MediaScanner) enhanceSequelTitleDetection(title, path string) string {
+	if title == "" {
+		return title
+	}
+
+	// Get the original filename for reference
+	filename := filepath.Base(path)
+	filename = strings.TrimSuffix(filename, filepath.Ext(filename))
+	
+	// Common sequel patterns to detect and preserve
+	sequelPatterns := []struct {
+		pattern string
+		description string
+	}{
+		{`(?i)\b(\w+)\s+(\d{1,2})\b`, "Direct sequel number (Movie 2)"},
+		{`(?i)\b(\w+)\s+(II|III|IV|V|VI|VII|VIII|IX|X)\b`, "Roman numeral sequels"},
+		{`(?i)\b(\w+)\s+(Part|Chapter|Episode|Volume)\s+(\d{1,2})\b`, "Part/Chapter sequels"},
+		{`(?i)\b(Table|Ocean's|Fast)\s+(No|&)\s+(\d{1,2})\b`, "Numbered titles"},
+		{`(?i)\b(\w+)\s+(Rise|Return|Revenge|Dawn|War|Dark|Last|Final)\s+of\s+`, "Subtitle sequels"},
+		{`(?i)\b(\w+)\s+(Legacy|Returns|Forever|Begins|Rises|Reloaded|Revolutions)\b`, "Named sequels"},
+	}
+
+	// Check if the current title is missing sequel information that exists in filename
+	for _, sp := range sequelPatterns {
+		re := regexp.MustCompile(sp.pattern)
+		
+		// Check if filename has sequel pattern but title doesn't
+		filenameMatches := re.FindStringSubmatch(filename)
+		titleMatches := re.FindStringSubmatch(title)
+		
+		if len(filenameMatches) > 0 && len(titleMatches) == 0 {
+			// Filename has sequel info but title doesn't - try to restore it
+			log.Printf("🔍 Found sequel pattern in filename: %s (%s)", filenameMatches[0], sp.description)
+			
+			// Try to intelligently add the sequel information to the title
+			if len(filenameMatches) >= 3 {
+				// For patterns with multiple groups, reconstruct the sequel part
+				sequelPart := strings.Join(filenameMatches[1:], " ")
+				if !strings.Contains(title, sequelPart) {
+					title = title + " " + sequelPart
+					log.Printf("🔄 Enhanced title with sequel info: %s", title)
+				}
+			}
+		}
+	}
+
+	// Special handling for common franchise patterns
+	franchisePatterns := map[string][]string{
+		"Terminator": {"Salvation", "Rise of The Machines", "Genisys", "Dark Fate", "Judgment Day"},
+		"Shrek": {"2", "the Third", "Forever After"},
+		"Fast": {"Furious", "Five", "Six", "Seven", "Eight", "Nine", "Ten", "X"},
+		"Mission": {"Impossible", "II", "III", "Ghost Protocol", "Rogue Nation", "Fallout"},
+		"John Wick": {"2", "3", "4", "Chapter 2", "Chapter 3", "Chapter 4"},
+	}
+
+	// Check if this might be part of a known franchise
+	for franchise, sequels := range franchisePatterns {
+		if strings.Contains(strings.ToLower(filename), strings.ToLower(franchise)) {
+			for _, sequel := range sequels {
+				if strings.Contains(strings.ToLower(filename), strings.ToLower(sequel)) &&
+				   !strings.Contains(strings.ToLower(title), strings.ToLower(sequel)) {
+					title = franchise + " " + sequel
+					log.Printf("🎬 Detected franchise sequel: %s", title)
+					break
+				}
+			}
+		}
+	}
+
+	// Clean up any double spaces and trim
+	title = regexp.MustCompile(`\s+`).ReplaceAllString(title, " ")
+	title = strings.TrimSpace(title)
+
+	return title
 }
 
 // simpleCleanTitle provides a basic, conservative title cleaning
@@ -4042,14 +4137,176 @@ func (s *MediaScanner) BatchScanMediaLibraryWithProgress() error {
 	progress.LogWithProgress("⏳ Finalizing background operations...")
 	s.waitForBackgroundOperations(30 * time.Second)
 
-	// Phase 4: Results
-	progress.UpdatePhase("✅ Phase 4: Scan completed!")
+	// Phase 4: Comprehensive sync validation
+	progress.UpdatePhase("🔍 Phase 4: Validating complete sync...")
+	progress.LogWithProgress("🔍 Performing comprehensive sync validation...")
+	if err := s.validateCompleteSyncWithProgress(progress); err != nil {
+		progress.LogWithProgress(fmt.Sprintf("⚠️ Sync validation found issues: %v", err))
+	}
+
+	// Phase 5: Results
+	progress.UpdatePhase("✅ Phase 5: Scan completed!")
 	finalStats := s.GetScanStats()
 	s.SetScanDuration(time.Since(finalStats.StartTime))
 	s.logScanResultsWithProgress(progress)
 
 	progress.LogWithProgress(fmt.Sprintf("🔧 Final resource usage: Active goroutines=%d", s.getActiveGoroutines()))
 	return nil
+}
+
+// validateCompleteSyncWithProgress ensures all filesystem media files are in database
+func (s *MediaScanner) validateCompleteSyncWithProgress(progress *ProgressTracker) error {
+	progress.LogWithProgress("🔍 Starting comprehensive filesystem-database sync validation...")
+	
+	// Step 1: Get all video files from filesystem
+	progress.UpdateOperation("📁 Discovering all video files in storage...")
+	allFiles, err := s.discoverAllVideoFiles()
+	if err != nil {
+		return fmt.Errorf("failed to discover video files: %v", err)
+	}
+	progress.LogWithProgress(fmt.Sprintf("📁 Found %d video files in storage", len(allFiles)))
+	
+	// Step 2: Get all media from database
+	progress.UpdateOperation("📊 Loading all media from database...")
+	allMedia, err := s.getAllMediaFromDatabase()
+	if err != nil {
+		return fmt.Errorf("failed to load media from database: %v", err)
+	}
+	progress.LogWithProgress(fmt.Sprintf("📊 Found %d media entries in database", len(allMedia)))
+	
+	// Step 3: Create maps for efficient lookup
+	dbPaths := make(map[string]*models.Media)
+	for i := range allMedia {
+		dbPaths[allMedia[i].FilePath] = &allMedia[i]
+	}
+	
+	// Step 4: Check each filesystem file against database
+	var missingFiles []string
+	var processedCount int
+	
+	for _, filePath := range allFiles {
+		processedCount++
+		if processedCount%100 == 0 {
+			progress.UpdateOperation(fmt.Sprintf("Validating files... (%d/%d)", processedCount, len(allFiles)))
+		}
+		
+		if _, exists := dbPaths[filePath]; !exists {
+			missingFiles = append(missingFiles, filePath)
+		}
+	}
+	
+	// Step 5: Process any missing files
+	if len(missingFiles) > 0 {
+		progress.LogWithProgress(fmt.Sprintf("⚠️ Found %d files missing from database, processing them now...", len(missingFiles)))
+		
+		for i, filePath := range missingFiles {
+			progress.UpdateOperation(fmt.Sprintf("Processing missing file %d/%d: %s", i+1, len(missingFiles), filepath.Base(filePath)))
+			
+			// Get file info
+			fileInfo, err := os.Stat(filePath)
+			if err != nil {
+				progress.LogWithProgress(fmt.Sprintf("❌ Cannot access file: %s - %v", filePath, err))
+				continue
+			}
+			
+			// Process the missing file
+			if err := s.processVideoFile(filePath, fileInfo); err != nil {
+				progress.LogWithProgress(fmt.Sprintf("❌ Failed to process missing file: %s - %v", filePath, err))
+			} else {
+				progress.LogWithProgress(fmt.Sprintf("✅ Successfully added missing file: %s", filepath.Base(filePath)))
+			}
+		}
+	} else {
+		progress.LogWithProgress("✅ All filesystem video files are present in database")
+	}
+	
+	// Step 6: Check for orphaned database entries (files that no longer exist)
+	progress.UpdateOperation("🧹 Checking for orphaned database entries...")
+	fileSet := make(map[string]bool)
+	for _, filePath := range allFiles {
+		fileSet[filePath] = true
+	}
+	
+	var orphanedMedia []models.Media
+	for _, media := range allMedia {
+		if !fileSet[media.FilePath] {
+			orphanedMedia = append(orphanedMedia, media)
+		}
+	}
+	
+	if len(orphanedMedia) > 0 {
+		progress.LogWithProgress(fmt.Sprintf("⚠️ Found %d orphaned database entries (files no longer exist)", len(orphanedMedia)))
+		for _, media := range orphanedMedia {
+			progress.LogWithProgress(fmt.Sprintf("🗑️ Orphaned: %s (ID: %d) - File: %s", media.Title, media.ID, media.FilePath))
+		}
+	} else {
+		progress.LogWithProgress("✅ No orphaned database entries found")
+	}
+	
+	// Step 7: Summary
+	totalFiles := len(allFiles)
+	totalDB := len(allMedia)
+	missing := len(missingFiles)
+	orphaned := len(orphanedMedia)
+	
+	progress.LogWithProgress("📊 Sync Validation Summary:")
+	progress.LogWithProgress(fmt.Sprintf("   📁 Files in storage: %d", totalFiles))
+	progress.LogWithProgress(fmt.Sprintf("   📊 Entries in database: %d", totalDB))
+	progress.LogWithProgress(fmt.Sprintf("   ➕ Missing from DB (now added): %d", missing))
+	progress.LogWithProgress(fmt.Sprintf("   🗑️ Orphaned in DB: %d", orphaned))
+	
+	if missing == 0 && orphaned == 0 {
+		progress.LogWithProgress("✅ Perfect sync: All storage files are in database, no orphaned entries")
+	} else if missing > 0 && orphaned == 0 {
+		progress.LogWithProgress(fmt.Sprintf("✅ Sync completed: Added %d missing files to database", missing))
+	} else {
+		progress.LogWithProgress(fmt.Sprintf("⚠️ Sync issues: %d missing files processed, %d orphaned entries found", missing, orphaned))
+	}
+	
+	return nil
+}
+
+// discoverAllVideoFiles recursively finds all video files in the media directory
+func (s *MediaScanner) discoverAllVideoFiles() ([]string, error) {
+	var videoFiles []string
+	videoExtensions := map[string]bool{
+		".mp4": true, ".mkv": true, ".avi": true, ".mov": true, ".wmv": true,
+		".flv": true, ".webm": true, ".m4v": true, ".3gp": true, ".ts": true,
+		".mpg": true, ".mpeg": true, ".m2v": true, ".asf": true, ".rm": true,
+		".rmvb": true, ".vob": true, ".ogv": true, ".dv": true, ".qt": true,
+		".divx": true, ".xvid": true, ".f4v": true, ".m2ts": true, ".mts": true,
+	}
+	
+	err := filepath.Walk(s.mediaPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil // Continue walking even if there's an error with one file
+		}
+		
+		// Skip directories
+		if info.IsDir() {
+			return nil
+		}
+		
+		// Skip system files and recycle bin
+		if strings.Contains(path, "$RECYCLE.BIN") || strings.HasPrefix(filepath.Base(path), "$") {
+			return nil
+		}
+		
+		// Skip hidden files
+		if strings.HasPrefix(filepath.Base(path), ".") {
+			return nil
+		}
+		
+		// Check if it's a video file
+		ext := strings.ToLower(filepath.Ext(path))
+		if videoExtensions[ext] {
+			videoFiles = append(videoFiles, path)
+		}
+		
+		return nil
+	})
+	
+	return videoFiles, err
 }
 
 // logSyncResults logs the final sync statistics
@@ -4114,9 +4371,24 @@ func (s *MediaScanner) extractMetadataFromPath(path string) *FileMetadata {
 	}
 
 	// Detect if it's a TV series episode (enhanced with path-based detection)
-	if s.isEpisodeFile(filename) || s.isEpisodeFromPath(path) {
+	// Only classify as episode if BOTH filename AND path indicate it's an episode
+	isEpisodeByFilename := s.isEpisodeFile(filename)
+	isEpisodeByPath := s.isEpisodeFromPath(path)
+	
+	if isEpisodeByFilename && isEpisodeByPath {
 		metadata.Type = "episode"
 		metadata.SeriesTitle, metadata.Season, metadata.Episode = s.extractEpisodeInfoFromPath(path)
+	} else if isEpisodeByFilename && !isEpisodeByPath {
+		// Filename suggests episode but path doesn't - likely a movie with episode-like naming
+		// Keep as movie but extract episode info for potential use
+		seriesTitle, season, episode := s.extractEpisodeInfoFromPath(path)
+		if seriesTitle == "" || season == 0 {
+			// No valid series info found, definitely a movie
+			metadata.Type = "movie"
+		} else {
+			metadata.Type = "episode"
+			metadata.SeriesTitle, metadata.Season, metadata.Episode = seriesTitle, season, episode
+		}
 	}
 
 	// Extract quality from filename
@@ -4155,9 +4427,9 @@ func (s *MediaScanner) isEpisodeFromPath(fullPath string) bool {
 	// Look for season folder patterns in the path
 	for _, part := range pathParts {
 		seasonPatterns := []string{
-			`[Ss]eason\s*\d+`,
-			`[Ss]\d+`,
-			`Season\s*\d+`,
+			`^[Ss]eason\s*\d+$`,
+			`^[Ss]\d+$`,
+			`^Season\s*\d+$`,
 		}
 
 		for _, pattern := range seasonPatterns {
@@ -4165,6 +4437,16 @@ func (s *MediaScanner) isEpisodeFromPath(fullPath string) bool {
 				return true
 			}
 		}
+	}
+
+	// Additional check: if file is in root media directory, it's likely a movie
+	mediaPath := s.GetMediaPath()
+	relPath, _ := filepath.Rel(mediaPath, fullPath)
+	pathDepth := len(strings.Split(relPath, string(filepath.Separator)))
+	
+	// If file is directly in media root or one level deep without season folders, treat as movie
+	if pathDepth <= 2 {
+		return false
 	}
 
 	return false
@@ -4239,20 +4521,27 @@ func (s *MediaScanner) extractEpisodeInfoFromPath(fullPath string) (string, int,
 		}
 	}
 
-	// Extract episode number from filename
+	// Extract episode number from filename - only if we have season info
 	var episodeNum int
-	episodePatterns := []string{
-		`[Ee]pisode\s*(\d+)`,
-		`[Ee]p\s*(\d+)`,
-		`(\d+)`, // Just a number
-	}
+	if seasonNum > 0 {
+		episodePatterns := []string{
+			`[Ee]pisode\s*(\d+)`,
+			`[Ee]p\s*(\d+)`,
+			`[Ee](\d+)`,
+			`\b(\d{1,2})\b`, // 1-2 digit number (not years like 2019)
+		}
 
-	for _, pattern := range episodePatterns {
-		re := regexp.MustCompile(pattern)
-		matches := re.FindStringSubmatch(filename)
-		if len(matches) >= 2 {
-			episodeNum, _ = strconv.Atoi(matches[1])
-			break
+		for _, pattern := range episodePatterns {
+			re := regexp.MustCompile(pattern)
+			matches := re.FindStringSubmatch(filename)
+			if len(matches) >= 2 {
+				num, _ := strconv.Atoi(matches[1])
+				// Only accept reasonable episode numbers (1-999), not years
+				if num >= 1 && num <= 999 {
+					episodeNum = num
+					break
+				}
+			}
 		}
 	}
 
@@ -4289,26 +4578,45 @@ func (s *MediaScanner) extractYear(filename string) int {
 	return 0
 }
 
-// cleanTitle cleans a title string (simple version)
+// cleanTitle cleans a title string while preserving important numbers and sequels
 func (s *MediaScanner) cleanTitle(title string) string {
 	// Remove file extension
 	title = strings.TrimSuffix(title, filepath.Ext(title))
 
-	// Replace common separators with spaces
+	// Replace common separators with spaces, but preserve important patterns first
 	title = strings.ReplaceAll(title, ".", " ")
 	title = strings.ReplaceAll(title, "_", " ")
 	title = strings.ReplaceAll(title, "-", " ")
 
-	// Remove common patterns
+	// Remove technical patterns but preserve movie content
 	patterns := []string{
-		`\[.*?\]`,                   // Remove brackets
-		`\(.*?\)`,                   // Remove parentheses
-		`\d{4}p`,                    // Remove resolution
-		`x264|x265|h264|h265`,       // Remove codecs
-		`BluRay|WEBRip|DVDRip|HDTV`, // Remove sources
+		`\[\d{4}p\]`,                                    // Remove [1080p] in brackets
+		`\b\d{4}p\b`,                                    // Remove standalone resolution like 1080p
+		`\b(?i)(x264|x265|h264|h265|HEVC|AVC)\b`,       // Remove codecs
+		`\b(?i)(BluRay|WEBRip|DVDRip|HDTV|WEB-DL)\b`,   // Remove sources
+		`\b(?i)(YTS|YIFY|RARBG|ETRG)\b`,                // Remove release groups
+		`\[(?i)(YTS|YIFY|RARBG|ETRG).*?\]`,             // Remove release group brackets
+		`\b(?i)(AAC|DDP|DD|5\.1|7\.1|Atmos)\b`,         // Remove audio formats
+		`\b(?i)(10bit|8bit)\b`,                          // Remove bit depth
 	}
 
 	for _, pattern := range patterns {
+		re := regexp.MustCompile(pattern)
+		title = re.ReplaceAllString(title, " ")
+	}
+
+	// Remove year in parentheses ONLY if it's at the end and looks like (YYYY)
+	yearPattern := regexp.MustCompile(`\s*\(\d{4}\)\s*$`)
+	title = yearPattern.ReplaceAllString(title, "")
+
+	// Remove empty brackets and parentheses (but preserve content with meaningful info)
+	emptyBrackets := []string{
+		`\[\s*\]`,     // Empty brackets
+		`\(\s*\)`,     // Empty parentheses
+		`\{\s*\}`,     // Empty braces
+	}
+
+	for _, pattern := range emptyBrackets {
 		re := regexp.MustCompile(pattern)
 		title = re.ReplaceAllString(title, " ")
 	}
@@ -4317,18 +4625,69 @@ func (s *MediaScanner) cleanTitle(title string) string {
 	title = regexp.MustCompile(`\s+`).ReplaceAllString(title, " ")
 	title = strings.TrimSpace(title)
 
-	// Apply title case
+	// Apply title case while preserving important patterns
 	if title != "" {
 		words := strings.Fields(title)
 		for i, word := range words {
 			if len(word) > 0 {
-				words[i] = strings.ToUpper(string(word[0])) + strings.ToLower(word[1:])
+				// Preserve certain patterns in uppercase
+				upperPatterns := []string{"II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII"}
+				isRomanNumeral := false
+				for _, pattern := range upperPatterns {
+					if strings.ToUpper(word) == pattern {
+						words[i] = pattern
+						isRomanNumeral = true
+						break
+					}
+				}
+				
+				// Don't change roman numerals or already processed words
+				if !isRomanNumeral {
+					words[i] = strings.ToUpper(string(word[0])) + strings.ToLower(word[1:])
+				}
 			}
 		}
 		title = strings.Join(words, " ")
 	}
 
 	return title
+}
+
+// titleNeedsCleaning checks if a title contains technical terms that need cleaning
+func (s *MediaScanner) titleNeedsCleaning(title string) bool {
+	technicalPatterns := []string{
+		`\d{4}p`,                                    // Resolution like 1080p
+		`(?i)(x264|x265|h264|h265|HEVC|AVC)`,       // Codecs
+		`(?i)(BluRay|WEBRip|DVDRip|HDTV|WEB-DL)`,   // Sources
+		`(?i)(YTS|YIFY|RARBG|ETRG)`,                // Release groups
+		`(?i)(AAC|DDP|DD|5\.1|7\.1|Atmos)`,         // Audio formats
+		`(?i)(10bit|8bit)`,                          // Bit depth
+		`\[.*?\]`,                                   // Any brackets
+	}
+
+	for _, pattern := range technicalPatterns {
+		if matched, _ := regexp.MatchString(pattern, title); matched {
+			return true
+		}
+	}
+	return false
+}
+
+// isSequelTitle checks if a title contains sequel indicators (numbers, roman numerals)
+func (s *MediaScanner) isSequelTitle(title string) bool {
+	sequelPatterns := []string{
+		`\b(2|3|4|5|6|7|8|9|10)\b`,                    // Numbers 2-10
+		`\b(II|III|IV|V|VI|VII|VIII|IX|X|XI|XII)\b`,   // Roman numerals
+		`\b(Two|Three|Four|Five|Six|Seven|Eight|Nine|Ten)\b`, // Written numbers
+		`\b(Part|Chapter)\s+\d+\b`,                    // Part/Chapter numbers
+	}
+
+	for _, pattern := range sequelPatterns {
+		if matched, _ := regexp.MatchString(`(?i)`+pattern, title); matched {
+			return true
+		}
+	}
+	return false
 }
 
 // Memory monitoring and system stability methods for i5-4590

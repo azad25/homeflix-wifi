@@ -59,9 +59,9 @@ def generate_thumbnail(self, media_id: int, file_path: str, output_dir: str = No
         try:
             duration = get_video_duration(file_path)
             if duration:
-                # Use random seek time between 10-70% of video duration
+                # Use random seek time between 30-70% of video duration
                 import random
-                seek_percent = random.uniform(0.1, 0.7)
+                seek_percent = random.uniform(0.3, 0.7)
                 seek_time = int(duration * seek_percent)
             else:
                 seek_time = 30
@@ -203,10 +203,10 @@ def generate_preview_clip(self, media_id: int, file_path: str, output_dir: str =
         try:
             duration = get_video_duration(file_path)
             if duration:
-                # Use first half of video, random start time
+                # Use random start time between 30-70% of video duration
                 import random
-                first_half = duration // 2
-                start_time = random.randint(30, max(60, first_half - 15))
+                start_percent = random.uniform(0.3, 0.7)
+                start_time = int(duration * start_percent)
             else:
                 start_time = 60
             
@@ -340,8 +340,8 @@ def generate_multiple_thumbnails(media_id: int, file_path: str, count: int = 5) 
     # Generate thumbnails at evenly spaced intervals
     for i in range(count):
         try:
-            # Calculate timestamp (skip first 10% and last 10%)
-            timestamp = int((duration * 0.1) + (i * (duration * 0.8) / count))
+            # Calculate timestamp (skip first 30% and last 10%)
+            timestamp = int((duration * 0.3) + (i * (duration * 0.6) / count))
             
             thumbnail_filename = generate_unique_filename(media_id, file_path, f"thumb_{i+1}", ".jpg")
             thumbnail_path = os.path.join(output_dir, thumbnail_filename)

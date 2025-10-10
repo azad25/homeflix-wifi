@@ -21,20 +21,25 @@ func NewRecommendationService(db *gorm.DB) *RecommendationService {
 func (s *RecommendationService) GetDefaultRecommendations(limit int) ([]models.Media, error) {
 	var media []models.Media
 	
+	// CRITICAL: Filter out episodes, only show main series and movies
 	// Get popular and highly rated media as default recommendations
 	err := s.db.Preload("Genres").
-		Where("rating > ? OR view_count > ?", 7.0, 10).
+		Where("(rating > ? OR view_count > ?) AND type != ?", 7.0, 10, "episode").
 		Order("rating DESC, view_count DESC, created_at DESC").
 		Limit(limit).
 		Find(&media).Error
 	
 	if err != nil {
-		// If that fails, just get recent media
+		// If that fails, just get recent media (excluding episodes)
 		err = s.db.Preload("Genres").
+			Where("type != ?", "episode").
 			Order("created_at DESC").
 			Limit(limit).
 			Find(&media).Error
 	}
+	
+	// Ensure at least one latest media item is included
+	media = s.ensureLatestMediaIncluded(media, limit)
 	
 	return media, err
 }
@@ -77,11 +82,11 @@ func (s *RecommendationService) GetRecommendationsForUser(userID uint, limit int
 	var userRatings []models.UserRating
 	s.db.Preload("Media").Preload("Media.Genres").Where("user_id = ?", userID).Find(&userRatings)
 
-	// Get all media for scoring (exclude already watched)
+	// Get all media for scoring (exclude already watched and episodes)
 	var allMedia []models.Media
 	watchedIDs := s.getWatchedMediaIDs(userID)
 	
-	query := s.db.Preload("Genres")
+	query := s.db.Preload("Genres").Where("type != ?", "episode")
 	if len(watchedIDs) > 0 {
 		query = query.Where("id NOT IN ?", watchedIDs)
 	}
@@ -118,6 +123,9 @@ func (s *RecommendationService) GetRecommendationsForUser(userID uint, limit int
 			s.saveRecommendation(userID, rec.Media.ID, rec.Score, rec.Reason, "personalized")
 		}
 	}
+	
+	// Ensure at least one latest media item is included
+	result = s.ensureLatestMediaIncluded(result, limit)
 
 	// If no recommendations found (likely no user data), fall back to default recommendations
 	if len(result) == 0 {
@@ -132,14 +140,17 @@ func (s *RecommendationService) GetRecommendationsForUser(userID uint, limit int
 func (s *RecommendationService) GetTrendingRecommendations(limit int) ([]models.Media, error) {
 	var media []models.Media
 	
-	// Get media with highest view counts in the last 30 days
+	// Get media with highest view counts in the last 30 days (excluding episodes)
 	thirtyDaysAgo := time.Now().AddDate(0, 0, -30)
 	
 	err := s.db.Preload("Genres").Preload("Series").Preload("Subtitles").
-		Where("last_viewed > ? OR view_count > 0", thirtyDaysAgo).
+		Where("(last_viewed > ? OR view_count > 0) AND type != ?", thirtyDaysAgo, "episode").
 		Order("view_count DESC, last_viewed DESC").
 		Limit(limit).
 		Find(&media).Error
+	
+	// Ensure at least one latest media item is included
+	media = s.ensureLatestMediaIncluded(media, limit)
 	
 	return media, err
 }
@@ -166,14 +177,14 @@ func (s *RecommendationService) GetSimilarMedia(userID uint, limit int) ([]model
 		}
 	}
 
-	// Find media with similar genres
+	// Find media with similar genres (excluding episodes)
 	var similarMedia []models.Media
 	for genreName := range genreMap {
 		var genreMedia []models.Media
 		s.db.Preload("Genres").Preload("Series").Preload("Subtitles").
 			Joins("JOIN media_genres ON media.id = media_genres.media_id").
 			Joins("JOIN genres ON media_genres.genre_id = genres.id").
-			Where("genres.name = ?", genreName).
+			Where("genres.name = ? AND media.type != ?", genreName, "episode").
 			Where("media.id NOT IN (?)", s.getWatchedMediaIDs(userID)).
 			Limit(limit/len(genreMap) + 1).
 			Find(&genreMedia)
@@ -186,6 +197,9 @@ func (s *RecommendationService) GetSimilarMedia(userID uint, limit int) ([]model
 	if len(uniqueMedia) > limit {
 		uniqueMedia = uniqueMedia[:limit]
 	}
+	
+	// Ensure at least one latest media item is included
+	uniqueMedia = s.ensureLatestMediaIncluded(uniqueMedia, limit)
 
 	return uniqueMedia, nil
 }
@@ -429,4 +443,45 @@ func (s *RecommendationService) RefreshRecommendations() error {
 // This should be called when user's viewing behavior changes significantly
 func (s *RecommendationService) InvalidateUserRecommendations(userID uint) error {
 	return s.db.Where("user_id = ?", userID).Delete(&models.Recommendation{}).Error
+}
+
+// ensureLatestMediaIncluded ensures at least one of the latest media items is included in recommendations
+func (s *RecommendationService) ensureLatestMediaIncluded(currentMedia []models.Media, limit int) []models.Media {
+	// Get the latest media item (excluding episodes)
+	var latestMedia models.Media
+	err := s.db.Preload("Genres").
+		Where("type != ?", "episode").
+		Order("created_at DESC").
+		First(&latestMedia).Error
+	
+	if err != nil {
+		// If no latest media found, return current recommendations as-is
+		return currentMedia
+	}
+	
+	// Check if latest media is already in the recommendations
+	for _, media := range currentMedia {
+		if media.ID == latestMedia.ID {
+			// Latest media already included, return as-is
+		return currentMedia
+		}
+	}
+	
+	// Latest media not included, add it to the beginning
+	result := []models.Media{latestMedia}
+	
+	// Add existing recommendations (up to limit-1 to make room for latest)
+	maxExisting := limit - 1
+	if maxExisting < 0 {
+		maxExisting = 0
+	}
+	
+	for i, media := range currentMedia {
+		if i >= maxExisting {
+			break
+		}
+		result = append(result, media)
+	}
+	
+	return result
 }

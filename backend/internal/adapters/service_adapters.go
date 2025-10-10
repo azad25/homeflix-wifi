@@ -115,6 +115,10 @@ func (a *MediaServiceAdapter) UpdateMedia(media *models.Media) error {
 	return a.service.UpdateMedia(media)
 }
 
+func (a *MediaServiceAdapter) UpsertMedia(media *models.Media) error {
+	return a.service.UpsertMedia(media)
+}
+
 func (a *MediaServiceAdapter) DeleteMedia(id uint) error {
 	return a.service.DeleteMedia(id)
 }

@@ -68,6 +68,10 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		api.GET("/admin/thumbnail-service/stats", handlers.GetThumbnailServiceStats(thumbnailService))
 		api.GET("/admin/thumbnail-service/jobs/:jobId", handlers.GetJobStatus(thumbnailService))
 
+		// High-performance asset cache management (automatic warming)
+		api.DELETE("/admin/assets/cache/clear", handlers.ClearAssetCache())
+		api.GET("/admin/assets/cache/stats", handlers.GetAssetCacheStats())
+
 		// Subtitles
 		api.GET("/subtitles/:id", handlers.GetSubtitles(mediaService))
 

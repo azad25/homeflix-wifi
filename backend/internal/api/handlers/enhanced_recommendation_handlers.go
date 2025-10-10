@@ -3,9 +3,11 @@ package handlers
 import (
 	"crypto/md5"
 	"fmt"
+	"hash/fnv"
 	"log"
 	"math/rand"
 	"net/http"
+	"sort"
 	"strconv"
 	"time"
 
@@ -140,7 +142,16 @@ func generateSessionID(c *gin.Context) string {
 func getOrCreateSessionID(c *gin.Context) string {
 	sessionID := c.GetHeader("X-Session-ID")
 	if sessionID == "" {
+		// Try to get from cookie
+		if cookie, err := c.Cookie("homeflix_session"); err == nil {
+			sessionID = cookie
+		}
+	}
+	if sessionID == "" {
+		// Generate new session ID
 		sessionID = generateSessionID(c)
+		// Set cookie for future requests
+		c.SetCookie("homeflix_session", sessionID, 86400*30, "/", "", false, true) // 30 days
 	}
 	return sessionID
 }
@@ -156,11 +167,14 @@ func getLimit(c *gin.Context, defaultLimit int) int {
 }
 
 func generateSessionAwareRecommendations(recommendationService *services.RecommendationService, mediaService *services.MediaService, sessionID, recType string, limit int) ([]models.Media, error) {
-	// Get all available media
+	// Get all available media (excluding episodes)
 	allMedia, err := mediaService.GetAllMedia()
 	if err != nil {
 		return nil, err
 	}
+	
+	// CRITICAL: Filter out episodes from all media
+	allMedia = filterOutEpisodes(allMedia)
 
 	var recommendations []models.Media
 
@@ -168,16 +182,19 @@ func generateSessionAwareRecommendations(recommendationService *services.Recomme
 	case "trending":
 		trending, err := mediaService.GetTrendingMedia(limit * 2)
 		if err == nil {
+			trending = filterOutEpisodes(trending)
 			recommendations = applySessionBasedShuffle(trending, sessionID, limit)
 		}
 	case "popular":
 		popular, err := mediaService.GetPopularMedia()
 		if err == nil {
+			popular = filterOutEpisodes(popular)
 			recommendations = applySessionBasedShuffle(popular, sessionID, limit)
 		}
 	case "recent":
 		recent, err := mediaService.GetRecentMedia()
 		if err == nil {
+			recent = filterOutEpisodes(recent)
 			recommendations = applySessionBasedShuffle(recent, sessionID, limit)
 		}
 	default: // mixed
@@ -188,6 +205,9 @@ func generateSessionAwareRecommendations(recommendationService *services.Recomme
 	if len(recommendations) == 0 {
 		recommendations = applySessionBasedShuffle(allMedia, sessionID, limit)
 	}
+	
+	// Ensure at least one latest media item is included
+	recommendations = ensureLatestMediaIncluded(recommendations, allMedia, limit)
 
 	return recommendations, nil
 }
@@ -304,44 +324,105 @@ func generatePersonalizedWithSession(allMedia []models.Media, sessionID string, 
 }
 
 func generateMixedWithSession(allMedia []models.Media, sessionID string, limit int) []models.Media {
-	// Create session-based seed
-	sessionSeed := int64(0)
-	for _, char := range sessionID {
-		sessionSeed += int64(char)
+	if len(allMedia) == 0 {
+		return allMedia
 	}
 	
-	// Separate content by type
-	var movies, tvShows []models.Media
-	for _, media := range allMedia {
-		if media.Type == "movie" {
-			movies = append(movies, media)
-		} else {
-			tvShows = append(tvShows, media)
+	// CRITICAL: Filter out episodes before processing
+	allMedia = filterOutEpisodes(allMedia)
+
+	// Create deterministic but varied selection based on session
+	hash := fnv.New64a()
+	hash.Write([]byte(sessionID))
+	seed := int64(hash.Sum64())
+	
+	// Create a new random generator with the session-based seed
+	rng := rand.New(rand.NewSource(seed))
+	
+	// Create a copy to avoid modifying the original slice
+	mediaCopy := make([]models.Media, len(allMedia))
+	copy(mediaCopy, allMedia)
+	
+	// Shuffle using session-based randomness
+	rng.Shuffle(len(mediaCopy), func(i, j int) {
+		mediaCopy[i], mediaCopy[j] = mediaCopy[j], mediaCopy[i]
+	})
+	
+	// Apply some intelligent weighting while maintaining session consistency
+	sort.SliceStable(mediaCopy, func(i, j int) bool {
+		// Use session hash to create consistent but varied ordering
+		hashI := fnv.New64a()
+		hashI.Write([]byte(fmt.Sprintf("%s-%d", sessionID, mediaCopy[i].ID)))
+		hashJ := fnv.New64a()
+		hashJ.Write([]byte(fmt.Sprintf("%s-%d", sessionID, mediaCopy[j].ID)))
+		
+		scoreI := float64(mediaCopy[i].ViewCount)*0.3 + mediaCopy[i].Rating*10 + float64(hashI.Sum64()%100)
+		scoreJ := float64(mediaCopy[j].ViewCount)*0.3 + mediaCopy[j].Rating*10 + float64(hashJ.Sum64()%100)
+		
+		return scoreI > scoreJ
+	})
+	
+	if len(mediaCopy) > limit {
+		mediaCopy = mediaCopy[:limit]
+	}
+	
+	return mediaCopy
+}
+
+// filterOutEpisodes removes episodes from media slice, keeping only movies and main series
+func filterOutEpisodes(media []models.Media) []models.Media {
+	var filtered []models.Media
+	for _, m := range media {
+		if m.Type != "episode" {
+			filtered = append(filtered, m)
 		}
 	}
+	return filtered
+}
 
-	// Calculate distribution
-	movieCount := int(float64(limit) * 0.7) // 70% movies
-	tvCount := limit - movieCount           // 30% TV shows
-
-	var recommendations []models.Media
-
-	// Add shuffled movies
-	if len(movies) > 0 {
-		shuffledMovies := applySessionBasedShuffle(movies, sessionID, movieCount)
-		recommendations = append(recommendations, shuffledMovies...)
+// ensureLatestMediaIncluded ensures at least one of the latest media items is included in recommendations
+func ensureLatestMediaIncluded(currentMedia []models.Media, allMedia []models.Media, limit int) []models.Media {
+	if len(allMedia) == 0 {
+		return currentMedia
 	}
-
-	// Add shuffled TV shows
-	if len(tvShows) > 0 {
-		shuffledTV := applySessionBasedShuffle(tvShows, sessionID, tvCount)
-		recommendations = append(recommendations, shuffledTV...)
+	
+	// Find the latest media item (should already be filtered to exclude episodes)
+	var latestMedia *models.Media
+	for _, media := range allMedia {
+		if latestMedia == nil || media.CreatedAt.After(latestMedia.CreatedAt) {
+			latestMedia = &media
+		}
 	}
-
-	// Final shuffle of the mixed content
-	finalRecommendations := applySessionBasedShuffle(recommendations, sessionID+"_final", limit)
-
-	return finalRecommendations
+	
+	if latestMedia == nil {
+		return currentMedia
+	}
+	
+	// Check if latest media is already in the recommendations
+	for _, media := range currentMedia {
+		if media.ID == latestMedia.ID {
+			// Latest media already included, return as-is
+			return currentMedia
+		}
+	}
+	
+	// Latest media not included, add it to the beginning
+	result := []models.Media{*latestMedia}
+	
+	// Add existing recommendations (up to limit-1 to make room for latest)
+	maxExisting := limit - 1
+	if maxExisting < 0 {
+		maxExisting = 0
+	}
+	
+	for i, media := range currentMedia {
+		if i >= maxExisting {
+			break
+		}
+		result = append(result, media)
+	}
+	
+	return result
 }
 
 // GetRecommendations is the main recommendations handler that routes based on category
@@ -389,11 +470,19 @@ func GetRecommendations(recommendationService *services.RecommendationService, m
 			if err != nil {
 				// Fallback to trending if we can't get all media
 				media, err = recommendationService.GetTrendingRecommendations(limit)
-				break
+				if err != nil {
+					c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+					return
+				}
+			} else {
+				// Filter out episodes before generating mixed recommendations
+				allMedia = filterOutEpisodes(allMedia)
+				media = generateMixedWithSession(allMedia, sessionID, limit)
+				// Ensure at least one latest media item is included
+				media = ensureLatestMediaIncluded(media, allMedia, limit)
 			}
-			recommendations := generateMixedWithSession(allMedia, sessionID, limit)
 			c.Header("X-Session-ID", sessionID)
-			c.JSON(http.StatusOK, recommendations)
+			c.JSON(http.StatusOK, media)
 			return
 		default:
 			// Default to trending recommendations
@@ -447,12 +536,15 @@ func GetSimilarMediaByID(recommendationService *services.RecommendationService, 
 			return
 		}
 
-		// Get all media to find similar ones
+		// Get all media to find similar ones (excluding episodes)
 		allMedia, err := mediaService.GetAllMedia()
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch media"})
 			return
 		}
+		
+		// Filter out episodes from all media
+		allMedia = filterOutEpisodes(allMedia)
 
 		// Find similar media based on genre, type, and other attributes
 		var similarMedia []models.Media

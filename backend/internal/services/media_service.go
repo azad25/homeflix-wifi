@@ -158,8 +158,26 @@ func (s *MediaService) GetMediaByID(id uint) (*models.Media, error) {
 
 func (s *MediaService) GetMediaByPath(path string) (*models.Media, error) {
 	var media models.Media
+	
+	// Normalize path for consistent comparison
+	normalizedPath := filepath.Clean(path)
+	
 	err := s.DBManager.WithReadOnly(func(db *gorm.DB) error {
-		return db.Where("file_path = ?", path).First(&media).Error
+		// Try exact path match first
+		err := db.Where("file_path = ?", normalizedPath).First(&media).Error
+		if err == nil {
+			return nil
+		}
+		
+		// If exact match fails, try original path
+		if normalizedPath != path {
+			err = db.Where("file_path = ?", path).First(&media).Error
+			if err == nil {
+				return nil
+			}
+		}
+		
+		return err
 	})
 
 	if err != nil {
@@ -178,6 +196,131 @@ func (s *MediaService) MediaExists(path string) (bool, error) {
 		return db.Model(&models.Media{}).Where("file_path = ?", path).Count(&count).Error
 	})
 	return count > 0, err
+}
+
+// UpsertMedia creates or updates media atomically to prevent UNIQUE constraint violations
+func (s *MediaService) UpsertMedia(media *models.Media) error {
+	return s.DBManager.WithTx(func(tx *gorm.DB) error {
+		// Normalize path for consistent comparison
+		normalizedPath := filepath.Clean(media.FilePath)
+		
+		// Try multiple path variations to find existing media
+		var existingMedia models.Media
+		pathVariations := []string{
+			normalizedPath,
+			media.FilePath,
+			strings.ReplaceAll(normalizedPath, "\\", "/"),
+			strings.ReplaceAll(media.FilePath, "\\", "/"),
+		}
+		
+		// Remove duplicates from path variations
+		uniquePaths := make(map[string]bool)
+		var searchPaths []string
+		for _, path := range pathVariations {
+			if !uniquePaths[path] {
+				uniquePaths[path] = true
+				searchPaths = append(searchPaths, path)
+			}
+		}
+		
+		// Try to find existing media with any of the path variations
+		var err error
+		for _, searchPath := range searchPaths {
+			err = tx.Where("file_path = ?", searchPath).First(&existingMedia).Error
+			if err == nil {
+				// Found existing media, update it
+				log.Printf("🔍 Found existing media with path: %s", searchPath)
+				existingMedia.Title = media.Title
+				existingMedia.Description = media.Description
+				existingMedia.Year = media.Year
+				existingMedia.Type = media.Type
+				existingMedia.FileSize = media.FileSize
+				existingMedia.Quality = media.Quality
+				existingMedia.FilePath = normalizedPath // Use normalized path
+				
+				updateErr := tx.Save(&existingMedia).Error
+				if updateErr == nil {
+					// Copy the updated media back to the original pointer
+					*media = existingMedia
+					log.Printf("🔄 Updated existing media ID=%d: %s", existingMedia.ID, existingMedia.Title)
+				}
+				return updateErr
+			}
+		}
+		
+		// No existing media found, create new one
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			media.FilePath = normalizedPath // Use normalized path
+			createErr := tx.Create(media).Error
+			if createErr != nil {
+				// If create fails with UNIQUE constraint, implement comprehensive recovery
+				if strings.Contains(createErr.Error(), "UNIQUE constraint failed") {
+					log.Printf("⚠️ UNIQUE constraint violation for path: %s", normalizedPath)
+					
+					// Strategy 1: Try exact path search with different casing
+					var allMedia []models.Media
+					tx.Find(&allMedia)
+					
+					for _, existing := range allMedia {
+						if strings.EqualFold(existing.FilePath, normalizedPath) ||
+						   strings.EqualFold(existing.FilePath, media.FilePath) {
+							log.Printf("🔍 Found case-insensitive match: %s", existing.FilePath)
+							// Update the existing media
+							existing.Title = media.Title
+							existing.Description = media.Description
+							existing.Year = media.Year
+							existing.Type = media.Type
+							existing.FileSize = media.FileSize
+							existing.Quality = media.Quality
+							
+							updateErr := tx.Save(&existing).Error
+							if updateErr == nil {
+								*media = existing
+								log.Printf("🔄 Updated case-insensitive match ID=%d: %s", existing.ID, existing.Title)
+							}
+							return updateErr
+						}
+					}
+					
+					// Strategy 2: Try basename matching
+					baseName := filepath.Base(normalizedPath)
+					for _, existing := range allMedia {
+						existingBaseName := filepath.Base(existing.FilePath)
+						if strings.EqualFold(existingBaseName, baseName) {
+							log.Printf("🔍 Found basename match: %s -> %s", existingBaseName, existing.FilePath)
+							// Update the existing media with new path
+							existing.Title = media.Title
+							existing.Description = media.Description
+							existing.Year = media.Year
+							existing.Type = media.Type
+							existing.FileSize = media.FileSize
+							existing.Quality = media.Quality
+							existing.FilePath = normalizedPath // Update to new path
+							
+							updateErr := tx.Save(&existing).Error
+							if updateErr == nil {
+								*media = existing
+								log.Printf("🔄 Updated basename match ID=%d: %s", existing.ID, existing.Title)
+							}
+							return updateErr
+						}
+					}
+					
+					// Strategy 3: If all else fails, skip this entry to prevent crash
+					log.Printf("🚨 Could not resolve UNIQUE constraint for: %s - skipping to prevent crash", normalizedPath)
+					return fmt.Errorf("UNIQUE constraint could not be resolved for path: %s", normalizedPath)
+				}
+				log.Printf("❌ Failed to create media: %v", createErr)
+				return createErr
+			}
+			log.Printf("✅ Created new media ID=%d: %s", media.ID, media.Title)
+			return nil
+		}
+		
+		// Database error
+		log.Printf("❌ Database error during upsert: %v", err)
+		return err
+	})
 }
 
 func (s *MediaService) GetAllMedia() ([]models.Media, error) {

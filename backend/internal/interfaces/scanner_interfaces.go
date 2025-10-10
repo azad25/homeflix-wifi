@@ -62,6 +62,7 @@ type MediaServiceInterface interface {
 	MediaExists(path string) (bool, error)
 	CreateMedia(media *models.Media) error
 	UpdateMedia(media *models.Media) error
+	UpsertMedia(media *models.Media) error
 	DeleteMedia(id uint) error
 	FindOrCreateSeries(title string) (*models.Series, error)
 	GetGenreIDsByNames(genreNames []string) ([]uint, error)

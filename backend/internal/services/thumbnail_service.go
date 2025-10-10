@@ -1232,18 +1232,18 @@ func getVideoDurationFast(videoPath string) (int, error) {
 // calculateOptimalTimestamp calculates the best timestamp for thumbnail/preview
 func calculateOptimalTimestamp(duration int, taskType string) int {
 	if taskType == "thumbnail" {
-		// For thumbnails, use 25-40% of video (avoid intro/credits)
-		start := int(float64(duration) * 0.25)
-		end := int(float64(duration) * 0.40)
+		// For thumbnails, use 30-70% of video (avoid intro/credits) - matches Python tasks
+		start := int(float64(duration) * 0.30)
+		end := int(float64(duration) * 0.70)
 		if end-start < 30 {
 			start = max(30, duration/3)
 			end = min(duration-30, start+60)
 		}
 		return start + rand.Intn(max(1, end-start))
 	} else {
-		// For previews, use 15-60% of video
-		start := int(float64(duration) * 0.15)
-		end := int(float64(duration) * 0.60)
+		// For previews, use 30-70% of video - matches Python tasks
+		start := int(float64(duration) * 0.30)
+		end := int(float64(duration) * 0.70)
 		if end-start < 45 {
 			start = max(45, duration/4)
 			end = min(duration-20, start+120)

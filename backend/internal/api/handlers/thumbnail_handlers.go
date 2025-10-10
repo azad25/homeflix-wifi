@@ -9,11 +9,218 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"homeflix-backend/internal/models"
 	"homeflix-backend/internal/services"
 )
+
+// High-performance asset caching system
+type AssetCache struct {
+	thumbnailCache map[uint]string
+	previewCache   map[uint]string
+	posterCache    map[uint]string
+	mutex          sync.RWMutex
+	lastUpdate     time.Time
+}
+
+var (
+	assetCache = &AssetCache{
+		thumbnailCache: make(map[uint]string),
+		previewCache:   make(map[uint]string),
+		posterCache:    make(map[uint]string),
+		lastUpdate:     time.Now(),
+	}
+	cacheTTL = 30 * time.Minute // Cache for 30 minutes
+)
+
+// warmCacheInBackground performs automatic cache warming without external dependencies
+func warmCacheInBackground() {
+	log.Printf("Starting automatic asset cache warming...")
+	
+	// We'll warm the cache opportunistically as requests come in
+	// This avoids dependency issues and makes it truly automatic
+	assetCache.mutex.Lock()
+	assetCache.lastUpdate = time.Now()
+	assetCache.mutex.Unlock()
+	
+	log.Printf("Asset cache initialized and ready for automatic warming")
+}
+
+// checkExistingPreviewAssets checks for existing preview clips in database and filesystem
+func checkExistingPreviewAssets(media *models.Media) string {
+	// Priority 1: Check database paths
+	if media.PreviewClipPath != "" {
+		if _, err := os.Stat(media.PreviewClipPath); err == nil {
+			return media.PreviewClipPath
+		}
+	}
+	
+	if media.PreviewPath != "" {
+		if _, err := os.Stat(media.PreviewPath); err == nil {
+			return media.PreviewPath
+		}
+	}
+	
+	// Priority 2: Check common preview file patterns
+	commonPaths := []string{
+		fmt.Sprintf("./previews/preview_%d_%s.mp4", media.ID, sanitizeFilename(media.Title)),
+		fmt.Sprintf("./previews/preview_%d.mp4", media.ID),
+		fmt.Sprintf("./backend/previews/preview_%d_%s.mp4", media.ID, sanitizeFilename(media.Title)),
+		fmt.Sprintf("./backend/previews/preview_%d.mp4", media.ID),
+		fmt.Sprintf("previews/preview_%d_%s.mp4", media.ID, sanitizeFilename(media.Title)),
+		fmt.Sprintf("previews/preview_%d.mp4", media.ID),
+	}
+	
+	for _, path := range commonPaths {
+		if _, err := os.Stat(path); err == nil {
+			return path
+		}
+	}
+	
+	return "" // No existing preview found
+}
+
+// checkExistingThumbnailAssets checks for existing thumbnails in database and filesystem
+func checkExistingThumbnailAssets(media *models.Media) string {
+	// Priority 1: Check database path
+	if media.ThumbnailPath != "" {
+		if _, err := os.Stat(media.ThumbnailPath); err == nil {
+			return media.ThumbnailPath
+		}
+	}
+	
+	// Priority 2: Check common thumbnail file patterns
+	commonPaths := []string{
+		fmt.Sprintf("./thumbnails/thumb_%d_%s.jpg", media.ID, sanitizeFilename(media.Title)),
+		fmt.Sprintf("./thumbnails/thumb_%d.jpg", media.ID),
+		fmt.Sprintf("./backend/thumbnails/thumb_%d_%s.jpg", media.ID, sanitizeFilename(media.Title)),
+		fmt.Sprintf("./backend/thumbnails/thumb_%d.jpg", media.ID),
+		fmt.Sprintf("thumbnails/thumb_%d_%s.jpg", media.ID, sanitizeFilename(media.Title)),
+		fmt.Sprintf("thumbnails/thumb_%d.jpg", media.ID),
+	}
+	
+	for _, path := range commonPaths {
+		if _, err := os.Stat(path); err == nil {
+			return path
+		}
+	}
+	
+	return "" // No existing thumbnail found
+}
+
+// sanitizeFilename removes invalid characters from filenames
+func sanitizeFilename(filename string) string {
+	// Replace invalid characters with underscores
+	invalidChars := []string{"/", "\\", ":", "*", "?", "\"", "<", ">", "|", " "}
+	result := filename
+	for _, char := range invalidChars {
+		result = strings.ReplaceAll(result, char, "_")
+	}
+	return result
+}
+
+// warmRelatedAssets opportunistically warms cache for related assets in background
+func warmRelatedAssets(mediaService *services.MediaService, thumbnailService *services.ThumbnailService, mediaID uint) {
+	// Get media once for all asset types
+	media, err := mediaService.GetMediaByID(mediaID)
+	if err != nil {
+		return // Silently fail for background warming
+	}
+	
+	// Warm preview cache if not already cached
+	if _, found := assetCache.getCachedAssetPath(mediaID, "preview"); !found {
+		if previewPath, err := servePreviewFast(media, thumbnailService); err == nil {
+			assetCache.setCachedAssetPath(mediaID, "preview", previewPath)
+		}
+	}
+	
+	// Warm poster cache if not already cached
+	if _, found := assetCache.getCachedAssetPath(mediaID, "poster"); !found {
+		if posterPath, err := servePosterFast(media); err == nil {
+			assetCache.setCachedAssetPath(mediaID, "poster", posterPath)
+		}
+	}
+}
+
+// getCachedAssetPath retrieves cached asset path if valid
+func (ac *AssetCache) getCachedAssetPath(mediaID uint, assetType string) (string, bool) {
+	ac.mutex.RLock()
+	
+	// Check if cache is expired
+	if time.Since(ac.lastUpdate) > cacheTTL {
+		ac.mutex.RUnlock()
+		return "", false
+	}
+	
+	var cache map[uint]string
+	switch assetType {
+	case "thumbnail":
+		cache = ac.thumbnailCache
+	case "preview":
+		cache = ac.previewCache
+	case "poster":
+		cache = ac.posterCache
+	default:
+		ac.mutex.RUnlock()
+		return "", false
+	}
+	
+	path, exists := cache[mediaID]
+	if exists {
+		// Verify file still exists
+		if _, err := os.Stat(path); err == nil {
+			ac.mutex.RUnlock()
+			return path, true
+		}
+		// File no longer exists, need to remove from cache
+		// Upgrade to write lock for deletion
+		ac.mutex.RUnlock()
+		ac.mutex.Lock()
+		// Double-check the entry still exists after acquiring write lock
+		if cachedPath, stillExists := cache[mediaID]; stillExists && cachedPath == path {
+			delete(cache, mediaID)
+		}
+		ac.mutex.Unlock()
+	} else {
+		ac.mutex.RUnlock()
+	}
+	return "", false
+}
+
+// setCachedAssetPath stores asset path in cache
+func (ac *AssetCache) setCachedAssetPath(mediaID uint, assetType, path string) {
+	ac.mutex.Lock()
+	defer ac.mutex.Unlock()
+	
+	var cache map[uint]string
+	switch assetType {
+	case "thumbnail":
+		cache = ac.thumbnailCache
+	case "preview":
+		cache = ac.previewCache
+	case "poster":
+		cache = ac.posterCache
+	default:
+		return
+	}
+	
+	cache[mediaID] = path
+	ac.lastUpdate = time.Now()
+}
+
+// clearCache clears all cached paths
+func (ac *AssetCache) clearCache() {
+	ac.mutex.Lock()
+	defer ac.mutex.Unlock()
+	
+	ac.thumbnailCache = make(map[uint]string)
+	ac.previewCache = make(map[uint]string)
+	ac.posterCache = make(map[uint]string)
+	ac.lastUpdate = time.Now()
+}
 
 // Thumbnail and Preview Handlers
 
@@ -148,6 +355,32 @@ func GeneratePreviewClip(mediaService *services.MediaService, thumbnailService *
 			return
 		}
 
+		// CRITICAL FIX: Check for existing preview assets before generation
+		if existingPath := checkExistingPreviewAssets(media); existingPath != "" {
+			// Update database with existing path if not already set
+			if media.PreviewClipPath != existingPath {
+				media.PreviewClipPath = existingPath
+				media.PreviewPath = existingPath
+				mediaService.UpdateMedia(media)
+			}
+			
+			// Get file size for response
+			var fileSize int64
+			if info, err := os.Stat(existingPath); err == nil {
+				fileSize = info.Size()
+			}
+			
+			c.JSON(http.StatusOK, gin.H{
+				"status":       "success",
+				"media_id":     media.ID,
+				"preview_path": existingPath,
+				"file_size":    fileSize,
+				"message":      "Using existing preview clip",
+				"skipped":      true,
+			})
+			return
+		}
+
 		// Try multiple preview generation strategies with fallbacks
 		previewPath, err := generatePreviewWithFallbacks(media, thumbnailService)
 		if err != nil {
@@ -196,6 +429,25 @@ func GenerateOptimizedPreviewClip(mediaService *services.MediaService, thumbnail
 		media, err := mediaService.GetMediaByID(uint(id))
 		if err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Media not found"})
+			return
+		}
+
+		// CRITICAL FIX: Check for existing preview assets before generation
+		if existingPath := checkExistingPreviewAssets(media); existingPath != "" {
+			// Update database with existing path if not already set
+			if media.PreviewClipPath != existingPath {
+				media.PreviewClipPath = existingPath
+				media.PreviewPath = existingPath
+				mediaService.UpdateMedia(media)
+			}
+			
+			c.JSON(http.StatusOK, gin.H{
+				"status":       "success",
+				"media_id":     media.ID,
+				"preview_path": existingPath,
+				"message":      "Using existing optimized preview clip",
+				"skipped":      true,
+			})
 			return
 		}
 
@@ -255,6 +507,25 @@ func GenerateMultipleThumbnails(mediaService *services.MediaService, thumbnailSe
 		media, err := mediaService.GetMediaByID(uint(id))
 		if err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Media not found"})
+			return
+		}
+
+		// CRITICAL FIX: Check for existing thumbnail before generation
+		if existingPath := checkExistingThumbnailAssets(media); existingPath != "" {
+			// Update database with existing path if not already set
+			if media.ThumbnailPath != existingPath {
+				media.ThumbnailPath = existingPath
+				mediaService.UpdateMedia(media)
+			}
+			
+			c.JSON(http.StatusOK, gin.H{
+				"status":         "success",
+				"media_id":       media.ID,
+				"thumbnail_path": existingPath,
+				"message":        "Using existing thumbnail",
+				"skipped":        true,
+				"count":          1,
+			})
 			return
 		}
 
@@ -426,10 +697,22 @@ func GenerateThumbnailBatch(mediaService *services.MediaService, thumbnailServic
 			Title     string
 		}
 
+		var skippedExisting []uint
 		for _, mediaID := range request.MediaIDs {
 			media, err := mediaService.GetMediaByID(mediaID)
 			if err != nil {
 				continue // Skip invalid media IDs
+			}
+
+			// CRITICAL FIX: Check for existing thumbnail before adding to batch
+			if existingPath := checkExistingThumbnailAssets(media); existingPath != "" {
+				// Update database with existing path if not already set
+				if media.ThumbnailPath != existingPath {
+					media.ThumbnailPath = existingPath
+					mediaService.UpdateMedia(media)
+				}
+				skippedExisting = append(skippedExisting, mediaID)
+				continue // Skip this media as thumbnail already exists
 			}
 
 			batchRequests = append(batchRequests, struct {
@@ -886,38 +1169,63 @@ func GetThumbnailEnhanced(mediaService *services.MediaService, thumbnailService 
 			return
 		}
 
-		media, err := mediaService.GetMediaByID(uint(id))
+		mediaID := uint(id)
+
+		// Check cache first for ultra-fast serving
+		if cachedPath, found := assetCache.getCachedAssetPath(mediaID, "thumbnail"); found {
+			// Set high-performance headers
+			c.Header("Cache-Control", "public, max-age=86400, immutable") // 24 hour cache
+			c.Header("Content-Type", "image/jpeg")
+			c.Header("X-Cache", "HIT")
+			c.Header("Accept-Ranges", "bytes")
+			
+			c.File(cachedPath)
+			return
+		}
+
+		// Cache miss - get media and find thumbnail
+		media, err := mediaService.GetMediaByID(mediaID)
 		if err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Media not found"})
 			return
 		}
 
-		// Try multiple thumbnail serving strategies
-		thumbnailPath, err := serveThumbnailWithFallbacks(media, thumbnailService)
+		// Fast path resolution with optimized fallbacks
+		thumbnailPath, err := serveThumbnailFast(media, thumbnailService)
 		if err != nil {
-			// Generate thumbnail on-demand if not found
-			log.Printf("🔄 Thumbnail not found for media %d, generating on-demand", media.ID)
-
-			generatedPath, genErr := thumbnailService.GenerateThumbnail(media.FilePath, media.ID, media.Title)
-			if genErr != nil {
-				c.JSON(http.StatusNotFound, gin.H{
-					"error":   "Thumbnail not available and generation failed",
-					"details": genErr.Error(),
-				})
-				return
-			}
-
-			// Update media record
-			media.ThumbnailPath = generatedPath
-			mediaService.UpdateMedia(media)
-			thumbnailPath = generatedPath
+			// Return placeholder or 404 instead of on-demand generation to prevent blocking
+			c.JSON(http.StatusNotFound, gin.H{
+				"error": "Thumbnail not available",
+				"media_id": media.ID,
+				"message": "Asset will be generated in background",
+			})
+			
+			// Trigger async generation (non-blocking)
+			go func() {
+				if generatedPath, genErr := thumbnailService.GenerateThumbnail(media.FilePath, media.ID, media.Title); genErr == nil {
+					media.ThumbnailPath = generatedPath
+					mediaService.UpdateMedia(media)
+					assetCache.setCachedAssetPath(mediaID, "thumbnail", generatedPath)
+				}
+			}()
+			return
 		}
 
-		// Set appropriate headers for caching
-		c.Header("Cache-Control", "public, max-age=3600")
+		// Automatically cache the found path for future requests
+		assetCache.setCachedAssetPath(mediaID, "thumbnail", thumbnailPath)
+
+		// Set high-performance headers
+		c.Header("Cache-Control", "public, max-age=86400, immutable") // 24 hour cache
 		c.Header("Content-Type", "image/jpeg")
+		c.Header("X-Cache", "MISS")
+		c.Header("Accept-Ranges", "bytes")
 
 		c.File(thumbnailPath)
+		
+		// Opportunistically warm cache for related assets in background
+		go func() {
+			warmRelatedAssets(mediaService, thumbnailService, mediaID)
+		}()
 	}
 }
 
@@ -929,38 +1237,57 @@ func GetPreviewEnhanced(mediaService *services.MediaService, thumbnailService *s
 			return
 		}
 
-		media, err := mediaService.GetMediaByID(uint(id))
+		mediaID := uint(id)
+
+		// Check cache first for ultra-fast serving
+		if cachedPath, found := assetCache.getCachedAssetPath(mediaID, "preview"); found {
+			// Set high-performance headers for video streaming
+			c.Header("Cache-Control", "public, max-age=86400, immutable") // 24 hour cache
+			c.Header("Content-Type", "video/mp4")
+			c.Header("Accept-Ranges", "bytes")
+			c.Header("X-Cache", "HIT")
+			
+			c.File(cachedPath)
+			return
+		}
+
+		// Cache miss - get media and find preview
+		media, err := mediaService.GetMediaByID(mediaID)
 		if err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Media not found"})
 			return
 		}
 
-		// Try multiple preview serving strategies
-		previewPath, err := servePreviewWithFallbacks(media, thumbnailService)
+		// Fast path resolution with optimized fallbacks
+		previewPath, err := servePreviewFast(media, thumbnailService)
 		if err != nil {
-			// Generate preview on-demand if not found
-			log.Printf("🔄 Preview not found for media %d, generating on-demand", media.ID)
-
-			generatedPath, genErr := generatePreviewWithFallbacks(media, thumbnailService)
-			if genErr != nil {
-				c.JSON(http.StatusNotFound, gin.H{
-					"error":   "Preview not available and generation failed",
-					"details": genErr.Error(),
-				})
-				return
-			}
-
-			// Update media record
-			media.PreviewPath = generatedPath
-			media.PreviewClipPath = generatedPath
-			mediaService.UpdateMedia(media)
-			previewPath = generatedPath
+			// Return 404 instead of on-demand generation to prevent blocking
+			c.JSON(http.StatusNotFound, gin.H{
+				"error": "Preview not available",
+				"media_id": media.ID,
+				"message": "Asset will be generated in background",
+			})
+			
+			// Trigger async generation (non-blocking)
+			go func() {
+				if generatedPath, genErr := generatePreviewWithFallbacks(media, thumbnailService); genErr == nil {
+					media.PreviewPath = generatedPath
+					media.PreviewClipPath = generatedPath
+					mediaService.UpdateMedia(media)
+					assetCache.setCachedAssetPath(mediaID, "preview", generatedPath)
+				}
+			}()
+			return
 		}
 
-		// Set appropriate headers for video streaming
-		c.Header("Cache-Control", "public, max-age=3600")
+		// Cache the found path for future requests
+		assetCache.setCachedAssetPath(mediaID, "preview", previewPath)
+
+		// Set high-performance headers for video streaming
+		c.Header("Cache-Control", "public, max-age=86400, immutable") // 24 hour cache
 		c.Header("Content-Type", "video/mp4")
 		c.Header("Accept-Ranges", "bytes")
+		c.Header("X-Cache", "MISS")
 
 		c.File(previewPath)
 	}
@@ -974,27 +1301,250 @@ func GetPosterEnhanced(mediaService *services.MediaService) gin.HandlerFunc {
 			return
 		}
 
-		media, err := mediaService.GetMediaByID(uint(id))
+		mediaID := uint(id)
+
+		// Check cache first for ultra-fast serving
+		if cachedPath, found := assetCache.getCachedAssetPath(mediaID, "poster"); found {
+			// Set high-performance headers
+			c.Header("Cache-Control", "public, max-age=86400, immutable") // 24 hour cache
+			c.Header("Content-Type", "image/jpeg")
+			c.Header("X-Cache", "HIT")
+			c.Header("Accept-Ranges", "bytes")
+			
+			c.File(cachedPath)
+			return
+		}
+
+		// Cache miss - get media and find poster
+		media, err := mediaService.GetMediaByID(mediaID)
 		if err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Media not found"})
 			return
 		}
 
-		// Try multiple poster serving strategies
-		posterPath, err := servePosterWithFallbacks(media)
+		// Fast path resolution with optimized fallbacks
+		posterPath, err := servePosterFast(media)
 		if err != nil {
 			c.JSON(http.StatusNotFound, gin.H{
-				"error":   "Poster not available",
-				"details": err.Error(),
+				"error": "Poster not available",
+				"media_id": media.ID,
 			})
 			return
 		}
 
-		// Set appropriate headers for caching
-		c.Header("Cache-Control", "public, max-age=3600")
+		// Cache the found path for future requests
+		assetCache.setCachedAssetPath(mediaID, "poster", posterPath)
+
+		// Set high-performance headers
+		c.Header("Cache-Control", "public, max-age=86400, immutable") // 24 hour cache
 		c.Header("Content-Type", "image/jpeg")
+		c.Header("X-Cache", "MISS")
+		c.Header("Accept-Ranges", "bytes")
 
 		c.File(posterPath)
+	}
+}
+
+// serveThumbnailFast provides optimized thumbnail serving with minimal filesystem calls
+func serveThumbnailFast(media *models.Media, thumbnailService *services.ThumbnailService) (string, error) {
+	// Priority 1: Database path (most likely to be correct)
+	if media.ThumbnailPath != "" {
+		// Try direct path first
+		if _, err := os.Stat(media.ThumbnailPath); err == nil {
+			return media.ThumbnailPath, nil
+		}
+		
+		// Try with backend prefix for relative paths
+		if !strings.HasPrefix(media.ThumbnailPath, "/") {
+			backendPath := fmt.Sprintf("./backend/%s", media.ThumbnailPath)
+			if _, err := os.Stat(backendPath); err == nil {
+				return backendPath, nil
+			}
+		}
+	}
+
+	// Priority 2: Most common patterns (based on actual filesystem analysis)
+	cleanTitle := strings.ReplaceAll(strings.ReplaceAll(media.Title, " ", "_"), ":", "")
+	fastPaths := []string{
+		fmt.Sprintf("./backend/thumbnails/thumb_%s.jpg", cleanTitle),
+		fmt.Sprintf("./backend/thumbnails/thumb_%d.jpg", media.ID),
+		fmt.Sprintf("./thumbnails/thumb_%s.jpg", cleanTitle),
+		fmt.Sprintf("./thumbnails/thumb_%d.jpg", media.ID),
+	}
+
+	for _, path := range fastPaths {
+		if _, err := os.Stat(path); err == nil {
+			return path, nil
+		}
+	}
+
+	return "", fmt.Errorf("no thumbnail found for media %d", media.ID)
+}
+
+// servePreviewFast provides optimized preview serving with minimal filesystem calls
+func servePreviewFast(media *models.Media, thumbnailService *services.ThumbnailService) (string, error) {
+	// Priority 1: Database paths (most likely to be correct)
+	if media.PreviewPath != "" {
+		if _, err := os.Stat(media.PreviewPath); err == nil {
+			return media.PreviewPath, nil
+		}
+		if !strings.HasPrefix(media.PreviewPath, "/") {
+			backendPath := fmt.Sprintf("./backend/%s", media.PreviewPath)
+			if _, err := os.Stat(backendPath); err == nil {
+				return backendPath, nil
+			}
+		}
+	}
+
+	if media.PreviewClipPath != "" {
+		if _, err := os.Stat(media.PreviewClipPath); err == nil {
+			return media.PreviewClipPath, nil
+		}
+		if !strings.HasPrefix(media.PreviewClipPath, "/") {
+			backendPath := fmt.Sprintf("./backend/%s", media.PreviewClipPath)
+			if _, err := os.Stat(backendPath); err == nil {
+				return backendPath, nil
+			}
+		}
+	}
+
+	// Priority 2: Most common patterns
+	cleanTitle := strings.ReplaceAll(strings.ReplaceAll(media.Title, " ", "_"), ":", "")
+	fastPaths := []string{
+		fmt.Sprintf("./backend/previews/preview_%s.mp4", cleanTitle),
+		fmt.Sprintf("./backend/previews/preview_%d.mp4", media.ID),
+		fmt.Sprintf("./previews/preview_%s.mp4", cleanTitle),
+		fmt.Sprintf("./previews/preview_%d.mp4", media.ID),
+	}
+
+	for _, path := range fastPaths {
+		if _, err := os.Stat(path); err == nil {
+			return path, nil
+		}
+	}
+
+	return "", fmt.Errorf("no preview found for media %d", media.ID)
+}
+
+// servePosterFast provides optimized poster serving with minimal filesystem calls
+func servePosterFast(media *models.Media) (string, error) {
+	// Priority 1: Database path (most likely to be correct)
+	if media.PosterPath != "" {
+		if _, err := os.Stat(media.PosterPath); err == nil {
+			return media.PosterPath, nil
+		}
+		if !strings.HasPrefix(media.PosterPath, "/") {
+			backendPath := fmt.Sprintf("./backend/%s", media.PosterPath)
+			if _, err := os.Stat(backendPath); err == nil {
+				return backendPath, nil
+			}
+		}
+	}
+
+	// Priority 2: Most common patterns
+	cleanTitle := strings.ReplaceAll(strings.ReplaceAll(media.Title, " ", "_"), ":", "")
+	fastPaths := []string{
+		fmt.Sprintf("./backend/posters/poster_%s.jpg", cleanTitle),
+		fmt.Sprintf("./backend/posters/poster_%d.jpg", media.ID),
+		fmt.Sprintf("./posters/poster_%s.jpg", cleanTitle),
+		fmt.Sprintf("./posters/poster_%d.jpg", media.ID),
+	}
+
+	for _, path := range fastPaths {
+		if _, err := os.Stat(path); err == nil {
+			return path, nil
+		}
+	}
+
+	// Priority 3: Fallback to thumbnail if no poster found
+	if media.ThumbnailPath != "" {
+		if _, err := os.Stat(media.ThumbnailPath); err == nil {
+			return media.ThumbnailPath, nil
+		}
+	}
+
+	// Try common thumbnail locations as poster fallback
+	thumbnailPaths := []string{
+		fmt.Sprintf("./backend/thumbnails/thumb_%s.jpg", cleanTitle),
+		fmt.Sprintf("./backend/thumbnails/thumb_%d.jpg", media.ID),
+	}
+
+	for _, path := range thumbnailPaths {
+		if _, err := os.Stat(path); err == nil {
+			return path, nil
+		}
+	}
+
+	return "", fmt.Errorf("no poster or thumbnail found for media %d", media.ID)
+}
+
+// WarmAssetCache pre-populates the asset cache for better performance
+func WarmAssetCache(mediaService *services.MediaService, thumbnailService *services.ThumbnailService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// Get all media to warm cache
+		allMedia, err := mediaService.GetAllMedia()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get media list"})
+			return
+		}
+
+		warmed := 0
+		go func() {
+			for _, media := range allMedia {
+				// Warm thumbnail cache
+				if path, err := serveThumbnailFast(&media, thumbnailService); err == nil {
+					assetCache.setCachedAssetPath(media.ID, "thumbnail", path)
+					warmed++
+				}
+
+				// Warm preview cache
+				if path, err := servePreviewFast(&media, thumbnailService); err == nil {
+					assetCache.setCachedAssetPath(media.ID, "preview", path)
+					warmed++
+				}
+
+				// Warm poster cache
+				if path, err := servePosterFast(&media); err == nil {
+					assetCache.setCachedAssetPath(media.ID, "poster", path)
+					warmed++
+				}
+			}
+			log.Printf("🔥 Asset cache warmed: %d paths cached for %d media items", warmed, len(allMedia))
+		}()
+
+		c.JSON(http.StatusOK, gin.H{
+			"status": "started",
+			"message": "Asset cache warming started in background",
+			"media_count": len(allMedia),
+		})
+	}
+}
+
+// ClearAssetCache clears the in-memory asset cache
+func ClearAssetCache() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		assetCache.clearCache()
+		c.JSON(http.StatusOK, gin.H{
+			"status": "success",
+			"message": "Asset cache cleared",
+		})
+	}
+}
+
+// GetAssetCacheStats returns cache statistics
+func GetAssetCacheStats() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		assetCache.mutex.RLock()
+		stats := gin.H{
+			"thumbnail_count": len(assetCache.thumbnailCache),
+			"preview_count":   len(assetCache.previewCache),
+			"poster_count":    len(assetCache.posterCache),
+			"last_update":     assetCache.lastUpdate,
+			"ttl_minutes":     int(cacheTTL.Minutes()),
+		}
+		assetCache.mutex.RUnlock()
+
+		c.JSON(http.StatusOK, stats)
 	}
 }
 

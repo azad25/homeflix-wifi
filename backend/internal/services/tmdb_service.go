@@ -586,17 +586,56 @@ func (t *TMDBService) cleanTitle(title string) string {
 	sizePattern := regexp.MustCompile("(?i)\\b\\d+(\\.\\d+)?\\s?(GB|MB|GiB|MiB)\\b")
 	baseName = sizePattern.ReplaceAllString(baseName, " ")
 
-	// Step 9: Remove hash-like patterns and numeric IDs
-	hashPattern := regexp.MustCompile("\\b[a-fA-F0-9]{8,}\\b")
+	// Step 9: Remove hash-like patterns (but preserve meaningful numbers)
+	hashPattern := regexp.MustCompile(`\b[a-fA-F0-9]{8,}\b`)
 	baseName = hashPattern.ReplaceAllString(baseName, " ")
 
-	// Step 10: Remove leading numeric IDs
-	numericPrefixPattern := regexp.MustCompile("^\\d{3,}[\\s]+")
+	// Step 10: Remove leading numeric IDs (but preserve sequel numbers)
+	// Only remove 3+ digit numbers at the start, preserve 1-2 digit sequel numbers
+	numericPrefixPattern := regexp.MustCompile(`^\d{3,}[\s]+`)
 	baseName = numericPrefixPattern.ReplaceAllString(baseName, "")
 
-	// Step 11: Clean up special characters (but preserve apostrophes and basic punctuation)
-	specialCharsPattern := regexp.MustCompile("[^\\p{L}\\p{N}\\s'&:!?.-]")
+	// Step 10.5: Enhanced sequel and numbered title preservation
+	// Preserve common sequel patterns like "Movie 2", "Movie II", "Movie Part 2"
+	// Also preserve titles with numbers like "Table No 21", "Ocean's 11"
+	sequelPatterns := []string{
+		// Preserve Roman numerals (I, II, III, IV, V, etc.)
+		`\b(I{1,3}V?|IV|V|VI{0,3}|IX|X)\b`,
+		// Preserve sequel numbers (1-20)
+		`\b(Part|Chapter|Episode|Volume|Book)\s+\d{1,2}\b`,
+		// Preserve numbered titles
+		`\b(No|Number|#)\s*\d{1,3}\b`,
+		// Preserve Ocean's style numbers
+		`'s\s+\d{1,2}\b`,
+		// Preserve direct sequel numbers at end of title
+		`\s+\d{1,2}$`,
+	}
+	
+	// Mark sequel patterns for preservation
+	var preservedParts []string
+	for _, pattern := range sequelPatterns {
+		seqRegex := regexp.MustCompile(`(?i)` + pattern)
+		matches := seqRegex.FindAllString(baseName, -1)
+		preservedParts = append(preservedParts, matches...)
+	}
+	
+	log.Printf("🔢 Preserved sequel/number parts: %v", preservedParts)
+
+	// Step 11: Clean up special characters (preserve apostrophes, numbers, and sequel indicators)
+	// Enhanced to preserve more punctuation that might be part of titles
+	specialCharsPattern := regexp.MustCompile(`[^\p{L}\p{N}\s'&:!?.,#-]`)
 	baseName = specialCharsPattern.ReplaceAllString(baseName, " ")
+	
+	// Step 11.5: Restore preserved sequel/number parts if they were removed
+	for _, preserved := range preservedParts {
+		if preserved != "" && !strings.Contains(baseName, preserved) {
+			// Try to find where this should be restored
+			if strings.HasSuffix(strings.TrimSpace(baseName), strings.Fields(preserved)[0]) {
+				baseName = baseName + " " + preserved
+				log.Printf("🔄 Restored sequel part: %s", preserved)
+			}
+		}
+	}
 
 	// Step 12: Clean up multiple spaces and trim
 	baseName = regexp.MustCompile("\\s+").ReplaceAllString(baseName, " ")
@@ -624,17 +663,28 @@ func (t *TMDBService) cleanTitle(title string) string {
 			baseName = strings.TrimSpace(baseName)
 			log.Printf("🔄 Fallback 1 result: '%s'", baseName)
 		} else {
-			// Last resort: use first few words before any numbers/quality indicators
+			// Enhanced fallback: preserve sequel numbers and meaningful titles
 			words := strings.Fields(strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(originalBase, ".", " "), "_", " "), "-", " "))
 			var titleWords []string
-			for _, word := range words {
-				// Stop at first quality indicator, year, or release group
-				if regexp.MustCompile("(?i)^(19|20)\\d{2}$|^(1080p|2160p|720p|4K|HD|BluRay|WEB|x264|x265|HEVC|Hasan)$").MatchString(word) {
+			for i, word := range words {
+				// Stop at quality indicators, but preserve sequel numbers
+				if regexp.MustCompile(`(?i)^(1080p|2160p|720p|4K|HD|BluRay|WEB|x264|x265|HEVC|Hasan)$`).MatchString(word) {
 					break
 				}
+				// Stop at years, but only if not part of a sequel pattern
+				if regexp.MustCompile(`^(19|20)\d{2}$`).MatchString(word) {
+					// Check if this might be a sequel year (like "Terminator 2 1991")
+					if i > 0 && regexp.MustCompile(`^\d{1,2}$`).MatchString(words[i-1]) {
+						// This is likely a year after a sequel number, stop here
+						break
+					}
+					// If it's just a standalone year, stop
+					break
+				}
+				
 				titleWords = append(titleWords, word)
-				// Don't take more than 4 words for the title
-				if len(titleWords) >= 4 {
+				// Allow more words for complex titles with numbers
+				if len(titleWords) >= 6 {
 					break
 				}
 			}

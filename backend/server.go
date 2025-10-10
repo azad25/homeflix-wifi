@@ -81,10 +81,17 @@ func main() {
 		}
 	}
 
-	// Start background media scanning
+	// Start comprehensive media sync validation on startup
 	go func() {
-		log.Println("Starting initial media scanner...")
+		log.Println("Starting comprehensive media sync validation on server startup...")
 		log.Printf("Scanning media path: %s", cfg.MediaPath)
+		
+		// CRITICAL: Ensure complete sync validation first
+		if err := mediaScanner.EnsureCompleteSyncOnStartup(); err != nil {
+			log.Printf("❌ Startup sync validation failed: %v", err)
+		}
+		
+		// Then perform regular scanning
 		if err := mediaScanner.ScanMediaLibrary(); err != nil {
 			log.Printf("Media scanning error: %v", err)
 		} else {

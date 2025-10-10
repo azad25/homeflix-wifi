@@ -2,14 +2,38 @@ package handlers
 
 import (
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"homeflix-backend/internal/models"
 	"homeflix-backend/internal/services"
 )
 
 // Media Handlers
+
+// trimYearFromTitle removes year in parentheses from the end of titles for frontend display
+func trimYearFromTitle(title string) string {
+	// Remove year in parentheses at the end: "Movie Title (2019)" -> "Movie Title"
+	yearPattern := regexp.MustCompile(`\s*\(\d{4}\)\s*$`)
+	return strings.TrimSpace(yearPattern.ReplaceAllString(title, ""))
+}
+
+// prepareMediaForResponse modifies media titles for frontend display
+func prepareMediaForResponse(media []models.Media) []models.Media {
+	for i := range media {
+		media[i].Title = trimYearFromTitle(media[i].Title)
+	}
+	return media
+}
+
+// prepareSingleMediaForResponse modifies a single media title for frontend display
+func prepareSingleMediaForResponse(media *models.Media) *models.Media {
+	mediaCopy := *media
+	mediaCopy.Title = trimYearFromTitle(mediaCopy.Title)
+	return &mediaCopy
+}
 
 func GetAllMedia(mediaService *services.MediaService) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -18,7 +42,7 @@ func GetAllMedia(mediaService *services.MediaService) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(http.StatusOK, media)
+		c.JSON(http.StatusOK, prepareMediaForResponse(media))
 	}
 }
 
@@ -36,7 +60,7 @@ func GetMediaByID(mediaService *services.MediaService) gin.HandlerFunc {
 			return
 		}
 
-		c.JSON(http.StatusOK, media)
+		c.JSON(http.StatusOK, prepareSingleMediaForResponse(media))
 	}
 }
 
@@ -47,7 +71,7 @@ func GetMovies(mediaService *services.MediaService) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(http.StatusOK, movies)
+		c.JSON(http.StatusOK, prepareMediaForResponse(movies))
 	}
 }
 
@@ -58,7 +82,7 @@ func GetRecentMedia(mediaService *services.MediaService) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(http.StatusOK, media)
+		c.JSON(http.StatusOK, prepareMediaForResponse(media))
 	}
 }
 
@@ -69,7 +93,7 @@ func GetRecentlyAdded(mediaService *services.MediaService) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(http.StatusOK, media)
+		c.JSON(http.StatusOK, prepareMediaForResponse(media))
 	}
 }
 
@@ -80,7 +104,7 @@ func GetMostWatched(mediaService *services.MediaService) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(http.StatusOK, media)
+		c.JSON(http.StatusOK, prepareMediaForResponse(media))
 	}
 }
 
@@ -91,7 +115,7 @@ func GetPopularMedia(mediaService *services.MediaService) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(http.StatusOK, media)
+		c.JSON(http.StatusOK, prepareMediaForResponse(media))
 	}
 }
 
@@ -102,7 +126,7 @@ func GetTVShows(mediaService *services.MediaService) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(http.StatusOK, shows)
+		c.JSON(http.StatusOK, prepareMediaForResponse(shows))
 	}
 }
 
@@ -179,7 +203,7 @@ func GetEpisodesBySeriesAndSeason(mediaService *services.MediaService) gin.Handl
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(http.StatusOK, episodes)
+		c.JSON(http.StatusOK, prepareMediaForResponse(episodes))
 	}
 }
 
@@ -208,7 +232,7 @@ func GetMediaByGenre(mediaService *services.MediaService) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(http.StatusOK, media)
+		c.JSON(http.StatusOK, prepareMediaForResponse(media))
 	}
 }
 
@@ -265,7 +289,7 @@ func SearchMediaAdvanced(mediaService *services.MediaService) gin.HandlerFunc {
 			return
 		}
 		
-		c.JSON(http.StatusOK, results)
+		c.JSON(http.StatusOK, prepareMediaForResponse(results))
 	}
 }
 
@@ -285,7 +309,7 @@ func GetTrendingMedia(mediaService *services.MediaService) gin.HandlerFunc {
 			return
 		}
 		
-		c.JSON(http.StatusOK, media)
+		c.JSON(http.StatusOK, prepareMediaForResponse(media))
 	}
 }
 // performSmartSearch implements Netflix-like intelligent search
@@ -442,7 +466,13 @@ func performSmartSearch(mediaService *services.MediaService, query string) ([]in
 		if i >= maxResults {
 			break
 		}
-		finalResults = append(finalResults, result.media)
+		// Prepare media with trimmed year for frontend
+		if media, ok := result.media.(models.Media); ok {
+			preparedMedia := prepareSingleMediaForResponse(&media)
+			finalResults = append(finalResults, *preparedMedia)
+		} else {
+			finalResults = append(finalResults, result.media)
+		}
 	}
 
 	return finalResults, nil
