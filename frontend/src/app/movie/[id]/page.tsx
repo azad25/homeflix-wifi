@@ -528,9 +528,11 @@ export default function MoviePage() {
                       {formatRuntime(Math.floor(media.duration / 60))}
                     </span>
                   )}
-                  <span className="text-green-400 font-medium">
-                    {(media.view_count || 0).toLocaleString()} views
-                  </span>
+                  {media.quality && (
+                    <span className="px-2 py-1 bg-blue-600 text-white text-sm font-semibold rounded">
+                      {media.quality.includes('2160') || media.quality.toLowerCase().includes('4k') ? '4K' : 'HD'}
+                    </span>
+                  )}
                 </motion.div>
 
                 {/* Action buttons with hover reveal and scaling */}
@@ -909,7 +911,7 @@ export default function MoviePage() {
             </div>
 
             {/* Sidebar */}
-            <div className="space-y-6 ml-6">
+            <div className="hidden lg:block space-y-6 ml-6">
               {media.genres && media.genres.length > 0 && (
                 <div>
                   <h3 className="text-lg font-semibold text-white mb-2">Genres</h3>

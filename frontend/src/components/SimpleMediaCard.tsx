@@ -138,7 +138,7 @@ const SimpleMediaCard: React.FC<SimpleMediaCardProps> = ({
             {media.rating && (
               <div className="flex items-center gap-1">
                 <Star className="w-3 h-3 fill-yellow-400 text-yellow-400" />
-                <span>{media.rating}</span>
+                <span>{media.rating.toFixed(1)}</span>
               </div>
             )}
             <span className="text-gray-400 capitalize">{media.type}</span>
@@ -186,7 +186,7 @@ const SimpleMediaCard: React.FC<SimpleMediaCardProps> = ({
             {media.rating && (
               <>
                 <span className="text-gray-400">•</span>
-                <span className="text-yellow-400">⭐ {media.rating}</span>
+                <span className="text-yellow-400">⭐ {media.rating.toFixed(1)}</span>
               </>
             )}
           </div>

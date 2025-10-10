@@ -359,7 +359,7 @@ const NetflixCard: React.FC<NetflixCardProps> = ({
               {media.rating && (
                 <>
                   <span className="text-gray-400">•</span>
-                  <span className="text-yellow-400">⭐ {media.rating}</span>
+                  <span className="text-yellow-400">⭐ {media.rating.toFixed(1)}</span>
                 </>
               )}
               {isNewlyAdded(media) && (

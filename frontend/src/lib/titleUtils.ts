@@ -17,11 +17,11 @@ export function cleanMovieTitle(title: string): string {
   cleaned = cleaned.replace(/BrRip|BRRip|WEB-DL|HEVC|x264|YIFY|AAC/gi, '');
   cleaned = cleaned.replace(/\s+/g, ' ').trim();
   
-  // Extract year if present and clean format
+  // Remove year if present - we don't want years in slide titles
   const yearMatch = cleaned.match(/^(.*?)\s*\((\d{4})\)(.*)$/);
   if (yearMatch) {
-    const [, movieName, year, extra] = yearMatch;
-    return `${movieName.trim()} (${year})`;
+    const [, movieName, , extra] = yearMatch;
+    return `${movieName.trim()}${extra ? ' ' + extra.trim() : ''}`;
   }
   
   return cleaned || 'Unknown Movie';

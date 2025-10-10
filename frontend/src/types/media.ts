@@ -71,6 +71,8 @@ export interface Media {
   view_count?: number;
   last_viewed?: string;
   last_updated?: string;
+  created_at?: string;
+  updated_at?: string;
   subtitles?: Subtitle[];
 }
 

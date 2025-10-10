@@ -7,6 +7,7 @@ import Image from 'next/image';
 import Navbar from "@/components/Navbar";
 import { Media } from '../../types/media';
 import VideoPlayer from "@/components/VideoPlayer";
+import RedLoader from "@/components/RedLoader";
 import { getApiUrl, preloadAssets } from '@/lib/api';
 import NetflixMediaCard from '@/components/NetflixMediaCard';
 import { MagneticButton } from '@/components/scrollx';
@@ -107,7 +108,7 @@ export default function MyListPage() {
   if (loading) {
     return (
       <div className="min-h-screen bg-black flex items-center justify-center">
-        <div className="text-white text-xl">Loading My List...</div>
+        <RedLoader size="large" />
       </div>
     );
   }

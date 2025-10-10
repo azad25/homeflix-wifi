@@ -191,9 +191,10 @@ const NetflixMovieCard: React.FC<NetflixMovieCardProps> = ({
   };
 
   const getQualityBadge = () => {
-    if (media.rating && media.rating >= 8.5) return { text: '4K', color: 'bg-green-600' };
-    if (media.rating && media.rating >= 7.5) return { text: 'HD', color: 'bg-blue-600' };
-    return { text: 'SD', color: 'bg-gray-600' };
+    const qualityText = media.quality ? 
+      (media.quality.includes('2160') || media.quality.toLowerCase().includes('4k') ? '4K' : 'HD') 
+      : "HD";
+    return { text: qualityText, color: 'bg-blue-600' };
   };
 
   const getMatchPercentage = () => {
@@ -340,7 +341,7 @@ const NetflixMovieCard: React.FC<NetflixMovieCardProps> = ({
                 <span>•</span>
                 <div className="flex items-center gap-1">
                   <Star className="w-3 h-3 text-yellow-400 fill-current" />
-                  <span>{media.rating}</span>
+                  <span>{media.rating.toFixed(1)}</span>
                 </div>
               </>
             )}
@@ -408,7 +409,7 @@ const NetflixMovieCard: React.FC<NetflixMovieCardProps> = ({
                   <span className="text-gray-400">•</span>
                   <span className="text-yellow-400 flex items-center gap-1">
                     <Star className="w-3 h-3 fill-current" />
-                    {media.rating}
+                    {media.rating.toFixed(1)}
                   </span>
                 </>
               )}

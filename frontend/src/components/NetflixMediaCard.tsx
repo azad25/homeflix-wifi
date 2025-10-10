@@ -233,8 +233,8 @@ const NetflixMediaCard: React.FC<NetflixMediaCardProps> = ({
 
         {/* Quality Badge */}
         {media.quality && (
-          <div className="absolute top-2 left-2 bg-red-600/90 text-white text-xs px-2 py-1 rounded font-semibold">
-            {media.quality.toUpperCase()}
+          <div className="absolute top-2 left-2 bg-blue-600 text-white text-xs px-2 py-1 rounded font-semibold">
+            {media.quality.includes('2160') || media.quality.toLowerCase().includes('4k') ? '4K' : 'HD'}
           </div>
         )}
       </div>

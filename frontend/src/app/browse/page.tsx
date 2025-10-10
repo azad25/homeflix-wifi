@@ -8,6 +8,7 @@ import VideoPlayer from "../../components/VideoPlayer";
 import Navbar from "../../components/Navbar";
 import RecentlyWatched from "../../components/RecentlyWatched";
 import LazyMediaGrid from "../../components/LazyMediaGrid";
+import RedLoader from "../../components/RedLoader";
 import { getApiUrl, fetchUniqueRecommendations, preloadAssets } from "../../lib/api";
 import NetflixMediaCard from "../../components/NetflixMediaCard";
 import { 
@@ -245,7 +246,7 @@ export default function BrowsePage() {
   if (loading) {
     return (
       <div className="min-h-screen bg-black flex items-center justify-center">
-        <div className="text-white text-xl">Loading Browse...</div>
+        <RedLoader size="large" />
       </div>
     );
   }
@@ -362,7 +363,7 @@ export default function BrowsePage() {
                           disabled={loadingMore}
                           className="bg-red-600 hover:bg-red-700 disabled:bg-gray-600 text-white px-8 py-3 rounded-lg font-semibold transition-colors"
                         >
-                          {loadingMore ? 'Loading...' : 'Load More'}
+                          {loadingMore ? <RedLoader size="small" /> : 'Load More'}
                         </button>
                       </div>
                     )}

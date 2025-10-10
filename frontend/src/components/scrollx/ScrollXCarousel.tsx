@@ -290,7 +290,7 @@ const ScrollXMediaCard: React.FC<ScrollXMediaCardProps> = ({
           
           <div className="flex items-center gap-2 mb-2 text-sm">
             <span className="text-green-400 font-semibold">
-              ⭐ {media.rating || 8.5}
+              ⭐ {(media.rating || 8.5).toFixed(1)}
             </span>
             <span className="text-gray-400">•</span>
             <span className="text-gray-400 capitalize">{media.type}</span>

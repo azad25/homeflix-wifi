@@ -5,7 +5,7 @@ import { motion } from "framer-motion";
 import { Search, Bell, User, Menu, X } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 
 interface NavbarProps {
   onSearch?: (query: string) => void;
@@ -13,6 +13,7 @@ interface NavbarProps {
 
 const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
   const router = useRouter();
+  const pathname = usePathname();
   const [isScrolled, setIsScrolled] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -43,6 +44,7 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
   const navItems = [
     { name: "Movies", href: "/movies" },
     { name: "TV Shows", href: "/tv-shows" },
+    { name: "New & Popular", href: "/new-popular" },
     { name: "My List", href: "/my-list" },
     { name: "Browse", href: "/browse" },
   ];
@@ -69,15 +71,22 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
 
             {/* Desktop Navigation */}
             <div className="hidden md:flex items-center gap-6">
-              {navItems.map((item) => (
-                <a
-                  key={item.name}
-                  href={item.href}
-                  className="text-white/80 hover:text-white transition-colors text-sm"
-                >
-                  {item.name}
-                </a>
-              ))}
+              {navItems.map((item) => {
+                const isActive = pathname === item.href;
+                return (
+                  <Link
+                    key={item.name}
+                    href={item.href}
+                    className={`transition-colors text-sm font-medium ${
+                      isActive 
+                        ? "text-red-500" 
+                        : "text-white/80 hover:text-white hover:text-red-400"
+                    }`}
+                  >
+                    {item.name}
+                  </Link>
+                );
+              })}
             </div>
           </div>
 
@@ -172,16 +181,23 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
             exit={{ opacity: 0, height: 0 }}
             className="md:hidden bg-black/95 rounded-lg mt-2 py-4"
           >
-            {navItems.map((item) => (
-              <a
-                key={item.name}
-                href={item.href}
-                className="block px-4 py-3 text-white/80 hover:text-white hover:bg-white/10 transition-colors"
-                onClick={() => setIsMobileMenuOpen(false)}
-              >
-                {item.name}
-              </a>
-            ))}
+            {navItems.map((item) => {
+              const isActive = pathname === item.href;
+              return (
+                <Link
+                  key={item.name}
+                  href={item.href}
+                  className={`block px-4 py-3 transition-colors ${
+                    isActive 
+                      ? "text-red-500 bg-red-500/10 border-l-4 border-red-500" 
+                      : "text-white/80 hover:text-white hover:bg-white/10 hover:text-red-400"
+                  }`}
+                  onClick={() => setIsMobileMenuOpen(false)}
+                >
+                  {item.name}
+                </Link>
+              );
+            })}
           </motion.div>
         )}
       </div>

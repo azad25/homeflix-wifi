@@ -4,6 +4,7 @@ import React, { useState, useEffect } from "react";
 import { useRouter } from 'next/navigation';
 import Navbar from "@/components/Navbar";
 import VideoPlayer from '@/components/VideoPlayer';
+import RedLoader from '@/components/RedLoader';
 import { getApiUrl, fetchUniqueRecommendations, preloadAssets } from '@/lib/api';
 import NetflixMediaCard from '@/components/NetflixMediaCard';
 import { Media } from '@/types/media';
@@ -152,7 +153,7 @@ export default function TVSeries() {
   if (loading) {
     return (
       <div className="min-h-screen bg-black flex items-center justify-center">
-        <div className="text-white text-xl">Loading TV Series...</div>
+        <RedLoader size="large" />
       </div>
     );
   }

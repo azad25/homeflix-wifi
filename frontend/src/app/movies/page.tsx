@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import Navbar from "@/components/Navbar";
 import { Media } from '../../types/media';
 import VideoPlayer from "@/components/VideoPlayer";
+import RedLoader from '@/components/RedLoader';
 import { getApiUrl, fetchUniqueRecommendations, preloadAssets } from '@/lib/api';
 import { ScrollXHero, NetflixHorizontalRow, ParallaxSection, GradientBackground, ScrollReveal } from '@/components/scrollx';
 import RecentlyWatched from '@/components/RecentlyWatched';
@@ -156,7 +157,7 @@ export default function MoviesPage() {
   if (loading) {
     return (
       <div className="min-h-screen bg-black flex items-center justify-center">
-        <div className="text-white text-xl">Loading Movies...</div>
+        <RedLoader size="large" />
       </div>
     );
   }

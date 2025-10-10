@@ -984,7 +984,10 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
 
   // Netflix-style helper functions
   const getQualityBadge = () => {
-    return { text: currentMedia.quality || "HD", color: 'bg-blue-600' };
+    const qualityText = currentMedia.quality ? 
+      (currentMedia.quality.includes('2160') || currentMedia.quality.toLowerCase().includes('4k') ? '4K' : 'HD') 
+      : "HD";
+    return { text: qualityText, color: 'bg-blue-600' };
   }
   const getAgeRating = () => {
     if (currentMedia.rating && currentMedia.rating >= 8.0) return '18+';

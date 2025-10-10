@@ -52,24 +52,32 @@ export const ContinueWatching: React.FC<ContinueWatchingProps> = ({
         // Filter out duplicates, invalid items, and ensure we have real content
         const validItems = (data || [])
           .filter((item: ContinueWatchingItem) => {
-            // Must have valid media object
+            // Must have valid media object with basic required fields
             if (!item.media || !item.media.id || !item.media.title) {
+              console.log('🔍 Filtered out: missing media data', item);
               return false;
             }
             
-            // More lenient progress filtering (between 1% and 98%)
-            if (item.progress === undefined || item.progress <= 1 || item.progress >= 98) {
+            // Much more lenient progress filtering - allow any progress between 0.1% and 99.9%
+            if (item.progress === undefined || item.progress < 0.1 || item.progress > 99.9) {
+              console.log('🔍 Filtered out: invalid progress', item.progress, item.media.title);
               return false;
             }
             
-            // Must have valid position and duration (more lenient)
+            // Only require position to exist (can be 0), duration should be positive
             if (item.position === undefined || item.duration === undefined || item.duration <= 0) {
+              console.log('🔍 Filtered out: invalid position/duration', {
+                position: item.position,
+                duration: item.duration,
+                title: item.media.title
+              });
               return false;
             }
             
             // Filter out obvious placeholder or test content
             const title = item.media.title.toLowerCase();
             if (title.includes('test_') || title.includes('placeholder_') || title.includes('sample_')) {
+              console.log('🔍 Filtered out: test content', title);
               return false;
             }
             
@@ -91,9 +99,22 @@ export const ContinueWatching: React.FC<ContinueWatchingProps> = ({
         
         // Debug logging for continue watching data
         if (data && data.length > 0) {
-          console.log('� Contintue watching raw data:', data.length, 'items');
+          console.log('📊 Continue watching raw data:', data.length, 'items');
           console.log('📊 Sample item:', data[0]);
           console.log('📊 Filtered to:', validItems.length, 'valid items');
+          
+          // Log all items for debugging
+          data.forEach((item: ContinueWatchingItem, idx: number) => {
+            console.log(`📊 Item ${idx + 1}:`, {
+              id: item.id,
+              media_id: item.media_id,
+              title: item.media?.title,
+              progress: item.progress,
+              position: item.position,
+              duration: item.duration,
+              hasValidMedia: !!(item.media && item.media.id && item.media.title)
+            });
+          });
         } else {
           console.log('📝 No continue watching data returned from API');
         }
@@ -105,7 +126,7 @@ export const ContinueWatching: React.FC<ContinueWatchingProps> = ({
             if (idx < 5) { // Check first 5 items
               const reasons = [];
               if (!item.media || !item.media.id || !item.media.title) reasons.push('invalid media');
-              if (item.progress === undefined || item.progress <= 1 || item.progress >= 98) reasons.push(`progress: ${item.progress}%`);
+              if (item.progress === undefined || item.progress < 0.1 || item.progress > 99.9) reasons.push(`progress: ${item.progress}%`);
               if (item.position === undefined || item.duration === undefined || item.duration <= 0) reasons.push('invalid position/duration');
               const title = item.media?.title?.toLowerCase() || '';
               if (title.includes('test_') || title.includes('placeholder_') || title.includes('sample_')) reasons.push('test content');

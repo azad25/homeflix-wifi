@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { Media } from "../../types/media";
 import VideoPlayer from "../../components/VideoPlayer";
 import Navbar from "../../components/Navbar";
+import RedLoader from "../../components/RedLoader";
 import { getApiUrl, smartSearch, preloadAssets } from "../../lib/api";
 import NetflixMediaCard from "../../components/NetflixMediaCard";
 import { 
@@ -340,10 +341,7 @@ export default function SearchPage() {
               {loading ? (
                 <ScrollReveal direction="up" delay={0.2}>
                   <div className="text-center py-16">
-                    <FloatingElement>
-                      <Search className="w-16 h-16 text-gray-400 mx-auto mb-4 animate-pulse" />
-                    </FloatingElement>
-                    <div className="text-white text-2xl">Searching...</div>
+                    <RedLoader size="large" />
                   </div>
                 </ScrollReveal>
               ) : hasSearched ? (
