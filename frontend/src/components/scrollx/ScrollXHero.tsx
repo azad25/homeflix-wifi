@@ -9,6 +9,7 @@ import { MagneticButton, GradientBackground, ParallaxSection, ParticleField, Scr
 import { useAudio } from '@/contexts/EnhancedAudioContext';
 import RedLoader from '../RedLoader';
 import LazyVideo from '../LazyVideo';
+import { cleanMovieTitle } from '@/lib/titleUtils';
 
 interface ScrollXHeroProps {
   featuredMedia: Media[];
@@ -1816,7 +1817,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
 
                 {/* Age Rating */}
                 <div className="border border-gray-400 px-1 text-xs text-gray-300 font-medium">
-                  {getAgeRating()}
+                  {getAgeRating() ? getAgeRating() : 'PG-13'}
                 </div>
 
                 {/* Duration */}
@@ -1862,7 +1863,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
                   textShadow: '2px 2px 4px rgba(0,0,0,0.8), 0 0 20px rgba(0,0,0,0.5)'
                 }}
               >
-                {currentMedia.title}
+                {cleanMovieTitle(currentMedia.title)}
               </motion.h1>
             </ScrollReveal>
 

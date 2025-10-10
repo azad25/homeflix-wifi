@@ -17,6 +17,8 @@ import VideoPlayer from '@/components/VideoPlayer';
 import GenreTitle from '@/components/GenreTitle';
 import QualityBadge from '../../../components/QualityBadge';
 import { addToWishlist, removeFromWishlist, isInWishlist } from '@/lib/wishlist';
+import CastButton from '@/components/CastButton';
+import { useChromecast, CastMedia } from '@/hooks/useChromecast';
 import {
   NetflixHorizontalRow,
   ParallaxSection,
@@ -49,6 +51,14 @@ export default function MoviePage() {
   const [showTitleOverlay, setShowTitleOverlay] = useState(true); // Netflix-style title overlay
   const [isHoveringTitle, setIsHoveringTitle] = useState(false); // Hover state for title area
   const videoRef = useRef<HTMLVideoElement>(null);
+  
+  // Chromecast integration
+  const {
+    castState,
+    connect: connectToCast,
+    disconnect: disconnectFromCast,
+    loadMedia: loadCastMedia,
+  } = useChromecast();
 
   useEffect(() => {
     if (params.id) {
@@ -220,6 +230,47 @@ export default function MoviePage() {
     }
     setIsPlayerOpen(false);
   };
+
+  // Handle cast button click
+  const handleCastClick = () => {
+    if (castState.isConnected) {
+      disconnectFromCast();
+    } else {
+      connectToCast();
+    }
+  };
+
+  // Start casting media when connected
+  const handleStartCasting = () => {
+    if (!media || !castState.isConnected) return;
+    
+    const streamUrl = `${getApiUrl()}/api/stream/${media.id}?quality=4k&format=mp4`;
+    const thumbnailUrl = `${getApiUrl()}/api/thumbnails/${media.id}`;
+    
+    const castMedia: CastMedia = {
+      contentId: streamUrl,
+      contentType: 'video/mp4',
+      title: media.title,
+      subtitle: `${media.year || ''} • ${media.genres || ''}`,
+      metadata: {
+        title: media.title,
+        subtitle: `${media.year || ''} • ${media.genres || ''}`,
+        images: [{
+          url: thumbnailUrl
+        }]
+      }
+    };
+    
+    loadCastMedia(castMedia);
+    console.log('Started casting:', media.title);
+  };
+
+  // Auto-start casting when connected and cast button is clicked
+  React.useEffect(() => {
+    if (castState.isConnected && media) {
+      handleStartCasting();
+    }
+  }, [castState.isConnected, media]);
 
   const handlePlayerProgress = (currentTime: number, duration: number) => {
     if (!params.id || !duration) return;
@@ -588,10 +639,38 @@ export default function MoviePage() {
                     <Share className="w-5 h-5" />
                   </MagneticButton>
 
-                  <MagneticButton className="bg-white/10 hover:bg-white/20 text-white p-3 rounded-full">
-                    <Download className="w-5 h-5" />
-                  </MagneticButton>
+                  {/* Cast Button */}
+                  <CastButton
+                    isAvailable={castState.isAvailable}
+                    isConnected={castState.isConnected}
+                    isConnecting={castState.isConnecting}
+                    deviceName={castState.deviceName}
+                    onClick={handleCastClick}
+                    className="bg-white/10 hover:bg-white/20 text-white p-3 rounded-full transition-all duration-200 hover:bg-blue-500/20 hover:border-blue-500/50"
+                  />
                 </motion.div>
+
+                {/* Cast Status Indicator */}
+                {castState.isConnected && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: 20 }}
+                    className="flex items-center gap-3 mb-6 p-4 bg-blue-500/20 border border-blue-500/30 rounded-lg backdrop-blur-sm"
+                  >
+                    <Tv className="w-5 h-5 text-blue-400" />
+                    <div>
+                      <p className="text-blue-300 font-medium">
+                        Casting to {castState.deviceName}
+                      </p>
+                      <p className="text-blue-400/80 text-sm">
+                        {castState.playerState === 'PLAYING' ? 'Playing' : 
+                         castState.playerState === 'PAUSED' ? 'Paused' : 
+                         castState.playerState === 'BUFFERING' ? 'Buffering' : 'Ready'}
+                      </p>
+                    </div>
+                  </motion.div>
+                )}
 
                 {/* Description with hover reveal and scaling */}
                 <motion.div
