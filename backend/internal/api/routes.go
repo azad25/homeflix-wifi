@@ -8,7 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamService *services.OptimizedStreamService, thumbnailService *services.ThumbnailService, userService *services.UserService, recommendationService *services.RecommendationService, playbackService *services.PlaybackService, geminiService *services.GeminiService, celeryService *services.CeleryService, alacService *services.ALACAudioService, tmdbService *services.TMDBService, mediaScanner *scanner.MediaScanner, watcherService *services.WatcherService, redisCache *services.RedisAssetCache) {
+func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamService *services.OptimizedStreamService, thumbnailService *services.ThumbnailService, userService *services.UserService, recommendationService *services.RecommendationService, playbackService *services.PlaybackService, geminiService *services.GeminiService, celeryService *services.CeleryService, alacService *services.ALACAudioService, tmdbService *services.TMDBService, mediaScanner *scanner.MediaScanner, watcherService *services.WatcherService, redisCache *services.RedisAssetCache, transcodeService *services.TranscodeService) {
 	api := r.Group("/api")
 	{
 		// Media routes
@@ -43,9 +43,12 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 			redisAssetHandlers = handlers.NewRedisAssetHandlers(mediaService, thumbnailService, redisCache)
 		}
 
-		// Streaming (with automatic ALAC integration)
-		api.GET("/stream/:id", handlers.StreamMedia(streamService, mediaService))
+		// Streaming (with automatic ALAC integration and transcoding for MKV/HEVC)
+		api.GET("/stream/:id", handlers.StreamMedia(streamService, mediaService, transcodeService))
 		api.GET("/preview-clips/:id", handlers.StreamPreviewClip(streamService, mediaService))
+		
+		// Transcode status endpoint
+		api.GET("/admin/transcode/status", handlers.GetTranscodeStatus(transcodeService))
 		
 		// Additional ALAC Audio endpoints (optional)
 		api.GET("/media/:id/alac-audio", handlers.StreamALACAudio(streamService, mediaService))

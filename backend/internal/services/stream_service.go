@@ -7,6 +7,8 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	
+	"homeflix-backend/internal/utils"
 )
 
 type StreamService struct{}
@@ -14,6 +16,7 @@ type StreamService struct{}
 func NewStreamService() *StreamService {
 	return &StreamService{}
 }
+
 
 func (s *StreamService) StreamVideo(w http.ResponseWriter, r *http.Request, filePath string) error {
 	file, err := os.Open(filePath)
@@ -33,7 +36,7 @@ func (s *StreamService) StreamVideo(w http.ResponseWriter, r *http.Request, file
 	rangeHeader := r.Header.Get("Range")
 	if rangeHeader == "" {
 		// No range request, serve the entire file
-		w.Header().Set("Content-Type", "video/mp4")
+		w.Header().Set("Content-Type", utils.GetVideoContentType(filePath))
 		w.Header().Set("Content-Length", strconv.FormatInt(fileSize, 10))
 		w.Header().Set("Accept-Ranges", "bytes")
 		
@@ -76,7 +79,7 @@ func (s *StreamService) StreamVideo(w http.ResponseWriter, r *http.Request, file
 	contentLength := end - start + 1
 
 	// Set headers for partial content
-	w.Header().Set("Content-Type", "video/mp4")
+	w.Header().Set("Content-Type", utils.GetVideoContentType(filePath))
 	w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, fileSize))
 	w.Header().Set("Content-Length", strconv.FormatInt(contentLength, 10))
 	w.Header().Set("Accept-Ranges", "bytes")

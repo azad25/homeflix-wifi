@@ -60,6 +60,14 @@ func main() {
 	// Integrate ALAC service with streaming service for automatic ALAC audio streaming
 	streamService.SetALACService(alacService)
 
+	// Initialize on-the-fly transcoding service for MKV/HEVC files
+	hwAccel := os.Getenv("HW_ACCEL")
+	if hwAccel == "" {
+		hwAccel = "none" // Default to software encoding
+	}
+	transcodeService := services.NewTranscodeService(hwAccel)
+	log.Printf("🎬 Transcode service initialized (HW Accel: %s)", hwAccel)
+
 	// Initialize poster service
 	posterService := services.NewPosterService("./posters")
 	
@@ -126,7 +134,7 @@ func main() {
 	}))
 
 	// Initialize API routes
-	api.SetupRoutes(r, mediaService, streamService, thumbnailService, userService, recommendationService, playbackService, geminiService, celeryService, alacService, tmdbService, mediaScanner, watcherService, redisCache)
+	api.SetupRoutes(r, mediaService, streamService, thumbnailService, userService, recommendationService, playbackService, geminiService, celeryService, alacService, tmdbService, mediaScanner, watcherService, redisCache, transcodeService)
 
 	// Start server
 	port := os.Getenv("PORT")

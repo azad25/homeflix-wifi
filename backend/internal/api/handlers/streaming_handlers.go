@@ -2,9 +2,11 @@ package handlers
 
 import (
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 
 	"homeflix-backend/internal/services"
 
@@ -13,7 +15,19 @@ import (
 
 // Streaming Handlers
 
-func StreamMedia(streamService *services.OptimizedStreamService, mediaService *services.MediaService) gin.HandlerFunc {
+// NeedsTranscoding checks if a file needs transcoding based on extension and codec
+func NeedsTranscoding(filePath string) bool {
+	lowerPath := strings.ToLower(filePath)
+	// Check for MKV container or HEVC/x265 codec indicators
+	return strings.HasSuffix(lowerPath, ".mkv") ||
+		strings.Contains(lowerPath, "x265") ||
+		strings.Contains(lowerPath, "hevc") ||
+		strings.Contains(lowerPath, "h265") ||
+		strings.Contains(lowerPath, "vp9") ||
+		strings.Contains(lowerPath, "av1")
+}
+
+func StreamMedia(streamService *services.OptimizedStreamService, mediaService *services.MediaService, transcodeService *services.TranscodeService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		mediaID := c.Param("id")
 		
@@ -60,14 +74,43 @@ func StreamMedia(streamService *services.OptimizedStreamService, mediaService *s
 		c.Header("Access-Control-Allow-Headers", "Range, Content-Type, Accept, Authorization, X-Requested-With")
 		c.Header("Access-Control-Expose-Headers", "Content-Range, Content-Length, Accept-Ranges")
 		
-		// Use the optimized streaming service
-		err = streamService.StreamVideo(c.Writer, c.Request, filePath)
-		if err != nil {
-			// Don't send JSON error if headers already sent (streaming started)
-			if !c.Writer.Written() {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "Streaming failed: " + err.Error()})
+		// Check if file needs transcoding (MKV, HEVC, etc.)
+		if transcodeService != nil && NeedsTranscoding(filePath) {
+			log.Printf("🎬 File needs transcoding: %s (MKV/HEVC detected)", filePath)
+			// Use transcoding service for unsupported formats
+			err = transcodeService.StreamTranscoded(c.Writer, c.Request, filePath)
+			if err != nil {
+				log.Printf("❌ Transcoding failed for %s: %v", filePath, err)
+				if !c.Writer.Written() {
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "Video format not supported by browser. Transcoding failed: " + err.Error()})
+				}
+				return
 			}
-			return
+			log.Printf("✅ Successfully transcoded: %s", filePath)
+		} else {
+			log.Printf("📹 Direct streaming: %s (browser-compatible format)", filePath)
+			// Use direct streaming for supported formats
+			err = streamService.StreamVideo(c.Writer, c.Request, filePath)
+			if err != nil {
+				log.Printf("❌ Direct streaming failed for %s: %v", filePath, err)
+				// If direct streaming fails and we have transcoding available, try transcoding as fallback
+				if transcodeService != nil && !c.Writer.Written() {
+					log.Printf("🔄 Attempting transcoding fallback for: %s", filePath)
+					err = transcodeService.StreamTranscoded(c.Writer, c.Request, filePath)
+					if err != nil {
+						log.Printf("❌ Transcoding fallback also failed: %v", err)
+						if !c.Writer.Written() {
+							c.JSON(http.StatusInternalServerError, gin.H{"error": "Video playback failed. Both direct streaming and transcoding failed: " + err.Error()})
+						}
+					} else {
+						log.Printf("✅ Transcoding fallback succeeded for: %s", filePath)
+					}
+				} else if !c.Writer.Written() {
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "Streaming failed: " + err.Error()})
+				}
+				return
+			}
+			log.Printf("✅ Direct streaming successful: %s", filePath)
 		}
 	}
 }
