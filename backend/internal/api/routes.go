@@ -8,7 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamService *services.OptimizedStreamService, thumbnailService *services.ThumbnailService, userService *services.UserService, recommendationService *services.RecommendationService, playbackService *services.PlaybackService, geminiService *services.GeminiService, celeryService *services.CeleryService, alacService *services.ALACAudioService, tmdbService *services.TMDBService, mediaScanner *scanner.MediaScanner, watcherService *services.WatcherService) {
+func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamService *services.OptimizedStreamService, thumbnailService *services.ThumbnailService, userService *services.UserService, recommendationService *services.RecommendationService, playbackService *services.PlaybackService, geminiService *services.GeminiService, celeryService *services.CeleryService, alacService *services.ALACAudioService, tmdbService *services.TMDBService, mediaScanner *scanner.MediaScanner, watcherService *services.WatcherService, redisCache *services.RedisAssetCache) {
 	api := r.Group("/api")
 	{
 		// Media routes
@@ -36,6 +36,12 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		celeryHandlers := handlers.NewCeleryHandlers(celeryService)
 		scannerHandlers := handlers.NewScannerHandlers(mediaScanner)
 		watcherHandler := NewWatcherHandler(watcherService)
+		
+		// Initialize Redis asset handlers if Redis cache is available
+		var redisAssetHandlers *handlers.RedisAssetHandlers
+		if redisCache != nil {
+			redisAssetHandlers = handlers.NewRedisAssetHandlers(mediaService, thumbnailService, redisCache)
+		}
 
 		// Streaming (with automatic ALAC integration)
 		api.GET("/stream/:id", handlers.StreamMedia(streamService, mediaService))
@@ -44,16 +50,31 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		// Additional ALAC Audio endpoints (optional)
 		api.GET("/media/:id/alac-audio", handlers.StreamALACAudio(streamService, mediaService))
 
-		// Thumbnails and previews with enhanced error handling
-		api.GET("/thumbnails/:id", handlers.GetThumbnailEnhanced(mediaService, thumbnailService))
-		api.POST("/thumbnails/:id", handlers.GenerateThumbnail(mediaService, thumbnailService))
-		api.GET("/previews/:id", handlers.GetPreviewEnhanced(mediaService, thumbnailService))
-		api.GET("/posters/:id", handlers.GetPosterEnhanced(mediaService))
+		// Asset serving endpoints - Redis-cached if available, otherwise enhanced handlers
+		if redisAssetHandlers != nil {
+			// Redis-cached asset serving for instant loading
+			api.GET("/thumbnails/:id", redisAssetHandlers.GetThumbnailCached())
+			api.GET("/previews/:id", redisAssetHandlers.GetPreviewCached())
+			api.GET("/posters/:id", redisAssetHandlers.GetPosterCached())
+			
+			// Alternative asset serving endpoints (Redis-cached)
+			api.GET("/assets/thumbnails/:id", redisAssetHandlers.GetThumbnailCached())
+			api.GET("/assets/previews/:id", redisAssetHandlers.GetPreviewCached())
+			api.GET("/assets/posters/:id", redisAssetHandlers.GetPosterCached())
+		} else {
+			// Fallback to enhanced handlers when Redis is not available
+			api.GET("/thumbnails/:id", handlers.GetThumbnailEnhanced(mediaService, thumbnailService))
+			api.GET("/previews/:id", handlers.GetPreviewEnhanced(mediaService, thumbnailService))
+			api.GET("/posters/:id", handlers.GetPosterEnhanced(mediaService))
+			
+			// Alternative asset serving endpoints (enhanced handlers)
+			api.GET("/assets/thumbnails/:id", handlers.GetThumbnailEnhanced(mediaService, thumbnailService))
+			api.GET("/assets/previews/:id", handlers.GetPreviewEnhanced(mediaService, thumbnailService))
+			api.GET("/assets/posters/:id", handlers.GetPosterEnhanced(mediaService))
+		}
 		
-		// Alternative asset serving endpoints
-		api.GET("/assets/thumbnails/:id", handlers.GetThumbnailEnhanced(mediaService, thumbnailService))
-		api.GET("/assets/previews/:id", handlers.GetPreviewEnhanced(mediaService, thumbnailService))
-		api.GET("/assets/posters/:id", handlers.GetPosterEnhanced(mediaService))
+		// Thumbnail generation endpoint (always available)
+		api.POST("/thumbnails/:id", handlers.GenerateThumbnail(mediaService, thumbnailService))
 
 		// Preview clip generation
 		api.POST("/admin/preview-clips/:id/generate", handlers.GeneratePreviewClip(mediaService, thumbnailService))
@@ -68,9 +89,21 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		api.GET("/admin/thumbnail-service/stats", handlers.GetThumbnailServiceStats(thumbnailService))
 		api.GET("/admin/thumbnail-service/jobs/:jobId", handlers.GetJobStatus(thumbnailService))
 
-		// High-performance asset cache management (automatic warming)
-		api.DELETE("/admin/assets/cache/clear", handlers.ClearAssetCache())
-		api.GET("/admin/assets/cache/stats", handlers.GetAssetCacheStats())
+		// Asset cache management endpoints
+		if redisAssetHandlers != nil {
+			// Redis asset cache management for instant loading
+			api.POST("/admin/assets/cache/warm", redisAssetHandlers.WarmAssetCache())
+			api.DELETE("/admin/assets/cache/clear", redisAssetHandlers.ClearAssetCache())
+			api.GET("/admin/assets/cache/stats", redisAssetHandlers.GetCacheStats())
+			
+			// Legacy in-memory cache management (fallback)
+			api.DELETE("/admin/assets/cache/clear-legacy", handlers.ClearAssetCache())
+			api.GET("/admin/assets/cache/stats-legacy", handlers.GetAssetCacheStats())
+		} else {
+			// In-memory cache management when Redis is not available
+			api.DELETE("/admin/assets/cache/clear", handlers.ClearAssetCache())
+			api.GET("/admin/assets/cache/stats", handlers.GetAssetCacheStats())
+		}
 
 		// Subtitles
 		api.GET("/subtitles/:id", handlers.GetSubtitles(mediaService))

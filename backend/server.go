@@ -43,6 +43,20 @@ func main() {
 	alacService := services.NewALACAudioService("./alac_audio")
 	tmdbService := services.NewTMDBService()
 
+	// Initialize Redis asset cache for instant asset loading
+	redisURL := os.Getenv("REDIS_URL")
+	if redisURL == "" {
+		redisURL = "redis://:redispassword@localhost:6379/0" // Default Redis URL with auth
+	}
+	redisCache, err := services.NewRedisAssetCache(redisURL)
+	if err != nil {
+		log.Printf("⚠️ Failed to initialize Redis asset cache: %v", err)
+		log.Printf("Asset serving will fall back to enhanced handlers without Redis caching")
+		redisCache = nil
+	} else {
+		log.Printf("✅ Redis asset cache initialized successfully")
+	}
+
 	// Integrate ALAC service with streaming service for automatic ALAC audio streaming
 	streamService.SetALACService(alacService)
 
@@ -112,7 +126,7 @@ func main() {
 	}))
 
 	// Initialize API routes
-	api.SetupRoutes(r, mediaService, streamService, thumbnailService, userService, recommendationService, playbackService, geminiService, celeryService, alacService, tmdbService, mediaScanner, watcherService)
+	api.SetupRoutes(r, mediaService, streamService, thumbnailService, userService, recommendationService, playbackService, geminiService, celeryService, alacService, tmdbService, mediaScanner, watcherService, redisCache)
 
 	// Start server
 	port := os.Getenv("PORT")
