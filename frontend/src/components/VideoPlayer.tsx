@@ -429,10 +429,32 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
 
     if (!document.fullscreenElement) {
       container.requestFullscreen().catch(console.error);
+      setShowControls(true); // Show controls when entering fullscreen
     } else {
       document.exitFullscreen().catch(console.error);
+      setShowControls(true); // Show controls when exiting fullscreen
     }
   };
+
+  // Handle fullscreen change events
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+      setShowControls(true); // Show controls when toggling fullscreen
+    };
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+    document.addEventListener('mozfullscreenchange', handleFullscreenChange);
+    document.addEventListener('MSFullscreenChange', handleFullscreenChange);
+
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+      document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
+      document.removeEventListener('mozfullscreenchange', handleFullscreenChange);
+      document.removeEventListener('MSFullscreenChange', handleFullscreenChange);
+    };
+  }, []);
 
   const handleProgressClick = (e: React.MouseEvent<HTMLDivElement> | React.TouchEvent<HTMLDivElement>) => {
     const progressBar = e.currentTarget;
@@ -546,6 +568,44 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
     document.addEventListener('touchmove', handleMove);
     document.addEventListener('touchend', handleEnd);
   };
+
+  // Handle mouse movement to show/hide controls
+  useEffect(() => {
+    const handleMouseMove = () => {
+      setShowControls(true);
+      
+      if (controlsTimeoutRef.current) {
+        clearTimeout(controlsTimeoutRef.current);
+      }
+      
+      controlsTimeoutRef.current = setTimeout(() => {
+        if (isPlaying) {
+          setShowControls(false);
+        }
+      }, 3000);
+    };
+    
+    const container = containerRef.current;
+    
+    // Use document for fullscreen mode, container for normal mode
+    const targetElement = document.fullscreenElement ? document : container;
+    
+    if (targetElement) {
+      targetElement.addEventListener('mousemove', handleMouseMove);
+      
+      // Also handle touch events for mobile
+      if (isMobile) {
+        targetElement.addEventListener('touchstart', handleMouseMove);
+      }
+      
+      return () => {
+        targetElement.removeEventListener('mousemove', handleMouseMove);
+        if (isMobile) {
+          targetElement.removeEventListener('touchstart', handleMouseMove);
+        }
+      };
+    }
+  }, [isPlaying, isMobile]);
 
   const handleClose = async () => {
     const video = videoRef.current;
