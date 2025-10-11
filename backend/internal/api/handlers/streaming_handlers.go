@@ -133,12 +133,12 @@ func GetSubtitles(mediaService *services.MediaService) gin.HandlerFunc {
 	}
 }
 
-// StreamPreviewClip serves preview clips for hero backgrounds and hover previews
+// StreamPreviewClip serves preview clips with INSTANT zero-copy streaming
 func StreamPreviewClip(streamService *services.OptimizedStreamService, mediaService *services.MediaService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		mediaID := c.Param("id")
 		
-		// Parse media ID
+		// Parse media ID with minimal overhead
 		id, err := strconv.ParseUint(mediaID, 10, 32)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid media ID"})
@@ -152,25 +152,51 @@ func StreamPreviewClip(streamService *services.OptimizedStreamService, mediaServ
 			return
 		}
 		
-		// Try to find preview clip path
+		// Fast preview clip path resolution with fallbacks
 		var filePath string
 		if media.PreviewClipPath != "" {
-			filePath = media.PreviewClipPath
+			// Try database path first
+			if strings.HasPrefix(media.PreviewClipPath, "/") || strings.HasPrefix(media.PreviewClipPath, "./") {
+				filePath = media.PreviewClipPath
+			} else {
+				// Resolve relative path
+				filePath = "./backend/" + media.PreviewClipPath
+			}
 		} else if media.PreviewPath != "" {
-			filePath = media.PreviewPath
+			// Try preview path
+			if strings.HasPrefix(media.PreviewPath, "/") || strings.HasPrefix(media.PreviewPath, "./") {
+				filePath = media.PreviewPath
+			} else {
+				filePath = "./backend/" + media.PreviewPath
+			}
 		} else {
-			// Fallback: try to generate preview clip path from main file
-			c.JSON(http.StatusNotFound, gin.H{"error": "Preview clip not available"})
-			return
+			// Fast fallback pattern matching
+			basePatterns := []string{
+				fmt.Sprintf("./backend/previews/preview_%d.mp4", id),
+				fmt.Sprintf("./backend/previews/preview_%s.mp4", strings.ReplaceAll(media.Title, " ", "_")),
+				fmt.Sprintf("./backend/previews/preview_%s.mp4", media.Title),
+			}
+			
+			for _, pattern := range basePatterns {
+				if _, err := os.Stat(pattern); err == nil {
+					filePath = pattern
+					break
+				}
+			}
+			
+			if filePath == "" {
+				c.JSON(http.StatusNotFound, gin.H{"error": "Preview clip not available"})
+				return
+			}
 		}
 		
-		// Check if file exists
+		// Fast file existence check
 		if _, err := os.Stat(filePath); os.IsNotExist(err) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "Preview clip file not found"})
+			c.JSON(http.StatusNotFound, gin.H{"error": "Preview clip file not found: " + filePath})
 			return
 		}
 		
-		// Handle preflight requests first
+		// Handle preflight requests instantly
 		if c.Request.Method == "OPTIONS" {
 			c.Header("Access-Control-Allow-Origin", "*")
 			c.Header("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
@@ -180,18 +206,17 @@ func StreamPreviewClip(streamService *services.OptimizedStreamService, mediaServ
 			return
 		}
 		
-		// Set essential CORS headers
-		c.Header("Access-Control-Allow-Origin", "*")
-		c.Header("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
-		c.Header("Access-Control-Allow-Headers", "Range, Content-Type, Accept, Authorization, X-Requested-With")
-		c.Header("Access-Control-Expose-Headers", "Content-Range, Content-Length, Accept-Ranges")
+		// DO NOT set any headers - let StreamPreviewClip handle all headers for instant streaming
+		// The instant streaming service sets optimal headers including:
+		// - Cache-Control: public, max-age=86400, immutable
+		// - Connection: keep-alive
+		// - All CORS headers
+		// - ETag and Last-Modified for 304 responses
 		
-		// Set caching for preview clips
-		c.Header("Cache-Control", "public, max-age=3600")
-		
-		// Stream the preview clip
+		// INSTANT preview clip streaming with zero-copy sendfile
 		err = streamService.StreamPreviewClip(c.Writer, c.Request, filePath)
 		if err != nil {
+			// Only send JSON error if headers haven't been written
 			if !c.Writer.Written() {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "Preview streaming failed: " + err.Error()})
 			}
