@@ -732,8 +732,16 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
     return `${apiUrl}/api/thumbnails/1`;
   };
 
-  // Stop all video/audio playback
+  // Chrome-safe stop all video/audio playback
   const stopAllPlayback = () => {
+    // Prevent Chrome race conditions by checking state before pause
+    if (videoRef.current && !videoRef.current.paused) {
+      try {
+        videoRef.current.pause();
+      } catch (error) {
+        console.warn('Chrome pause error (safe to ignore):', error);
+      }
+    }
     // Stop main video
     if (videoRef.current) {
       const video = videoRef.current;
@@ -743,15 +751,16 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
       video.volume = 0;
     }
 
-    // Stop all preloaded videos
+    // Chrome-safe clear all preloaded videos to free memory
     preloadRefs.current.forEach((video) => {
       try {
-        video.pause();
-        video.currentTime = 0;
-        video.muted = true;
-        video.volume = 0;
+        if (!video.paused) {
+          video.pause();
+        }
+        video.src = '';
+        video.load();
       } catch (error) {
-        // Ignore cleanup errors
+        console.warn('Chrome video cleanup error (safe to ignore):', error);
       }
     });
 
@@ -822,7 +831,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
     return null;
   }, []);
 
-  // Simplified video playback with better error handling
+  // Enhanced video playback with Chrome race condition prevention
   const playVideoWithAudio = useCallback(async (video: HTMLVideoElement, withAudio: boolean = true) => {
     if (!video || isLoadingRef.current) return false;
     
@@ -836,35 +845,54 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
         return false;
       }
 
+      // Prevent Chrome race conditions by ensuring video is not in conflicting state
+      if (!video.paused) {
+        console.log(`⏸️ Video already playing, avoiding race condition`);
+        return true;
+      }
+
       // Reset video state
       video.currentTime = 0;
       
-      // Determine audio settings - start muted for better autoplay compatibility
-      const shouldStartWithAudio = withAudio && !isMuted && audioPreferences.hasUserEverUnmuted() && canAutoplayWithAudio;
-      
-      // Always start muted for better autoplay success, then unmute if needed
+      // Always start muted for maximum browser compatibility
       video.muted = true;
       video.volume = 0;
       
-      console.log(`🎵 Starting video ${shouldStartWithAudio ? 'with audio capability' : 'muted'} for slide ${currentMediaId}`);
+      console.log(`🎵 Starting muted video for browser compatibility - slide ${currentMediaId}`);
 
-      const playPromise = video.play();
-      if (playPromise !== undefined) {
-        await playPromise;
-        setIsPlaying(true);
-        
-        // Immediate unmute for instant playback - remove setTimeout delays
-        if (shouldStartWithAudio && video.paused === false) {
-          // Instant unmute without delays
-          if (currentMediaRef.current?.id?.toString() === currentMediaId && !video.paused) {
-            video.muted = false;
-            video.volume = spatialAudioEnabled ? 0.7 : 0.5;
-            console.log(`🔊 Instantly unmuted video for slide ${currentMediaId}`);
+      // Chrome-safe play with proper promise handling
+      try {
+        const playPromise = video.play();
+        if (playPromise !== undefined) {
+          await playPromise;
+          
+          // Double-check video is still playing after await
+          if (!video.paused) {
+            setIsPlaying(true);
+            
+            // Only unmute after user interaction for Safari compliance
+            const shouldStartWithAudio = withAudio && !isMuted && audioPreferences.hasUserEverUnmuted() && canAutoplayWithAudio && userHasInteracted;
+            
+            if (shouldStartWithAudio && !video.paused) {
+              // Instant unmute without delays after user interaction
+              if (currentMediaRef.current?.id?.toString() === currentMediaId && !video.paused) {
+                video.muted = false;
+                video.volume = spatialAudioEnabled ? 0.7 : 0.5;
+                console.log(`🔊 Instantly unmuted video for slide ${currentMediaId}`);
+              }
+            }
+            
+            console.log(`✅ Video playing successfully for slide ${currentMediaId}`);
+            return true;
+          } else {
+            console.warn(`⚠️ Video was paused during play attempt`);
+            return false;
           }
         }
-        
-        console.log(`✅ Video playing successfully for slide ${currentMediaId}`);
-        return true;
+      } catch (playError) {
+        console.error(`❌ Chrome play() interrupted:`, playError);
+        // Don't throw, just return false to allow fallback
+        return false;
       }
     } catch (error) {
       console.error(`❌ Video play failed for media ${currentMediaRef.current?.id}:`, error);
@@ -1430,12 +1458,25 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
       }
     };
 
-    // Global interaction detection for autoplay policy
+    // Enhanced Safari interaction detection for autoplay policy
     const handleUserInteraction = () => {
       if (!userHasInteracted) {
         setUserHasInteracted(true);
+        console.log('🖱️ User interaction detected - enabling audio for Safari');
 
-        // Try to start video playback after first interaction
+        // Immediately try to enable audio on current video for Safari
+        if (videoRef.current && !videoRef.current.paused) {
+          const video = videoRef.current;
+          const shouldPlayWithAudio = !isMuted && audioPreferences.hasUserEverUnmuted() && canAutoplayWithAudio;
+          
+          if (shouldPlayWithAudio) {
+            video.muted = false;
+            video.volume = spatialAudioEnabled ? 0.7 : 0.5;
+            console.log('🔊 Enabled audio after user interaction');
+          }
+        }
+        
+        // Also try to start video playback if not already playing
         if (videoRef.current && hasVideoContent(currentMedia) && !isPlaying) {
           const video = videoRef.current;
           const shouldPlayWithAudio = !isMuted && audioPreferences.hasUserEverUnmuted() && canAutoplayWithAudio;
@@ -1658,8 +1699,8 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
                     objectFit: 'cover',
                     objectPosition: 'center'
                   }}
-                  autoPlay={false}
-                  muted={isMuted}
+                  autoPlay={true}
+                  muted={true}
                   loop
                   playsInline
                   preload="metadata"
@@ -1675,13 +1716,24 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
                       const video = videoRef.current;
                       if (video.readyState >= 2 && video.duration > 0) {
                         setIsVideoLoaded(true);
+                        
+                        // Chrome-safe auto-attempt playback
+                        if (!isPlaying && video.paused) {
+                          video.play().catch((error) => {
+                            if (error.name === 'AbortError') {
+                              console.log('🚫 Chrome play() interrupted by pause() - ignoring');
+                            } else {
+                              console.log('🍎 Autoplay blocked - waiting for user interaction');
+                            }
+                          });
+                        }
                         setVideoLoaded(true);
                         setCurrentAudioElement(video);
                       }
                     }
                   }}
                   onCanPlay={() => {
-                    if (videoRef.current && !isPlaying && !isTransitioning) {
+                    if (videoRef.current && !isPlaying && !isTransitioning && videoRef.current.paused) {
                       const video = videoRef.current;
                       video.currentTime = 0;
 
