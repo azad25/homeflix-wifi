@@ -31,10 +31,12 @@ import {
 } from '@/components/scrollx';
 import RecommendationSection from '@/components/RecommendationSection';
 import DynamicTitle from '@/components/DynamicTitle';
+import { useNavigate } from "@/hooks/useNavigate";
 
 export default function MoviePage() {
   const params = useParams();
   const router = useRouter();
+  const navigate = useNavigate();
   const [media, setMedia] = useState<Media | null>(null);
   const [isPlayerOpen, setIsPlayerOpen] = useState(false);
   const [isInMyList, setIsInMyList] = useState(false);
@@ -514,7 +516,7 @@ export default function MoviePage() {
         <h1 className="text-4xl font-bold text-white mb-4">Media Not Found</h1>
         <p className="text-xl text-white/80 mb-8">The requested media could not be found.</p>
         <button
-          onClick={() => router.back()}
+          onClick={() => navigate.back()}
           className="bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-lg transition-colors"
         >
           Go Back
@@ -1325,7 +1327,7 @@ export default function MoviePage() {
               setMedia(m);
               setIsPlayerOpen(true);
             }}
-            onInfo={(m: Media) => router.push(`/movie/${m.id}`)}
+            onInfo={(m: Media) => navigate.push(`/movie/${m.id}`)}
           />
         </div>
       </div>

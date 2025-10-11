@@ -8,7 +8,8 @@ import { getApiUrl } from '@/lib/api';
 import { Media } from '@/types/media';
 import { FolderTree, GlassCard, ScrollReveal, MagneticButton } from '@/components/scrollx';
 import { motion } from 'framer-motion';
-
+import { useNavigate } from "@/hooks/useNavigate";
+import RedLoader from '@/components/RedLoader';
 interface MediaAssets {
   banner?: string;
   thumbnail?: string;
@@ -22,6 +23,7 @@ export default function SettingsPage() {
   const [mediaAssets, setMediaAssets] = useState<MediaAssets>({});
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
+  const navigate = useNavigate();
 
   useEffect(() => {
     fetchMediaList();
@@ -229,7 +231,7 @@ export default function SettingsPage() {
       <div className="min-h-screen bg-black">
         <Navbar onSearch={() => {}} />
         <div className="flex items-center justify-center h-96">
-          <div className="text-white text-xl">Loading settings...</div>
+          <RedLoader />
         </div>
       </div>
     );

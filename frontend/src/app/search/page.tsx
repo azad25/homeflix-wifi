@@ -17,6 +17,7 @@ import {
   MagneticButton,
   FloatingElement
 } from '@/components/scrollx';
+import { useNavigate } from "@/hooks/useNavigate";
 
 interface SearchFilters {
   type: string;
@@ -27,7 +28,7 @@ interface SearchFilters {
 }
 
 export default function SearchPage() {
-  const router = useRouter();
+  const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<Media[]>([]);
   const [allGenres, setAllGenres] = useState<string[]>([]);
@@ -158,7 +159,7 @@ export default function SearchPage() {
   };
 
   const handleInfo = (media: Media) => {
-    router.push(`/movie/${media.id}`);
+    navigate.push(`/movie/${media.id}`);
   };
 
   const handleSearch = (query: string) => {

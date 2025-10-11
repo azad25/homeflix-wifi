@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import { EnhancedAudioProvider } from "@/contexts/EnhancedAudioContext";
+import { NavigationLoaderProvider } from "@/contexts/NavigationLoaderContext";
+import NavigationLoader from "@/components/NavigationLoader";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -18,9 +20,12 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={inter.className}>
-        <EnhancedAudioProvider>
-          {children}
-        </EnhancedAudioProvider>
+        <NavigationLoaderProvider>
+          <EnhancedAudioProvider>
+            <NavigationLoader />
+            {children}
+          </EnhancedAudioProvider>
+        </NavigationLoaderProvider>
       </body>
     </html>
   );

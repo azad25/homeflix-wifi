@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { Play, Info, Film } from 'lucide-react';
-import { useRouter } from 'next/navigation';
+import { useNavigate } from '@/hooks/useNavigate';
 import Navbar from "@/components/Navbar";
 import { Media } from '../../types/media';
 import VideoPlayer from "@/components/VideoPlayer";
@@ -12,7 +12,7 @@ import { ScrollXHero, NetflixHorizontalRow, ParallaxSection, GradientBackground,
 import RecentlyWatched from '@/components/RecentlyWatched';
 
 export default function MoviesPage() {
-  const router = useRouter();
+  const navigate = useNavigate();
   const [featuredMovies, setFeaturedMovies] = useState<Media[]>([]);
   const [actionMovies, setActionMovies] = useState<Media[]>([]);
   const [comedyMovies, setComedyMovies] = useState<Media[]>([]);
@@ -118,7 +118,7 @@ export default function MoviesPage() {
   };
 
   const handleInfo = (media: Media) => {
-    router.push(`/movie/${media.id}`);
+    navigate.push(`/movie/${media.id}`);
   };
 
   const formatDuration = (seconds: number) => {

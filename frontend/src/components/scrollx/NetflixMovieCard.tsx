@@ -6,9 +6,9 @@ import { motion, AnimatePresence } from 'framer-motion';
 import Image from 'next/image';
 import { Media } from '@/types/media';
 import { getApiUrl } from '@/lib/api';
-import { useRouter } from 'next/navigation';
 import { useAudio } from '@/contexts/EnhancedAudioContext';
 import { cleanMovieTitle } from '@/lib/titleUtils';
+import { useNavigate } from '@/hooks/useNavigate';
 
 interface NetflixMovieCardProps {
   media: Media;
@@ -29,7 +29,7 @@ const NetflixMovieCard: React.FC<NetflixMovieCardProps> = ({
   variant = 'portrait',
   size = 'medium'
 }) => {
-  const router = useRouter();
+  const navigate = useNavigate();
   const [isHovered, setIsHovered] = useState(false);
   const [isVideoLoaded, setIsVideoLoaded] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -160,11 +160,11 @@ const NetflixMovieCard: React.FC<NetflixMovieCardProps> = ({
 
   const handleInfoClick = (e: React.MouseEvent) => {
     e.stopPropagation();
-    router.push(`/movie/${media.id}`);
+    navigate.push(`/movie/${media.id}`);
   };
 
   const handleCardClick = () => {
-    router.push(`/movie/${media.id}`);
+    navigate.push(`/movie/${media.id}`);
   };
 
   const handleImageError = () => {

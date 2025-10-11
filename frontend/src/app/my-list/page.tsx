@@ -14,9 +14,12 @@ import { MagneticButton } from '@/components/scrollx';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
 import { removeFromWishlist, fetchWishlistMedia } from '@/lib/wishlist';
+import { useNavigate } from "@/hooks/useNavigate";
+
 
 export default function MyListPage() {
   const router = useRouter();
+  const navigate = useNavigate()
   const [watchlist, setWatchlist] = useState<Media[]>([]);
   const [filteredList, setFilteredList] = useState<Media[]>([]);
   const [filterType, setFilterType] = useState<string>("all");
@@ -85,7 +88,7 @@ export default function MyListPage() {
   };
 
   const handleInfo = (media: Media) => {
-    router.push(`/movie/${media.id}`);
+    navigate.push(`/movie/${media.id}`);
   };
 
   const handleRemoveFromList = async (mediaId: number) => {

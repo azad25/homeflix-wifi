@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { useRouter } from 'next/navigation';
+import { useNavigate } from '@/hooks/useNavigate';
 import Navbar from "@/components/Navbar";
 import VideoPlayer from '@/components/VideoPlayer';
 import RedLoader from '@/components/RedLoader';
@@ -12,7 +12,7 @@ import { ScrollXHero, ScrollXCarousel, ParallaxSection, GradientBackground, Scro
 import RecentlyWatched from '@/components/RecentlyWatched';
 
 export default function TVSeries() {
-  const router = useRouter();
+  const navigate = useNavigate();
   const [featuredSeries, setFeaturedSeries] = useState<Media[]>([]);
   const [popularSeries, setPopularSeries] = useState<Media[]>([]);
   const [trendingSeries, setTrendingSeries] = useState<Media[]>([]);
@@ -144,9 +144,9 @@ export default function TVSeries() {
   const handleInfo = (media: Media) => {
     // Check if it's a TV series/episode and route accordingly
     if (media.type === 'episode' || media.type === 'tv' || media.type === 'series') {
-      router.push(`/tv-series/${media.id}`);
+      navigate.push(`/tv-series/${media.id}`);
     } else {
-      router.push(`/movie/${media.id}`);
+      navigate.push(`/movie/${media.id}`);
     }
   };
 

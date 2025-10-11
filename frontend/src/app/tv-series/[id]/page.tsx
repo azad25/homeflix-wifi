@@ -21,6 +21,7 @@ import {
   MagneticButton,
   ParticleField
 } from '@/components/scrollx';
+import { useNavigate } from "@/hooks/useNavigate";
 
 interface Season {
   id: number;
@@ -46,6 +47,7 @@ interface Episode {
 export default function TVSeriesPage() {
   const params = useParams();
   const router = useRouter();
+  const navigate = useNavigate();
   const [series, setSeries] = useState<Media | null>(null);
   const [seasons, setSeasons] = useState<Season[]>([]);
   const [episodes, setEpisodes] = useState<Media[]>([]);
@@ -201,7 +203,7 @@ export default function TVSeriesPage() {
 
   const handleSeasonSelect = (seasonNumber: number) => {
     setSelectedSeason(seasonNumber);
-    router.push(`/tv-series/${params.id}/season/${seasonNumber}`);
+    navigate.push(`/tv-series/${params.id}/season/${seasonNumber}`);
   };
 
   const toggleMyList = () => {

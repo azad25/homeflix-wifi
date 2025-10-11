@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { Tv, Play, Info, Plus, Check, Clock } from "lucide-react";
-import { useRouter } from 'next/navigation';
+import { useNavigate } from '@/hooks/useNavigate';
 import Navbar from "@/components/Navbar";
 import VideoPlayer from '@/components/VideoPlayer';
 import RedLoader from '@/components/RedLoader';
@@ -25,7 +25,7 @@ interface Series {
 }
 
 export default function TVShowsPage() {
-  const router = useRouter();
+  const navigate = useNavigate();
   const [featuredSeries, setFeaturedSeries] = useState<Media[]>([]);
   const [continueWatching, setContinueWatching] = useState<Media[]>([]);
   const [recentEpisodes, setRecentEpisodes] = useState<Media[]>([]);
@@ -146,7 +146,7 @@ export default function TVShowsPage() {
   };
 
   const handleInfo = (media: Media) => {
-    router.push(`/tv-show/${media.id}`);
+    navigate.push(`/tv-show/${media.id}`);
   };
 
 

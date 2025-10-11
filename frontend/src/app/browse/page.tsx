@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from "react";
 import { Filter, Film } from "lucide-react";
-import { useRouter } from 'next/navigation';
+import { useNavigate } from '@/hooks/useNavigate';
 import { Media } from "../../types/media";
 import VideoPlayer from "../../components/VideoPlayer";
 import Navbar from "../../components/Navbar";
@@ -28,7 +28,7 @@ interface Genre {
 }
 
 export default function BrowsePage() {
-  const router = useRouter();
+  const navigate = useNavigate();
   const [allMedia, setAllMedia] = useState<Media[]>([]);
   const [filteredMedia, setFilteredMedia] = useState<Media[]>([]);
   const [displayedMedia, setDisplayedMedia] = useState<Media[]>([]);
@@ -212,7 +212,7 @@ export default function BrowsePage() {
   };
 
   const handleInfo = (media: Media) => {
-    router.push(`/movie/${media.id}`);
+    navigate.push(`/movie/${media.id}`);
   };
 
   const handleSearch = (query: string) => {

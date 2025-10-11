@@ -17,6 +17,7 @@ import {
   GradientBackground,
   MagneticButton
 } from '@/components/scrollx';
+import { useNavigate } from "@/hooks/useNavigate";
 
 interface Episode {
   id: number;
@@ -32,7 +33,7 @@ interface Episode {
 
 export default function SeasonPage() {
   const params = useParams();
-  const router = useRouter();
+  const navigate = useNavigate();
   const [series, setSeries] = useState<Media | null>(null);
   const [episodes, setEpisodes] = useState<Episode[]>([]);
   const [selectedMedia, setSelectedMedia] = useState<Media | null>(null);
@@ -148,14 +149,14 @@ export default function SeasonPage() {
 
   const handleInfo = (episode: Episode) => {
     if (episode.media) {
-      router.push(`/movie/${episode.media.id}`);
+      navigate.push(`/movie/${episode.media.id}`);
     }
   };
 
   const navigateSeason = (direction: 'prev' | 'next') => {
     const newSeason = direction === 'prev' ? currentSeason - 1 : currentSeason + 1;
     if (newSeason >= 1 && newSeason <= totalSeasons) {
-      router.push(`/tv-series/${params.id}/season/${newSeason}`);
+      navigate.push(`/tv-series/${params.id}/season/${newSeason}`);
     }
   };
 
@@ -185,7 +186,7 @@ export default function SeasonPage() {
         <h1 className="text-4xl font-bold text-white mb-4">Season Not Found</h1>
         <p className="text-xl text-white/80 mb-8">No episodes found for this season.</p>
         <button
-          onClick={() => router.back()}
+          onClick={() => navigate.back()}
           className="bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-lg transition-colors"
         >
           Go Back
@@ -205,7 +206,7 @@ export default function SeasonPage() {
           <ScrollReveal direction="up" delay={0.1}>
             <div className="flex items-center gap-4 mb-8">
               <MagneticButton
-                onClick={() => router.back()}
+                onClick={() => navigate.back()}
                 className="bg-white/10 hover:bg-white/20 text-white p-3 rounded-full"
               >
                 <ArrowLeft className="w-5 h-5" />

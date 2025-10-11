@@ -4,15 +4,16 @@ import React, { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { Search, Bell, User, Menu, X } from "lucide-react";
 import Image from "next/image";
-import Link from "next/link";
-import { useRouter, usePathname } from "next/navigation";
+import { usePathname } from "next/navigation";
+import NavigationLink from "./NavigationLink";
+import { useNavigate } from "@/hooks/useNavigate";
 
 interface NavbarProps {
   onSearch?: (query: string) => void;
 }
 
 const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
-  const router = useRouter();
+  const navigate = useNavigate();
   const pathname = usePathname();
   const [isScrolled, setIsScrolled] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
@@ -35,7 +36,7 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
         onSearch(searchQuery.trim());
       } else {
         // Navigate to search page if no onSearch handler provided
-        router.push(`/search?q=${encodeURIComponent(searchQuery.trim())}`);
+        navigate.push(`/search?q=${encodeURIComponent(searchQuery.trim())}`);
       }
       setIsSearchOpen(false);
     }
@@ -62,19 +63,19 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
         <div className="flex items-center justify-between h-16">
           {/* Logo */}
           <div className="flex items-center gap-8">
-            <Link 
+            <NavigationLink 
               href="/"
               className="text-red-600 text-2xl font-bold hover:text-red-500 transition-colors cursor-pointer"
             >
               HomeFlix
-            </Link>
+            </NavigationLink>
 
             {/* Desktop Navigation */}
             <div className="hidden md:flex items-center gap-6">
               {navItems.map((item) => {
                 const isActive = pathname === item.href;
                 return (
-                  <Link
+                  <NavigationLink
                     key={item.name}
                     href={item.href}
                     className={`transition-colors text-sm font-medium ${
@@ -84,7 +85,7 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
                     }`}
                   >
                     {item.name}
-                  </Link>
+                  </NavigationLink>
                 );
               })}
             </div>
@@ -184,7 +185,7 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
             {navItems.map((item) => {
               const isActive = pathname === item.href;
               return (
-                <Link
+                <NavigationLink
                   key={item.name}
                   href={item.href}
                   className={`block px-4 py-3 transition-colors ${
@@ -195,7 +196,7 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
                   onClick={() => setIsMobileMenuOpen(false)}
                 >
                   {item.name}
-                </Link>
+                </NavigationLink>
               );
             })}
           </motion.div>

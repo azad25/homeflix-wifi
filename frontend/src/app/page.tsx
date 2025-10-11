@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { Film, Tv, Star, Clock } from "lucide-react";
-import { useRouter } from 'next/navigation';
+import { useNavigate } from '@/hooks/useNavigate';
 import Navbar from "@/components/Navbar";
 import VideoPlayer from '@/components/VideoPlayer';
 import RedLoader from '@/components/RedLoader';
@@ -13,7 +13,7 @@ import RecentlyWatched from '@/components/RecentlyWatched';
 import ContinueWatching from '@/components/ContinueWatching';
 
 export default function Home() {
-  const router = useRouter();
+  const navigate = useNavigate();
   const [featuredMedia, setFeaturedMedia] = useState<Media[]>([]);
   const [recentMovies, setRecentMovies] = useState<Media[]>([]);
   const [popularMovies, setPopularMovies] = useState<Media[]>([]);
@@ -209,7 +209,7 @@ export default function Home() {
   };
 
   const handleInfo = (media: Media) => {
-    router.push(`/movie/${media.id}`);
+    navigate.push(`/movie/${media.id}`);
   };
 
   const parallaxCards = [

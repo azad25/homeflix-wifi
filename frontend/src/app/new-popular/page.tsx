@@ -11,9 +11,11 @@ import { apiCall } from '@/lib/api';
 import Navbar from '@/components/Navbar';
 import RedLoader from '@/components/RedLoader';
 import { useRouter } from 'next/navigation';
+import { useNavigate } from '@/hooks/useNavigate';
 
 const NewPopularPage: React.FC = () => {
   const router = useRouter();
+  const navigate = useNavigate();
   const [featuredMedia, setFeaturedMedia] = useState<Media[]>([]);
   const [newContent, setNewContent] = useState<Media[]>([]);
   const [popularContent, setPopularContent] = useState<Media[]>([]);
@@ -74,11 +76,11 @@ const NewPopularPage: React.FC = () => {
   }, []);
 
   const handlePlay = (media: Media) => {
-    router.push(`/movie/${media.id}`);
+    navigate.push(`/movie/${media.id}`);
   };
 
   const handleInfo = (media: Media) => {
-    router.push(`/movie/${media.id}`);
+    navigate.push(`/movie/${media.id}`);
   };
 
   if (isLoading) {
