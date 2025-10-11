@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -198,7 +199,9 @@ func (s *OptimizedStreamService) StreamVideo(w http.ResponseWriter, r *http.Requ
 // streamFullFileOptimized streams the entire file with zero-copy optimizations
 func (s *OptimizedStreamService) streamFullFileOptimized(w http.ResponseWriter, r *http.Request, file *os.File, fileSize int64, session *StreamSession, isLocalNetwork bool) error {
 	// Set optimized headers with TCP optimizations
-	s.setOptimizedHeaders(w, fileSize, isLocalNetwork)
+	s.setOptimizedHeaders(w, session.FilePath, fileSize, isLocalNetwork)
+	// Set HTTP 200 OK status for full file streaming
+	w.WriteHeader(http.StatusOK)
 
 	// Detect HD/4K files for ultra-optimization
 	isHD4KFile := fileSize > 5*1024*1024*1024     // Files > 5GB are likely HD/4K
@@ -974,13 +977,44 @@ func (s *OptimizedStreamService) StreamALACAudio(w http.ResponseWriter, r *http.
 	return s.StreamVideo(w, r, alacPath)
 }
 
+// detectContentType detects MIME type from file extension
+func (s *OptimizedStreamService) detectContentType(filePath string) string {
+	ext := strings.ToLower(filepath.Ext(filePath))
+	switch ext {
+	case ".mp4":
+		return "video/mp4"
+	case ".mkv":
+		return "video/x-matroska"
+	case ".avi":
+		return "video/x-msvideo"
+	case ".mov":
+		return "video/quicktime"
+	case ".webm":
+		return "video/webm"
+	case ".m4v":
+		return "video/mp4"
+	case ".flv":
+		return "video/x-flv"
+	case ".wmv":
+		return "video/x-ms-wmv"
+	default:
+		return "video/mp4" // Default fallback
+	}
+}
+
 // setOptimizedHeaders sets headers optimized for streaming performance
-func (s *OptimizedStreamService) setOptimizedHeaders(w http.ResponseWriter, fileSize int64, isLocalNetwork bool) {
-	w.Header().Set("Content-Type", "video/mp4")
+func (s *OptimizedStreamService) setOptimizedHeaders(w http.ResponseWriter, filePath string, fileSize int64, isLocalNetwork bool) {
+	// Detect content type from file extension
+	contentType := s.detectContentType(filePath)
+	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Content-Length", strconv.FormatInt(fileSize, 10))
 	w.Header().Set("Accept-Ranges", "bytes")
 	w.Header().Set("Cache-Control", "public, max-age=3600")
 	w.Header().Set("Connection", "keep-alive")
+	// Add CORS headers for cross-origin requests
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Headers", "Range")
+	w.Header().Set("Access-Control-Expose-Headers", "Content-Range, Content-Length, Accept-Ranges")
 
 	if isLocalNetwork {
 		// Aggressive caching for local network
@@ -1026,7 +1060,7 @@ func (s *OptimizedStreamService) streamRangeRequestOptimized(w http.ResponseWrit
 	contentLength := end - start + 1
 
 	// Set optimized headers for partial content
-	s.setPartialContentHeaders(w, start, end, fileSize, contentLength, isLocalNetwork)
+	s.setPartialContentHeaders(w, session.FilePath, start, end, fileSize, contentLength, isLocalNetwork)
 
 	// Check if this range is cached
 	chunkKey := fmt.Sprintf("%s_%d_%d", session.FilePath, start, end)
@@ -1120,19 +1154,26 @@ func (s *OptimizedStreamService) streamRangeWithChunkingOptimized(w http.Respons
 }
 
 // setPartialContentHeaders sets headers for partial content with optimizations
-func (s *OptimizedStreamService) setPartialContentHeaders(w http.ResponseWriter, start, end, fileSize, contentLength int64, isLocalNetwork bool) {
-	w.Header().Set("Content-Type", "video/mp4")
+func (s *OptimizedStreamService) setPartialContentHeaders(w http.ResponseWriter, filePath string, start, end, fileSize, contentLength int64, isLocalNetwork bool) {
+	// Detect content type from file extension
+	contentType := s.detectContentType(filePath)
+	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, fileSize))
 	w.Header().Set("Content-Length", strconv.FormatInt(contentLength, 10))
 	w.Header().Set("Accept-Ranges", "bytes")
 	w.Header().Set("Cache-Control", "public, max-age=3600")
 	w.Header().Set("Connection", "keep-alive")
+	// Ensure CORS headers for cross-origin requests
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Headers", "Range")
+	w.Header().Set("Access-Control-Expose-Headers", "Content-Range, Content-Length, Accept-Ranges")
 
 	if isLocalNetwork {
 		// Aggressive caching for local network
 		w.Header().Set("Cache-Control", "public, max-age=86400")
 	}
 
+	// Critical: Set HTTP 206 Partial Content status
 	w.WriteHeader(http.StatusPartialContent)
 }
 

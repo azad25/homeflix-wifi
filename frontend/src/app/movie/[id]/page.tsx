@@ -47,7 +47,7 @@ export default function MoviePage() {
   const [isVideoLoaded, setIsVideoLoaded] = useState(false);
   const [isVideoPlaying, setIsVideoPlaying] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [isMuted, setIsMuted] = useState(false); // Always start with ALAC audio enabled
+  const [isMuted, setIsMuted] = useState(false); // Start with audio enabled
   const [showTitleOverlay, setShowTitleOverlay] = useState(true); // Netflix-style title overlay
   const [isHoveringTitle, setIsHoveringTitle] = useState(false); // Hover state for title area
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -67,6 +67,95 @@ export default function MoviePage() {
       loadPlaybackProgress();
     }
   }, [params.id]);
+
+  // Effect to handle background video when player opens/closes
+  useEffect(() => {
+    const video = videoRef.current;
+    if (video) {
+      if (isPlayerOpen) {
+        // Pause and mute background video when player opens
+        video.pause();
+        video.muted = true;
+        setIsVideoPlaying(false);
+        setIsMuted(true);
+        console.log('Background video paused and muted due to player opening');
+      }
+    }
+  }, [isPlayerOpen]);
+
+  // Aggressive auto-play with multiple triggers
+  useEffect(() => {
+    const forceVideoPlay = () => {
+      const video = videoRef.current;
+      if (video && media && !isPlayerOpen) {
+        console.log('Attempting to force video play...');
+        
+        // Set video properties
+        video.muted = false;
+        video.volume = 1.0;
+        video.currentTime = 0;
+        setIsMuted(false);
+        
+        // Force play with multiple attempts
+        const playAttempt = () => {
+          video.play().then(() => {
+            console.log('Background video started playing with sound');
+            setIsVideoPlaying(true);
+          }).catch((error) => {
+            console.log('Play with sound failed, trying muted:', error);
+            video.muted = true;
+            setIsMuted(true);
+            video.play().then(() => {
+              console.log('Background video started playing (muted)');
+              setIsVideoPlaying(true);
+            }).catch(() => {
+              console.log('All play attempts failed');
+            });
+          });
+        };
+        
+        // Try immediately and with delays
+        playAttempt();
+        setTimeout(playAttempt, 100);
+        setTimeout(playAttempt, 500);
+      }
+    };
+
+    // Multiple triggers for auto-play
+    if (media && !loading) {
+      forceVideoPlay();
+      const timer1 = setTimeout(forceVideoPlay, 200);
+      const timer2 = setTimeout(forceVideoPlay, 1000);
+      
+      return () => {
+        clearTimeout(timer1);
+        clearTimeout(timer2);
+      };
+    }
+  }, [media, loading, isPlayerOpen]);
+  
+  // Additional trigger when video becomes loaded
+  useEffect(() => {
+    if (isVideoLoaded && !isVideoPlaying && !isPlayerOpen) {
+      const video = videoRef.current;
+      if (video) {
+        console.log('Video loaded, forcing play...');
+        video.muted = false;
+        video.volume = 1.0;
+        video.play().then(() => {
+          console.log('Video started after load detection');
+          setIsVideoPlaying(true);
+          setIsMuted(false);
+        }).catch(() => {
+          video.muted = true;
+          setIsMuted(true);
+          video.play().catch(() => {
+            console.log('Failed to start video after load');
+          });
+        });
+      }
+    }
+  }, [isVideoLoaded, isVideoPlaying, isPlayerOpen]);
 
   // Cookie-based playback progress management
   const savePlaybackProgress = (mediaId: string, currentTime: number, duration: number) => {
@@ -180,10 +269,34 @@ export default function MoviePage() {
     }
   };
 
-  const loadPlaybackProgress = () => {
+  const loadPlaybackProgress = async () => {
     if (!params.id) return;
 
-    // Try to load from cookie first (new system)
+    try {
+      // First try to load from backend API (same as ContinueWatching component)
+      const apiUrl = getApiUrl();
+      const response = await fetch(`${apiUrl}/api/playback/progress/${params.id}`, {
+        headers: {
+          'X-User-ID': '1' // Default user for now
+        }
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data && data.position !== undefined && data.duration > 0) {
+          setPlaybackProgress(data.position);
+          setPlaybackDuration(data.duration);
+          setHasWatchedBefore(true);
+          setLastWatched(data.last_watched || new Date().toISOString());
+          console.log(`Loaded playback progress from API: ${Math.round((data.position / data.duration) * 100)}%`);
+          return;
+        }
+      }
+    } catch (error) {
+      console.log('Failed to load progress from API, trying local storage:', error);
+    }
+
+    // Fallback to cookie system
     const cookieProgress = getPlaybackProgressFromCookie(params.id as string);
     if (cookieProgress) {
       setPlaybackProgress(cookieProgress.currentTime);
@@ -194,7 +307,7 @@ export default function MoviePage() {
       return;
     }
 
-    // Fallback to localStorage (legacy system)
+    // Final fallback to localStorage (legacy system)
     const progress = localStorage.getItem(`progress_${params.id}`);
     if (progress) {
       try {
@@ -211,24 +324,52 @@ export default function MoviePage() {
 
   const handlePlay = () => {
     // Pause the background video when opening the player
-    if (videoRef.current && isVideoPlaying) {
+    if (videoRef.current) {
       videoRef.current.pause();
-      console.log('Background video paused for player');
+      videoRef.current.muted = true;
+      setIsVideoPlaying(false);
+      console.log('Background video paused and muted for player');
     }
     setIsPlayerOpen(true);
   };
 
+  const handlePlayFromBeginning = () => {
+    // Clear progress and start from beginning
+    if (params.id) {
+      clearPlaybackProgress(params.id as string);
+    }
+    handlePlay();
+  };
+
   const handlePlayerClose = () => {
+    setIsPlayerOpen(false);
+    
     // Resume the background video when closing the player
     if (videoRef.current && isVideoLoaded) {
-      videoRef.current.play().then(() => {
-        console.log('Background video resumed after player close');
-        setIsVideoPlaying(true);
-      }).catch((error) => {
-        console.log('Failed to resume background video:', error);
-      });
+      setTimeout(() => {
+        const video = videoRef.current;
+        if (video && !isPlayerOpen) {
+          // Resume with sound when player closes
+          video.muted = false;
+          video.volume = 1.0;
+          setIsMuted(false);
+          video.play().then(() => {
+            console.log('Background video resumed with sound after player close');
+            setIsVideoPlaying(true);
+          }).catch((error) => {
+            console.log('Failed to resume background video with sound:', error);
+            // Try muted fallback
+            if (video) {
+              video.muted = true;
+              setIsMuted(true);
+              video.play().catch(() => {
+                console.log('Background video resume failed completely');
+              });
+            }
+          });
+        }
+      }, 500); // Small delay to ensure player is fully closed
     }
-    setIsPlayerOpen(false);
   };
 
   // Handle cast button click
@@ -272,10 +413,31 @@ export default function MoviePage() {
     }
   }, [castState.isConnected, media]);
 
-  const handlePlayerProgress = (currentTime: number, duration: number) => {
+  const handlePlayerProgress = async (currentTime: number, duration: number) => {
     if (!params.id || !duration) return;
 
-    // Save to cookie-based system
+    try {
+      // Save to backend API (same as ContinueWatching component expects)
+      const apiUrl = getApiUrl();
+      await fetch(`${apiUrl}/api/playback/progress`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-ID': '1' // Default user for now
+        },
+        body: JSON.stringify({
+          media_id: parseInt(params.id as string),
+          position: currentTime,
+          duration: duration,
+          progress: (currentTime / duration) * 100
+        })
+      });
+      console.log(`Saved playback progress to API: ${Math.round((currentTime / duration) * 100)}%`);
+    } catch (error) {
+      console.log('Failed to save progress to API, using local storage:', error);
+    }
+
+    // Save to cookie-based system as fallback
     savePlaybackProgress(params.id as string, currentTime, duration);
 
     // Also save to localStorage for backward compatibility
@@ -387,13 +549,16 @@ export default function MoviePage() {
         <video
           ref={videoRef}
           className="absolute inset-0 w-full h-full object-cover opacity-100"
-          autoPlay
+          autoPlay={true}
           muted={false}
-          loop
-          playsInline
-          preload="metadata"
+          loop={true}
+          playsInline={true}
+          preload="auto"
           controls={false}
           crossOrigin="anonymous"
+          webkit-playsinline="true"
+          x-webkit-airplay="allow"
+          data-setup="{}"
           style={{
             zIndex: 5,
             position: 'absolute',
@@ -410,38 +575,32 @@ export default function MoviePage() {
               const video = videoRef.current;
 
               video.currentTime = 0;
-              video.volume = 0.6; // Lower volume for background preview
+              video.volume = 1.0;
               video.muted = false;
-
-              // Enhanced playback with fallbacks
-              const attemptPlay = async () => {
-                try {
-                  await video.play();
-                  console.log('Media info preview video playing successfully');
+              
+              // Immediate play attempt
+              const immediatePlay = () => {
+                video.play().then(() => {
+                  console.log('Background video started playing with sound (onLoadedData)');
                   setIsVideoPlaying(true);
-                } catch (error) {
-                  console.log('Autoplay failed, trying muted fallback:', error);
-                  try {
-                    video.muted = true;
-                    await video.play();
+                  setIsMuted(false);
+                }).catch((error) => {
+                  console.log('onLoadedData play failed, trying muted:', error);
+                  video.muted = true;
+                  setIsMuted(true);
+                  video.play().then(() => {
+                    console.log('Background video started playing (muted fallback)');
                     setIsVideoPlaying(true);
-
-                    // Add click listener to unmute
-                    const handleClick = () => {
-                      video.muted = false;
-                      video.volume = 0.6;
-                      document.removeEventListener('click', handleClick);
-                    };
-                    document.addEventListener('click', handleClick);
-                  } catch (mutedError) {
-                    console.log('Video playback failed completely:', mutedError);
-                    setIsVideoLoaded(false);
-                    setIsVideoPlaying(false);
-                  }
-                }
+                  }).catch(() => {
+                    console.log('onLoadedData muted play also failed');
+                  });
+                });
               };
-
-              attemptPlay();
+              
+              // Try multiple times
+              immediatePlay();
+              setTimeout(immediatePlay, 50);
+              setTimeout(immediatePlay, 200);
             }
           }}
           onError={(e) => {
@@ -451,25 +610,73 @@ export default function MoviePage() {
           }}
           onCanPlay={() => {
             console.log('Preview video can play');
-            if (videoRef.current && !isVideoPlaying) {
-              const video = videoRef.current;
-              video.play().catch(() => {
-                console.log('CanPlay auto-play failed');
-              });
+            const video = videoRef.current;
+            if (video) {
+              video.muted = false;
+              video.volume = 1.0;
+              
+              const canPlayAttempt = () => {
+                video.play().then(() => {
+                  console.log('Video playing from onCanPlay with sound');
+                  setIsVideoPlaying(true);
+                  setIsMuted(false);
+                }).catch(() => {
+                  console.log('onCanPlay play with sound failed, trying muted');
+                  video.muted = true;
+                  setIsMuted(true);
+                  video.play().then(() => {
+                    console.log('Video playing from onCanPlay (muted)');
+                    setIsVideoPlaying(true);
+                  }).catch(() => {
+                    console.log('onCanPlay play failed completely');
+                  });
+                });
+              };
+              
+              canPlayAttempt();
+              setTimeout(canPlayAttempt, 100);
             }
           }}
           onPlay={() => {
             console.log('Preview video started playing');
             setIsVideoPlaying(true);
+            setIsMuted(false);
           }}
           onPause={() => {
             console.log('Preview video paused');
+            setIsVideoPlaying(false);
           }}
           onLoadStart={() => {
             console.log('Preview video load started');
           }}
           onLoadedMetadata={() => {
             console.log('Preview video metadata loaded');
+            const video = videoRef.current;
+            if (video) {
+              video.muted = false;
+              video.volume = 1.0;
+              
+              const metadataPlay = () => {
+                video.play().then(() => {
+                  console.log('Video auto-started from metadata with sound');
+                  setIsVideoPlaying(true);
+                  setIsMuted(false);
+                }).catch(() => {
+                  console.log('Metadata play with sound failed, trying muted');
+                  video.muted = true;
+                  setIsMuted(true);
+                  video.play().then(() => {
+                    console.log('Video auto-started from metadata (muted)');
+                    setIsVideoPlaying(true);
+                  }).catch(() => {
+                    console.log('Metadata play failed completely');
+                  });
+                });
+              };
+              
+              metadataPlay();
+              setTimeout(metadataPlay, 50);
+            }
           }}
         >
           {/* Preview/trailer sources - not full media file */}
@@ -601,24 +808,20 @@ export default function MoviePage() {
                   }}
                   className="flex flex-wrap gap-4 mb-8"
                 >
+                  {/* Play/Resume Button */}
                   <div className="relative">
                     <MagneticButton
                       onClick={handlePlay}
                       className="bg-red-600 hover:bg-red-700 text-white px-8 py-3 rounded-lg text-lg font-semibold flex items-center gap-2 relative overflow-hidden"
                     >
                       <Play className="w-5 h-5" />
-                      {hasWatchedBefore && playbackProgress > 0 ? 'Continue Playing' : 'Play'}
-                      {hasWatchedBefore && playbackProgress > 0 && playbackDuration > 0 && (
-                        <span className="text-sm font-normal opacity-80">
-                          {Math.round((playbackProgress / playbackDuration) * 100)}%
-                        </span>
-                      )}
+                      {hasWatchedBefore && playbackProgress > 0 ? 'Resume' : 'Play'}
                     </MagneticButton>
 
-                    {/* Progress bar overlay */}
+                    {/* Progress bar overlay on top */}
                     {hasWatchedBefore && playbackProgress > 0 && playbackDuration > 0 && (
                       <motion.div
-                        className="absolute bottom-0 left-0 h-1 bg-red-400 rounded-b-lg"
+                        className="absolute top-0 left-0 h-1 bg-red-400 rounded-t-lg"
                         initial={{ width: 0 }}
                         animate={{
                           width: `${Math.min((playbackProgress / playbackDuration) * 100, 100)}%`
@@ -627,6 +830,17 @@ export default function MoviePage() {
                       />
                     )}
                   </div>
+
+                  {/* Play from Beginning Button - Only show if has progress */}
+                  {hasWatchedBefore && playbackProgress > 0 && (
+                    <MagneticButton
+                      onClick={handlePlayFromBeginning}
+                      className="bg-white/10 hover:bg-white/20 text-white px-6 py-3 rounded-lg text-lg font-semibold flex items-center gap-2 border border-white/20"
+                    >
+                      <Play className="w-5 h-5" />
+                      Play from Beginning
+                    </MagneticButton>
+                  )}
 
                   <MagneticButton
                     onClick={toggleMyList}
@@ -1122,7 +1336,7 @@ export default function MoviePage() {
           media={media}
           isOpen={isPlayerOpen}
           onClose={handlePlayerClose}
-          startTime={0}
+          startTime={hasWatchedBefore && playbackProgress > 0 ? playbackProgress : 0}
         />
       )}
     </div>

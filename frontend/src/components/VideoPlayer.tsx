@@ -43,7 +43,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
-  const [volume, setVolume] = useState(0.8);
+  const [volume, setVolume] = useState(1.0);
   const [isMuted, setIsMuted] = useState(false);
   const [showControls, setShowControls] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -293,21 +293,23 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
     }
   };
 
-  const toggleSubtitles = () => {
-    setSubtitlesEnabled(!subtitlesEnabled);
-    const video = videoRef.current;
-    if (video) {
-      const tracks = video.textTracks;
-      for (let i = 0; i < tracks.length; i++) {
-        tracks[i].mode = subtitlesEnabled ? 'hidden' : 'showing';
-      }
+  // Utility function to format time in MM:SS or HH:MM:SS format
+  const formatTime = (seconds: number): string => {
+    if (!seconds || !isFinite(seconds)) return '00:00';
+    
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = Math.floor(seconds % 60);
+    
+    if (hours > 0) {
+      return `${hours}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
     }
+    return `${minutes}:${secs.toString().padStart(2, '0')}`;
   };
 
   const togglePlay = () => {
     if (isCasting && castState.isConnected) {
-      // Control cast device playback
-      if (castState.playerState === 'PLAYING') {
+      if (isPlaying) {
         pauseCast();
       } else {
         playCast();
@@ -318,35 +320,40 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
     const video = videoRef.current;
     if (!video) return;
 
-    if (isPlaying) {
-      video.pause();
+    if (video.paused) {
+      video.play().catch(console.error);
     } else {
-      // Always ensure sound is on when playing
-      video.muted = false;
-      video.volume = volume > 0 ? volume : 0.8;
-      setIsMuted(false);
-      video.play().catch(error => {
-        console.log('Play failed:', error);
-      });
+      video.pause();
     }
   };
 
   const toggleMute = () => {
     if (isCasting && castState.isConnected) {
-      // Control cast device volume
       setCastMuted(!castState.isMuted);
       return;
     }
 
     const video = videoRef.current;
     if (!video) return;
-    if (isMuted) {
-      video.muted = false;
-      video.volume = volume > 0 ? volume : 0.5;
-      setIsMuted(false);
-    } else {
-      video.muted = true;
-      setIsMuted(true);
+
+    video.muted = !video.muted;
+    setIsMuted(video.muted);
+  };
+
+  const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const newVolume = Math.max(0, Math.min(1, parseFloat(e.target.value) / 100));
+    setVolume(newVolume);
+
+    if (isCasting && castState.isConnected) {
+      setCastVolume(newVolume);
+      return;
+    }
+
+    const video = videoRef.current;
+    if (video) {
+      video.volume = newVolume;
+      video.muted = newVolume === 0;
+      setIsMuted(newVolume === 0);
     }
   };
 
@@ -359,7 +366,25 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
 
     const video = videoRef.current;
     if (!video) return;
-    video.currentTime = Math.min(video.currentTime + seconds, duration);
+    
+    // For videos without duration, just seek forward without upper limit check
+    let newTime = video.currentTime + seconds;
+    
+    // Only apply upper limit if we have a valid duration
+    if (duration && duration > 0) {
+      newTime = Math.min(newTime, duration);
+    }
+    
+    console.log(`Seeking forward ${seconds}s to ${newTime}s`);
+    
+    setIsBuffering(true);
+    try {
+      video.currentTime = newTime;
+      setCurrentTime(newTime);
+    } catch (error) {
+      console.error('Error seeking forward:', error);
+      setIsBuffering(false);
+    }
   };
 
   const seekBackward = (seconds: number) => {
@@ -371,7 +396,19 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
 
     const video = videoRef.current;
     if (!video) return;
-    video.currentTime = Math.max(video.currentTime - seconds, 0);
+    
+    // Always allow backward seeking, just ensure we don't go below 0
+    const newTime = Math.max(video.currentTime - seconds, 0);
+    console.log(`Seeking backward ${seconds}s to ${newTime}s`);
+    
+    setIsBuffering(true);
+    try {
+      video.currentTime = newTime;
+      setCurrentTime(newTime);
+    } catch (error) {
+      console.error('Error seeking backward:', error);
+      setIsBuffering(false);
+    }
   };
 
   const toggleFullscreen = () => {
@@ -382,85 +419,19 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
 
     // For iOS Safari, use video element fullscreen
     if (isMobile && (video as any).webkitEnterFullscreen) {
-      try {
-        if (!document.fullscreenElement && !(document as any).webkitFullscreenElement) {
-          (video as any).webkitEnterFullscreen();
-          setIsFullscreen(true);
-        } else {
-          if ((document as any).webkitExitFullscreen) {
-            (document as any).webkitExitFullscreen();
-          }
-          setIsFullscreen(false);
-        }
-        return;
-      } catch (error) {
-        console.log('iOS fullscreen failed, trying standard method:', error);
+      if (!isFullscreen) {
+        (video as any).webkitEnterFullscreen();
+      } else {
+        (video as any).webkitExitFullscreen();
       }
-    }
-
-    // Standard fullscreen API
-    if (!document.fullscreenElement) {
-      const requestFullscreen = container.requestFullscreen ||
-        (container as any).webkitRequestFullscreen ||
-        (container as any).mozRequestFullScreen ||
-        (container as any).msRequestFullscreen;
-
-      if (requestFullscreen) {
-        requestFullscreen.call(container).then(() => {
-          setIsFullscreen(true);
-          // Lock orientation on mobile
-          if (screen.orientation && (screen.orientation as any).lock) {
-            (screen.orientation as any).lock('landscape').catch(() => { });
-          }
-        }).catch((error: any) => {
-          console.error('Fullscreen request failed:', error);
-        });
-      }
-    } else {
-      const exitFullscreen = document.exitFullscreen ||
-        (document as any).webkitExitFullscreen ||
-        (document as any).mozCancelFullScreen ||
-        (document as any).msExitFullscreen;
-
-      if (exitFullscreen) {
-        exitFullscreen.call(document).then(() => {
-          setIsFullscreen(false);
-          if (screen.orientation && screen.orientation.unlock) {
-            screen.orientation.unlock();
-          }
-        }).catch(console.error);
-      }
-    }
-  };
-
-  const exitFullscreen = () => {
-    document.exitFullscreen().then(() => {
-      setIsFullscreen(false);
-      if (screen.orientation && screen.orientation.unlock) {
-        screen.orientation.unlock();
-      }
-    }).catch(console.error);
-  };
-
-  const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const newVolume = parseFloat(e.target.value) / 100;
-    // Ensure minimum volume of 0.1 to keep sound audible
-    const adjustedVolume = Math.max(0.1, newVolume);
-
-    if (isCasting && castState.isConnected) {
-      // Control cast device volume
-      setCastVolume(adjustedVolume);
-      setVolume(adjustedVolume);
       return;
     }
 
-    const video = videoRef.current;
-    if (!video) return;
-
-    video.volume = adjustedVolume;
-    setVolume(adjustedVolume);
-    setIsMuted(false); // Never mute through volume control
-    video.muted = false;
+    if (!document.fullscreenElement) {
+      container.requestFullscreen().catch(console.error);
+    } else {
+      document.exitFullscreen().catch(console.error);
+    }
   };
 
   const handleProgressClick = (e: React.MouseEvent<HTMLDivElement> | React.TouchEvent<HTMLDivElement>) => {
@@ -481,10 +452,58 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
 
     const video = videoRef.current;
     if (!video) return;
-    const newTime = percentage * duration;
-
-    video.currentTime = newTime;
-    setCurrentTime(newTime);
+    
+    // For videos without duration, try to get the actual seekable duration
+    let targetDuration = duration;
+    if (!targetDuration || targetDuration === 0) {
+      // Always try to get the most up-to-date seekable range
+      if (video.seekable && video.seekable.length > 0) {
+        targetDuration = video.seekable.end(video.seekable.length - 1);
+        console.log('Using real-time seekable range duration:', targetDuration);
+      } else {
+        // If no seekable range available, use the progress bar's visual representation
+        // This ensures the click position matches the visual progress
+        const progressBarElement = e.currentTarget;
+        const rect = progressBarElement.getBoundingClientRect();
+        const totalWidth = rect.width;
+        const clickPosition = clickX;
+        
+        // Calculate based on current visual progress
+        if (currentTime > 0) {
+          // Estimate total duration based on current progress visual position
+          const currentProgressElement = progressBarElement.querySelector('.bg-red-600');
+          if (currentProgressElement) {
+            const currentWidth = currentProgressElement.getBoundingClientRect().width;
+            const currentPercentage = currentWidth / totalWidth;
+            if (currentPercentage > 0.01) { // At least 1% progress
+              targetDuration = currentTime / currentPercentage;
+              console.log('Using visual progress-based duration:', targetDuration, 'currentTime:', currentTime, 'visualProgress:', currentPercentage);
+            } else {
+              targetDuration = Math.max(currentTime * 10, 1800); // Fallback
+            }
+          } else {
+            targetDuration = Math.max(currentTime * 10, 1800); // Fallback
+          }
+        } else {
+          targetDuration = 1800; // 30 minutes default for start of video
+        }
+      }
+    }
+    
+    const newTime = percentage * targetDuration;
+    console.log(`Click at ${percentage * 100}% -> Seeking to ${newTime}s of ${targetDuration}s total`);
+    console.log(`Mouse click position: ${clickX}px of ${width}px total width`);
+    
+    // Set seeking state immediately
+    setIsBuffering(true);
+    
+    try {
+      video.currentTime = newTime;
+      setCurrentTime(newTime);
+    } catch (error) {
+      console.error('Error seeking video:', error);
+      setIsBuffering(false);
+    }
   };
 
   const handleSeekStart = (e: React.MouseEvent | React.TouchEvent) => {
@@ -496,31 +515,26 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
       const currentDuration = isCasting && castState.isConnected ? castState.duration : duration;
       if (!currentDuration) return;
 
-      const progressBar = (e.target as HTMLElement).closest('.progress-container');
-      if (!progressBar) return;
-
+      const progressBar = e.currentTarget as HTMLElement;
       const rect = progressBar.getBoundingClientRect();
-      const clientX = 'touches' in moveEvent ? moveEvent.touches[0].clientX : moveEvent.clientX;
-      const clickX = clientX - rect.left;
-      const width = rect.width;
-      const percentage = Math.max(0, Math.min(1, clickX / width));
+      const clientX = 'touches' in moveEvent ? (moveEvent as TouchEvent).touches[0].clientX : (moveEvent as MouseEvent).clientX;
+      const x = clientX - rect.left;
+      const percentage = Math.max(0, Math.min(1, x / rect.width));
       const newTime = percentage * currentDuration;
 
-      setCurrentTime(newTime);
-      
       if (isCasting && castState.isConnected) {
         seekCast(newTime);
       } else {
         const video = videoRef.current;
         if (video) {
           video.currentTime = newTime;
+          setCurrentTime(newTime);
         }
       }
     };
 
     const handleEnd = () => {
       setIsDragging(false);
-      setDragStartTime(null);
       document.removeEventListener('mousemove', handleMove);
       document.removeEventListener('mouseup', handleEnd);
       document.removeEventListener('touchmove', handleMove);
@@ -533,350 +547,112 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
     document.addEventListener('touchend', handleEnd);
   };
 
-  const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleClose = async () => {
     const video = videoRef.current;
-    if (!video) return;
-
-    const newTime = (parseFloat(e.target.value) / 100) * duration;
-    video.currentTime = newTime;
-    setCurrentTime(newTime);
-  };
-
-  const formatTime = (time: number) => {
-    const hours = Math.floor(time / 3600);
-    const minutes = Math.floor((time % 3600) / 60);
-    const seconds = Math.floor(time % 60);
-    if (hours > 0) {
-      return `${hours}:${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
-    }
-    return `${minutes}:${seconds.toString().padStart(2, "0")}`;
-  };
-
-  // Keyboard shortcuts handler
-  const handleKeyPress = useCallback((e: KeyboardEvent) => {
-    if (!isOpen) return;
-
-    switch (e.key.toLowerCase()) {
-      case 'f':
-        e.preventDefault();
-        toggleFullscreen();
-        break;
-      case 'escape':
-        e.preventDefault();
-        if (isFullscreen) {
-          exitFullscreen();
-        } else {
-          onClose();
+    if (video) {
+      video.pause();
+      
+      // Save progress when explicitly closing the video
+      if (video.currentTime > 30) { // Only save if watched more than 30 seconds
+        const currentDuration = duration || (video.seekable && video.seekable.length > 0 ? video.seekable.end(video.seekable.length - 1) : 0);
+        try {
+          await updatePlaybackProgress(media.id, video.currentTime, currentDuration);
+          console.log('Progress saved on close:', video.currentTime);
+        } catch (error) {
+          console.log('Failed to save progress on close:', error);
         }
-        break;
-      case 'arrowright':
-        e.preventDefault();
-        seekForward(10);
-        break;
-      case 'arrowleft':
-        e.preventDefault();
-        seekBackward(10);
-        break;
-      case 'm':
-        e.preventDefault();
-        toggleMute();
-        break;
-      case ' ':
-        e.preventDefault();
-        togglePlay();
-        break;
+      }
     }
-  }, [isOpen, isFullscreen, onClose]);
+    onClose();
+  };
 
-  // Ensure user interaction for autoplay policy
+  const toggleSubtitles = () => {
+    setSubtitlesEnabled(!subtitlesEnabled);
+    const video = videoRef.current;
+    if (video) {
+      const tracks = video.textTracks;
+      for (let i = 0; i < tracks.length; i++) {
+        tracks[i].mode = subtitlesEnabled ? 'hidden' : 'showing';
+      }
+    }
+  };
+
+
+
+  // Keyboard event handlers
   useEffect(() => {
-    const handleUserInteraction = () => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Prevent default behavior for video player keys
+      if (['Space', 'ArrowLeft', 'ArrowRight', 'KeyF', 'KeyM', 'KeyC', 'Escape'].includes(e.code)) {
+        e.preventDefault();
+      }
+
+      switch (e.code) {
+        case 'Space':
+          togglePlay();
+          break;
+        case 'ArrowLeft':
+          seekBackward(10);
+          break;
+        case 'ArrowRight':
+          seekForward(10);
+          break;
+        case 'KeyF':
+          toggleFullscreen();
+          break;
+        case 'KeyM':
+          toggleMute();
+          break;
+        case 'KeyC':
+          toggleSubtitles();
+          break;
+        case 'Escape':
+          handleClose();
+          break;
+      }
+    };
+
+    // Add event listener when video player is open
+    if (isOpen) {
+      document.addEventListener('keydown', handleKeyDown);
+    }
+
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isOpen, togglePlay, seekBackward, seekForward, toggleFullscreen, toggleMute, toggleSubtitles, handleClose]);
+
+  // Cleanup on unmount and save progress
+  useEffect(() => {
+    return () => {
+      if (controlsTimeoutRef.current) {
+        clearTimeout(controlsTimeoutRef.current);
+      }
+      
+      // Save progress when component unmounts (video player closes)
       const video = videoRef.current;
-      if (video && video.paused) {
-        video.muted = false;
-        video.volume = volume;
-        setIsMuted(false);
-        video.play().catch(console.log);
+      if (video && video.currentTime > 30) { // Only save if watched more than 30 seconds
+        const currentDuration = duration || (video.seekable && video.seekable.length > 0 ? video.seekable.end(video.seekable.length - 1) : 0);
+        updatePlaybackProgress(media.id, video.currentTime, currentDuration).catch(console.log);
       }
     };
+  }, [media.id, duration]);
 
-    // Add interaction listeners
-    document.addEventListener('click', handleUserInteraction, { once: true });
-    document.addEventListener('touchstart', handleUserInteraction, { once: true });
-    document.addEventListener('keydown', handleUserInteraction, { once: true });
-
-    return () => {
-      document.removeEventListener('click', handleUserInteraction);
-      document.removeEventListener('touchstart', handleUserInteraction);
-      document.removeEventListener('keydown', handleUserInteraction);
-    };
-  }, [volume]);
-
-  // Video event handlers
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video) return;
-
-    const handleLoadedMetadata = async () => {
-      console.log('Video metadata loaded, duration:', video.duration);
-      setDuration(video.duration);
-
-      // Initialize progress if it doesn't exist
-      try {
-        await initializePlaybackProgress(media.id);
-      } catch (error) {
-        console.log('Failed to initialize progress, continuing anyway:', error);
-      }
-
-      // Load saved progress or use provided start time
-      try {
-        const savedProgress = await getPlaybackProgress(media.id);
-        const resumeTimeValue = startTime > 0 ? startTime : (savedProgress?.position || 0);
-
-        if (resumeTimeValue > 30 && resumeTimeValue < video.duration - 30) { // Don't resume if less than 30 seconds watched or less than 30 seconds left
-          setResumeTime(resumeTimeValue);
-          setShowResumeNotification(true);
-          console.log(`Found saved progress at ${resumeTimeValue} seconds`);
-
-          // Auto-hide notification after 10 seconds
-          setTimeout(() => {
-            setShowResumeNotification(false);
-          }, 10000);
-        } else if (startTime > 0) {
-          // Use provided start time even if no saved progress
-          setResumeTime(startTime);
-          setShowResumeNotification(true);
-          console.log(`Using provided start time: ${startTime} seconds`);
-
-          setTimeout(() => {
-            setShowResumeNotification(false);
-          }, 10000);
-        }
-      } catch (error) {
-        console.log('No saved progress found or error loading progress:', error);
-        // Use provided start time if available
-        if (startTime > 0 && startTime < video.duration - 30) {
-          setResumeTime(startTime);
-          setShowResumeNotification(true);
-          console.log(`Using provided start time (no saved progress): ${startTime} seconds`);
-
-          setTimeout(() => {
-            setShowResumeNotification(false);
-          }, 10000);
-        }
-      }
-    };
-
-    const handleLoadedData = () => {
-      console.log('Video data loaded successfully');
-      setIsLoading(false);
-      // Ensure video is ready to play with sound
-      if (video.readyState >= 2) {
-        video.volume = volume;
-        video.muted = false; // Always unmuted for video player
-        setIsMuted(false);
-      }
-    };
-
-    const handleCanPlay = () => {
-      console.log('Video can play');
-      setIsLoading(false);
-      setIsBuffering(false);
-      // Auto-play with sound when ready
-      video.muted = false;
-      video.volume = volume;
-      setIsMuted(false);
-
-      video.play().catch(error => {
-        console.log('Auto-play with sound failed, trying muted first:', error);
-        // If autoplay with sound fails, try muted then unmute
-        video.muted = true;
-        video.play().then(() => {
-          // Immediately unmute after successful muted play
-          setTimeout(() => {
-            video.muted = false;
-            video.volume = volume;
-            setIsMuted(false);
-            console.log('Video playing with sound after muted start');
-          }, 100);
-        }).catch(mutedError => {
-          console.log('Even muted autoplay failed:', mutedError);
-        });
-      });
-    };
-
-    const handleTimeUpdate = () => {
-      if (!isDragging) {
-        setCurrentTime(video.currentTime);
-        // Update playback progress every 10 seconds
-        if (Math.floor(video.currentTime) % 10 === 0 && video.duration > 0) {
-          updatePlaybackProgress(media.id, video.currentTime, video.duration, '1').catch(error => {
-            console.log('Failed to update playback progress:', error);
-          });
-        }
-      }
-    };
-
-    const handlePlay = () => {
-      console.log('Video started playing');
-      setIsPlaying(true);
-
-      // Ensure sound is on when playing
-      if (video.muted) {
-        video.muted = false;
-        video.volume = volume;
-        setIsMuted(false);
-      }
-
-      // Track view when playback starts
-      trackView(media.id).catch(error => {
-        console.log('Failed to track view:', error);
-      });
-    };
-
-    const handlePause = () => {
-      console.log('Video paused');
-      setIsPlaying(false);
-      // Update progress when paused
-      if (video.duration > 0) {
-        updatePlaybackProgress(media.id, video.currentTime, video.duration, '1').catch(error => {
-          console.log('Failed to update playback progress on pause:', error);
-        });
-      }
-    };
-
-    const handleEnded = () => {
-      console.log('Video ended');
-      setIsPlaying(false);
-      // Mark as completed when ended
-      if (video.duration > 0) {
-        updatePlaybackProgress(media.id, video.duration, video.duration, '1').catch(error => {
-          console.log('Failed to update playback progress on end:', error);
-        });
-      }
-
-      // Show next episode if available
-      if (nextEpisode) {
-        setShowNextEpisode(true);
-      }
-    };
-
-    const handleError = (e: Event) => {
-      console.error('Video error:', e);
-      const error = (e.target as HTMLVideoElement).error;
-      if (error) {
-        console.error('Video error details:', {
-          code: error.code,
-          message: error.message
-        });
-      }
-    };
-
-    const handleWaiting = () => {
-      console.log('Video is buffering...');
-      setIsBuffering(true);
-    };
-
-    const handleCanPlayThrough = () => {
-      console.log('Video can play through without buffering');
-      setIsBuffering(false);
-      setIsLoading(false);
-    };
-
-    const handleSeeking = () => {
-      setIsBuffering(true);
-    };
-
-    const handleSeeked = () => {
-      setIsBuffering(false);
-    };
-
-    const handleLoadStart = () => {
-      console.log('Video loading started');
-      setIsLoading(true);
-      setIsBuffering(true);
-    };
-
-    video.addEventListener('loadedmetadata', handleLoadedMetadata);
-    video.addEventListener('loadeddata', handleLoadedData);
-    video.addEventListener('canplay', handleCanPlay);
-    video.addEventListener('timeupdate', handleTimeUpdate);
-    video.addEventListener('play', handlePlay);
-    video.addEventListener('pause', handlePause);
-    video.addEventListener('ended', handleEnded);
-    video.addEventListener('error', handleError);
-    video.addEventListener('waiting', handleWaiting);
-    video.addEventListener('canplaythrough', handleCanPlayThrough);
-    video.addEventListener('seeking', handleSeeking);
-    video.addEventListener('seeked', handleSeeked);
-    video.addEventListener('loadstart', handleLoadStart);
-
-    return () => {
-      video.removeEventListener('loadedmetadata', handleLoadedMetadata);
-      video.removeEventListener('loadeddata', handleLoadedData);
-      video.removeEventListener('canplay', handleCanPlay);
-      video.removeEventListener('timeupdate', handleTimeUpdate);
-      video.removeEventListener('play', handlePlay);
-      video.removeEventListener('pause', handlePause);
-      video.removeEventListener('ended', handleEnded);
-      video.removeEventListener('error', handleError);
-      video.removeEventListener('waiting', handleWaiting);
-      video.removeEventListener('canplaythrough', handleCanPlayThrough);
-      video.removeEventListener('seeking', handleSeeking);
-      video.removeEventListener('seeked', handleSeeked);
-      video.removeEventListener('loadstart', handleLoadStart);
-    };
-  }, [isDragging, media.id, startTime, volume, isMuted, nextEpisode]);
-
-  // Keyboard event listener
-  useEffect(() => {
-    document.addEventListener('keydown', handleKeyPress);
-    return () => {
-      document.removeEventListener('keydown', handleKeyPress);
-    };
-  }, [handleKeyPress]);
-
-  // Auto-hide controls
-  useEffect(() => {
-    if (!isOpen) return;
-
-    const resetTimeout = () => {
-      if (controlsTimeoutRef.current) {
-        clearTimeout(controlsTimeoutRef.current);
-      }
-      setShowControls(true);
-      controlsTimeoutRef.current = setTimeout(() => {
-        if (isPlaying) setShowControls(false);
-      }, 3000);
-    };
-
-    const handleMouseMove = () => resetTimeout();
-
-    resetTimeout();
-    document.addEventListener('mousemove', handleMouseMove);
-
-    return () => {
-      if (controlsTimeoutRef.current) {
-        clearTimeout(controlsTimeoutRef.current);
-      }
-      document.removeEventListener('mousemove', handleMouseMove);
-    };
-  }, [isOpen, isPlaying]);
-
-  if (!isOpen) return null;
-
+// ...
   return (
     <AnimatePresence>
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        className="fixed inset-0 z-50 bg-black"
-        ref={containerRef}
-      >
+      {isOpen && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 z-50 bg-black"
+          ref={containerRef}
+        >
         {/* Video */}
         <video
           ref={videoRef}
+          src={getStreamUrl(media.id, 'high', 'mp4')}
           className="w-full h-full object-contain bg-black"
           onPlay={() => setIsPlaying(true)}
           autoPlay
@@ -894,13 +670,15 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
             if (videoRef.current) {
               const video = videoRef.current;
               video.muted = false;
-              video.volume = volume > 0 ? volume : 0.8;
+              video.volume = volume > 0 ? volume : 1.0;
               setIsMuted(false);
 
               if (video.paused) {
                 video.play().catch(error => {
                   console.log('Play failed on click:', error);
                 });
+              } else {
+                video.pause();
               }
             }
           }}
@@ -914,33 +692,136 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
             setIsLoading(false);
             setIsBuffering(false);
           }}
+          onLoadedMetadata={async () => {
+            const video = videoRef.current;
+            if (!video) return;
+            
+            console.log('Video metadata loaded, duration:', video.duration);
+            
+            // Handle videos with invalid or missing duration
+            let videoDuration = video.duration;
+            if (!videoDuration || videoDuration === 0 || !isFinite(videoDuration)) {
+              console.log('Video has invalid duration, attempting to detect...');
+              // Try to get duration from video element properties
+              videoDuration = video.seekable && video.seekable.length > 0 
+                ? video.seekable.end(video.seekable.length - 1) 
+                : 0;
+              
+              // If still no duration, don't set a fallback yet - we'll handle this dynamically
+              if (!videoDuration || videoDuration === 0) {
+                console.log('No duration available, will use dynamic seeking');
+                videoDuration = 0; // Keep as 0 to indicate unknown duration
+              }
+            }
+            
+            setDuration(videoDuration);
+            console.log('Final duration set to:', videoDuration);
+
+            // Initialize progress if it doesn't exist
+            try {
+              await initializePlaybackProgress(media.id);
+            } catch (error) {
+              console.log('Failed to initialize progress, continuing anyway:', error);
+            }
+
+            // Load saved progress or use provided start time
+            try {
+              const savedProgress = await getPlaybackProgress(media.id);
+              const resumeTimeValue = startTime > 0 ? startTime : (savedProgress?.position || 0);
+
+              if (resumeTimeValue > 30 && videoDuration > 60 && resumeTimeValue < videoDuration - 30) {
+                // Automatically seek to resume position
+                video.currentTime = resumeTimeValue;
+                setCurrentTime(resumeTimeValue);
+                setResumeTime(resumeTimeValue);
+                console.log(`Automatically resumed at ${resumeTimeValue} seconds`);
+                
+                // Track that we resumed playback
+                await updatePlaybackProgress(media.id, resumeTimeValue, videoDuration);
+              } else if (startTime > 0) {
+                // Automatically seek to provided start time
+                video.currentTime = startTime;
+                setCurrentTime(startTime);
+                setResumeTime(startTime);
+                console.log(`Automatically started at provided time: ${startTime} seconds`);
+                
+                // Track the start time
+                await updatePlaybackProgress(media.id, startTime, videoDuration);
+              }
+            } catch (error) {
+              console.log('No saved progress found or error loading progress:', error);
+              if (startTime > 0 && videoDuration > 60 && startTime < videoDuration - 30) {
+                // Automatically seek to provided start time even without saved progress
+                video.currentTime = startTime;
+                setCurrentTime(startTime);
+                setResumeTime(startTime);
+                console.log(`Automatically started at provided time (no saved progress): ${startTime} seconds`);
+              }
+            }
+          }}
           onLoadedData={() => {
             console.log('Video loaded successfully');
             setIsLoading(false);
             const video = videoRef.current;
-            if (video) {
-              // Ensure video is properly initialized with sound
+            if (video && video.readyState >= 2) {
               video.volume = volume;
-              video.muted = false; // Always start unmuted
+              video.muted = false; // Always unmuted for video player
               setIsMuted(false);
-              if (startTime > 0) {
-                video.currentTime = startTime;
-                console.log(`Resuming playback from ${startTime} seconds`);
+              
+              // If we have a resume time set, seek to it after video is loaded
+              if (resumeTime > 0 && Math.abs(video.currentTime - resumeTime) > 5) {
+                console.log(`Seeking to resume time ${resumeTime} after video loaded`);
+                video.currentTime = resumeTime;
+                setCurrentTime(resumeTime);
               }
             }
+          }}
+          onTimeUpdate={() => {
+            const video = videoRef.current;
+            if (!video || isCasting) return;
+            
+            setCurrentTime(video.currentTime);
+            
+            // Update duration if it becomes available during playback
+            if ((!duration || duration === 0) && video.duration && video.duration > 0 && isFinite(video.duration)) {
+              console.log('Duration became available during playback:', video.duration);
+              setDuration(video.duration);
+            }
+            
+            // Also check seekable range for better duration detection
+            if ((!duration || duration === 0) && video.seekable && video.seekable.length > 0) {
+              const seekableEnd = video.seekable.end(video.seekable.length - 1);
+              if (seekableEnd > duration) {
+                console.log('Updated duration from seekable range:', seekableEnd);
+                setDuration(seekableEnd);
+              }
+            }
+          }}
+          onSeeking={() => {
+            console.log('Video seeking started');
+            setIsBuffering(true);
+          }}
+          onSeeked={() => {
+            console.log('Video seeking completed');
+            setIsBuffering(false);
+            const video = videoRef.current;
+            if (video) {
+              setCurrentTime(video.currentTime);
+            }
+          }}
+          onWaiting={() => {
+            console.log('Video is buffering');
+            setIsBuffering(true);
+          }}
+          onCanPlayThrough={() => {
+            console.log('Video can play through without buffering');
+            setIsBuffering(false);
+            setIsLoading(false);
           }}
           preload="auto"
           muted={false}
           crossOrigin="anonymous"
         >
-          {/* Ultra-enhanced multi-source strategy with instant loading */}
-          <source src={getStreamUrl(media.id, '4k-ultra', 'mp4')} type="video/mp4; codecs=&quot;avc1.640028, mp4a.40.2&quot;" />
-          <source src={getStreamUrl(media.id, '4k', 'mp4')} type="video/mp4; codecs=&quot;avc1.42E01E, mp4a.40.2&quot;" />
-          <source src={getStreamUrl(media.id, 'high', 'webm')} type="video/webm; codecs=&quot;vp9.2, opus&quot;" />
-          <source src={getStreamUrl(media.id, 'high', 'mp4')} type="video/mp4; codecs=&quot;avc1.42E01E, mp4a.40.2&quot;" />
-          <source src={getStreamUrl(media.id, 'medium', 'webm')} type="video/webm; codecs=&quot;vp9, opus&quot;" />
-          <source src={getStreamUrl(media.id, 'medium', 'mp4')} type="video/mp4" />
-          <source src={getStreamUrl(media.id, 'low', 'mp4')} type="video/mp4" />
 
           {/* Subtitles */}
           {availableSubtitles.map((subtitle, index) => (
@@ -1011,7 +892,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                   />
                   
                   <button
-                    onClick={() => onClose()}
+                    onClick={handleClose}
                     className="text-white hover:text-red-500 transition-colors p-3 bg-black/50 rounded-full hover:bg-black/70 border border-white/20 hover:border-red-500/50 z-50"
                     title="Close (Esc)"
                     type="button"
@@ -1087,7 +968,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                         width: `${(
                           isCasting && castState.isConnected 
                             ? (castState.duration > 0 ? (castState.currentTime / castState.duration) * 100 : 0)
-                            : (duration > 0 ? (currentTime / duration) * 100 : 0)
+                            : (duration > 0 ? (currentTime / duration) * 100 : (currentTime > 0 ? Math.min((currentTime / Math.max(currentTime * 2, 1800)) * 100, 100) : 0))
                         )}%` 
                       }}
                     />
@@ -1101,7 +982,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                         left: `${(
                           isCasting && castState.isConnected 
                             ? (castState.duration > 0 ? (castState.currentTime / castState.duration) * 100 : 0)
-                            : (duration > 0 ? (currentTime / duration) * 100 : 0)
+                            : (duration > 0 ? (currentTime / duration) * 100 : (currentTime > 0 ? Math.min((currentTime / Math.max(currentTime * 2, 1800)) * 100, 100) : 0))
                         )}%` 
                       }}
                     />
@@ -1110,7 +991,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                     {isBuffering && (
                       <div
                         className="absolute top-1/2 transform -translate-y-1/2 -translate-x-1/2 w-4 h-4 border-2 border-white/30 border-t-red-600 rounded-full animate-spin pointer-events-none"
-                        style={{ left: `${duration > 0 ? (currentTime / duration) * 100 : 0}%` }}
+                        style={{ left: `${duration > 0 ? (currentTime / duration) * 100 : (currentTime > 0 ? Math.min((currentTime / Math.max(currentTime * 2, 1800)) * 100, 100) : 0)}%` }}
                       />
                     )}
                   </div>
@@ -1126,7 +1007,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                           left: `${(
                             isCasting && castState.isConnected 
                               ? (castState.duration > 0 ? (castState.currentTime / castState.duration) * 100 : 0)
-                              : (duration > 0 ? (currentTime / duration) * 100 : 0)
+                              : (duration > 0 ? (currentTime / duration) * 100 : (currentTime > 0 ? Math.min((currentTime / Math.max(currentTime * 2, 1800)) * 100, 100) : 0))
                           )}%` 
                         }}
                       >
@@ -1230,7 +1111,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                       </button>
 
                       <span className="text-white text-sm">
-                        {formatTime(isCasting && castState.isConnected ? castState.currentTime : currentTime)} / {formatTime(isCasting && castState.isConnected ? castState.duration : duration)}
+                        {formatTime(isCasting && castState.isConnected ? castState.currentTime : currentTime)} / {duration > 0 ? formatTime(isCasting && castState.isConnected ? castState.duration : duration) : 'Live'}
                       </span>
                       
                       {/* Cast status indicator */}
@@ -1321,7 +1202,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
             onCancel={handleCancelNext}
           />
         )}
-      </motion.div>
+        </motion.div>
+      )}
     </AnimatePresence>
   );
 };
