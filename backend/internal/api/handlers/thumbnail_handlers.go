@@ -51,27 +51,63 @@ func warmCacheInBackground() {
 
 // checkExistingPreviewAssets checks for existing preview clips in database and filesystem
 func checkExistingPreviewAssets(media *models.Media) string {
-	// Priority 1: Check database paths
+	// Priority 1: Check database paths with proper resolution
 	if media.PreviewClipPath != "" {
+		// Try original path
 		if _, err := os.Stat(media.PreviewClipPath); err == nil {
 			return media.PreviewClipPath
+		}
+		// Try with ./backend/ prefix for relative paths
+		if !strings.HasPrefix(media.PreviewClipPath, "/") && !strings.HasPrefix(media.PreviewClipPath, "./") {
+			resolvedPath := "./backend/" + media.PreviewClipPath
+			if _, err := os.Stat(resolvedPath); err == nil {
+				return resolvedPath
+			}
 		}
 	}
 	
 	if media.PreviewPath != "" {
+		// Try original path
 		if _, err := os.Stat(media.PreviewPath); err == nil {
 			return media.PreviewPath
 		}
+		// Try with ./backend/ prefix for relative paths
+		if !strings.HasPrefix(media.PreviewPath, "/") && !strings.HasPrefix(media.PreviewPath, "./") {
+			resolvedPath := "./backend/" + media.PreviewPath
+			if _, err := os.Stat(resolvedPath); err == nil {
+				return resolvedPath
+			}
+		}
 	}
 	
-	// Priority 2: Check common preview file patterns
+	// Priority 2: Check common preview file patterns including _audio_fallback suffix
+	sanitizedTitle := sanitizeFilename(media.Title)
 	commonPaths := []string{
-		fmt.Sprintf("./previews/preview_%d_%s.mp4", media.ID, sanitizeFilename(media.Title)),
-		fmt.Sprintf("./previews/preview_%d.mp4", media.ID),
-		fmt.Sprintf("./backend/previews/preview_%d_%s.mp4", media.ID, sanitizeFilename(media.Title)),
+		// Current actual pattern with _audio_fallback suffix (most common)
+		fmt.Sprintf("./backend/previews/preview_%d_%s_audio_fallback.mp4", media.ID, sanitizedTitle),
+		fmt.Sprintf("./previews/preview_%d_%s_audio_fallback.mp4", media.ID, sanitizedTitle),
+		
+		// Legacy patterns without suffix
+		fmt.Sprintf("./backend/previews/preview_%d_%s.mp4", media.ID, sanitizedTitle),
+		fmt.Sprintf("./previews/preview_%d_%s.mp4", media.ID, sanitizedTitle),
+		
+		// Title-only patterns (some existing files)
+		fmt.Sprintf("./backend/previews/preview_%s.mp4", sanitizedTitle),
+		fmt.Sprintf("./previews/preview_%s.mp4", sanitizedTitle),
+		
+		// PREVIEW_TITLE_(YEAR) patterns
+		fmt.Sprintf("./backend/previews/PREVIEW_%s.mp4", sanitizedTitle),
+		fmt.Sprintf("./previews/PREVIEW_%s.mp4", sanitizedTitle),
+		
+		// Simple ID-based patterns
 		fmt.Sprintf("./backend/previews/preview_%d.mp4", media.ID),
-		fmt.Sprintf("previews/preview_%d_%s.mp4", media.ID, sanitizeFilename(media.Title)),
-		fmt.Sprintf("previews/preview_%d.mp4", media.ID),
+		fmt.Sprintf("./previews/preview_%d.mp4", media.ID),
+		
+		// Additional common variations
+		fmt.Sprintf("./backend/previews/Preview_%s.mp4", sanitizedTitle),
+		fmt.Sprintf("./previews/Preview_%s.mp4", sanitizedTitle),
+		fmt.Sprintf("./backend/previews/%s_preview.mp4", sanitizedTitle),
+		fmt.Sprintf("./previews/%s_preview.mp4", sanitizedTitle),
 	}
 	
 	for _, path := range commonPaths {
@@ -85,20 +121,48 @@ func checkExistingPreviewAssets(media *models.Media) string {
 
 // checkExistingThumbnailAssets checks for existing thumbnails in database and filesystem
 func checkExistingThumbnailAssets(media *models.Media) string {
-	// Priority 1: Check database path
+	// Priority 1: Check database path with proper resolution
 	if media.ThumbnailPath != "" {
+		// Try original path
 		if _, err := os.Stat(media.ThumbnailPath); err == nil {
 			return media.ThumbnailPath
 		}
+		// Try with ./backend/ prefix for relative paths
+		if !strings.HasPrefix(media.ThumbnailPath, "/") && !strings.HasPrefix(media.ThumbnailPath, "./") {
+			resolvedPath := "./backend/" + media.ThumbnailPath
+			if _, err := os.Stat(resolvedPath); err == nil {
+				return resolvedPath
+			}
+		}
 	}
 	
-	// Priority 2: Check common thumbnail file patterns
+	// Priority 2: Check common thumbnail file patterns (actual existing patterns)
+	sanitizedTitle := sanitizeFilename(media.Title)
 	commonPaths := []string{
-		fmt.Sprintf("./thumbnails/thumb_%d_%s.jpg", media.ID, sanitizeFilename(media.Title)),
-		fmt.Sprintf("./thumbnails/thumb_%d.jpg", media.ID),
-		fmt.Sprintf("./backend/thumbnails/thumb_%d_%s.jpg", media.ID, sanitizeFilename(media.Title)),
+		// Most common existing patterns found in filesystem
+		fmt.Sprintf("./backend/thumbnails/thumb_%s.jpg", sanitizedTitle),
+		fmt.Sprintf("./thumbnails/thumb_%s.jpg", sanitizedTitle),
+		
+		// ID + Title patterns
+		fmt.Sprintf("./backend/thumbnails/thumb_%d_%s.jpg", media.ID, sanitizedTitle),
+		fmt.Sprintf("./thumbnails/thumb_%d_%s.jpg", media.ID, sanitizedTitle),
+		
+		// THUMB_TITLE_(YEAR) patterns
+		fmt.Sprintf("./backend/thumbnails/THUMB_%s.jpg", sanitizedTitle),
+		fmt.Sprintf("./thumbnails/THUMB_%s.jpg", sanitizedTitle),
+		
+		// Additional common variations
+		fmt.Sprintf("./backend/thumbnails/Thumb_%s.jpg", sanitizedTitle),
+		fmt.Sprintf("./thumbnails/Thumb_%s.jpg", sanitizedTitle),
+		fmt.Sprintf("./backend/thumbnails/%s_thumb.jpg", sanitizedTitle),
+		fmt.Sprintf("./thumbnails/%s_thumb.jpg", sanitizedTitle),
+		
+		// Simple ID-based patterns
 		fmt.Sprintf("./backend/thumbnails/thumb_%d.jpg", media.ID),
-		fmt.Sprintf("thumbnails/thumb_%d_%s.jpg", media.ID, sanitizeFilename(media.Title)),
+		fmt.Sprintf("./thumbnails/thumb_%d.jpg", media.ID),
+		
+		// Legacy relative paths
+		fmt.Sprintf("thumbnails/thumb_%d_%s.jpg", media.ID, sanitizedTitle),
 		fmt.Sprintf("thumbnails/thumb_%d.jpg", media.ID),
 	}
 	

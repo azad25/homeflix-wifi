@@ -113,16 +113,16 @@ func createOptimizedIndexes(db *gorm.DB) error {
 		"CREATE INDEX IF NOT EXISTS idx_media_type ON media(type)",
 		"CREATE INDEX IF NOT EXISTS idx_media_series_id ON media(series_id)",
 		"CREATE INDEX IF NOT EXISTS idx_media_season_id ON media(season_id)",
-		"CREATE INDEX IF NOT EXISTS idx_media_genre ON media(genre)",
+		"CREATE INDEX IF NOT EXISTS idx_media_genre_names ON media(genre_names)",
 		"CREATE INDEX IF NOT EXISTS idx_media_year ON media(year)",
 		"CREATE INDEX IF NOT EXISTS idx_media_rating ON media(rating)",
 		"CREATE INDEX IF NOT EXISTS idx_media_created_at ON media(created_at)",
 		"CREATE INDEX IF NOT EXISTS idx_series_uuid ON series(uuid)",
 		"CREATE INDEX IF NOT EXISTS idx_seasons_series_id ON seasons(series_id)",
 		"CREATE INDEX IF NOT EXISTS idx_seasons_season_number ON seasons(season_number)",
-		"CREATE INDEX IF NOT EXISTS idx_playback_progress_media_id ON playback_progress(media_id)",
-		"CREATE INDEX IF NOT EXISTS idx_my_list_media_id ON my_list(media_id)",
-		"CREATE INDEX IF NOT EXISTS idx_watch_history_media_id ON watch_history(media_id)",
+		"CREATE INDEX IF NOT EXISTS idx_playback_progresses_media_id ON playback_progresses(media_id)",
+		"CREATE INDEX IF NOT EXISTS idx_my_lists_media_id ON my_lists(media_id)",
+		"CREATE INDEX IF NOT EXISTS idx_watch_histories_media_id ON watch_histories(media_id)",
 	}
 
 	for _, index := range indexes {

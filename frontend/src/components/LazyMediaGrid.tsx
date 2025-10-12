@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Film } from 'lucide-react';
 import { Media } from '@/types/media';
-import { getApiUrl } from '@/lib/api';
+import { getApiUrl, getAssetUrl } from '@/lib/api';
 import { MagneticButton, FloatingElement } from '@/components/scrollx';
 
 interface LazyMediaGridProps {
@@ -138,9 +138,9 @@ const LazyMediaCard: React.FC<{
     <div ref={cardRef} className="group relative">
       <div className="aspect-[2/3] bg-gray-800 rounded-lg overflow-hidden relative">
         <LazyImage
-          src={`${getApiUrl()}/api/thumbnails/${media.id}`}
+          src={getAssetUrl('thumbnail', media.id, false) as string}
           alt={media.title}
-          fallbackSrc={`${getApiUrl()}/api/thumbnails/${media.id}`}
+          fallbackSrc={getAssetUrl('thumbnail', media.id, false) as string}
           className="w-full h-full transition-transform duration-300 group-hover:scale-105"
         />
         

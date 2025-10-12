@@ -6,7 +6,7 @@ import { ArrowLeft, Play, Plus, Check, Share, Download, Info, Star, Clock, Calen
 import { motion, AnimatePresence } from "framer-motion";
 import Image from 'next/image';
 import { Media } from '@/types/media';
-import { getApiUrl } from '@/lib/api';
+import { getApiUrl, getAssetUrl } from '@/lib/api';
 import RedLoader from '@/components/RedLoader';
 import LazyImage from '@/components/LazyImage';
 import LazyVideo from '@/components/LazyVideo';
@@ -684,7 +684,7 @@ export default function MoviePage() {
           {/* Preview/trailer sources - not full media file */}
           <source src={`${getBackgroundVideoUrl(media)}?audio=aac&quality=medium`} type="video/mp4" />
           <source src={`${getBackgroundVideoUrl(media)}`} type="video/mp4" />
-          <source src={`${getApiUrl()}/api/preview-clips/${media.id}`} type="video/mp4" />
+          <source src={getAssetUrl('preview', media.id, false) as string} type="video/mp4" />
           Your browser does not support the video tag.
         </video>
 

@@ -53,17 +53,17 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		// Additional ALAC Audio endpoints (optional)
 		api.GET("/media/:id/alac-audio", handlers.StreamALACAudio(streamService, mediaService))
 
-		// Asset serving endpoints - Redis-cached if available, otherwise enhanced handlers
+		// Asset serving endpoints - Redis-cached for instant loading with enhanced fallback
 		if redisAssetHandlers != nil {
 			// Redis-cached asset serving for instant loading
-			api.GET("/thumbnails/:id", redisAssetHandlers.GetThumbnailCached())
-			api.GET("/previews/:id", redisAssetHandlers.GetPreviewCached())
-			api.GET("/posters/:id", redisAssetHandlers.GetPosterCached())
+			api.GET("/thumbnails/:id", redisAssetHandlers.GetThumbnailCachedWithFallback(mediaService, thumbnailService))
+			api.GET("/previews/:id", redisAssetHandlers.GetPreviewCachedWithFallback(mediaService, thumbnailService))
+			api.GET("/posters/:id", redisAssetHandlers.GetPosterCachedWithFallback(mediaService))
 			
 			// Alternative asset serving endpoints (Redis-cached)
-			api.GET("/assets/thumbnails/:id", redisAssetHandlers.GetThumbnailCached())
-			api.GET("/assets/previews/:id", redisAssetHandlers.GetPreviewCached())
-			api.GET("/assets/posters/:id", redisAssetHandlers.GetPosterCached())
+			api.GET("/assets/thumbnails/:id", redisAssetHandlers.GetThumbnailCachedWithFallback(mediaService, thumbnailService))
+			api.GET("/assets/previews/:id", redisAssetHandlers.GetPreviewCachedWithFallback(mediaService, thumbnailService))
+			api.GET("/assets/posters/:id", redisAssetHandlers.GetPosterCachedWithFallback(mediaService))
 		} else {
 			// Fallback to enhanced handlers when Redis is not available
 			api.GET("/thumbnails/:id", handlers.GetThumbnailEnhanced(mediaService, thumbnailService))
@@ -75,6 +75,11 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 			api.GET("/assets/previews/:id", handlers.GetPreviewEnhanced(mediaService, thumbnailService))
 			api.GET("/assets/posters/:id", handlers.GetPosterEnhanced(mediaService))
 		}
+		
+		// Direct static file serving as fallback (for debugging)
+		api.Static("/static/thumbnails", "./thumbnails")
+		api.Static("/static/previews", "./previews")
+		api.Static("/static/posters", "./posters")
 		
 		// Thumbnail generation endpoint (always available)
 		api.POST("/thumbnails/:id", handlers.GenerateThumbnail(mediaService, thumbnailService))
@@ -92,18 +97,21 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		api.GET("/admin/thumbnail-service/stats", handlers.GetThumbnailServiceStats(thumbnailService))
 		api.GET("/admin/thumbnail-service/jobs/:jobId", handlers.GetJobStatus(thumbnailService))
 
-		// Asset cache management endpoints
+		// Cache management endpoints
 		if redisAssetHandlers != nil {
-			// Redis asset cache management for instant loading
+			// Redis cache management (primary cache system)
 			api.POST("/admin/assets/cache/warm", redisAssetHandlers.WarmAssetCache())
+			api.POST("/admin/assets/cache/warm-critical", redisAssetHandlers.WarmCriticalAssets())
 			api.DELETE("/admin/assets/cache/clear", redisAssetHandlers.ClearAssetCache())
+			api.DELETE("/admin/assets/cache/clear-expired", redisAssetHandlers.ClearExpiredAssets())
 			api.GET("/admin/assets/cache/stats", redisAssetHandlers.GetCacheStats())
+			api.GET("/admin/assets/cache/health", redisAssetHandlers.GetCacheHealth())
 			
-			// Legacy in-memory cache management (fallback)
-			api.DELETE("/admin/assets/cache/clear-legacy", handlers.ClearAssetCache())
-			api.GET("/admin/assets/cache/stats-legacy", handlers.GetAssetCacheStats())
+			// In-memory cache management (fallback)
+			api.DELETE("/admin/assets/cache/clear-memory", handlers.ClearAssetCache())
+			api.GET("/admin/assets/cache/stats-memory", handlers.GetAssetCacheStats())
 		} else {
-			// In-memory cache management when Redis is not available
+			// Fallback cache management when Redis is not available
 			api.DELETE("/admin/assets/cache/clear", handlers.ClearAssetCache())
 			api.GET("/admin/assets/cache/stats", handlers.GetAssetCacheStats())
 		}
