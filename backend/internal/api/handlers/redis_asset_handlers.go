@@ -2,15 +2,17 @@ package handlers
 
 import (
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	"homeflix-backend/internal/models"
 	"homeflix-backend/internal/services"
+
+	"github.com/gin-gonic/gin"
 )
 
 // RedisAssetHandlers provides Redis-cached asset serving
@@ -483,18 +485,34 @@ func (h *RedisAssetHandlers) GetPreviewCachedWithFallback(mediaService *services
 		}
 
 		mediaID := uint(id)
+		
+		// Log the request for debugging
+		log.Printf("🎬 Preview request for ID %d with params: %v", mediaID, c.Request.URL.RawQuery)
 
 		// For previews, we cache path only due to large file sizes
 		cachedPath, err := h.redisCache.GetAssetPath(mediaID, "preview")
 		if err == nil && cachedPath != "" {
-			// Verify file still exists
+			// Try the cached path directly first
 			if _, err := os.Stat(cachedPath); err == nil {
 				h.setOptimalHeaders(c, "preview", nil)
 				c.Header("X-Cache", "REDIS-PATH-HIT")
+				log.Printf("✅ Serving cached preview: %s", cachedPath)
 				c.File(cachedPath)
 				return
 			}
+			// Try with ./backend/ prefix for relative paths
+			if !strings.HasPrefix(cachedPath, "/") && !strings.HasPrefix(cachedPath, "./") {
+				resolvedPath := "./backend/" + cachedPath
+				if _, err := os.Stat(resolvedPath); err == nil {
+					h.setOptimalHeaders(c, "preview", nil)
+					c.Header("X-Cache", "REDIS-PATH-HIT-RESOLVED")
+					log.Printf("✅ Serving resolved cached preview: %s", resolvedPath)
+					c.File(resolvedPath)
+					return
+				}
+			}
 			// File no longer exists, invalidate cache
+			log.Printf("❌ Cached preview file not found: %s", cachedPath)
 			go h.redisCache.InvalidateAsset(mediaID, "preview")
 		}
 

@@ -45,7 +45,13 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 
 		// Streaming (with automatic ALAC integration and transcoding for MKV/HEVC)
 		api.GET("/stream/:id", handlers.StreamMedia(streamService, mediaService, transcodeService))
-		api.GET("/preview-clips/:id", handlers.StreamPreviewClip(streamService, mediaService))
+		
+		// Preview clips serving - Redis-cached for instant loading
+		if redisAssetHandlers != nil {
+			api.GET("/preview-clips/:id", redisAssetHandlers.GetPreviewCachedWithFallback(mediaService, thumbnailService))
+		} else {
+			api.GET("/preview-clips/:id", handlers.StreamPreviewClip(streamService, mediaService))
+		}
 		
 		// Transcode status endpoint
 		api.GET("/admin/transcode/status", handlers.GetTranscodeStatus(transcodeService))
