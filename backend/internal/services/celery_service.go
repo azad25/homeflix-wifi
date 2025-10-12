@@ -36,7 +36,7 @@ type CeleryMessage struct {
 func NewCeleryService() *CeleryService {
 	redisURL := os.Getenv("REDIS_URL")
 	if redisURL == "" {
-		redisURL = "redis://localhost:6380/0"
+		redisURL = "redis://localhost:6379/0"
 	}
 
 	opt, err := redis.ParseURL(redisURL)
@@ -44,7 +44,7 @@ func NewCeleryService() *CeleryService {
 		log.Printf("Failed to parse Redis URL: %v", err)
 		// Fallback to default configuration
 		opt = &redis.Options{
-			Addr: "localhost:6380",
+			Addr: "localhost:6379",
 			DB:   0,
 		}
 	}
@@ -91,17 +91,17 @@ func (c *CeleryService) QueueTask(taskName string, args []interface{}, kwargs ma
 		ContentType:     "application/json",
 		ContentEncoding: "utf-8",
 		Headers: map[string]string{
-			"lang":     "go",
-			"task":     taskName,
-			"id":       taskID,
-			"retries":  "0",
+			"lang":      "go",
+			"task":      taskName,
+			"id":        taskID,
+			"retries":   "0",
 			"timelimit": "[null, null]",
 		},
 		Properties: map[string]string{
 			"correlation_id": taskID,
 			"reply_to":       "",
 			"delivery_mode":  "2",
-			"delivery_info": fmt.Sprintf(`{"exchange":"","routing_key":"%s"}`, queue),
+			"delivery_info":  fmt.Sprintf(`{"exchange":"","routing_key":"%s"}`, queue),
 		},
 	}
 

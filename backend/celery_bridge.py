@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 
 # Redis configuration
-REDIS_URL = os.getenv('REDIS_URL', 'redis://localhost:6380/0')
+REDIS_URL = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
 
 # Initialize Celery app
 celery_app = Celery('homeflix_tasks')

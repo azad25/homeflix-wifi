@@ -5,20 +5,20 @@
 
 echo "🚀 Starting HomeFlix Celery Task Queue System..."
 
-# Check if Redis is running on port 6380
-echo "🔍 Checking Redis connection on port 6380..."
-if ! docker run --rm --network host redis:7-alpine redis-cli -p 6380 ping > /dev/null 2>&1; then
-    echo "❌ Redis not running on port 6380. Starting Redis container..."
+# Check if Redis is running on port 6379
+echo "🔍 Checking Redis connection on port 6379..."
+if ! docker run --rm --network host redis:7-alpine redis-cli -p 6379 ping > /dev/null 2>&1; then
+    echo "❌ Redis not running on port 6379. Starting Redis container..."
     docker rm -f homeflix_redis 2>/dev/null || true
-    docker run -d --name homeflix_redis -p 6380:6379 redis:7-alpine
+    docker run -d --name homeflix_redis -p 6379:6379 redis:7-alpine
     sleep 3
-    if ! docker run --rm --network host redis:7-alpine redis-cli -p 6380 ping > /dev/null 2>&1; then
+    if ! docker run --rm --network host redis:7-alpine redis-cli -p 6379 ping > /dev/null 2>&1; then
         echo "❌ Failed to start Redis container."
         exit 1
     fi
 fi
 
-echo "✅ Redis is running on port 6380"
+echo "✅ Redis is running on port 6379"
 
 # Install Python dependencies if needed
 if [ ! -d "venv" ]; then
@@ -31,9 +31,9 @@ else
 fi
 
 # Set environment variables
-export REDIS_URL="redis://localhost:6380/0"
-export CELERY_BROKER_URL="redis://localhost:6380/0"
-export CELERY_RESULT_BACKEND="redis://localhost:6380/0"
+export REDIS_URL="redis://localhost:6379/0"
+export CELERY_BROKER_URL="redis://localhost:6379/0"
+export CELERY_RESULT_BACKEND="redis://localhost:6379/0"
 export PYTHONPATH="$(pwd)"
 
 # Create necessary directories

@@ -46,7 +46,7 @@ func main() {
 	// Initialize Redis asset cache for instant asset loading
 	redisURL := os.Getenv("REDIS_URL")
 	if redisURL == "" {
-		redisURL = "redis://:redispassword@localhost:6379/0" // Default Redis URL with auth
+		redisURL = "redis://localhost:6379/0" // Default Redis URL with auth
 	}
 	redisCache, err := services.NewRedisAssetCache(redisURL)
 	if err != nil {
@@ -70,10 +70,10 @@ func main() {
 
 	// Initialize poster service
 	posterService := services.NewPosterService("./posters")
-	
+
 	// Integrate ALAC service with thumbnail service for preview clips with ALAC audio
 	thumbnailService.SetALACService(alacService)
-	
+
 	// Create service adapters to resolve interface compatibility
 	mediaServiceAdapter := adapters.NewMediaServiceAdapter(mediaService)
 	thumbnailServiceAdapter := adapters.NewThumbnailServiceAdapter(thumbnailService)
@@ -94,7 +94,7 @@ func main() {
 		log.Printf("Failed to initialize watcher service: %v", err)
 	} else {
 		log.Println("Watcher service initialized successfully")
-		
+
 		// Start the file watcher
 		if err := watcherService.Start(); err != nil {
 			log.Printf("Failed to start file watcher: %v", err)
@@ -107,12 +107,12 @@ func main() {
 	go func() {
 		log.Println("Starting comprehensive media sync validation on server startup...")
 		log.Printf("Scanning media path: %s", cfg.MediaPath)
-		
+
 		// CRITICAL: Ensure complete sync validation first
 		if err := mediaScanner.EnsureCompleteSyncOnStartup(); err != nil {
 			log.Printf("❌ Startup sync validation failed: %v", err)
 		}
-		
+
 		// Then perform regular scanning
 		if err := mediaScanner.ScanMediaLibrary(); err != nil {
 			log.Printf("Media scanning error: %v", err)
