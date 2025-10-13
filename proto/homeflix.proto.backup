@@ -1,0 +1,683 @@
+syntax = "proto3";
+
+package homeflix;
+
+option go_package = "homeflix-backend/proto";
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/empty.proto";
+
+// ============================================================================
+// Core Media Services
+// ============================================================================
+
+// Media metadata and information service
+service MediaService {
+  // Get all movies with pagination
+  rpc GetMovies(GetMoviesRequest) returns (GetMoviesResponse);
+  
+  // Get movie details by ID
+  rpc GetMovie(GetMovieRequest) returns (Movie);
+  
+  // Get all TV series with pagination
+  rpc GetSeries(GetSeriesRequest) returns (GetSeriesResponse);
+  
+  // Get series details by ID
+  rpc GetSeriesDetails(GetSeriesRequest) returns (Series);
+  
+  // Search across all media
+  rpc SearchMedia(SearchRequest) returns (SearchResponse);
+  
+  // Get media by genre
+  rpc GetMediaByGenre(GetByGenreRequest) returns (MediaListResponse);
+  
+  // Get recently added media
+  rpc GetRecentlyAdded(GetRecentRequest) returns (MediaListResponse);
+}
+
+// High-performance streaming service with Netflix-level optimization
+service StreamingService {
+  // Stream video with chunked responses and range support
+  rpc StreamVideo(StreamRequest) returns (stream StreamChunk);
+  
+  // Stream audio with automatic transcoding
+  rpc StreamAudio(StreamRequest) returns (stream StreamChunk);
+  
+  // Get stream info (codecs, bitrates, etc.)
+  rpc GetStreamInfo(StreamInfoRequest) returns (StreamInfo);
+  
+  // Generate and stream preview clips
+  rpc StreamPreview(PreviewRequest) returns (stream StreamChunk);
+}
+
+// Real-time preview generation service
+service PreviewService {
+  // Generate preview for media item
+  rpc GeneratePreview(GeneratePreviewRequest) returns (GeneratePreviewResponse);
+  
+  // Get preview generation status
+  rpc GetPreviewStatus(PreviewStatusRequest) returns (PreviewStatus);
+  
+  // Stream preview generation progress
+  rpc StreamPreviewProgress(PreviewProgressRequest) returns (stream PreviewProgress);
+  
+  // Get preview queue status
+  rpc GetPreviewQueue(google.protobuf.Empty) returns (PreviewQueueStatus);
+}
+
+// User management and preferences
+service UserService {
+  // User authentication
+  rpc Login(LoginRequest) returns (LoginResponse);
+  rpc Register(RegisterRequest) returns (RegisterResponse);
+  rpc RefreshToken(RefreshTokenRequest) returns (RefreshTokenResponse);
+  
+  // User preferences
+  rpc GetUserPreferences(GetUserPreferencesRequest) returns (UserPreferences);
+  rpc UpdateUserPreferences(UpdateUserPreferencesRequest) returns (UserPreferences);
+  
+  // Watch history and progress
+  rpc UpdateWatchProgress(UpdateWatchProgressRequest) returns (WatchProgress);
+  rpc GetWatchHistory(GetWatchHistoryRequest) returns (GetWatchHistoryResponse);
+}
+
+// Real-time recommendation engine
+service RecommendationService {
+  // Get personalized recommendations
+  rpc GetRecommendations(RecommendationRequest) returns (RecommendationResponse);
+  
+  // Stream live recommendation updates
+  rpc StreamRecommendations(RecommendationStreamRequest) returns (stream RecommendationUpdate);
+  
+  // Update user rating
+  rpc RateMedia(RateMediaRequest) returns (RateMediaResponse);
+  
+  // Get similar media
+  rpc GetSimilarMedia(SimilarMediaRequest) returns (MediaListResponse);
+}
+
+// Bidirectional playback control service
+service PlaybackService {
+  // Bidirectional playback control stream
+  rpc PlaybackControl(stream PlaybackCommand) returns (stream PlaybackStatus);
+  
+  // Sync playback across devices
+  rpc SyncPlayback(SyncPlaybackRequest) returns (SyncPlaybackResponse);
+  
+  // Get current playback state
+  rpc GetPlaybackState(PlaybackStateRequest) returns (PlaybackState);
+}
+
+// Admin and monitoring service
+service AdminService {
+  // System health and metrics
+  rpc GetSystemHealth(google.protobuf.Empty) returns (SystemHealth);
+  rpc GetStreamingMetrics(google.protobuf.Empty) returns (StreamingMetrics);
+  
+  // Media library management
+  rpc ScanMediaLibrary(ScanLibraryRequest) returns (stream ScanProgress);
+  rpc GetScanStatus(google.protobuf.Empty) returns (ScanStatus);
+  
+  // Preview generation management
+  rpc GetPreviewQueueAdmin(google.protobuf.Empty) returns (AdminPreviewQueue);
+  rpc ClearPreviewQueue(google.protobuf.Empty) returns (google.protobuf.Empty);
+  
+  // User management
+  rpc GetAllUsers(GetAllUsersRequest) returns (GetAllUsersResponse);
+  rpc DeleteUser(DeleteUserRequest) returns (google.protobuf.Empty);
+}
+
+// ============================================================================
+// Message Types
+// ============================================================================
+
+// Core media types
+message Movie {
+  string id = 1;
+  string title = 2;
+  string description = 3;
+  string poster_url = 4;
+  string backdrop_url = 5;
+  string trailer_url = 6;
+  repeated string genres = 7;
+  int32 year = 8;
+  int32 runtime = 9;
+  double rating = 10;
+  string file_path = 11;
+  int64 file_size = 12;
+  string video_codec = 13;
+  string audio_codec = 14;
+  string resolution = 15;
+  google.protobuf.Timestamp created_at = 16;
+  google.protobuf.Timestamp updated_at = 17;
+  bool has_preview = 18;
+  bool has_subtitles = 19;
+  repeated string subtitle_languages = 20;
+}
+
+message Series {
+  string id = 1;
+  string title = 2;
+  string description = 3;
+  string poster_url = 4;
+  string backdrop_url = 5;
+  repeated string genres = 6;
+  int32 year = 7;
+  double rating = 8;
+  repeated Season seasons = 9;
+  google.protobuf.Timestamp created_at = 10;
+  google.protobuf.Timestamp updated_at = 11;
+  int32 total_episodes = 12;
+  string status = 13; // ongoing, completed, cancelled
+}
+
+message Season {
+  string id = 1;
+  string series_id = 2;
+  int32 season_number = 3;
+  string title = 4;
+  string description = 5;
+  string poster_url = 6;
+  repeated Episode episodes = 7;
+  google.protobuf.Timestamp air_date = 8;
+}
+
+message Episode {
+  string id = 1;
+  string series_id = 2;
+  string season_id = 3;
+  int32 season_number = 4;
+  int32 episode_number = 5;
+  string title = 6;
+  string description = 7;
+  string thumbnail_url = 8;
+  int32 runtime = 9;
+  string file_path = 10;
+  int64 file_size = 11;
+  string video_codec = 12;
+  string audio_codec = 13;
+  string resolution = 14;
+  google.protobuf.Timestamp air_date = 15;
+  bool has_preview = 16;
+  bool has_subtitles = 17;
+  repeated string subtitle_languages = 18;
+}
+
+// Request/Response types
+message GetMoviesRequest {
+  int32 page = 1;
+  int32 limit = 2;
+  string sort_by = 3; // title, year, rating, created_at
+  string sort_order = 4; // asc, desc
+  repeated string genres = 5;
+  int32 min_year = 6;
+  int32 max_year = 7;
+  double min_rating = 8;
+}
+
+message GetMoviesResponse {
+  repeated Movie movies = 1;
+  int32 total_count = 2;
+  int32 page = 3;
+  int32 limit = 4;
+  bool has_next = 5;
+  bool has_prev = 6;
+}
+
+message GetMovieRequest {
+  string id = 1;
+}
+
+message GetSeriesRequest {
+  int32 page = 1;
+  int32 limit = 2;
+  string sort_by = 3;
+  string sort_order = 4;
+  repeated string genres = 5;
+  int32 min_year = 6;
+  int32 max_year = 7;
+  double min_rating = 8;
+}
+
+message GetSeriesResponse {
+  repeated Series series = 1;
+  int32 total_count = 2;
+  int32 page = 3;
+  int32 limit = 4;
+  bool has_next = 5;
+  bool has_prev = 6;
+}
+
+message GetSeriesDetailsRequest {
+  string id = 1;
+}
+
+message SearchRequest {
+  string query = 1;
+  string media_type = 2; // movie, series, all
+  int32 limit = 3;
+}
+
+message SearchResponse {
+  repeated Movie movies = 1;
+  repeated Series series = 2;
+  int32 total_results = 3;
+}
+
+message GetByGenreRequest {
+  string genre = 1;
+  string media_type = 2; // movie, series, all
+  int32 page = 3;
+  int32 limit = 4;
+}
+
+message GetRecentRequest {
+  int32 limit = 1;
+  string media_type = 2; // movie, series, all
+}
+
+message MediaListResponse {
+  repeated Movie movies = 1;
+  repeated Series series = 2;
+  int32 total_count = 3;
+}
+
+// Streaming types
+message StreamRequest {
+  string media_id = 1;
+  string media_type = 2; // movie, episode
+  int64 start_byte = 3;
+  int64 end_byte = 4;
+  string quality = 5; // original, 1080p, 720p, 480p
+  bool transcode_audio = 6; // Force audio transcoding
+}
+
+message StreamChunk {
+  bytes data = 1;
+  int64 chunk_size = 2;
+  int64 total_size = 3;
+  string content_type = 4;
+  map<string, string> headers = 5;
+}
+
+message StreamInfoRequest {
+  string media_id = 1;
+  string media_type = 2;
+}
+
+message StreamInfo {
+  string video_codec = 1;
+  string audio_codec = 2;
+  string resolution = 3;
+  int32 bitrate = 4;
+  int32 duration = 5;
+  bool needs_transcoding = 6;
+  repeated string available_qualities = 7;
+  repeated AudioTrack audio_tracks = 8;
+  repeated SubtitleTrack subtitle_tracks = 9;
+}
+
+message AudioTrack {
+  int32 index = 1;
+  string codec = 2;
+  string language = 3;
+  int32 channels = 4;
+  int32 sample_rate = 5;
+  bool is_default = 6;
+}
+
+message SubtitleTrack {
+  int32 index = 1;
+  string language = 2;
+  string format = 3; // srt, vtt, ass
+  bool is_default = 4;
+  bool is_forced = 5;
+}
+
+// Preview types
+message PreviewRequest {
+  string media_id = 1;
+  string media_type = 2;
+  int32 duration = 3; // Preview duration in seconds
+}
+
+message GeneratePreviewRequest {
+  string media_id = 1;
+  string media_type = 2;
+  int32 duration = 3; // Preview duration in seconds
+  bool high_priority = 4;
+}
+
+message GeneratePreviewResponse {
+  string job_id = 1;
+  string status = 2; // queued, processing, completed, failed
+  string preview_url = 3; // Available when completed
+}
+
+message PreviewStatusRequest {
+  string job_id = 1;
+}
+
+message PreviewStatus {
+  string job_id = 1;
+  string status = 2;
+  int32 progress_percent = 3;
+  string error_message = 4;
+  string preview_url = 5;
+  google.protobuf.Timestamp created_at = 6;
+  google.protobuf.Timestamp updated_at = 7;
+}
+
+message PreviewProgressRequest {
+  string job_id = 1;
+}
+
+message PreviewProgress {
+  string job_id = 1;
+  int32 progress_percent = 2;
+  string current_stage = 3; // extracting, encoding, uploading
+  string status = 4;
+  string error_message = 5;
+}
+
+message PreviewQueueStatus {
+  int32 queue_length = 1;
+  int32 processing_count = 2;
+  repeated PreviewJob current_jobs = 3;
+}
+
+message PreviewJob {
+  string job_id = 1;
+  string media_id = 2;
+  string media_type = 3;
+  string status = 4;
+  int32 progress_percent = 5;
+  google.protobuf.Timestamp created_at = 6;
+  bool high_priority = 7;
+}
+
+// User types
+message LoginRequest {
+  string username = 1;
+  string password = 2;
+}
+
+message LoginResponse {
+  string access_token = 1;
+  string refresh_token = 2;
+  User user = 3;
+  google.protobuf.Timestamp expires_at = 4;
+}
+
+message RegisterRequest {
+  string username = 1;
+  string email = 2;
+  string password = 3;
+  string full_name = 4;
+}
+
+message RegisterResponse {
+  string access_token = 1;
+  string refresh_token = 2;
+  User user = 3;
+}
+
+message RefreshTokenRequest {
+  string refresh_token = 1;
+}
+
+message RefreshTokenResponse {
+  string access_token = 1;
+  string refresh_token = 2;
+  google.protobuf.Timestamp expires_at = 3;
+}
+
+message User {
+  string id = 1;
+  string username = 2;
+  string email = 3;
+  string full_name = 4;
+  string role = 5; // admin, user
+  google.protobuf.Timestamp created_at = 6;
+  google.protobuf.Timestamp last_login = 7;
+  UserPreferences preferences = 8;
+}
+
+message GetUserPreferencesRequest {
+  string user_id = 1;
+}
+
+message UpdateUserPreferencesRequest {
+  string user_id = 1;
+  UserPreferences preferences = 2;
+}
+
+message UserPreferences {
+  string preferred_language = 1;
+  string preferred_quality = 2; // 1080p, 720p, 480p, auto
+  bool auto_play_next = 3;
+  bool show_adult_content = 4;
+  repeated string favorite_genres = 5;
+  bool enable_notifications = 6;
+  string theme = 7; // dark, light, auto
+}
+
+// Watch progress types
+message UpdateWatchProgressRequest {
+  string user_id = 1;
+  string media_id = 2;
+  string media_type = 3;
+  int32 progress_seconds = 4;
+  int32 total_seconds = 5;
+  bool completed = 6;
+}
+
+message WatchProgress {
+  string id = 1;
+  string user_id = 2;
+  string media_id = 3;
+  string media_type = 4;
+  int32 progress_seconds = 5;
+  int32 total_seconds = 6;
+  double progress_percent = 7;
+  bool completed = 8;
+  google.protobuf.Timestamp last_watched = 9;
+}
+
+message GetWatchHistoryRequest {
+  string user_id = 1;
+  int32 limit = 2;
+  int32 offset = 3;
+}
+
+message GetWatchHistoryResponse {
+  repeated WatchHistoryItem items = 1;
+  int32 total_count = 2;
+}
+
+message WatchHistoryItem {
+  WatchProgress progress = 1;
+  Movie movie = 2;
+  Episode episode = 3;
+  Series series = 4; // For episodes
+}
+
+// Recommendation types
+message RecommendationRequest {
+  string user_id = 1;
+  int32 limit = 2;
+  string recommendation_type = 3; // trending, similar, genre_based, collaborative
+}
+
+message RecommendationResponse {
+  repeated RecommendationItem recommendations = 1;
+  string recommendation_type = 2;
+}
+
+message RecommendationStreamRequest {
+  string user_id = 1;
+}
+
+message RecommendationUpdate {
+  repeated RecommendationItem recommendations = 1;
+  string update_reason = 2; // new_rating, new_watch, library_update
+  google.protobuf.Timestamp timestamp = 3;
+}
+
+message RecommendationItem {
+  Movie movie = 1;
+  Series series = 2;
+  double score = 3;
+  string reason = 4; // "Because you liked...", "Trending now", etc.
+  repeated string tags = 5; // genre, director, actor, etc.
+}
+
+message RateMediaRequest {
+  string user_id = 1;
+  string media_id = 2;
+  string media_type = 3;
+  double rating = 4; // 1.0 to 5.0
+}
+
+message RateMediaResponse {
+  bool success = 1;
+  double new_average_rating = 2;
+  int32 total_ratings = 3;
+}
+
+message SimilarMediaRequest {
+  string media_id = 1;
+  string media_type = 2;
+  int32 limit = 3;
+}
+
+// Playback control types
+message PlaybackCommand {
+  string session_id = 1;
+  string user_id = 2;
+  string media_id = 3;
+  string command = 4; // play, pause, seek, stop, next, previous
+  map<string, string> parameters = 5; // seek_to, volume, etc.
+  google.protobuf.Timestamp timestamp = 6;
+}
+
+message PlaybackStatus {
+  string session_id = 1;
+  string media_id = 2;
+  string state = 3; // playing, paused, stopped, buffering
+  int32 current_time = 4;
+  int32 duration = 5;
+  double volume = 6;
+  bool muted = 7;
+  string quality = 8;
+  google.protobuf.Timestamp timestamp = 9;
+}
+
+message SyncPlaybackRequest {
+  string user_id = 1;
+  string session_id = 2;
+  PlaybackStatus status = 3;
+}
+
+message SyncPlaybackResponse {
+  bool success = 1;
+  repeated string synced_devices = 2;
+}
+
+message PlaybackStateRequest {
+  string session_id = 1;
+  string user_id = 2;
+}
+
+message PlaybackState {
+  string session_id = 1;
+  string media_id = 2;
+  string media_type = 3;
+  PlaybackStatus status = 4;
+  repeated string connected_devices = 5;
+}
+
+// Admin types
+message SystemHealth {
+  string status = 1; // healthy, degraded, unhealthy
+  double cpu_usage = 2;
+  double memory_usage = 3;
+  double disk_usage = 4;
+  int32 active_streams = 5;
+  int32 total_users = 6;
+  int32 total_media_items = 7;
+  google.protobuf.Timestamp last_scan = 8;
+  repeated string warnings = 9;
+  repeated string errors = 10;
+}
+
+message StreamingMetrics {
+  int32 active_streams = 1;
+  int32 total_streams_today = 2;
+  double average_bitrate = 3;
+  double peak_concurrent_streams = 4;
+  repeated StreamingSession active_sessions = 5;
+  map<string, int32> quality_distribution = 6; // quality -> count
+  map<string, int32> codec_distribution = 7; // codec -> count
+}
+
+message StreamingSession {
+  string session_id = 1;
+  string user_id = 2;
+  string media_id = 3;
+  string media_type = 4;
+  string quality = 5;
+  double bitrate = 6;
+  google.protobuf.Timestamp started_at = 7;
+  int32 duration_seconds = 8;
+}
+
+message ScanLibraryRequest {
+  string path = 1; // Optional: specific path to scan
+  bool force_rescan = 2;
+}
+
+message ScanProgress {
+  string status = 1; // scanning, processing, completed, failed
+  int32 files_scanned = 2;
+  int32 total_files = 3;
+  int32 new_items_found = 4;
+  string current_file = 5;
+  repeated string errors = 6;
+  google.protobuf.Timestamp started_at = 7;
+}
+
+message ScanStatus {
+  bool is_scanning = 1;
+  ScanProgress current_scan = 2;
+  google.protobuf.Timestamp last_scan = 3;
+  int32 total_media_items = 4;
+}
+
+message AdminPreviewQueue {
+  int32 total_jobs = 1;
+  int32 pending_jobs = 2;
+  int32 processing_jobs = 3;
+  int32 completed_jobs = 4;
+  int32 failed_jobs = 5;
+  repeated PreviewJob recent_jobs = 6;
+  map<string, int32> job_stats = 7; // status -> count
+}
+
+message GetAllUsersRequest {
+  int32 page = 1;
+  int32 limit = 2;
+  string sort_by = 3; // username, created_at, last_login
+  string sort_order = 4; // asc, desc
+}
+
+message GetAllUsersResponse {
+  repeated User users = 1;
+  int32 total_count = 2;
+  int32 page = 3;
+  int32 limit = 4;
+}
+
+message DeleteUserRequest {
+  string user_id = 1;
+}

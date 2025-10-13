@@ -1,0 +1,286 @@
+syntax = "proto3";
+
+package homeflix.admin;
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/empty.proto";
+import "media.proto";
+
+option go_package = "homeflix-backend/proto";
+
+// Admin Service for system management
+service AdminService {
+  // Media scanning with real-time progress
+  rpc StartFullScan(ScanRequest) returns (stream ScanProgress);
+  rpc StartIncrementalScan(ScanRequest) returns (stream ScanProgress);
+  rpc StartSuperfastScan(ScanRequest) returns (stream ScanProgress);
+  rpc GetScanStats(google.protobuf.Empty) returns (ScanStats);
+  
+  // Asset management with progress streaming
+  rpc GenerateThumbnails(AssetRequest) returns (stream AssetProgress);
+  rpc GeneratePreviewClips(AssetRequest) returns (stream AssetProgress);
+  rpc RegenerateAssets(AssetRequest) returns (stream AssetProgress);
+  
+  // File watcher management
+  rpc StartFileWatcher(WatcherRequest) returns (WatcherResponse);
+  rpc StopFileWatcher(google.protobuf.Empty) returns (WatcherResponse);
+  rpc GetWatcherStatus(google.protobuf.Empty) returns (WatcherStatus);
+  rpc WatchFileEvents(google.protobuf.Empty) returns (stream FileEvent);
+  
+  // System monitoring
+  rpc GetSystemStats(google.protobuf.Empty) returns (SystemStats);
+  rpc WatchSystemHealth(google.protobuf.Empty) returns (stream HealthUpdate);
+  
+  // Task queue management
+  rpc GetQueueStatus(google.protobuf.Empty) returns (QueueStatusResponse);
+  rpc PurgeQueue(PurgeQueueRequest) returns (PurgeQueueResponse);
+  rpc WatchQueueMetrics(google.protobuf.Empty) returns (stream QueueMetrics);
+  
+  // Metadata management
+  rpc UpdateMediaMetadata(UpdateMetadataRequest) returns (UpdateMetadataResponse);
+  rpc GenerateAIMetadata(GenerateMetadataRequest) returns (stream MetadataProgress);
+  rpc UpdateWithTMDB(TMDBUpdateRequest) returns (TMDBUpdateResponse);
+}
+
+message ScanRequest {
+  string scan_type = 1; // "full", "incremental", "superfast"
+  repeated string paths = 2;
+  int32 max_workers = 3;
+  int32 batch_size = 4;
+  bool regenerate_assets = 5;
+}
+
+message ScanProgress {
+  enum Status {
+    STARTED = 0;
+    SCANNING = 1;
+    PROCESSING = 2;
+    GENERATING_ASSETS = 3;
+    COMPLETED = 4;
+    FAILED = 5;
+  }
+  
+  string scan_id = 1;
+  Status status = 2;
+  int32 total_files = 3;
+  int32 processed_files = 4;
+  int32 failed_files = 5;
+  string current_file = 6;
+  double progress_percentage = 7;
+  string message = 8;
+  google.protobuf.Timestamp timestamp = 9;
+  repeated string errors = 10;
+}
+
+message ScanStats {
+  int32 total_media = 1;
+  int32 movies = 2;
+  int32 tv_shows = 3;
+  int32 episodes = 4;
+  int64 total_size = 5;
+  google.protobuf.Timestamp last_scan = 6;
+  int32 scan_duration_seconds = 7;
+  repeated string recent_errors = 8;
+}
+
+message AssetRequest {
+  repeated string media_uuids = 1;
+  string asset_type = 2; // "thumbnails", "previews", "posters", "all"
+  bool force_regenerate = 3;
+  int32 max_workers = 4;
+}
+
+message AssetProgress {
+  enum Status {
+    STARTED = 0;
+    PROCESSING = 1;
+    COMPLETED = 2;
+    FAILED = 3;
+  }
+  
+  string task_id = 1;
+  Status status = 2;
+  string media_uuid = 3;
+  string asset_type = 4;
+  string asset_path = 5;
+  double progress_percentage = 6;
+  string message = 7;
+  string error = 8;
+  google.protobuf.Timestamp timestamp = 9;
+}
+
+message WatcherRequest {
+  repeated string watch_paths = 1;
+  bool recursive = 2;
+  repeated string file_extensions = 3;
+}
+
+message WatcherResponse {
+  bool success = 1;
+  string message = 2;
+  int32 paths_watched = 3;
+}
+
+message WatcherStatus {
+  bool active = 1;
+  repeated string watched_paths = 2;
+  int32 files_watched = 3;
+  google.protobuf.Timestamp last_event = 4;
+  int32 events_processed = 5;
+}
+
+message FileEvent {
+  enum EventType {
+    CREATED = 0;
+    MODIFIED = 1;
+    DELETED = 2;
+    MOVED = 3;
+  }
+  
+  EventType type = 1;
+  string file_path = 2;
+  string old_path = 3; // For MOVED events
+  google.protobuf.Timestamp timestamp = 4;
+  bool is_directory = 5;
+}
+
+message SystemStats {
+  CpuStats cpu = 1;
+  MemoryStats memory = 2;
+  DiskStats disk = 3;
+  NetworkStats network = 4;
+  ServiceStats services = 5;
+  google.protobuf.Timestamp timestamp = 6;
+}
+
+message CpuStats {
+  double usage_percentage = 1;
+  int32 cores = 2;
+  double load_average = 3;
+}
+
+message MemoryStats {
+  int64 total_bytes = 1;
+  int64 used_bytes = 2;
+  int64 free_bytes = 3;
+  double usage_percentage = 4;
+}
+
+message DiskStats {
+  int64 total_bytes = 1;
+  int64 used_bytes = 2;
+  int64 free_bytes = 3;
+  double usage_percentage = 4;
+  string mount_point = 5;
+}
+
+message NetworkStats {
+  int64 bytes_sent = 1;
+  int64 bytes_received = 2;
+  int64 packets_sent = 3;
+  int64 packets_received = 4;
+}
+
+message ServiceStats {
+  int32 active_streams = 1;
+  int32 concurrent_users = 2;
+  int32 queue_length = 3;
+  double avg_response_time = 4;
+}
+
+message HealthUpdate {
+  enum HealthStatus {
+    HEALTHY = 0;
+    WARNING = 1;
+    CRITICAL = 2;
+    DOWN = 3;
+  }
+  
+  HealthStatus status = 1;
+  string service = 2;
+  string message = 3;
+  SystemStats stats = 4;
+  google.protobuf.Timestamp timestamp = 5;
+}
+
+message QueueStatusResponse {
+  repeated QueueInfo queues = 1;
+  google.protobuf.Timestamp timestamp = 2;
+}
+
+message QueueInfo {
+  string name = 1;
+  int32 length = 2;
+  int32 workers = 3;
+  int32 processed = 4;
+  int32 failed = 5;
+  google.protobuf.Timestamp last_activity = 6;
+}
+
+message QueueMetrics {
+  string queue_name = 1;
+  int32 pending_tasks = 2;
+  int32 active_tasks = 3;
+  int32 completed_tasks = 4;
+  int32 failed_tasks = 5;
+  double avg_processing_time = 6;
+  google.protobuf.Timestamp timestamp = 7;
+}
+
+message PurgeQueueRequest {
+  string queue_name = 1;
+}
+
+message PurgeQueueResponse {
+  bool success = 1;
+  int32 tasks_purged = 2;
+  string message = 3;
+}
+
+message UpdateMetadataRequest {
+  string media_uuid = 1;
+  homeflix.media.Media metadata = 2;
+}
+
+message UpdateMetadataResponse {
+  bool success = 1;
+  string message = 2;
+  homeflix.media.Media updated_media = 3;
+}
+
+message GenerateMetadataRequest {
+  repeated string media_uuids = 1;
+  bool use_ai = 2;
+  bool use_tmdb = 3;
+  bool force_update = 4;
+}
+
+message MetadataProgress {
+  enum Status {
+    STARTED = 0;
+    FETCHING_TMDB = 1;
+    GENERATING_AI = 2;
+    UPDATING_DATABASE = 3;
+    COMPLETED = 4;
+    FAILED = 5;
+  }
+  
+  string task_id = 1;
+  Status status = 2;
+  string media_uuid = 3;
+  double progress_percentage = 4;
+  string message = 5;
+  string error = 6;
+  google.protobuf.Timestamp timestamp = 7;
+}
+
+message TMDBUpdateRequest {
+  string media_uuid = 1;
+  bool force_update = 2;
+}
+
+message TMDBUpdateResponse {
+  bool success = 1;
+  string message = 2;
+  homeflix.media.Media updated_media = 3;
+}

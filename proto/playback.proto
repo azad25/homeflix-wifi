@@ -1,0 +1,260 @@
+syntax = "proto3";
+
+package homeflix.playback;
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/empty.proto";
+import "media.proto";
+
+option go_package = "homeflix-backend/proto";
+
+// Playback Service for tracking and analytics
+service PlaybackService {
+  // Progress tracking with real-time sync
+  rpc UpdateProgress(stream ProgressUpdate) returns (stream ProgressResponse);
+  rpc GetProgress(ProgressRequest) returns (ProgressResponse);
+  rpc InitializeProgress(InitializeProgressRequest) returns (ProgressResponse);
+  
+  // View tracking
+  rpc TrackView(TrackViewRequest) returns (TrackViewResponse);
+  rpc GetViewHistory(ViewHistoryRequest) returns (ViewHistoryResponse);
+  rpc GetWatchStats(WatchStatsRequest) returns (WatchStatsResponse);
+  
+  // Continue watching
+  rpc GetContinueWatching(ContinueWatchingRequest) returns (ContinueWatchingResponse);
+  rpc GetRecentlyWatched(RecentlyWatchedRequest) returns (RecentlyWatchedResponse);
+  
+  // My List management
+  rpc AddToMyList(MyListRequest) returns (MyListResponse);
+  rpc RemoveFromMyList(MyListRequest) returns (MyListResponse);
+  rpc GetMyList(GetMyListRequest) returns (GetMyListResponse);
+  rpc CheckMyList(MyListRequest) returns (MyListCheckResponse);
+  
+  // Real-time playback synchronization
+  rpc SyncPlayback(stream PlaybackSync) returns (stream PlaybackSyncResponse);
+  
+  // Watch party (future feature)
+  rpc CreateWatchParty(CreateWatchPartyRequest) returns (WatchPartyResponse);
+  rpc JoinWatchParty(JoinWatchPartyRequest) returns (stream WatchPartyEvent);
+}
+
+message ProgressUpdate {
+  string session_id = 1;
+  string media_uuid = 2;
+  string user_id = 3;
+  double progress = 4;        // 0.0 to 1.0
+  double current_time = 5;    // seconds
+  double duration = 6;        // seconds
+  bool completed = 7;
+  string device_id = 8;
+  google.protobuf.Timestamp timestamp = 9;
+}
+
+message ProgressRequest {
+  string media_uuid = 1;
+  string user_id = 2;
+}
+
+message ProgressResponse {
+  string media_uuid = 1;
+  string user_id = 2;
+  double progress = 3;
+  double current_time = 4;
+  double duration = 5;
+  bool completed = 6;
+  google.protobuf.Timestamp last_watched = 7;
+  bool success = 8;
+  string message = 9;
+}
+
+message InitializeProgressRequest {
+  string media_uuid = 1;
+  string user_id = 2;
+  string session_id = 3;
+  string device_id = 4;
+}
+
+message TrackViewRequest {
+  string media_uuid = 1;
+  string user_id = 2;
+  string session_id = 3;
+  double watch_duration = 4;
+  string device_type = 5;
+  string quality = 6;
+  google.protobuf.Timestamp started_at = 7;
+}
+
+message TrackViewResponse {
+  bool success = 1;
+  string message = 2;
+  int32 total_views = 3;
+}
+
+message ViewHistoryRequest {
+  string user_id = 1;
+  int32 limit = 2;
+  int32 offset = 3;
+  google.protobuf.Timestamp from_date = 4;
+  google.protobuf.Timestamp to_date = 5;
+}
+
+message ViewHistoryResponse {
+  repeated ViewHistoryEntry entries = 1;
+  int32 total = 2;
+}
+
+message ViewHistoryEntry {
+  homeflix.media.Media media = 1;
+  google.protobuf.Timestamp watched_at = 2;
+  double progress = 3;
+  bool completed = 4;
+  double watch_duration = 5;
+  string device_type = 6;
+}
+
+message WatchStatsRequest {
+  string user_id = 1;
+  string time_period = 2; // "week", "month", "year", "all"
+}
+
+message WatchStatsResponse {
+  int32 total_watch_time_minutes = 1;
+  int32 movies_watched = 2;
+  int32 episodes_watched = 3;
+  repeated string favorite_genres = 4;
+  int32 watch_streak_days = 5;
+  double avg_session_duration = 6;
+  repeated GenreStats genre_breakdown = 7;
+  repeated DailyWatchTime daily_stats = 8;
+}
+
+message GenreStats {
+  string genre = 1;
+  int32 count = 2;
+  int32 total_minutes = 3;
+}
+
+message DailyWatchTime {
+  string date = 1;
+  int32 minutes_watched = 2;
+  int32 content_count = 3;
+}
+
+message ContinueWatchingRequest {
+  string user_id = 1;
+  int32 limit = 2;
+}
+
+message ContinueWatchingResponse {
+  repeated ContinueWatchingItem items = 1;
+}
+
+message ContinueWatchingItem {
+  homeflix.media.Media media = 1;
+  double progress = 2;
+  google.protobuf.Timestamp last_watched = 3;
+  double remaining_time = 4;
+}
+
+message RecentlyWatchedRequest {
+  string user_id = 1;
+  int32 limit = 2;
+}
+
+message RecentlyWatchedResponse {
+  repeated RecentlyWatchedItem items = 1;
+}
+
+message RecentlyWatchedItem {
+  homeflix.media.Media media = 1;
+  google.protobuf.Timestamp watched_at = 2;
+  bool completed = 3;
+}
+
+message MyListRequest {
+  string user_id = 1;
+  string media_uuid = 2;
+}
+
+message MyListResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message GetMyListRequest {
+  string user_id = 1;
+  int32 limit = 2;
+  int32 offset = 3;
+}
+
+message GetMyListResponse {
+  repeated MyListItem items = 1;
+  int32 total = 2;
+}
+
+message MyListItem {
+  homeflix.media.Media media = 1;
+  google.protobuf.Timestamp added_at = 2;
+}
+
+message MyListCheckResponse {
+  bool in_list = 1;
+  google.protobuf.Timestamp added_at = 2;
+}
+
+// Real-time playback synchronization
+message PlaybackSync {
+  string session_id = 1;
+  string user_id = 2;
+  string media_uuid = 3;
+  double current_time = 4;
+  string action = 5; // "play", "pause", "seek", "stop"
+  google.protobuf.Timestamp timestamp = 6;
+}
+
+message PlaybackSyncResponse {
+  string session_id = 1;
+  bool success = 2;
+  string message = 3;
+  double synced_time = 4;
+  google.protobuf.Timestamp timestamp = 5;
+}
+
+// Watch Party (Future Feature)
+message CreateWatchPartyRequest {
+  string host_user_id = 1;
+  string media_uuid = 2;
+  string party_name = 3;
+  bool is_private = 4;
+  int32 max_participants = 5;
+}
+
+message WatchPartyResponse {
+  string party_id = 1;
+  string invite_code = 2;
+  bool success = 3;
+  string message = 4;
+}
+
+message JoinWatchPartyRequest {
+  string party_id = 1;
+  string user_id = 2;
+  string invite_code = 3;
+}
+
+message WatchPartyEvent {
+  enum EventType {
+    USER_JOINED = 0;
+    USER_LEFT = 1;
+    PLAYBACK_SYNC = 2;
+    CHAT_MESSAGE = 3;
+    PARTY_ENDED = 4;
+  }
+  
+  EventType type = 1;
+  string party_id = 2;
+  string user_id = 3;
+  string message = 4;
+  double playback_time = 5;
+  google.protobuf.Timestamp timestamp = 6;
+}

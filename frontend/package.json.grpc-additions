@@ -1,0 +1,19 @@
+{
+  "scripts": {
+    "grpc-proxy": "node lib/grpc/grpc-web-proxy.js",
+    "generate-proto": "../scripts/generate-proto.sh",
+    "dev-with-grpc": "concurrently \"npm run grpc-proxy\" \"npm run dev\""
+  },
+  "dependencies": {
+    "nice-grpc-web": "^2.1.0",
+    "@grpc/grpc-js": "^1.9.0",
+    "@grpc/proto-loader": "^0.7.8",
+    "google-protobuf": "^3.21.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "grpc-tools": "^1.12.4",
+    "grpc_tools_node_protoc_ts": "^5.3.3",
+    "concurrently": "^8.2.0"
+  }
+}

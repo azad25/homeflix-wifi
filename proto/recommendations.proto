@@ -1,0 +1,135 @@
+syntax = "proto3";
+
+package homeflix.recommendations;
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/empty.proto";
+import "media.proto";
+
+option go_package = "homeflix-backend/proto";
+
+// Recommendation Service
+service RecommendationService {
+  // Get recommendations by category
+  rpc GetRecommendations(RecommendationRequest) returns (RecommendationResponse);
+  
+  // Real-time recommendation updates
+  rpc WatchRecommendations(RecommendationRequest) returns (stream RecommendationUpdate);
+  
+  // Specific recommendation types
+  rpc GetTrendingRecommendations(TrendingRequest) returns (RecommendationResponse);
+  rpc GetPersonalizedRecommendations(PersonalizedRequest) returns (RecommendationResponse);
+  rpc GetSimilarContent(SimilarContentRequest) returns (RecommendationResponse);
+  rpc GetContinueWatching(ContinueWatchingRequest) returns (RecommendationResponse);
+  
+  // Track user interactions
+  rpc TrackRecommendationClick(TrackClickRequest) returns (TrackClickResponse);
+  rpc TrackRecommendationView(TrackViewRequest) returns (TrackViewResponse);
+  
+  // Admin operations
+  rpc RefreshRecommendations(google.protobuf.Empty) returns (RefreshResponse);
+  rpc GenerateRecommendations(GenerateRequest) returns (GenerateResponse);
+}
+
+message RecommendationRequest {
+  string category = 1; // "trending", "top_picks", "continue_watching", etc.
+  int32 limit = 2;
+  string user_id = 3;
+  repeated string genres = 4;
+  string content_type = 5; // "movie", "tv-show", "all"
+}
+
+message RecommendationResponse {
+  repeated ScoredMedia recommendations = 1;
+  string category = 2;
+  int32 total = 3;
+  google.protobuf.Timestamp generated_at = 4;
+}
+
+message ScoredMedia {
+  homeflix.media.Media media = 1;
+  double score = 2;
+  string reason = 3;
+  string category = 4;
+  repeated string tags = 5;
+}
+
+message RecommendationUpdate {
+  enum UpdateType {
+    NEW_RECOMMENDATIONS = 0;
+    UPDATED_SCORES = 1;
+    REMOVED_CONTENT = 2;
+  }
+  
+  UpdateType type = 1;
+  repeated ScoredMedia recommendations = 2;
+  string category = 3;
+  google.protobuf.Timestamp timestamp = 4;
+}
+
+message TrendingRequest {
+  int32 limit = 1;
+  string time_window = 2; // "24h", "7d", "30d"
+  repeated string genres = 3;
+}
+
+message PersonalizedRequest {
+  string user_id = 1;
+  int32 limit = 2;
+  repeated string preferred_genres = 3;
+  repeated string watched_content = 4;
+}
+
+message SimilarContentRequest {
+  string media_uuid = 1;
+  int32 limit = 2;
+  double similarity_threshold = 3;
+}
+
+message ContinueWatchingRequest {
+  string user_id = 1;
+  int32 limit = 2;
+}
+
+message TrackClickRequest {
+  string recommendation_id = 1;
+  string media_uuid = 2;
+  string user_id = 3;
+  string category = 4;
+  google.protobuf.Timestamp clicked_at = 5;
+}
+
+message TrackClickResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message TrackViewRequest {
+  string media_uuid = 1;
+  string user_id = 2;
+  double view_duration = 3;
+  google.protobuf.Timestamp viewed_at = 4;
+}
+
+message TrackViewResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message RefreshResponse {
+  bool success = 1;
+  string message = 2;
+  int32 recommendations_updated = 3;
+}
+
+message GenerateRequest {
+  string algorithm = 1; // "collaborative", "content_based", "hybrid"
+  repeated string user_ids = 2;
+  bool force_regenerate = 3;
+}
+
+message GenerateResponse {
+  string task_id = 1;
+  bool success = 2;
+  string message = 3;
+}

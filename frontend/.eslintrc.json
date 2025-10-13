@@ -1,0 +1,12 @@
+{
+  "extends": ["next/core-web-vitals"],
+  "rules": {
+    "@typescript-eslint/no-unused-vars": "warn",
+    "@next/next/no-img-element": "warn",
+    "react-hooks/exhaustive-deps": "warn"
+  },
+  "ignorePatterns": [
+    "src/lib/grpc/generated/**/*",
+    "src/lib/grpc/grpc-web-proxy.js"
+  ]
+}

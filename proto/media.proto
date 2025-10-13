@@ -1,0 +1,235 @@
+syntax = "proto3";
+
+package homeflix.media;
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/empty.proto";
+
+option go_package = "homeflix-backend/proto";
+
+// Media message based on your models.go
+message Media {
+  uint32 id = 1;
+  string uuid = 2;
+  string title = 3;
+  string original_title = 4;
+  string type = 5; // "movie", "episode", "tv-show"
+  string file_path = 6;
+  int64 file_size = 7;
+  int32 duration = 8;
+  
+  // Metadata
+  string tagline = 9;
+  string short_desc = 10;
+  string long_desc = 11;
+  string description = 12;
+  int32 year = 13;
+  google.protobuf.Timestamp release_date = 14;
+  double rating = 15;
+  string country = 16;
+  string language = 17;
+  string quality = 18;
+  
+  // Cast and crew
+  repeated string stars = 19;
+  repeated string director = 20;
+  repeated string cast = 21;
+  repeated string writers = 22;
+  repeated string producers = 23;
+  
+  // Box office
+  int64 budget = 24;
+  int64 revenue = 25;
+  string box_office = 26;
+  string status = 27;
+  string imdb_id = 28;
+  string homepage = 29;
+  string collection = 30;
+  
+  // Enhanced metadata
+  repeated string awards = 31;
+  string certification = 32;
+  int32 runtime = 33;
+  double popularity = 34;
+  int32 vote_count = 35;
+  bool adult = 36;
+  
+  // Genres
+  repeated Genre genres = 37;
+  repeated string genre_names = 38;
+  
+  // Video info
+  string resolution = 39;
+  string codec = 40;
+  int32 bitrate = 41;
+  
+  // Assets
+  string thumbnail_path = 42;
+  string preview_path = 43;
+  string preview_clip_path = 44;
+  string poster_path = 45;
+  string banner_path = 46;
+  string trailer_path = 47;
+  
+  // Series info
+  uint32 series_id = 48;
+  Series series = 49;
+  uint32 season_id = 50;
+  Season season_ref = 51;
+  int32 season_number = 52;
+  int32 episode_number = 53;
+  
+  // Subtitles
+  repeated Subtitle subtitles = 54;
+  
+  // View tracking
+  int32 view_count = 55;
+  google.protobuf.Timestamp last_viewed = 56;
+  
+  // Timestamps
+  google.protobuf.Timestamp created_at = 57;
+  google.protobuf.Timestamp updated_at = 58;
+  
+  string last_updated = 59;
+}
+
+message Genre {
+  uint32 id = 1;
+  string name = 2;
+  string description = 3;
+  google.protobuf.Timestamp created_at = 4;
+  google.protobuf.Timestamp updated_at = 5;
+}
+
+message Series {
+  uint32 id = 1;
+  string uuid = 2;
+  string title = 3;
+  string description = 4;
+  google.protobuf.Timestamp release_date = 5;
+  double rating = 6;
+  string status = 7;
+  
+  repeated Media episodes = 8;
+  repeated Season seasons = 9;
+  repeated Genre genres = 10;
+  
+  int32 total_seasons = 11;
+  int32 total_episodes = 12;
+  string poster_path = 13;
+  string backdrop_path = 14;
+  
+  google.protobuf.Timestamp created_at = 15;
+  google.protobuf.Timestamp updated_at = 16;
+}
+
+message Season {
+  uint32 id = 1;
+  uint32 series_id = 2;
+  Series series = 3;
+  int32 season_number = 4;
+  string title = 5;
+  string description = 6;
+  google.protobuf.Timestamp release_date = 7;
+  string poster_path = 8;
+  
+  repeated Media episodes = 9;
+  int32 episode_count = 10;
+  
+  google.protobuf.Timestamp created_at = 11;
+  google.protobuf.Timestamp updated_at = 12;
+}
+
+message Subtitle {
+  uint32 id = 1;
+  uint32 media_id = 2;
+  string language = 3;
+  string file_path = 4;
+  string format = 5;
+  google.protobuf.Timestamp created_at = 6;
+  google.protobuf.Timestamp updated_at = 7;
+}
+
+// Request/Response messages
+message GetMediaRequest {
+  string uuid = 1;
+}
+
+message GetAllMediaRequest {
+  int32 limit = 1;
+  int32 offset = 2;
+  string genre = 3;
+  string type = 4;
+}
+
+message GetAllMediaResponse {
+  repeated Media media = 1;
+  int32 total = 2;
+  int32 limit = 3;
+  int32 offset = 4;
+}
+
+message SearchMediaRequest {
+  string query = 1;
+  string type = 2;
+  string genre = 3;
+  int32 year = 4;
+  int32 limit = 5;
+}
+
+message SearchMediaResponse {
+  repeated Media results = 1;
+  int32 total = 2;
+  string query = 3;
+}
+
+message GetMediaByGenreRequest {
+  string genre = 1;
+  int32 limit = 2;
+  int32 offset = 3;
+}
+
+message GetSeriesRequest {
+  string uuid = 1;
+}
+
+message GetSeasonsBySeriesRequest {
+  string series_uuid = 1;
+}
+
+message GetEpisodesBySeriesAndSeasonRequest {
+  string series_uuid = 1;
+  int32 season_number = 2;
+}
+
+// Media Service Definition
+service MediaService {
+  // Basic CRUD
+  rpc GetMedia(GetMediaRequest) returns (Media);
+  rpc GetAllMedia(GetAllMediaRequest) returns (GetAllMediaResponse);
+  rpc GetMovies(GetAllMediaRequest) returns (GetAllMediaResponse);
+  rpc GetTVShows(GetAllMediaRequest) returns (GetAllMediaResponse);
+  rpc SearchMedia(SearchMediaRequest) returns (SearchMediaResponse);
+  rpc GetMediaByGenre(GetMediaByGenreRequest) returns (GetAllMediaResponse);
+  
+  // Series and Seasons
+  rpc GetAllSeries(google.protobuf.Empty) returns (stream Series);
+  rpc GetSeries(GetSeriesRequest) returns (Series);
+  rpc GetSeasonsBySeries(GetSeasonsBySeriesRequest) returns (stream Season);
+  rpc GetEpisodesBySeriesAndSeason(GetEpisodesBySeriesAndSeasonRequest) returns (stream Media);
+  
+  // Real-time updates
+  rpc WatchMediaUpdates(google.protobuf.Empty) returns (stream Media);
+  rpc WatchLibraryChanges(google.protobuf.Empty) returns (stream LibraryUpdate);
+}
+
+message LibraryUpdate {
+  enum UpdateType {
+    ADDED = 0;
+    UPDATED = 1;
+    DELETED = 2;
+  }
+  UpdateType type = 1;
+  Media media = 2;
+  google.protobuf.Timestamp timestamp = 3;
+}

@@ -2188,7 +2188,7 @@ func (s *MediaScanner) findMediaByFilename(filename string) (*models.Media, erro
 		"/mnt/usb/" + filename,
 		"/home/media/" + filename,
 		"/media/" + filename,
-		"/Volumes/" + filename, // macOS
+		"/Volumes/Movies" + filename, // macOS
 	}
 
 	for _, oldPath := range oldPaths {
@@ -4033,7 +4033,7 @@ func (s *MediaScanner) resolveMediaPath(media *models.Media) string {
 		{"/mnt/usb/", s.GetMediaPath() + "/"},
 		{"/home/media/", s.GetMediaPath() + "/"},
 		{"/media/", s.GetMediaPath() + "/"},
-		{"/Volumes/", s.GetMediaPath() + "/"},
+		{"/Volumes/Movies", s.GetMediaPath() + "/"},
 	}
 
 	for _, transform := range commonTransformations {

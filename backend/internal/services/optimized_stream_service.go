@@ -370,11 +370,11 @@ func (pool *IOWorkerPool) readFileChunk(filePath string, offset, size int64) ([]
 	}
 	defer file.Close()
 
-	// Enable direct I/O for large reads
+	// Enable direct I/O for large reads (Linux only)
 	if size > 1024*1024 { // > 1MB
 		if fd := int(file.Fd()); fd > 0 {
-			// Set O_DIRECT flag for bypassing page cache
-			syscall.Syscall(syscall.SYS_FCNTL, uintptr(fd), syscall.F_SETFL, syscall.O_DIRECT)
+			// Note: O_DIRECT is Linux-specific, skip on macOS
+			// syscall.Syscall(syscall.SYS_FCNTL, uintptr(fd), syscall.F_SETFL, syscall.O_DIRECT)
 		}
 	}
 
@@ -550,31 +550,30 @@ func (s *NetflixStreamService) StreamVideo(w http.ResponseWriter, r *http.Reques
 func (s *NetflixStreamService) Stream(w http.ResponseWriter, r *http.Request, filePath string) error {
 	fileExt := strings.ToLower(filepath.Ext(filePath))
 
-	// Check if MKV file needs audio transcoding (aggressive check)
-	if fileExt == ".mkv" {
-		audioInfo, err := s.audioTranscoder.analyzeAudioCodec(filePath)
-		if err != nil {
-			log.Printf("⚠️ Audio analysis failed for %s: %v", filepath.Base(filePath), err)
-		} else if !audioInfo.Compatible {
-			log.Printf("🔄 MKV audio transcoding needed for %s (codec: %s)", filepath.Base(filePath), audioInfo.Codec)
+	// AGGRESSIVE audio compatibility check for ALL video files
+	log.Printf("🔍 Analyzing audio compatibility for %s", filepath.Base(filePath))
+	audioInfo, err := s.audioTranscoder.analyzeAudioCodec(filePath)
+	
+	if err != nil {
+		log.Printf("⚠️ Audio analysis failed for %s: %v - attempting direct stream", filepath.Base(filePath), err)
+		// Continue with direct streaming if analysis fails
+	} else {
+		log.Printf("🎵 Audio codec detected: %s (compatible: %v)", audioInfo.Codec, audioInfo.Compatible)
+		
+		// Force transcoding for known problematic codecs
+		if !audioInfo.Compatible || s.shouldForceTranscode(audioInfo.Codec) {
+			log.Printf("🔄 Audio transcoding required for %s (codec: %s)", filepath.Base(filePath), audioInfo.Codec)
+			return s.streamWithAudioTranscoding(w, r, filePath, audioInfo)
+		}
+		
+		// Additional check for MKV files - they often have audio issues
+		if fileExt == ".mkv" && s.isMKVAudioProblematic(audioInfo) {
+			log.Printf("🔄 MKV audio transcoding forced for %s (codec: %s)", filepath.Base(filePath), audioInfo.Codec)
 			return s.streamWithAudioTranscoding(w, r, filePath, audioInfo)
 		}
 	}
 
-	// Optional check for MP4 files with potentially incompatible audio (less aggressive)
-	if fileExt == ".mp4" || fileExt == ".m4v" {
-		audioInfo, err := s.audioTranscoder.analyzeAudioCodec(filePath)
-		if err != nil {
-			log.Printf("⚠️ Audio analysis failed for MP4 %s: %v (continuing with direct stream)", filepath.Base(filePath), err)
-		} else if !audioInfo.Compatible {
-			log.Printf("🔄 MP4 audio transcoding needed for %s (codec: %s)", filepath.Base(filePath), audioInfo.Codec)
-			return s.streamWithAudioTranscoding(w, r, filePath, audioInfo)
-		} else {
-			log.Printf("✅ MP4 audio compatible for %s (codec: %s)", filepath.Base(filePath), audioInfo.Codec)
-		}
-	}
-
-	// Ultra-fast I/O optimized streaming implementation
+	// NETFLIX-LEVEL instant streaming implementation for LAN
 	file, err := os.Open(filePath)
 	if err != nil {
 		return fmt.Errorf("failed to open file: %v", err)
@@ -588,22 +587,38 @@ func (s *NetflixStreamService) Stream(w http.ResponseWriter, r *http.Request, fi
 	}
 	fileSize := stat.Size()
 
-	// Set headers for streaming with proper MIME type
+	// Set OPTIMIZED headers for instant LAN streaming
 	contentType := utils.GetVideoContentType(filePath)
-	w.Header().Set("Content-Type", contentType)
-	w.Header().Set("Accept-Ranges", "bytes")
-	w.Header().Set("Content-Length", fmt.Sprintf("%d", fileSize))
+	headers := w.Header()
+	headers.Set("Content-Type", contentType)
+	headers.Set("Accept-Ranges", "bytes")
+	headers.Set("Content-Length", fmt.Sprintf("%d", fileSize))
+	headers.Set("Cache-Control", "public, max-age=86400, immutable") // 24h cache
+	headers.Set("ETag", fmt.Sprintf(`"%d-%d"`, fileSize, stat.ModTime().Unix()))
+	headers.Set("Last-Modified", stat.ModTime().UTC().Format(http.TimeFormat))
+	headers.Set("Connection", "keep-alive")
+	headers.Set("Keep-Alive", "timeout=300, max=1000") // Long keep-alive for LAN
+	headers.Set("Access-Control-Allow-Origin", "*")
+	headers.Set("Access-Control-Expose-Headers", "Content-Range, Accept-Ranges, Content-Length")
+	headers.Set("X-Content-Type-Options", "nosniff")
 
-	log.Printf("📺 Streaming %s with Content-Type: %s", filepath.Base(filePath), contentType)
+	log.Printf("📺 INSTANT LAN streaming %s (%s, %d MB)", filepath.Base(filePath), contentType, fileSize/(1024*1024))
 
-	// Handle range requests for seeking
-	rangeHeader := r.Header.Get("Range")
-	if rangeHeader != "" {
-		return s.handleRangeRequest(w, r, file, fileSize, rangeHeader)
+	// Check for conditional requests (304 Not Modified) for instant cache hits
+	etag := fmt.Sprintf(`"%d-%d"`, fileSize, stat.ModTime().Unix())
+	if checkNotModified(w, r, stat.ModTime(), etag) {
+		log.Printf("⚡ 304 Not Modified - INSTANT cache hit for %s", filepath.Base(filePath))
+		return nil
 	}
 
-	// Stream entire file with optimized I/O
-	return s.streamWithOptimizedIO(w, file, fileSize)
+	// Handle range requests with ZERO-COPY sendfile for instant seeking
+	rangeHeader := r.Header.Get("Range")
+	if rangeHeader != "" {
+		return s.handleRangeRequestInstantLAN(w, r, file, fileSize, rangeHeader)
+	}
+
+	// Stream entire file with NETFLIX-LEVEL optimization for LAN
+	return s.streamWithNetflixOptimization(w, file, fileSize)
 }
 
 func (s *NetflixStreamService) handleRangeRequest(w http.ResponseWriter, r *http.Request, file *os.File, fileSize int64, rangeHeader string) error {
@@ -629,30 +644,261 @@ func (s *NetflixStreamService) handleRangeRequest(w http.ResponseWriter, r *http
 	return err
 }
 
-func (s *NetflixStreamService) streamWithOptimizedIO(w http.ResponseWriter, file *os.File, fileSize int64) error {
-	// Use largest buffer for maximum throughput
-	buffer := s.bufferPool.Get(s.segmentSize)
-	defer s.bufferPool.Put(buffer)
+// streamWithNetflixOptimization - Netflix-level streaming optimization for LAN
+func (s *NetflixStreamService) streamWithNetflixOptimization(w http.ResponseWriter, file *os.File, fileSize int64) error {
+	// Try ZERO-COPY sendfile first for maximum LAN performance
+	if s.enableSendfile && fileSize > 1024*1024 { // Use sendfile for files > 1MB
+		if err := s.streamWithSendfileZeroCopy(w, file, fileSize); err == nil {
+			return nil
+		}
+		log.Printf("⚠️ Sendfile failed, falling back to optimized I/O")
+	}
 
-	// Enable TCP_NODELAY for low latency
-	if conn, ok := w.(http.Hijacker); ok {
-		if netConn, _, err := conn.Hijack(); err == nil {
-			defer netConn.Close()
-			if tcpConn, ok := netConn.(*net.TCPConn); ok {
-				tcpConn.SetNoDelay(true)
+	// Fallback to ultra-optimized I/O streaming
+	return s.streamWithUltraOptimizedIO(w, file, fileSize)
+}
+
+// streamWithSendfileZeroCopy - Zero-copy sendfile for instant LAN streaming
+func (s *NetflixStreamService) streamWithSendfileZeroCopy(w http.ResponseWriter, file *os.File, fileSize int64) error {
+	// Try to hijack connection for direct sendfile
+	hijacker, ok := w.(http.Hijacker)
+	if !ok {
+		return fmt.Errorf("connection hijacking not supported")
+	}
+
+	conn, _, err := hijacker.Hijack()
+	if err != nil {
+		return fmt.Errorf("failed to hijack connection: %v", err)
+	}
+	defer conn.Close()
+
+	// ULTRA-OPTIMIZE TCP connection for LAN streaming
+	if tcpConn, ok := conn.(*net.TCPConn); ok {
+		tcpConn.SetNoDelay(true)                        // Disable Nagle's algorithm
+		tcpConn.SetWriteBuffer(32 * 1024 * 1024)        // 32MB write buffer for LAN
+		tcpConn.SetReadBuffer(1024 * 1024)              // 1MB read buffer
+		tcpConn.SetKeepAlive(true)                      // Keep connection alive
+		tcpConn.SetKeepAlivePeriod(30 * time.Second)    // 30s keep-alive
+	}
+
+	// Write HTTP response headers manually for hijacked connection
+	headers := fmt.Sprintf("HTTP/1.1 200 OK\r\n"+
+		"Content-Type: %s\r\n"+
+		"Content-Length: %d\r\n"+
+		"Accept-Ranges: bytes\r\n"+
+		"Cache-Control: public, max-age=86400, immutable\r\n"+
+		"Connection: keep-alive\r\n"+
+		"Access-Control-Allow-Origin: *\r\n"+
+		"\r\n", utils.GetVideoContentType(file.Name()), fileSize)
+
+	if _, err := conn.Write([]byte(headers)); err != nil {
+		return fmt.Errorf("failed to write headers: %v", err)
+	}
+
+	// Use sendfile for ZERO-COPY transfer (kernel-level optimization)
+	if tcpConn, ok := conn.(*net.TCPConn); ok {
+		tcpFile, err := tcpConn.File()
+		if err == nil {
+			defer tcpFile.Close()
+			
+			// Direct sendfile syscall for maximum LAN performance
+			written, err := syscall.Sendfile(int(tcpFile.Fd()), int(file.Fd()), nil, int(fileSize))
+			if err == nil && int64(written) == fileSize {
+				log.Printf("⚡ ZERO-COPY sendfile: %d MB in LAN speed", fileSize/(1024*1024))
+				return nil
 			}
 		}
 	}
 
-	// Stream with optimized copy
+	return fmt.Errorf("sendfile zero-copy failed")
+}
+
+// streamWithUltraOptimizedIO - Ultra-optimized I/O for LAN streaming
+func (s *NetflixStreamService) streamWithUltraOptimizedIO(w http.ResponseWriter, file *os.File, fileSize int64) error {
+	// Use MAXIMUM buffer size for LAN streaming
+	buffer := s.bufferPool.Get(s.segmentSize) // 16MB buffer
+	defer s.bufferPool.Put(buffer)
+
+	// Try to hijack connection for direct socket optimization
+	if hijacker, ok := w.(http.Hijacker); ok {
+		if netConn, _, err := hijacker.Hijack(); err == nil {
+			defer netConn.Close()
+			
+			// ULTRA-OPTIMIZE TCP for LAN
+			if tcpConn, ok := netConn.(*net.TCPConn); ok {
+				tcpConn.SetNoDelay(true)                        // Instant send
+				tcpConn.SetWriteBuffer(32 * 1024 * 1024)        // 32MB write buffer
+				tcpConn.SetReadBuffer(1024 * 1024)              // 1MB read buffer
+				tcpConn.SetKeepAlive(true)
+				tcpConn.SetKeepAlivePeriod(30 * time.Second)
+			}
+
+			// Write headers manually
+			headers := fmt.Sprintf("HTTP/1.1 200 OK\r\n"+
+				"Content-Type: %s\r\n"+
+				"Content-Length: %d\r\n"+
+				"Accept-Ranges: bytes\r\n"+
+				"Cache-Control: public, max-age=86400, immutable\r\n"+
+				"Connection: keep-alive\r\n"+
+				"Access-Control-Allow-Origin: *\r\n"+
+				"\r\n", utils.GetVideoContentType(file.Name()), fileSize)
+
+			netConn.Write([]byte(headers))
+
+			// Stream directly to socket with maximum buffer
+			_, err = io.CopyBuffer(netConn, file, buffer)
+			if err == nil {
+				log.Printf("🚀 Direct socket stream: %d MB at LAN speed", fileSize/(1024*1024))
+			}
+			return err
+		}
+	}
+
+	// Fallback to response writer with optimized buffer
 	_, err := io.CopyBuffer(w, file, buffer)
-	return err
+	if err != nil {
+		return fmt.Errorf("failed to stream with optimized I/O: %v", err)
+	}
+
+	log.Printf("🚀 Optimized I/O stream: %d MB", fileSize/(1024*1024))
+	return nil
+}
+
+// handleRangeRequestInstantLAN - Instant range request handling for LAN
+func (s *NetflixStreamService) handleRangeRequestInstantLAN(w http.ResponseWriter, r *http.Request, file *os.File, fileSize int64, rangeHeader string) error {
+	// Parse range header with minimal allocations
+	ranges, err := parseRangeHeader(rangeHeader, fileSize)
+	if err != nil {
+		w.WriteHeader(http.StatusRequestedRangeNotSatisfiable)
+		return fmt.Errorf("invalid range header: %v", err)
+	}
+
+	if len(ranges) != 1 {
+		return fmt.Errorf("multiple ranges not supported")
+	}
+
+	start, end := ranges[0].start, ranges[0].end
+	contentLength := end - start + 1
+
+	// Set range response headers efficiently
+	headers := w.Header()
+	headers.Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, fileSize))
+	headers.Set("Content-Length", fmt.Sprintf("%d", contentLength))
+	headers.Set("Cache-Control", "public, max-age=86400, immutable")
+	headers.Set("Access-Control-Allow-Origin", "*")
+	w.WriteHeader(http.StatusPartialContent)
+
+	// Try ZERO-COPY sendfile for range requests
+	if s.enableSendfile && contentLength > 512*1024 { // Use sendfile for ranges > 512KB
+		if err := s.streamRangeSendfileInstant(w, r, file, start, contentLength); err == nil {
+			return nil
+		}
+	}
+
+	// Fallback to optimized range streaming
+	if _, err := file.Seek(start, 0); err != nil {
+		return fmt.Errorf("failed to seek: %v", err)
+	}
+
+	// Use optimized buffer for range streaming
+	buffer := s.bufferPool.Get(s.segmentSize)
+	defer s.bufferPool.Put(buffer)
+
+	_, err = io.CopyBuffer(w, io.LimitReader(file, contentLength), buffer)
+	if err != nil {
+		return fmt.Errorf("failed to stream range: %v", err)
+	}
+
+	log.Printf("⚡ Range stream: %d-%d (%d KB) at LAN speed", start, end, contentLength/1024)
+	return nil
+}
+
+// streamRangeSendfileInstant - Instant sendfile for range requests
+func (s *NetflixStreamService) streamRangeSendfileInstant(w http.ResponseWriter, r *http.Request, file *os.File, offset, length int64) error {
+	hijacker, ok := w.(http.Hijacker)
+	if !ok {
+		return fmt.Errorf("connection hijacking not supported")
+	}
+
+	conn, _, err := hijacker.Hijack()
+	if err != nil {
+		return fmt.Errorf("failed to hijack connection: %v", err)
+	}
+	defer conn.Close()
+
+	// Optimize TCP connection for LAN
+	if tcpConn, ok := conn.(*net.TCPConn); ok {
+		tcpConn.SetNoDelay(true)
+		tcpConn.SetWriteBuffer(16 * 1024 * 1024) // 16MB write buffer
+	}
+
+	// Write partial content headers manually
+	headers := fmt.Sprintf("HTTP/1.1 206 Partial Content\r\n"+
+		"Content-Type: %s\r\n"+
+		"Content-Length: %d\r\n"+
+		"Content-Range: bytes %d-%d/%d\r\n"+
+		"Accept-Ranges: bytes\r\n"+
+		"Cache-Control: public, max-age=86400, immutable\r\n"+
+		"Access-Control-Allow-Origin: *\r\n"+
+		"Connection: keep-alive\r\n"+
+		"\r\n", utils.GetVideoContentType(file.Name()), length, offset, offset+length-1, length)
+
+	if _, err := conn.Write([]byte(headers)); err != nil {
+		return fmt.Errorf("failed to write range headers: %v", err)
+	}
+
+	// Use sendfile with offset for ZERO-COPY range streaming
+	if tcpConn, ok := conn.(*net.TCPConn); ok {
+		tcpFile, err := tcpConn.File()
+		if err == nil {
+			defer tcpFile.Close()
+			
+			offsetPtr := offset
+			written, err := syscall.Sendfile(int(tcpFile.Fd()), int(file.Fd()), &offsetPtr, int(length))
+			if err == nil && int64(written) == length {
+				log.Printf("⚡ ZERO-COPY range sendfile: %d KB at offset %d", length/1024, offset)
+				return nil
+			}
+		}
+	}
+
+	return fmt.Errorf("sendfile range failed")
 }
 
 func (s *NetflixStreamService) initializeCaches() {
 	// Initialize cache warming in background
-	log.Printf("🔥 Initializing ultra-fast I/O caches...")
-	// Cache warming logic would go here
+	log.Printf("🔥 Initializing NETFLIX-LEVEL I/O caches for instant LAN streaming...")
+	
+	// Start cache cleanup routines
+	go func() {
+		ticker := time.NewTicker(5 * time.Minute)
+		defer ticker.Stop()
+		
+		for range ticker.C {
+			s.l1Cache.Cleanup()
+		}
+	}()
+	
+	// Start L2 cache cleanup
+	go func() {
+		ticker := time.NewTicker(10 * time.Minute)
+		defer ticker.Stop()
+		
+		for range ticker.C {
+			s.l2Cache.Cleanup()
+		}
+	}()
+	
+	// Log system optimizations
+	log.Printf("🚀 LAN Streaming Optimizations:")
+	log.Printf("   • Zero-copy sendfile: %v", s.enableSendfile)
+	log.Printf("   • Direct I/O: %v", s.enableDirectIO)
+	log.Printf("   • TCP window: %d MB", s.tcpWindowSize/(1024*1024))
+	log.Printf("   • Segment size: %d MB", s.segmentSize/(1024*1024))
+	log.Printf("   • L1 cache: %d MB", s.l1Cache.maxSize/(1024*1024))
+	log.Printf("   • L2 cache: %d MB", s.l2Cache.maxSize/(1024*1024))
+	log.Printf("   • I/O workers: %d", s.ioWorkerPool.workers)
+	log.Printf("✅ Ready for INSTANT Netflix-level streaming over LAN!")
 }
 
 // Ultra-fast preview clip streaming methods
@@ -1377,73 +1623,138 @@ func (m *MKVIndexer) GetIndex(filePath string) *MKVIndex {
 // Audio transcoding methods for MKV compatibility
 
 func (at *AudioTranscoder) analyzeAudioCodec(filePath string) (*AudioInfo, error) {
-	// Use ffprobe to analyze audio codec
-	cmd := exec.Command("ffprobe", "-v", "quiet", "-print_format", "json", "-show_streams", "-select_streams", "a:0", filePath)
+	// Enhanced ffprobe command to get detailed audio info
+	cmd := exec.Command("ffprobe", 
+		"-v", "quiet", 
+		"-print_format", "json", 
+		"-show_streams", 
+		"-select_streams", "a", // Get ALL audio streams
+		"-show_entries", "stream=codec_name,channels,sample_rate,bit_rate,channel_layout",
+		filePath)
+	
 	output, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("ffprobe failed: %v", err)
 	}
 
 	audioInfo := &AudioInfo{}
-
-	// Parse ffprobe output to extract codec info
 	outputStr := string(output)
-	if strings.Contains(outputStr, `"codec_name"`) {
-		// Extract codec name from JSON output
+
+	// Parse JSON output more robustly
+	if strings.Contains(outputStr, `"streams"`) {
+		// Find first audio stream
 		lines := strings.Split(outputStr, "\n")
+		inAudioStream := false
+		
 		for _, line := range lines {
-			if strings.Contains(line, `"codec_name"`) {
-				parts := strings.Split(line, `"`)
-				if len(parts) >= 4 {
-					audioInfo.Codec = parts[3]
+			line = strings.TrimSpace(line)
+			
+			if strings.Contains(line, `"codec_type": "audio"`) {
+				inAudioStream = true
+				continue
+			}
+			
+			if inAudioStream {
+				if strings.Contains(line, `"codec_name"`) {
+					parts := strings.Split(line, `"`)
+					if len(parts) >= 4 {
+						audioInfo.Codec = strings.ToLower(parts[3])
+					}
+				} else if strings.Contains(line, `"channels"`) {
+					parts := strings.Split(line, ":")
+					if len(parts) >= 2 {
+						channelStr := strings.TrimSpace(strings.Trim(parts[1], ","))
+						if channels, err := strconv.Atoi(channelStr); err == nil {
+							audioInfo.Channels = channels
+						}
+					}
+				} else if strings.Contains(line, `"sample_rate"`) {
+					parts := strings.Split(line, `"`)
+					if len(parts) >= 4 {
+						if sampleRate, err := strconv.Atoi(parts[3]); err == nil {
+							audioInfo.SampleRate = sampleRate
+						}
+					}
+				} else if strings.Contains(line, `}`) && inAudioStream {
+					break // End of audio stream object
 				}
-				break
 			}
 		}
 	}
 
-	// Check if codec is browser-compatible
+	// Fallback: try to extract codec from filename if ffprobe parsing failed
+	if audioInfo.Codec == "" {
+		log.Printf("⚠️ Failed to parse ffprobe JSON, trying alternative method")
+		// Try simpler ffprobe command
+		simpleCmd := exec.Command("ffprobe", "-v", "error", "-select_streams", "a:0", 
+			"-show_entries", "stream=codec_name", "-of", "csv=p=0", filePath)
+		if simpleOutput, err := simpleCmd.Output(); err == nil {
+			audioInfo.Codec = strings.TrimSpace(strings.ToLower(string(simpleOutput)))
+		}
+	}
+
+	// Set defaults if not detected
+	if audioInfo.Channels == 0 {
+		audioInfo.Channels = 2 // Assume stereo
+	}
+	if audioInfo.SampleRate == 0 {
+		audioInfo.SampleRate = 48000 // Assume 48kHz
+	}
+
+	// Check compatibility
 	audioInfo.Compatible = at.isCodecCompatible(audioInfo.Codec)
 
-	log.Printf("🎵 Audio analysis for %s: codec=%s, compatible=%v", filepath.Base(filePath), audioInfo.Codec, audioInfo.Compatible)
+	log.Printf("🎵 Audio analysis for %s: codec=%s, channels=%d, sample_rate=%d, compatible=%v", 
+		filepath.Base(filePath), audioInfo.Codec, audioInfo.Channels, audioInfo.SampleRate, audioInfo.Compatible)
 
 	return audioInfo, nil
 }
 
 func (at *AudioTranscoder) isCodecCompatible(codec string) bool {
-	// Browser-compatible audio codecs
-	compatibleCodecs := map[string]bool{
-		"aac":       true,
-		"mp3":       true,
-		"opus":      true,
-		"vorbis":    true,
-		"pcm_s16le": true,
-		"pcm_s24le": true,
-	}
-
-	// Incompatible codecs that need transcoding
-	incompatibleCodecs := map[string]bool{
-		"dts":       false,
-		"truehd":    false,
-		"flac":      false,
-		"ac3":       false,
-		"eac3":      false,
-		"dca":       false,
-		"mlp":       false,
-		"pcm_s32le": false,
-	}
-
 	codec = strings.ToLower(codec)
+	
+	// STRICT browser-compatible audio codecs (guaranteed to work)
+	strictlyCompatible := map[string]bool{
+		"aac":    true,  // AAC - most compatible
+		"mp3":    true,  // MP3 - universal support
+		"opus":   true,  // Opus - modern browsers
+	}
 
-	if compatible, exists := compatibleCodecs[codec]; exists {
+	// PROBLEMATIC codecs that ALWAYS need transcoding
+	problematicCodecs := map[string]bool{
+		"dts":        false, // DTS - never works in browsers
+		"truehd":     false, // TrueHD - never works
+		"flac":       false, // FLAC - limited browser support
+		"ac3":        false, // AC3 - often muted in browsers
+		"eac3":       false, // E-AC3 - often muted
+		"dca":        false, // DCA - never works
+		"mlp":        false, // MLP - never works
+		"pcm_s32le":  false, // 32-bit PCM - often problematic
+		"pcm_s24le":  false, // 24-bit PCM - often problematic
+		"pcm_f32le":  false, // Float PCM - problematic
+		"pcm_f64le":  false, // Double PCM - problematic
+		"vorbis":     false, // Vorbis - inconsistent in MP4/MKV
+		"pcm_s16le":  false, // Even 16-bit PCM can be problematic in containers
+		"wmav2":      false, // Windows Media Audio
+		"wmapro":     false, // WMA Pro
+		"alac":       false, // ALAC - limited browser support
+		"ape":        false, // Monkey's Audio
+		"wavpack":    false, // WavPack
+	}
+
+	// Check strictly compatible first
+	if compatible, exists := strictlyCompatible[codec]; exists {
 		return compatible
 	}
 
-	if incompatible, exists := incompatibleCodecs[codec]; exists {
-		return incompatible
+	// Check problematic codecs
+	if problematic, exists := problematicCodecs[codec]; exists {
+		return problematic
 	}
 
-	// Default to incompatible for unknown codecs
+	// CONSERVATIVE: Default to incompatible for unknown codecs
+	// This ensures audio always works by transcoding unknown codecs
+	log.Printf("⚠️ Unknown audio codec '%s' - defaulting to transcoding for safety", codec)
 	return false
 }
 
@@ -1454,30 +1765,55 @@ func (s *NetflixStreamService) streamWithAudioTranscoding(w http.ResponseWriter,
 		return s.streamTranscodedFile(w, r, transcoded.transcodedPath)
 	}
 
-	// Real-time transcoding with FFmpeg
-	log.Printf("🔄 Starting real-time audio transcoding for %s", filepath.Base(filePath))
+	// Real-time transcoding with FFmpeg - OPTIMIZED for instant LAN streaming
+	log.Printf("🔄 Starting INSTANT audio transcoding for %s (codec: %s)", filepath.Base(filePath), audioInfo.Codec)
 
-	// Set headers for streaming
-	w.Header().Set("Content-Type", "video/mp4") // Transcode to MP4 container
+	// Set headers for streaming with proper MIME type
+	contentType := utils.GetVideoContentType(filePath)
+	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Accept-Ranges", "bytes")
-	w.Header().Set("Cache-Control", "no-cache") // Don't cache transcoded streams
+	w.Header().Set("Cache-Control", "public, max-age=3600") // Cache for 1 hour
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("Transfer-Encoding", "chunked") // Enable chunked transfer
 
-	// Start FFmpeg transcoding process
-	cmd := exec.Command("ffmpeg",
+	// ULTRA-FAST FFmpeg transcoding optimized for LAN streaming
+	ffmpegArgs := []string{
 		"-i", filePath,
-		"-c:v", "copy", // Copy video stream as-is (no re-encoding)
-		"-c:a", "aac", // Transcode audio to AAC
-		"-b:a", "192k", // Audio bitrate
-		"-ac", "2", // Stereo output
-		"-f", "mp4", // MP4 container
-		"-movflags", "frag_keyframe+empty_moov+faststart", // Enable streaming
+		"-c:v", "copy", // Copy video stream (no re-encoding)
+		"-c:a", "aac",  // Transcode audio to AAC (most compatible)
+		"-b:a", "256k", // Higher audio bitrate for quality
+		"-ac", "2",     // Force stereo output
+		"-ar", "48000", // Standard sample rate
+		"-f", "mp4",    // MP4 container
+		"-movflags", "frag_keyframe+empty_moov+faststart+dash", // Optimized streaming flags
+		"-fflags", "+genpts+igndts", // Generate PTS and ignore DTS issues
+		"-avoid_negative_ts", "make_zero", // Fix timestamp issues
+		"-max_muxing_queue_size", "1024", // Large muxing queue
+		"-threads", "0", // Use all CPU cores
+		"-preset", "ultrafast", // Fastest encoding preset
+		"-tune", "zerolatency", // Zero latency tuning
 		"-", // Output to stdout
-	)
+	}
 
-	// Get stdout pipe for streaming
+	// Add specific fixes for problematic codecs
+	if audioInfo.Codec == "dts" || audioInfo.Codec == "truehd" || audioInfo.Codec == "ac3" {
+		// Add audio filters for problematic codecs
+		ffmpegArgs = append(ffmpegArgs[:len(ffmpegArgs)-1], 
+			"-af", "aresample=async=1:min_hard_comp=0.100000:first_pts=0", // Audio resampling
+			"-")
+	}
+
+	cmd := exec.Command("ffmpeg", ffmpegArgs...)
+
+	// Set up pipes
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return fmt.Errorf("failed to get stdout pipe: %v", err)
+	}
+
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return fmt.Errorf("failed to get stderr pipe: %v", err)
 	}
 
 	// Start the transcoding process
@@ -1485,12 +1821,53 @@ func (s *NetflixStreamService) streamWithAudioTranscoding(w http.ResponseWriter,
 		return fmt.Errorf("failed to start ffmpeg: %v", err)
 	}
 
-	// Stream transcoded output with optimized buffer
-	buffer := s.bufferPool.Get(s.segmentSize)
+	// Monitor FFmpeg stderr in background
+	go func() {
+		scanner := make([]byte, 1024)
+		for {
+			n, err := stderr.Read(scanner)
+			if err != nil {
+				break
+			}
+			if n > 0 {
+				log.Printf("🔧 FFmpeg: %s", string(scanner[:n]))
+			}
+		}
+	}()
+
+	// INSTANT streaming with optimized buffer
+	buffer := s.bufferPool.Get(s.segmentSize) // Use large buffer for LAN speed
 	defer s.bufferPool.Put(buffer)
 
-	// Copy transcoded stream to response
-	_, err = io.CopyBuffer(w, stdout, buffer)
+	// Enable TCP optimizations for LAN streaming
+	if conn, ok := w.(http.Hijacker); ok {
+		if netConn, _, err := conn.Hijack(); err == nil {
+			defer netConn.Close()
+			if tcpConn, ok := netConn.(*net.TCPConn); ok {
+				tcpConn.SetNoDelay(true)                        // Disable Nagle's algorithm
+				tcpConn.SetWriteBuffer(16 * 1024 * 1024)        // 16MB write buffer for LAN
+				tcpConn.SetKeepAlive(true)
+				tcpConn.SetKeepAlivePeriod(30 * time.Second)
+			}
+
+			// Write HTTP headers manually for hijacked connection
+			headers := fmt.Sprintf("HTTP/1.1 200 OK\r\n"+
+				"Content-Type: %s\r\n"+
+				"Cache-Control: public, max-age=3600\r\n"+
+				"Connection: keep-alive\r\n"+
+				"Transfer-Encoding: chunked\r\n"+
+				"Access-Control-Allow-Origin: *\r\n"+
+				"\r\n", contentType)
+
+			netConn.Write([]byte(headers))
+
+			// Stream transcoded output directly to socket
+			_, err = io.CopyBuffer(netConn, stdout, buffer)
+		}
+	} else {
+		// Fallback to response writer
+		_, err = io.CopyBuffer(w, stdout, buffer)
+	}
 
 	// Wait for FFmpeg to finish
 	cmd.Wait()
@@ -1500,7 +1877,7 @@ func (s *NetflixStreamService) streamWithAudioTranscoding(w http.ResponseWriter,
 		return err
 	}
 
-	log.Printf("✅ Successfully streamed transcoded audio for %s", filepath.Base(filePath))
+	log.Printf("✅ INSTANT transcoded stream completed for %s", filepath.Base(filePath))
 	return nil
 }
 
@@ -1531,7 +1908,41 @@ func (s *NetflixStreamService) streamTranscodedFile(w http.ResponseWriter, r *ht
 	}
 
 	// Stream with optimized I/O
-	return s.streamWithOptimizedIO(w, file, fileSize)
+	return s.streamWithNetflixOptimization(w, file, fileSize)
+}
+
+// shouldForceTranscode - Force transcoding for known problematic codecs
+func (s *NetflixStreamService) shouldForceTranscode(codec string) bool {
+	// Always transcode these codecs regardless of compatibility check
+	forceTranscodeCodecs := map[string]bool{
+		"dts":     true, // DTS always causes issues
+		"truehd":  true, // TrueHD never works in browsers
+		"ac3":     true, // AC3 often muted in browsers
+		"eac3":    true, // E-AC3 often muted
+		"flac":    true, // FLAC has limited browser support
+		"pcm_s24le": true, // 24-bit PCM often problematic
+		"pcm_s32le": true, // 32-bit PCM often problematic
+	}
+	
+	return forceTranscodeCodecs[strings.ToLower(codec)]
+}
+
+// isMKVAudioProblematic - Check if MKV audio needs special handling
+func (s *NetflixStreamService) isMKVAudioProblematic(audioInfo *AudioInfo) bool {
+	// MKV files with these codecs often have audio sync issues
+	problematicInMKV := map[string]bool{
+		"vorbis":    true, // Vorbis in MKV can be problematic
+		"pcm_s16le": true, // PCM in MKV often has issues
+		"opus":      true, // Opus in MKV not well supported
+	}
+	
+	// Also check for high channel counts that browsers can't handle
+	if audioInfo.Channels > 2 {
+		log.Printf("🔄 MKV has %d channels, forcing stereo transcode", audioInfo.Channels)
+		return true
+	}
+	
+	return problematicInMKV[strings.ToLower(audioInfo.Codec)]
 }
 
 func (at *AudioTranscoder) getFromCache(filePath string) *TranscodedAudio {

@@ -8,6 +8,7 @@ import (
 	"homeflix-backend/internal/api"
 	"homeflix-backend/internal/config"
 	"homeflix-backend/internal/database"
+	"homeflix-backend/internal/grpc"
 	"homeflix-backend/internal/scanner"
 	"homeflix-backend/internal/services"
 
@@ -136,13 +137,48 @@ func main() {
 	// Initialize API routes
 	api.SetupRoutes(r, mediaService, streamService, thumbnailService, userService, recommendationService, playbackService, geminiService, celeryService, alacService, tmdbService, mediaScanner, watcherService, redisCache, transcodeService)
 
-	// Start server
+	// Initialize and start gRPC server
+	log.Println("🚀 Initializing gRPC server...")
+	grpcServer := grpc.NewGRPCServer(
+		9090, // gRPC port
+		mediaService,
+		streamService,
+		thumbnailService,
+		userService,
+		recommendationService,
+		playbackService,
+		geminiService,
+		celeryService,
+		alacService,
+		tmdbService,
+		mediaScanner,
+		watcherService,
+		redisCache,
+		transcodeService,
+	)
+
+	// Register all gRPC services
+	grpcServer.RegisterServices()
+
+	// Start gRPC server in a goroutine
+	go func() {
+		log.Println("⚡ Starting gRPC server on port 9090...")
+		if err := grpcServer.Start(); err != nil {
+			log.Fatalf("Failed to start gRPC server: %v", err)
+		}
+	}()
+
+	// Start HTTP server
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8252"
 	}
 
-	log.Printf("Server starting on port %s", port)
-	log.Printf("Server accessible at http://0.0.0.0:%s", port)
+	log.Printf("🌐 Starting HTTP server on port %s", port)
+	log.Printf("✅ HomeFlix servers ready:")
+	log.Printf("   - HTTP API: http://0.0.0.0:%s", port)
+	log.Printf("   - gRPC Server: localhost:9090")
+	log.Printf("   - gRPC-Web Proxy: http://localhost:8253 (if running)")
+	
 	log.Fatal(r.Run("0.0.0.0:" + port))
 }

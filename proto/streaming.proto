@@ -1,0 +1,191 @@
+syntax = "proto3";
+
+package homeflix.streaming;
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/empty.proto";
+
+option go_package = "homeflix-backend/proto";
+
+// Streaming Service for video/audio content
+service StreamingService {
+  // Video streaming with chunked responses
+  rpc StreamVideo(StreamRequest) returns (stream StreamChunk);
+  
+  // Audio streaming (including ALAC)
+  rpc StreamAudio(StreamRequest) returns (stream StreamChunk);
+  
+  // Preview clips
+  rpc StreamPreviewClip(StreamRequest) returns (stream StreamChunk);
+  
+  // Subtitle streaming
+  rpc StreamSubtitles(SubtitleRequest) returns (stream SubtitleChunk);
+  
+  // Bidirectional streaming for playback control
+  rpc PlaybackSession(stream PlaybackCommand) returns (stream PlaybackStatus);
+  
+  // Real-time progress tracking
+  rpc TrackProgress(stream ProgressUpdate) returns (stream ProgressResponse);
+}
+
+message StreamRequest {
+  string media_uuid = 1;
+  string quality = 2; // "auto", "1080p", "720p", "480p", "360p"
+  string format = 3;  // "mp4", "hls", "dash"
+  int64 start_byte = 4;
+  int64 end_byte = 5;
+  bool alac_audio = 6; // Request ALAC audio track
+}
+
+message StreamChunk {
+  bytes data = 1;
+  int64 chunk_index = 2;
+  int64 total_chunks = 3;
+  string content_type = 4;
+  int64 total_size = 5;
+  StreamMetadata metadata = 6;
+}
+
+message StreamMetadata {
+  string codec = 1;
+  string resolution = 2;
+  int32 bitrate = 3;
+  int32 duration = 4;
+  double fps = 5;
+  AudioMetadata audio = 6;
+}
+
+message AudioMetadata {
+  string codec = 1;
+  int32 sample_rate = 2;
+  int32 channels = 3;
+  int32 bit_depth = 4;
+  bool spatial_audio = 5;
+  string layout = 6; // "stereo", "5.1", "7.1", "atmos"
+}
+
+message SubtitleRequest {
+  string media_uuid = 1;
+  string language = 2;
+  string format = 3; // "vtt", "srt", "ass"
+}
+
+message SubtitleChunk {
+  string content = 1;
+  string format = 2;
+  string language = 3;
+}
+
+// Bidirectional streaming messages
+message PlaybackCommand {
+  enum CommandType {
+    PLAY = 0;
+    PAUSE = 1;
+    SEEK = 2;
+    STOP = 3;
+    CHANGE_QUALITY = 4;
+    CHANGE_AUDIO_TRACK = 5;
+    CHANGE_SUBTITLE = 6;
+  }
+  
+  string session_id = 1;
+  string media_uuid = 2;
+  CommandType command = 3;
+  double seek_position = 4; // For SEEK command
+  string quality = 5;       // For CHANGE_QUALITY
+  string audio_track = 6;   // For CHANGE_AUDIO_TRACK
+  string subtitle_lang = 7; // For CHANGE_SUBTITLE
+  google.protobuf.Timestamp timestamp = 8;
+}
+
+message PlaybackStatus {
+  enum Status {
+    PLAYING = 0;
+    PAUSED = 1;
+    BUFFERING = 2;
+    ENDED = 3;
+    ERROR = 4;
+  }
+  
+  string session_id = 1;
+  string media_uuid = 2;
+  Status status = 3;
+  double current_position = 4;
+  double duration = 5;
+  double buffer_health = 6;
+  string current_quality = 7;
+  string error_message = 8;
+  google.protobuf.Timestamp timestamp = 9;
+}
+
+message ProgressUpdate {
+  string session_id = 1;
+  string media_uuid = 2;
+  string user_id = 3;
+  double progress = 4;        // 0.0 to 1.0
+  double current_time = 5;    // seconds
+  double duration = 6;        // seconds
+  bool completed = 7;
+  google.protobuf.Timestamp timestamp = 8;
+}
+
+message ProgressResponse {
+  string session_id = 1;
+  bool success = 2;
+  string message = 3;
+  google.protobuf.Timestamp timestamp = 4;
+}
+
+// ALAC Audio Service
+service ALACAudioService {
+  rpc GetALACAudio(ALACRequest) returns (stream StreamChunk);
+  rpc ExtractALACAudio(ExtractALACRequest) returns (ExtractALACResponse);
+  rpc GetALACMetadata(ALACRequest) returns (ALACMetadata);
+  rpc ConvertToSpatialAudio(SpatialAudioRequest) returns (SpatialAudioResponse);
+  rpc GetSupportedFormats(google.protobuf.Empty) returns (SupportedFormatsResponse);
+  rpc GetAudioFileInfo(ALACRequest) returns (ALACMetadata);
+}
+
+message ALACRequest {
+  string media_uuid = 1;
+}
+
+message ExtractALACRequest {
+  string media_uuid = 1;
+  string output_format = 2;
+  int32 quality = 3;
+}
+
+message ExtractALACResponse {
+  string task_id = 1;
+  string message = 2;
+  bool success = 3;
+}
+
+message ALACMetadata {
+  string format = 1;
+  int32 sample_rate = 2;
+  int32 bit_depth = 3;
+  int32 channels = 4;
+  double duration = 5;
+  int64 file_size = 6;
+  bool spatial_audio = 7;
+  string layout = 8;
+  int32 bitrate = 9;
+}
+
+message SpatialAudioRequest {
+  string media_uuid = 1;
+  string layout = 2; // "stereo", "5.1", "7.1", "7.1.4", "atmos"
+}
+
+message SpatialAudioResponse {
+  string task_id = 1;
+  string message = 2;
+  bool success = 3;
+}
+
+message SupportedFormatsResponse {
+  repeated string formats = 1;
+  repeated string codecs = 2;
+}
