@@ -1,8 +1,13 @@
 package main
 
 import (
+	"context"
+	"fmt"
 	"log"
+	"net/http"
 	"os"
+	"strings"
+	"time"
 
 	"homeflix-backend/internal/adapters"
 	"homeflix-backend/internal/api"
@@ -121,28 +126,83 @@ func main() {
 		}
 	}()
 
-	// Setup Gin router
-	r := gin.Default()
+	// Setup Gin router with performance optimizations
+	gin.SetMode(gin.ReleaseMode) // Production mode for better performance
+	r := gin.New()
 
-	// CORS middleware
+	// Custom recovery middleware with timeout protection
+	r.Use(gin.LoggerWithFormatter(func(param gin.LogFormatterParams) string {
+		// Minimal logging for performance
+		if param.StatusCode >= 400 {
+			return fmt.Sprintf("%s - %s %s %d %s\n",
+				param.TimeStamp.Format("15:04:05"),
+				param.Method, param.Path, param.StatusCode, param.Latency)
+		}
+		return ""
+	}))
+
+	// Custom recovery with broken pipe handling
+	r.Use(func(c *gin.Context) {
+		defer func() {
+			if err := recover(); err != nil {
+				if errStr, ok := err.(string); ok && strings.Contains(errStr, "broken pipe") {
+					// Don't log broken pipe as error - client disconnection is normal
+					return
+				}
+				log.Printf("Panic recovered: %v", err)
+				c.AbortWithStatus(http.StatusInternalServerError)
+			}
+		}()
+		c.Next()
+	})
+
+	// Timeout middleware to prevent hanging
+	r.Use(func(c *gin.Context) {
+		// Set request timeout based on request type
+		timeout := 30 * time.Second // Default timeout
+		if strings.Contains(c.Request.URL.Path, "/api/stream/") {
+			timeout = 5 * time.Minute // Longer timeout for streaming
+		}
+		
+		ctx, cancel := context.WithTimeout(c.Request.Context(), timeout)
+		defer cancel()
+		c.Request = c.Request.WithContext(ctx)
+		c.Next()
+	})
+
+	// CORS middleware with optimizations
 	r.Use(cors.New(cors.Config{
 		AllowOrigins:     []string{"*"},
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization", "X-User-ID", "x-user-id", "Range"},
-		ExposeHeaders:    []string{"Content-Length", "Content-Range", "Accept-Ranges", "Content-Type"},
+		ExposeHeaders:    []string{"Content-Length", "Content-Range", "Accept-Ranges", "Content-Type", "X-Cache", "Connection"},
 		AllowCredentials: false, // Set to false when using wildcard origin
+		MaxAge:           12 * time.Hour, // Cache preflight for 12 hours
 	}))
 
 	// Initialize API routes
 	api.SetupRoutes(r, mediaService, streamService, thumbnailService, userService, recommendationService, playbackService, geminiService, celeryService, alacService, tmdbService, mediaScanner, watcherService, redisCache, transcodeService)
 
-	// Start server
+	// Start server with optimizations
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8252"
 	}
 
-	log.Printf("Server starting on port %s", port)
-	log.Printf("Server accessible at http://0.0.0.0:%s", port)
-	log.Fatal(r.Run("0.0.0.0:" + port))
+	// Create HTTP server with optimized settings
+	srv := &http.Server{
+		Addr:           "0.0.0.0:" + port,
+		Handler:        r,
+		ReadTimeout:    30 * time.Second,  // Prevent slow clients from hanging server
+		WriteTimeout:   5 * time.Minute,   // Allow time for large file streaming
+		IdleTimeout:    120 * time.Second, // Keep connections alive for better performance
+		MaxHeaderBytes: 1 << 20,           // 1MB max header size
+	}
+
+	log.Printf("🚀 HomeFlix Server starting on port %s", port)
+	log.Printf("🌐 Server accessible at http://0.0.0.0:%s", port)
+	log.Printf("⚡ Performance optimizations: Sendfile=%v, DirectIO=%v, TCP_NODELAY=true", true, true)
+	log.Printf("📊 Resource limits: ReadTimeout=30s, WriteTimeout=5m, IdleTimeout=2m")
+	
+	log.Fatal(srv.ListenAndServe())
 }

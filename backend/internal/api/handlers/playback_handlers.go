@@ -76,6 +76,12 @@ func UpdatePlaybackProgress(playbackService *services.PlaybackService) gin.Handl
 			return
 		}
 
+		// Add to recently watched when progress is updated
+		if err := playbackService.AddToRecentlyWatched(userID, req.MediaID); err != nil {
+			// Log error but don't fail the request since progress was already saved
+			fmt.Printf("Warning: Failed to add to recently watched for user %s, media %d: %v\n", userID, req.MediaID, err)
+		}
+
 		c.JSON(http.StatusOK, gin.H{"message": "Progress updated successfully"})
 	}
 }

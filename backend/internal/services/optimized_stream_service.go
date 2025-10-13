@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"log"
@@ -270,10 +271,10 @@ func NewNetflixStreamService(alacService *ALACAudioService) *NetflixStreamServic
 	cpuCores := runtime.NumCPU()
 	totalMemory := getTotalMemory()
 
-	// Ultra-aggressive configuration for maximum I/O performance
-	segmentSize := int64(16 * 1024 * 1024)         // 16MB segments for ultra-fast I/O
-	maxBufferSize := int64(4 * 1024 * 1024 * 1024) // 4GB buffer for massive files
-	cacheSize := int64(8 * 1024 * 1024 * 1024)     // 8GB cache for instant access
+	// NETFLIX-LEVEL ULTRA-AGGRESSIVE CONFIGURATION
+	segmentSize := int64(64 * 1024 * 1024)         // 64MB segments for Netflix-level I/O
+	maxBufferSize := int64(8 * 1024 * 1024 * 1024) // 8GB buffer for massive files
+	cacheSize := int64(16 * 1024 * 1024 * 1024)    // 16GB cache for instant access
 
 	service := &NetflixStreamService{
 		segmentSize:      segmentSize,
@@ -290,7 +291,7 @@ func NewNetflixStreamService(alacService *ALACAudioService) *NetflixStreamServic
 		adaptiveBitrate:  newAdaptiveBitrate(),
 		activeSessions:   make(map[string]*NetflixSession),
 		tcpWindowSize:    4 * 1024 * 1024, // 4MB TCP window for high throughput
-		enableSendfile:   true,
+		enableSendfile:   false, // DISABLED: Prevents hijacking errors
 		enableDirectIO:   true, // Bypass page cache for large files
 		enableReadahead:  true, // Kernel readahead optimization
 		cpuCores:         cpuCores,
@@ -305,8 +306,8 @@ func NewNetflixStreamService(alacService *ALACAudioService) *NetflixStreamServic
 
 	go service.initializeCaches()
 
-	log.Printf("🚀 Netflix Instant Stream Service Ready | CPU:%d | RAM:%dGB | Sendfile:%v",
-		cpuCores, totalMemory/(1024*1024*1024), service.enableSendfile)
+	log.Printf("🚀 Netflix Instant Stream Service Ready | CPU:%d | RAM:%dGB | SafeStreaming:enabled",
+		cpuCores, totalMemory/(1024*1024*1024))
 
 	return service
 }
@@ -443,27 +444,27 @@ func newBufferPool() *BufferPool {
 	return &BufferPool{
 		tiny: sync.Pool{
 			New: func() interface{} {
-				return make([]byte, 64*1024) // 64KB for metadata
+				return make([]byte, 256*1024) // 256KB for metadata (Netflix-level)
 			},
 		},
 		small: sync.Pool{
 			New: func() interface{} {
-				return make([]byte, 512*1024) // 512KB for standard streaming
+				return make([]byte, 2*1024*1024) // 2MB for standard streaming
 			},
 		},
 		medium: sync.Pool{
 			New: func() interface{} {
-				return make([]byte, 4*1024*1024) // 4MB for HD streaming
+				return make([]byte, 16*1024*1024) // 16MB for HD streaming
 			},
 		},
 		large: sync.Pool{
 			New: func() interface{} {
-				return make([]byte, 16*1024*1024) // 16MB for 4K streaming
+				return make([]byte, 64*1024*1024) // 64MB for 4K streaming
 			},
 		},
 		xlarge: sync.Pool{
 			New: func() interface{} {
-				return make([]byte, 64*1024*1024) // 64MB for ultra-high bitrate
+				return make([]byte, 256*1024*1024) // 256MB for Netflix-level ultra-high bitrate
 			},
 		},
 	}
@@ -472,31 +473,31 @@ func newBufferPool() *BufferPool {
 // ...
 
 func (bp *BufferPool) Get(size int64) []byte {
-	if size <= 64*1024 {
+	if size <= 256*1024 {
 		return bp.tiny.Get().([]byte)
-	} else if size <= 512*1024 {
+	} else if size <= 2*1024*1024 {
 		return bp.small.Get().([]byte)
-	} else if size <= 4*1024*1024 {
-		return bp.medium.Get().([]byte)
 	} else if size <= 16*1024*1024 {
+		return bp.medium.Get().([]byte)
+	} else if size <= 64*1024*1024 {
 		return bp.large.Get().([]byte)
 	} else {
-		return bp.xlarge.Get().([]byte)
+		return bp.xlarge.Get().([]byte) // Netflix-level 256MB buffer
 	}
 }
 
 func (bp *BufferPool) Put(buf []byte) {
 	switch cap(buf) {
-	case 64 * 1024:
+	case 256 * 1024:
 		bp.tiny.Put(buf)
-	case 512 * 1024:
+	case 2 * 1024 * 1024:
 		bp.small.Put(buf)
-	case 4 * 1024 * 1024:
-		bp.medium.Put(buf)
 	case 16 * 1024 * 1024:
-		bp.large.Put(buf)
+		bp.medium.Put(buf)
 	case 64 * 1024 * 1024:
-		bp.xlarge.Put(buf)
+		bp.large.Put(buf)
+	case 256 * 1024 * 1024:
+		bp.xlarge.Put(buf) // Netflix-level 256MB buffer
 	}
 }
 
@@ -548,6 +549,8 @@ func (s *NetflixStreamService) StreamVideo(w http.ResponseWriter, r *http.Reques
 }
 
 func (s *NetflixStreamService) Stream(w http.ResponseWriter, r *http.Request, filePath string) error {
+	log.Printf("📹 Direct streaming: %s (browser-compatible format)", filePath)
+	
 	fileExt := strings.ToLower(filepath.Ext(filePath))
 
 	// Check if MKV file needs audio transcoding (aggressive check)
@@ -574,7 +577,7 @@ func (s *NetflixStreamService) Stream(w http.ResponseWriter, r *http.Request, fi
 		}
 	}
 
-	// Ultra-fast I/O optimized streaming implementation
+	// SAFE STREAMING: Open file and stream without hijacking
 	file, err := os.Open(filePath)
 	if err != nil {
 		return fmt.Errorf("failed to open file: %v", err)
@@ -593,6 +596,8 @@ func (s *NetflixStreamService) Stream(w http.ResponseWriter, r *http.Request, fi
 	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Accept-Ranges", "bytes")
 	w.Header().Set("Content-Length", fmt.Sprintf("%d", fileSize))
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("Keep-Alive", "timeout=300, max=1000")
 
 	log.Printf("📺 Streaming %s with Content-Type: %s", filepath.Base(filePath), contentType)
 
@@ -602,57 +607,300 @@ func (s *NetflixStreamService) Stream(w http.ResponseWriter, r *http.Request, fi
 		return s.handleRangeRequest(w, r, file, fileSize, rangeHeader)
 	}
 
-	// Stream entire file with optimized I/O
+	// Stream entire file with SAFE optimized I/O (no hijacking)
 	return s.streamWithOptimizedIO(w, file, fileSize)
 }
 
 func (s *NetflixStreamService) handleRangeRequest(w http.ResponseWriter, r *http.Request, file *os.File, fileSize int64, rangeHeader string) error {
-	// Parse range header (simplified)
-	var start, end int64 = 0, fileSize - 1
+	// Parse range header with timeout protection
+	ctx := r.Context()
+	select {
+	case <-ctx.Done():
+		return fmt.Errorf("request cancelled")
+	default:
+	}
 
-	// Set partial content headers
+	ranges, err := parseRangeHeader(rangeHeader, fileSize)
+	if err != nil {
+		w.WriteHeader(http.StatusRequestedRangeNotSatisfiable)
+		w.Header().Set("Content-Range", fmt.Sprintf("bytes */%d", fileSize))
+		return fmt.Errorf("invalid range header: %v", err)
+	}
+
+	if len(ranges) != 1 {
+		w.WriteHeader(http.StatusRequestedRangeNotSatisfiable)
+		w.Header().Set("Content-Range", fmt.Sprintf("bytes */%d", fileSize))
+		return fmt.Errorf("multiple ranges not supported")
+	}
+
+	// Get the single range
+	start, end := ranges[0].start, ranges[0].end
+	contentLength := end - start + 1
+
+	// Validate range bounds
+	if start < 0 || start >= fileSize || end >= fileSize || start > end {
+		w.WriteHeader(http.StatusRequestedRangeNotSatisfiable)
+		w.Header().Set("Content-Range", fmt.Sprintf("bytes */%d", fileSize))
+		return fmt.Errorf("invalid range bounds: %d-%d for file size %d", start, end, fileSize)
+	}
+
+	// Set partial content headers with connection management
 	w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, fileSize))
-	w.Header().Set("Content-Length", fmt.Sprintf("%d", end-start+1))
+	w.Header().Set("Content-Length", fmt.Sprintf("%d", contentLength))
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("Keep-Alive", "timeout=30, max=100")
 	w.WriteHeader(http.StatusPartialContent)
 
 	// Seek to start position
-	_, err := file.Seek(start, 0)
+	_, err = file.Seek(start, 0)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to seek to position %d: %v", start, err)
 	}
 
-	// Stream range with optimized buffer
-	buffer := s.bufferPool.Get(s.segmentSize)
+	// Use optimized buffer size based on range size
+	bufferSize := s.segmentSize
+	if contentLength < bufferSize {
+		bufferSize = contentLength
+	}
+	buffer := s.bufferPool.Get(bufferSize)
 	defer s.bufferPool.Put(buffer)
 
-	_, err = io.CopyBuffer(w, file, buffer)
-	return err
+	// NETFLIX-LEVEL INSTANT RANGE STREAMING
+	// Set aggressive headers for instant seeking
+	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+	w.Header().Set("X-Accel-Buffering", "no")
+	
+	// Force immediate header flush for instant seeking
+	if flusher, ok := w.(http.Flusher); ok {
+		flusher.Flush()
+	}
+	
+	limitedReader := io.LimitReader(file, contentLength)
+	written, err := s.copyWithInstantFlushing(w, limitedReader, buffer)
+	
+	if err != nil {
+		// Check for broken pipe or connection reset
+		if strings.Contains(err.Error(), "broken pipe") || strings.Contains(err.Error(), "connection reset") {
+			log.Printf("⚠️ Client disconnected during range stream: %d-%d", start, end)
+			return nil // Don't treat as error - client disconnection is normal
+		}
+		return fmt.Errorf("failed to stream range %d-%d: %v", start, end, err)
+	}
+
+	log.Printf("📹 Streamed range %d-%d (%d bytes written) of %d total", start, end, written, fileSize)
+	return nil
 }
 
 func (s *NetflixStreamService) streamWithOptimizedIO(w http.ResponseWriter, file *os.File, fileSize int64) error {
-	// Use largest buffer for maximum throughput
-	buffer := s.bufferPool.Get(s.segmentSize)
+	// NETFLIX-LEVEL INSTANT STREAMING
+	// Use maximum buffer size for instant throughput
+	buffer := s.bufferPool.Get(64 * 1024 * 1024) // 64MB buffer for Netflix-level performance
 	defer s.bufferPool.Put(buffer)
 
-	// Enable TCP_NODELAY for low latency
-	if conn, ok := w.(http.Hijacker); ok {
-		if netConn, _, err := conn.Hijack(); err == nil {
-			defer netConn.Close()
-			if tcpConn, ok := netConn.(*net.TCPConn); ok {
-				tcpConn.SetNoDelay(true)
-			}
-		}
+	// Set aggressive headers for instant streaming
+	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+	w.Header().Set("Pragma", "no-cache")
+	w.Header().Set("Expires", "0")
+	w.Header().Set("X-Accel-Buffering", "no") // Disable nginx buffering
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+
+	// Force immediate flush of headers
+	if flusher, ok := w.(http.Flusher); ok {
+		flusher.Flush()
 	}
 
-	// Stream with optimized copy
-	_, err := io.CopyBuffer(w, file, buffer)
-	return err
+	// INSTANT STREAMING: Copy with aggressive flushing
+	_, err := s.copyWithInstantFlushing(w, file, buffer)
+	if err != nil {
+		return fmt.Errorf("streaming failed: %v", err)
+	}
+
+	log.Printf("⚡ INSTANT Netflix-level stream: %d bytes", fileSize)
+	return nil
 }
 
 func (s *NetflixStreamService) initializeCaches() {
 	// Initialize cache warming in background
 	log.Printf("🔥 Initializing ultra-fast I/O caches...")
 	// Cache warming logic would go here
+}
+
+// Critical performance optimization methods
+
+// streamRangeWithSendfile - Zero-copy range streaming with sendfile syscall
+func (s *NetflixStreamService) streamRangeWithSendfile(w http.ResponseWriter, file *os.File, offset, length int64) error {
+	hijacker, ok := w.(http.Hijacker)
+	if !ok {
+		return fmt.Errorf("connection hijacking not supported")
+	}
+
+	conn, _, err := hijacker.Hijack()
+	if err != nil {
+		return fmt.Errorf("failed to hijack connection: %v", err)
+	}
+	defer conn.Close()
+
+	// Optimize TCP connection for instant delivery
+	if tcpConn, ok := conn.(*net.TCPConn); ok {
+		tcpConn.SetNoDelay(true)
+		tcpConn.SetWriteBuffer(4 * 1024 * 1024) // 4MB write buffer
+		tcpConn.SetKeepAlive(true)
+		tcpConn.SetKeepAlivePeriod(30 * time.Second)
+	}
+
+	// Use sendfile syscall for zero-copy transfer
+	if tcpConn, ok := conn.(*net.TCPConn); ok {
+		tcpFile, err := tcpConn.File()
+		if err == nil {
+			defer tcpFile.Close()
+			
+			// Direct sendfile syscall with offset
+			offsetPtr := offset
+			written, err := syscall.Sendfile(int(tcpFile.Fd()), int(file.Fd()), &offsetPtr, int(length))
+			if err == nil && int64(written) == length {
+				return nil
+			}
+		}
+	}
+
+	return fmt.Errorf("sendfile range failed")
+}
+
+// streamWithSendfile - Zero-copy full file streaming with sendfile syscall
+func (s *NetflixStreamService) streamWithSendfile(w http.ResponseWriter, file *os.File, fileSize int64) error {
+	hijacker, ok := w.(http.Hijacker)
+	if !ok {
+		return fmt.Errorf("connection hijacking not supported")
+	}
+
+	conn, _, err := hijacker.Hijack()
+	if err != nil {
+		return fmt.Errorf("failed to hijack connection: %v", err)
+	}
+	defer conn.Close()
+
+	// Optimize TCP connection
+	if tcpConn, ok := conn.(*net.TCPConn); ok {
+		tcpConn.SetNoDelay(true)
+		tcpConn.SetWriteBuffer(8 * 1024 * 1024) // 8MB write buffer
+		tcpConn.SetKeepAlive(true)
+		tcpConn.SetKeepAlivePeriod(30 * time.Second)
+	}
+
+	// Write HTTP headers manually for hijacked connection
+	headers := fmt.Sprintf("HTTP/1.1 200 OK\r\n"+
+		"Content-Type: video/mp4\r\n"+
+		"Content-Length: %d\r\n"+
+		"Accept-Ranges: bytes\r\n"+
+		"Connection: keep-alive\r\n"+
+		"Keep-Alive: timeout=30, max=100\r\n"+
+		"\r\n", fileSize)
+
+	if _, err := conn.Write([]byte(headers)); err != nil {
+		return fmt.Errorf("failed to write headers: %v", err)
+	}
+
+	// Use sendfile for zero-copy transfer
+	if tcpConn, ok := conn.(*net.TCPConn); ok {
+		tcpFile, err := tcpConn.File()
+		if err == nil {
+			defer tcpFile.Close()
+			
+			// Direct sendfile syscall for maximum performance
+			written, err := syscall.Sendfile(int(tcpFile.Fd()), int(file.Fd()), nil, int(fileSize))
+			if err == nil && int64(written) == fileSize {
+				return nil
+			}
+		}
+	}
+
+	return fmt.Errorf("sendfile failed")
+}
+
+// copyWithTimeoutProtection - Copy with context cancellation and timeout protection
+func (s *NetflixStreamService) copyWithTimeoutProtection(dst io.Writer, src io.Reader, buffer []byte, ctx context.Context) (int64, error) {
+	var written int64
+	var err error
+
+	// Create a channel to signal completion
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+		written, err = io.CopyBuffer(dst, src, buffer)
+	}()
+
+	// Wait for either completion or context cancellation
+	select {
+	case <-done:
+		return written, err
+	case <-ctx.Done():
+		return written, fmt.Errorf("stream cancelled: %v", ctx.Err())
+	case <-time.After(30 * time.Second): // 30 second timeout
+		return written, fmt.Errorf("stream timeout after 30 seconds")
+	}
+}
+
+// copyWithInstantFlushing - Netflix-level instant streaming with aggressive flushing
+func (s *NetflixStreamService) copyWithInstantFlushing(dst io.Writer, src io.Reader, buffer []byte) (int64, error) {
+	var written int64
+	flusher, canFlush := dst.(http.Flusher)
+	
+	// NETFLIX-LEVEL STREAMING: Read and flush immediately for instant playback
+	for {
+		n, err := src.Read(buffer)
+		if n > 0 {
+			// Write chunk immediately
+			m, writeErr := dst.Write(buffer[:n])
+			written += int64(m)
+			
+			// INSTANT FLUSH: Force immediate delivery like Netflix
+			if canFlush {
+				flusher.Flush()
+			}
+			
+			if writeErr != nil {
+				// Handle broken pipe as normal client disconnection
+				if strings.Contains(writeErr.Error(), "broken pipe") || 
+				   strings.Contains(writeErr.Error(), "connection reset") {
+					log.Printf("⚠️ Client disconnected during instant stream (written: %d bytes)", written)
+					return written, nil
+				}
+				return written, writeErr
+			}
+		}
+		
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return written, err
+		}
+	}
+	
+	// Final flush to ensure all data is sent
+	if canFlush {
+		flusher.Flush()
+	}
+	
+	return written, nil
+}
+
+// copyWithBrokenPipeProtection - Copy with broken pipe error handling
+func (s *NetflixStreamService) copyWithBrokenPipeProtection(dst io.Writer, src io.Reader, buffer []byte) (int64, error) {
+	written, err := io.CopyBuffer(dst, src, buffer)
+	
+	if err != nil {
+		// Handle broken pipe and connection reset as normal client disconnection
+		if strings.Contains(err.Error(), "broken pipe") || 
+		   strings.Contains(err.Error(), "connection reset") ||
+		   strings.Contains(err.Error(), "write: connection reset by peer") {
+			log.Printf("⚠️ Client disconnected during stream (written: %d bytes)", written)
+			return written, nil // Don't treat as error
+		}
+	}
+	
+	return written, err
 }
 
 // Ultra-fast preview clip streaming methods
@@ -732,25 +980,9 @@ func (s *NetflixStreamService) handlePreviewRangeRequestInstant(w http.ResponseW
 	return err
 }
 
-// INSTANT preview streaming with zero-copy sendfile
-func (s *NetflixStreamService) streamPreviewInstant(w http.ResponseWriter, r *http.Request, file *os.File, fileSize int64) error {
-	// Try memory mapping for small preview clips (< 50MB)
-	if fileSize < 50*1024*1024 {
-		if err := s.streamPreviewMemoryMapped(w, file, fileSize); err == nil {
-			return nil
-		}
-		// Fallback to sendfile if mmap fails
-	}
-
-	// Try sendfile for zero-copy kernel streaming
-	if s.enableSendfile {
-		if err := s.streamPreviewSendfile(w, r, file, fileSize); err == nil {
-			return nil
-		}
-		// Fallback to optimized I/O if sendfile fails
-	}
-
-	// Fallback to optimized I/O streaming
+// SAFE preview streaming without hijacking
+func (s *NetflixStreamService) streamPreviewSafe(w http.ResponseWriter, r *http.Request, file *os.File, fileSize int64) error {
+	// Use safe optimized I/O streaming without hijacking
 	return s.streamPreviewWithOptimizedIO(w, file, fileSize)
 }
 
@@ -773,38 +1005,26 @@ func (s *NetflixStreamService) streamPreviewWithMemoryMapping(w http.ResponseWri
 }
 
 func (s *NetflixStreamService) streamPreviewWithOptimizedIO(w http.ResponseWriter, file *os.File, fileSize int64) error {
-	// Use large buffer for maximum throughput
-	buffer := s.bufferPool.Get(8 * 1024 * 1024) // 8MB buffer for instant streaming
+	// NETFLIX-LEVEL INSTANT PREVIEW STREAMING
+	buffer := s.bufferPool.Get(32 * 1024 * 1024) // 32MB buffer for instant preview
 	defer s.bufferPool.Put(buffer)
 
-	// Enable all TCP optimizations
-	if conn, ok := w.(http.Hijacker); ok {
-		if netConn, _, err := conn.Hijack(); err == nil {
-			defer netConn.Close()
-			if tcpConn, ok := netConn.(*net.TCPConn); ok {
-				tcpConn.SetNoDelay(true)                    // Instant send
-				tcpConn.SetWriteBuffer(4 * 1024 * 1024)     // 4MB write buffer
-				tcpConn.SetReadBuffer(64 * 1024)            // Small read buffer
-				tcpConn.SetKeepAlive(true)                  // Keep alive
-				tcpConn.SetKeepAlivePeriod(30 * time.Second) // 30s period
-			}
-			
-			// Stream directly to socket
-			_, err = io.CopyBuffer(netConn, file, buffer)
-			if err == nil {
-				log.Printf("🚀 Direct socket optimized stream: %d bytes", fileSize)
-			}
-			return err
-		}
+	// Set headers for instant preview streaming
+	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+	w.Header().Set("X-Accel-Buffering", "no") // Disable any proxy buffering
+
+	// Force immediate header flush
+	if flusher, ok := w.(http.Flusher); ok {
+		flusher.Flush()
 	}
 
-	// Fallback to response writer
-	_, err := io.CopyBuffer(w, file, buffer)
+	// INSTANT PREVIEW: Copy with aggressive flushing
+	_, err := s.copyWithInstantFlushing(w, file, buffer)
 	if err != nil {
 		return fmt.Errorf("failed to stream preview clip: %v", err)
 	}
 
-	log.Printf("🚀 Optimized I/O preview stream: %d bytes", fileSize)
+	log.Printf("⚡ INSTANT Netflix-level preview: %d bytes", fileSize)
 	return nil
 }
 
@@ -916,8 +1136,8 @@ func (s *NetflixStreamService) StreamPreviewClip(w http.ResponseWriter, r *http.
 		return s.handlePreviewRangeRequestInstant(w, r, file, fileSize, rangeHeader)
 	}
 
-	// INSTANT full file streaming with sendfile zero-copy
-	return s.streamPreviewInstant(w, r, file, fileSize)
+	// SAFE full file streaming without hijacking
+	return s.streamPreviewSafe(w, r, file, fileSize)
 }
 
 // streamCachedRange - Stream range requests from L1 cache for instant response

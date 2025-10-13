@@ -55,15 +55,7 @@ const NetflixMovieCard: React.FC<NetflixMovieCardProps> = ({
 
 
   const getPreviewUrl = () => {
-    // First try to get the actual media file for full experience
-    if (media.file_path) {
-      return `${apiUrl}/api/stream/${media.id}`;
-    }
-    // Fallback to trailer if available
-    if (media.trailer_path) {
-      return `${apiUrl}/api/admin/assets/${media.trailer_path.split('/').pop()}`;
-    }
-    // Final fallback to preview clips
+    // Always use preview clips for hover previews - they're optimized for quick loading
     return `${apiUrl}/api/preview-clips/${media.id}`;
   };
 

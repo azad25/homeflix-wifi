@@ -25,6 +25,11 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
   const containerRef = useRef<HTMLDivElement>(null);
   const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   
+  // State declarations
+  const [showPauseScreen, setShowPauseScreen] = useState(false);
+  const [videoSrc, setVideoSrc] = useState<string>('');
+  
+
   // Chromecast integration
   const {
     castState,
@@ -60,85 +65,76 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
   const [showResumeNotification, setShowResumeNotification] = useState(false);
   const [resumeTime, setResumeTime] = useState(0);
   const [isCasting, setIsCasting] = useState(false);
+  const [isTranscoded, setIsTranscoded] = useState(false);
+  const [hasInitiallyLoaded, setHasInitiallyLoaded] = useState(false);
 
-  const getStreamUrl = (mediaId: number, quality?: string, format?: string) => {
+  const getStreamUrl = useCallback((mediaId: number, quality?: string, format?: string, seekTime?: number) => {
     const baseUrl = `${getApiUrl()}/api/stream/${mediaId}`;
     const params = new URLSearchParams();
 
-    // Ultra-enhanced Netflix-level optimization parameters
+    // Static optimization parameters to prevent URL changes
     params.set('optimize', 'netflix-level');
     params.set('buffer', 'ultra-aggressive');
     params.set('latency', 'zero');
     params.set('preload', 'instant');
 
-    // Bandwidth detection and hints
-    const connection = (navigator as any).connection;
-    if (connection) {
-      params.set('bandwidth-hint', (connection.downlink * 1024 * 1024).toString());
-      params.set('network-type', connection.effectiveType || 'unknown');
-    }
-
+    // Use fixed quality to prevent dynamic URL changes
     if (quality) {
       params.set('quality', quality);
     } else {
-      // Enhanced auto-detect quality based on device and network
-      const userAgent = navigator.userAgent.toLowerCase();
-      const isLocalNetwork = window.location.hostname === 'localhost' ||
-        window.location.hostname.startsWith('192.168.') ||
-        window.location.hostname.startsWith('10.') ||
-        window.location.hostname.startsWith('172.');
-
-      if (isLocalNetwork) {
-        // Ultra-high quality for local network
-        if (userAgent.includes('mobile')) {
-          params.set('quality', '1080p'); // 1080p for mobile on local network
-        } else {
-          params.set('quality', '4k-ultra'); // Ultra 4K for desktop on local network
-        }
-      } else {
-        if (userAgent.includes('mobile')) {
-          params.set('quality', 'high');
-        } else {
-          params.set('quality', '4k');
-        }
-      }
+      params.set('quality', 'high'); // Fixed quality to prevent URL changes
     }
 
     if (format) {
       params.set('format', format);
     }
 
-    // Enhanced device-specific optimizations
-    const userAgent = navigator.userAgent.toLowerCase();
-    if (userAgent.includes('mac')) {
-      params.set('device', 'mac');
-      params.set('hardware-accel', 'videotoolbox');
-    } else if (userAgent.includes('windows')) {
-      params.set('device', 'windows');
-      params.set('hardware-accel', 'dxva');
-    } else if (userAgent.includes('linux')) {
-      params.set('device', 'linux');
-      params.set('hardware-accel', 'vaapi');
-    } else if (userAgent.includes('ios')) {
-      params.set('device', 'ios');
-      params.set('hardware-accel', 'metal');
-    } else if (userAgent.includes('android')) {
-      params.set('device', 'android');
-      params.set('hardware-accel', 'mediacodec');
-    }
-
-    // Screen resolution optimization
-    const screenWidth = window.screen.width;
-    const screenHeight = window.screen.height;
-    params.set('screen-resolution', `${screenWidth}x${screenHeight}`);
-
-    // Memory and performance hints
-    const memory = (navigator as any).deviceMemory;
-    if (memory) {
-      params.set('device-memory', memory.toString());
+    // Only add seek time for transcoded streams (not for regular playback)
+    if (seekTime && seekTime > 0) {
+      params.set('t', seekTime.toString());
+      params.set('seek', seekTime.toString());
     }
 
     return `${baseUrl}?${params.toString()}`;
+  }, []);
+
+  // Function to handle seeking in transcoded streams
+  const seekTranscodedVideo = async (seekTime: number) => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    setIsBuffering(true);
+
+    // Store current playback state
+    const wasPlaying = !video.paused;
+
+    try {
+      // Generate new stream URL with seek time
+      const newStreamUrl = getStreamUrl(media.id, 'high', 'mp4', seekTime);
+
+      // Update video source
+      video.src = newStreamUrl;
+
+      // Update current time state immediately for UI responsiveness
+      setCurrentTime(seekTime);
+
+      // Wait for video to load and then resume playback if it was playing
+      const handleCanPlay = () => {
+        setIsBuffering(false);
+        if (wasPlaying) {
+          video.play().catch(console.error);
+        }
+        video.removeEventListener('canplay', handleCanPlay);
+      };
+
+      video.addEventListener('canplay', handleCanPlay);
+
+      // Load the new stream
+      video.load();
+
+    } catch (error) {
+      setIsBuffering(false);
+    }
   };
 
   // Detect mobile device
@@ -149,6 +145,23 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
     };
     checkMobile();
   }, []);
+
+  // Initialize video source once when player opens
+  useEffect(() => {
+    if (isOpen && media.id && !videoSrc) {
+      const video = videoRef.current;
+      if (video) {
+        const initialVideoSrc = getStreamUrl(media.id, 'high', 'mp4');
+        video.src = initialVideoSrc;
+        setVideoSrc(initialVideoSrc);
+        setHasInitiallyLoaded(false); // Reset flag when opening new video
+      }
+    } else if (!isOpen) {
+      // Reset video source when player closes
+      setVideoSrc('');
+      setHasInitiallyLoaded(false);
+    }
+  }, [media.id, isOpen, videoSrc, getStreamUrl]);
 
   // Load subtitles
   useEffect(() => {
@@ -197,7 +210,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
             setNextEpisode(next);
           }
         } catch (error) {
-          console.error('Error fetching next episode:', error);
+          // Error fetching next episode
         }
       }
     };
@@ -210,7 +223,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
   // Handle cast state changes
   useEffect(() => {
     setIsCasting(castState.isConnected);
-    
+
     // Update local state with cast state when casting
     if (castState.isConnected) {
       setIsPlaying(castState.playerState === 'PLAYING');
@@ -235,28 +248,28 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
     if (castState.isConnected && media && !isCasting) {
       const streamUrl = getStreamUrl(media.id, '4k', 'mp4');
       const thumbnailUrl = `${getApiUrl()}/api/thumbnails/${media.id}`;
-      
+
       const castMedia: CastMedia = {
         contentId: streamUrl,
         contentType: 'video/mp4',
         title: media.title,
-        subtitle: media.type === 'episode' 
-          ? `S${media.season_number}E${media.episode_number}` 
+        subtitle: media.type === 'episode'
+          ? `S${media.season_number}E${media.episode_number}`
           : `${media.year || ''} • ${media.genres || ''}`,
         metadata: {
           title: media.title,
-          subtitle: media.type === 'episode' 
-            ? `S${media.season_number}E${media.episode_number}` 
+          subtitle: media.type === 'episode'
+            ? `S${media.season_number}E${media.episode_number}`
             : `${media.year || ''} • ${media.genres || ''}`,
           images: [{
             url: thumbnailUrl
           }]
         }
       };
-      
+
       loadCastMedia(castMedia);
       setIsCasting(true);
-      
+
       // Pause local video when casting starts
       const video = videoRef.current;
       if (video && !video.paused) {
@@ -296,36 +309,81 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
   // Utility function to format time in MM:SS or HH:MM:SS format
   const formatTime = (seconds: number): string => {
     if (!seconds || !isFinite(seconds)) return '00:00';
-    
+
     const hours = Math.floor(seconds / 3600);
     const minutes = Math.floor((seconds % 3600) / 60);
     const secs = Math.floor(seconds % 60);
-    
+
     if (hours > 0) {
       return `${hours}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
     }
     return `${minutes}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const togglePlay = () => {
-    if (isCasting && castState.isConnected) {
-      if (isPlaying) {
-        pauseCast();
-      } else {
-        playCast();
+  const saveCurrentProgress = useCallback(async () => {
+    const video = videoRef.current;
+    if (!video || video.currentTime <= 1) return; // Reduced threshold to 1 second
+
+    // Try multiple ways to get duration
+    let currentDuration = duration;
+    
+    // If no duration from state, try video element
+    if (!currentDuration || currentDuration === 0) {
+      currentDuration = video.duration;
+    }
+    
+    // If still no duration, try seekable range
+    if (!currentDuration || currentDuration === 0 || !isFinite(currentDuration)) {
+      if (video.seekable && video.seekable.length > 0) {
+        currentDuration = video.seekable.end(video.seekable.length - 1);
       }
+    }
+    
+    // If still no duration, use a fallback based on current time
+    if (!currentDuration || currentDuration === 0 || !isFinite(currentDuration)) {
+      currentDuration = Math.max(video.currentTime + 60, 3600); // Assume at least 1 hour or current time + 1 minute
+    }
+
+    try {
+      await updatePlaybackProgress(media.id, video.currentTime, currentDuration);
+    } catch (error) {
+      // Failed to save progress
+      // Prevent error from bubbling up and causing page reload
       return;
     }
+  }, [duration, media.id]);
 
-    const video = videoRef.current;
-    if (!video) return;
+  const togglePlay = useCallback(async () => {
+    try {
+      if (isCasting && castState.isConnected) {
+        if (isPlaying) {
+          pauseCast();
+        } else {
+          playCast();
+        }
+        return;
+      }
 
-    if (video.paused) {
-      video.play().catch(console.error);
-    } else {
-      video.pause();
+      const video = videoRef.current;
+      if (!video) {
+        return;
+      }
+
+      if (video.paused) {
+        // Just resume playback from current position - no source changes
+        video.play().catch(() => {
+          // Failed to resume video
+        });
+      } else {
+          // Save progress before pausing
+        await saveCurrentProgress();
+        
+        video.pause();
+      }
+    } catch (error) {
+      // Prevent error from causing page reload
     }
-  };
+  }, [isCasting, castState.isConnected, isPlaying, pauseCast, playCast, saveCurrentProgress]);
 
   const toggleMute = () => {
     if (isCasting && castState.isConnected) {
@@ -366,23 +424,20 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
 
     const video = videoRef.current;
     if (!video) return;
-    
+
     // For videos without duration, just seek forward without upper limit check
     let newTime = video.currentTime + seconds;
-    
+
     // Only apply upper limit if we have a valid duration
     if (duration && duration > 0) {
       newTime = Math.min(newTime, duration);
     }
-    
-    console.log(`Seeking forward ${seconds}s to ${newTime}s`);
-    
+
     setIsBuffering(true);
     try {
       video.currentTime = newTime;
       setCurrentTime(newTime);
     } catch (error) {
-      console.error('Error seeking forward:', error);
       setIsBuffering(false);
     }
   };
@@ -396,17 +451,14 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
 
     const video = videoRef.current;
     if (!video) return;
-    
+
     // Always allow backward seeking, just ensure we don't go below 0
     const newTime = Math.max(video.currentTime - seconds, 0);
-    console.log(`Seeking backward ${seconds}s to ${newTime}s`);
-    
     setIsBuffering(true);
     try {
       video.currentTime = newTime;
       setCurrentTime(newTime);
     } catch (error) {
-      console.error('Error seeking backward:', error);
       setIsBuffering(false);
     }
   };
@@ -428,13 +480,26 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
     }
 
     if (!document.fullscreenElement) {
-      container.requestFullscreen().catch(console.error);
+      container.requestFullscreen().catch(() => {});
       setShowControls(true); // Show controls when entering fullscreen
     } else {
-      document.exitFullscreen().catch(console.error);
+      document.exitFullscreen().catch(() => {});
       setShowControls(true); // Show controls when exiting fullscreen
     }
   };
+
+  // Pause screen visibility logic
+  useEffect(() => {
+    if (!isPlaying && !isLoading && !isBuffering && isOpen && !isCasting) {
+      // Add a small delay to ensure the video has actually paused
+      const timer = setTimeout(() => {
+        setShowPauseScreen(true);
+      }, 100);
+      return () => clearTimeout(timer);
+    } else {
+      setShowPauseScreen(false);
+    }
+  }, [isPlaying, isLoading, isBuffering, isOpen, isCasting]);
 
   // Handle fullscreen change events
   useEffect(() => {
@@ -465,7 +530,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
     const clickX = clientX - rect.left;
     const width = rect.width;
     const percentage = Math.max(0, Math.min(1, clickX / width));
-    
+
     if (isCasting && castState.isConnected) {
       const newTime = percentage * castState.duration;
       seekCast(newTime);
@@ -474,89 +539,133 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
 
     const video = videoRef.current;
     if (!video) return;
-    
-    // For videos without duration, try to get the actual seekable duration
+
+    // Simplified duration detection
     let targetDuration = duration;
+
+    // If no duration from metadata, try seekable range
     if (!targetDuration || targetDuration === 0) {
-      // Always try to get the most up-to-date seekable range
       if (video.seekable && video.seekable.length > 0) {
         targetDuration = video.seekable.end(video.seekable.length - 1);
-        console.log('Using real-time seekable range duration:', targetDuration);
       } else {
-        // If no seekable range available, use the progress bar's visual representation
-        // This ensures the click position matches the visual progress
-        const progressBarElement = e.currentTarget;
-        const rect = progressBarElement.getBoundingClientRect();
-        const totalWidth = rect.width;
-        const clickPosition = clickX;
-        
-        // Calculate based on current visual progress
-        if (currentTime > 0) {
-          // Estimate total duration based on current progress visual position
-          const currentProgressElement = progressBarElement.querySelector('.bg-red-600');
-          if (currentProgressElement) {
-            const currentWidth = currentProgressElement.getBoundingClientRect().width;
-            const currentPercentage = currentWidth / totalWidth;
-            if (currentPercentage > 0.01) { // At least 1% progress
-              targetDuration = currentTime / currentPercentage;
-              console.log('Using visual progress-based duration:', targetDuration, 'currentTime:', currentTime, 'visualProgress:', currentPercentage);
-            } else {
-              targetDuration = Math.max(currentTime * 10, 1800); // Fallback
-            }
-          } else {
-            targetDuration = Math.max(currentTime * 10, 1800); // Fallback
-          }
-        } else {
-          targetDuration = 1800; // 30 minutes default for start of video
-        }
+        // Conservative fallback - don't allow seeking without duration
+        return;
       }
     }
-    
-    const newTime = percentage * targetDuration;
-    console.log(`Click at ${percentage * 100}% -> Seeking to ${newTime}s of ${targetDuration}s total`);
-    console.log(`Mouse click position: ${clickX}px of ${width}px total width`);
-    
-    // Set seeking state immediately
+
+    const newTime = Math.max(0, Math.min(percentage * targetDuration, targetDuration));
+
+    // Improved seeking with better error handling
     setIsBuffering(true);
-    
-    try {
-      video.currentTime = newTime;
-      setCurrentTime(newTime);
-    } catch (error) {
-      console.error('Error seeking video:', error);
-      setIsBuffering(false);
-    }
+
+    const performSeek = () => {
+      try {
+        // Check if the video is ready for seeking
+        if (video.readyState < 2) {
+          video.addEventListener('loadeddata', performSeek, { once: true });
+          return;
+        }
+
+        // Perform the seek
+        video.currentTime = newTime;
+        setCurrentTime(newTime);
+
+        // Listen for seek completion
+        const handleSeeked = () => {
+          setIsBuffering(false);
+          video.removeEventListener('seeked', handleSeeked);
+        };
+
+        const handleSeekError = () => {
+          setIsBuffering(false);
+          video.removeEventListener('error', handleSeekError);
+        };
+
+        video.addEventListener('seeked', handleSeeked, { once: true });
+        video.addEventListener('error', handleSeekError, { once: true });
+
+        // Fallback timeout
+        setTimeout(() => {
+          setIsBuffering(false);
+        }, 3000);
+
+      } catch (error) {
+        setIsBuffering(false);
+      }
+    };
+
+    performSeek();
   };
 
   const handleSeekStart = (e: React.MouseEvent | React.TouchEvent) => {
     e.preventDefault();
+    e.stopPropagation(); // Prevent click events from bubbling up
+
+    const video = videoRef.current;
+    const wasPlaying = video && !video.paused;
+
+    // Pause video during dragging to prevent auto-play
+    if (video && wasPlaying) {
+      video.pause();
+    }
+
     setIsDragging(true);
     setDragStartTime(currentTime);
 
     const handleMove = (moveEvent: MouseEvent | TouchEvent) => {
-      const currentDuration = isCasting && castState.isConnected ? castState.duration : duration;
-      if (!currentDuration) return;
+      moveEvent.preventDefault();
+      moveEvent.stopPropagation();
+
+      // Get current duration
+      let currentDuration = isCasting && castState.isConnected ? castState.duration : duration;
+
+      // If no duration, try seekable range
+      if (!currentDuration || currentDuration === 0) {
+        if (video && video.seekable && video.seekable.length > 0) {
+          currentDuration = video.seekable.end(video.seekable.length - 1);
+        } else {
+          // No duration available - skip dragging
+          return;
+        }
+      }
 
       const progressBar = e.currentTarget as HTMLElement;
       const rect = progressBar.getBoundingClientRect();
       const clientX = 'touches' in moveEvent ? (moveEvent as TouchEvent).touches[0].clientX : (moveEvent as MouseEvent).clientX;
-      const x = clientX - rect.left;
+      const x = Math.max(0, Math.min(rect.width, clientX - rect.left));
       const percentage = Math.max(0, Math.min(1, x / rect.width));
-      const newTime = percentage * currentDuration;
+      const newTime = Math.max(0, Math.min(percentage * currentDuration, currentDuration));
 
       if (isCasting && castState.isConnected) {
         seekCast(newTime);
-      } else {
-        const video = videoRef.current;
-        if (video) {
-          video.currentTime = newTime;
+      } else if (video) {
+        // Use robust seeking during drag
+        try {
+          if (video.readyState >= 2) {
+            video.currentTime = newTime;
+            setCurrentTime(newTime);
+          } else {
+            // Just update UI if video not ready
+            setCurrentTime(newTime);
+          }
+        } catch (error) {
+          // If seeking fails during drag, just update UI
           setCurrentTime(newTime);
         }
       }
     };
 
-    const handleEnd = () => {
+    const handleEnd = (endEvent: MouseEvent | TouchEvent) => {
+      endEvent.preventDefault();
+      endEvent.stopPropagation();
+
       setIsDragging(false);
+
+      // Resume playback if it was playing before dragging
+      if (video && wasPlaying) {
+        video.play().catch(() => {});
+      }
+
       document.removeEventListener('mousemove', handleMove);
       document.removeEventListener('mouseup', handleEnd);
       document.removeEventListener('touchmove', handleMove);
@@ -573,31 +682,31 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
   useEffect(() => {
     const handleMouseMove = () => {
       setShowControls(true);
-      
+
       if (controlsTimeoutRef.current) {
         clearTimeout(controlsTimeoutRef.current);
       }
-      
+
       controlsTimeoutRef.current = setTimeout(() => {
         if (isPlaying) {
           setShowControls(false);
         }
       }, 3000);
     };
-    
+
     const container = containerRef.current;
-    
+
     // Use document for fullscreen mode, container for normal mode
     const targetElement = document.fullscreenElement ? document : container;
-    
+
     if (targetElement) {
       targetElement.addEventListener('mousemove', handleMouseMove);
-      
+
       // Also handle touch events for mobile
       if (isMobile) {
         targetElement.addEventListener('touchstart', handleMouseMove);
       }
-      
+
       return () => {
         targetElement.removeEventListener('mousemove', handleMouseMove);
         if (isMobile) {
@@ -607,24 +716,18 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
     }
   }, [isPlaying, isMobile]);
 
-  const handleClose = async () => {
+  const handleClose = useCallback(async () => {
     const video = videoRef.current;
     if (video) {
       video.pause();
-      
+
       // Save progress when explicitly closing the video
       if (video.currentTime > 30) { // Only save if watched more than 30 seconds
-        const currentDuration = duration || (video.seekable && video.seekable.length > 0 ? video.seekable.end(video.seekable.length - 1) : 0);
-        try {
-          await updatePlaybackProgress(media.id, video.currentTime, currentDuration);
-          console.log('Progress saved on close:', video.currentTime);
-        } catch (error) {
-          console.log('Failed to save progress on close:', error);
-        }
+        await saveCurrentProgress();
       }
     }
     onClose();
-  };
+  }, [saveCurrentProgress, onClose]);
 
   const toggleSubtitles = () => {
     setSubtitlesEnabled(!subtitlesEnabled);
@@ -667,6 +770,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
           toggleSubtitles();
           break;
         case 'Escape':
+          e.preventDefault();
+          e.stopPropagation();
           handleClose();
           break;
       }
@@ -682,23 +787,38 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
     };
   }, [isOpen, togglePlay, seekBackward, seekForward, toggleFullscreen, toggleMute, toggleSubtitles, handleClose]);
 
-  // Cleanup on unmount and save progress
+  // Periodic progress saving and cleanup
   useEffect(() => {
+    let progressInterval: NodeJS.Timeout;
+
+    if (isOpen) {
+      // Save progress every 15 seconds while playing (more frequent saves)
+      progressInterval = setInterval(async () => {
+        const video = videoRef.current;
+        if (video && !video.paused && video.currentTime > 10) {
+          await saveCurrentProgress();
+        }
+      }, 15000); // Every 15 seconds for better progress tracking
+    }
+
     return () => {
       if (controlsTimeoutRef.current) {
         clearTimeout(controlsTimeoutRef.current);
       }
-      
+
+      if (progressInterval) {
+        clearInterval(progressInterval);
+      }
+
       // Save progress when component unmounts (video player closes)
       const video = videoRef.current;
-      if (video && video.currentTime > 30) { // Only save if watched more than 30 seconds
-        const currentDuration = duration || (video.seekable && video.seekable.length > 0 ? video.seekable.end(video.seekable.length - 1) : 0);
-        updatePlaybackProgress(media.id, video.currentTime, currentDuration).catch(console.log);
+      if (video && video.currentTime > 30) {
+        saveCurrentProgress().catch(() => {});
       }
     };
-  }, [media.id, duration]);
+  }, [isOpen, saveCurrentProgress]);
 
-// ...
+  // ...
   return (
     <AnimatePresence>
       {isOpen && (
@@ -709,438 +829,499 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
           className="fixed inset-0 z-50 bg-black"
           ref={containerRef}
         >
-        {/* Video */}
-        <video
-          ref={videoRef}
-          src={getStreamUrl(media.id, 'high', 'mp4')}
-          className="w-full h-full object-contain bg-black"
-          onPlay={() => setIsPlaying(true)}
-          autoPlay
-          controls={false}
-          playsInline
-          webkit-playsinline="true"
-          onPause={() => setIsPlaying(false)}
-          onEnded={() => setIsPlaying(false)}
-          onError={(e) => {
-            console.error('Video error:', e);
-            console.log('Video src:', getStreamUrl(media.id));
-          }}
-          onClick={(e) => {
-            // Ensure sound is always on when clicking video
-            if (videoRef.current) {
-              const video = videoRef.current;
-              video.muted = false;
-              video.volume = volume > 0 ? volume : 1.0;
-              setIsMuted(false);
-
-              if (video.paused) {
-                video.play().catch(error => {
-                  console.log('Play failed on click:', error);
-                });
-              } else {
-                video.pause();
-              }
-            }
-          }}
-          onLoadStart={() => {
-            console.log('Video loading started');
-            setIsLoading(true);
-            setIsBuffering(true);
-          }}
-          onCanPlay={() => {
-            console.log('Video can play');
-            setIsLoading(false);
-            setIsBuffering(false);
-          }}
-          onLoadedMetadata={async () => {
-            const video = videoRef.current;
-            if (!video) return;
-            
-            console.log('Video metadata loaded, duration:', video.duration);
-            
-            // Handle videos with invalid or missing duration
-            let videoDuration = video.duration;
-            if (!videoDuration || videoDuration === 0 || !isFinite(videoDuration)) {
-              console.log('Video has invalid duration, attempting to detect...');
-              // Try to get duration from video element properties
-              videoDuration = video.seekable && video.seekable.length > 0 
-                ? video.seekable.end(video.seekable.length - 1) 
-                : 0;
+          {/* Video */}
+          <video
+            ref={videoRef}
+            className="w-full h-full object-contain bg-black"
+            onPlay={() => {
+              setIsPlaying(true);
+              // Don't immediately hide pause screen, let it fade out naturally
+              setIsBuffering(false); // Clear any buffering state
+            }}
+            autoPlay
+            controls={false}
+            playsInline
+            webkit-playsinline="true"
+            onPause={async () => {
+              setIsPlaying(false);
               
-              // If still no duration, don't set a fallback yet - we'll handle this dynamically
-              if (!videoDuration || videoDuration === 0) {
-                console.log('No duration available, will use dynamic seeking');
-                videoDuration = 0; // Keep as 0 to indicate unknown duration
-              }
-            }
-            
-            setDuration(videoDuration);
-            console.log('Final duration set to:', videoDuration);
+              // Save progress immediately when pausing
+              await saveCurrentProgress();
+            }}
+            onEnded={() => setIsPlaying(false)}
+            onError={(e) => {
+              // Video error occurred
+            }}
+            onClick={async (e) => {
+              // Ensure sound is always on when clicking video
+              if (videoRef.current) {
+                const video = videoRef.current;
+                video.muted = false;
+                video.volume = volume > 0 ? volume : 1.0;
+                setIsMuted(false);
 
-            // Initialize progress if it doesn't exist
-            try {
-              await initializePlaybackProgress(media.id);
-            } catch (error) {
-              console.log('Failed to initialize progress, continuing anyway:', error);
-            }
-
-            // Load saved progress or use provided start time
-            try {
-              const savedProgress = await getPlaybackProgress(media.id);
-              const resumeTimeValue = startTime > 0 ? startTime : (savedProgress?.position || 0);
-
-              if (resumeTimeValue > 30 && videoDuration > 60 && resumeTimeValue < videoDuration - 30) {
-                // Automatically seek to resume position
-                video.currentTime = resumeTimeValue;
-                setCurrentTime(resumeTimeValue);
-                setResumeTime(resumeTimeValue);
-                console.log(`Automatically resumed at ${resumeTimeValue} seconds`);
-                
-                // Track that we resumed playback
-                await updatePlaybackProgress(media.id, resumeTimeValue, videoDuration);
-              } else if (startTime > 0) {
-                // Automatically seek to provided start time
-                video.currentTime = startTime;
-                setCurrentTime(startTime);
-                setResumeTime(startTime);
-                console.log(`Automatically started at provided time: ${startTime} seconds`);
-                
-                // Track the start time
-                await updatePlaybackProgress(media.id, startTime, videoDuration);
-              }
-            } catch (error) {
-              console.log('No saved progress found or error loading progress:', error);
-              if (startTime > 0 && videoDuration > 60 && startTime < videoDuration - 30) {
-                // Automatically seek to provided start time even without saved progress
-                video.currentTime = startTime;
-                setCurrentTime(startTime);
-                setResumeTime(startTime);
-                console.log(`Automatically started at provided time (no saved progress): ${startTime} seconds`);
-              }
-            }
-          }}
-          onLoadedData={() => {
-            console.log('Video loaded successfully');
-            setIsLoading(false);
-            const video = videoRef.current;
-            if (video && video.readyState >= 2) {
-              video.volume = volume;
-              video.muted = false; // Always unmuted for video player
-              setIsMuted(false);
-              
-              // If we have a resume time set, seek to it after video is loaded
-              if (resumeTime > 0 && Math.abs(video.currentTime - resumeTime) > 5) {
-                console.log(`Seeking to resume time ${resumeTime} after video loaded`);
-                video.currentTime = resumeTime;
-                setCurrentTime(resumeTime);
-              }
-            }
-          }}
-          onTimeUpdate={() => {
-            const video = videoRef.current;
-            if (!video || isCasting) return;
-            
-            setCurrentTime(video.currentTime);
-            
-            // Update duration if it becomes available during playback
-            if ((!duration || duration === 0) && video.duration && video.duration > 0 && isFinite(video.duration)) {
-              console.log('Duration became available during playback:', video.duration);
-              setDuration(video.duration);
-            }
-            
-            // Also check seekable range for better duration detection
-            if ((!duration || duration === 0) && video.seekable && video.seekable.length > 0) {
-              const seekableEnd = video.seekable.end(video.seekable.length - 1);
-              if (seekableEnd > duration) {
-                console.log('Updated duration from seekable range:', seekableEnd);
-                setDuration(seekableEnd);
-              }
-            }
-          }}
-          onSeeking={() => {
-            console.log('Video seeking started');
-            setIsBuffering(true);
-          }}
-          onSeeked={() => {
-            console.log('Video seeking completed');
-            setIsBuffering(false);
-            const video = videoRef.current;
-            if (video) {
-              setCurrentTime(video.currentTime);
-            }
-          }}
-          onWaiting={() => {
-            console.log('Video is buffering');
-            setIsBuffering(true);
-          }}
-          onCanPlayThrough={() => {
-            console.log('Video can play through without buffering');
-            setIsBuffering(false);
-            setIsLoading(false);
-          }}
-          preload="auto"
-          muted={false}
-          crossOrigin="anonymous"
-        >
-
-          {/* Subtitles */}
-          {availableSubtitles.map((subtitle, index) => (
-            <track
-              key={index}
-              kind="subtitles"
-              src={subtitle.url}
-              srcLang={subtitle.language.toLowerCase()}
-              label={subtitle.language}
-              default={index === 0 && subtitlesEnabled}
-            />
-          ))}
-
-          {/* Fallback message */}
-          <p className="text-white text-center p-8">
-            Your browser does not support the video tag or this video format.
-            <br />
-            <a
-              href={getStreamUrl(media.id)}
-              download={media.title}
-              className="text-blue-400 hover:text-blue-300 underline"
-            >
-              Download the video file
-            </a>
-          </p>
-        </video>
-
-        {/* Loading/Buffering Overlay */}
-        <AnimatePresence>
-          {(isLoading || isBuffering) && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="absolute inset-0 flex items-center justify-center bg-black/30 backdrop-blur-sm z-40"
-            >
-              <RedLoader size="large" />
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        {/* Controls Overlay */}
-        <AnimatePresence>
-          {showControls && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/50 pointer-events-none"
-              onClick={(e) => e.stopPropagation()}
-            >
-              {/* Top Controls */}
-              <div className="absolute top-0 left-0 right-0 p-6 flex justify-between items-center pointer-events-auto">
-                <div>
-                  <h1 className="text-white text-2xl font-bold">{media.title}</h1>
-                  <p className="text-white/70">{media.type} • {formatTime(duration)}</p>
-                </div>
-
-                <div className="flex items-center gap-4">
-                  {/* Cast Button */}
-                  <CastButton
-                    isAvailable={castState.isAvailable}
-                    isConnected={castState.isConnected}
-                    isConnecting={castState.isConnecting}
-                    deviceName={castState.deviceName}
-                    onClick={handleCastClick}
-                    className="p-3 bg-black/50 rounded-full hover:bg-black/70 border border-white/20 hover:border-blue-500/50 transition-all"
-                  />
+                if (video.paused) {
+                  // Just resume playback, don't reload or make new requests
+                  video.play().catch(() => {
+                    // Play failed on video click
+                  });
+                } else {
+                  // Save progress before pausing
+                  await saveCurrentProgress();
                   
-                  <button
-                    onClick={handleClose}
-                    className="text-white hover:text-red-500 transition-colors p-3 bg-black/50 rounded-full hover:bg-black/70 border border-white/20 hover:border-red-500/50 z-50"
-                    title="Close (Esc)"
-                    type="button"
-                  >
-                    <X className="w-6 h-6" />
-                  </button>
-                </div>
-              </div>
+                  video.pause();
+                }
+              }
+            }}
+            onLoadStart={() => {
+              setIsLoading(true);
+              setIsBuffering(true);
 
-              {/* Center Controls */}
-              <div className="absolute inset-0 flex items-center justify-center pointer-events-auto">
-                <div className="flex items-center gap-8">
-                  {/* Skip Back 10s */}
-                  <button
-                    onClick={() => seekBackward(10)}
-                    className="bg-black/50 text-white rounded-full p-3 hover:bg-black/70 transition-all duration-200 hover:scale-110"
-                    title="Skip back 10 seconds (←)"
-                  >
-                    <RotateCcw className="w-8 h-8" />
-                  </button>
+              // For now, disable transcoded seeking until backend supports it
+              setIsTranscoded(false);
+            }}
+            onCanPlay={() => {
+              setIsLoading(false);
+              setIsBuffering(false);
+            }}
+            onLoadedMetadata={async () => {
+              const video = videoRef.current;
+              if (!video) return;
 
-                  {/* Play/Pause */}
-                  <button
-                    onClick={togglePlay}
-                    className="bg-black/50 text-white rounded-full p-4 hover:bg-black/70 transition-all duration-200 hover:scale-110 z-40"
-                    title={isPlaying ? "Pause (Space)" : "Play (Space)"}
-                    type="button"
-                  >
-                    {isPlaying ? (
-                      <Pause className="w-12 h-12" />
-                    ) : (
-                      <Play className="w-12 h-12 fill-current" />
-                    )}
-                  </button>
+              // Handle videos with invalid or missing duration
+              let videoDuration = video.duration;
+              if (!videoDuration || videoDuration === 0 || !isFinite(videoDuration)) {
+                // Try to get duration from video element properties
+                videoDuration = video.seekable && video.seekable.length > 0
+                  ? video.seekable.end(video.seekable.length - 1)
+                  : 0;
 
-                  {/* Skip Forward 10s */}
-                  <button
-                    onClick={() => seekForward(10)}
-                    className="bg-black/50 text-white rounded-full p-3 hover:bg-black/70 transition-all duration-200 hover:scale-110"
-                    title="Skip forward 10 seconds (→)"
-                  >
-                    <RotateCw className="w-8 h-8" />
-                  </button>
-                </div>
-              </div>
+                // If still no duration, don't set a fallback yet - we'll handle this dynamically
+                if (!videoDuration || videoDuration === 0) {
+                  videoDuration = 0; // Keep as 0 to indicate unknown duration
+                }
+              }
 
-              {/* Bottom Controls */}
-              <div className="absolute bottom-0 left-0 right-0 p-6 pointer-events-auto">
-                {/* Progress Bar */}
-                <div className="mb-4 group">
-                  <div
-                    className="progress-container relative w-full h-1 bg-white/30 rounded-lg cursor-pointer group-hover:h-2 transition-all duration-200"
-                    onClick={handleProgressClick}
-                    onMouseDown={handleSeekStart}
-                    onTouchStart={handleSeekStart}
-                  >
-                    {/* Buffered Progress */}
-                    <div
-                      className="absolute top-0 left-0 h-full bg-white/20 rounded-lg pointer-events-none"
-                      style={{
-                        width: videoRef.current?.buffered && videoRef.current.buffered.length > 0 && duration > 0
-                          ? `${(videoRef.current.buffered.end(videoRef.current.buffered.length - 1) / duration) * 100}%`
-                          : '0%'
-                      }}
-                    />
+              setDuration(videoDuration);
 
-                    {/* Progress Fill */}
-                    <div
-                      className={`absolute top-0 left-0 h-full bg-red-600 rounded-lg transition-all pointer-events-none ${
-                        isDragging ? 'duration-0' : 'duration-200'
-                      }`}
-                      style={{ 
-                        width: `${(
-                          isCasting && castState.isConnected 
-                            ? (castState.duration > 0 ? (castState.currentTime / castState.duration) * 100 : 0)
-                            : (duration > 0 ? (currentTime / duration) * 100 : (currentTime > 0 ? Math.min((currentTime / Math.max(currentTime * 2, 1800)) * 100, 100) : 0))
-                        )}%` 
-                      }}
-                    />
+              // Initialize progress if it doesn't exist
+              try {
+                await initializePlaybackProgress(media.id);
+              } catch (error) {
+                // Failed to initialize progress, continuing anyway
+              }
 
-                    {/* Progress Handle */}
-                    <div
-                      className={`absolute top-1/2 transform -translate-y-1/2 -translate-x-1/2 w-3 h-3 bg-red-600 rounded-full transition-all duration-200 pointer-events-none ${
-                        isDragging || isBuffering ? 'opacity-100 scale-125' : 'opacity-0 group-hover:opacity-100'
-                      }`}
-                      style={{ 
-                        left: `${(
-                          isCasting && castState.isConnected 
-                            ? (castState.duration > 0 ? (castState.currentTime / castState.duration) * 100 : 0)
-                            : (duration > 0 ? (currentTime / duration) * 100 : (currentTime > 0 ? Math.min((currentTime / Math.max(currentTime * 2, 1800)) * 100, 100) : 0))
-                        )}%` 
-                      }}
-                    />
+              // Load saved progress or use provided start time - ONLY on initial load
+              if (!hasInitiallyLoaded) {
+                try {
+                  const savedProgress = await getPlaybackProgress(media.id);
+                  const resumeTimeValue = startTime > 0 ? startTime : (savedProgress?.position || 0);
 
-                    {/* Buffering indicator */}
-                    {isBuffering && (
-                      <div
-                        className="absolute top-1/2 transform -translate-y-1/2 -translate-x-1/2 w-4 h-4 border-2 border-white/30 border-t-red-600 rounded-full animate-spin pointer-events-none"
-                        style={{ left: `${duration > 0 ? (currentTime / duration) * 100 : (currentTime > 0 ? Math.min((currentTime / Math.max(currentTime * 2, 1800)) * 100, 100) : 0)}%` }}
-                      />
-                    )}
+                  // Only auto-seek on initial load when video is at beginning
+                  if (video.currentTime < 5) {
+                    if (startTime > 0) {
+                      // Use provided start time
+                      video.currentTime = startTime;
+                      setCurrentTime(startTime);
+                      setResumeTime(startTime);
+                    } else if (resumeTimeValue > 30 && videoDuration > 60 && resumeTimeValue < videoDuration - 30) {
+                      // Auto-resume from saved position
+                      video.currentTime = resumeTimeValue;
+                      setCurrentTime(resumeTimeValue);
+                      setResumeTime(resumeTimeValue);
+                    }
+                  }
+                } catch (error) {
+                  if (startTime > 0 && video.currentTime < 5) {
+                    // Only seek to start time on initial load
+                    video.currentTime = startTime;
+                    setCurrentTime(startTime);
+                    setResumeTime(startTime);
+                  }
+                }
+                setHasInitiallyLoaded(true); // Mark as initially loaded
+              }
+            }}
+            onLoadedData={() => {
+              setIsLoading(false);
+              const video = videoRef.current;
+              if (video && video.readyState >= 2) {
+                video.volume = volume;
+                video.muted = false; // Always unmuted for video player
+                setIsMuted(false);
+
+                // Only seek to resume time on initial load if video is at the beginning and we have a valid resume time
+                if (!hasInitiallyLoaded && resumeTime > 0 && video.currentTime < 5 && Math.abs(video.currentTime - resumeTime) > 5) {
+                  video.currentTime = resumeTime;
+                  setCurrentTime(resumeTime);
+                }
+              }
+            }}
+            onTimeUpdate={() => {
+              const video = videoRef.current;
+              if (!video || isCasting) return;
+
+              setCurrentTime(video.currentTime);
+
+              // Update duration if it becomes available during playback
+              if ((!duration || duration === 0) && video.duration && video.duration > 0 && isFinite(video.duration)) {
+                setDuration(video.duration);
+              }
+
+              // Also check seekable range for better duration detection
+              if ((!duration || duration === 0) && video.seekable && video.seekable.length > 0) {
+                const seekableEnd = video.seekable.end(video.seekable.length - 1);
+                if (seekableEnd > duration) {
+                  setDuration(seekableEnd);
+                }
+              }
+            }}
+            onSeeking={() => {
+              setIsBuffering(true);
+            }}
+
+            onSeeked={() => {
+              setIsBuffering(false);
+              const video = videoRef.current;
+              if (video) {
+                setCurrentTime(video.currentTime);
+              }
+            }}
+            onWaiting={() => {
+              setIsBuffering(true);
+            }}
+            onCanPlayThrough={() => {
+              setIsBuffering(false);
+              setIsLoading(false);
+            }}
+            preload="auto"
+            muted={false}
+            crossOrigin="anonymous"
+          >
+
+            {/* Subtitles */}
+            {availableSubtitles.map((subtitle, index) => (
+              <track
+                key={index}
+                kind="subtitles"
+                src={subtitle.url}
+                srcLang={subtitle.language.toLowerCase()}
+                label={subtitle.language}
+                default={index === 0 && subtitlesEnabled}
+              />
+            ))}
+
+            {/* Fallback message */}
+            <p className="text-white text-center p-8">
+              Your browser does not support the video tag or this video format.
+              <br />
+              <a
+                href={getStreamUrl(media.id)}
+                download={media.title}
+                className="text-blue-400 hover:text-blue-300 underline"
+              >
+                Download the video file
+              </a>
+            </p>
+          </video>
+
+          {/* Loading/Buffering Overlay */}
+          <AnimatePresence>
+            {(isLoading || isBuffering) && (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="absolute inset-0 flex items-center justify-center bg-black/30 backdrop-blur-sm z-40"
+              >
+                <RedLoader size="large" />
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Controls Overlay */}
+          <AnimatePresence>
+            {showControls && (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/50 pointer-events-none"
+                onClick={(e) => e.stopPropagation()}
+              >
+                {/* Top Controls */}
+                <div className="absolute top-0 left-0 right-0 p-6 flex justify-between items-center pointer-events-auto">
+                  <div>
+                    <h1 className="text-white text-2xl font-bold">{media.title}</h1>
+                    <p className="text-white/70">{media.type} • {formatTime(duration)}</p>
                   </div>
 
-                  {/* Time tooltip on hover */}
-                  <div className="relative">
-                    <div className="absolute bottom-2 left-0 right-0 pointer-events-none">
-                      <div
-                        className={`absolute bg-black/80 text-white text-xs px-2 py-1 rounded transition-opacity duration-200 transform -translate-x-1/2 ${
-                          isDragging ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
-                        }`}
-                        style={{ 
-                          left: `${(
-                            isCasting && castState.isConnected 
-                              ? (castState.duration > 0 ? (castState.currentTime / castState.duration) * 100 : 0)
-                              : (duration > 0 ? (currentTime / duration) * 100 : (currentTime > 0 ? Math.min((currentTime / Math.max(currentTime * 2, 1800)) * 100, 100) : 0))
-                          )}%` 
-                        }}
-                      >
-                        {formatTime(isCasting && castState.isConnected ? castState.currentTime : currentTime)}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Control Buttons */}
-                <div className="flex items-center justify-between">
                   <div className="flex items-center gap-4">
+                    {/* Cast Button */}
+                    <CastButton
+                      isAvailable={castState.isAvailable}
+                      isConnected={castState.isConnected}
+                      isConnecting={castState.isConnecting}
+                      deviceName={castState.deviceName}
+                      onClick={handleCastClick}
+                      className="p-3 bg-black/50 rounded-full hover:bg-black/70 border border-white/20 hover:border-blue-500/50 transition-all"
+                    />
+
                     <button
+                      onClick={handleClose}
+                      className="text-white hover:text-red-500 transition-colors p-3 bg-black/50 rounded-full hover:bg-black/70 border border-white/20 hover:border-red-500/50 z-50"
+                      title="Close (Esc)"
+                      type="button"
+                    >
+                      <X className="w-6 h-6" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Center Controls */}
+                <div className="absolute inset-0 flex items-center justify-center pointer-events-auto">
+                  <div className="flex items-center gap-8">
+                    {/* Skip Back 10s */}
+                    <button
+                      type="button"
+                      onClick={() => seekBackward(10)}
+                      className="bg-black/50 text-white rounded-full p-3 hover:bg-black/70 transition-all duration-200 hover:scale-110"
+                      title="Skip back 10 seconds (←)"
+                    >
+                      <RotateCcw className="w-8 h-8" />
+                    </button>
+
+                    {/* Play/Pause */}
+                    <button
+                      type="button"
                       onClick={togglePlay}
-                      className="text-white hover:text-white/70 transition-colors"
+                      className="bg-black/50 text-white rounded-full p-4 hover:bg-black/70 transition-all duration-200 hover:scale-110 z-40"
                       title={isPlaying ? "Pause (Space)" : "Play (Space)"}
                     >
-                      {(isCasting && castState.isConnected ? castState.playerState === 'PLAYING' : isPlaying) ? (
-                        <Pause className="w-8 h-8" />
+                      {isPlaying ? (
+                        <Pause className="w-12 h-12" />
                       ) : (
-                        <Play className="w-8 h-8 fill-current" />
+                        <Play className="w-12 h-12 fill-current" />
                       )}
                     </button>
 
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => seekBackward(10)}
-                        className="text-white hover:text-red-500 transition-colors flex items-center gap-1"
-                        title="Skip back 10 seconds (←)"
-                      >
-                        <RotateCcw className="w-5 h-5" />
-                        <span className="text-xs">10</span>
-                      </button>
+                    {/* Skip Forward 10s */}
+                    <button
+                      type="button"
+                      onClick={() => seekForward(10)}
+                      className="bg-black/50 text-white rounded-full p-3 hover:bg-black/70 transition-all duration-200 hover:scale-110"
+                      title="Skip forward 10 seconds (→)"
+                    >
+                      <RotateCw className="w-8 h-8" />
+                    </button>
+                  </div>
+                </div>
 
-                      <button
-                        onClick={() => seekForward(10)}
-                        className="text-white hover:text-red-500 transition-colors flex items-center gap-1"
-                        title="Skip forward 10 seconds (→)"
-                      >
-                        <RotateCw className="w-5 h-5" />
-                        <span className="text-xs">10</span>
-                      </button>
+                {/* Bottom Controls */}
+                <div className="absolute bottom-0 left-0 right-0 p-6 pointer-events-auto">
+                  {/* Progress Bar */}
+                  <div className="mb-4 group">
+                    <div
+                      className="progress-container relative w-full h-1 bg-white/30 rounded-lg cursor-pointer group-hover:h-2 transition-all duration-200 my-1 overflow-hidden"
+                      onClick={(e) => {
+                        // Only handle click if not dragging
+
+                        if (!isDragging) {
+                          handleProgressClick(e);
+                        }
+                      }}
+                      onMouseDown={handleSeekStart}
+                      onTouchStart={handleSeekStart}
+                    >
+                      {/* Buffered Progress */}
+                      <div
+                        className="absolute top-0 left-0 h-full bg-white/20 rounded-lg pointer-events-none"
+                        style={{
+                          width: videoRef.current?.buffered && videoRef.current.buffered.length > 0 && duration > 0
+                            ? `${(videoRef.current.buffered.end(videoRef.current.buffered.length - 1) / duration) * 100}%`
+                            : '0%'
+                        }}
+                      />
+
+                      {/* Progress Fill */}
+                      <div
+                        className={`absolute top-0 left-0 h-full bg-red-600 rounded-lg transition-all pointer-events-none ${isDragging ? 'duration-0' : 'duration-200'
+                          }`}
+                        style={{
+                          width: `${(() => {
+                            if (isCasting && castState.isConnected) {
+                              return castState.duration > 0 ? (castState.currentTime / castState.duration) * 100 : 0;
+                            }
+
+                            // For local video
+                            if (duration > 0) {
+                              return Math.min((currentTime / duration) * 100, 100);
+                            }
+
+                            // For videos without duration, use seekable range
+                            const video = videoRef.current;
+                            if (video && video.seekable && video.seekable.length > 0) {
+                              const seekableEnd = video.seekable.end(video.seekable.length - 1);
+                              return seekableEnd > 0 ? Math.min((currentTime / seekableEnd) * 100, 100) : 0;
+                            }
+
+                            // Fallback: no progress without duration
+                            return 0;
+                          })()}%`
+                        }}
+                      />
+
+                      {/* Progress Handle */}
+                      <div
+                        className={`absolute top-1/2 transform -translate-y-1/2 -translate-x-1/2 w-3 h-3 bg-red-600 rounded-full transition-all duration-200 pointer-events-none ${isDragging || isBuffering ? 'opacity-100 scale-125' : 'opacity-0 group-hover:opacity-100'
+                          }`}
+                        style={{
+                          left: `${(() => {
+                            if (isCasting && castState.isConnected) {
+                              return castState.duration > 0 ? (castState.currentTime / castState.duration) * 100 : 0;
+                            }
+
+                            // For local video
+                            if (duration > 0) {
+                              return Math.min((currentTime / duration) * 100, 100);
+                            }
+
+                            // For videos without duration, use seekable range
+                            const video = videoRef.current;
+                            if (video && video.seekable && video.seekable.length > 0) {
+                              const seekableEnd = video.seekable.end(video.seekable.length - 1);
+                              return seekableEnd > 0 ? Math.min((currentTime / seekableEnd) * 100, 100) : 0;
+                            }
+
+                            // Fallback: no progress without duration
+                            return 0;
+                          })()}%`
+                        }}
+                      />
+
+                      {/* Buffering indicator */}
+                      {isBuffering && (
+                        <div
+                          className="absolute top-1/2 transform -translate-y-1/2 -translate-x-1/2 w-4 h-4 border-2 border-white/30 border-t-red-600 rounded-full animate-spin pointer-events-none"
+                          style={{
+                            left: `${(() => {
+                              if (duration > 0) {
+                                return Math.min((currentTime / duration) * 100, 100);
+                              }
+
+                              const video = videoRef.current;
+                              if (video && video.seekable && video.seekable.length > 0) {
+                                const seekableEnd = video.seekable.end(video.seekable.length - 1);
+                                return seekableEnd > 0 ? Math.min((currentTime / seekableEnd) * 100, 100) : 0;
+                              }
+
+                              return currentTime > 0 ? Math.min((currentTime / 300) * 100, 75) : 0;
+                            })()}%`
+                          }}
+                        />
+                      )}
                     </div>
 
+                    {/* Time tooltip on hover */}
+                    <div className="relative">
+                      <div className="absolute bottom-2 left-0 right-0 pointer-events-none">
+                        <div
+                          className={`absolute bg-black/80 text-white text-xs px-2 py-1 rounded transition-opacity duration-200 transform -translate-x-1/2 ${isDragging ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+                            }`}
+                          style={{
+                            left: `${(() => {
+                              if (isCasting && castState.isConnected) {
+                                return castState.duration > 0 ? (castState.currentTime / castState.duration) * 100 : 0;
+                              }
+
+                              if (duration > 0) {
+                                return Math.min((currentTime / duration) * 100, 100);
+                              }
+
+                              const video = videoRef.current;
+                              if (video && video.seekable && video.seekable.length > 0) {
+                                const seekableEnd = video.seekable.end(video.seekable.length - 1);
+                                return seekableEnd > 0 ? Math.min((currentTime / seekableEnd) * 100, 100) : 0;
+                              }
+
+                              return currentTime > 0 ? Math.min((currentTime / 300) * 100, 75) : 0;
+                            })()}%`
+                          }}
+                        >
+                          {formatTime(isCasting && castState.isConnected ? castState.currentTime : currentTime)}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Control Buttons */}
+                  <div className="flex items-center justify-between">
                     <div className="flex items-center gap-4">
                       <button
-                        onClick={toggleMute}
+                        type="button"
+                        onClick={togglePlay}
                         className="text-white hover:text-white/70 transition-colors"
-                        title={isMuted ? "Unmute (m)" : "Mute (m)"}
+                        title={isPlaying ? "Pause (Space)" : "Play (Space)"}
                       >
-                        {(isCasting && castState.isConnected ? castState.isMuted : isMuted) ? (
-                          <VolumeX className="w-6 h-6" />
+                        {(isCasting && castState.isConnected ? castState.playerState === 'PLAYING' : isPlaying) ? (
+                          <Pause className="w-8 h-8" />
                         ) : (
-                          <Volume2 className="w-6 h-6" />
+                          <Play className="w-8 h-8 fill-current" />
                         )}
                       </button>
 
-                      {/* Volume Slider */}
                       <div className="flex items-center gap-2">
-                        <input
-                          type="range"
-                          min="0"
-                          max="100"
-                          value={(isCasting && castState.isConnected ? castState.isMuted : isMuted) ? 0 : (isCasting && castState.isConnected ? castState.volumeLevel : volume) * 100}
-                          onChange={handleVolumeChange}
-                          className="w-20 h-1 bg-white/30 rounded-lg appearance-none cursor-pointer"
-                          style={{
-                            background: `linear-gradient(to right, #ef4444 0%, #ef4444 ${isMuted ? 0 : volume * 100}%, rgba(255,255,255,0.3) ${isMuted ? 0 : volume * 100}%, rgba(255,255,255,0.3) 100%)`,
-                            WebkitAppearance: 'none',
-                            appearance: 'none'
-                          }}
-                        />
-                        <style jsx>{`
+                        <button
+                          type="button"
+                          onClick={() => seekBackward(10)}
+                          className="text-white hover:text-red-500 transition-colors flex items-center gap-1"
+                          title="Skip back 10 seconds (←)"
+                        >
+                          <RotateCcw className="w-5 h-5" />
+                          <span className="text-xs">10</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => seekForward(10)}
+                          className="text-white hover:text-red-500 transition-colors flex items-center gap-1"
+                          title="Skip forward 10 seconds (→)"
+                        >
+                          <RotateCw className="w-5 h-5" />
+                          <span className="text-xs">10</span>
+                        </button>
+                      </div>
+
+                      <div className="flex items-center gap-4">
+                        <button
+                          type="button"
+                          onClick={toggleMute}
+                          className="text-white hover:text-white/70 transition-colors"
+                          title={isMuted ? "Unmute (m)" : "Mute (m)"}
+                        >
+                          {(isCasting && castState.isConnected ? castState.isMuted : isMuted) ? (
+                            <VolumeX className="w-6 h-6" />
+                          ) : (
+                            <Volume2 className="w-6 h-6" />
+                          )}
+                        </button>
+
+                        {/* Volume Slider */}
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="range"
+                            min="0"
+                            max="100"
+                            value={(isCasting && castState.isConnected ? castState.isMuted : isMuted) ? 0 : (isCasting && castState.isConnected ? castState.volumeLevel : volume) * 100}
+                            onChange={handleVolumeChange}
+                            className="w-20 h-1 bg-white/30 rounded-lg appearance-none cursor-pointer"
+                            style={{
+                              background: `linear-gradient(to right, #ef4444 0%, #ef4444 ${isMuted ? 0 : volume * 100}%, rgba(255,255,255,0.3) ${isMuted ? 0 : volume * 100}%, rgba(255,255,255,0.3) 100%)`,
+                              WebkitAppearance: 'none',
+                              appearance: 'none'
+                            }}
+                          />
+                          <style jsx>{`
                           input[type="range"]::-webkit-slider-thumb {
                             appearance: none;
                             width: 12px;
@@ -1159,109 +1340,296 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                             border: none;
                           }
                         `}</style>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={toggleSubtitles}
+                          className={`text-white hover:text-white/70 transition-colors ${subtitlesEnabled ? 'text-blue-400' : ''
+                            }`}
+                          title={subtitlesEnabled ? "Disable Subtitles (c)" : "Enable Subtitles (c)"}
+                        >
+                          <Subtitles className="w-6 h-6" />
+                        </button>
+
+                        <span className="text-white text-sm">
+                          {formatTime(isCasting && castState.isConnected ? castState.currentTime : currentTime)} / {duration > 0 ? formatTime(isCasting && castState.isConnected ? castState.duration : duration) : 'Live'}
+                        </span>
+
+                        {/* Cast status indicator */}
+                        {isCasting && castState.isConnected && (
+                          <div className="flex items-center gap-2 text-blue-400 text-sm">
+                            <Tv className="w-4 h-4" />
+                            <span>Casting to {castState.deviceName}</span>
+                          </div>
+                        )}
                       </div>
+                    </div>
+
+                    <div className="flex items-center gap-4">
+                      {/* Cast Button in bottom controls */}
+                      <CastButton
+                        isAvailable={castState.isAvailable}
+                        isConnected={castState.isConnected}
+                        isConnecting={castState.isConnecting}
+                        deviceName={castState.deviceName}
+                        onClick={handleCastClick}
+                        className=""
+                      />
 
                       <button
-                        onClick={toggleSubtitles}
-                        className={`text-white hover:text-white/70 transition-colors ${subtitlesEnabled ? 'text-blue-400' : ''
-                          }`}
-                        title={subtitlesEnabled ? "Disable Subtitles (c)" : "Enable Subtitles (c)"}
+                        type="button"
+                        onClick={toggleFullscreen}
+                        className="text-white hover:text-white/70 transition-colors"
+                        title={isFullscreen ? "Exit Fullscreen (f)" : "Enter Fullscreen (f)"}
                       >
-                        <Subtitles className="w-6 h-6" />
+                        {isFullscreen ? (
+                          <Minimize className="w-6 h-6" />
+                        ) : (
+                          <Maximize className="w-6 h-6" />
+                        )}
                       </button>
-
-                      <span className="text-white text-sm">
-                        {formatTime(isCasting && castState.isConnected ? castState.currentTime : currentTime)} / {duration > 0 ? formatTime(isCasting && castState.isConnected ? castState.duration : duration) : 'Live'}
-                      </span>
-                      
-                      {/* Cast status indicator */}
-                      {isCasting && castState.isConnected && (
-                        <div className="flex items-center gap-2 text-blue-400 text-sm">
-                          <Tv className="w-4 h-4" />
-                          <span>Casting to {castState.deviceName}</span>
-                        </div>
-                      )}
                     </div>
                   </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
-                  <div className="flex items-center gap-4">
-                    {/* Cast Button in bottom controls */}
-                    <CastButton
-                      isAvailable={castState.isAvailable}
-                      isConnected={castState.isConnected}
-                      isConnecting={castState.isConnecting}
-                      deviceName={castState.deviceName}
-                      onClick={handleCastClick}
-                      className=""
-                    />
-                    
+          {/* Resume Playback Notification */}
+          <AnimatePresence>
+            {showResumeNotification && (
+              <motion.div
+                initial={{ opacity: 0, y: 50 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 50 }}
+                className="absolute bottom-24 left-1/2 transform -translate-x-1/2 z-30"
+              >
+                <div className="bg-black/90 backdrop-blur-sm text-white p-4 rounded-lg border border-white/20 flex items-center gap-4 min-w-96">
+                  <div className="flex-1">
+                    <p className="text-sm text-white/80 mb-1">Continue watching</p>
+                    <p className="font-medium">Resume from {formatTime(resumeTime)}</p>
+                  </div>
+                  <div className="flex gap-2">
                     <button
-                      onClick={toggleFullscreen}
-                      className="text-white hover:text-white/70 transition-colors"
-                      title={isFullscreen ? "Exit Fullscreen (f)" : "Enter Fullscreen (f)"}
+                      type="button"
+                      onClick={handleStartFromBeginning}
+                      className="px-3 py-1 text-sm bg-white/20 hover:bg-white/30 rounded transition-colors"
                     >
-                      {isFullscreen ? (
-                        <Minimize className="w-6 h-6" />
-                      ) : (
-                        <Maximize className="w-6 h-6" />
-                      )}
+                      Start Over
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleResumePlayback}
+                      className="px-3 py-1 text-sm bg-red-600 hover:bg-red-700 rounded transition-colors"
+                    >
+                      Resume
                     </button>
                   </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowResumeNotification(false)}
+                    className="text-white/60 hover:text-white/80 transition-colors"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
                 </div>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
-        {/* Resume Playback Notification */}
-        <AnimatePresence>
-          {showResumeNotification && (
+          {/* Next Episode Preview */}
+          {nextEpisode && (
+            <NextEpisodePreview
+              nextEpisode={nextEpisode}
+              currentTime={currentTime}
+              duration={duration}
+              onPlayNext={handlePlayNext}
+              onCancel={handleCancelNext}
+            />
+          )}
+        </motion.div>
+      )}
+      {showPauseScreen && !isLoading && !isBuffering && !isCasting && (
+        <motion.div
+          key="netflix-pause-overlay"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.3 }}
+          className="absolute inset-0 z-50 bg-black/60 backdrop-blur-sm flex flex-col items-center justify-center cursor-pointer"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const video = videoRef.current;
+            if (video && video.paused) {
+              // Just resume playback from current position - no seeking or progress loading
+              video.play().catch(() => {
+                // Failed to resume video
+              });
+            }
+          }}
+        >
+          {/* Content Container */}
+          <motion.div
+            initial={{ scale: 0.95, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            exit={{ scale: 0.95, opacity: 0 }}
+            transition={{ duration: 0.3, delay: 0.1 }}
+            className="max-w-4xl w-full px-8 flex justify-between items-start gap-8"
+            onClick={(e) => {
+              e.stopPropagation();
+            }}
+          >
+            {/* Left Content */}
             <motion.div
-              initial={{ opacity: 0, y: 50 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 50 }}
-              className="absolute bottom-24 left-1/2 transform -translate-x-1/2 z-30"
+              initial={{ x: -20, opacity: 0 }}
+              animate={{ x: 0, opacity: 1 }}
+              exit={{ x: -20, opacity: 0 }}
+              transition={{ duration: 0.4, delay: 0.1 }}
+              className="flex-1 text-left max-w-2xl"
             >
-              <div className="bg-black/90 backdrop-blur-sm text-white p-4 rounded-lg border border-white/20 flex items-center gap-4 min-w-96">
-                <div className="flex-1">
-                  <p className="text-sm text-white/80 mb-1">Continue watching</p>
-                  <p className="font-medium">Resume from {formatTime(resumeTime)}</p>
-                </div>
-                <div className="flex gap-2">
-                  <button
-                    onClick={handleStartFromBeginning}
-                    className="px-3 py-1 text-sm bg-white/20 hover:bg-white/30 rounded transition-colors"
-                  >
-                    Start Over
-                  </button>
-                  <button
-                    onClick={handleResumePlayback}
-                    className="px-3 py-1 text-sm bg-red-600 hover:bg-red-700 rounded transition-colors"
-                  >
-                    Resume
-                  </button>
-                </div>
-                <button
-                  onClick={() => setShowResumeNotification(false)}
-                  className="text-white/60 hover:text-white/80 transition-colors"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
+              {/* Title */}
+              <motion.h1
+                initial={{ y: 20, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                exit={{ y: 20, opacity: 0 }}
+                transition={{ delay: 0.15, duration: 0.3 }}
+                className="text-5xl md:text-6xl font-bold text-[#C0392B] mb-6 leading-tight drop-shadow-lg"
+              >
+                {media.title}
+              </motion.h1>
 
-        {/* Next Episode Preview */}
-        {nextEpisode && (
-          <NextEpisodePreview
-            nextEpisode={nextEpisode}
-            currentTime={currentTime}
-            duration={duration}
-            onPlayNext={handlePlayNext}
-            onCancel={handleCancelNext}
-          />
-        )}
+              {/* Year, Rating and Type Info */}
+              <motion.div
+                initial={{ y: 20, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                exit={{ y: 20, opacity: 0 }}
+                transition={{ delay: 0.2, duration: 0.3 }}
+                className="flex items-center justify-start gap-3 mb-8 text-white/80 flex-wrap"
+              >
+                {media.year && (
+                  <>
+                    <span className="text-xl font-semibold">{media.year}</span>
+                    <span className="w-1.5 h-1.5 bg-white/60 rounded-full"></span>
+                  </>
+                )}
+                {media.type === 'episode' && (
+                  <>
+                    <span className="text-xl font-semibold">
+                      S{String(media.season_number).padStart(2, '0')}E{String(media.episode_number).padStart(2, '0')}
+                    </span>
+                    <span className="w-1.5 h-1.5 bg-white/60 rounded-full"></span>
+                  </>
+                )}
+                {media.rating && (
+                  <span className="text-xl font-semibold text-yellow-500">{media.rating.toFixed(1)}</span>
+                )}
+                {media.genre_names && (
+                  <span className="text-xl font-semibold text-white/80">{media.genre_names?.[0]}</span>
+                )}
+              </motion.div>
+
+              {/* Description */}
+              {media.description && (
+                <motion.p
+                  initial={{ y: 20, opacity: 0 }}
+                  animate={{ y: 0, opacity: 1 }}
+                  exit={{ y: 20, opacity: 0 }}
+                  transition={{ delay: 0.25, duration: 0.3 }}
+                  className="text-lg text-white/75 mb-8 line-clamp-4 leading-relaxed"
+                >
+                  {media.description}
+                </motion.p>
+              )}
+
+              {/* Progress Bar */}
+              {duration > 0 && (
+                <motion.div
+                  initial={{ y: 20, opacity: 0 }}
+                  animate={{ y: 0, opacity: 1 }}
+                  exit={{ y: 20, opacity: 0 }}
+                  transition={{ delay: 0.3, duration: 0.3 }}
+                  className="w-full h-1 bg-white/20 rounded-full mb-8"
+                >
+                  <motion.div
+                    className="h-full bg-[#C0392B] rounded-full"
+                    initial={{ width: 0 }}
+                    animate={{ width: `${(currentTime / duration) * 100}%` }}
+                    transition={{ duration: 0.5 }}
+                  />
+                </motion.div>
+              )}
+
+              {/* Time Info */}
+              <motion.div
+                initial={{ y: 20, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                exit={{ y: 20, opacity: 0 }}
+                transition={{ delay: 0.3, duration: 0.3 }}
+                className="text-white/60 text-sm"
+              >
+                <p className="font-medium">
+                  {formatTime(currentTime)} / {duration > 0 ? formatTime(duration) : 'Live'}
+                </p>
+              </motion.div>
+            </motion.div>
+
+            {/* Right Play Icon */}
+            <motion.div
+              initial={{ scale: 0.8, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.8, opacity: 0 }}
+              transition={{ delay: 0.1, duration: 0.3 }}
+              className="flex-shrink-0 flex justify-center"
+            >
+              <motion.div 
+                className="bg-[#C0392B]/20 rounded-full p-6 backdrop-blur-sm hover:bg-[#C0392B]/30 transition-colors duration-200 cursor-pointer"
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={(e) => {
+                  e.stopPropagation();
+    const video = videoRef.current;
+                  if (video && video.paused) {
+                    // Just resume playback, don't change any state that might cause remount
+                    video.play().catch(() => {
+                      // Failed to resume video from play button
+                    });
+                  }
+                }}
+              >
+                <Play className="w-16 h-16 fill-current text-[#C0392B]" />
+              </motion.div>
+            </motion.div>
+          </motion.div>
+
+          {/* Close Button */}
+          <motion.button
+            initial={{ opacity: 0, scale: 0.8 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.8 }}
+            transition={{ delay: 0.2, duration: 0.3 }}
+            onClick={(e) => {
+              e.stopPropagation();
+              console.log('Close button clicked from pause screen');
+              handleClose();
+            }}
+            className="absolute top-6 right-6 bg-black/50 hover:bg-black/70 text-white rounded-full p-3 transition-all duration-200 hover:scale-110 border border-white/20 hover:border-red-500/50"
+            title="Close Player (Esc)"
+          >
+            <X className="w-5 h-5" />
+          </motion.button>
+
+          {/* Resume Hint */}
+          <motion.div
+            initial={{ y: 30, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: 30, opacity: 0 }}
+            transition={{ delay: 0.35, duration: 0.3 }}
+            className="absolute bottom-12 text-white/50 text-sm text-center"
+          >
+            <p>Click anywhere or press <span className="font-semibold text-white/70">SPACE</span> to resume</p>
+          </motion.div>
         </motion.div>
       )}
     </AnimatePresence>

@@ -1933,33 +1933,48 @@ func (s *ThumbnailService) generatePreviewFallback(videoPath string, mediaID uin
 	return s.createPlaceholderPreview(mediaID, previewPath)
 }
 
-// trySimplePreviewGeneration uses minimal FFmpeg parameters
+// trySimplePreviewGeneration uses minimal FFmpeg parameters with random timestamp
 func (s *ThumbnailService) trySimplePreviewGeneration(videoPath, previewPath string) error {
+	// Get random timestamp using same logic as Python tasks (30-70% of video)
+	startTime := s.getRandomPreviewTimestamp(videoPath)
+	startTimeStr := s.secondsToTimeString(startTime)
+	
 	cmd := exec.Command("ffmpeg",
 		"-i", videoPath,
-		"-ss", "00:01:00", // Start at 1 minute
+		"-ss", startTimeStr, // Use random timestamp instead of fixed 1 minute
 		"-t", "00:00:15", // Duration of 15 seconds
-		"-vf", "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2", // Full HD fallback
+		"-vf", "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2", // Full HD quality
 		"-c:v", "libx264",
-		"-preset", "ultrafast",
-		"-crf", "25", // Slightly lower quality for fallback
+		"-preset", "medium", // Better quality preset
+		"-crf", "23", // Higher quality
+		"-c:a", "aac", // Add audio codec
+		"-b:a", "128k", // Audio bitrate
+		"-movflags", "+faststart", // Web optimization
+		"-pix_fmt", "yuv420p", // Compatibility
 		"-y",
 		previewPath,
 	)
 	return cmd.Run()
 }
 
-// tryShortPreviewGeneration creates a very short preview
+// tryShortPreviewGeneration creates a short preview with random timestamp
 func (s *ThumbnailService) tryShortPreviewGeneration(videoPath, previewPath string) error {
+	// Get random timestamp using same logic as Python tasks (30-70% of video)
+	startTime := s.getRandomPreviewTimestamp(videoPath)
+	startTimeStr := s.secondsToTimeString(startTime)
+	
 	cmd := exec.Command("ffmpeg",
 		"-i", videoPath,
-		"-ss", "00:00:30", // Start at 30 seconds
+		"-ss", startTimeStr, // Use random timestamp instead of fixed 30 seconds
 		"-t", "00:00:15", // Duration of 15 seconds
-		"-vf", "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2", // Full HD fallback
+		"-vf", "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2", // Full HD quality
 		"-c:v", "libx264",
-		"-preset", "ultrafast",
-		"-crf", "30",
-		"-an", // No audio
+		"-preset", "fast", // Fast preset for short preview
+		"-crf", "25", // Good quality
+		"-c:a", "aac", // Add audio codec
+		"-b:a", "96k", // Lower audio bitrate for short preview
+		"-movflags", "+faststart", // Web optimization
+		"-pix_fmt", "yuv420p", // Compatibility
 		"-y",
 		previewPath,
 	)
@@ -2627,4 +2642,55 @@ func (wp *WorkerPool) generateUltraFastPreviewUnlimited(videoPath string, mediaI
 
 	log.Printf("✅ Unlimited ultra-fast preview successful for media %d", mediaID)
 	return previewPath, nil
+}
+
+// getRandomPreviewTimestamp generates a random timestamp for preview generation
+// Uses the same logic as Python Celery tasks: 30-70% of video duration
+func (s *ThumbnailService) getRandomPreviewTimestamp(videoPath string) int {
+	// Get video duration using ffprobe
+	duration := s.getVideoDurationSeconds(videoPath)
+	if duration <= 0 {
+		// Fallback to 60 seconds if duration detection fails
+		log.Printf("⚠️ Could not detect video duration for %s, using 60s fallback", videoPath)
+		return 60
+	}
+
+	// Use random timestamp between 30-70% of video duration (same as Python tasks)
+	// This avoids boring intros (first 30%) and credits (last 30%)
+	rand.Seed(time.Now().UnixNano())
+	startPercent := 0.3 + rand.Float64()*0.4 // Random between 0.3 and 0.7
+	randomStartTime := int(float64(duration) * startPercent)
+	
+	// Ensure minimum 30 seconds
+	if randomStartTime < 30 {
+		randomStartTime = 30
+	}
+	
+	log.Printf("🎯 Generated random preview timestamp: %ds (%.1f%% of %ds duration)", 
+		randomStartTime, startPercent*100, duration)
+	
+	return randomStartTime
+}
+
+// getVideoDurationSeconds gets video duration in seconds using ffprobe
+func (s *ThumbnailService) getVideoDurationSeconds(videoPath string) int {
+	cmd := exec.Command("ffprobe",
+		"-v", "quiet",
+		"-show_entries", "format=duration",
+		"-of", "csv=p=0",
+		videoPath)
+	
+	output, err := cmd.Output()
+	if err != nil {
+		log.Printf("⚠️ ffprobe failed for %s: %v", videoPath, err)
+		return 0
+	}
+
+	durationStr := strings.TrimSpace(string(output))
+	if durationFloat, err := strconv.ParseFloat(durationStr, 64); err == nil {
+		return int(durationFloat)
+	}
+
+	log.Printf("⚠️ Could not parse duration '%s' for %s", durationStr, videoPath)
+	return 0
 }

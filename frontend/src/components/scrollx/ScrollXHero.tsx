@@ -50,7 +50,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
   const [previousApiResponses, setPreviousApiResponses] = useState<Set<string>>(new Set());
   const [allAvailableMedia, setAllAvailableMedia] = useState<Media[]>([]);
   const [hasInitializedContent, setHasInitializedContent] = useState(false);
-  
+
   // Refs for stable references
   const videoRef = useRef<HTMLVideoElement>(null);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -60,7 +60,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
   const slideTimerRef = useRef<NodeJS.Timeout | null>(null);
   const preloadRefs = useRef<Map<string, HTMLVideoElement>>(new Map());
   const urlCache = useRef<Map<string, string>>(new Map());
-  
+
   const {
     setCurrentAudioElement,
     muteAll,
@@ -129,20 +129,20 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
   // Enhanced shuffle array utility function with time-based randomization
   const shuffleArray = <T,>(array: T[]): T[] => {
     const shuffled = [...array];
-    
+
     // Add time-based randomization for more variety
     const timeSeed = Date.now() + cycleCount * 1000;
     const random = () => {
       const x = Math.sin(timeSeed + shuffled.length) * 10000;
       return x - Math.floor(x);
     };
-    
+
     // Enhanced Fisher-Yates shuffle with time-based randomization
     for (let i = shuffled.length - 1; i > 0; i--) {
       const j = Math.floor((Math.random() + random()) / 2 * (i + 1));
       [shuffled[i], shuffled[j % shuffled.length]] = [shuffled[j % shuffled.length], shuffled[i]];
     }
-    
+
     // Additional randomization pass
     for (let i = 0; i < shuffled.length; i++) {
       if (Math.random() > 0.5) {
@@ -150,7 +150,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
         [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
       }
     }
-    
+
     return shuffled;
   };
 
@@ -169,40 +169,40 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
   // Enhanced frontend recommendation system with latest movies and priority genre focus
   const generateFrontendRecommendations = (availableMedia: Media[], currentFeatured: Media[]): Media[] => {
     console.log(`🔄 Generating frontend recommendations from ${availableMedia.length} available items (cycle ${cycleCount})...`);
-    
+
     // Apply content filtering
     let filteredMedia = availableMedia;
-    
+
     if (contentFilter === 'movies-hd') {
       filteredMedia = availableMedia.filter((media: Media) => {
         const isMovie = media.type === 'movie';
         const hasHDQuality = media.quality && (
-          media.quality.toLowerCase().includes('hd') || 
+          media.quality.toLowerCase().includes('hd') ||
           media.quality.toLowerCase().includes('4k') ||
           media.quality.toLowerCase().includes('1080p') ||
           media.quality.toLowerCase().includes('2160p')
         );
         return isMovie && hasHDQuality;
       });
-      
+
       // If not enough HD movies, fall back to all movies
       if (filteredMedia.length < 8) {
         filteredMedia = availableMedia.filter((media: Media) => media.type === 'movie');
       }
     } else if (contentFilter === 'tv-series') {
       filteredMedia = availableMedia.filter((media: Media) => {
-        return media.type === 'episode' || 
-               media.type === 'tv' || 
-               media.type === 'series' ||
-               media.title.toLowerCase().includes('series') ||
-               media.title.toLowerCase().includes('episode') ||
-               media.title.toLowerCase().includes('season');
+        return media.type === 'episode' ||
+          media.type === 'tv' ||
+          media.type === 'series' ||
+          media.title.toLowerCase().includes('series') ||
+          media.title.toLowerCase().includes('episode') ||
+          media.title.toLowerCase().includes('season');
       });
     }
 
     // Enhanced priority genres: sci-fi, action, drama, thriller + additional popular genres
     const priorityGenres = ['sci-fi', 'science fiction', 'action', 'drama', 'thriller', 'adventure', 'mystery', 'crime', 'horror', 'fantasy'];
-    
+
     // Latest and newly added content (highest IDs = most recent) - increased to 50%
     const latestContent = filteredMedia
       .sort((a, b) => b.id - a.id)
@@ -216,8 +216,8 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
 
     // Priority genre content with latest preference
     const priorityGenreContent = filteredMedia.filter((media: Media) => {
-      return media.genres?.some(genre => 
-        priorityGenres.some(priority => 
+      return media.genres?.some(genre =>
+        priorityGenres.some(priority =>
           genre.name.toLowerCase().includes(priority.toLowerCase())
         )
       );
@@ -225,8 +225,8 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
 
     // Latest priority genre movies (combining both filters)
     const latestPriorityMovies = latestMovies.filter((media: Media) => {
-      return media.genres?.some(genre => 
-        priorityGenres.some(priority => 
+      return media.genres?.some(genre =>
+        priorityGenres.some(priority =>
           genre.name.toLowerCase().includes(priority.toLowerCase())
         )
       );
@@ -243,7 +243,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
 
     // Add cycle-based randomization to ensure different content each time
     const cycleOffset = cycleCount * 2;
-    
+
     // Remove currently featured items (but allow some overlap for continuity)
     const availableForRecommendation = filteredMedia.filter((media: Media, index: number) =>
       index < 20 || !currentFeatured.some(existing => existing.id === media.id)
@@ -256,10 +256,10 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
 
     // Create intelligent frontend recommendations with enhanced latest and genre focus
     const recommendations: Media[] = [];
-    
+
     // Vary the algorithm based on cycle count for different content - now 5 algorithms
     const algorithm = cycleCount % 5;
-    
+
     if (algorithm === 0) {
       // Algorithm 1: Latest Priority Movies Focus (40% latest priority movies, 30% latest content, 30% high-rated latest)
       const latestPriorityFromAvailable = latestPriorityMovies
@@ -276,7 +276,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
         .filter(m => availableForRecommendation.some(a => a.id === m.id) && !recommendations.some(r => r.id === m.id))
         .slice(0, 3);
       recommendations.push(...shuffleArray(highRatedLatestFromAvailable));
-      
+
     } else if (algorithm === 1) {
       // Algorithm 2: Latest + Priority Genres (35% latest, 35% priority genres, 30% popular latest)
       const latestFromAvailable = latestContent
@@ -293,7 +293,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
         .filter(m => availableForRecommendation.some(a => a.id === m.id) && !recommendations.some(r => r.id === m.id))
         .slice(0, 3);
       recommendations.push(...shuffleArray(popularLatestFromAvailable));
-      
+
     } else if (algorithm === 2) {
       // Algorithm 3: Priority Genre Latest Focus (50% latest priority genres, 30% latest movies, 20% high-rated)
       const latestPriorityFromAvailable = priorityGenreContent
@@ -310,7 +310,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
         .filter(m => availableForRecommendation.some(a => a.id === m.id) && !recommendations.some(r => r.id === m.id))
         .slice(0, 2);
       recommendations.push(...shuffleArray(highRatedFromAvailable));
-      
+
     } else if (algorithm === 3) {
       // Algorithm 4: Balanced Latest Focus (30% latest priority movies, 25% latest content, 25% priority genres, 20% popular)
       const latestPriorityMoviesFromAvailable = latestPriorityMovies
@@ -332,7 +332,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
         .filter(m => availableForRecommendation.some(a => a.id === m.id) && !recommendations.some(r => r.id === m.id))
         .slice(0, 2);
       recommendations.push(...shuffleArray(popularFromAvailable));
-      
+
     } else {
       // Algorithm 5: Latest Movie Priority (45% latest movies, 30% latest priority genres, 25% high-rated latest)
       const latestMoviesFromAvailable = latestMovies
@@ -354,21 +354,21 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
     // Fill remaining slots with latest priority content first, then latest general content
     const remaining = availableForRecommendation
       .filter(m => !recommendations.some(r => r.id === m.id));
-    
+
     // Prioritize remaining latest priority genre content
-    const remainingLatestPriority = remaining.filter(m => 
-      m.genres?.some(genre => 
-        priorityGenres.some(priority => 
+    const remainingLatestPriority = remaining.filter(m =>
+      m.genres?.some(genre =>
+        priorityGenres.some(priority =>
           genre.name.toLowerCase().includes(priority.toLowerCase())
         )
       )
     ).sort((a, b) => b.id - a.id); // Latest first
-    
+
     // Then latest general content
-    const remainingLatest = remaining.filter(m => 
+    const remainingLatest = remaining.filter(m =>
       !remainingLatestPriority.some(r => r.id === m.id)
     ).sort((a, b) => b.id - a.id);
-    
+
     // Fill remaining slots
     const slotsRemaining = 10 - recommendations.length;
     if (slotsRemaining > 0) {
@@ -387,29 +387,29 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
   const fetchRecommendedMedia = async (cycleNumber: number = 0) => {
     setIsLoadingNewContent(true);
     console.log(`🎬 Fetching ALWAYS DIFFERENT recommendations (cycle ${cycleNumber})...`);
-    
+
     try {
       // ALWAYS try backend recommendations first for guaranteed uniqueness
       let newMedia: Media[] = [];
-      
+
       try {
         // Import the enhanced API functions
         const { fetchUniqueRecommendations } = await import('@/lib/api');
-        
+
         // Get unique recommendations with cycle-based type rotation
         const recommendationTypes = ['mixed', 'trending', 'popular', 'personalized', 'recent'];
         const currentType = recommendationTypes[cycleNumber % recommendationTypes.length];
-        
+
         console.log(`🎯 Fetching ${currentType} recommendations for cycle ${cycleNumber}`);
         newMedia = await fetchUniqueRecommendations(currentType, 25);
         console.log(`✅ Got ${newMedia.length} unique ${currentType} recommendations from backend`);
-        
+
         // Apply content filtering
         if (contentFilter === 'movies-hd') {
           newMedia = newMedia.filter((media: Media) => {
             const isMovie = media.type === 'movie';
             const hasHDQuality = media.quality && (
-              media.quality.toLowerCase().includes('hd') || 
+              media.quality.toLowerCase().includes('hd') ||
               media.quality.toLowerCase().includes('4k') ||
               media.quality.toLowerCase().includes('1080p') ||
               media.quality.toLowerCase().includes('2160p')
@@ -418,34 +418,34 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
           });
         } else if (contentFilter === 'tv-series') {
           newMedia = newMedia.filter((media: Media) => {
-            return media.type === 'episode' || 
-                   media.type === 'tv' || 
-                   media.type === 'series';
+            return media.type === 'episode' ||
+              media.type === 'tv' ||
+              media.type === 'series';
           });
         }
-        
+
         if (newMedia.length >= 5) {
           // Add additional randomization based on time and cycle
           const timeBasedShuffle = shuffleArray(newMedia);
           setFeaturedMedia(timeBasedShuffle.slice(0, 10));
           console.log(`✅ Using ${timeBasedShuffle.length} unique ${currentType} recommendations`);
-          
+
           // Preload assets for instant display
           const { preloadAssets } = await import('@/lib/api');
           preloadAssets(timeBasedShuffle.slice(0, 10), ['thumbnail', 'preview']);
-          
+
           return;
         }
       } catch (error) {
         console.warn('❌ Backend recommendations failed:', error);
       }
-      
+
       // Enhanced frontend fallback with guaranteed uniqueness
       if (initialFeaturedMedia.length > 0) {
         // Create a much larger and more varied pool with cycle-based variations
         const timeVariant = Date.now() % 1000 + cycleNumber * 1000;
         const cycleMultiplier = (cycleNumber % 5) + 1; // Rotate through different multipliers
-        
+
         const expandedPool = [
           ...initialFeaturedMedia,
           ...initialFeaturedMedia.map(item => ({ ...item, id: item.id + 10000 + timeVariant })),
@@ -454,11 +454,11 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
           ...initialFeaturedMedia.map(item => ({ ...item, id: item.id + 40000 + timeVariant })),
           ...initialFeaturedMedia.map(item => ({ ...item, id: item.id + (50000 * cycleMultiplier) + timeVariant }))
         ];
-        
+
         // Use different algorithm based on cycle for guaranteed variety
         const algorithmIndex = cycleNumber % 5;
         console.log(`🎲 Using frontend algorithm ${algorithmIndex + 1} for cycle ${cycleNumber}`);
-        
+
         // Force different content by excluding current featured media
         const frontendRecs = generateFrontendRecommendations(expandedPool, featuredMedia);
         setFeaturedMedia(frontendRecs);
@@ -654,7 +654,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
   // Optimized URL generation with caching and proper media synchronization
   const getVideoUrl = useCallback((media: Media, fallback: boolean = false): string | undefined => {
     if (!media?.id) return undefined;
-    
+
     // Ensure we're getting URL for the current media to prevent wrong slide issues
     if (media.id !== currentMediaRef.current?.id) {
       console.warn('Video URL requested for non-current media, skipping to prevent wrong slide display');
@@ -672,7 +672,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
 
   const getThumbnailUrl = useCallback((media: Media): string | undefined => {
     if (!media?.id) return undefined;
-    
+
     // Ensure we're getting URL for the current media to prevent wrong slide issues
     if (media.id !== currentMediaRef.current?.id) {
       console.warn('Thumbnail URL requested for non-current media, skipping to prevent wrong slide display');
@@ -696,7 +696,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
   // Debug function to check preview clip availability
   const checkPreviewClipAvailability = useCallback(async (media: Media): Promise<boolean> => {
     if (!media?.id) return false;
-    
+
     // Always assume preview clips are available to avoid HEAD requests
     // Backend L1 cache will handle missing clips gracefully
     console.log(`⚡ Skipping availability check for ${media.title} - assuming available for instant playback`);
@@ -706,7 +706,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
   // Disable preview clip generation to prevent server-side FFmpeg triggers
   const generatePreviewClipIfNeeded = useCallback(async (media: Media) => {
     if (!media?.id) return;
-    
+
     // Skip generation to avoid triggering server-side processing
     // Preview clips should be pre-generated or handled by backend on-demand
     console.log(`⚡ Skipping preview clip generation for ${media.title} - relying on backend caching`);
@@ -818,7 +818,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
   // Simplified preloading - only preload current media to reduce server requests
   const preloadVideo = useCallback((media: Media, priority: 'high' | 'low' = 'low') => {
     if (!media?.id) return;
-    
+
     // Skip preloading to reduce server requests - rely on instant L1 cache
     console.log(`⚡ Skipping video preload for ${media.title} - relying on instant backend cache`);
     return null;
@@ -834,11 +834,11 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
   // Enhanced video playback with Chrome race condition prevention
   const playVideoWithAudio = useCallback(async (video: HTMLVideoElement, withAudio: boolean = true) => {
     if (!video || isLoadingRef.current) return false;
-    
+
     try {
       const currentMediaId = currentMediaRef.current?.id?.toString();
       console.log(`🎬 Attempting to play video for media ${currentMediaId}`);
-      
+
       // Basic validation - less strict to allow playback
       if (!currentMediaId) {
         console.warn(`🚫 No current media ID available`);
@@ -853,11 +853,11 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
 
       // Reset video state
       video.currentTime = 0;
-      
+
       // Always start muted for maximum browser compatibility
       video.muted = true;
       video.volume = 0;
-      
+
       console.log(`🎵 Starting muted video for browser compatibility - slide ${currentMediaId}`);
 
       // Chrome-safe play with proper promise handling
@@ -865,14 +865,14 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
         const playPromise = video.play();
         if (playPromise !== undefined) {
           await playPromise;
-          
+
           // Double-check video is still playing after await
           if (!video.paused) {
             setIsPlaying(true);
-            
+
             // Only unmute after user interaction for Safari compliance
             const shouldStartWithAudio = withAudio && !isMuted && audioPreferences.hasUserEverUnmuted() && canAutoplayWithAudio && userHasInteracted;
-            
+
             if (shouldStartWithAudio && !video.paused) {
               // Instant unmute without delays after user interaction
               if (currentMediaRef.current?.id?.toString() === currentMediaId && !video.paused) {
@@ -881,7 +881,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
                 console.log(`🔊 Instantly unmuted video for slide ${currentMediaId}`);
               }
             }
-            
+
             console.log(`✅ Video playing successfully for slide ${currentMediaId}`);
             return true;
           } else {
@@ -896,7 +896,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
       }
     } catch (error) {
       console.error(`❌ Video play failed for media ${currentMediaRef.current?.id}:`, error);
-      
+
       // Fallback: ensure muted playback
       try {
         video.muted = true;
@@ -912,7 +912,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
         console.error(`❌ Fallback muted playback also failed:`, fallbackError);
       }
     }
-    
+
     return false;
   }, [isMuted, spatialAudioEnabled, audioPreferences, canAutoplayWithAudio]);
 
@@ -920,7 +920,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
   const handleUnmute = async (e?: React.MouseEvent | KeyboardEvent) => {
     setUserHasInteracted(true);
     audioPreferences.setUserHasUnmuted();
-    
+
 
     if (e) {
       e.preventDefault();
@@ -940,8 +940,8 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
 
   // Netflix-style helper functions
   const getQualityBadge = () => {
-    const qualityText = currentMedia.quality ? 
-      (currentMedia.quality.includes('2160') || currentMedia.quality.toLowerCase().includes('4k') ? '4K' : 'HD') 
+    const qualityText = currentMedia.quality ?
+      (currentMedia.quality.includes('2160') || currentMedia.quality.toLowerCase().includes('4k') ? '4K' : 'HD')
       : "HD";
     return { text: qualityText, color: 'bg-blue-600' };
   }
@@ -1029,7 +1029,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
   // Optimized slide change with proper media synchronization and smooth transitions
   const handleSlideChange = useCallback(async (newIndex: number) => {
     if (newIndex === currentIndex || isTransitioning || !featuredMedia.length) return;
-    
+
     const newMedia = featuredMedia[newIndex];
     if (!newMedia) return;
 
@@ -1052,7 +1052,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
 
       // Update current media reference immediately to prevent wrong slide media
       currentMediaRef.current = newMedia;
-      
+
       // Update index with smooth transition
       setCurrentIndex(newIndex);
       setIsPlaying(false);
@@ -1071,7 +1071,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
       if (newVideoUrl && videoRef.current) {
         videoRef.current.src = newVideoUrl;
         videoRef.current.load();
-        
+
         // Try to start playback after a brief delay
         setTimeout(async () => {
           if (videoRef.current && currentMediaRef.current?.id === newMedia.id) {
@@ -1098,7 +1098,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
   // Fixed initialization - prevent multiple cycles and ensure immediate display
   useEffect(() => {
     if (hasInitializedContent) return; // Prevent re-initialization
-    
+
     const savedMutedState = audioPreferences.getGlobalAudioPreference();
     const userHasUnmutedBefore = audioPreferences.hasUserEverUnmuted();
 
@@ -1112,17 +1112,17 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
     if (initialFeaturedMedia.length > 0) {
       setAllAvailableMedia(initialFeaturedMedia);
       setFeaturedMedia(initialFeaturedMedia);
-      
+
       // Set current media reference immediately
       currentMediaRef.current = initialFeaturedMedia[0];
-      
+
       // NO cycle count changes - use static initialization to prevent multiple cycles
       console.log(`🎯 Immediate display: Using ${initialFeaturedMedia.length} initial media items`);
-      
+
       // Mark as initialized immediately to show content
       setHasInitializedContent(true);
       setIsInitialized(true);
-      
+
       // Show first slide immediately without any delays
       setCurrentIndex(0);
     }
@@ -1136,18 +1136,18 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
 
     const video = videoRef.current;
     const currentVideoUrl = getVideoUrl(currentMedia);
-    
+
     // Only proceed if we have a valid video URL for current media
     if (!currentVideoUrl) return;
-    
+
     // CRITICAL: Stop any existing playback first to prevent wrong slide audio
     video.pause();
     video.currentTime = 0;
     video.muted = true;
-    
+
     // Check if video source needs updating - strict media ID matching
     const needsNewSource = !video.src || !video.src.includes(currentMedia.id.toString());
-    
+
     if (needsNewSource) {
       video.src = currentVideoUrl;
       video.load();
@@ -1158,11 +1158,11 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
     // Enhanced video ready check with strict current media validation
     const attemptPlay = () => {
       // CRITICAL: Double-check we're still on the same slide before playing
-      if (video.readyState >= 2 && 
-          video.paused && 
-          currentMediaRef.current?.id === currentMedia.id &&
-          video.src.includes(currentMedia.id.toString())) {
-        
+      if (video.readyState >= 2 &&
+        video.paused &&
+        currentMediaRef.current?.id === currentMedia.id &&
+        video.src.includes(currentMedia.id.toString())) {
+
         console.log(`🎵 Playing audio for slide ${currentMedia.id}: ${currentMedia.title}`);
         playVideoWithAudio(video, shouldPlayWithAudio);
       } else {
@@ -1181,14 +1181,14 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
           setTimeout(attemptPlay, 500);
         }
       };
-      
+
       video.addEventListener('loadeddata', handleLoadedData);
-      
+
       // Cleanup timeout
       const cleanup = setTimeout(() => {
         video.removeEventListener('loadeddata', handleLoadedData);
       }, 5000);
-      
+
       return () => {
         clearTimeout(cleanup);
         video.removeEventListener('loadeddata', handleLoadedData);
@@ -1203,7 +1203,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
     const preloadAdjacent = () => {
       const nextIndex = (currentIndex + 1) % featuredMedia.length;
       const prevIndex = (currentIndex - 1 + featuredMedia.length) % featuredMedia.length;
-      
+
       // Preload next and previous videos with low priority
       if (featuredMedia[nextIndex]) {
         preloadVideo(featuredMedia[nextIndex], 'low');
@@ -1231,15 +1231,15 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
         if (nextIndex === 0 && currentIndex === featuredMedia.length - 1) {
           // At the end of cycle - fetch fresh content and restart
           console.log('🔄 End of cycle reached, fetching fresh content...');
-          
+
           // Pause auto-playing temporarily while loading new content
           setIsAutoPlaying(false);
           setIsLoadingNewContent(true);
-          
+
           // Fetch fresh recommendations with a new cycle count
           const newCycleCount = cycleCount + 1;
           setCycleCount(newCycleCount);
-          
+
           // Fetch new content and restart auto-playing after loading
           fetchRecommendedMedia(newCycleCount).then(() => {
             setTimeout(() => {
@@ -1253,7 +1253,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
             setCurrentIndex(0);
             setIsAutoPlaying(true);
           });
-          
+
           return;
         }
         nextSlide();
@@ -1333,13 +1333,13 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
   useEffect(() => {
     if (currentMedia) {
       stopAllPlayback();
-      
+
       // Always show thumbnail first while video loads
       setIsVideoLoaded(false);
       setIsPlaying(false);
       setVideoLoaded(false);
       setBackgroundLoaded(false);
-      
+
       console.log(`🖼️ Showing thumbnail first for media ${currentMedia.id}`);
 
       const videoUrl = getVideoUrl(currentMedia);
@@ -1357,7 +1357,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
         video.setAttribute('playsinline', 'true');
         video.setAttribute('webkit-playsinline', 'true');
         video.src = videoUrl;
-        
+
         // Start loading video immediately but show thumbnail first
         video.preload = 'metadata';
         video.load();
@@ -1405,7 +1405,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
 
       const handleError = (e: Event) => {
         console.warn('Video loading error for media', currentMedia.id, ':', e);
-        
+
         // Try fallback URL
         const fallbackUrl = getVideoUrl(currentMedia, true);
         if (fallbackUrl && fallbackUrl !== video.src) {
@@ -1414,7 +1414,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
           video.load();
           return;
         }
-        
+
         // If all fails, hide video
         setIsVideoLoaded(false);
         setVideoLoaded(false);
@@ -1468,14 +1468,14 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
         if (videoRef.current && !videoRef.current.paused) {
           const video = videoRef.current;
           const shouldPlayWithAudio = !isMuted && audioPreferences.hasUserEverUnmuted() && canAutoplayWithAudio;
-          
+
           if (shouldPlayWithAudio) {
             video.muted = false;
             video.volume = spatialAudioEnabled ? 0.7 : 0.5;
             console.log('🔊 Enabled audio after user interaction');
           }
         }
-        
+
         // Also try to start video playback if not already playing
         if (videoRef.current && hasVideoContent(currentMedia) && !isPlaying) {
           const video = videoRef.current;
@@ -1632,6 +1632,41 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
     };
   }, []);
 
+  // Auto-reload the page every 5 minutes (300,000ms) to ensure fresh content
+  useEffect(() => {
+    // Only run in browser environment
+    if (typeof window === 'undefined') return;
+
+    const reloadTimer = setTimeout(() => {
+      window.location.reload();
+    }, 300000); // 5 minutes = 300,000ms
+
+    // Clean up the timer when component unmounts or before re-running the effect
+    return () => {
+      clearTimeout(reloadTimer);
+    };
+  }, []); // Empty dependency array means this effect runs once on mount
+
+  // Trigger click event after 5 seconds of component mount
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    
+    const clickTimer = setTimeout(() => {
+      // Programmatically trigger a click on the main container
+      const heroContainer = document.querySelector('.relative.h-screen.overflow-hidden');
+      if (heroContainer) {
+        heroContainer.dispatchEvent(new MouseEvent('click', {
+          view: window,
+          bubbles: true,
+          cancelable: true
+        }));
+      }
+    }, 5000); // 5 seconds = 5000ms
+
+    return () => clearTimeout(clickTimer);
+  }, []);
+
+
   if (!currentMedia) return null;
 
   return (
@@ -1716,7 +1751,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
                       const video = videoRef.current;
                       if (video.readyState >= 2 && video.duration > 0) {
                         setIsVideoLoaded(true);
-                        
+
                         // Chrome-safe auto-attempt playback
                         if (!isPlaying && video.paused) {
                           video.play().catch((error) => {
@@ -1743,7 +1778,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
                   }}
                   onError={(e) => {
                     console.warn('Video element error for media', currentMedia.id, ':', e);
-                    
+
                     // Try fallback URL
                     if (videoRef.current) {
                       const video = videoRef.current;
@@ -1755,7 +1790,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
                         return;
                       }
                     }
-                    
+
                     setIsVideoLoaded(false);
                     setVideoLoaded(false);
                     setIsPlaying(false);
@@ -2107,7 +2142,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
                       }}
                     >
                       {/* Animated glow effect */}
-                      <motion.div 
+                      <motion.div
                         className="absolute inset-0 rounded-sm"
                         style={{
                           background: 'linear-gradient(180deg, rgba(255,255,255,0.6) 0%, transparent 40%, rgba(255,255,255,0.1) 100%)',
@@ -2123,7 +2158,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
                         }}
                       />
                       {/* Bottom shadow for depth */}
-                      <div 
+                      <div
                         className="absolute -bottom-1 left-1/2 transform -translate-x-1/2 w-8 h-1 rounded-full"
                         style={{
                           background: 'radial-gradient(ellipse, rgba(229, 9, 20, 0.4) 0%, transparent 70%)',
@@ -2206,5 +2241,6 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
     </motion.div>
   );
 };
+
 
 export default ScrollXHero;

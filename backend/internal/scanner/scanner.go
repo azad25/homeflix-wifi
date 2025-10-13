@@ -1,9 +1,12 @@
 package scanner
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
+	"math/rand"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -1685,6 +1688,10 @@ func (s *MediaScanner) processVideoFile(path string, info os.FileInfo) error {
 
 							// Update genres from TMDB if available
 							if len(tmdbMetadata.Genres) > 0 {
+								// Store genre names for JSON compatibility and API responses
+								media.GenreNames = tmdbMetadata.Genres
+								log.Printf("🎭 Set genres for %s: %v", media.Title, tmdbMetadata.Genres)
+								
 								// Convert genre names to IDs and assign to media
 								genreIDs, err := s.GetMediaService().GetGenreIDsByNames(tmdbMetadata.Genres)
 								if err != nil {
@@ -2499,6 +2506,7 @@ func (s *MediaScanner) extractVideoMetadata(media *models.Media, path string) er
 			Width     int    `json:"width"`
 			Height    int    `json:"height"`
 			BitRate   string `json:"bit_rate"`
+			Duration  string `json:"duration"`
 		} `json:"streams"`
 	}
 
@@ -2506,9 +2514,133 @@ func (s *MediaScanner) extractVideoMetadata(media *models.Media, path string) er
 		return fmt.Errorf("failed to parse ffprobe output: %v", err)
 	}
 
-	// Extract duration and convert to seconds
-	if duration, err := strconv.ParseFloat(probeData.Format.Duration, 64); err == nil {
-		media.Duration = int(duration)
+	// Extract duration and convert to seconds with robust fallbacks
+	var durationSeconds int
+	
+	// Try to get duration from format first
+	if probeData.Format.Duration != "" && probeData.Format.Duration != "N/A" {
+		if duration, err := strconv.ParseFloat(probeData.Format.Duration, 64); err == nil && duration > 0 {
+			durationSeconds = int(duration)
+			log.Printf("📏 Duration from format: %.2f seconds for %s", duration, filepath.Base(path))
+		}
+	}
+	
+	// If format duration failed, try to get from video stream
+	if durationSeconds == 0 {
+		for _, stream := range probeData.Streams {
+			if stream.CodecType == "video" {
+				// Try to extract duration from video stream if available
+				if stream.Duration != "" && stream.Duration != "N/A" {
+					if duration, err := strconv.ParseFloat(stream.Duration, 64); err == nil && duration > 0 {
+						durationSeconds = int(duration)
+						log.Printf("📏 Duration from video stream: %.2f seconds for %s", duration, filepath.Base(path))
+						break
+					}
+				}
+			}
+		}
+	}
+	
+	// If still no duration, try alternative ffprobe command with different parameters
+	if durationSeconds == 0 {
+		log.Printf("⚠️ No duration found in standard probe, trying alternative method for %s", filepath.Base(path))
+		
+		altCmd := exec.Command("ffprobe",
+			"-v", "error",
+			"-show_entries", "format=duration",
+			"-of", "csv=p=0",
+			path)
+		
+		if altOutput, err := altCmd.Output(); err == nil {
+			durationStr := strings.TrimSpace(string(altOutput))
+			if durationStr != "" && durationStr != "N/A" {
+				if duration, err := strconv.ParseFloat(durationStr, 64); err == nil && duration > 0 {
+					durationSeconds = int(duration)
+					log.Printf("📏 Duration from alternative probe: %.2f seconds for %s", duration, filepath.Base(path))
+				}
+			}
+		}
+	}
+	
+	// Final fallback: estimate duration from file size and bitrate
+	if durationSeconds == 0 {
+		log.Printf("⚠️ Still no duration, attempting estimation for %s", filepath.Base(path))
+		
+		// Get file size
+		if stat, err := os.Stat(path); err == nil {
+			fileSize := stat.Size()
+			
+			// Try to get bitrate from format
+			if probeData.Format.BitRate != "" {
+				if bitrate, err := strconv.ParseInt(probeData.Format.BitRate, 10, 64); err == nil && bitrate > 0 {
+					// Duration = (file_size_in_bits) / bitrate
+					estimatedDuration := (fileSize * 8) / bitrate
+					if estimatedDuration > 60 && estimatedDuration < 86400 { // Between 1 minute and 24 hours
+						durationSeconds = int(estimatedDuration)
+						log.Printf("📏 Estimated duration from file size and bitrate: %d seconds for %s", durationSeconds, filepath.Base(path))
+					}
+				}
+			}
+		}
+	}
+	
+	// ULTIMATE FALLBACK: Use ffmpeg to actually play and measure duration
+	if durationSeconds == 0 {
+		log.Printf("🚨 CRITICAL: No duration found by any method, using ffmpeg measurement for %s", filepath.Base(path))
+		durationSeconds = s.measureVideoDurationWithFFmpeg(path)
+	}
+	
+	// PENULTIMATE FALLBACK: Try frame counting method
+	if durationSeconds == 0 {
+		log.Printf("🚨 CRITICAL: Trying frame counting method for %s", filepath.Base(path))
+		durationSeconds = s.estimateDurationByFrameCounting(path)
+	}
+	
+	// ABSOLUTE FINAL FALLBACK: Estimate based on file size with standard video assumptions
+	if durationSeconds == 0 {
+		log.Printf("🚨 EMERGENCY: All methods failed, using file size estimation for %s", filepath.Base(path))
+		if stat, err := os.Stat(path); err == nil {
+			fileSize := stat.Size()
+			// Use multiple bitrate assumptions for better estimation
+			estimations := []int64{
+				(fileSize * 8) / (1 * 1024 * 1024),   // 1 Mbps
+				(fileSize * 8) / (2 * 1024 * 1024),   // 2 Mbps  
+				(fileSize * 8) / (4 * 1024 * 1024),   // 4 Mbps
+				(fileSize * 8) / (8 * 1024 * 1024),   // 8 Mbps
+			}
+			
+			// Choose the most reasonable estimation (between 5 minutes and 4 hours)
+			for _, est := range estimations {
+				if est >= 300 && est <= 14400 { // 5 minutes to 4 hours
+					durationSeconds = int(est)
+					log.Printf("📏 Emergency file size estimation: %d seconds (%.1f MB file, assumed bitrate) for %s", 
+						durationSeconds, float64(fileSize)/(1024*1024), filepath.Base(path))
+					break
+				}
+			}
+			
+			// If still no reasonable estimate, use middle ground
+			if durationSeconds == 0 {
+				durationSeconds = int(estimations[1]) // Use 2 Mbps assumption
+				if durationSeconds < 60 {
+					durationSeconds = 1800 // 30 minutes minimum
+				}
+				if durationSeconds > 14400 {
+					durationSeconds = 7200 // 2 hours maximum
+				}
+				log.Printf("📏 Emergency fallback estimation: %d seconds for %s", durationSeconds, filepath.Base(path))
+			}
+		}
+	}
+	
+	// Set the duration, ensuring it's never 0 for valid video files
+	if durationSeconds > 0 {
+		media.Duration = durationSeconds
+		log.Printf("✅ Final duration set: %d seconds (%.2f minutes) for %s", durationSeconds, float64(durationSeconds)/60.0, filepath.Base(path))
+	} else {
+		// Last resort: set a minimum duration to prevent 0 duration
+		media.Duration = 60 // 1 minute default
+		log.Printf("⚠️ Could not determine duration, setting default 60 seconds for %s", filepath.Base(path))
 	}
 
 	// Extract video stream information
@@ -2525,6 +2657,264 @@ func (s *MediaScanner) extractVideoMetadata(media *models.Media, path string) er
 		}
 	}
 
+	return nil
+}
+
+// measureVideoDurationWithFFmpeg uses ffmpeg to actually measure video duration by processing
+func (s *MediaScanner) measureVideoDurationWithFFmpeg(path string) int {
+	log.Printf("🎬 Measuring video duration with FFmpeg for: %s", filepath.Base(path))
+	
+	// Method 1: Use ffmpeg with null output to measure duration
+	cmd := exec.Command("ffmpeg",
+		"-i", path,
+		"-f", "null",
+		"-",
+		"-v", "error",
+		"-stats")
+	
+	// Capture stderr where ffmpeg outputs progress information
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	
+	// Set timeout to prevent hanging
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	cmd = exec.CommandContext(ctx, cmd.Args[0], cmd.Args[1:]...)
+	cmd.Stderr = &stderr
+	
+	err := cmd.Run()
+	if err == nil {
+		// Parse the stderr output for duration information
+		output := stderr.String()
+		if duration := s.parseDurationFromFFmpegOutput(output); duration > 0 {
+			log.Printf("📏 FFmpeg measurement successful: %d seconds for %s", duration, filepath.Base(path))
+			return duration
+		}
+	}
+	
+	// Method 2: Use ffmpeg with very fast preset to get duration
+	cmd2 := exec.Command("ffmpeg",
+		"-i", path,
+		"-t", "1", // Only process 1 second
+		"-f", "null",
+		"-",
+		"-v", "quiet",
+		"-stats")
+	
+	var stderr2 bytes.Buffer
+	cmd2.Stderr = &stderr2
+	
+	ctx2, cancel2 := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel2()
+	cmd2 = exec.CommandContext(ctx2, cmd2.Args[0], cmd2.Args[1:]...)
+	cmd2.Stderr = &stderr2
+	
+	if err := cmd2.Run(); err == nil {
+		output := stderr2.String()
+		if duration := s.parseDurationFromFFmpegOutput(output); duration > 0 {
+			log.Printf("📏 FFmpeg quick measurement successful: %d seconds for %s", duration, filepath.Base(path))
+			return duration
+		}
+	}
+	
+	// Method 3: Use mediainfo as alternative if available
+	if duration := s.measureWithMediaInfo(path); duration > 0 {
+		return duration
+	}
+	
+	log.Printf("❌ All FFmpeg measurement methods failed for %s", filepath.Base(path))
+	return 0
+}
+
+// parseDurationFromFFmpegOutput extracts duration from ffmpeg stderr output
+func (s *MediaScanner) parseDurationFromFFmpegOutput(output string) int {
+	// Look for patterns like "Duration: 01:23:45.67" or "time=01:23:45.67"
+	patterns := []string{
+		`Duration: (\d{2}):(\d{2}):(\d{2})\.(\d{2})`,
+		`time=(\d{2}):(\d{2}):(\d{2})\.(\d{2})`,
+		`Duration: (\d{2}):(\d{2}):(\d{2})`,
+		`time=(\d{2}):(\d{2}):(\d{2})`,
+	}
+	
+	for _, pattern := range patterns {
+		re := regexp.MustCompile(pattern)
+		matches := re.FindStringSubmatch(output)
+		if len(matches) >= 4 {
+			hours, _ := strconv.Atoi(matches[1])
+			minutes, _ := strconv.Atoi(matches[2])
+			seconds, _ := strconv.Atoi(matches[3])
+			
+			totalSeconds := hours*3600 + minutes*60 + seconds
+			if totalSeconds > 0 {
+				return totalSeconds
+			}
+		}
+	}
+	
+	return 0
+}
+
+// measureWithMediaInfo tries to use mediainfo command if available
+func (s *MediaScanner) measureWithMediaInfo(path string) int {
+	// Try mediainfo command
+	cmd := exec.Command("mediainfo", "--Inform=General;%Duration%", path)
+	
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	cmd = exec.CommandContext(ctx, cmd.Args[0], cmd.Args[1:]...)
+	
+	output, err := cmd.Output()
+	if err != nil {
+		return 0 // mediainfo not available or failed
+	}
+	
+	durationStr := strings.TrimSpace(string(output))
+	if durationStr == "" {
+		return 0
+	}
+	
+	// mediainfo returns duration in milliseconds
+	if durationMs, err := strconv.ParseInt(durationStr, 10, 64); err == nil {
+		durationSeconds := int(durationMs / 1000)
+		if durationSeconds > 0 {
+			log.Printf("📏 MediaInfo measurement successful: %d seconds for %s", durationSeconds, filepath.Base(path))
+			return durationSeconds
+		}
+	}
+	
+	return 0
+}
+
+// estimateDurationByFrameCounting uses ffmpeg to count frames and estimate duration
+func (s *MediaScanner) estimateDurationByFrameCounting(path string) int {
+	log.Printf("🎞️ Attempting frame counting duration estimation for: %s", filepath.Base(path))
+	
+	// Use ffmpeg to get frame count and frame rate
+	cmd := exec.Command("ffprobe",
+		"-v", "error",
+		"-select_streams", "v:0",
+		"-count_frames",
+		"-show_entries", "stream=nb_frames,r_frame_rate",
+		"-of", "csv=p=0",
+		path)
+	
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	cmd = exec.CommandContext(ctx, cmd.Args[0], cmd.Args[1:]...)
+	
+	output, err := cmd.Output()
+	if err != nil {
+		log.Printf("⚠️ Frame counting failed for %s: %v", filepath.Base(path), err)
+		return 0
+	}
+	
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	if len(lines) < 1 {
+		return 0
+	}
+	
+	parts := strings.Split(lines[0], ",")
+	if len(parts) < 2 {
+		return 0
+	}
+	
+	// Parse frame count
+	frameCount, err := strconv.Atoi(strings.TrimSpace(parts[0]))
+	if err != nil || frameCount <= 0 {
+		return 0
+	}
+	
+	// Parse frame rate (format: "25/1" or "29.97")
+	frameRateStr := strings.TrimSpace(parts[1])
+	var frameRate float64
+	
+	if strings.Contains(frameRateStr, "/") {
+		rateParts := strings.Split(frameRateStr, "/")
+		if len(rateParts) == 2 {
+			num, err1 := strconv.ParseFloat(rateParts[0], 64)
+			den, err2 := strconv.ParseFloat(rateParts[1], 64)
+			if err1 == nil && err2 == nil && den != 0 {
+				frameRate = num / den
+			}
+		}
+	} else {
+		frameRate, _ = strconv.ParseFloat(frameRateStr, 64)
+	}
+	
+	if frameRate <= 0 || frameRate > 120 { // Sanity check
+		frameRate = 25.0 // Default assumption
+	}
+	
+	// Calculate duration: frames / fps
+	duration := int(float64(frameCount) / frameRate)
+	
+	if duration > 10 && duration < 86400 { // Between 10 seconds and 24 hours
+		log.Printf("📏 Frame counting successful: %d frames at %.2f fps = %d seconds for %s", 
+			frameCount, frameRate, duration, filepath.Base(path))
+		return duration
+	}
+	
+	log.Printf("⚠️ Frame counting gave unrealistic duration (%d seconds) for %s", duration, filepath.Base(path))
+	return 0
+}
+
+// FixZeroDurations scans all media with 0 duration and attempts to fix them
+func (s *MediaScanner) FixZeroDurations() error {
+	log.Printf("🔧 Starting zero duration fix scan...")
+	
+	// Get all media with 0 duration
+	mediaList, err := s.GetMediaService().GetAllMedia()
+	if err != nil {
+		return fmt.Errorf("failed to query all media: %v", err)
+	}
+	
+	// Filter for media with 0 duration
+	var zeroDurationMedia []models.Media
+	for _, media := range mediaList {
+		if media.Duration == 0 {
+			zeroDurationMedia = append(zeroDurationMedia, media)
+		}
+	}
+	mediaList = zeroDurationMedia
+	
+	if len(mediaList) == 0 {
+		log.Printf("✅ No media with zero duration found")
+		return nil
+	}
+	
+	log.Printf("🔍 Found %d media items with zero duration, attempting to fix...", len(mediaList))
+	
+	fixed := 0
+	failed := 0
+	
+	for _, media := range mediaList {
+		// Check if file still exists
+		if _, err := os.Stat(media.FilePath); os.IsNotExist(err) {
+			log.Printf("⚠️ File no longer exists, skipping: %s", media.FilePath)
+			continue
+		}
+		
+		log.Printf("🔧 Fixing duration for: %s", media.Title)
+		
+		// Extract video metadata to get duration
+		if err := s.extractVideoMetadata(&media, media.FilePath); err != nil {
+			log.Printf("❌ Failed to extract metadata for %s: %v", media.Title, err)
+			failed++
+			continue
+		}
+		
+		// Update the media in database
+		if err := s.GetMediaService().UpdateMedia(&media); err != nil {
+			log.Printf("❌ Failed to update media %s: %v", media.Title, err)
+			failed++
+			continue
+		}
+		
+		log.Printf("✅ Fixed duration for %s: %d seconds (%.2f minutes)", media.Title, media.Duration, float64(media.Duration)/60.0)
+		fixed++
+	}
+	
+	log.Printf("🔧 Duration fix complete: %d fixed, %d failed", fixed, failed)
 	return nil
 }
 
@@ -3368,6 +3758,27 @@ func (s *MediaScanner) regeneratePreviewClipForMedia(media *models.Media) {
 
 // generatePreviewWithFallbacks tries multiple methods to generate preview clips with ALAC audio fallbacks
 func (s *MediaScanner) generatePreviewWithFallbacks(media *models.Media) (string, error) {
+	// FIRST: Check if valid preview already exists to avoid regeneration
+	if media.PreviewPath != "" && s.validatePreviewFile(media.PreviewPath) {
+		log.Printf("✅ Valid preview already exists for %s: %s - skipping regeneration", media.Title, media.PreviewPath)
+		return media.PreviewPath, nil
+	}
+	if media.PreviewClipPath != "" && s.validatePreviewFile(media.PreviewClipPath) {
+		log.Printf("✅ Valid preview clip already exists for %s: %s - skipping regeneration", media.Title, media.PreviewClipPath)
+		return media.PreviewClipPath, nil
+	}
+
+	// Check for existing preview files in common locations to avoid duplicates
+	existingPreview := s.findExistingPreviewFile(media)
+	if existingPreview != "" {
+		log.Printf("✅ Found existing preview file for %s: %s - updating database", media.Title, existingPreview)
+		media.PreviewPath = existingPreview
+		media.PreviewClipPath = existingPreview
+		s.GetMediaService().UpdateMedia(media)
+		return existingPreview, nil
+	}
+
+	log.Printf("📺 Starting preview generation for %s (no valid preview found)", media.Title)
 	var lastErr error
 
 	// Strategy 1: Try standard preview generation (1080p with original audio)
@@ -3430,81 +3841,121 @@ func (s *MediaScanner) generatePreviewWithFallbacks(media *models.Media) (string
 	return "", fmt.Errorf("all preview generation strategies failed, last error: %v", lastErr)
 }
 
-// generatePreviewWithAudioFallback generates preview with audio codec conversion
+// generatePreviewWithAudioFallback generates 1080p preview with audio codec conversion using peak detection
 func (s *MediaScanner) generatePreviewWithAudioFallback(media *models.Media) (string, error) {
 	previewDir := "previews"
 	if _, err := os.Stat(previewDir); os.IsNotExist(err) {
 		os.MkdirAll(previewDir, 0755)
 	}
 
-	outputPath := fmt.Sprintf("%s/preview_%d_%s_audio_fallback.mp4", previewDir, media.ID,
+	outputPath := fmt.Sprintf("%s/preview_%d_%s_1080p_audio_fallback.mp4", previewDir, media.ID,
 		strings.ReplaceAll(media.Title, " ", "_"))
 
-	// FFmpeg command with audio codec fallback (ALAC -> AAC conversion)
+	// Check if this specific preview file already exists and is valid
+	if _, err := os.Stat(outputPath); err == nil {
+		if s.validatePreviewFile(outputPath) {
+			log.Printf("✅ 1080p audio fallback preview already exists for %s: %s - skipping regeneration", media.Title, outputPath)
+			return outputPath, nil
+		} else {
+			log.Printf("⚠️ Existing 1080p audio fallback preview invalid for %s, regenerating: %s", media.Title, outputPath)
+			os.Remove(outputPath) // Remove invalid file
+		}
+	}
+
+	// Get optimal timestamp using peak detection for better preview quality
+	startTime := s.getOptimalPreviewTimestamp(media.FilePath)
+	startTimeStr := fmt.Sprintf("%d", startTime)
+
+	// Ultra HD 1080p FFmpeg command with peak timestamp detection - NO TIMEOUT
 	cmd := exec.Command("ffmpeg",
 		"-i", media.FilePath,
-		"-ss", "60", // Start at 1 minute
-		"-t", "30", // 30 second duration
-		"-vf", "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2",
+		"-ss", startTimeStr, // Use optimal peak timestamp
+		"-t", "30", // 30 seconds for comprehensive preview
+		"-vf", "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2", // Full HD 1080p
 		"-c:v", "libx264",
-		"-preset", "fast",
-		"-crf", "23",
-		"-c:a", "aac", // Force AAC audio codec
-		"-b:a", "128k", // Audio bitrate
+		"-preset", "slow", // High quality preset for best results
+		"-crf", "18", // Ultra high quality (Netflix-level)
+		"-c:a", "aac", // AAC audio for compatibility
+		"-b:a", "192k", // High audio bitrate for quality
 		"-ac", "2", // Stereo audio
-		"-ar", "44100", // Sample rate
-		"-movflags", "+faststart",
+		"-ar", "48000", // High sample rate
+		"-movflags", "+faststart", // Web optimization
+		"-pix_fmt", "yuv420p", // Ensure compatibility
+		"-threads", "0", // Use all available threads
+		"-max_muxing_queue_size", "9999", // Prevent buffer issues
 		"-y", // Overwrite output file
 		outputPath)
 
-	log.Printf("🔧 Running FFmpeg with audio fallback: %s", cmd.String())
+	log.Printf("🔧 Running FFmpeg 1080p with audio fallback at %ss (NO TIMEOUT): %s", startTimeStr, cmd.String())
 
+	// Run without timeout to ensure completion
 	if output, err := cmd.CombinedOutput(); err != nil {
-		log.Printf("❌ FFmpeg audio fallback failed: %v\nOutput: %s", err, string(output))
-		return "", fmt.Errorf("ffmpeg audio fallback failed: %v", err)
+		log.Printf("❌ FFmpeg 1080p audio fallback failed: %v\nOutput: %s", err, string(output))
+		return "", fmt.Errorf("ffmpeg 1080p audio fallback failed: %v", err)
 	}
 
+	log.Printf("✅ 1080p preview with audio fallback completed successfully")
 	return outputPath, nil
 }
 
-// generateLowerQualityPreview generates HD 1080p preview with audio conversion
+// generateLowerQualityPreview generates 720p fallback preview with audio conversion using peak detection
 func (s *MediaScanner) generateLowerQualityPreview(media *models.Media) (string, error) {
 	previewDir := "previews"
 	if _, err := os.Stat(previewDir); os.IsNotExist(err) {
 		os.MkdirAll(previewDir, 0755)
 	}
 
-	outputPath := fmt.Sprintf("%s/preview_%d_%s_HD.mp4", previewDir, media.ID,
+	outputPath := fmt.Sprintf("%s/preview_%d_%s_720p_fallback.mp4", previewDir, media.ID,
 		strings.ReplaceAll(media.Title, " ", "_"))
 
-	// FFmpeg command for HD 1080p with audio conversion
+	// Check if this specific preview file already exists and is valid
+	if _, err := os.Stat(outputPath); err == nil {
+		if s.validatePreviewFile(outputPath) {
+			log.Printf("✅ 720p fallback preview already exists for %s: %s - skipping regeneration", media.Title, outputPath)
+			return outputPath, nil
+		} else {
+			log.Printf("⚠️ Existing 720p fallback preview invalid for %s, regenerating: %s", media.Title, outputPath)
+			os.Remove(outputPath) // Remove invalid file
+		}
+	}
+
+	// Get optimal timestamp using peak detection for better preview quality
+	startTime := s.getOptimalPreviewTimestamp(media.FilePath)
+	startTimeStr := fmt.Sprintf("%d", startTime)
+
+	// 720p fallback FFmpeg command with peak timestamp detection - NO TIMEOUT
 	cmd := exec.Command("ffmpeg",
 		"-i", media.FilePath,
-		"-ss", "60", // Start at 1 minute
-		"-t", "30", // 30 second duration
-		"-vf", "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2",
+		"-ss", startTimeStr, // Use optimal peak timestamp
+		"-t", "30", // 30 seconds for comprehensive preview
+		"-vf", "scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2", // 720p fallback
 		"-c:v", "libx264",
-		"-preset", "medium", // Better quality than ultrafast
-		"-crf", "23", // Higher quality for HD
-		"-c:a", "aac", // Force AAC audio codec
-		"-b:a", "128k", // Higher audio bitrate for HD
+		"-preset", "medium", // Balanced quality/speed preset
+		"-crf", "20", // High quality for 720p
+		"-c:a", "aac", // AAC audio for compatibility
+		"-b:a", "128k", // Good audio bitrate for 720p
 		"-ac", "2", // Stereo audio
-		"-ar", "44100", // Sample rate
-		"-movflags", "+faststart",
+		"-ar", "44100", // Standard sample rate
+		"-movflags", "+faststart", // Web optimization
+		"-pix_fmt", "yuv420p", // Ensure compatibility
+		"-threads", "0", // Use all available threads
+		"-max_muxing_queue_size", "9999", // Prevent buffer issues
 		"-y", // Overwrite output file
 		outputPath)
 
-	log.Printf("🔧 Running FFmpeg HD preview: %s", cmd.String())
+	log.Printf("🔧 Running FFmpeg 720p fallback at %ss (NO TIMEOUT): %s", startTimeStr, cmd.String())
 
+	// Run without timeout to ensure completion
 	if output, err := cmd.CombinedOutput(); err != nil {
-		log.Printf("❌ FFmpeg HD preview failed: %v\nOutput: %s", err, string(output))
-		return "", fmt.Errorf("ffmpeg HD preview failed: %v", err)
+		log.Printf("❌ FFmpeg 720p fallback failed: %v\nOutput: %s", err, string(output))
+		return "", fmt.Errorf("ffmpeg 720p fallback failed: %v", err)
 	}
 
+	log.Printf("✅ 720p fallback preview completed successfully")
 	return outputPath, nil
 }
 
-// generateVideoOnlyPreview generates preview without audio track
+// generateVideoOnlyPreview generates video-only preview without audio track using peak detection
 func (s *MediaScanner) generateVideoOnlyPreview(media *models.Media) (string, error) {
 	previewDir := "previews"
 	if _, err := os.Stat(previewDir); os.IsNotExist(err) {
@@ -3514,33 +3965,301 @@ func (s *MediaScanner) generateVideoOnlyPreview(media *models.Media) (string, er
 	outputPath := fmt.Sprintf("%s/preview_%d_%s_video_only.mp4", previewDir, media.ID,
 		strings.ReplaceAll(media.Title, " ", "_"))
 
-	// FFmpeg command without audio
+	// Check if this specific preview file already exists and is valid
+	if _, err := os.Stat(outputPath); err == nil {
+		if s.validatePreviewFile(outputPath) {
+			log.Printf("✅ Video-only preview already exists for %s: %s - skipping regeneration", media.Title, outputPath)
+			return outputPath, nil
+		} else {
+			log.Printf("⚠️ Existing video-only preview invalid for %s, regenerating: %s", media.Title, outputPath)
+			os.Remove(outputPath) // Remove invalid file
+		}
+	}
+
+	// Get optimal timestamp using peak detection for better preview quality
+	startTime := s.getOptimalPreviewTimestamp(media.FilePath)
+	startTimeStr := fmt.Sprintf("%d", startTime)
+
+	// 720p video-only FFmpeg command with peak timestamp detection - NO TIMEOUT
 	cmd := exec.Command("ffmpeg",
 		"-i", media.FilePath,
-		"-ss", "60", // Start at 1 minute
-		"-t", "30", // 30 second duration
-		"-vf", "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2",
+		"-ss", startTimeStr, // Use optimal peak timestamp
+		"-t", "30", // 30 seconds for comprehensive preview
+		"-vf", "scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2", // 720p for video-only
 		"-c:v", "libx264",
-		"-preset", "fast",
-		"-crf", "23",
-		"-an", // No audio
-		"-movflags", "+faststart",
+		"-preset", "fast", // Fast preset for video-only
+		"-crf", "22", // Good quality for video-only
+		"-an", // No audio track
+		"-movflags", "+faststart", // Web optimization
+		"-pix_fmt", "yuv420p", // Ensure compatibility
+		"-threads", "0", // Use all available threads
+		"-max_muxing_queue_size", "9999", // Prevent buffer issues
 		"-y", // Overwrite output file
 		outputPath)
 
-	log.Printf("🔧 Running FFmpeg video-only preview: %s", cmd.String())
+	log.Printf("🔧 Running FFmpeg video-only preview at %ss (NO TIMEOUT): %s", startTimeStr, cmd.String())
 
+	// Run without timeout to ensure completion
 	if output, err := cmd.CombinedOutput(); err != nil {
 		log.Printf("❌ FFmpeg video-only preview failed: %v\nOutput: %s", err, string(output))
 		return "", fmt.Errorf("ffmpeg video-only preview failed: %v", err)
 	}
 
+	log.Printf("✅ Video-only preview completed successfully")
 	return outputPath, nil
 }
 
-// scheduleAssetGenerationWithFallbacks schedules asset generation with fallback handling
+// getOptimalPreviewTimestamp uses intelligent scene detection to find peak moments for preview generation
+// Combines multiple strategies: scene changes, audio peaks, and motion detection for best preview quality
+func (s *MediaScanner) getOptimalPreviewTimestamp(videoPath string) int {
+	// Get video duration using ffprobe
+	duration := s.getVideoDurationSeconds(videoPath)
+	if duration <= 0 {
+		// Fallback to 60 seconds if duration detection fails
+		log.Printf("⚠️ Could not detect video duration for %s, using 60s fallback", videoPath)
+		return 60
+	}
+
+	// Strategy 1: Try intelligent scene detection for peak moments
+	if peakTime := s.detectPeakMoments(videoPath, duration); peakTime > 0 {
+		log.Printf("🎯 Using peak moment detection: %ds (%.1f%% of %ds duration)", 
+			peakTime, float64(peakTime)/float64(duration)*100, duration)
+		return peakTime
+	}
+
+	// Strategy 2: Fallback to smart random selection (avoid intros/credits)
+	// Use multiple candidate timestamps and select the best one
+	candidates := []float64{0.25, 0.35, 0.45, 0.55, 0.65} // Multiple good positions
+	rand.Seed(time.Now().UnixNano())
+	selectedPercent := candidates[rand.Intn(len(candidates))]
+	optimalTime := int(float64(duration) * selectedPercent)
+	
+	// Ensure minimum 30 seconds
+	if optimalTime < 30 {
+		optimalTime = 30
+	}
+	
+	log.Printf("🎯 Using smart random selection: %ds (%.1f%% of %ds duration)", 
+		optimalTime, selectedPercent*100, duration)
+	
+	return optimalTime
+}
+
+// detectPeakMoments uses FFmpeg scene detection to find the most interesting parts of the video
+func (s *MediaScanner) detectPeakMoments(videoPath string, duration int) int {
+	// Use FFmpeg scene detection to find interesting moments
+	// This analyzes scene changes, motion, and audio levels to find peak moments
+	cmd := exec.Command("ffmpeg",
+		"-i", videoPath,
+		"-vf", "select='gt(scene,0.3)'", // Detect significant scene changes
+		"-f", "null",
+		"-v", "info",
+		"-") // Output to stdout for analysis
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		log.Printf("⚠️ Scene detection failed for %s: %v", videoPath, err)
+		return 0 // Return 0 to indicate fallback needed
+	}
+
+	// Parse scene detection output to find peak moments
+	sceneChanges := s.parseSceneChanges(string(output), duration)
+	if len(sceneChanges) > 0 {
+		// Select a scene change in the middle portion (30-70% of video)
+		minTime := int(float64(duration) * 0.3)
+		maxTime := int(float64(duration) * 0.7)
+		
+		for _, sceneTime := range sceneChanges {
+			if sceneTime >= minTime && sceneTime <= maxTime {
+				return sceneTime
+			}
+		}
+	}
+
+	return 0 // No suitable peak found, use fallback
+}
+
+// parseSceneChanges extracts scene change timestamps from FFmpeg output
+func (s *MediaScanner) parseSceneChanges(output string, duration int) []int {
+	var sceneChanges []int
+	
+	// Parse FFmpeg scene detection output
+	// Look for patterns like "pts_time:123.456" in the output
+	lines := strings.Split(output, "\n")
+	for _, line := range lines {
+		if strings.Contains(line, "pts_time:") {
+			// Extract timestamp from pts_time field
+			parts := strings.Split(line, "pts_time:")
+			if len(parts) > 1 {
+				timeStr := strings.Fields(parts[1])[0]
+				if timeFloat, err := strconv.ParseFloat(timeStr, 64); err == nil {
+					sceneTime := int(timeFloat)
+					if sceneTime > 0 && sceneTime < duration {
+						sceneChanges = append(sceneChanges, sceneTime)
+					}
+				}
+			}
+		}
+	}
+
+	return sceneChanges
+}
+
+// getVideoDurationSeconds gets video duration in seconds using ffprobe
+func (s *MediaScanner) getVideoDurationSeconds(videoPath string) int {
+	cmd := exec.Command("ffprobe",
+		"-v", "quiet",
+		"-show_entries", "format=duration",
+		"-of", "csv=p=0",
+		videoPath)
+	
+	output, err := cmd.Output()
+	if err != nil {
+		log.Printf("⚠️ ffprobe failed for %s: %v", videoPath, err)
+		return 0
+	}
+
+	durationStr := strings.TrimSpace(string(output))
+	if durationFloat, err := strconv.ParseFloat(durationStr, 64); err == nil {
+		return int(durationFloat)
+	}
+
+	log.Printf("⚠️ Could not parse duration '%s' for %s", durationStr, videoPath)
+	return 0
+}
+
+// findExistingPreviewFile searches for existing preview files in common locations
+func (s *MediaScanner) findExistingPreviewFile(media *models.Media) string {
+	// Sanitize title for filename usage
+	sanitizedTitle := strings.ReplaceAll(media.Title, " ", "_")
+	sanitizedTitle = strings.ReplaceAll(sanitizedTitle, ":", "")
+	sanitizedTitle = strings.ReplaceAll(sanitizedTitle, "?", "")
+	sanitizedTitle = strings.ReplaceAll(sanitizedTitle, "*", "")
+	sanitizedTitle = strings.ReplaceAll(sanitizedTitle, "/", "_")
+	sanitizedTitle = strings.ReplaceAll(sanitizedTitle, "\\", "_")
+
+	// Generate year string for patterns
+	yearStr := ""
+	if media.Year > 0 {
+		yearStr = fmt.Sprintf("(%d)", media.Year)
+		yearStrUnderscore := fmt.Sprintf("_%d", media.Year)
+		yearStrPlain := fmt.Sprintf("%d", media.Year)
+
+		// All possible preview file patterns to check
+		previewPatterns := []string{
+			// Current system patterns
+			fmt.Sprintf("previews/preview_%d_%s.mp4", media.ID, sanitizedTitle),
+			fmt.Sprintf("previews/preview_%d_%s_1080p_audio_fallback.mp4", media.ID, sanitizedTitle),
+			fmt.Sprintf("previews/preview_%d_%s_720p_fallback.mp4", media.ID, sanitizedTitle),
+			fmt.Sprintf("previews/preview_%d_%s_video_only.mp4", media.ID, sanitizedTitle),
+			fmt.Sprintf("previews/preview_%d_%s_HD.mp4", media.ID, sanitizedTitle),
+			fmt.Sprintf("previews/preview_%d_%s_audio_fallback.mp4", media.ID, sanitizedTitle),
+
+			// User-specified patterns: preview_id_title_(year).mp4
+			fmt.Sprintf("previews/preview_%d_%s_%s.mp4", media.ID, sanitizedTitle, yearStr),
+			fmt.Sprintf("previews/preview_%d_%s%s.mp4", media.ID, sanitizedTitle, yearStrUnderscore),
+
+			// User-specified patterns: preview_title_(year).mp4
+			fmt.Sprintf("previews/preview_%s_%s.mp4", sanitizedTitle, yearStr),
+			fmt.Sprintf("previews/preview_%s%s.mp4", sanitizedTitle, yearStrUnderscore),
+
+			// User-specified patterns: preview_title_year.mp4
+			fmt.Sprintf("previews/preview_%s_%s.mp4", sanitizedTitle, yearStrPlain),
+
+			// Backend directory versions
+			fmt.Sprintf("./backend/previews/preview_%d_%s.mp4", media.ID, sanitizedTitle),
+			fmt.Sprintf("./backend/previews/preview_%d_%s_1080p_audio_fallback.mp4", media.ID, sanitizedTitle),
+			fmt.Sprintf("./backend/previews/preview_%d_%s_720p_fallback.mp4", media.ID, sanitizedTitle),
+			fmt.Sprintf("./backend/previews/preview_%d_%s_video_only.mp4", media.ID, sanitizedTitle),
+			fmt.Sprintf("./backend/previews/preview_%d_%s_%s.mp4", media.ID, sanitizedTitle, yearStr),
+			fmt.Sprintf("./backend/previews/preview_%d_%s%s.mp4", media.ID, sanitizedTitle, yearStrUnderscore),
+			fmt.Sprintf("./backend/previews/preview_%s_%s.mp4", sanitizedTitle, yearStr),
+			fmt.Sprintf("./backend/previews/preview_%s%s.mp4", sanitizedTitle, yearStrUnderscore),
+			fmt.Sprintf("./backend/previews/preview_%s_%s.mp4", sanitizedTitle, yearStrPlain),
+		}
+
+		// Check each pattern for existing valid preview files
+		for _, pattern := range previewPatterns {
+			if _, err := os.Stat(pattern); err == nil {
+				if s.validatePreviewFile(pattern) {
+					log.Printf("🔍 Found existing valid preview: %s for %s", pattern, media.Title)
+					return pattern
+				} else {
+					log.Printf("⚠️ Found existing invalid preview: %s for %s - will be ignored", pattern, media.Title)
+				}
+			}
+		}
+	} else {
+		// Patterns without year information
+		previewPatterns := []string{
+			fmt.Sprintf("previews/preview_%d_%s.mp4", media.ID, sanitizedTitle),
+			fmt.Sprintf("previews/preview_%d_%s_1080p_audio_fallback.mp4", media.ID, sanitizedTitle),
+			fmt.Sprintf("previews/preview_%d_%s_720p_fallback.mp4", media.ID, sanitizedTitle),
+			fmt.Sprintf("previews/preview_%d_%s_video_only.mp4", media.ID, sanitizedTitle),
+			fmt.Sprintf("previews/preview_%s.mp4", sanitizedTitle),
+			fmt.Sprintf("./backend/previews/preview_%d_%s.mp4", media.ID, sanitizedTitle),
+			fmt.Sprintf("./backend/previews/preview_%s.mp4", sanitizedTitle),
+		}
+
+		// Check each pattern for existing valid preview files
+		for _, pattern := range previewPatterns {
+			if _, err := os.Stat(pattern); err == nil {
+				if s.validatePreviewFile(pattern) {
+					log.Printf("🔍 Found existing valid preview: %s for %s", pattern, media.Title)
+					return pattern
+				} else {
+					log.Printf("⚠️ Found existing invalid preview: %s for %s - will be ignored", pattern, media.Title)
+				}
+			}
+		}
+	}
+
+	return "" // No existing valid preview found
+}
+
+// Preview generation queue to prevent CPU overload
+var (
+	previewQueue = make(chan *models.Media, 100) // Buffer for 100 items
+	previewWorkerStarted = false
+	previewQueueMutex sync.Mutex
+)
+
+// startPreviewWorker starts a single worker to process preview generation sequentially
+func (s *MediaScanner) startPreviewWorker() {
+	previewQueueMutex.Lock()
+	defer previewQueueMutex.Unlock()
+	
+	if previewWorkerStarted {
+		return // Worker already running
+	}
+	
+	previewWorkerStarted = true
+	log.Printf("📺 Starting sequential preview generation worker to prevent CPU overload")
+	
+	go func() {
+		for media := range previewQueue {
+			log.Printf("🎬 Processing preview for: %s (Queue size: %d)", media.Title, len(previewQueue))
+			
+			// Generate preview with comprehensive fallbacks
+			previewPath, err := s.generatePreviewWithFallbacks(media)
+			if err != nil {
+				log.Printf("❌ All preview generation methods failed for %s: %v", media.Title, err)
+			} else {
+				log.Printf("✅ Preview generation successful for %s: %s", media.Title, previewPath)
+				media.PreviewPath = previewPath
+				media.PreviewClipPath = previewPath
+				s.GetMediaService().UpdateMedia(media)
+			}
+			
+			// Add delay between processing to prevent CPU overload
+			time.Sleep(2 * time.Second)
+		}
+	}()
+}
+
+// scheduleAssetGenerationWithFallbacks schedules asset generation with fallback handling and sequential processing
 func (s *MediaScanner) scheduleAssetGenerationWithFallbacks(media *models.Media, path string, needsThumbnail, needsPreview bool) {
-	// Generate thumbnail with fallbacks
+	// Generate thumbnail with fallbacks (can run in parallel as it's lighter)
 	if needsThumbnail {
 		go func() {
 			if _, err := s.GetThumbnailService().GenerateThumbnail(path, media.ID, media.Title); err != nil {
@@ -3568,19 +4287,18 @@ func (s *MediaScanner) scheduleAssetGenerationWithFallbacks(media *models.Media,
 		}()
 	}
 
-	// Generate preview with comprehensive fallbacks
+	// Queue preview generation for sequential processing to prevent CPU overload
 	if needsPreview {
-		go func() {
-			previewPath, err := s.generatePreviewWithFallbacks(media)
-			if err != nil {
-				log.Printf("❌ All preview generation methods failed for %s: %v", media.Title, err)
-			} else {
-				log.Printf("✅ Preview generation successful for %s: %s", media.Title, previewPath)
-				media.PreviewPath = previewPath
-				media.PreviewClipPath = previewPath
-				s.GetMediaService().UpdateMedia(media)
-			}
-		}()
+		// Start the preview worker if not already running
+		s.startPreviewWorker()
+		
+		// Add to queue for sequential processing
+		select {
+		case previewQueue <- media:
+			log.Printf("📋 Queued preview generation for: %s (Queue size: %d)", media.Title, len(previewQueue)+1)
+		default:
+			log.Printf("⚠️ Preview queue full, skipping: %s", media.Title)
+		}
 	}
 }
 
@@ -3773,6 +4491,10 @@ func (s *MediaScanner) updateMediaWithTMDBMetadata(media *models.Media, tmdbMeta
 	}
 	if tmdbMetadata.Rating > 0 {
 		media.Rating = tmdbMetadata.Rating
+	}
+	if len(tmdbMetadata.Genres) > 0 {
+		media.GenreNames = tmdbMetadata.Genres
+		log.Printf("🎭 Updated genres for %s: %v", media.Title, tmdbMetadata.Genres)
 	}
 
 	// Update in database

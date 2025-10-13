@@ -40,6 +40,7 @@ const NextEpisodePreview: React.FC<NextEpisodePreviewProps> = ({
     const interval = setInterval(() => {
       setCountdown((prev) => {
         if (prev <= 1) {
+          console.log('NextEpisodePreview: Auto-playing next episode');
           onPlayNext();
           return 0;
         }
@@ -112,7 +113,10 @@ const NextEpisodePreview: React.FC<NextEpisodePreviewProps> = ({
             {/* Actions */}
             <div className="flex gap-2 mt-4">
               <MagneticButton
-                onClick={onPlayNext}
+                onClick={() => {
+                  console.log('NextEpisodePreview: Play Now clicked');
+                  onPlayNext();
+                }}
                 className="flex-1 flex items-center justify-center gap-2 bg-white text-black px-4 py-2 rounded font-semibold hover:bg-white/90 transition-colors"
               >
                 <Play className="w-4 h-4 fill-current" />

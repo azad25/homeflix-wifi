@@ -268,6 +268,40 @@ func UpdateAllMediaGenres(mediaService *services.MediaService) gin.HandlerFunc {
 	}
 }
 
+// DeleteMedia removes a media entry and all associated data
+func DeleteMedia(mediaService *services.MediaService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id, err := strconv.ParseUint(c.Param("id"), 10, 32)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid media ID"})
+			return
+		}
+
+		// Check if media exists before attempting deletion
+		media, err := mediaService.GetMediaByID(uint(id))
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Media not found"})
+			return
+		}
+
+		// Delete the media and all associated data
+		err = mediaService.DeleteMedia(uint(id))
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"message": "Media deleted successfully",
+			"deleted_media": gin.H{
+				"id": media.ID,
+				"title": media.Title,
+				"type": media.Type,
+			},
+		})
+	}
+}
+
 // SearchMediaAdvanced provides advanced search with filters
 func SearchMediaAdvanced(mediaService *services.MediaService) gin.HandlerFunc {
 	return func(c *gin.Context) {
