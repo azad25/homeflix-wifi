@@ -1,0 +1,18 @@
+{
+    "sourceFile": "start.sh",
+    "activeCommit": 0,
+    "commits": [
+        {
+            "activePatchIndex": 0,
+            "patches": [
+                {
+                    "date": 1760439411674,
+                    "content": "Index: \n===================================================================\n--- \n+++ \n"
+                }
+            ],
+            "date": 1760439411674,
+            "name": "Commit-0",
+            "content": "#!/bin/bash\n\n# HomeFlix Startup Script\necho \"🎬 Starting HomeFlix - Netflix Clone\"\necho \"==================================\"\n\n# Check if required dependencies are installed\ncheck_dependency() {\n    if ! command -v $1 &> /dev/null; then\n        echo \"❌ $1 is not installed. Please install it first.\"\n        exit 1\n    fi\n}\n\necho \"📋 Checking dependencies...\"\ncheck_dependency \"go\"\ncheck_dependency \"node\"\ncheck_dependency \"npm\"\ncheck_dependency \"ffmpeg\"\n\necho \"✅ All dependencies found!\"\n\n# Create media directory if it doesn't exist\nMEDIA_PATH=\"/media/azad/Movies1\"\nif [ ! -d \"$MEDIA_PATH\" ]; then\n    echo \"📁 Creating media directory: $MEDIA_PATH\"\n    sudo mkdir -p \"$MEDIA_PATH\"\n    echo \"⚠️  Please add your media files to: $MEDIA_PATH\"\nfi\n\n# Create necessary directories for thumbnails, posters, and previews\necho \"📁 Creating necessary directories...\"\nmkdir -p thumbnails\nmkdir -p posters\nmkdir -p previews\nmkdir -p subtitles\nmkdir -p optimized\n\n# Get local IP address for network access\nLOCAL_IP=$(hostname -I | awk '{print $1}')\n\n# Start backend\necho \"🚀 Starting Go backend...\"\ncd backend\ngo mod tidy\ngo run server.go &\nBACKEND_PID=$!\ncd ..\n\n# Wait for backend to start\nsleep 5\n\n# Start frontend\necho \"🎨 Starting Next.js frontend in production mode...\"\ncd frontend\n# npm install\n# npm run build\nnpm run start &\nFRONTEND_PID=$!\ncd ..\n\necho \"\"\necho \"🎉 HomeFlix is now running!\"\necho \"==================================\"\necho \"🌐 Frontend (Local): http://localhost:3008\"\necho \"🌐 Frontend (Network): http://$LOCAL_IP:3008\"\necho \"🔧 Backend API (Local): http://localhost:8252\"\necho \"🔧 Backend API (Network): http://$LOCAL_IP:8252\"\necho \"📁 Media Path: $MEDIA_PATH\"\necho \"\"\necho \"📱 Network Access:\"\necho \"   - Access from any device on your WiFi network\"\necho \"   - Use the network URLs above on other devices\"\necho \"   - Make sure firewall allows ports 3008 and 8252\"\necho \"\"\necho \"📖 Instructions:\"\necho \"1. Add your movies/series to: $MEDIA_PATH\"\necho \"2. The backend will automatically scan and organize your media\"\necho \"3. Open http://localhost:3008 in your browser\"\necho \"4. Enjoy your personal Netflix clone!\"\necho \"\"\necho \"Press Ctrl+C to stop both services\"\n\n# Wait for interrupt\ntrap \"echo ''; echo '🛑 Stopping HomeFlix...'; kill $BACKEND_PID $FRONTEND_PID; exit\" INT\nwait\n\n"
+        }
+    ]
+}

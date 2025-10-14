@@ -72,11 +72,11 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
     const baseUrl = `${getApiUrl()}/api/stream/${mediaId}`;
     const params = new URLSearchParams();
 
-    // Static optimization parameters to prevent URL changes
-    params.set('optimize', 'netflix-level');
-    params.set('buffer', 'ultra-aggressive');
-    params.set('latency', 'zero');
-    params.set('preload', 'instant');
+    // Chrome-optimized parameters to work with Chrome's buffering behavior
+    params.set('optimize', 'chrome-compatible');
+    params.set('buffer', 'small-chunks');
+    params.set('latency', 'low');
+    params.set('preload', 'conservative');
 
     // Use fixed quality to prevent dynamic URL changes
     if (quality) {
@@ -425,6 +425,12 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
     const video = videoRef.current;
     if (!video) return;
 
+    // Throttle seeking to prevent rapid requests
+    if (isBuffering) {
+      console.log('Seek throttled - already buffering');
+      return;
+    }
+
     // For videos without duration, just seek forward without upper limit check
     let newTime = video.currentTime + seconds;
 
@@ -437,6 +443,11 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
     try {
       video.currentTime = newTime;
       setCurrentTime(newTime);
+      
+      // Add timeout to clear buffering state if seek doesn't complete
+      setTimeout(() => {
+        setIsBuffering(false);
+      }, 5000);
     } catch (error) {
       setIsBuffering(false);
     }
@@ -452,12 +463,23 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
     const video = videoRef.current;
     if (!video) return;
 
+    // Throttle seeking to prevent rapid requests
+    if (isBuffering) {
+      console.log('Seek throttled - already buffering');
+      return;
+    }
+
     // Always allow backward seeking, just ensure we don't go below 0
     const newTime = Math.max(video.currentTime - seconds, 0);
     setIsBuffering(true);
     try {
       video.currentTime = newTime;
       setCurrentTime(newTime);
+      
+      // Add timeout to clear buffering state if seek doesn't complete
+      setTimeout(() => {
+        setIsBuffering(false);
+      }, 5000);
     } catch (error) {
       setIsBuffering(false);
     }
@@ -850,7 +872,29 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
             }}
             onEnded={() => setIsPlaying(false)}
             onError={(e) => {
-              // Video error occurred
+              const video = videoRef.current;
+              if (video) {
+                const error = video.error;
+                if (error) {
+                  console.log(`Video error: ${error.code} - ${error.message}`);
+                  
+                  // Handle network errors that might cause disconnections
+                  if (error.code === MediaError.MEDIA_ERR_NETWORK) {
+                    console.log('Network error detected, attempting recovery...');
+                    // Don't immediately reload, let the browser handle buffering
+                    setIsBuffering(true);
+                    
+                    // Try to recover after a short delay
+                    setTimeout(() => {
+                      if (video.readyState < 2) {
+                        console.log('Attempting video recovery...');
+                        video.load();
+                      }
+                      setIsBuffering(false);
+                    }, 2000);
+                  }
+                }
+              }
             }}
             onClick={async (e) => {
               // Ensure sound is always on when clicking video
@@ -994,9 +1038,18 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
               setIsBuffering(false);
               setIsLoading(false);
             }}
-            preload="auto"
+            preload="metadata"
             muted={false}
             crossOrigin="anonymous"
+            // Optimize buffering to reduce rapid requests
+            style={{
+              // Hint to browser about expected video size
+              width: '100%',
+              height: '100%'
+            }}
+            // Add buffer optimization attributes
+            data-buffer-size="large"
+            data-preload-strategy="conservative"
           >
 
             {/* Subtitles */}

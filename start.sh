@@ -53,8 +53,8 @@ sleep 5
 # Start frontend
 echo "🎨 Starting Next.js frontend in production mode..."
 cd frontend
-npm install
-npm run build
+# npm install
+# npm run build
 npm run start &
 FRONTEND_PID=$!
 cd ..

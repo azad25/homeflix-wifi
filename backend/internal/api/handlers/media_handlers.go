@@ -466,16 +466,15 @@ func performSmartSearch(mediaService *services.MediaService, query string) ([]in
 			}
 		}
 
-		// Boost score based on media popularity and rating
-		if media.Rating > 0 {
-			score += float64(media.Rating) * 2.0 // Rating boost
-		}
-		if media.ViewCount > 0 {
-			score += float64(media.ViewCount) * 0.01 // Popularity boost
-		}
-
-		// Only include results with meaningful matches
-		if score > 0 {
+		// Only include results with meaningful matches (minimum score threshold)
+		if score >= 10.0 {
+			// Boost score based on media popularity and rating (only for actual matches)
+			if media.Rating > 0 {
+				score += float64(media.Rating) * 2.0 // Rating boost
+			}
+			if media.ViewCount > 0 {
+				score += float64(media.ViewCount) * 0.01 // Popularity boost
+			}
 			results = append(results, searchResult{
 				media: media,
 				score: score,

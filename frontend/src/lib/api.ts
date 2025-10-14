@@ -28,7 +28,7 @@ export const API_ENDPOINTS = {
   thumbnails: (id: number) => `/api/thumbnails/${id}`,
   previewClips: (id: number) => `/api/preview-clips/${id}`,
   subtitles: (id: number) => `/api/subtitles/${id}`,
-  search: '/api/search',
+  search: '/api/media/search',
   popular: '/api/popular',
   recent: '/api/recent',
   recommendations: (userId: number) => `/api/recommendations/${userId}`,
@@ -224,9 +224,19 @@ export const smartSearch = async (query: string) => {
   }
   
   try {
-    return await apiCall(`/api/search?q=${encodeURIComponent(query.trim())}`);
+    return await apiCall(`/api/media/search?q=${encodeURIComponent(query.trim())}`);
   } catch (error) {
     console.error('Smart search failed:', error);
+    throw error;
+  }
+};
+
+// Fetch media by genre
+export const fetchMediaByGenre = async (genre: string, page: number = 1, limit: number = 50) => {
+  try {
+    return await apiCall(`/api/media/genre/${encodeURIComponent(genre)}?page=${page}&limit=${limit}`);
+  } catch (error) {
+    console.error(`Failed to fetch media for genre ${genre}:`, error);
     throw error;
   }
 };
