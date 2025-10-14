@@ -11,12 +11,14 @@ interface EpisodeListProps {
   seriesId: number;
   currentEpisodeId?: number;
   onEpisodeSelect: (episode: Media) => void;
+  onSeasonSelect?: (seasonNumber: number) => void;
 }
 
 const EpisodeList: React.FC<EpisodeListProps> = ({
   seriesId,
   currentEpisodeId,
   onEpisodeSelect,
+  onSeasonSelect,
 }) => {
   const [episodes, setEpisodes] = useState<Media[]>([]);
   const [selectedSeason, setSelectedSeason] = useState<number>(1);
@@ -104,7 +106,12 @@ const EpisodeList: React.FC<EpisodeListProps> = ({
           {seasons.map((season) => (
             <button
               key={season}
-              onClick={() => setSelectedSeason(season || 1)}
+              onClick={() => {
+                setSelectedSeason(season || 1);
+                if (onSeasonSelect) {
+                  onSeasonSelect(season || 1);
+                }
+              }}
               className={`px-6 py-2 rounded-lg font-semibold whitespace-nowrap transition-all ${
                 selectedSeason === season
                   ? 'bg-white text-black'

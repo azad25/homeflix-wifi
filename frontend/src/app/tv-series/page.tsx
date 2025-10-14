@@ -144,7 +144,9 @@ export default function TVSeries() {
   const handleInfo = (media: Media) => {
     // Check if it's a TV series/episode and route accordingly
     if (media.type === 'episode' || media.type === 'tv' || media.type === 'series') {
-      navigate.push(`/tv-series/${media.id}`);
+      // If it's an episode, try to get the series ID, otherwise use the media ID
+      const seriesId = media.series_id || media.id;
+      navigate.push(`/tv-series/${seriesId}`);
     } else {
       navigate.push(`/movie/${media.id}`);
     }

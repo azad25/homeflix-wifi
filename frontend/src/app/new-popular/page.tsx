@@ -29,31 +29,31 @@ const NewPopularPage: React.FC = () => {
         setIsLoading(true);
         setError(null);
 
-        // Fetch all media for processing
-        const allMedia: Media[] = await apiCall('/api/media?limit=100');
+        // Fetch movies only for New & Popular page
+        const allMovies: Media[] = await apiCall('/api/media/movies?limit=100');
 
-        if (allMedia.length === 0) {
-          throw new Error('No media content available');
+        if (allMovies.length === 0) {
+          throw new Error('No movie content available');
         }
 
         // Sort by creation date for new content (most recent first)
-        const sortedByDate = [...allMedia].sort((a, b) => {
+        const sortedByDate = [...allMovies].sort((a, b) => {
           const dateA = new Date(a.created_at || 0).getTime();
           const dateB = new Date(b.created_at || 0).getTime();
           return dateB - dateA;
         });
 
         // Sort by view count for popular content
-        const sortedByViews = [...allMedia].sort((a, b) => {
+        const sortedByViews = [...allMovies].sort((a, b) => {
           return (b.view_count || 0) - (a.view_count || 0);
         });
 
         // Sort by rating for trending content
-        const sortedByRating = [...allMedia].sort((a, b) => {
+        const sortedByRating = [...allMovies].sort((a, b) => {
           return (b.rating || 0) - (a.rating || 0);
         });
 
-        // Get featured content (mix of new and popular)
+        // Get featured content (top movies for hero section)
         const featured = [
           ...sortedByDate.slice(0, 3),
           ...sortedByViews.slice(0, 2)
@@ -118,7 +118,7 @@ const NewPopularPage: React.FC = () => {
           featuredMedia={featuredMedia}
           onPlay={handlePlay}
           onInfo={handleInfo}
-          contentFilter="all"
+          contentFilter="movies-hd"
           enableRecommendations={true}
         />
       )}

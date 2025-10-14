@@ -46,26 +46,39 @@ export default function Home() {
       // Fetch all media
       const allMedia = await apiCall(API_ENDPOINTS.media);
       
-      // Get unique recommendations for hero section
+      // Get unique MOVIE recommendations for hero section (HOME page shows movies only)
       let highQualityMedia: Media[] = [];
       try {
-        console.log('🎬 Fetching unique recommendations for home page...');
-        highQualityMedia = await fetchUniqueRecommendations('mixed', 15);
-        console.log(`✅ Got ${highQualityMedia.length} unique recommendations for home page`);
+        console.log('🎬 Fetching unique movie recommendations for home page...');
+        const recommendations = await fetchUniqueRecommendations('mixed', 20);
+        // Filter for movies only in hero section
+        highQualityMedia = recommendations.filter((item: Media) => item.type === 'movie');
+        console.log(`✅ Got ${highQualityMedia.length} unique movie recommendations for home page`);
       } catch (error) {
         console.warn('⚠️ Enhanced recommendations failed, using fallback');
-        // Fallback to high-rated content
+        // Fallback to high-rated movies only
         highQualityMedia = allMedia
-          .filter((item: Media) => (item.rating || 0) >= 6.0)
+          .filter((item: Media) => item.type === 'movie' && (item.rating || 0) >= 6.0)
           .slice(0, 10);
       }
       
-      // Mix movies and TV shows, prioritize higher rated content
-      const featuredSelection = highQualityMedia
+      // If not enough movie recommendations, fallback to all movies
+      if (highQualityMedia.length < 5) {
+        highQualityMedia = allMedia
+          .filter((item: Media) => item.type === 'movie')
+          .sort((a: Media, b: Media) => (b.rating || 0) - (a.rating || 0))
+          .slice(0, 10);
+      }
+      
+      // Filter for movies only and prioritize higher rated content
+      const movieRecommendations = highQualityMedia.filter((item: Media) => item.type === 'movie');
+      const featuredSelection = movieRecommendations
         .sort((a: Media, b: Media) => (b.rating || 0) - (a.rating || 0))
         .slice(0, 5);
       
-      setFeaturedMedia(featuredSelection.length > 0 ? featuredSelection : allMedia.slice(0, 5));
+      // Fallback to movies from allMedia if not enough recommendations
+      const fallbackMovies = allMedia.filter((item: Media) => item.type === 'movie').slice(0, 5);
+      setFeaturedMedia(featuredSelection.length > 0 ? featuredSelection : fallbackMovies);
       
       // Recent movies (latest by ID)
       const recentMovies = allMedia
@@ -209,7 +222,14 @@ export default function Home() {
   };
 
   const handleInfo = (media: Media) => {
-    navigate.push(`/movie/${media.id}`);
+    // Route to appropriate page based on media type
+    if (media.type === 'episode' || media.type === 'tv' || media.type === 'series') {
+      // If it's an episode, try to get the series ID, otherwise use the media ID
+      const seriesId = media.series_id || media.id;
+      navigate.push(`/tv-series/${seriesId}`);
+    } else {
+      navigate.push(`/movie/${media.id}`);
+    }
   };
 
   const parallaxCards = [
@@ -267,6 +287,7 @@ export default function Home() {
           onInfo={handleInfo}
           enableRecommendations={true}
           refreshInterval={300000}
+          contentFilter="movies-hd"
         />
       )}
 

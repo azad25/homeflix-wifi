@@ -84,19 +84,17 @@ export default function BrowsePage() {
     try {
       const apiUrl = getApiUrl();
       
-      // Fetch movies, TV series (not episodes), and genres
-      const [moviesResponse, tvSeriesResponse, genresResponse] = await Promise.all([
+      // Fetch movies only and genres
+      const [moviesResponse, genresResponse] = await Promise.all([
         fetch(`${apiUrl}/api/media/movies`),
-        fetch(`${apiUrl}/api/media/tv-shows`),
         fetch(`${apiUrl}/api/genres`)
       ]);
       
       const moviesData = await moviesResponse.json();
-      const tvSeriesData = await tvSeriesResponse.json();
       const genresData = await genresResponse.json();
       
-      // Combine movies and TV series (main titles only, no episodes)
-      const mediaData = [...moviesData, ...tvSeriesData];
+      // Use only movies for browse page
+      const mediaData = moviesData;
       
       setAllMedia(mediaData);
       setGenres(genresData);
@@ -283,6 +281,7 @@ export default function BrowsePage() {
   };
 
   const handleInfo = (media: Media) => {
+    // Browse page only shows movies
     navigate.push(`/movie/${media.id}`);
   };
 

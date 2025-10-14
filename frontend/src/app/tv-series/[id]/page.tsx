@@ -331,6 +331,26 @@ export default function TVSeriesPage() {
 
             <div className="container mx-auto px-6 md:px-12 lg:px-16 relative z-10">
               <div className="max-w-4xl w-full">
+                {/* Breadcrumb Navigation */}
+                <motion.div
+                  initial={{ opacity: 0, y: 30 }}
+                  animate={{
+                    opacity: (!showTitleOverlay || isHoveringTitle) ? 1 : 0,
+                    y: (!showTitleOverlay || isHoveringTitle) ? 0 : 30
+                  }}
+                  transition={{ duration: 0.6, delay: 0.1 }}
+                  className="flex items-center gap-2 mb-4 text-sm text-white/60"
+                >
+                  <button 
+                    onClick={() => navigate.push('/tv-series')}
+                    className="hover:text-white transition-colors"
+                  >
+                    TV Series
+                  </button>
+                  <span>/</span>
+                  <span className="text-red-400">{series.title}</span>
+                </motion.div>
+
                 {/* Series Title */}
                 <motion.div
                   initial={{ opacity: 0, y: 50 }}
@@ -504,16 +524,19 @@ export default function TVSeriesPage() {
                 <h2 className="text-3xl font-bold text-white mb-8">Latest Episodes</h2>
                 
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-                  {episodes.slice(0, 8).map((episode, index) => (
-                    <NetflixMediaCard
-                      key={episode.id}
-                      media={episode}
-                      onPlay={handlePlay}
-                      onInfo={(media) => router.push(`/movie/${media.id}`)}
-                      priority={index < 4 ? 'high' : 'normal'}
-                      showPreviewOnHover={true}
-                    />
-                  ))}
+                  {episodes.slice(0, 8).map((episode, index) => {
+                    const seasonNumber = extractSeasonNumber(episode.title) || 1;
+                    return (
+                      <NetflixMediaCard
+                        key={episode.id}
+                        media={episode}
+                        onPlay={handlePlay}
+                        onInfo={(media) => navigate.push(`/tv-series/${params.id}/season/${seasonNumber}`)}
+                        priority={index < 4 ? 'high' : 'normal'}
+                        showPreviewOnHover={true}
+                      />
+                    );
+                  })}
                 </div>
               </div>
             </ScrollReveal>

@@ -146,7 +146,10 @@ export default function TVShowsPage() {
   };
 
   const handleInfo = (media: Media) => {
-    navigate.push(`/tv-show/${media.id}`);
+    // Route to TV series detail page
+    // If it's an episode, try to get the series ID, otherwise use the media ID
+    const seriesId = media.series_id || media.id;
+    navigate.push(`/tv-series/${seriesId}`);
   };
 
 

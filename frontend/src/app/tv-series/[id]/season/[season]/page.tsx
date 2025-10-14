@@ -149,7 +149,8 @@ export default function SeasonPage() {
 
   const handleInfo = (episode: Episode) => {
     if (episode.media) {
-      navigate.push(`/movie/${episode.media.id}`);
+      // Episodes should link to their individual episode page or back to season
+      navigate.push(`/tv-series/${params.id}/season/${params.season}`);
     }
   };
 
@@ -204,9 +205,28 @@ export default function SeasonPage() {
       <div className="relative pt-20 pb-12">
         <div className="container mx-auto px-6 md:px-12 lg:px-16">
           <ScrollReveal direction="up" delay={0.1}>
+            {/* Breadcrumb Navigation */}
+            <div className="flex items-center gap-2 mb-4 text-sm text-white/60">
+              <button 
+                onClick={() => navigate.push('/tv-series')}
+                className="hover:text-white transition-colors"
+              >
+                TV Series
+              </button>
+              <span>/</span>
+              <button 
+                onClick={() => navigate.push(`/tv-series/${params.id}`)}
+                className="hover:text-white transition-colors"
+              >
+                {series.title}
+              </button>
+              <span>/</span>
+              <span className="text-red-400">Season {currentSeason}</span>
+            </div>
+
             <div className="flex items-center gap-4 mb-8">
               <MagneticButton
-                onClick={() => navigate.back()}
+                onClick={() => navigate.push(`/tv-series/${params.id}`)}
                 className="bg-white/10 hover:bg-white/20 text-white p-3 rounded-full"
               >
                 <ArrowLeft className="w-5 h-5" />

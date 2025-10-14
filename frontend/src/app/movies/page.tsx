@@ -174,6 +174,7 @@ export default function MoviesPage() {
           onInfo={handleInfo}
           enableRecommendations={true}
           refreshInterval={300000}
+          contentFilter="movies-hd"
         />
       )}
 
