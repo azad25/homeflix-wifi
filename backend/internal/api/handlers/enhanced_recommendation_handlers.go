@@ -24,7 +24,7 @@ func GetUniqueRecommendations(recommendationService *services.RecommendationServ
 		// Get session identifier from headers or generate one
 		sessionID := c.GetHeader("X-Session-ID")
 		if sessionID == "" {
-			sessionID = generateSessionID(c)
+			sessionID = generateEnhancedSessionID(c)
 		}
 
 		// Get limit parameter
@@ -128,7 +128,7 @@ func GetMixedRecommendationsEnhanced(recommendationService *services.Recommendat
 
 // Helper functions
 
-func generateSessionID(c *gin.Context) string {
+func generateEnhancedSessionID(c *gin.Context) string {
 	// Generate session ID based on IP, User-Agent, and timestamp
 	ip := c.ClientIP()
 	userAgent := c.GetHeader("User-Agent")
@@ -149,7 +149,7 @@ func getOrCreateSessionID(c *gin.Context) string {
 	}
 	if sessionID == "" {
 		// Generate new session ID
-		sessionID = generateSessionID(c)
+		sessionID = generateEnhancedSessionID(c)
 		// Set cookie for future requests
 		c.SetCookie("homeflix_session", sessionID, 86400*30, "/", "", false, true) // 30 days
 	}
@@ -425,8 +425,8 @@ func ensureLatestMediaIncluded(currentMedia []models.Media, allMedia []models.Me
 	return result
 }
 
-// GetRecommendations is the main recommendations handler that routes based on category
-func GetRecommendations(recommendationService *services.RecommendationService, mediaService *services.MediaService) gin.HandlerFunc {
+// GetEnhancedRecommendations is the enhanced recommendations handler that routes based on category
+func GetEnhancedRecommendations(recommendationService *services.RecommendationService, mediaService *services.MediaService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		category := c.Query("category")
 		limit := 20

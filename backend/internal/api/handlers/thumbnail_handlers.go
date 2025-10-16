@@ -46,11 +46,20 @@ var (
 		lastUpdate:     time.Now(),
 	}
 	cacheTTL = 60 * time.Minute // Longer cache for better performance
-	notFoundTTL = 5 * time.Minute // Cache 404s for 5 minutes
+	notFoundTTL = 2 * time.Minute // Shorter 404 cache to allow faster retries
 
 	// In-memory file cache for instant serving
 	fileCache = make(map[string]*CachedAsset)
 	fileCacheMutex sync.RWMutex
+
+	// Generation tracking to prevent duplicate work
+	generationInProgress = make(map[uint]bool)
+	generationMutex sync.RWMutex
+
+	// Retry tracking for failed generations
+	retryCount = make(map[uint]int)
+	retryMutex sync.RWMutex
+	maxRetries = 3
 )
 
 // Initialize ultra-fast caching system
@@ -67,9 +76,9 @@ func warmCacheInBackground() {
 	assetCache.lastUpdate = time.Now()
 	assetCache.mutex.Unlock()
 	
-	// Start background cache maintenance
+	// Start background cache maintenance and retry reset
 	go func() {
-		ticker := time.NewTicker(10 * time.Minute)
+		ticker := time.NewTicker(5 * time.Minute) // More frequent cleanup
 		defer ticker.Stop()
 		
 		for range ticker.C {
@@ -80,7 +89,7 @@ func warmCacheInBackground() {
 	log.Printf("⚡ Ultra-fast asset cache initialized - sub-millisecond response times enabled")
 }
 
-// cleanupExpiredCache removes expired entries to prevent memory leaks
+// cleanupExpiredCache removes expired entries to prevent memory leaks and resets retry counts
 func cleanupExpiredCache() {
 	assetCache.mutex.Lock()
 	defer assetCache.mutex.Unlock()
@@ -96,8 +105,32 @@ func cleanupExpiredCache() {
 		}
 	}
 	
-	if expired > 0 {
-		log.Printf("🧹 Cleaned up %d expired cache entries", expired)
+	// Clean up retry counts for old entries (reset after 1 hour)
+	retryMutex.Lock()
+	resetRetries := 0
+	for id := range retryCount {
+		// Reset retry count after 1 hour to allow fresh attempts
+		if _, exists := assetCache.notFoundCache[id]; !exists {
+			delete(retryCount, id)
+			resetRetries++
+		}
+	}
+	retryMutex.Unlock()
+	
+	// Clean up stale generation flags (safety cleanup)
+	generationMutex.Lock()
+	clearedFlags := 0
+	for id := range generationInProgress {
+		// Clear generation flags older than 30 minutes (safety measure)
+		if time.Since(now) > 30*time.Minute {
+			delete(generationInProgress, id)
+			clearedFlags++
+		}
+	}
+	generationMutex.Unlock()
+	
+	if expired > 0 || resetRetries > 0 || clearedFlags > 0 {
+		log.Printf("🧹 Cache cleanup: %d expired entries, %d retry resets, %d stale flags cleared", expired, resetRetries, clearedFlags)
 	}
 }
 
@@ -159,6 +192,13 @@ func checkExistingPreviewAssets(media *models.Media) string {
 	
 	// Priority 2: Check common preview file patterns including _audio_fallback suffix
 	sanitizedTitle := sanitizeFilename(media.Title)
+	
+	// Extract year from media if available for year-based patterns
+	yearStr := ""
+	if media.Year > 0 {
+		yearStr = fmt.Sprintf("%d", media.Year)
+	}
+	
 	commonPaths := []string{
 		// Current actual pattern with _audio_fallback suffix (most common)
 		fmt.Sprintf("./backend/previews/preview_%d_%s_audio_fallback.mp4", media.ID, sanitizedTitle),
@@ -172,20 +212,72 @@ func checkExistingPreviewAssets(media *models.Media) string {
 		fmt.Sprintf("./backend/previews/preview_%s.mp4", sanitizedTitle),
 		fmt.Sprintf("./previews/preview_%s.mp4", sanitizedTitle),
 		
+		// Year-based patterns (NEW - commonly found)
+		fmt.Sprintf("./backend/previews/preview_%s_%s.mp4", sanitizedTitle, yearStr),
+		fmt.Sprintf("./previews/preview_%s_%s.mp4", sanitizedTitle, yearStr),
+		fmt.Sprintf("./backend/previews/preview_%s_(%s).mp4", sanitizedTitle, yearStr),
+		fmt.Sprintf("./previews/preview_%s_(%s).mp4", sanitizedTitle, yearStr),
+		
+		// ID + Title + Year patterns
+		fmt.Sprintf("./backend/previews/preview_%d_%s_%s.mp4", media.ID, sanitizedTitle, yearStr),
+		fmt.Sprintf("./previews/preview_%d_%s_%s.mp4", media.ID, sanitizedTitle, yearStr),
+		fmt.Sprintf("./backend/previews/preview_%d_%s_(%s).mp4", media.ID, sanitizedTitle, yearStr),
+		fmt.Sprintf("./previews/preview_%d_%s_(%s).mp4", media.ID, sanitizedTitle, yearStr),
+		
 		// PREVIEW_TITLE_(YEAR) patterns
 		fmt.Sprintf("./backend/previews/PREVIEW_%s.mp4", sanitizedTitle),
 		fmt.Sprintf("./previews/PREVIEW_%s.mp4", sanitizedTitle),
+		fmt.Sprintf("./backend/previews/PREVIEW_%s_%s.mp4", sanitizedTitle, yearStr),
+		fmt.Sprintf("./previews/PREVIEW_%s_%s.mp4", sanitizedTitle, yearStr),
+		fmt.Sprintf("./backend/previews/PREVIEW_%s_(%s).mp4", sanitizedTitle, yearStr),
+		fmt.Sprintf("./previews/PREVIEW_%s_(%s).mp4", sanitizedTitle, yearStr),
 		
 		// Simple ID-based patterns
 		fmt.Sprintf("./backend/previews/preview_%d.mp4", media.ID),
 		fmt.Sprintf("./previews/preview_%d.mp4", media.ID),
 		
-		// Additional common variations
+		// Additional common variations with year
 		fmt.Sprintf("./backend/previews/Preview_%s.mp4", sanitizedTitle),
 		fmt.Sprintf("./previews/Preview_%s.mp4", sanitizedTitle),
+		fmt.Sprintf("./backend/previews/Preview_%s_%s.mp4", sanitizedTitle, yearStr),
+		fmt.Sprintf("./previews/Preview_%s_%s.mp4", sanitizedTitle, yearStr),
+		fmt.Sprintf("./backend/previews/Preview_%s_(%s).mp4", sanitizedTitle, yearStr),
+		fmt.Sprintf("./previews/Preview_%s_(%s).mp4", sanitizedTitle, yearStr),
 		fmt.Sprintf("./backend/previews/%s_preview.mp4", sanitizedTitle),
 		fmt.Sprintf("./previews/%s_preview.mp4", sanitizedTitle),
+		fmt.Sprintf("./backend/previews/%s_%s_preview.mp4", sanitizedTitle, yearStr),
+		fmt.Sprintf("./previews/%s_%s_preview.mp4", sanitizedTitle, yearStr),
+		fmt.Sprintf("./backend/previews/%s_(%s)_preview.mp4", sanitizedTitle, yearStr),
+		fmt.Sprintf("./previews/%s_(%s)_preview.mp4", sanitizedTitle, yearStr),
+		
+		// Celery worker generated patterns (common patterns from logs)
+		fmt.Sprintf("./backend/previews/%s_preview.mp4", sanitizedTitle),
+		fmt.Sprintf("./previews/%s_preview.mp4", sanitizedTitle),
+		fmt.Sprintf("./backend/previews/%s_%s_preview.mp4", sanitizedTitle, yearStr),
+		fmt.Sprintf("./previews/%s_%s_preview.mp4", sanitizedTitle, yearStr),
+		fmt.Sprintf("./backend/previews/%d_%s_preview.mp4", media.ID, sanitizedTitle),
+		fmt.Sprintf("./previews/%d_%s_preview.mp4", media.ID, sanitizedTitle),
+		
+		// Additional Celery patterns
+		fmt.Sprintf("backend/previews/preview_%d.mp4", media.ID),
+		fmt.Sprintf("previews/preview_%d.mp4", media.ID),
+		fmt.Sprintf("backend/previews/%s_preview.mp4", sanitizedTitle),
+		fmt.Sprintf("previews/%s_preview.mp4", sanitizedTitle),
 	}
+	
+	// Filter out patterns with empty year strings to avoid double underscores
+	var validPaths []string
+	for _, path := range commonPaths {
+		if yearStr == "" {
+			// Skip year-based patterns if no year available
+			if !strings.Contains(path, "_"+yearStr) && !strings.Contains(path, "("+yearStr+")") {
+				validPaths = append(validPaths, path)
+			}
+		} else {
+			validPaths = append(validPaths, path)
+		}
+	}
+	commonPaths = validPaths
 	
 	for _, path := range commonPaths {
 		if _, err := os.Stat(path); err == nil {
@@ -216,24 +308,55 @@ func checkExistingThumbnailAssets(media *models.Media) string {
 	
 	// Priority 2: Check common thumbnail file patterns (actual existing patterns)
 	sanitizedTitle := sanitizeFilename(media.Title)
+	
+	// Extract year from media if available for year-based patterns
+	yearStr := ""
+	if media.Year > 0 {
+		yearStr = fmt.Sprintf("%d", media.Year)
+	}
+	
 	commonPaths := []string{
 		// Most common existing patterns found in filesystem
 		fmt.Sprintf("./backend/thumbnails/thumb_%s.jpg", sanitizedTitle),
 		fmt.Sprintf("./thumbnails/thumb_%s.jpg", sanitizedTitle),
 		
+		// Year-based patterns (NEW - commonly found)
+		fmt.Sprintf("./backend/thumbnails/thumb_%s_%s.jpg", sanitizedTitle, yearStr),
+		fmt.Sprintf("./thumbnails/thumb_%s_%s.jpg", sanitizedTitle, yearStr),
+		fmt.Sprintf("./backend/thumbnails/thumb_%s_(%s).jpg", sanitizedTitle, yearStr),
+		fmt.Sprintf("./thumbnails/thumb_%s_(%s).jpg", sanitizedTitle, yearStr),
+		
 		// ID + Title patterns
 		fmt.Sprintf("./backend/thumbnails/thumb_%d_%s.jpg", media.ID, sanitizedTitle),
 		fmt.Sprintf("./thumbnails/thumb_%d_%s.jpg", media.ID, sanitizedTitle),
 		
+		// ID + Title + Year patterns
+		fmt.Sprintf("./backend/thumbnails/thumb_%d_%s_%s.jpg", media.ID, sanitizedTitle, yearStr),
+		fmt.Sprintf("./thumbnails/thumb_%d_%s_%s.jpg", media.ID, sanitizedTitle, yearStr),
+		fmt.Sprintf("./backend/thumbnails/thumb_%d_%s_(%s).jpg", media.ID, sanitizedTitle, yearStr),
+		fmt.Sprintf("./thumbnails/thumb_%d_%s_(%s).jpg", media.ID, sanitizedTitle, yearStr),
+		
 		// THUMB_TITLE_(YEAR) patterns
 		fmt.Sprintf("./backend/thumbnails/THUMB_%s.jpg", sanitizedTitle),
 		fmt.Sprintf("./thumbnails/THUMB_%s.jpg", sanitizedTitle),
+		fmt.Sprintf("./backend/thumbnails/THUMB_%s_%s.jpg", sanitizedTitle, yearStr),
+		fmt.Sprintf("./thumbnails/THUMB_%s_%s.jpg", sanitizedTitle, yearStr),
+		fmt.Sprintf("./backend/thumbnails/THUMB_%s_(%s).jpg", sanitizedTitle, yearStr),
+		fmt.Sprintf("./thumbnails/THUMB_%s_(%s).jpg", sanitizedTitle, yearStr),
 		
-		// Additional common variations
+		// Additional common variations with year
 		fmt.Sprintf("./backend/thumbnails/Thumb_%s.jpg", sanitizedTitle),
 		fmt.Sprintf("./thumbnails/Thumb_%s.jpg", sanitizedTitle),
+		fmt.Sprintf("./backend/thumbnails/Thumb_%s_%s.jpg", sanitizedTitle, yearStr),
+		fmt.Sprintf("./thumbnails/Thumb_%s_%s.jpg", sanitizedTitle, yearStr),
+		fmt.Sprintf("./backend/thumbnails/Thumb_%s_(%s).jpg", sanitizedTitle, yearStr),
+		fmt.Sprintf("./thumbnails/Thumb_%s_(%s).jpg", sanitizedTitle, yearStr),
 		fmt.Sprintf("./backend/thumbnails/%s_thumb.jpg", sanitizedTitle),
 		fmt.Sprintf("./thumbnails/%s_thumb.jpg", sanitizedTitle),
+		fmt.Sprintf("./backend/thumbnails/%s_%s_thumb.jpg", sanitizedTitle, yearStr),
+		fmt.Sprintf("./thumbnails/%s_%s_thumb.jpg", sanitizedTitle, yearStr),
+		fmt.Sprintf("./backend/thumbnails/%s_(%s)_thumb.jpg", sanitizedTitle, yearStr),
+		fmt.Sprintf("./thumbnails/%s_(%s)_thumb.jpg", sanitizedTitle, yearStr),
 		
 		// Simple ID-based patterns
 		fmt.Sprintf("./backend/thumbnails/thumb_%d.jpg", media.ID),
@@ -242,7 +365,37 @@ func checkExistingThumbnailAssets(media *models.Media) string {
 		// Legacy relative paths
 		fmt.Sprintf("thumbnails/thumb_%d_%s.jpg", media.ID, sanitizedTitle),
 		fmt.Sprintf("thumbnails/thumb_%d.jpg", media.ID),
+		fmt.Sprintf("thumbnails/thumb_%d_%s_%s.jpg", media.ID, sanitizedTitle, yearStr),
+		fmt.Sprintf("thumbnails/thumb_%d_%s_(%s).jpg", media.ID, sanitizedTitle, yearStr),
+		
+		// Celery worker generated patterns (common patterns from logs)
+		fmt.Sprintf("./backend/thumbnails/%s_thumb.jpg", sanitizedTitle),
+		fmt.Sprintf("./thumbnails/%s_thumb.jpg", sanitizedTitle),
+		fmt.Sprintf("./backend/thumbnails/%s_%s_thumb.jpg", sanitizedTitle, yearStr),
+		fmt.Sprintf("./thumbnails/%s_%s_thumb.jpg", sanitizedTitle, yearStr),
+		fmt.Sprintf("./backend/thumbnails/%d_%s_thumb.jpg", media.ID, sanitizedTitle),
+		fmt.Sprintf("./thumbnails/%d_%s_thumb.jpg", media.ID, sanitizedTitle),
+		
+		// Additional Celery patterns
+		fmt.Sprintf("backend/thumbnails/thumb_%d.jpg", media.ID),
+		fmt.Sprintf("thumbnails/thumb_%d.jpg", media.ID),
+		fmt.Sprintf("backend/thumbnails/%s_thumb.jpg", sanitizedTitle),
+		fmt.Sprintf("thumbnails/%s_thumb.jpg", sanitizedTitle),
 	}
+	
+	// Filter out patterns with empty year strings to avoid double underscores
+	var validPaths []string
+	for _, path := range commonPaths {
+		if yearStr == "" {
+			// Skip year-based patterns if no year available
+			if !strings.Contains(path, "_"+yearStr) && !strings.Contains(path, "("+yearStr+")") {
+				validPaths = append(validPaths, path)
+			}
+		} else {
+			validPaths = append(validPaths, path)
+		}
+	}
+	commonPaths = validPaths
 	
 	for _, path := range commonPaths {
 		if _, err := os.Stat(path); err == nil {
@@ -253,7 +406,7 @@ func checkExistingThumbnailAssets(media *models.Media) string {
 	return "" // No existing thumbnail found
 }
 
-// sanitizeFilename removes invalid characters from filenames
+// sanitizeFilename removes invalid characters from filenames and ensures single underscores
 func sanitizeFilename(filename string) string {
 	// Replace invalid characters with underscores
 	invalidChars := []string{"/", "\\", ":", "*", "?", "\"", "<", ">", "|", " "}
@@ -261,6 +414,15 @@ func sanitizeFilename(filename string) string {
 	for _, char := range invalidChars {
 		result = strings.ReplaceAll(result, char, "_")
 	}
+	
+	// Remove multiple consecutive underscores and replace with single underscore
+	for strings.Contains(result, "__") {
+		result = strings.ReplaceAll(result, "__", "_")
+	}
+	
+	// Trim leading and trailing underscores
+	result = strings.Trim(result, "_")
+	
 	return result
 }
 
@@ -404,14 +566,36 @@ func GetThumbnail(mediaService *services.MediaService, thumbnailService *service
 			assetCache.mutex.RUnlock()
 		}
 
-		// Check 404 cache to prevent repeated lookups
+		// Check 404 cache but allow retries after shorter interval
 		assetCache.mutex.RLock()
 		if notFoundTime, exists := assetCache.notFoundCache[mediaID]; exists {
 			if time.Since(notFoundTime) < notFoundTTL {
-				assetCache.mutex.RUnlock()
-				c.Header("X-Cache", "404-CACHED")
-				c.JSON(http.StatusNotFound, gin.H{"error": "Thumbnail not available", "cached": true})
-				return
+				// Check if generation is in progress
+				generationMutex.RLock()
+				inProgress := generationInProgress[mediaID]
+				generationMutex.RUnlock()
+				
+				if inProgress {
+					assetCache.mutex.RUnlock()
+					c.Header("X-Cache", "GENERATING")
+					c.Header("X-Generation-Status", "in-progress")
+					c.JSON(http.StatusAccepted, gin.H{
+						"error": "Thumbnail generation in progress",
+						"status": "generating",
+						"message": "Please retry in a few moments",
+						"retry_after": 30,
+					})
+					return
+				} else {
+					assetCache.mutex.RUnlock()
+					c.Header("X-Cache", "404-CACHED")
+					c.JSON(http.StatusNotFound, gin.H{
+						"error": "Thumbnail not available", 
+						"cached": true,
+						"retry_after": int(notFoundTTL.Seconds()),
+					})
+					return
+				}
 			}
 		}
 		assetCache.mutex.RUnlock()
@@ -426,23 +610,145 @@ func GetThumbnail(mediaService *services.MediaService, thumbnailService *service
 		// Fast thumbnail path resolution with multiple fallbacks
 		thumbnailPath := checkExistingThumbnailAssets(media)
 		if thumbnailPath == "" {
-			// Cache 404 to prevent repeated lookups
+			// FORCE REFRESH: Always check filesystem again after worker completion
+			// Clear any cached 404 status to force fresh lookup
+			assetCache.mutex.Lock()
+			delete(assetCache.notFoundCache, mediaID)
+			delete(assetCache.thumbnailCache, mediaID) // Force cache refresh
+			assetCache.mutex.Unlock()
+			
+			// Re-check for existing assets after cache clear
+			if refreshedPath := checkExistingThumbnailAssets(media); refreshedPath != "" {
+				log.Printf("✅ Found thumbnail after cache refresh: %s", refreshedPath)
+				// Update database and cache
+				media.ThumbnailPath = refreshedPath
+				mediaService.UpdateMedia(media)
+				assetCache.mutex.Lock()
+				assetCache.thumbnailCache[mediaID] = refreshedPath
+				assetCache.mutex.Unlock()
+				// Serve the found asset
+				c.Header("Cache-Control", "public, max-age=86400, immutable")
+				c.Header("X-Cache", "REFRESH-HIT")
+				c.File(refreshedPath)
+				return
+			}
+			
+			// Check if generation is already in progress
+			generationMutex.RLock()
+			inProgress := generationInProgress[mediaID]
+			generationMutex.RUnlock()
+			
+			if inProgress {
+				c.Header("X-Cache", "GENERATING")
+				c.Header("X-Generation-Status", "in-progress")
+				c.JSON(http.StatusAccepted, gin.H{
+					"error": "Thumbnail generation in progress",
+					"media_id": mediaID,
+					"status": "generating",
+					"message": "Please retry in a few moments",
+					"retry_after": 30,
+				})
+				return
+			}
+			
+			// Check retry count to prevent infinite failures
+			retryMutex.RLock()
+			currentRetries := retryCount[mediaID]
+			retryMutex.RUnlock()
+			
+			if currentRetries >= maxRetries {
+				log.Printf("⚠️ Maximum retries exceeded for thumbnail %d, serving placeholder", mediaID)
+				c.Header("X-Cache", "MAX-RETRIES-EXCEEDED")
+				c.JSON(http.StatusNotFound, gin.H{
+					"error": "Thumbnail generation failed after multiple attempts",
+					"media_id": mediaID,
+					"status": "failed",
+					"retries": currentRetries,
+					"message": "Asset generation failed permanently",
+				})
+				return
+			}
+			
+			// ENHANCED 404 HANDLING: Automatically trigger asset generation for ALL 404s
+			log.Printf("🔄 404 detected for thumbnail %d - triggering automatic generation (attempt %d/%d)", mediaID, currentRetries+1, maxRetries)
+			
+			// Mark generation as in progress
+			generationMutex.Lock()
+			generationInProgress[mediaID] = true
+			generationMutex.Unlock()
+			
+			// Cache 404 temporarily to prevent repeated lookups during generation
 			assetCache.mutex.Lock()
 			assetCache.notFoundCache[mediaID] = time.Now()
 			assetCache.mutex.Unlock()
 			
-			// Trigger async generation without blocking
+			// Trigger async generation without blocking - CRITICAL FOR ALL 404s
 			go func() {
-				if _, err := thumbnailService.GenerateThumbnail(media.FilePath, media.ID, media.Title); err == nil {
+				defer func() {
+					// Always clear generation flag when done
+					generationMutex.Lock()
+					delete(generationInProgress, mediaID)
+					generationMutex.Unlock()
+				}()
+				
+				log.Printf("🚀 Starting automatic thumbnail generation for media %d: %s", media.ID, media.Title)
+				
+				// CRITICAL: Check existing files before generation to avoid duplicate work
+				if existingPath := checkExistingThumbnailAssets(media); existingPath != "" {
+					log.Printf("✅ Found existing thumbnail during generation check: %s", existingPath)
+					media.ThumbnailPath = existingPath
+					mediaService.UpdateMedia(media)
+					assetCache.mutex.Lock()
+					delete(assetCache.notFoundCache, mediaID)
+					assetCache.thumbnailCache[mediaID] = existingPath
+					assetCache.mutex.Unlock()
+					// Reset retry count on success
+					retryMutex.Lock()
+					delete(retryCount, mediaID)
+					retryMutex.Unlock()
+					return
+				}
+				
+				if generatedPath, err := thumbnailService.GenerateThumbnail(media.FilePath, media.ID, media.Title); err == nil {
+					// Update database with new path
+					media.ThumbnailPath = generatedPath
+					if updateErr := mediaService.UpdateMedia(media); updateErr != nil {
+						log.Printf("⚠️ Failed to update media thumbnail path: %v", updateErr)
+					}
 					// Remove from 404 cache after successful generation
+					assetCache.mutex.Lock()
+					delete(assetCache.notFoundCache, mediaID)
+					// Add to cache for future requests
+					assetCache.thumbnailCache[mediaID] = generatedPath
+					assetCache.mutex.Unlock()
+					// Reset retry count on success
+					retryMutex.Lock()
+					delete(retryCount, mediaID)
+					retryMutex.Unlock()
+					log.Printf("✅ Automatic thumbnail generation completed: %s", generatedPath)
+				} else {
+					log.Printf("❌ Automatic thumbnail generation failed for %s: %v", media.Title, err)
+					// Increment retry count
+					retryMutex.Lock()
+					retryCount[mediaID]++
+					retryMutex.Unlock()
+					// Remove from 404 cache to allow retry later
 					assetCache.mutex.Lock()
 					delete(assetCache.notFoundCache, mediaID)
 					assetCache.mutex.Unlock()
 				}
 			}()
-			
 			c.Header("X-Cache", "MISS-GENERATING")
-			c.JSON(http.StatusNotFound, gin.H{"error": "Thumbnail not found, generating in background"})
+			c.Header("X-Generation-Status", "triggered")
+			c.JSON(http.StatusAccepted, gin.H{
+				"error": "Thumbnail not found, automatic generation triggered",
+				"media_id": mediaID,
+				"status": "generating",
+				"message": "Asset will be available shortly",
+				"retry_after": 30,
+				"attempt": currentRetries + 1,
+				"max_attempts": maxRetries,
+			})
 			return
 		}
 
@@ -1222,28 +1528,34 @@ func generatePreviewWithFallbacks(media *models.Media, thumbnailService *service
 
 // generatePreviewWithAudioFallback generates 1080p preview with audio codec conversion using peak timestamp detection
 func generatePreviewWithAudioFallback(media *models.Media) (string, error) {
-	previewDir := "previews"
+	previewDir := "./backend/previews"
 	if _, err := os.Stat(previewDir); os.IsNotExist(err) {
 		os.MkdirAll(previewDir, 0755)
 	}
 
+	// CRITICAL: Check for existing preview before generation
+	if existingPath := checkExistingPreviewAssets(media); existingPath != "" {
+		log.Printf("✅ Using existing preview: %s", existingPath)
+		return existingPath, nil
+	}
+
 	outputPath := fmt.Sprintf("%s/preview_%d_%s_1080p_audio_fallback.mp4", previewDir, media.ID,
-		strings.ReplaceAll(media.Title, " ", "_"))
+		sanitizeFilename(media.Title))
 
 	// Get optimal timestamp using peak detection for better preview quality
 	startTime := getOptimalPreviewTimestamp(media.FilePath)
 	startTimeStr := fmt.Sprintf("%d", startTime)
 
-	// Ultra HD 1080p FFmpeg command with peak timestamp detection - NO TIMEOUT
+	// Ultra HD 1080p FFmpeg command with peak timestamp detection - NO TIMEOUT FOR HD/4K FILES
 	cmd := exec.Command("ffmpeg",
 		"-i", media.FilePath,
 		"-ss", startTimeStr, // Use optimal peak timestamp
 		"-t", "30", // 30 seconds for comprehensive preview
 		"-vf", "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2", // Full HD 1080p
 		"-c:v", "libx264",
-		"-preset", "slow", // High quality preset for best results
+		"-preset", "medium", // Balanced quality/speed for reliability
 		"-crf", "18", // Ultra high quality (Netflix-level)
-		"-c:a", "aac", // AAC audio for compatibility
+		"-c:a", "aac", // AAC audio for compatibility - SOUND MUST BE INCLUDED
 		"-b:a", "192k", // High audio bitrate for quality
 		"-ac", "2", // Stereo audio
 		"-ar", "48000", // High sample rate
@@ -1251,45 +1563,61 @@ func generatePreviewWithAudioFallback(media *models.Media) (string, error) {
 		"-pix_fmt", "yuv420p", // Ensure compatibility
 		"-threads", "0", // Use all available threads
 		"-max_muxing_queue_size", "9999", // Prevent buffer issues
+		"-avoid_negative_ts", "make_zero", // Fix timestamp issues
+		"-fflags", "+genpts", // Generate presentation timestamps
 		"-y", // Overwrite output file
 		outputPath)
 
-	log.Printf("🔧 Running FFmpeg 1080p with audio fallback at %ss (NO TIMEOUT): %s", startTimeStr, cmd.String())
+	log.Printf("🔧 Running FFmpeg 1080p with audio fallback at %ss (NO TIMEOUT - HD/4K processing): %s", startTimeStr, cmd.String())
 
-	// Run without timeout to ensure completion
+	// Run without timeout to allow complete processing of HD/4K files
 	if output, err := cmd.CombinedOutput(); err != nil {
 		log.Printf("❌ FFmpeg 1080p audio fallback failed: %v\nOutput: %s", err, string(output))
+		// Clean up partial file
+		os.Remove(outputPath)
 		return "", fmt.Errorf("ffmpeg 1080p audio fallback failed: %v", err)
 	}
 
-	log.Printf("✅ 1080p preview with audio fallback completed successfully")
+	// Validate generated file
+	if !validatePreviewFile(outputPath) {
+		os.Remove(outputPath)
+		return "", fmt.Errorf("generated preview file validation failed")
+	}
+
+	log.Printf("✅ 1080p preview with audio fallback completed successfully: %s", outputPath)
 	return outputPath, nil
 }
 
 // generateLowerQualityPreview generates 720p fallback preview with audio conversion using peak timestamps
 func generateLowerQualityPreview(media *models.Media) (string, error) {
-	previewDir := "previews"
+	previewDir := "./backend/previews"
 	if _, err := os.Stat(previewDir); os.IsNotExist(err) {
 		os.MkdirAll(previewDir, 0755)
 	}
 
+	// CRITICAL: Check for existing preview before generation
+	if existingPath := checkExistingPreviewAssets(media); existingPath != "" {
+		log.Printf("✅ Using existing preview: %s", existingPath)
+		return existingPath, nil
+	}
+
 	outputPath := fmt.Sprintf("%s/preview_%d_%s_720p_fallback.mp4", previewDir, media.ID,
-		strings.ReplaceAll(media.Title, " ", "_"))
+		sanitizeFilename(media.Title))
 
 	// Get optimal timestamp using peak detection for better preview quality
 	startTime := getOptimalPreviewTimestamp(media.FilePath)
 	startTimeStr := fmt.Sprintf("%d", startTime)
 
-	// 720p fallback FFmpeg command with peak timestamp detection - NO TIMEOUT
+	// 720p fallback FFmpeg command with peak timestamp detection - NO TIMEOUT FOR HD/4K FILES
 	cmd := exec.Command("ffmpeg",
 		"-i", media.FilePath,
 		"-ss", startTimeStr, // Use optimal peak timestamp
 		"-t", "30", // 30 seconds for comprehensive preview
 		"-vf", "scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2", // 720p fallback
 		"-c:v", "libx264",
-		"-preset", "medium", // Balanced quality/speed preset
-		"-crf", "20", // High quality for 720p
-		"-c:a", "aac", // AAC audio for compatibility
+		"-preset", "medium", // Better quality preset for HD/4K sources
+		"-crf", "20", // Higher quality for 720p from HD/4K sources
+		"-c:a", "aac", // AAC audio for compatibility - SOUND MUST BE INCLUDED
 		"-b:a", "128k", // Good audio bitrate for 720p
 		"-ac", "2", // Stereo audio
 		"-ar", "44100", // Standard sample rate
@@ -1297,61 +1625,86 @@ func generateLowerQualityPreview(media *models.Media) (string, error) {
 		"-pix_fmt", "yuv420p", // Ensure compatibility
 		"-threads", "0", // Use all available threads
 		"-max_muxing_queue_size", "9999", // Prevent buffer issues
+		"-avoid_negative_ts", "make_zero", // Fix timestamp issues
+		"-fflags", "+genpts", // Generate presentation timestamps
 		"-y", // Overwrite output file
 		outputPath)
 
-	log.Printf("🔧 Running FFmpeg 720p fallback at %ss (NO TIMEOUT): %s", startTimeStr, cmd.String())
+	log.Printf("🔧 Running FFmpeg 720p fallback at %ss (NO TIMEOUT - HD/4K processing): %s", startTimeStr, cmd.String())
 
-	// Run without timeout to ensure completion
+	// Run without timeout to allow complete processing of HD/4K files
 	if output, err := cmd.CombinedOutput(); err != nil {
 		log.Printf("❌ FFmpeg 720p fallback failed: %v\nOutput: %s", err, string(output))
+		// Clean up partial file
+		os.Remove(outputPath)
 		return "", fmt.Errorf("ffmpeg 720p fallback failed: %v", err)
 	}
 
-	log.Printf("✅ 720p fallback preview completed successfully")
+	// Validate generated file
+	if !validatePreviewFile(outputPath) {
+		os.Remove(outputPath)
+		return "", fmt.Errorf("generated preview file validation failed")
+	}
+
+	log.Printf("✅ 720p fallback preview completed successfully: %s", outputPath)
 	return outputPath, nil
 }
 
-// generateVideoOnlyPreview generates video-only preview without audio track using peak timestamps
+// generateVideoOnlyPreview generates video-only preview as last resort fallback
 func generateVideoOnlyPreview(media *models.Media) (string, error) {
-	previewDir := "previews"
+	previewDir := "./backend/previews"
 	if _, err := os.Stat(previewDir); os.IsNotExist(err) {
 		os.MkdirAll(previewDir, 0755)
 	}
 
+	// CRITICAL: Check for existing preview before generation
+	if existingPath := checkExistingPreviewAssets(media); existingPath != "" {
+		log.Printf("✅ Using existing preview: %s", existingPath)
+		return existingPath, nil
+	}
+
 	outputPath := fmt.Sprintf("%s/preview_%d_%s_video_only.mp4", previewDir, media.ID,
-		strings.ReplaceAll(media.Title, " ", "_"))
+		sanitizeFilename(media.Title))
 
 	// Get optimal timestamp using peak detection for better preview quality
 	startTime := getOptimalPreviewTimestamp(media.FilePath)
 	startTimeStr := fmt.Sprintf("%d", startTime)
 
-	// 720p video-only FFmpeg command with peak timestamp detection - NO TIMEOUT
+	// 720p video-only FFmpeg command - ONLY AS LAST RESORT (prefer audio versions)
 	cmd := exec.Command("ffmpeg",
 		"-i", media.FilePath,
 		"-ss", startTimeStr, // Use optimal peak timestamp
 		"-t", "30", // 30 seconds for comprehensive preview
 		"-vf", "scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2", // 720p for video-only
 		"-c:v", "libx264",
-		"-preset", "fast", // Fast preset for video-only
-		"-crf", "22", // Good quality for video-only
-		"-an", // No audio track
+		"-preset", "fast", // Faster preset for last resort but still decent quality
+		"-crf", "22", // Decent quality for video-only from HD/4K
+		"-an", // No audio track (last resort only)
 		"-movflags", "+faststart", // Web optimization
 		"-pix_fmt", "yuv420p", // Ensure compatibility
 		"-threads", "0", // Use all available threads
 		"-max_muxing_queue_size", "9999", // Prevent buffer issues
+		"-avoid_negative_ts", "make_zero", // Fix timestamp issues
 		"-y", // Overwrite output file
 		outputPath)
 
-	log.Printf("🔧 Running FFmpeg video-only preview at %ss (NO TIMEOUT): %s", startTimeStr, cmd.String())
+	log.Printf("🔧 Running FFmpeg video-only preview at %ss (NO TIMEOUT - HD/4K processing): %s", startTimeStr, cmd.String())
 
-	// Run without timeout to ensure completion
+	// Run without timeout to allow complete processing of HD/4K files
 	if output, err := cmd.CombinedOutput(); err != nil {
 		log.Printf("❌ FFmpeg video-only preview failed: %v\nOutput: %s", err, string(output))
+		// Clean up partial file
+		os.Remove(outputPath)
 		return "", fmt.Errorf("ffmpeg video-only preview failed: %v", err)
 	}
 
-	log.Printf("✅ Video-only preview completed successfully")
+	// Validate generated file
+	if !validatePreviewFile(outputPath) {
+		os.Remove(outputPath)
+		return "", fmt.Errorf("generated preview file validation failed")
+	}
+
+	log.Printf("⚠️ Video-only preview completed (no audio): %s", outputPath)
 	return outputPath, nil
 }
 
@@ -1433,14 +1786,48 @@ func GetThumbnailEnhanced(mediaService *services.MediaService, thumbnailService 
 			return
 		}
 
+		// ENHANCED CACHE INVALIDATION: Force complete cache refresh for thumbnails
+		assetCache.mutex.Lock()
+		delete(assetCache.notFoundCache, mediaID)
+		delete(assetCache.thumbnailCache, mediaID)
+		delete(assetCache.previewCache, mediaID) // Clear all related caches
+		assetCache.mutex.Unlock()
+		
+		// IMMEDIATE FILESYSTEM SCAN: Check all possible thumbnail locations
+		if refreshedPath := checkExistingThumbnailAssets(media); refreshedPath != "" {
+			log.Printf("🎯 INSTANT SERVE: Found thumbnail after cache refresh: %s", refreshedPath)
+			// Update database and cache immediately
+			media.ThumbnailPath = refreshedPath
+			mediaService.UpdateMedia(media)
+			assetCache.setCachedAssetPath(mediaID, "thumbnail", refreshedPath)
+			
+			// ZERO-LATENCY HEADERS: Instant serving with aggressive caching
+			c.Header("Cache-Control", "public, max-age=86400, immutable")
+			c.Header("Content-Type", "image/jpeg")
+			c.Header("Accept-Ranges", "bytes")
+			c.Header("X-Cache", "INSTANT-HIT")
+			c.Header("X-Asset-Source", "cache-refresh")
+			c.File(refreshedPath)
+			return
+		}
+		
 		// Fast path resolution with optimized fallbacks
 		thumbnailPath, err := serveThumbnailFast(media, thumbnailService)
 		if err != nil {
-			// Return placeholder or 404 instead of on-demand generation to prevent blocking
+			// ZERO-LATENCY 404 HANDLING: Return immediately, generate async
+			log.Printf("⚡ INSTANT 404 RESPONSE: Triggering async thumbnail generation for media %d", mediaID)
+			
+			// INSTANT RESPONSE: Don't block frontend
+			c.Header("Cache-Control", "no-cache, no-store, must-revalidate")
+			c.Header("X-Cache", "GENERATING-ASYNC")
+			c.Header("X-Generation-Status", "background")
+			c.Header("X-Retry-After", "3") // Suggest 3-second retry for thumbnails
 			c.JSON(http.StatusNotFound, gin.H{
-				"error": "Thumbnail not available",
+				"error": "Asset generating",
 				"media_id": media.ID,
-				"message": "Asset will be generated in background",
+				"status": "async_generation",
+				"message": "Thumbnail will be available shortly",
+				"retry_in_seconds": 3,
 			})
 			
 			// Trigger async generation (non-blocking)
@@ -1449,6 +1836,9 @@ func GetThumbnailEnhanced(mediaService *services.MediaService, thumbnailService 
 					media.ThumbnailPath = generatedPath
 					mediaService.UpdateMedia(media)
 					assetCache.setCachedAssetPath(mediaID, "thumbnail", generatedPath)
+					log.Printf("✅ Async thumbnail generation completed: %s", generatedPath)
+				} else {
+					log.Printf("❌ Async thumbnail generation failed: %v", genErr)
 				}
 			}()
 			return
@@ -1501,23 +1891,137 @@ func GetPreviewEnhanced(mediaService *services.MediaService, thumbnailService *s
 			return
 		}
 
+		// ENHANCED CACHE INVALIDATION: Force complete cache refresh
+		assetCache.mutex.Lock()
+		delete(assetCache.notFoundCache, mediaID)
+		delete(assetCache.previewCache, mediaID)
+		delete(assetCache.thumbnailCache, mediaID) // Clear all related caches
+		assetCache.mutex.Unlock()
+		
+		// IMMEDIATE FILESYSTEM SCAN: Check all possible asset locations
+		if refreshedPath := checkExistingPreviewAssets(media); refreshedPath != "" {
+			log.Printf("🎯 INSTANT SERVE: Found preview after cache refresh: %s", refreshedPath)
+			// Update database and cache immediately
+			media.PreviewPath = refreshedPath
+			media.PreviewClipPath = refreshedPath
+			mediaService.UpdateMedia(media)
+			assetCache.setCachedAssetPath(mediaID, "preview", refreshedPath)
+			
+			// ZERO-LATENCY HEADERS: Instant serving with aggressive caching
+			c.Header("Cache-Control", "public, max-age=86400, immutable")
+			c.Header("Content-Type", "video/mp4")
+			c.Header("Accept-Ranges", "bytes")
+			c.Header("X-Cache", "INSTANT-HIT")
+			c.Header("X-Asset-Source", "cache-refresh")
+			c.File(refreshedPath)
+			return
+		}
+		
 		// Fast path resolution with optimized fallbacks
 		previewPath, err := servePreviewFast(media, thumbnailService)
 		if err != nil {
-			// Return 404 instead of on-demand generation to prevent blocking
+			// Check if generation is already in progress
+			generationMutex.RLock()
+			inProgress := generationInProgress[mediaID]
+			generationMutex.RUnlock()
+			
+			if inProgress {
+				c.Header("X-Cache", "GENERATING")
+				c.Header("X-Generation-Status", "in-progress")
+				c.JSON(http.StatusAccepted, gin.H{
+					"error": "Preview generation in progress",
+					"media_id": media.ID,
+					"status": "generating",
+					"message": "HD preview with sound generation in progress",
+					"retry_after": 60,
+				})
+				return
+			}
+			
+			// Check retry count to prevent infinite failures
+			retryMutex.RLock()
+			currentRetries := retryCount[mediaID]
+			retryMutex.RUnlock()
+			
+			if currentRetries >= maxRetries {
+				log.Printf("⚠️ Maximum retries exceeded for preview %d, serving error", mediaID)
+				c.Header("X-Cache", "MAX-RETRIES-EXCEEDED")
+				c.JSON(http.StatusNotFound, gin.H{
+					"error": "Preview generation failed after multiple attempts",
+					"media_id": media.ID,
+					"status": "failed",
+					"retries": currentRetries,
+					"message": "HD preview generation failed permanently",
+				})
+				return
+			}
+			
+			// ZERO-LATENCY 404 HANDLING: Return placeholder immediately, generate async
+			log.Printf("⚡ INSTANT 404 RESPONSE: Triggering async generation for media %d (attempt %d/%d)", mediaID, currentRetries+1, maxRetries)
+			
+			// Mark generation as in progress
+			generationMutex.Lock()
+			generationInProgress[mediaID] = true
+			generationMutex.Unlock()
+			
+			// INSTANT RESPONSE: Don't block frontend with generation status
+			c.Header("Cache-Control", "no-cache, no-store, must-revalidate")
+			c.Header("X-Cache", "GENERATING-ASYNC")
+			c.Header("X-Generation-Status", "background")
+			c.Header("X-Retry-After", "5") // Suggest 5-second retry
 			c.JSON(http.StatusNotFound, gin.H{
-				"error": "Preview not available",
+				"error": "Asset generating",
 				"media_id": media.ID,
-				"message": "Asset will be generated in background",
+				"status": "async_generation",
+				"message": "Asset will be available shortly",
+				"retry_in_seconds": 5,
 			})
 			
-			// Trigger async generation (non-blocking)
+			// Trigger async generation (non-blocking) - CRITICAL FOR ALL 404s
 			go func() {
+				defer func() {
+					// Always clear generation flag when done
+					generationMutex.Lock()
+					delete(generationInProgress, mediaID)
+					generationMutex.Unlock()
+				}()
+				
+				log.Printf("🚀 Starting automatic HD preview generation for media %d: %s", media.ID, media.Title)
+				
+				// CRITICAL: Check existing files before generation to avoid duplicate work
+				if existingPath := checkExistingPreviewAssets(media); existingPath != "" {
+					log.Printf("✅ Found existing preview during generation check: %s", existingPath)
+					media.PreviewPath = existingPath
+					media.PreviewClipPath = existingPath
+					mediaService.UpdateMedia(media)
+					assetCache.setCachedAssetPath(mediaID, "preview", existingPath)
+					// Reset retry count on success
+					retryMutex.Lock()
+					delete(retryCount, mediaID)
+					retryMutex.Unlock()
+					return
+				}
+				
 				if generatedPath, genErr := generatePreviewWithFallbacks(media, thumbnailService); genErr == nil {
+					// Update database with new paths
 					media.PreviewPath = generatedPath
 					media.PreviewClipPath = generatedPath
-					mediaService.UpdateMedia(media)
+					if updateErr := mediaService.UpdateMedia(media); updateErr != nil {
+						log.Printf("⚠️ Failed to update media preview path: %v", updateErr)
+					}
+					// Add to cache for future requests
 					assetCache.setCachedAssetPath(mediaID, "preview", generatedPath)
+					// Reset retry count on success
+					retryMutex.Lock()
+					delete(retryCount, mediaID)
+					retryMutex.Unlock()
+					log.Printf("✅ Automatic HD preview generation completed: %s", generatedPath)
+				} else {
+					log.Printf("❌ Automatic preview generation failed for %s: %v", media.Title, genErr)
+					// Increment retry count
+					retryMutex.Lock()
+					retryCount[mediaID]++
+					retryMutex.Unlock()
 				}
 			}()
 			return

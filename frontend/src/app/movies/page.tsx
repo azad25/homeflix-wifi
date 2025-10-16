@@ -179,17 +179,15 @@ export default function MoviesPage() {
       )}
 
       {/* Main Content with Parallax Background */}
-      <div className="relative bg-gradient-to-b from-red-900/20 via-black to-black">
-        <div className="relative z-10 py-20">
+      <div className="relative bg-gradient-to-b from-red-900/20 via-black to-black" style={{ overflow: 'visible' }}>
+        <div className="relative z-10 py-12" style={{ overflow: 'visible' }}>
           {/* Recently Watched Movies */}
-          <ParallaxSection speed={0.3}>
-            <ScrollReveal direction="up" delay={0.2}>
-              <RecentlyWatched
-                onPlay={handlePlay}
-                onInfo={handleInfo}
-              />
-            </ScrollReveal>
-          </ParallaxSection>
+          <div className="mb-8">
+            <RecentlyWatched
+              onPlay={handlePlay}
+              onInfo={handleInfo}
+            />
+          </div>
 
           {/* Popular Movies */}
           <ParallaxSection speed={0.4}>

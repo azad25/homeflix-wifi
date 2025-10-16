@@ -1,11 +1,12 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
-	"homeflix-backend/internal/models"
 	"homeflix-backend/internal/services"
 )
 
@@ -20,8 +21,11 @@ func GetTrendingRecommendations(recommendationService *services.RecommendationSe
 			}
 		}
 		
-		// Use personalized trending recommendations for user ID 1
-		media, err := recommendationService.GetTrendingRecommendations(limit)
+		// Generate session ID for duplicate prevention
+		sessionID := generateSessionID(c)
+		
+		// Use dynamic trending recommendations with session awareness
+		media, err := recommendationService.GetDynamicRecommendations("trending", limit, sessionID)
 		if err != nil {
 			// Fallback to default recommendations
 			media, err = recommendationService.GetDefaultRecommendations(limit)
@@ -44,9 +48,11 @@ func GetPopularRecommendations(recommendationService *services.RecommendationSer
 			}
 		}
 		
-		// Use personalized recommendations for user ID 1 based on their viewing patterns
-		userID := uint(1)
-		media, err := recommendationService.GetRecommendationsForUser(userID, limit)
+		// Generate session ID for duplicate prevention
+		sessionID := generateSessionID(c)
+		
+		// Use dynamic popular recommendations with session awareness
+		media, err := recommendationService.GetDynamicRecommendations("popular", limit, sessionID)
 		if err != nil {
 			// Fallback to default recommendations
 			media, err = recommendationService.GetDefaultRecommendations(limit)
@@ -69,19 +75,17 @@ func GetRecentRecommendations(recommendationService *services.RecommendationServ
 			}
 		}
 		
-		// Use personalized similar media recommendations for user ID 1
-		userID := uint(1)
-		media, err := recommendationService.GetSimilarMedia(userID, limit)
+		// Generate session ID for duplicate prevention
+		sessionID := generateSessionID(c)
+		
+		// Use dynamic recent recommendations with session awareness
+		media, err := recommendationService.GetDynamicRecommendations("recent", limit, sessionID)
 		if err != nil {
-			// Fallback to trending recommendations
-			media, err = recommendationService.GetTrendingRecommendations(limit)
+			// Fallback to default recommendations
+			media, err = recommendationService.GetDefaultRecommendations(limit)
 			if err != nil {
-				// Final fallback to default recommendations
-				media, err = recommendationService.GetDefaultRecommendations(limit)
-				if err != nil {
-					c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch recent recommendations"})
-					return
-				}
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch recent recommendations"})
+				return
 			}
 		}
 		
@@ -159,72 +163,21 @@ func GetMixedRecommendations(recommendationService *services.RecommendationServi
 			}
 		}
 		
-		userID := uint(1)
-		var allRecommendations []models.Media
-		categoryLimit := limit / 4
-		if categoryLimit < 3 {
-			categoryLimit = 3
-		}
+		// Generate session ID for duplicate prevention
+		sessionID := generateSessionID(c)
 		
-		// Get personalized recommendations from different categories
-		// 1. Personalized recommendations based on user history
-		if personalizedMedia, err := recommendationService.GetRecommendationsForUser(userID, categoryLimit); err == nil {
-			allRecommendations = append(allRecommendations, personalizedMedia...)
-		}
-		
-		// 2. Similar media based on user preferences
-		if similarMedia, err := recommendationService.GetSimilarMedia(userID, categoryLimit); err == nil {
-			// Avoid duplicates
-			existingIDs := make(map[uint]bool)
-			for _, item := range allRecommendations {
-				existingIDs[item.ID] = true
-			}
-			
-			for _, item := range similarMedia {
-				if !existingIDs[item.ID] && len(allRecommendations) < limit {
-					allRecommendations = append(allRecommendations, item)
-					existingIDs[item.ID] = true
-				}
+		// Use dynamic recommendations with session awareness
+		media, err := recommendationService.GetDynamicRecommendations("mixed", limit, sessionID)
+		if err != nil {
+			// Fallback to default recommendations
+			media, err = recommendationService.GetDefaultRecommendations(limit)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch mixed recommendations"})
+				return
 			}
 		}
 		
-		// 3. Trending content
-		if trendingMedia, err := recommendationService.GetTrendingRecommendations(categoryLimit); err == nil {
-			existingIDs := make(map[uint]bool)
-			for _, item := range allRecommendations {
-				existingIDs[item.ID] = true
-			}
-			
-			for _, item := range trendingMedia {
-				if !existingIDs[item.ID] && len(allRecommendations) < limit {
-					allRecommendations = append(allRecommendations, item)
-					existingIDs[item.ID] = true
-				}
-			}
-		}
-		
-		// 4. Fill remaining slots with default recommendations if needed
-		if len(allRecommendations) < limit {
-			if defaultMedia, err := recommendationService.GetDefaultRecommendations(limit - len(allRecommendations)); err == nil {
-				existingIDs := make(map[uint]bool)
-				for _, item := range allRecommendations {
-					existingIDs[item.ID] = true
-				}
-				
-				for _, item := range defaultMedia {
-					if !existingIDs[item.ID] && len(allRecommendations) < limit {
-						allRecommendations = append(allRecommendations, item)
-					}
-				}
-			}
-		}
-		
-		// Limit the results
-		if len(allRecommendations) > limit {
-			allRecommendations = allRecommendations[:limit]
-		}
-		
-		c.JSON(http.StatusOK, allRecommendations)
+		c.JSON(http.StatusOK, media)
 	}
 }
 
@@ -239,16 +192,11 @@ func GetPersonalizedRecommendations(recommendationService *services.Recommendati
 			}
 		}
 		
-		// Use user ID 1 for personalized recommendations
-		userID := uint(1)
-		if userIDStr := c.Query("user_id"); userIDStr != "" {
-			if uid, err := strconv.ParseUint(userIDStr, 10, 32); err == nil {
-				userID = uint(uid)
-			}
-		}
+		// Generate session ID for duplicate prevention
+		sessionID := generateSessionID(c)
 		
-		// Get personalized recommendations based on user's viewing history and preferences
-		media, err := recommendationService.GetRecommendationsForUser(userID, limit)
+		// Use dynamic personalized recommendations with session awareness
+		media, err := recommendationService.GetDynamicRecommendations("personalized", limit, sessionID)
 		if err != nil {
 			// Fallback to default recommendations
 			media, err = recommendationService.GetDefaultRecommendations(limit)
@@ -378,4 +326,56 @@ func TrackRecommendationClick(recommendationService *services.RecommendationServ
 
 		c.JSON(http.StatusOK, gin.H{"message": "Recommendation click tracked successfully"})
 	}
+}
+
+// GetRecommendations is the main recommendation handler that routes to dynamic recommendations
+func GetRecommendations(recommendationService *services.RecommendationService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		category := c.Query("category")
+		if category == "" {
+			category = "mixed" // Default to mixed recommendations
+		}
+
+		limit := 20
+		if limitStr := c.Query("limit"); limitStr != "" {
+			if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= 100 {
+				limit = l
+			}
+		}
+
+		// Generate session ID for duplicate prevention
+		sessionID := generateSessionID(c)
+
+		// Use dynamic recommendations with session awareness
+		media, err := recommendationService.GetDynamicRecommendations(category, limit, sessionID)
+		if err != nil {
+			// Fallback to default recommendations
+			media, err = recommendationService.GetDefaultRecommendations(limit)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch recommendations"})
+				return
+			}
+		}
+
+		c.JSON(http.StatusOK, media)
+	}
+}
+
+// generateSessionID creates a unique session ID for tracking shown content
+func generateSessionID(c *gin.Context) string {
+	// Use IP address + User-Agent + current hour for session identification
+	// This creates sessions that last about an hour and are unique per client
+	clientIP := c.ClientIP()
+	userAgent := c.GetHeader("User-Agent")
+	currentHour := time.Now().Format("2006010215") // YYYYMMDDHH
+
+	// Create a simple hash-like session ID
+	sessionID := fmt.Sprintf("%s_%s_%s", clientIP, userAgent, currentHour)
+
+	// Truncate to reasonable length and make it URL-safe
+	if len(sessionID) > 50 {
+		sessionID = sessionID[:50]
+	}
+
+	return sessionID
 }

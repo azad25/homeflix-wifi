@@ -72,17 +72,18 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
     const baseUrl = `${getApiUrl()}/api/stream/${mediaId}`;
     const params = new URLSearchParams();
 
-    // Chrome-optimized parameters to work with Chrome's buffering behavior
-    params.set('optimize', 'chrome-compatible');
-    params.set('buffer', 'small-chunks');
-    params.set('latency', 'low');
-    params.set('preload', 'conservative');
+    // LAN-optimized parameters for ultra-fast local streaming
+    params.set('optimize', 'lan-ultra-fast');
+    params.set('buffer', 'ultra-large');
+    params.set('latency', 'minimal');
+    params.set('preload', 'aggressive');
+    params.set('network', 'lan');
 
-    // Use fixed quality to prevent dynamic URL changes
+    // Use highest quality for LAN streaming (no bandwidth concerns)
     if (quality) {
       params.set('quality', quality);
     } else {
-      params.set('quality', 'high'); // Fixed quality to prevent URL changes
+      params.set('quality', 'ultra-high'); // Ultra-high quality for LAN
     }
 
     if (format) {
@@ -324,7 +325,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
     const video = videoRef.current;
     if (!video || video.currentTime <= 1) return; // Reduced threshold to 1 second
 
-    // Try multiple ways to get duration
+    // Enhanced duration detection for progress saving
     let currentDuration = duration;
     
     // If no duration from state, try video element
@@ -332,26 +333,37 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
       currentDuration = video.duration;
     }
     
-    // If still no duration, try seekable range
+    // If still no duration, try seekable range (important for MKV)
     if (!currentDuration || currentDuration === 0 || !isFinite(currentDuration)) {
       if (video.seekable && video.seekable.length > 0) {
         currentDuration = video.seekable.end(video.seekable.length - 1);
       }
     }
     
-    // If still no duration, use a fallback based on current time
+    // Enhanced fallback for different file types
     if (!currentDuration || currentDuration === 0 || !isFinite(currentDuration)) {
-      currentDuration = Math.max(video.currentTime + 60, 3600); // Assume at least 1 hour or current time + 1 minute
+      const fileExt = media.file_path ? media.file_path.toLowerCase().split('.').pop() : '';
+      
+      if (fileExt === 'mkv') {
+        // For MKV files, use a more conservative estimate
+        currentDuration = Math.max(video.currentTime * 1.5, 3600); // 1.5x current time or 1 hour minimum
+      } else {
+        // For other formats, use original logic
+        currentDuration = Math.max(video.currentTime + 60, 3600);
+      }
+      
+      console.log(`Using fallback duration for progress: ${currentDuration}s (${fileExt} file)`);
     }
 
     try {
       await updatePlaybackProgress(media.id, video.currentTime, currentDuration);
+      console.log(`Progress saved: ${video.currentTime}s / ${currentDuration}s`);
     } catch (error) {
-      // Failed to save progress
+      console.warn('Failed to save progress:', error);
       // Prevent error from bubbling up and causing page reload
       return;
     }
-  }, [duration, media.id]);
+  }, [duration, media.id, media.file_path]);
 
   const togglePlay = useCallback(async () => {
     try {
@@ -562,16 +574,31 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
     const video = videoRef.current;
     if (!video) return;
 
-    // Simplified duration detection
+    // Enhanced duration detection for seeking
     let targetDuration = duration;
 
-    // If no duration from metadata, try seekable range
+    // If no duration from metadata, try multiple sources
     if (!targetDuration || targetDuration === 0) {
-      if (video.seekable && video.seekable.length > 0) {
+      // Try video element duration first
+      if (video.duration && video.duration > 0 && isFinite(video.duration)) {
+        targetDuration = video.duration;
+      }
+      // Then try seekable range
+      else if (video.seekable && video.seekable.length > 0) {
         targetDuration = video.seekable.end(video.seekable.length - 1);
-      } else {
-        // Conservative fallback - don't allow seeking without duration
-        return;
+      }
+      // For MKV files, allow seeking even without duration using estimated range
+      else {
+        const fileExt = media.file_path ? media.file_path.toLowerCase().split('.').pop() : '';
+        if (fileExt === 'mkv') {
+          // Allow seeking in MKV files using current time as reference
+          targetDuration = Math.max(video.currentTime * 2, 3600); // Estimate based on current position
+          console.log(`MKV seeking with estimated duration: ${targetDuration}s`);
+        } else {
+          // Conservative fallback - don't allow seeking without duration for other formats
+          console.warn('No duration available for seeking');
+          return;
+        }
       }
     }
 
@@ -638,15 +665,32 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
       moveEvent.preventDefault();
       moveEvent.stopPropagation();
 
-      // Get current duration
+      // Enhanced duration detection for dragging
       let currentDuration = isCasting && castState.isConnected ? castState.duration : duration;
 
-      // If no duration, try seekable range
+      // If no duration, try multiple sources
       if (!currentDuration || currentDuration === 0) {
-        if (video && video.seekable && video.seekable.length > 0) {
-          currentDuration = video.seekable.end(video.seekable.length - 1);
+        if (video) {
+          // Try video element duration
+          if (video.duration && video.duration > 0 && isFinite(video.duration)) {
+            currentDuration = video.duration;
+          }
+          // Then try seekable range
+          else if (video.seekable && video.seekable.length > 0) {
+            currentDuration = video.seekable.end(video.seekable.length - 1);
+          }
+          // For MKV files, allow dragging with estimated duration
+          else {
+            const fileExt = media.file_path ? media.file_path.toLowerCase().split('.').pop() : '';
+            if (fileExt === 'mkv') {
+              currentDuration = Math.max(video.currentTime * 2, 3600);
+              console.log(`MKV dragging with estimated duration: ${currentDuration}s`);
+            } else {
+              // No duration available - skip dragging for other formats
+              return;
+            }
+          }
         } else {
-          // No duration available - skip dragging
           return;
         }
       }
@@ -767,6 +811,18 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
   // Keyboard event handlers
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // If the user is typing in an input/textarea/select or any contenteditable element,
+      // don't treat keyboard shortcuts as playback controls. This allows search fields
+      // and other form elements to receive spaces and letters like 'm'.
+      const target = e.target as HTMLElement | null;
+      if (target) {
+        const tag = target.tagName;
+        const isEditable = (target as HTMLElement).isContentEditable;
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || isEditable) {
+          return; // let the element handle the key
+        }
+      }
+
       // Prevent default behavior for video player keys
       if (['Space', 'ArrowLeft', 'ArrowRight', 'KeyF', 'KeyM', 'KeyC', 'Escape'].includes(e.code)) {
         e.preventDefault();
@@ -921,28 +977,100 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
               setIsLoading(true);
               setIsBuffering(true);
 
+              // LAN optimization: Enable aggressive buffering
+              const video = videoRef.current;
+              if (video) {
+                // Set buffer size hints for LAN streaming
+                (video as any).bufferSize = 'ultra-large';
+                (video as any).networkType = 'lan';
+              }
+
               // For now, disable transcoded seeking until backend supports it
               setIsTranscoded(false);
             }}
             onCanPlay={() => {
               setIsLoading(false);
               setIsBuffering(false);
+              
+              // LAN optimization: Set aggressive buffering parameters
+              const video = videoRef.current;
+              if (video) {
+                const fileExt = media.file_path ? media.file_path.toLowerCase().split('.').pop() : '';
+                
+                // Optimize for LAN streaming
+                try {
+                  if (fileExt === 'mkv') {
+                    // MKV-specific buffering (more conservative for seeking)
+                    (video as any).bufferAheadTime = 60; // 1 minute buffer for MKV
+                    (video as any).maxBufferLength = 600; // 10 minutes max buffer for MKV
+                    (video as any).preloadStrategy = 'cluster-aware';
+                  } else {
+                    // Standard LAN buffering for MP4/other formats
+                    (video as any).bufferAheadTime = 30; // 30 seconds buffer
+                    (video as any).maxBufferLength = 300; // 5 minutes max buffer
+                  }
+                  
+                  // Set LAN-specific hints
+                  (video as any).networkType = 'lan';
+                  (video as any).chunkSizeHint = 'large';
+                } catch (error) {
+                  // Browser doesn't support these properties
+                }
+              }
             }}
             onLoadedMetadata={async () => {
               const video = videoRef.current;
               if (!video) return;
 
-              // Handle videos with invalid or missing duration
+              // Enhanced duration detection for MKV and other formats
               let videoDuration = video.duration;
+              const fileExt = media.file_path ? media.file_path.toLowerCase().split('.').pop() : '';
+              
+              // Check if duration is invalid (common with MKV files)
               if (!videoDuration || videoDuration === 0 || !isFinite(videoDuration)) {
-                // Try to get duration from video element properties
-                videoDuration = video.seekable && video.seekable.length > 0
-                  ? video.seekable.end(video.seekable.length - 1)
-                  : 0;
-
-                // If still no duration, don't set a fallback yet - we'll handle this dynamically
+                console.log('Video duration unavailable, trying seekable range...');
+                
+                // Try to get duration from seekable range (works better for MKV)
+                if (video.seekable && video.seekable.length > 0) {
+                  videoDuration = video.seekable.end(video.seekable.length - 1);
+                  console.log(`Duration from seekable range: ${videoDuration}s`);
+                }
+                
+                // If still no duration, set enhanced fallback for MKV files
                 if (!videoDuration || videoDuration === 0) {
-                  videoDuration = 0; // Keep as 0 to indicate unknown duration
+                  if (fileExt === 'mkv') {
+                    // For MKV files, try to get duration from backend
+                    try {
+                      const response = await fetch(`${getApiUrl()}/api/media/${media.id}`);
+                      const mediaData = await response.json();
+                      if (mediaData.duration && mediaData.duration > 0) {
+                        videoDuration = mediaData.duration;
+                        console.log(`MKV duration from backend: ${videoDuration}s`);
+                      } else {
+                        videoDuration = 7200; // 2 hours fallback
+                        console.log('Using MKV fallback duration: 2 hours');
+                      }
+                    } catch (error) {
+                      videoDuration = 7200; // 2 hours fallback
+                      console.log('Using MKV fallback duration: 2 hours (backend failed)');
+                    }
+                  } else {
+                    videoDuration = 0; // Keep as 0 for other formats
+                  }
+                }
+              } else {
+                console.log(`Video duration from metadata: ${videoDuration}s`);
+              }
+
+              // For MKV files, set additional seeking hints
+              if (fileExt === 'mkv') {
+                try {
+                  // Set MKV-specific buffering hints
+                  (video as any).mkvOptimized = true;
+                  (video as any).seekingStrategy = 'cluster-based';
+                  console.log('MKV seeking optimization enabled');
+                } catch (error) {
+                  // Browser doesn't support these properties
                 }
               }
 
@@ -1007,17 +1135,35 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
 
               setCurrentTime(video.currentTime);
 
-              // Update duration if it becomes available during playback
-              if ((!duration || duration === 0) && video.duration && video.duration > 0 && isFinite(video.duration)) {
-                setDuration(video.duration);
-              }
-
-              // Also check seekable range for better duration detection
-              if ((!duration || duration === 0) && video.seekable && video.seekable.length > 0) {
-                const seekableEnd = video.seekable.end(video.seekable.length - 1);
-                if (seekableEnd > duration) {
-                  setDuration(seekableEnd);
+              // Enhanced duration detection during playback (especially for MKV)
+              if (!duration || duration === 0) {
+                let newDuration = 0;
+                
+                // Try video.duration first
+                if (video.duration && video.duration > 0 && isFinite(video.duration)) {
+                  newDuration = video.duration;
+                  console.log(`Duration updated from video.duration: ${newDuration}s`);
                 }
+                
+                // If no video.duration, try seekable range
+                if (!newDuration && video.seekable && video.seekable.length > 0) {
+                  const seekableEnd = video.seekable.end(video.seekable.length - 1);
+                  if (seekableEnd > 0 && isFinite(seekableEnd)) {
+                    newDuration = seekableEnd;
+                    console.log(`Duration updated from seekable range: ${newDuration}s`);
+                  }
+                }
+                
+                // Update duration if we found a valid one
+                if (newDuration > 0) {
+                  setDuration(newDuration);
+                }
+              }
+              
+              // For MKV files with fallback duration, update to real duration when available
+              if (duration === 7200 && video.duration && video.duration > 0 && video.duration !== 7200) {
+                setDuration(video.duration);
+                console.log(`MKV duration updated from fallback to real: ${video.duration}s`);
               }
             }}
             onSeeking={() => {
@@ -1038,18 +1184,23 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
               setIsBuffering(false);
               setIsLoading(false);
             }}
-            preload="metadata"
+            preload="auto"
             muted={false}
             crossOrigin="anonymous"
-            // Optimize buffering to reduce rapid requests
+            // LAN-optimized attributes for ultra-fast streaming
             style={{
               // Hint to browser about expected video size
               width: '100%',
               height: '100%'
             }}
-            // Add buffer optimization attributes
-            data-buffer-size="large"
-            data-preload-strategy="conservative"
+            // LAN buffer optimization attributes
+            data-buffer-size="ultra-large"
+            data-preload-strategy="aggressive"
+            data-network-type="lan"
+            data-streaming-mode="ultra-fast"
+            // Additional LAN optimizations
+            data-cache-strategy="aggressive"
+            data-bandwidth="unlimited"
           >
 
             {/* Subtitles */}

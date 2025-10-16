@@ -14,13 +14,13 @@ import NetflixHorizontalRow from '@/components/scrollx/NetflixHorizontalRow';
 import RecentlyWatched from '@/components/RecentlyWatched';
 
 interface Series {
-  id: number;
+  id: number | string;
   title: string;
-  description: string;
-  rating: number;
-  total_seasons: number;
-  total_episodes: number;
-  genres: Array<{ name: string }>;
+  description?: string;
+  rating?: number;
+  total_seasons?: number;
+  total_episodes?: number;
+  genres?: Array<{ name: string }>;
   episodes: Media[];
 }
 
@@ -30,6 +30,7 @@ export default function TVShowsPage() {
   const [continueWatching, setContinueWatching] = useState<Media[]>([]);
   const [recentEpisodes, setRecentEpisodes] = useState<Media[]>([]);
   const [popularSeries, setPopularSeries] = useState<Media[]>([]);
+  const [seriesList, setSeriesList] = useState<Series[]>([]);
   const [actionSeries, setActionSeries] = useState<Media[]>([]);
   const [dramaSeries, setDramaSeries] = useState<Media[]>([]);
   const [comedySeries, setComedySeries] = useState<Media[]>([]);
@@ -110,6 +111,40 @@ export default function TVShowsPage() {
         }
       }
       
+      // Build series groups from episodes so we can render a carousel per series
+      const seriesMap = new Map<string | number, Series>();
+      episodes.forEach((ep: Media) => {
+        // Prefer explicit series_id, then embedded series object, else fallback to media id
+        const sid = ep.series_id ?? ep.series?.id ?? ep.id;
+        const title = (ep.series?.title || ep.title || 'Untitled Series');
+
+        if (!seriesMap.has(sid)) {
+          seriesMap.set(sid, {
+            id: sid as number | string,
+            title,
+            description: ep.series?.description || ep.description || '',
+            rating: ep.rating || 0,
+            total_seasons: ep.series?.total_seasons,
+            total_episodes: ep.series?.total_episodes,
+            genres: ep.genres || [],
+            episodes: []
+          });
+        }
+
+        const group = seriesMap.get(sid)!;
+        group.episodes.push(ep);
+      });
+
+      // Convert to array and sort series by number of episodes (desc) and latest episode id
+      const allSeries = Array.from(seriesMap.values())
+        .map(s => ({
+          ...s,
+          episodes: s.episodes.sort((a, b) => (b.id || 0) - (a.id || 0))
+        }))
+        .sort((a, b) => b.episodes.length - a.episodes.length || (b.episodes[0]?.id || 0) - (a.episodes[0]?.id || 0));
+
+      setSeriesList(allSeries);
+
       // Set featured episodes for hero section
       const sortedEpisodes = episodes.sort((a: Media, b: Media) => (b.rating || 0) - (a.rating || 0));
       setFeaturedSeries(sortedEpisodes.slice(0, 5));
@@ -218,21 +253,64 @@ export default function TVShowsPage() {
       )}
 
       {/* Main Content with Parallax Background */}
-      <div className="relative bg-gradient-to-b from-red-900/20 via-black to-black">
-        <div className="relative z-10 py-20">
-          {/* Popular TV Shows */}
-          <ParallaxSection speed={0.4}>
-            <ScrollReveal direction="up" delay={0.4}>
-              <NetflixHorizontalRow
-                title="Popular TV Shows"
-                media={popularSeries}
-                onPlay={handlePlay}
-                onInfo={handleInfo}
-                variant="portrait"
-                size="medium"
-              />
-            </ScrollReveal>
-          </ParallaxSection>
+      <div className="relative bg-gradient-to-b from-red-900/20 via-black to-black" style={{ overflow: 'visible' }}>
+        <div className="relative z-10 py-12" style={{ overflow: 'visible' }}>
+          {/* Series carousels - one row per series title */}
+          {seriesList.length > 0 && (
+            <div>
+              {seriesList.slice(0, 12).map((series) => (
+                <ParallaxSection key={series.id} speed={0.4}>
+                  <ScrollReveal direction="up" delay={0.2}>
+                    <NetflixHorizontalRow
+                      title={series.title}
+                      media={series.episodes}
+                      onPlay={handlePlay}
+                      onInfo={handleInfo}
+                      variant="portrait"
+                      size="medium"
+                    />
+                  </ScrollReveal>
+                </ParallaxSection>
+              ))}
+            </div>
+          )}
+
+          {/* Season carousels for each series (grouped by season_number) */}
+          {seriesList.length > 0 && (
+            <div>
+              {seriesList.slice(0, 12).map((series) => (
+                <div key={`seasons-${series.id}`}>
+                  {/* Build seasons map for this series */}
+                  {(() => {
+                    const seasonsMap = new Map<number, Media[]>();
+                    series.episodes.forEach((ep) => {
+                      const sn = (ep.season_number ?? ep.season ?? 1) as number;
+                      if (!seasonsMap.has(sn)) seasonsMap.set(sn, []);
+                      seasonsMap.get(sn)!.push(ep);
+                    });
+
+                    const seasons = Array.from(seasonsMap.entries()).sort((a, b) => a[0] - b[0]);
+
+                    return seasons.map(([seasonNum, eps]) => (
+                      <ParallaxSection key={`${series.id}-season-${seasonNum}`} speed={0.45}>
+                        <ScrollReveal direction="up" delay={0.25}>
+                          <NetflixHorizontalRow
+                            title={`${series.title} — Season ${seasonNum}`}
+                            media={eps.sort((a, b) => (b.episode_number ?? 0) - (a.episode_number ?? 0))}
+                            onPlay={handlePlay}
+                            onInfo={handleInfo}
+                            variant="portrait"
+                            size="small"
+                            showTitle={true}
+                          />
+                        </ScrollReveal>
+                      </ParallaxSection>
+                    ));
+                  })()}
+                </div>
+              ))}
+            </div>
+          )}
 
           {/* Recent Episodes */}
           <ParallaxSection speed={0.5}>

@@ -109,13 +109,9 @@ export const ContinueWatching: React.FC<ContinueWatchingProps> = ({
       if (response.ok) {
         const data = await response.json();
 
-        // Fetch all media to find next episodes
-        const allMediaResponse = await fetch(`${apiUrl}/api/media`);
-        const allMedia = await allMediaResponse.json();
-
-        // Get all media for next episode lookup
-        const allMediaResponse = await fetch(`${apiUrl}/api/media`);
-        const allMedia = await allMediaResponse.json();
+  // Fetch all media to find next episodes
+  const allMediaResponse = await fetch(`${apiUrl}/api/media`);
+  const allMedia = await allMediaResponse.json();
 
         // Filter out duplicates, invalid items, and ensure we have real content
         const validItems = await Promise.all((data || [])

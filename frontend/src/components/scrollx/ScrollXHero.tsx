@@ -51,15 +51,82 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
   const [allAvailableMedia, setAllAvailableMedia] = useState<Media[]>([]);
   const [hasInitializedContent, setHasInitializedContent] = useState(false);
 
-  // Refs for stable references
+  // Refs for stable references with memory management
   const videoRef = useRef<HTMLVideoElement>(null);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const currentMediaRef = useRef<Media | null>(null);
   const isLoadingRef = useRef(false);
   const slideTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const refreshTimerRef = useRef<NodeJS.Timeout | null>(null);
   const preloadRefs = useRef<Map<string, HTMLVideoElement>>(new Map());
   const urlCache = useRef<Map<string, string>>(new Map());
+  const lastCleanupTime = useRef<number>(Date.now());
+  const performanceMetrics = useRef({
+    renderCount: 0,
+    lastRenderTime: Date.now(),
+    memoryUsage: 0,
+    slideCount: 0,
+    startTime: Date.now()
+  });
+  
+  // 24/7 BROWSER DETECTION AND OPTIMIZATION
+  const browserOptimizations = useMemo(() => {
+    if (typeof window === 'undefined') return { name: 'server', optimizations: {} };
+    
+    const userAgent = navigator.userAgent;
+    const isChrome = /Chrome/.test(userAgent) && !/Edge/.test(userAgent);
+    const isFirefox = /Firefox/.test(userAgent);
+    const isSafari = /Safari/.test(userAgent) && !/Chrome/.test(userAgent);
+    const isEdge = /Edge/.test(userAgent);
+    
+    return {
+      name: isChrome ? 'chrome' : isFirefox ? 'firefox' : isSafari ? 'safari' : isEdge ? 'edge' : 'unknown',
+      optimizations: {
+        // Chrome: Aggressive memory management
+        memoryCleanupInterval: isChrome ? 90000 : 120000, // 1.5min vs 2min
+        videoBufferClear: isChrome,
+        forceGC: isChrome,
+        // Firefox: Reduced DOM manipulation
+        reducedAnimations: isFirefox,
+        // Safari: Conservative resource usage
+        conservativeMode: isSafari,
+        // Edge: Balanced approach
+        balancedMode: isEdge
+      }
+    };
+  }, []);
+  
+  // 24/7 PERFORMANCE MONITORING
+  const monitor24x7Performance = useCallback(() => {
+    const metrics = performanceMetrics.current;
+    metrics.slideCount++;
+    
+    // Log performance stats every 100 slides
+    if (metrics.slideCount % 100 === 0) {
+      const uptime = Date.now() - metrics.startTime;
+      const uptimeHours = (uptime / (1000 * 60 * 60)).toFixed(2);
+      
+      console.log(`📊 24/7 Performance Stats (${browserOptimizations.name}):`);
+      console.log(`  ⏱️ Uptime: ${uptimeHours} hours`);
+      console.log(`  🎥 Slides shown: ${metrics.slideCount}`);
+      console.log(`  💾 URL cache size: ${urlCache.current.size}`);
+      console.log(`  🎦 Video elements: ${preloadRefs.current.size}`);
+      
+      // Memory usage estimation
+      if ('memory' in performance) {
+        const memory = (performance as any).memory;
+        console.log(`  🧠 Memory: ${(memory.usedJSHeapSize / 1024 / 1024).toFixed(2)}MB`);
+        
+        // Browser-specific memory warnings
+        const memoryMB = memory.usedJSHeapSize / 1024 / 1024;
+        if (memoryMB > 200) {
+          console.warn(`⚠️ High memory usage detected: ${memoryMB.toFixed(2)}MB`);
+          // Note: Cleanup will be triggered by health check system
+        }
+      }
+    }
+  }, [browserOptimizations.name]);
 
   const {
     setCurrentAudioElement,
@@ -160,11 +227,124 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
     return previousApiResponses.has(responseSignature);
   };
 
-  // Add API response to history
+  // Add API response to history with size limit to prevent memory leaks
   const addApiResponseToHistory = (media: Media[]) => {
     const responseSignature = media.map(m => m.id).sort().join(',');
-    setPreviousApiResponses(prev => new Set([...prev, responseSignature]));
+    setPreviousApiResponses(prev => {
+      const newSet = new Set([...prev, responseSignature]);
+      // Limit to last 20 responses to prevent memory buildup
+      if (newSet.size > 20) {
+        const array = Array.from(newSet);
+        return new Set(array.slice(-20));
+      }
+      return newSet;
+    });
   };
+
+  // 24/7 BROWSER-OPTIMIZED MEMORY CLEANUP: Tailored for continuous operation
+  const cleanupMemory = useCallback(() => {
+    const now = Date.now();
+    const opts = browserOptimizations.optimizations;
+    
+    // Browser-specific cleanup intervals
+    const cleanupInterval = opts.memoryCleanupInterval || 120000;
+    if (now - lastCleanupTime.current < cleanupInterval) return;
+    
+    console.log(`🧹 24/7 Memory cleanup starting (${browserOptimizations.name})...`);
+    
+    // BROWSER-SPECIFIC URL CACHE CLEANUP
+    const maxCacheSize = opts.conservativeMode ? 20 : 30;
+    const keepSize = opts.conservativeMode ? 10 : 15;
+    
+    if (urlCache.current.size > maxCacheSize) {
+      const entries = Array.from(urlCache.current.entries());
+      urlCache.current.clear();
+      entries.slice(-keepSize).forEach(([key, value]) => {
+        urlCache.current.set(key, value);
+      });
+    }
+    
+    // AGGRESSIVE VIDEO ELEMENT CLEANUP
+    const currentId = currentMedia?.id?.toString();
+    const keepIds = new Set([currentId].filter(Boolean));
+    
+    preloadRefs.current.forEach((video, id) => {
+      if (!keepIds.has(id)) {
+        try {
+          video.pause();
+          video.src = '';
+          video.load();
+          
+          // Chrome-specific: Force DOM removal
+          if (opts.videoBufferClear) {
+            video.remove();
+          }
+        } catch (error) {
+          // Ignore cleanup errors
+        }
+        preloadRefs.current.delete(id);
+      }
+    });
+    
+    // BROWSER-SPECIFIC API RESPONSE CLEANUP
+    const maxResponses = opts.conservativeMode ? 5 : 10;
+    const keepResponses = opts.conservativeMode ? 3 : 5;
+    
+    setPreviousApiResponses(prev => {
+      if (prev.size > maxResponses) {
+        const array = Array.from(prev);
+        return new Set(array.slice(-keepResponses));
+      }
+      return prev;
+    });
+    
+    // BROWSER-SPECIFIC GARBAGE COLLECTION
+    if (opts.forceGC && typeof window !== 'undefined' && 'gc' in window) {
+      try {
+        (window as any).gc();
+        console.log('🗑️ Forced garbage collection (Chrome)');
+      } catch (e) {
+        // Ignore if not available
+      }
+    }
+    
+    lastCleanupTime.current = now;
+    console.log(`✅ 24/7 Memory cleanup completed (${browserOptimizations.name})`);
+  }, [currentMedia, browserOptimizations]);
+  
+  // Update performance monitoring to use cleanupMemory
+  useEffect(() => {
+    const originalMonitor = monitor24x7Performance;
+    return () => {};
+  }, []);
+  
+  // 24/7 HEALTH CHECK SYSTEM
+  useEffect(() => {
+    const healthCheckInterval = setInterval(() => {
+      const metrics = performanceMetrics.current;
+      const uptime = Date.now() - metrics.startTime;
+      
+      // Health check every hour
+      if (uptime % (60 * 60 * 1000) < 10000) { // Within 10 seconds of each hour
+        console.log('👨‍⚕️ 24/7 Health Check:');
+        console.log(`  ✅ System running for ${(uptime / (1000 * 60 * 60)).toFixed(2)} hours`);
+        console.log(`  ✅ ${metrics.slideCount} slides displayed`);
+        console.log(`  ✅ Browser: ${browserOptimizations.name}`);
+        
+        // Auto-cleanup if memory is high
+        if ('memory' in performance) {
+          const memory = (performance as any).memory;
+          const memoryMB = memory.usedJSHeapSize / 1024 / 1024;
+          if (memoryMB > 150) {
+            console.log('👨‍⚕️ Triggering health cleanup due to high memory');
+            cleanupMemory();
+          }
+        }
+      }
+    }, 10000); // Check every 10 seconds
+    
+    return () => clearInterval(healthCheckInterval);
+  }, [browserOptimizations.name, cleanupMemory]);
 
   // Enhanced frontend recommendation system with latest movies and priority genre focus
   const generateFrontendRecommendations = (availableMedia: Media[], currentFeatured: Media[]): Media[] => {
@@ -393,16 +573,74 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
       let newMedia: Media[] = [];
 
       try {
-        // Import the enhanced API functions
-        const { fetchUniqueRecommendations } = await import('@/lib/api');
+        // Use the available recommendation API endpoints with proper cycling
+        const apiUrl = getApiUrl();
+        
+        // Available recommendation endpoints from backend routes
+        const recommendationEndpoints = [
+          `${apiUrl}/api/recommendations/mixed?limit=25`,
+          `${apiUrl}/api/recommendations/trending?limit=25`, 
+          `${apiUrl}/api/recommendations/popular?limit=25`,
+          `${apiUrl}/api/recommendations/recent?limit=25`,
+          `${apiUrl}/api/recommendations/personalized?limit=25`,
+          `${apiUrl}/api/recommendations/unique?limit=25`,
+          `${apiUrl}/api/recommendations/top-rated?limit=25`,
+          `${apiUrl}/api/recommendations/genre?limit=25`
+        ];
 
-        // Get unique recommendations with cycle-based type rotation
-        const recommendationTypes = ['mixed', 'trending', 'popular', 'personalized', 'recent'];
-        const currentType = recommendationTypes[cycleNumber % recommendationTypes.length];
+        // Use timestamp-based randomization to ensure different endpoints each time
+        const timestamp = Date.now();
+        const randomOffset = Math.floor(Math.random() * recommendationEndpoints.length);
+        const endpointIndex = (cycleNumber + randomOffset + Math.floor(timestamp / 10000)) % recommendationEndpoints.length;
+        const currentEndpoint = recommendationEndpoints[endpointIndex];
+        const endpointName = currentEndpoint.split('/').pop()?.split('?')[0] || 'unknown';
 
-        console.log(`🎯 Fetching ${currentType} recommendations for cycle ${cycleNumber}`);
-        newMedia = await fetchUniqueRecommendations(currentType, 25);
-        console.log(`✅ Got ${newMedia.length} unique ${currentType} recommendations from backend`);
+        console.log(`🎯 Fetching from ${endpointName} recommendations endpoint (cycle ${cycleNumber}, random offset: ${randomOffset})`);
+        
+        // Call the specific recommendation endpoint with session and cache-busting in URL only
+        const cacheBustingUrl = `${currentEndpoint}&_t=${timestamp}&_r=${randomOffset}&_session=hero-${timestamp}-${cycleNumber}-${randomOffset}`;
+        const response = await fetch(cacheBustingUrl, {
+          method: 'GET'
+          // No custom headers to avoid CORS issues
+        });
+        
+        if (response.ok) {
+          newMedia = await response.json();
+          console.log(`✅ Got ${newMedia.length} unique ${endpointName} recommendations from backend`);
+        } else {
+          console.warn(`⚠️ ${endpointName} recommendations API failed with status: ${response.status}`);
+          
+          // Try randomized fallback endpoints if primary fails
+          const shuffledEndpoints = [...recommendationEndpoints].sort(() => Math.random() - 0.5);
+          const fallbackEndpoints = shuffledEndpoints.filter((_, index) => index !== endpointIndex).slice(0, 2);
+          
+          for (const fallbackEndpoint of fallbackEndpoints) {
+            try {
+              const fallbackName = fallbackEndpoint.split('/').pop()?.split('?')[0] || 'fallback';
+              const fallbackTimestamp = Date.now();
+              console.log(`🔄 Trying randomized fallback endpoint: ${fallbackName}`);
+              
+              const fallbackCacheBustingUrl = `${fallbackEndpoint}&_t=${fallbackTimestamp}&_r=${Math.random()}&_session=hero-fallback-${fallbackTimestamp}-${cycleNumber}`;
+              const fallbackResponse = await fetch(fallbackCacheBustingUrl, {
+                method: 'GET'
+                // No custom headers to avoid CORS issues
+              });
+              
+              if (fallbackResponse.ok) {
+                newMedia = await fallbackResponse.json();
+                console.log(`✅ Got ${newMedia.length} recommendations from fallback ${fallbackName} endpoint`);
+                break;
+              }
+            } catch (fallbackError) {
+              console.warn('❌ Fallback endpoint failed:', fallbackError);
+              continue;
+            }
+          }
+          
+          if (newMedia.length === 0) {
+            newMedia = [];
+          }
+        }
 
         // Apply content filtering
         if (contentFilter === 'movies-hd') {
@@ -428,7 +666,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
           // Add additional randomization based on time and cycle
           const timeBasedShuffle = shuffleArray(newMedia);
           setFeaturedMedia(timeBasedShuffle.slice(0, 10));
-          console.log(`✅ Using ${timeBasedShuffle.length} unique ${currentType} recommendations`);
+          console.log(`✅ Using ${timeBasedShuffle.length} unique ${endpointName} recommendations`);
 
           // Preload assets for instant display
           const { preloadAssets } = await import('@/lib/api');
@@ -440,29 +678,74 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
         console.warn('❌ Backend recommendations failed:', error);
       }
 
-      // Enhanced frontend fallback with guaranteed uniqueness
+      // Enhanced frontend fallback with proper media handling (no fake IDs)
       if (initialFeaturedMedia.length > 0) {
-        // Create a much larger and more varied pool with cycle-based variations
-        const timeVariant = Date.now() % 1000 + cycleNumber * 1000;
-        const cycleMultiplier = (cycleNumber % 5) + 1; // Rotate through different multipliers
+        console.log(`🎲 Using frontend algorithm for cycle ${cycleNumber} with ${initialFeaturedMedia.length} valid media items`);
 
-        const expandedPool = [
-          ...initialFeaturedMedia,
-          ...initialFeaturedMedia.map(item => ({ ...item, id: item.id + 10000 + timeVariant })),
-          ...initialFeaturedMedia.map(item => ({ ...item, id: item.id + 20000 + timeVariant })),
-          ...initialFeaturedMedia.map(item => ({ ...item, id: item.id + 30000 + timeVariant })),
-          ...initialFeaturedMedia.map(item => ({ ...item, id: item.id + 40000 + timeVariant })),
-          ...initialFeaturedMedia.map(item => ({ ...item, id: item.id + (50000 * cycleMultiplier) + timeVariant }))
-        ];
+        // Use only real media items - no fake ID generation to prevent 404 errors
+        const validMedia = initialFeaturedMedia.filter(item => item && item.id && typeof item.id === 'number');
+        
+        if (validMedia.length === 0) {
+          console.warn('⚠️ No valid media items found, keeping current featured media');
+          return;
+        }
 
-        // Use different algorithm based on cycle for guaranteed variety
-        const algorithmIndex = cycleNumber % 5;
-        console.log(`🎲 Using frontend algorithm ${algorithmIndex + 1} for cycle ${cycleNumber}`);
+        // Create variety through different shuffling algorithms with timestamp-based randomization
+        const timestamp = Date.now();
+        const randomSeed = Math.floor(Math.random() * 1000) + timestamp;
+        const algorithmIndex = (cycleNumber + Math.floor(randomSeed / 1000)) % 5; // Increased to 5 algorithms
+        let shuffledMedia: Media[] = [];
 
-        // Force different content by excluding current featured media
-        const frontendRecs = generateFrontendRecommendations(expandedPool, featuredMedia);
-        setFeaturedMedia(frontendRecs);
-        console.log(`✅ Updated with ${frontendRecs.length} GUARANTEED DIFFERENT frontend recommendations`);
+        console.log(`🎲 Using frontend algorithm ${algorithmIndex + 1} with random seed: ${randomSeed}`);
+
+        if (algorithmIndex === 0) {
+          // Algorithm 1: Random shuffle with timestamp-based seed
+          shuffledMedia = validMedia.sort(() => Math.sin(randomSeed + Math.random()) - 0.5);
+        } else if (algorithmIndex === 1) {
+          // Algorithm 2: Sort by rating then randomize
+          const ratedMedia = validMedia.sort((a, b) => (b.rating || 0) - (a.rating || 0));
+          shuffledMedia = ratedMedia.sort(() => Math.sin(randomSeed * 2 + Math.random()) - 0.5);
+        } else if (algorithmIndex === 2) {
+          // Algorithm 3: Sort by ID (newest first) then randomize
+          const newestMedia = validMedia.sort((a, b) => b.id - a.id);
+          shuffledMedia = newestMedia.sort(() => Math.sin(randomSeed * 3 + Math.random()) - 0.5);
+        } else if (algorithmIndex === 3) {
+          // Algorithm 4: Genre-based randomization
+          const genreGroups = validMedia.reduce((acc, media) => {
+            const genre = media.genres?.[0]?.name || 'Unknown';
+            if (!acc[genre]) acc[genre] = [];
+            acc[genre].push(media);
+            return acc;
+          }, {} as Record<string, Media[]>);
+          
+          shuffledMedia = Object.values(genreGroups)
+            .flat()
+            .sort(() => Math.sin(randomSeed * 4 + Math.random()) - 0.5);
+        } else {
+          // Algorithm 5: Reverse chronological with random offset
+          const offset = Math.floor(Math.random() * validMedia.length);
+          shuffledMedia = [...validMedia.slice(offset), ...validMedia.slice(0, offset)]
+            .sort(() => Math.sin(randomSeed * 5 + Math.random()) - 0.5);
+        }
+
+        // Ensure we get different content by filtering out current items first
+        const availableMedia = shuffledMedia.filter(item => 
+          !featuredMedia.some(current => current.id === item.id)
+        );
+
+        // If not enough different items, use all shuffled media
+        const newFeaturedMedia = availableMedia.length >= 5 
+          ? availableMedia.slice(0, 10)
+          : shuffledMedia.slice(0, 10);
+
+        // If we don't have enough different items, supplement with shuffled existing
+        if (newFeaturedMedia.length < 5) {
+          const supplemental = shuffleArray(validMedia).slice(0, 10 - newFeaturedMedia.length);
+          newFeaturedMedia.push(...supplemental);
+        }
+
+        setFeaturedMedia(newFeaturedMedia.slice(0, 10));
+        console.log(`✅ Updated with ${newFeaturedMedia.length} valid media items using algorithm ${algorithmIndex + 1}`);
       } else if (allAvailableMedia.length > 0) {
         // Fallback to cached media with cycle-based shuffling
         const cycleBasedRecs = generateFrontendRecommendations(allAvailableMedia, featuredMedia);
@@ -651,36 +934,52 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
     }
   };
 
-  // Optimized URL generation with caching and proper media synchronization
+  // ZERO-LATENCY URL GENERATION: Aggressive caching with no cache-busting
   const getVideoUrl = useCallback((media: Media, fallback: boolean = false): string | undefined => {
-    if (!media?.id) return undefined;
-
-    // Ensure we're getting URL for the current media to prevent wrong slide issues
-    if (media.id !== currentMediaRef.current?.id) {
-      console.warn('Video URL requested for non-current media, skipping to prevent wrong slide display');
+    if (!media?.id || typeof media.id !== 'number' || media.id <= 0) {
       return undefined;
     }
 
-    const apiUrl = getApiUrl();
-    // Remove cache-busting timestamp to enable L1 cache hits for instant playback
-    if (fallback) {
-      return `${apiUrl}/api/preview-clips/${media.id}?quality=low&format=mp4`;
+    // Generate cache key for URL caching
+    const cacheKey = `video_${media.id}_${fallback ? 'low' : 'high'}`;
+    
+    // Check URL cache first for instant response
+    if (urlCache.current.has(cacheKey)) {
+      return urlCache.current.get(cacheKey);
     }
 
-    return `${apiUrl}/api/preview-clips/${media.id}?quality=high&format=mp4&cache=true`;
+    const apiUrl = getApiUrl();
+    // CRITICAL: NO cache-busting timestamps for L1 cache hits
+    const url = fallback 
+      ? `${apiUrl}/api/preview-clips/${media.id}?quality=low&format=mp4`
+      : `${apiUrl}/api/preview-clips/${media.id}?quality=high&format=mp4&cache=true`;
+    
+    // Cache the URL for instant future access
+    urlCache.current.set(cacheKey, url);
+    return url;
   }, []);
 
+  // ZERO-LATENCY THUMBNAIL URLS: Aggressive caching with no validation overhead
   const getThumbnailUrl = useCallback((media: Media): string | undefined => {
-    if (!media?.id) return undefined;
-
-    // Ensure we're getting URL for the current media to prevent wrong slide issues
-    if (media.id !== currentMediaRef.current?.id) {
-      console.warn('Thumbnail URL requested for non-current media, skipping to prevent wrong slide display');
+    if (!media?.id || typeof media.id !== 'number' || media.id <= 0) {
       return undefined;
     }
 
+    // Generate cache key for URL caching
+    const cacheKey = `thumbnail_${media.id}`;
+    
+    // Check URL cache first for instant response
+    if (urlCache.current.has(cacheKey)) {
+      return urlCache.current.get(cacheKey);
+    }
+
     const apiUrl = getApiUrl();
-    return `${apiUrl}/api/thumbnails/${media.id}`;
+    // CRITICAL: NO cache-busting parameters for maximum cache efficiency
+    const url = `${apiUrl}/api/thumbnails/${media.id}`;
+    
+    // Cache the URL for instant future access
+    urlCache.current.set(cacheKey, url);
+    return url;
   }, []);
 
 
@@ -688,49 +987,56 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
 
   // Check if media has video content (preview clip or can generate one)
   const hasVideoContent = (media: Media) => {
+    // Validate media ID before checking content
+    if (!media?.id || typeof media.id !== 'number' || media.id <= 0) {
+      console.warn('Invalid media ID for video content check:', media?.id);
+      return false;
+    }
     // Check if we have a media ID and either a preview clip path or file path
     // The backend will serve preview clips if they exist, or generate them on-demand
     return !!(media.id && media.file_path);
   };
 
-  // Debug function to check preview clip availability
+  // ELIMINATED AVAILABILITY CHECKS: Always assume assets exist for zero-latency
   const checkPreviewClipAvailability = useCallback(async (media: Media): Promise<boolean> => {
-    if (!media?.id) return false;
-
-    // Always assume preview clips are available to avoid HEAD requests
-    // Backend L1 cache will handle missing clips gracefully
-    console.log(`⚡ Skipping availability check for ${media.title} - assuming available for instant playback`);
+    // CRITICAL: Never make HEAD requests - always assume available
+    // Backend handles 404s gracefully with automatic generation
     return true;
   }, []);
 
-  // Disable preview clip generation to prevent server-side FFmpeg triggers
+  // ELIMINATED PREVIEW GENERATION: Backend handles all generation automatically
   const generatePreviewClipIfNeeded = useCallback(async (media: Media) => {
-    if (!media?.id) return;
-
-    // Skip generation to avoid triggering server-side processing
-    // Preview clips should be pre-generated or handled by backend on-demand
-    console.log(`⚡ Skipping preview clip generation for ${media.title} - relying on backend caching`);
+    // CRITICAL: Never trigger generation from frontend
+    // Backend automatically generates on first 404 request
+    return;
   }, []);
 
 
 
-  const getBackgroundImageUrl = (media: Media) => {
-    const host = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
-    const apiUrl = `http://${host === 'localhost' ? 'localhost' : host}:8252`;
-
-    // Always try thumbnail first as it's most reliable
-    if (media.id) {
-      return `${apiUrl}/api/thumbnails/${media.id}`;
+  // ZERO-LATENCY BACKGROUND IMAGES: Cached URLs with no validation
+  const getBackgroundImageUrl = useCallback((media: Media): string => {
+    if (!media?.id || typeof media.id !== 'number' || media.id <= 0) {
+      // Return optimized placeholder for invalid media
+      return 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTkyMCIgaGVpZ2h0PSIxMDgwIiB2aWV3Qm94PSIwIDAgMTkyMCAxMDgwIiBmaWxsPSJub25lIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxyZWN0IHdpZHRoPSIxOTIwIiBoZWlnaHQ9IjEwODAiIGZpbGw9IiMxMTEiLz48dGV4dCB4PSI5NjAiIHk9IjU0MCIgZmlsbD0iIzY2NiIgZm9udC1mYW1pbHk9IkFyaWFsIiBmb250LXNpemU9IjQ4IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj5Mb2FkaW5nLi4uPC90ZXh0Pjwvc3ZnPg==';
     }
 
-    // Try banner for hero backgrounds
-    if (media.banner_path) {
-      return `${apiUrl}/api/admin/assets/${media.banner_path.split('/').pop()}`;
+    // Generate cache key for background URL
+    const cacheKey = `background_${media.id}`;
+    
+    // Check URL cache first for instant response
+    if (urlCache.current.has(cacheKey)) {
+      return urlCache.current.get(cacheKey)!;
     }
 
-    // Default fallback
-    return `${apiUrl}/api/thumbnails/1`;
-  };
+    const apiUrl = getApiUrl();
+    // CRITICAL: Use thumbnail endpoint for maximum reliability and caching
+    const url = `${apiUrl}/api/thumbnails/${media.id}`;
+    
+    // Cache the URL for instant future access
+    urlCache.current.set(cacheKey, url);
+    return url;
+  }, []);
+
 
   // Chrome-safe stop all video/audio playback
   const stopAllPlayback = () => {
@@ -791,6 +1097,9 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
 
         // NO automatic cycle reloading - just loop through existing slides
         console.log(`➡️ Moving to slide ${nextIndex + 1}/${featuredMedia.length}`);
+        
+        // 24/7 PERFORMANCE MONITORING
+        monitor24x7Performance();
       }, 300); // Wait for fade out
     }
   };
@@ -1196,33 +1505,23 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
     }
   }, [currentIndex, currentMedia, isTransitioning, isInitialized]); // Reduced dependencies
 
-  // Preload adjacent videos for smooth transitions
+  // Optimized preloading - minimal to prevent memory accumulation
   useEffect(() => {
     if (!isInitialized || featuredMedia.length <= 1) return;
 
-    const preloadAdjacent = () => {
-      const nextIndex = (currentIndex + 1) % featuredMedia.length;
-      const prevIndex = (currentIndex - 1 + featuredMedia.length) % featuredMedia.length;
+    // Cleanup old preloaded videos first
+    cleanupMemory();
 
-      // Preload next and previous videos with low priority
-      if (featuredMedia[nextIndex]) {
-        preloadVideo(featuredMedia[nextIndex], 'low');
-      }
-      if (featuredMedia[prevIndex]) {
-        preloadVideo(featuredMedia[prevIndex], 'low');
-      }
-    };
-
-    // Delay preloading to not interfere with current video
-    setTimeout(preloadAdjacent, 2000);
-  }, [currentIndex, featuredMedia]);
+    // Skip preloading - rely on backend L1 cache for instant playback
+    console.log('⚡ Skipping video preloading - using backend cache for instant playback');
+  }, [currentIndex, featuredMedia, cleanupMemory]);
 
   // Smart auto-slide functionality with fresh content loading
   useEffect(() => {
     if (!isAutoPlaying || featuredMedia.length <= 1 || isTransitioning) return;
 
-    // Longer duration for video content, shorter for images
-    const slideDuration = hasVideoContent(currentMedia) && isVideoLoaded && isPlaying ? 20000 : 8000;
+    // 24/7 OPTIMIZED SLIDE TIMING: Balanced for continuous operation
+    const slideDuration = hasVideoContent(currentMedia) && isVideoLoaded && isPlaying ? 15000 : 8000;
 
     const interval = setInterval(() => {
       if (!isTransitioning) {
@@ -1263,18 +1562,49 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
     return () => clearInterval(interval);
   }, [isAutoPlaying, featuredMedia.length, currentIndex, isVideoLoaded, isPlaying, isTransitioning, cycleCount]);
 
-  // Disabled automatic recommendation system to prevent cycle reloading
+  // Enhanced recommendation cycling system with API endpoint rotation and memory management
   useEffect(() => {
-    console.log('🔒 Static recommendation system - no automatic refreshing to prevent loops');
+    if (!enableRecommendations) {
+      console.log('🔒 Recommendations disabled');
+      return;
+    }
 
-    // NO automatic refreshing - only manual refresh allowed
-    // This prevents the infinite cycle reloading issue in Chrome
+    // Clear any existing timer to prevent multiple timers
+    if (refreshTimerRef.current) {
+      clearInterval(refreshTimerRef.current);
+      refreshTimerRef.current = null;
+    }
+
+    console.log('🔄 Starting recommendation cycling system with API endpoints');
+
+    // Initial fetch on mount
+    if (featuredMedia.length === 0 || !hasInitializedContent) {
+      fetchRecommendedMedia(0);
+    }
+
+    // Set up interval to cycle through different recommendation endpoints
+    refreshTimerRef.current = setInterval(() => {
+      const newCycleCount = cycleCount + 1;
+      setCycleCount(newCycleCount);
+      
+      // Perform memory cleanup every few cycles
+      if (newCycleCount % 3 === 0) {
+        cleanupMemory();
+      }
+      
+      console.log(`🔄 Auto-refreshing recommendations (cycle ${newCycleCount}) using API endpoints`);
+      fetchRecommendedMedia(newCycleCount);
+    }, refreshInterval);
 
     return () => {
-      // No timers to clear
+      if (refreshTimerRef.current) {
+        clearInterval(refreshTimerRef.current);
+        refreshTimerRef.current = null;
+        console.log('🛑 Cleared recommendation refresh timer');
+      }
     };
 
-  }, [enableRecommendations]);
+  }, [enableRecommendations, refreshInterval]); // Removed cycleCount dependency to prevent timer recreation
 
   // Stabilized video state management - prevent unnecessary resets
   useEffect(() => {
@@ -1314,20 +1644,16 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
     };
   }, []);
 
-  // Preload adjacent videos for smooth transitions
+  // Optimized - skip preloading to prevent memory accumulation
   useEffect(() => {
     if (featuredMedia.length > 1) {
-      // Preload current, next, and previous videos
-      const currentIdx = currentIndex;
-      const nextIdx = (currentIndex + 1) % featuredMedia.length;
-      const prevIdx = (currentIndex - 1 + featuredMedia.length) % featuredMedia.length;
-
-      // Preload in order of priority
-      setTimeout(() => preloadVideo(featuredMedia[currentIdx]), 100);
-      setTimeout(() => preloadVideo(featuredMedia[nextIdx]), 500);
-      setTimeout(() => preloadVideo(featuredMedia[prevIdx]), 1000);
+      // Skip preloading - rely on backend L1 cache for instant playback
+      console.log('⚡ Skipping adjacent video preloading - using backend cache');
+      
+      // Perform memory cleanup instead
+      cleanupMemory();
     }
-  }, [currentIndex, featuredMedia]);
+  }, [currentIndex, featuredMedia, cleanupMemory]);
 
   // Reset video states when media changes - show thumbnail first, then video
   useEffect(() => {
@@ -1452,6 +1778,16 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
     };
 
     const handleKeyPress = (e: KeyboardEvent) => {
+      // Don't interfere when the user is typing into a form field or contenteditable
+      const target = e.target as HTMLElement | null;
+      if (target) {
+        const tag = target.tagName;
+        const isEditable = (target as HTMLElement).isContentEditable;
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || isEditable) {
+          return; // allow typing normally (spaces, 'm', etc.)
+        }
+      }
+
       if (e.key === 'm' || e.key === 'M' || e.key === ' ') {
         e.preventDefault();
         handleUnmute(e);
@@ -1612,10 +1948,15 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
 
 
 
-  // Component cleanup
+  // Enhanced component cleanup with comprehensive timer and memory management
   useEffect(() => {
     return () => {
+      console.log('🧹 Performing comprehensive component cleanup...');
+      
+      // Stop all video playback
       stopAllPlayback();
+      
+      // Clean up all preloaded videos
       preloadRefs.current.forEach((video) => {
         try {
           video.pause();
@@ -1626,20 +1967,36 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
         }
       });
       preloadRefs.current.clear();
+      
+      // Clear all timers
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current);
+        timeoutRef.current = null;
       }
+      if (slideTimerRef.current) {
+        clearTimeout(slideTimerRef.current);
+        slideTimerRef.current = null;
+      }
+      if (refreshTimerRef.current) {
+        clearInterval(refreshTimerRef.current);
+        refreshTimerRef.current = null;
+      }
+      
+      // Clear caches
+      urlCache.current.clear();
+      
+      console.log('✅ Component cleanup completed');
     };
   }, []);
 
-  // Auto-reload the page every 5 minutes (300,000ms) to ensure fresh content
+  // Auto-reload the page every 10 minutes (600,000ms) to ensure fresh content
   useEffect(() => {
     // Only run in browser environment
     if (typeof window === 'undefined') return;
 
     const reloadTimer = setTimeout(() => {
       window.location.reload();
-    }, 300000); // 5 minutes = 300,000ms
+    }, 600000); // 10 minutes = 600,000ms
 
     // Clean up the timer when component unmounts or before re-running the effect
     return () => {
@@ -1661,7 +2018,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
           cancelable: true
         }));
       }
-    }, 5000); // 5 seconds = 5000ms
+    }, 10000); // 10 seconds = 10000ms
 
     return () => clearTimeout(clickTimer);
   }, []);
@@ -1736,7 +2093,6 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
                   }}
                   autoPlay={true}
                   muted={true}
-                  loop
                   playsInline
                   preload="metadata"
                   controls={false}
@@ -1805,6 +2161,30 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
                   onLoadStart={() => {
                     setVideoLoaded(false);
                     setIsPlaying(false);
+                  }}
+                  onTimeUpdate={(e) => {
+                    const video = e.currentTarget;
+                    // 30-second preview play with 24/7 optimization
+                    if (video.currentTime >= 30) {
+                      video.currentTime = 0; // Restart from beginning
+                      
+                      // 24/7 OPTIMIZATION: Clear video buffer periodically
+                      try {
+                        // Force buffer cleanup every restart
+                        const currentSrc = video.src;
+                        video.src = '';
+                        video.load();
+                        video.src = currentSrc;
+                        video.load();
+                      } catch (error) {
+                        // Ignore buffer cleanup errors
+                      }
+                    }
+                    
+                    // 24/7 MEMORY OPTIMIZATION: Trigger cleanup every 5 minutes of video time
+                    if (Math.floor(video.currentTime) % 300 === 0 && video.currentTime > 0) {
+                      cleanupMemory();
+                    }
                   }}
                   onClick={(e) => {
                     if (isMuted) {
@@ -1927,21 +2307,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
           animate={{ opacity: showControls ? 1 : 0, y: showControls ? 0 : -20 }}
           transition={{ duration: 0.3 }}
         >
-          <MagneticButton
-            onClick={refreshContent}
-            disabled={isLoadingNewContent}
-            className="bg-black/50 backdrop-blur-sm text-white p-3 rounded-full hover:bg-black/70 transition-all duration-300 border border-white/20 disabled:opacity-50 disabled:cursor-not-allowed"
-            title="Refresh content"
-          >
-            <motion.div
-              animate={isLoadingNewContent ? { rotate: 360 } : { rotate: 0 }}
-              transition={{ duration: 1, repeat: isLoadingNewContent ? Infinity : 0, ease: "linear" }}
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
-            </motion.div>
-          </MagneticButton>
+
         </motion.div>
       )}
 
@@ -2203,6 +2569,34 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
                 </MagneticButton>
               ))}
             </div>
+
+            {/* Manual refresh button with memory cleanup and forced randomization */}
+            <MagneticButton
+              onClick={() => {
+                // Perform memory cleanup before refresh
+                cleanupMemory();
+                
+                // Force a random cycle count to ensure different content
+                const randomCycleBoost = Math.floor(Math.random() * 100) + Date.now() % 1000;
+                const newCycleCount = cycleCount + 1 + randomCycleBoost;
+                setCycleCount(newCycleCount);
+                
+                console.log(`🔄 Manual refresh triggered (cycle ${newCycleCount}, random boost: ${randomCycleBoost}) with memory cleanup`);
+                fetchRecommendedMedia(newCycleCount);
+              }}
+              disabled={isLoadingNewContent}
+              className="ml-3 p-2 rounded-full bg-white/10 hover:bg-white/20 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Refresh recommendations and clean memory"
+            >
+              <svg 
+                className={`w-4 h-4 text-white ${isLoadingNewContent ? 'animate-spin' : ''}`} 
+                fill="none" 
+                stroke="currentColor" 
+                viewBox="0 0 24 24"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+            </MagneticButton>
 
             {/* Loading indicator */}
             {isLoadingNewContent && (

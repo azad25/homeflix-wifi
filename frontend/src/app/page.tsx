@@ -292,9 +292,9 @@ export default function Home() {
       )}
 
       {/* Main Content - Netflix Style */}
-      <div className="relative bg-black">
+      <div className="relative bg-black" style={{ overflow: 'visible' }}>
         {searchResults.length > 0 ? (
-          <div className="py-8">
+          <div className="py-12" style={{ overflow: 'visible' }}>
             <NetflixHorizontalRow
               title="Search Results"
               media={searchResults}
@@ -306,7 +306,7 @@ export default function Home() {
             />
           </div>
         ) : (
-          <div className="space-y-8 pb-20">
+          <div className="space-y-4 pb-32" style={{ overflow: 'visible' }}>
             {/* Continue Watching */}
             <ContinueWatching
               onPlay={handlePlay}

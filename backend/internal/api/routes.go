@@ -37,7 +37,7 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		celeryHandlers := handlers.NewCeleryHandlers(celeryService)
 		scannerHandlers := handlers.NewScannerHandlers(mediaScanner)
 		watcherHandler := NewWatcherHandler(watcherService)
-		
+
 		// Initialize Redis asset handlers if Redis cache is available
 		var redisAssetHandlers *handlers.RedisAssetHandlers
 		if redisCache != nil {
@@ -46,17 +46,17 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 
 		// Streaming (with automatic ALAC integration and transcoding for MKV/HEVC)
 		api.GET("/stream/:id", handlers.StreamMedia(streamService, mediaService, transcodeService))
-		
+
 		// Preview clips serving - Redis-cached for instant loading
 		if redisAssetHandlers != nil {
 			api.GET("/preview-clips/:id", redisAssetHandlers.GetPreviewCachedWithFallback(mediaService, thumbnailService))
 		} else {
 			api.GET("/preview-clips/:id", handlers.StreamPreviewClip(streamService, mediaService))
 		}
-		
+
 		// Transcode status endpoint
 		api.GET("/admin/transcode/status", handlers.GetTranscodeStatus(transcodeService))
-		
+
 		// Additional ALAC Audio endpoints (optional)
 		api.GET("/media/:id/alac-audio", handlers.StreamALACAudio(streamService, mediaService))
 
@@ -66,7 +66,7 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 			api.GET("/thumbnails/:id", redisAssetHandlers.GetThumbnailCachedWithFallback(mediaService, thumbnailService))
 			api.GET("/previews/:id", redisAssetHandlers.GetPreviewCachedWithFallback(mediaService, thumbnailService))
 			api.GET("/posters/:id", redisAssetHandlers.GetPosterCachedWithFallback(mediaService))
-			
+
 			// Alternative asset serving endpoints (Redis-cached)
 			api.GET("/assets/thumbnails/:id", redisAssetHandlers.GetThumbnailCachedWithFallback(mediaService, thumbnailService))
 			api.GET("/assets/previews/:id", redisAssetHandlers.GetPreviewCachedWithFallback(mediaService, thumbnailService))
@@ -76,18 +76,18 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 			api.GET("/thumbnails/:id", handlers.GetThumbnailEnhanced(mediaService, thumbnailService))
 			api.GET("/previews/:id", handlers.GetPreviewEnhanced(mediaService, thumbnailService))
 			api.GET("/posters/:id", handlers.GetPosterEnhanced(mediaService))
-			
+
 			// Alternative asset serving endpoints (enhanced handlers)
 			api.GET("/assets/thumbnails/:id", handlers.GetThumbnailEnhanced(mediaService, thumbnailService))
 			api.GET("/assets/previews/:id", handlers.GetPreviewEnhanced(mediaService, thumbnailService))
 			api.GET("/assets/posters/:id", handlers.GetPosterEnhanced(mediaService))
 		}
-		
+
 		// Direct static file serving as fallback (for debugging)
 		api.Static("/static/thumbnails", "./thumbnails")
 		api.Static("/static/previews", "./previews")
 		api.Static("/static/posters", "./posters")
-		
+
 		// Thumbnail generation endpoint (always available)
 		api.POST("/thumbnails/:id", handlers.GenerateThumbnail(mediaService, thumbnailService))
 
@@ -113,7 +113,7 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 			api.DELETE("/admin/assets/cache/clear-expired", redisAssetHandlers.ClearExpiredAssets())
 			api.GET("/admin/assets/cache/stats", redisAssetHandlers.GetCacheStats())
 			api.GET("/admin/assets/cache/health", redisAssetHandlers.GetCacheHealth())
-			
+
 			// In-memory cache management (fallback)
 			api.DELETE("/admin/assets/cache/clear-memory", handlers.ClearAssetCache())
 			api.GET("/admin/assets/cache/stats-memory", handlers.GetAssetCacheStats())
@@ -145,7 +145,7 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		api.GET("/playback/continue", handlers.GetContinueWatching(playbackService))
 		api.GET("/playback/history", handlers.GetWatchHistory(playbackService))
 		api.GET("/playback/stats", handlers.GetWatchStats(playbackService))
-		
+
 		// Recommendation tracking
 		api.POST("/recommendations/track-click/:id", handlers.TrackRecommendationClick(recommendationService))
 
@@ -170,8 +170,8 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		api.POST("/admin/generate-recommendations", handlers.GenerateRecommendations(geminiService))
 
 		// Main recommendations endpoint (handles category-based routing)
-		api.GET("/recommendations", handlers.GetRecommendations(recommendationService, mediaService))
-		
+		api.GET("/recommendations", handlers.GetRecommendations(recommendationService))
+
 		// Enhanced recommendation endpoints with session awareness
 		api.GET("/recommendations/unique", handlers.GetUniqueRecommendations(recommendationService, mediaService))
 		api.GET("/recommendations/trending", handlers.GetSmartTrendingRecommendationsEnhanced(recommendationService, mediaService))
@@ -180,7 +180,7 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		api.GET("/recommendations/top-rated", handlers.GetHighRatedRecommendations(recommendationService))
 		api.GET("/recommendations/genre", handlers.GetGenreRecommendations(recommendationService))
 		api.GET("/recommendations/mixed", handlers.GetMixedRecommendationsEnhanced(recommendationService, mediaService))
-		
+
 		// Advanced recommendation endpoints with session awareness
 		api.GET("/recommendations/personalized", handlers.GetPersonalizedRecommendationsEnhanced(recommendationService, mediaService))
 		api.GET("/recommendations/smart-trending", handlers.GetSmartTrendingRecommendationsEnhanced(recommendationService, mediaService))

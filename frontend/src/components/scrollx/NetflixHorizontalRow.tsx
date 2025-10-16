@@ -93,7 +93,7 @@ const NetflixHorizontalRow: React.FC<NetflixHorizontalRowProps> = ({
 
   return (
     <div 
-      className="relative group mb-8"
+      className="relative group mb-20 py-8"
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
       style={{ 
@@ -103,8 +103,8 @@ const NetflixHorizontalRow: React.FC<NetflixHorizontalRowProps> = ({
     >
       {/* Title */}
       {showTitle && (
-        <div className="px-4 md:px-8 lg:px-16 mb-4">
-          <h2 className="text-white text-xl md:text-2xl font-bold hover:text-gray-300 transition-colors cursor-pointer">
+        <div className="px-4 md:px-8 lg:px-16 mb-6 relative z-20">
+          <h2 className="text-white text-xl md:text-2xl font-bold hover:text-gray-300 transition-colors cursor-pointer bg-black/20 backdrop-blur-sm px-4 py-2 rounded-lg inline-block">
             {title}
           </h2>
         </div>
@@ -153,18 +153,19 @@ const NetflixHorizontalRow: React.FC<NetflixHorizontalRowProps> = ({
         {/* Cards Container */}
         <div
           ref={scrollContainerRef}
-          className="flex gap-3 overflow-x-auto scrollbar-hide px-4 md:px-8 lg:px-16 pb-4"
+          className="flex gap-4 overflow-x-auto scrollbar-hide px-4 md:px-8 lg:px-16"
           onScroll={handleScroll}
           style={{
             scrollbarWidth: 'none',
             msOverflowStyle: 'none',
             overflowY: 'visible',
-            paddingBottom: '120px', // Extra space for expanded cards
-            marginBottom: '-80px' // Compensate for extra padding
+            paddingTop: '20px',
+            paddingBottom: '160px', // Extra space for expanded cards
+            marginBottom: '-120px' // Compensate for extra padding
           }}
         >
           {media.map((item, index) => (
-            <div key={item.id} className="flex-shrink-0">
+            <div key={item.id} className="flex-shrink-0" style={{ minHeight: '400px' }}>
               <NetflixMovieCard
                 media={item}
                 onPlay={onPlay}

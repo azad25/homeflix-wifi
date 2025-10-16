@@ -24,9 +24,9 @@ export const ParallaxSection: React.FC<ParallaxSectionProps> = ({
     offset: ["start end", "end start"]
   });
 
-  // Create transforms directly based on direction
-  const yTransform = useTransform(scrollYProgress, [0, 1], [offset, direction === 'down' ? 100 * speed : -100 * speed]);
-  const xTransform = useTransform(scrollYProgress, [0, 1], [offset, direction === 'right' ? 100 * speed : -100 * speed]);
+  // Create transforms directly based on direction with reduced movement to prevent hiding
+  const yTransform = useTransform(scrollYProgress, [0, 1], [offset, direction === 'down' ? 30 * speed : -30 * speed]);
+  const xTransform = useTransform(scrollYProgress, [0, 1], [offset, direction === 'right' ? 30 * speed : -30 * speed]);
   
   const springY = useSpring(yTransform, { stiffness: 100, damping: 30 });
   const springX = useSpring(xTransform, { stiffness: 100, damping: 30 });
@@ -39,7 +39,7 @@ export const ParallaxSection: React.FC<ParallaxSectionProps> = ({
   };
 
   return (
-    <div ref={ref} className={`relative overflow-hidden ${className}`} style={{ position: 'relative' }}>
+    <div ref={ref} className={`relative ${className}`} style={{ position: 'relative', overflow: 'visible' }}>
       <motion.div style={getMotionStyle()}>
         {children}
       </motion.div>

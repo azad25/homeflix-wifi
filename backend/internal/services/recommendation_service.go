@@ -2,6 +2,7 @@ package services
 
 import (
 	"fmt"
+	"math/rand"
 	"sort"
 	"time"
 
@@ -11,10 +12,16 @@ import (
 
 type RecommendationService struct {
 	db *gorm.DB
+	sessionCache map[string][]uint // Track shown content per session
+	lastRefresh time.Time
 }
 
 func NewRecommendationService(db *gorm.DB) *RecommendationService {
-	return &RecommendationService{db: db}
+	return &RecommendationService{
+		db: db,
+		sessionCache: make(map[string][]uint),
+		lastRefresh: time.Now(),
+	}
 }
 
 // GetDefaultRecommendations returns general recommendations when no user system is available
@@ -484,4 +491,953 @@ func (s *RecommendationService) ensureLatestMediaIncluded(currentMedia []models.
 	}
 	
 	return result
+}
+
+// GetDynamicRecommendations returns different content based on time-based algorithms and session awareness
+func (s *RecommendationService) GetDynamicRecommendations(category string, limit int, sessionID string) ([]models.Media, error) {
+	// Clean old session cache entries (older than 1 hour)
+	s.cleanSessionCache()
+	
+	// Get current time-based algorithm index
+	now := time.Now()
+	algorithmIndex := (now.Hour() + int(now.Weekday())*24) % 8 // 8 different algorithms
+	
+	var media []models.Media
+	var err error
+	
+	switch category {
+	case "mixed":
+		media, err = s.getMixedDynamicRecommendations(algorithmIndex, limit, sessionID)
+	case "trending":
+		media, err = s.getTrendingDynamicRecommendations(algorithmIndex, limit, sessionID)
+	case "popular":
+		media, err = s.getPopularDynamicRecommendations(algorithmIndex, limit, sessionID)
+	case "recent":
+		media, err = s.getRecentDynamicRecommendations(algorithmIndex, limit, sessionID)
+	case "personalized":
+		media, err = s.getPersonalizedDynamicRecommendations(algorithmIndex, limit, sessionID)
+	default:
+		media, err = s.getMixedDynamicRecommendations(algorithmIndex, limit, sessionID)
+	}
+	
+	if err != nil {
+		return s.GetDefaultRecommendations(limit)
+	}
+	
+	// Apply session filtering but ensure we have enough content
+	originalCount := len(media)
+	media = s.filterSessionContent(media, sessionID)
+	
+	// If session filtering removed too much content, get fresh content
+	if len(media) < limit/2 && originalCount > 0 {
+		// Get additional fresh content to maintain variety
+		additionalMedia := s.getLatestAddedPriority(limit)
+		additionalMedia = s.filterSessionContent(additionalMedia, sessionID)
+		media = append(media, additionalMedia...)
+		
+		// Remove duplicates
+		seen := make(map[uint]bool)
+		var uniqueMedia []models.Media
+		for _, m := range media {
+			if !seen[m.ID] {
+				seen[m.ID] = true
+				uniqueMedia = append(uniqueMedia, m)
+				if len(uniqueMedia) >= limit {
+					break
+				}
+			}
+		}
+		media = uniqueMedia
+	}
+	
+	// Track shown content for this session
+	s.trackSessionContent(media, sessionID)
+	
+	// Ensure variety with latest content
+	media = s.ensureLatestMediaIncluded(media, limit)
+	
+	return media, nil
+}
+
+// getMixedDynamicRecommendations provides 8 different mixed algorithms
+func (s *RecommendationService) getMixedDynamicRecommendations(algorithmIndex, limit int, sessionID string) ([]models.Media, error) {
+	var media []models.Media
+	
+	switch algorithmIndex {
+	case 0: // Latest Added (Priority: 2023-2024)
+		media = s.getLatestAddedPriority(limit)
+	case 1: // Recent Years Focus (2022-2024)
+		media = s.getRecentYearsFocus(limit)
+	case 2: // Current Year + High Rated (2024 focus)
+		media = s.getCurrentYearHighRated(limit)
+	case 3: // New Additions + Trending
+		media = s.getNewAdditionsTrending(limit)
+	case 4: // Recent Quality Content (HD/4K from 2022+)
+		media = s.getRecentQualityContent(limit)
+	case 5: // Fresh Discoveries (Recent + Underrated)
+		media = s.getFreshDiscoveries(limit)
+	case 6: // Latest Genre Mix
+		media = s.getLatestGenreMix(limit)
+	case 7: // Always Latest Priority
+		media = s.getLatestAddedPriority(limit)
+	}
+	
+	return media, nil
+}
+
+// getTrendingDynamicRecommendations provides 8 different trending algorithms
+func (s *RecommendationService) getTrendingDynamicRecommendations(algorithmIndex, limit int, sessionID string) ([]models.Media, error) {
+	var media []models.Media
+	
+	switch algorithmIndex {
+	case 0: // Latest Trending (Recent additions with views)
+		media = s.getNewAdditionsTrending(limit)
+	case 1: // Current Year Trending (2024 focus)
+		media = s.getCurrentYearHighRated(limit)
+	case 2: // Recent Years Trending (2022-2024)
+		media = s.getRecentYearsFocus(limit)
+	case 3: // Latest Quality Trending (Recent HD/4K)
+		media = s.getRecentQualityContent(limit)
+	case 4: // Fresh Trending (Recent + Popular)
+		media = s.getRecentPopular(limit)
+	case 5: // Latest Genre Trending
+		media = s.getLatestGenreMix(limit)
+	case 6: // Trending movies only
+		media = s.getTrendingMoviesOnly(limit)
+	case 7: // Trending series only
+		media = s.getTrendingSeriesOnly(limit)
+	}
+	
+	return media, nil
+}
+
+// getPopularDynamicRecommendations provides 8 different popular algorithms
+func (s *RecommendationService) getPopularDynamicRecommendations(algorithmIndex, limit int, sessionID string) ([]models.Media, error) {
+	var media []models.Media
+	
+	switch algorithmIndex {
+	case 0: // All-time popular
+		media = s.getAllTimePopular(limit)
+	case 1: // Popular by genre rotation
+		genres := []string{"Action", "Drama", "Comedy", "Thriller", "Sci-Fi", "Horror"}
+		genre := genres[algorithmIndex%len(genres)]
+		media = s.getPopularByGenre(genre, limit)
+	case 2: // Popular recent releases
+		media = s.getPopularRecentReleases(limit)
+	case 3: // Popular high-rated
+		media = s.getPopularHighRated(limit)
+	case 4: // Popular movies focus
+		media = s.getPopularMoviesFocus(limit)
+	case 5: // Popular series focus
+		media = s.getPopularSeriesFocus(limit)
+	case 6: // Popular by decade
+		decade := 2020 - (algorithmIndex%3)*10 // 2020s, 2010s, 2000s
+		media = s.getPopularByDecade(decade, limit)
+	case 7: // Popular underrated mix
+		media = s.getPopularUnderratedMix(limit)
+	}
+	
+	return media, nil
+}
+
+// getRecentDynamicRecommendations provides 8 different recent algorithms
+func (s *RecommendationService) getRecentDynamicRecommendations(algorithmIndex, limit int, sessionID string) ([]models.Media, error) {
+	var media []models.Media
+	
+	switch algorithmIndex {
+	case 0: // Latest Added Priority (Last 6 months)
+		media = s.getLatestAddedPriority(limit)
+	case 1: // Current Year Recent (2024)
+		media = s.getCurrentYearHighRated(limit)
+	case 2: // Recent Years Focus (2022-2024)
+		media = s.getRecentYearsFocus(limit)
+	case 3: // New Additions Trending
+		media = s.getNewAdditionsTrending(limit)
+	case 4: // Recent Quality Content (HD/4K)
+		media = s.getRecentQualityContent(limit)
+	case 5: // Fresh Discoveries (Recent + Underrated)
+		media = s.getFreshDiscoveries(limit)
+	case 6: // Latest Genre Mix
+		media = s.getLatestGenreMix(limit)
+	case 7: // Always Latest Priority
+		media = s.getLatestAddedPriority(limit)
+	}
+	
+	return media, nil
+}
+
+// getPersonalizedDynamicRecommendations provides 8 different personalized algorithms
+func (s *RecommendationService) getPersonalizedDynamicRecommendations(algorithmIndex, limit int, sessionID string) ([]models.Media, error) {
+	userID := uint(1) // Default user for now
+	var media []models.Media
+	
+	switch algorithmIndex {
+	case 0: // Standard personalized
+		media, _ = s.GetRecommendationsForUser(userID, limit)
+	case 1: // Similar media focus
+		media, _ = s.GetSimilarMedia(userID, limit)
+	case 2: // Personalized + trending mix
+		personalizedMedia, _ := s.GetRecommendationsForUser(userID, limit/2)
+		trendingMedia, _ := s.GetTrendingRecommendations(limit/2)
+		media = append(personalizedMedia, trendingMedia...)
+	case 3: // Genre-based personalized
+		media = s.getPersonalizedByGenre(userID, limit)
+	case 4: // Year-based personalized
+		media = s.getPersonalizedByYear(userID, limit)
+	case 5: // Rating-based personalized
+		media = s.getPersonalizedByRating(userID, limit)
+	case 6: // Discovery personalized (new genres)
+		media = s.getPersonalizedDiscovery(userID, limit)
+	case 7: // Balanced personalized
+		media = s.getBalancedPersonalized(userID, limit)
+	}
+	
+	return media, nil
+}
+
+// Helper methods for dynamic algorithms
+
+// New priority functions for recent content
+func (s *RecommendationService) getLatestAddedPriority(limit int) []models.Media {
+	var media []models.Media
+	// Prioritize content added in last 6 months
+	cutoff := time.Now().AddDate(0, -6, 0)
+	s.db.Preload("Genres").
+		Where("created_at > ? AND type != ?", cutoff, "episode").
+		Order("created_at DESC, rating DESC").
+		Limit(limit).
+		Find(&media)
+	
+	// If not enough recent content, fill with older high-rated
+	if len(media) < limit {
+		var olderMedia []models.Media
+		s.db.Preload("Genres").
+			Where("created_at <= ? AND rating > ? AND type != ?", cutoff, 7.0, "episode").
+			Order("rating DESC, created_at DESC").
+			Limit(limit - len(media)).
+			Find(&olderMedia)
+		media = append(media, olderMedia...)
+	}
+	return media
+}
+
+func (s *RecommendationService) getRecentYearsFocus(limit int) []models.Media {
+	var media []models.Media
+	// Focus on 2022-2024 content
+	s.db.Preload("Genres").
+		Where("year BETWEEN ? AND ? AND type != ?", 2022, 2024, "episode").
+		Order("year DESC, rating DESC, created_at DESC").
+		Limit(limit).
+		Find(&media)
+	return media
+}
+
+func (s *RecommendationService) getCurrentYearHighRated(limit int) []models.Media {
+	var media []models.Media
+	currentYear := time.Now().Year()
+	// Prioritize current year (2024) content
+	s.db.Preload("Genres").
+		Where("year = ? AND rating > ? AND type != ?", currentYear, 6.5, "episode").
+		Order("rating DESC, created_at DESC").
+		Limit(limit).
+		Find(&media)
+	
+	// Fill with previous year if needed
+	if len(media) < limit {
+		var prevYearMedia []models.Media
+		s.db.Preload("Genres").
+			Where("year = ? AND rating > ? AND type != ?", currentYear-1, 6.5, "episode").
+			Order("rating DESC, created_at DESC").
+			Limit(limit - len(media)).
+			Find(&prevYearMedia)
+		media = append(media, prevYearMedia...)
+	}
+	return media
+}
+
+func (s *RecommendationService) getNewAdditionsTrending(limit int) []models.Media {
+	var media []models.Media
+	// Recent additions with good view counts
+	cutoff := time.Now().AddDate(0, -3, 0) // Last 3 months
+	s.db.Preload("Genres").
+		Where("created_at > ? AND view_count > ? AND type != ?", cutoff, 5, "episode").
+		Order("created_at DESC, view_count DESC").
+		Limit(limit).
+		Find(&media)
+	return media
+}
+
+func (s *RecommendationService) getRecentQualityContent(limit int) []models.Media {
+	var media []models.Media
+	// HD/4K content from 2022+
+	s.db.Preload("Genres").
+		Where("year >= ? AND (quality ILIKE ? OR quality ILIKE ? OR quality ILIKE ?) AND type != ?", 
+			2022, "%4K%", "%1080p%", "%HD%", "episode").
+		Order("year DESC, rating DESC, created_at DESC").
+		Limit(limit).
+		Find(&media)
+	return media
+}
+
+func (s *RecommendationService) getFreshDiscoveries(limit int) []models.Media {
+	var media []models.Media
+	// Recent content with low view counts (hidden gems)
+	cutoff := time.Now().AddDate(0, -4, 0) // Last 4 months
+	s.db.Preload("Genres").
+		Where("created_at > ? AND view_count < ? AND rating > ? AND type != ?", cutoff, 20, 7.0, "episode").
+		Order("rating DESC, created_at DESC").
+		Limit(limit).
+		Find(&media)
+	return media
+}
+
+func (s *RecommendationService) getLatestGenreMix(limit int) []models.Media {
+	var media []models.Media
+	genres := []string{"Action", "Drama", "Comedy", "Sci-Fi", "Thriller"}
+	cutoff := time.Now().AddDate(0, -6, 0) // Last 6 months
+	
+	for _, genre := range genres {
+		var genreMedia []models.Media
+		s.db.Preload("Genres").
+			Joins("JOIN media_genres ON media.id = media_genres.media_id").
+			Joins("JOIN genres ON media_genres.genre_id = genres.id").
+			Where("genres.name = ? AND media.created_at > ? AND media.type != ?", genre, cutoff, "episode").
+			Order("media.created_at DESC, media.rating DESC").
+			Limit(limit / len(genres)).
+			Find(&genreMedia)
+		media = append(media, genreMedia...)
+	}
+	
+	return s.shuffleMedia(media)
+}
+
+// Keep original function for compatibility
+func (s *RecommendationService) getLatestHighRated(limit int) []models.Media {
+	var media []models.Media
+	s.db.Preload("Genres").
+		Where("rating > ? AND type != ?", 7.0, "episode").
+		Order("created_at DESC, rating DESC").
+		Limit(limit).
+		Find(&media)
+	return media
+}
+
+func (s *RecommendationService) getGenreRotationContent(genres []string, limit int) []models.Media {
+	var media []models.Media
+	for _, genre := range genres {
+		var genreMedia []models.Media
+		s.db.Preload("Genres").
+			Joins("JOIN media_genres ON media.id = media_genres.media_id").
+			Joins("JOIN genres ON media_genres.genre_id = genres.id").
+			Where("genres.name ILIKE ? AND media.type != ?", "%"+genre+"%", "episode").
+			Order("media.rating DESC, media.created_at DESC").
+			Limit(limit / len(genres)).
+			Find(&genreMedia)
+		media = append(media, genreMedia...)
+	}
+	return s.shuffleMedia(media)
+}
+
+func (s *RecommendationService) getYearBasedContent(startYear, endYear, limit int) []models.Media {
+	var media []models.Media
+	s.db.Preload("Genres").
+		Where("year BETWEEN ? AND ? AND type != ?", startYear, endYear, "episode").
+		Order("rating DESC, view_count DESC").
+		Limit(limit).
+		Find(&media)
+	return media
+}
+
+func (s *RecommendationService) getPopularUnderratedMix(limit int) []models.Media {
+	var popular []models.Media
+	var underrated []models.Media
+	
+	// Get popular content
+	s.db.Preload("Genres").
+		Where("view_count > ? AND type != ?", 50, "episode").
+		Order("view_count DESC").
+		Limit(limit / 2).
+		Find(&popular)
+	
+	// Get underrated gems
+	s.db.Preload("Genres").
+		Where("rating > ? AND view_count < ? AND type != ?", 7.5, 20, "episode").
+		Order("rating DESC").
+		Limit(limit / 2).
+		Find(&underrated)
+	
+	return s.shuffleMedia(append(popular, underrated...))
+}
+
+func (s *RecommendationService) getDecadeMixContent(limit int) []models.Media {
+	var media []models.Media
+	decades := []int{2020, 2010, 2000}
+	
+	for _, decade := range decades {
+		var decadeMedia []models.Media
+		s.db.Preload("Genres").
+			Where("year BETWEEN ? AND ? AND type != ?", decade, decade+9, "episode").
+			Order("rating DESC, view_count DESC").
+			Limit(limit / len(decades)).
+			Find(&decadeMedia)
+		media = append(media, decadeMedia...)
+	}
+	
+	return s.shuffleMedia(media)
+}
+
+func (s *RecommendationService) getHiddenGems(limit int) []models.Media {
+	var media []models.Media
+	s.db.Preload("Genres").
+		Where("rating > ? AND view_count < ? AND type != ?", 7.5, 30, "episode").
+		Order("rating DESC, created_at DESC").
+		Limit(limit).
+		Find(&media)
+	return media
+}
+
+func (s *RecommendationService) getRandomQualityMix(limit int) []models.Media {
+	var media []models.Media
+	
+	// Seed random with current time for variety
+	rand.Seed(time.Now().UnixNano())
+	
+	qualities := []string{"4K", "1080p", "HD", "720p"}
+	for _, quality := range qualities {
+		var qualityMedia []models.Media
+		s.db.Preload("Genres").
+			Where("quality ILIKE ? AND type != ?", "%"+quality+"%", "episode").
+			Order("RANDOM()").
+			Limit(limit / len(qualities)).
+			Find(&qualityMedia)
+		media = append(media, qualityMedia...)
+	}
+	
+	return s.shuffleMedia(media)
+}
+
+// Session management methods
+
+func (s *RecommendationService) cleanSessionCache() {
+	// Remove sessions older than 1 hour
+	// In a real implementation, you'd track session timestamps
+	if time.Since(s.lastRefresh) > time.Hour {
+		s.sessionCache = make(map[string][]uint)
+		s.lastRefresh = time.Now()
+	}
+}
+
+func (s *RecommendationService) filterSessionContent(media []models.Media, sessionID string) []models.Media {
+	if sessionID == "" {
+		return media
+	}
+	
+	shownIDs := s.sessionCache[sessionID]
+	if len(shownIDs) == 0 {
+		return media
+	}
+	
+	var filtered []models.Media
+	for _, item := range media {
+		shown := false
+		for _, shownID := range shownIDs {
+			if item.ID == shownID {
+				shown = true
+				break
+			}
+		}
+		if !shown {
+			filtered = append(filtered, item)
+		}
+	}
+	
+	return filtered
+}
+
+func (s *RecommendationService) trackSessionContent(media []models.Media, sessionID string) {
+	if sessionID == "" {
+		return
+	}
+	
+	for _, item := range media {
+		s.sessionCache[sessionID] = append(s.sessionCache[sessionID], item.ID)
+	}
+	
+	// Limit session cache size
+	if len(s.sessionCache[sessionID]) > 200 {
+		s.sessionCache[sessionID] = s.sessionCache[sessionID][50:] // Keep last 150
+	}
+}
+
+func (s *RecommendationService) shuffleMedia(media []models.Media) []models.Media {
+	rand.Seed(time.Now().UnixNano())
+	for i := len(media) - 1; i > 0; i-- {
+		j := rand.Intn(i + 1)
+		media[i], media[j] = media[j], media[i]
+	}
+	return media
+}
+
+// Additional helper methods for specific algorithms
+
+func (s *RecommendationService) getMostViewedRecent(days, limit int) []models.Media {
+	var media []models.Media
+	cutoff := time.Now().AddDate(0, 0, -days)
+	s.db.Preload("Genres").
+		Where("last_viewed > ? AND type != ?", cutoff, "episode").
+		Order("view_count DESC, last_viewed DESC").
+		Limit(limit).
+		Find(&media)
+	return media
+}
+
+func (s *RecommendationService) getRecentlyAddedTrending(limit int) []models.Media {
+	var media []models.Media
+	cutoff := time.Now().AddDate(0, 0, -30) // Last 30 days
+	s.db.Preload("Genres").
+		Where("created_at > ? AND view_count > ? AND type != ?", cutoff, 5, "episode").
+		Order("view_count DESC, created_at DESC").
+		Limit(limit).
+		Find(&media)
+	return media
+}
+
+func (s *RecommendationService) getTrendingByGenre(genre string, limit int) []models.Media {
+	var media []models.Media
+	s.db.Preload("Genres").
+		Joins("JOIN media_genres ON media.id = media_genres.media_id").
+		Joins("JOIN genres ON media_genres.genre_id = genres.id").
+		Where("genres.name ILIKE ? AND media.view_count > ? AND media.type != ?", "%"+genre+"%", 10, "episode").
+		Order("media.view_count DESC, media.last_viewed DESC").
+		Limit(limit).
+		Find(&media)
+	return media
+}
+
+func (s *RecommendationService) getHighRatedRecent(limit int) []models.Media {
+	var media []models.Media
+	cutoff := time.Now().AddDate(0, 0, -60) // Last 60 days
+	s.db.Preload("Genres").
+		Where("created_at > ? AND rating > ? AND type != ?", cutoff, 7.0, "episode").
+		Order("rating DESC, created_at DESC").
+		Limit(limit).
+		Find(&media)
+	return media
+}
+
+func (s *RecommendationService) getPopularByYear(year, limit int) []models.Media {
+	var media []models.Media
+	s.db.Preload("Genres").
+		Where("year = ? AND view_count > ? AND type != ?", year, 5, "episode").
+		Order("view_count DESC, rating DESC").
+		Limit(limit).
+		Find(&media)
+	return media
+}
+
+func (s *RecommendationService) getTrendingMoviesOnly(limit int) []models.Media {
+	var media []models.Media
+	s.db.Preload("Genres").
+		Where("type = ? AND view_count > ?", "movie", 10).
+		Order("view_count DESC, last_viewed DESC").
+		Limit(limit).
+		Find(&media)
+	return media
+}
+
+func (s *RecommendationService) getTrendingSeriesOnly(limit int) []models.Media {
+	var media []models.Media
+	s.db.Preload("Genres").
+		Where("(type = ? OR type = ?) AND view_count > ?", "series", "tv", 10).
+		Order("view_count DESC, last_viewed DESC").
+		Limit(limit).
+		Find(&media)
+	return media
+}
+
+// Additional missing helper methods
+
+func (s *RecommendationService) getAllTimePopular(limit int) []models.Media {
+	var media []models.Media
+	s.db.Preload("Genres").
+		Where("view_count > ? AND type != ?", 20, "episode").
+		Order("view_count DESC, rating DESC").
+		Limit(limit).
+		Find(&media)
+	return media
+}
+
+func (s *RecommendationService) getPopularByGenre(genre string, limit int) []models.Media {
+	var media []models.Media
+	s.db.Preload("Genres").
+		Joins("JOIN media_genres ON media.id = media_genres.media_id").
+		Joins("JOIN genres ON media_genres.genre_id = genres.id").
+		Where("genres.name ILIKE ? AND media.view_count > ? AND media.type != ?", "%"+genre+"%", 15, "episode").
+		Order("media.view_count DESC, media.rating DESC").
+		Limit(limit).
+		Find(&media)
+	return media
+}
+
+func (s *RecommendationService) getPopularRecentReleases(limit int) []models.Media {
+	var media []models.Media
+	cutoff := time.Now().AddDate(-2, 0, 0) // Last 2 years
+	s.db.Preload("Genres").
+		Where("created_at > ? AND view_count > ? AND type != ?", cutoff, 10, "episode").
+		Order("view_count DESC, created_at DESC").
+		Limit(limit).
+		Find(&media)
+	return media
+}
+
+func (s *RecommendationService) getPopularHighRated(limit int) []models.Media {
+	var media []models.Media
+	s.db.Preload("Genres").
+		Where("rating > ? AND view_count > ? AND type != ?", 7.5, 15, "episode").
+		Order("rating DESC, view_count DESC").
+		Limit(limit).
+		Find(&media)
+	return media
+}
+
+func (s *RecommendationService) getPopularMoviesFocus(limit int) []models.Media {
+	var media []models.Media
+	s.db.Preload("Genres").
+		Where("type = ? AND view_count > ?", "movie", 10).
+		Order("view_count DESC, rating DESC").
+		Limit(limit).
+		Find(&media)
+	return media
+}
+
+func (s *RecommendationService) getPopularSeriesFocus(limit int) []models.Media {
+	var media []models.Media
+	s.db.Preload("Genres").
+		Where("(type = ? OR type = ?) AND view_count > ?", "series", "tv", 10).
+		Order("view_count DESC, rating DESC").
+		Limit(limit).
+		Find(&media)
+	return media
+}
+
+func (s *RecommendationService) getPopularByDecade(decade, limit int) []models.Media {
+	var media []models.Media
+	s.db.Preload("Genres").
+		Where("year BETWEEN ? AND ? AND view_count > ? AND type != ?", decade, decade+9, 10, "episode").
+		Order("view_count DESC, rating DESC").
+		Limit(limit).
+		Find(&media)
+	return media
+}
+
+func (s *RecommendationService) getLatestAdded(limit int) []models.Media {
+	var media []models.Media
+	s.db.Preload("Genres").
+		Where("type != ?", "episode").
+		Order("created_at DESC").
+		Limit(limit).
+		Find(&media)
+	return media
+}
+
+func (s *RecommendationService) getRecentHighRated(limit int) []models.Media {
+	var media []models.Media
+	cutoff := time.Now().AddDate(0, 0, -90) // Last 90 days
+	s.db.Preload("Genres").
+		Where("created_at > ? AND rating > ? AND type != ?", cutoff, 7.0, "episode").
+		Order("rating DESC, created_at DESC").
+		Limit(limit).
+		Find(&media)
+	return media
+}
+
+func (s *RecommendationService) getRecentByGenre(genre string, limit int) []models.Media {
+	var media []models.Media
+	cutoff := time.Now().AddDate(0, 0, -60) // Last 60 days
+	s.db.Preload("Genres").
+		Joins("JOIN media_genres ON media.id = media_genres.media_id").
+		Joins("JOIN genres ON media_genres.genre_id = genres.id").
+		Where("genres.name ILIKE ? AND media.created_at > ? AND media.type != ?", "%"+genre+"%", cutoff, "episode").
+		Order("media.created_at DESC, media.rating DESC").
+		Limit(limit).
+		Find(&media)
+	return media
+}
+
+func (s *RecommendationService) getRecentMoviesOnly(limit int) []models.Media {
+	var media []models.Media
+	cutoff := time.Now().AddDate(0, 0, -45) // Last 45 days
+	s.db.Preload("Genres").
+		Where("type = ? AND created_at > ?", "movie", cutoff).
+		Order("created_at DESC, rating DESC").
+		Limit(limit).
+		Find(&media)
+	return media
+}
+
+func (s *RecommendationService) getRecentSeriesOnly(limit int) []models.Media {
+	var media []models.Media
+	cutoff := time.Now().AddDate(0, 0, -45) // Last 45 days
+	s.db.Preload("Genres").
+		Where("(type = ? OR type = ?) AND created_at > ?", "series", "tv", cutoff).
+		Order("created_at DESC, rating DESC").
+		Limit(limit).
+		Find(&media)
+	return media
+}
+
+func (s *RecommendationService) getRecentPopular(limit int) []models.Media {
+	var media []models.Media
+	cutoff := time.Now().AddDate(0, 0, -30) // Last 30 days
+	s.db.Preload("Genres").
+		Where("created_at > ? AND view_count > ? AND type != ?", cutoff, 5, "episode").
+		Order("view_count DESC, created_at DESC").
+		Limit(limit).
+		Find(&media)
+	return media
+}
+
+func (s *RecommendationService) getRecentQualityMix(limit int) []models.Media {
+	var media []models.Media
+	cutoff := time.Now().AddDate(0, 0, -60) // Last 60 days
+	qualities := []string{"4K", "1080p", "HD"}
+	
+	for _, quality := range qualities {
+		var qualityMedia []models.Media
+		s.db.Preload("Genres").
+			Where("quality ILIKE ? AND created_at > ? AND type != ?", "%"+quality+"%", cutoff, "episode").
+			Order("created_at DESC, rating DESC").
+			Limit(limit / len(qualities)).
+			Find(&qualityMedia)
+		media = append(media, qualityMedia...)
+	}
+	
+	return s.shuffleMedia(media)
+}
+
+func (s *RecommendationService) getRecentDiverseGenres(limit int) []models.Media {
+	var media []models.Media
+	cutoff := time.Now().AddDate(0, 0, -45) // Last 45 days
+	genres := []string{"Action", "Drama", "Comedy", "Sci-Fi", "Thriller", "Horror", "Romance"}
+	
+	for _, genre := range genres {
+		var genreMedia []models.Media
+		s.db.Preload("Genres").
+			Joins("JOIN media_genres ON media.id = media_genres.media_id").
+			Joins("JOIN genres ON media_genres.genre_id = genres.id").
+			Where("genres.name ILIKE ? AND media.created_at > ? AND media.type != ?", "%"+genre+"%", cutoff, "episode").
+			Order("media.created_at DESC").
+			Limit(limit / len(genres)).
+			Find(&genreMedia)
+		media = append(media, genreMedia...)
+	}
+	
+	return s.shuffleMedia(media)
+}
+
+func (s *RecommendationService) getPersonalizedByGenre(userID uint, limit int) []models.Media {
+	// Get user's preferred genres from viewing history
+	var viewHistory []models.ViewHistory
+	s.db.Preload("Media").Preload("Media.Genres").
+		Where("user_id = ?", userID).
+		Order("watched_at DESC").
+		Limit(20).
+		Find(&viewHistory)
+	
+	genrePrefs := make(map[string]int)
+	for _, history := range viewHistory {
+		for _, genre := range history.Media.Genres {
+			genrePrefs[genre.Name]++
+		}
+	}
+	
+	// Get top genres
+	var topGenres []string
+	for genre := range genrePrefs {
+		topGenres = append(topGenres, genre)
+		if len(topGenres) >= 3 {
+			break
+		}
+	}
+	
+	if len(topGenres) == 0 {
+		return s.getLatestHighRated(limit)
+	}
+	
+	var media []models.Media
+	for _, genre := range topGenres {
+		var genreMedia []models.Media
+		s.db.Preload("Genres").
+			Joins("JOIN media_genres ON media.id = media_genres.media_id").
+			Joins("JOIN genres ON media_genres.genre_id = genres.id").
+			Where("genres.name ILIKE ? AND media.type != ?", "%"+genre+"%", "episode").
+			Where("media.id NOT IN (?)", s.getWatchedMediaIDs(userID)).
+			Order("media.rating DESC, media.created_at DESC").
+			Limit(limit / len(topGenres)).
+			Find(&genreMedia)
+		media = append(media, genreMedia...)
+	}
+	
+	return s.shuffleMedia(media)
+}
+
+func (s *RecommendationService) getPersonalizedByYear(userID uint, limit int) []models.Media {
+	// Get user's preferred years from viewing history
+	var viewHistory []models.ViewHistory
+	s.db.Preload("Media").
+		Where("user_id = ?", userID).
+		Order("watched_at DESC").
+		Limit(20).
+		Find(&viewHistory)
+	
+	yearPrefs := make(map[int]int)
+	for _, history := range viewHistory {
+		if history.Media.Year > 0 {
+			yearPrefs[history.Media.Year]++
+		}
+	}
+	
+	// Default to recent years if no history
+	if len(yearPrefs) == 0 {
+		return s.getYearBasedContent(2020, 2024, limit)
+	}
+	
+	// Get most preferred year range
+	var bestYear int
+	maxCount := 0
+	for year, count := range yearPrefs {
+		if count > maxCount {
+			maxCount = count
+			bestYear = year
+		}
+	}
+	
+	// Get content from preferred year range (±3 years)
+	var media []models.Media
+	s.db.Preload("Genres").
+		Where("year BETWEEN ? AND ? AND type != ?", bestYear-3, bestYear+3, "episode").
+		Where("id NOT IN (?)", s.getWatchedMediaIDs(userID)).
+		Order("rating DESC, view_count DESC").
+		Limit(limit).
+		Find(&media)
+	
+	return media
+}
+
+func (s *RecommendationService) getPersonalizedByRating(userID uint, limit int) []models.Media {
+	// Get user's rating preferences
+	var userRatings []models.UserRating
+	s.db.Preload("Media").Preload("Media.Genres").
+		Where("user_id = ?", userID).
+		Order("rating DESC").
+		Find(&userRatings)
+	
+	avgRating := 7.0 // Default
+	if len(userRatings) > 0 {
+		sum := 0.0
+		for _, rating := range userRatings {
+			sum += float64(rating.Rating)
+		}
+		avgRating = sum / float64(len(userRatings))
+	}
+	
+	var media []models.Media
+	s.db.Preload("Genres").
+		Where("rating >= ? AND type != ?", avgRating-0.5, "episode").
+		Where("id NOT IN (?)", s.getWatchedMediaIDs(userID)).
+		Order("rating DESC, view_count DESC").
+		Limit(limit).
+		Find(&media)
+	
+	return media
+}
+
+func (s *RecommendationService) getPersonalizedDiscovery(userID uint, limit int) []models.Media {
+	// Get genres user hasn't explored much
+	watchedGenres := make(map[string]bool)
+	var viewHistory []models.ViewHistory
+	s.db.Preload("Media").Preload("Media.Genres").
+		Where("user_id = ?", userID).
+		Find(&viewHistory)
+	
+	for _, history := range viewHistory {
+		for _, genre := range history.Media.Genres {
+			watchedGenres[genre.Name] = true
+		}
+	}
+	
+	// Get all available genres
+	var allGenres []models.Genre
+	s.db.Find(&allGenres)
+	
+	var unexploredGenres []string
+	for _, genre := range allGenres {
+		if !watchedGenres[genre.Name] {
+			unexploredGenres = append(unexploredGenres, genre.Name)
+		}
+	}
+	
+	if len(unexploredGenres) == 0 {
+		return s.getLatestHighRated(limit)
+	}
+	
+	// Get content from unexplored genres
+	var media []models.Media
+	for i, genre := range unexploredGenres {
+		if i >= 3 { // Limit to 3 genres
+			break
+		}
+		var genreMedia []models.Media
+		s.db.Preload("Genres").
+			Joins("JOIN media_genres ON media.id = media_genres.media_id").
+			Joins("JOIN genres ON media_genres.genre_id = genres.id").
+			Where("genres.name = ? AND media.rating > ? AND media.type != ?", genre, 7.0, "episode").
+			Order("media.rating DESC").
+			Limit(limit / 3).
+			Find(&genreMedia)
+		media = append(media, genreMedia...)
+	}
+	
+	return s.shuffleMedia(media)
+}
+
+func (s *RecommendationService) getBalancedPersonalized(userID uint, limit int) []models.Media {
+	var allMedia []models.Media
+	
+	// 40% personalized recommendations
+	if personalizedMedia, err := s.GetRecommendationsForUser(userID, limit*40/100); err == nil {
+		allMedia = append(allMedia, personalizedMedia...)
+	}
+	
+	// 30% similar media
+	if similarMedia, err := s.GetSimilarMedia(userID, limit*30/100); err == nil {
+		// Filter duplicates
+		existingIDs := make(map[uint]bool)
+		for _, item := range allMedia {
+			existingIDs[item.ID] = true
+		}
+		
+		for _, item := range similarMedia {
+			if !existingIDs[item.ID] && len(allMedia) < limit {
+				allMedia = append(allMedia, item)
+				existingIDs[item.ID] = true
+			}
+		}
+	}
+	
+	// 30% trending content
+	if trendingMedia, err := s.GetTrendingRecommendations(limit*30/100); err == nil {
+		existingIDs := make(map[uint]bool)
+		for _, item := range allMedia {
+			existingIDs[item.ID] = true
+		}
+		
+		for _, item := range trendingMedia {
+			if !existingIDs[item.ID] && len(allMedia) < limit {
+				allMedia = append(allMedia, item)
+			}
+		}
+	}
+	
+	return s.shuffleMedia(allMedia)
 }
