@@ -1339,6 +1339,11 @@ export default function MoviePage() {
           isOpen={isPlayerOpen}
           onClose={handlePlayerClose}
           startTime={hasWatchedBefore && playbackProgress > 0 ? playbackProgress : 0}
+          onPlayNext={(nextMedia) => {
+            console.log('Playing next episode:', nextMedia.title);
+            // For movies, this would typically not be used, but we'll handle it gracefully
+            window.location.href = `/movie/${nextMedia.id}`;
+          }}
         />
       )}
     </div>

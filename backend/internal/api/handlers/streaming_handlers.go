@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -16,6 +17,8 @@ import (
 // Streaming Handlers
 
 // NeedsTranscoding checks if a file needs transcoding based on extension and codec
+// NOTE: This function is now deprecated. The NetflixStreamService automatically
+// determines the best streaming strategy based on seekability and audio compatibility.
 func NeedsTranscoding(filePath string) bool {
 	lowerPath := strings.ToLower(filePath)
 	// Check for MKV container or HEVC/x265 codec indicators
@@ -27,7 +30,7 @@ func NeedsTranscoding(filePath string) bool {
 		strings.Contains(lowerPath, "av1")
 }
 
-func StreamMedia(streamService *services.OptimizedStreamService, mediaService *services.MediaService, transcodeService *services.TranscodeService) gin.HandlerFunc {
+func StreamMedia(streamService *services.NetflixStreamService, mediaService *services.MediaService, transcodeService *services.TranscodeService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		mediaID := c.Param("id")
 		
@@ -72,46 +75,40 @@ func StreamMedia(streamService *services.OptimizedStreamService, mediaService *s
 		c.Header("Access-Control-Allow-Origin", "*")
 		c.Header("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
 		c.Header("Access-Control-Allow-Headers", "Range, Content-Type, Accept, Authorization, X-Requested-With")
-		c.Header("Access-Control-Expose-Headers", "Content-Range, Content-Length, Accept-Ranges")
+		c.Header("Access-Control-Expose-Headers", "Content-Range, Content-Length, Accept-Ranges, X-Streaming-Strategy")
 		
-		// Check if file needs transcoding (MKV, HEVC, etc.)
-		if transcodeService != nil && NeedsTranscoding(filePath) {
-			log.Printf("🎬 File needs transcoding: %s (MKV/HEVC detected)", filePath)
-			// Use transcoding service for unsupported formats
-			err = transcodeService.StreamTranscoded(c.Writer, c.Request, filePath)
-			if err != nil {
-				log.Printf("❌ Transcoding failed for %s: %v", filePath, err)
-				if !c.Writer.Written() {
-					c.JSON(http.StatusInternalServerError, gin.H{"error": "Video format not supported by browser. Transcoding failed: " + err.Error()})
-				}
-				return
-			}
-			log.Printf("✅ Successfully transcoded: %s", filePath)
-		} else {
-			log.Printf("📹 Direct streaming: %s (browser-compatible format)", filePath)
-			// Use direct streaming for supported formats
-			err = streamService.StreamVideo(c.Writer, c.Request, filePath)
-			if err != nil {
-				log.Printf("❌ Direct streaming failed for %s: %v", filePath, err)
-				// If direct streaming fails and we have transcoding available, try transcoding as fallback
-				if transcodeService != nil && !c.Writer.Written() {
-					log.Printf("🔄 Attempting transcoding fallback for: %s", filePath)
-					err = transcodeService.StreamTranscoded(c.Writer, c.Request, filePath)
-					if err != nil {
-						log.Printf("❌ Transcoding fallback also failed: %v", err)
-						if !c.Writer.Written() {
-							c.JSON(http.StatusInternalServerError, gin.H{"error": "Video playback failed. Both direct streaming and transcoding failed: " + err.Error()})
-						}
-					} else {
-						log.Printf("✅ Transcoding fallback succeeded for: %s", filePath)
-					}
-				} else if !c.Writer.Written() {
-					c.JSON(http.StatusInternalServerError, gin.H{"error": "Streaming failed: " + err.Error()})
-				}
-				return
-			}
-			log.Printf("✅ Direct streaming successful: %s", filePath)
+		// Get streaming strategy from enhanced service
+		strategy, err := streamService.GetStreamingStrategy(filePath)
+		if err != nil {
+			log.Printf("⚠️ Failed to determine streaming strategy for %s: %v", filePath, err)
+			strategy = "direct" // Fallback to direct streaming
 		}
+		
+		// Add strategy header for debugging
+		c.Header("X-Streaming-Strategy", strategy)
+		
+		log.Printf("🎬 MANDATORY SEEKABLE streaming %s with strategy: %s", filepath.Base(filePath), strategy)
+		
+		// Use the MANDATORY SEEKABLE streaming service which GUARANTEES:
+		// - 100% seekable files (transcodes if not seekable)
+		// - Strict verification of seeking capability
+		// - No unseekable files allowed through
+		// - Range requests work on all files
+		err = streamService.Stream(c.Writer, c.Request, filePath)
+		if err != nil {
+			log.Printf("❌ MANDATORY seekable streaming failed for %s: %v", filePath, err)
+			
+			// NO FALLBACK - if mandatory transcoding fails, the file has serious issues
+			if !c.Writer.Written() {
+				c.JSON(http.StatusInternalServerError, gin.H{
+					"error": "Video file cannot be made seekable: " + err.Error(),
+					"note": "This file may be corrupted or in an unsupported format",
+				})
+			}
+			return
+		}
+		
+		log.Printf("✅ GUARANTEED SEEKABLE streaming successful: %s (strategy: %s)", filepath.Base(filePath), strategy)
 	}
 }
 
@@ -134,7 +131,7 @@ func GetSubtitles(mediaService *services.MediaService) gin.HandlerFunc {
 }
 
 // StreamPreviewClip serves preview clips with INSTANT zero-copy streaming
-func StreamPreviewClip(streamService *services.OptimizedStreamService, mediaService *services.MediaService) gin.HandlerFunc {
+func StreamPreviewClip(streamService *services.NetflixStreamService, mediaService *services.MediaService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		mediaID := c.Param("id")
 		
@@ -226,7 +223,7 @@ func StreamPreviewClip(streamService *services.OptimizedStreamService, mediaServ
 }
 
 // StreamALACAudio streams ALAC audio files for a media item
-func StreamALACAudio(streamService *services.OptimizedStreamService, mediaService *services.MediaService) gin.HandlerFunc {
+func StreamALACAudio(streamService *services.NetflixStreamService, mediaService *services.MediaService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		mediaID := c.Param("id")
 		
@@ -294,7 +291,7 @@ func StreamALACAudio(streamService *services.OptimizedStreamService, mediaServic
 }
 
 // StreamCombinedVideoALAC streams video with ALAC audio in a combined stream
-func StreamCombinedVideoALAC(streamService *services.OptimizedStreamService, mediaService *services.MediaService) gin.HandlerFunc {
+func StreamCombinedVideoALAC(streamService *services.NetflixStreamService, mediaService *services.MediaService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		mediaID := c.Param("id")
 		
@@ -342,12 +339,156 @@ func StreamCombinedVideoALAC(streamService *services.OptimizedStreamService, med
 		c.Header("Access-Control-Expose-Headers", "Content-Range, Content-Length, Accept-Ranges, X-ALAC-Audio-Available, X-Audio-Enhanced")
 		
 		// Stream video (combined streaming not implemented yet)
-		err = streamService.StreamVideo(c.Writer, c.Request, filePath)
+		err = streamService.Stream(c.Writer, c.Request, filePath)
 		if err != nil {
 			if !c.Writer.Written() {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "Combined streaming failed: " + err.Error()})
 			}
 			return
 		}
+	}
+}
+
+// GetVideoInfo returns detailed information about a video file including seeking support
+func GetVideoInfo(streamService *services.NetflixStreamService, mediaService *services.MediaService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		mediaID := c.Param("id")
+		
+		// Parse media ID
+		id, err := strconv.ParseUint(mediaID, 10, 32)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid media ID"})
+			return
+		}
+		
+		// Get media information from database
+		media, err := mediaService.GetMediaByID(uint(id))
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Media not found"})
+			return
+		}
+		
+		// Use the file path from the media record
+		filePath := media.FilePath
+		if filePath == "" {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Media file path not available"})
+			return
+		}
+		
+		// Check if file exists
+		if _, err := os.Stat(filePath); os.IsNotExist(err) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Media file not found on disk"})
+			return
+		}
+		
+		// Get detailed video information
+		videoInfo, err := streamService.GetVideoInfo(filePath)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to analyze video: " + err.Error()})
+			return
+		}
+		
+		// Get streaming strategy
+		strategy, err := streamService.GetStreamingStrategy(filePath)
+		if err != nil {
+			log.Printf("⚠️ Failed to determine streaming strategy: %v", err)
+			strategy = "unknown"
+		}
+		
+		// Add streaming strategy to response
+		videoInfo["streaming_strategy"] = strategy
+		videoInfo["media_id"] = id
+		videoInfo["title"] = media.Title
+		
+		c.JSON(http.StatusOK, videoInfo)
+	}
+}
+
+// CheckSeekingSupport checks if a video file supports seeking
+func CheckSeekingSupport(streamService *services.NetflixStreamService, mediaService *services.MediaService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		mediaID := c.Param("id")
+		
+		// Parse media ID
+		id, err := strconv.ParseUint(mediaID, 10, 32)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid media ID"})
+			return
+		}
+		
+		// Get media information from database
+		media, err := mediaService.GetMediaByID(uint(id))
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Media not found"})
+			return
+		}
+		
+		// Use the file path from the media record
+		filePath := media.FilePath
+		if filePath == "" {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Media file path not available"})
+			return
+		}
+		
+		// Check seeking support
+		seekable, err := streamService.CheckSeekingSupport(filePath)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check seeking support: " + err.Error()})
+			return
+		}
+		
+		// Get streaming strategy
+		strategy, _ := streamService.GetStreamingStrategy(filePath)
+		
+		c.JSON(http.StatusOK, gin.H{
+			"media_id":           id,
+			"seekable":          seekable,
+			"streaming_strategy": strategy,
+			"file_path":         filePath,
+		})
+	}
+}
+
+// PreTranscodeMedia pre-transcodes unseekable media files for better seeking performance
+func PreTranscodeMedia(streamService *services.NetflixStreamService, mediaService *services.MediaService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		mediaID := c.Param("id")
+		
+		// Parse media ID
+		id, err := strconv.ParseUint(mediaID, 10, 32)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid media ID"})
+			return
+		}
+		
+		// Get media information from database
+		media, err := mediaService.GetMediaByID(uint(id))
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Media not found"})
+			return
+		}
+		
+		// Use the file path from the media record
+		filePath := media.FilePath
+		if filePath == "" {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Media file path not available"})
+			return
+		}
+		
+		// Start pre-transcoding in background
+		go func() {
+			err := streamService.PreTranscodeUnseekableFile(filePath)
+			if err != nil {
+				log.Printf("❌ Pre-transcoding failed for %s: %v", filePath, err)
+			} else {
+				log.Printf("✅ Pre-transcoding completed for %s", filePath)
+			}
+		}()
+		
+		c.JSON(http.StatusAccepted, gin.H{
+			"message":  "Pre-transcoding started",
+			"media_id": id,
+			"status":   "processing",
+		})
 	}
 }

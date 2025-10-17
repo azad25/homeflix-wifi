@@ -41,6 +41,15 @@ export default function TVSeries() {
       const response = await fetch(`${apiUrl}/api/media`);
       const allMedia = await response.json();
 
+      // Helper function to extract season number
+      const extractSeasonNumber = (title: string): number | null => {
+        const seasonMatch = title.match(/[Ss](\d+)[Ee](\d+)|[Ss]eason\s*(\d+)/i);
+        if (seasonMatch) {
+          return parseInt(seasonMatch[1] || seasonMatch[3]);
+        }
+        return null;
+      };
+
       // Filter for TV series/episodes only
       const allSeries = allMedia.filter((item: Media) => 
         item.type === 'episode' || 
@@ -48,6 +57,44 @@ export default function TVSeries() {
         item.title.toLowerCase().includes('series') ||
         item.title.toLowerCase().includes('episode')
       );
+
+      // Group episodes by series to create series objects with seasons
+      const seriesMap = new Map<string | number, any>();
+      allSeries.forEach((ep: Media) => {
+        const sid = ep.series_id ?? ep.series?.id ?? ep.id;
+        const title = (ep.series?.title || ep.title || 'Untitled Series').replace(/\s*-\s*S\d+E\d+.*$/i, '');
+
+        if (!seriesMap.has(sid)) {
+          seriesMap.set(sid, {
+            id: sid,
+            title,
+            description: ep.series?.description || ep.description || '',
+            rating: ep.rating || 0,
+            genres: ep.genres || [],
+            episodes: [],
+            seasons: new Map<number, any>()
+          });
+        }
+
+        const series = seriesMap.get(sid)!;
+        series.episodes.push(ep);
+
+        // Extract season info
+        const seasonNum = extractSeasonNumber(ep.title) || 1;
+        if (!series.seasons.has(seasonNum)) {
+          series.seasons.set(seasonNum, {
+            season_number: seasonNum,
+            episodes: []
+          });
+        }
+        series.seasons.get(seasonNum)!.episodes.push(ep);
+      });
+
+      // Convert series map to array and process seasons
+      const processedSeries = Array.from(seriesMap.values()).map(series => ({
+        ...series,
+        seasons: Array.from(series.seasons.values()).sort((a: any, b: any) => a.season_number - b.season_number)
+      }));
 
       // Get high-quality series for hero section
       // Try to get TV series recommendations from enhanced backend
@@ -97,32 +144,85 @@ export default function TVSeries() {
           .slice(0, 10);
       }
 
+      // Use processed series for better thumbnails, but fallback to episodes for hero
       const featuredSelection = highQualitySeries
         .sort((a: Media, b: Media) => (b.rating || 0) - (a.rating || 0))
-        .slice(0, 8);
+        .slice(0, 8)
+        .map(episode => {
+          // Find the series this episode belongs to and use random season thumbnail
+          const parentSeries = processedSeries.find(s => 
+            s.episodes.some((ep: Media) => ep.id === episode.id)
+          );
+          
+          if (parentSeries && parentSeries.seasons.length > 0) {
+            // Get random season thumbnail
+            const randomSeason = parentSeries.seasons[Math.floor(Math.random() * parentSeries.seasons.length)];
+            if (randomSeason.episodes.length > 0) {
+              const randomEpisode = randomSeason.episodes[Math.floor(Math.random() * randomSeason.episodes.length)];
+              return {
+                ...episode,
+                thumbnail_path: randomEpisode.thumbnail_path,
+                series_info: parentSeries
+              };
+            }
+          }
+          
+          return episode;
+        });
 
       setFeaturedSeries(featuredSelection.length > 0 ? featuredSelection : allSeries.slice(0, 8));
       
+      // Helper function to add random season thumbnails
+      const addRandomSeasonThumbnails = (episodes: Media[]) => {
+        return episodes.map(episode => {
+          const parentSeries = processedSeries.find(s => 
+            s.episodes.some((ep: Media) => ep.id === episode.id)
+          );
+          
+          if (parentSeries && parentSeries.seasons.length > 0) {
+            const randomSeason = parentSeries.seasons[Math.floor(Math.random() * parentSeries.seasons.length)];
+            if (randomSeason.episodes.length > 0) {
+              const randomEpisode = randomSeason.episodes[Math.floor(Math.random() * randomSeason.episodes.length)];
+              return {
+                ...episode,
+                thumbnail_path: randomEpisode.thumbnail_path,
+                series_info: parentSeries
+              };
+            }
+          }
+          
+          return episode;
+        });
+      };
+
       // Popular series (most viewed)
-      const popularSeriesData = allSeries
-        .sort((a: Media, b: Media) => (b.view_count || 0) - (a.view_count || 0))
-        .slice(0, 20);
+      const popularSeriesData = addRandomSeasonThumbnails(
+        allSeries
+          .sort((a: Media, b: Media) => (b.view_count || 0) - (a.view_count || 0))
+          .slice(0, 20)
+      );
       setPopularSeries(popularSeriesData);
       
       // Trending series (highest rated)
-      const trendingSeriesData = allSeries
-        .sort((a: Media, b: Media) => (b.rating || 0) - (a.rating || 0))
-        .slice(0, 20);
+      const trendingSeriesData = addRandomSeasonThumbnails(
+        allSeries
+          .sort((a: Media, b: Media) => (b.rating || 0) - (a.rating || 0))
+          .slice(0, 20)
+      );
       setTrendingSeries(trendingSeriesData);
       
       // Filter by genres if available
-      setComedySeries(allSeries.filter((item: Media) => 
-        item.genres?.some(genre => genre.name.toLowerCase().includes('comedy'))
-      ).slice(0, 20));
+      setComedySeries(addRandomSeasonThumbnails(
+        allSeries.filter((item: Media) => 
+          item.genres?.some(genre => genre.name.toLowerCase().includes('comedy'))
+        ).slice(0, 20)
+      ));
       
-      setDramaSeries(allSeries.filter((item: Media) => 
-        item.genres?.some(genre => genre.name.toLowerCase().includes('drama'))
-      ).slice(0, 20));
+      setDramaSeries(addRandomSeasonThumbnails(
+        allSeries.filter((item: Media) => 
+          item.genres?.some(genre => genre.name.toLowerCase().includes('drama'))
+        ).slice(0, 20)
+      ));
 
       // Preload assets for better performance
       if (allSeries.length > 0) {
@@ -255,6 +355,11 @@ export default function TVSeries() {
           isOpen={isPlayerOpen}
           onClose={() => setIsPlayerOpen(false)}
           startTime={0}
+          onPlayNext={(nextMedia) => {
+            console.log('Playing next episode:', nextMedia.title);
+            setSelectedMedia(nextMedia);
+            // Keep player open and switch to next episode
+          }}
         />
       )}
     </div>

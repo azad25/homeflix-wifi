@@ -61,14 +61,13 @@ export default function TVSeriesPage() {
   const [isVideoPlaying, setIsVideoPlaying] = useState(false);
   const [showTitleOverlay, setShowTitleOverlay] = useState(true);
   const [isHoveringTitle, setIsHoveringTitle] = useState(false);
-  const [continueWatching, setContinueWatching] = useState<{episode: Media, progress: number} | null>(null);
+  const [continueWatching, setContinueWatching] = useState<{ episode: Media, progress: number } | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
     if (params.id) {
       fetchSeriesData();
       checkMyList();
-      loadContinueWatching();
     }
   }, [params.id]);
 
@@ -84,26 +83,87 @@ export default function TVSeriesPage() {
   const fetchSeriesData = async () => {
     try {
       const apiUrl = getApiUrl();
-      
-      // Get series info
-      const seriesResponse = await fetch(`${apiUrl}/api/media/${params.id}`);
-      const seriesData = await seriesResponse.json();
+      console.log('🔍 Fetching series data for ID:', params.id);
+
+      // First try to get series info from the series API
+      let seriesData = null;
+      try {
+        const seriesResponse = await fetch(`${apiUrl}/api/series/${params.id}`);
+        if (seriesResponse.ok) {
+          seriesData = await seriesResponse.json();
+          console.log('✅ Found series data:', seriesData);
+        }
+      } catch (error) {
+        console.warn('Series API not available, trying media API');
+      }
+
+      // If no series found, try to get it from media API
+      if (!seriesData) {
+        try {
+          const mediaResponse = await fetch(`${apiUrl}/api/media/${params.id}`);
+          if (mediaResponse.ok) {
+            seriesData = await mediaResponse.json();
+            console.log('✅ Found media data:', seriesData);
+          }
+        } catch (error) {
+          console.warn('Media API failed:', error);
+        }
+      }
+
+      // If still no series data, try to build it from episodes
+      if (!seriesData) {
+        console.log('🔍 Building series data from episodes...');
+        const allMediaResponse = await fetch(`${apiUrl}/api/media`);
+        const allMedia = await allMediaResponse.json();
+
+        // Find episodes that might belong to this series
+        const possibleEpisodes = allMedia.filter((media: Media) =>
+          media.type === 'episode' && (
+            media.series_id?.toString() === params.id?.toString() ||
+            media.id?.toString() === params.id?.toString()
+          )
+        );
+
+        if (possibleEpisodes.length > 0) {
+          // Create series data from first episode
+          const firstEpisode = possibleEpisodes[0];
+          seriesData = {
+            id: params.id,
+            title: firstEpisode.series?.title || firstEpisode.title.replace(/\s*-\s*S\d+E\d+.*$/i, '') || 'Unknown Series',
+            description: firstEpisode.series?.description || firstEpisode.description || '',
+            rating: firstEpisode.rating || 0,
+            type: 'series',
+            thumbnail_path: firstEpisode.thumbnail_path,
+            banner_path: firstEpisode.banner_path,
+            genres: firstEpisode.genres || []
+          };
+          console.log('✅ Built series data from episodes:', seriesData);
+        }
+      }
+
+      if (!seriesData) {
+        console.error('❌ No series data found for ID:', params.id);
+        setLoading(false);
+        return;
+      }
+
       setSeries(seriesData);
 
       // Get all episodes for this series
       const allMediaResponse = await fetch(`${apiUrl}/api/media`);
       const allMedia = await allMediaResponse.json();
-      
+
       // Filter episodes that belong to this series
       const seriesEpisodes = allMedia.filter((media: Media) => {
         return media.type === 'episode' && (
-          media.title.toLowerCase().includes(seriesData.title.toLowerCase()) ||
-          media.series_id === seriesData.id ||
-          (media.file_path && seriesData.file_path && 
-           media.file_path.includes(seriesData.file_path.split('/').slice(0, -1).join('/')))
+          media.series_id?.toString() === params.id?.toString() ||
+          (seriesData.title && media.title.toLowerCase().includes(seriesData.title.toLowerCase())) ||
+          (media.file_path && seriesData.file_path &&
+            media.file_path.includes(seriesData.file_path.split('/').slice(0, -1).join('/')))
         );
       });
 
+      console.log('🔍 Found episodes:', seriesEpisodes.length);
       setEpisodes(seriesEpisodes);
 
       // Group episodes by season
@@ -137,8 +197,23 @@ export default function TVSeriesPage() {
 
       setSeasons(seasonsArray.sort((a, b) => a.season_number - b.season_number));
 
-      // Preload assets for better performance
+      // Load continue watching after episodes are set
       if (seriesEpisodes.length > 0) {
+        // Check for continue watching episode
+        const episodeWithProgress = seriesEpisodes.find((ep: Media) => {
+          const progress = localStorage.getItem(`progress_${ep.id}`);
+          return progress && JSON.parse(progress).progress > 0;
+        });
+
+        if (episodeWithProgress) {
+          const progressData = JSON.parse(localStorage.getItem(`progress_${episodeWithProgress.id}`) || '{}');
+          setContinueWatching({
+            episode: episodeWithProgress,
+            progress: progressData.progress || 0
+          });
+        }
+
+        // Preload assets for better performance
         preloadAssets(seriesEpisodes.slice(0, 12), ['thumbnail']);
       }
 
@@ -170,24 +245,7 @@ export default function TVSeriesPage() {
     setIsInMyList(false);
   };
 
-  const loadContinueWatching = () => {
-    // Check for continue watching episode
-    if (episodes.length > 0) {
-      // Find the episode with progress
-      const episodeWithProgress = episodes.find(ep => {
-        const progress = localStorage.getItem(`progress_${ep.id}`);
-        return progress && JSON.parse(progress).progress > 0;
-      });
-      
-      if (episodeWithProgress) {
-        const progressData = JSON.parse(localStorage.getItem(`progress_${episodeWithProgress.id}`) || '{}');
-        setContinueWatching({
-          episode: episodeWithProgress,
-          progress: progressData.progress || 0
-        });
-      }
-    }
-  };
+
 
   const handlePlay = (media?: Media) => {
     if (media) {
@@ -212,9 +270,28 @@ export default function TVSeriesPage() {
 
   const getBackgroundImageUrl = (media: Media) => {
     const apiUrl = getApiUrl();
+    console.log('🖼️ Getting background image for:', media.title);
+
+    // Use random season thumbnail as background if seasons exist
+    if (seasons.length > 0 && episodes.length > 0) {
+      const randomSeason = seasons[Math.floor(Math.random() * seasons.length)];
+      if (randomSeason.episodes && randomSeason.episodes.length > 0) {
+        const randomEpisode = randomSeason.episodes[Math.floor(Math.random() * randomSeason.episodes.length)];
+        const episodeMedia = episodes.find(ep => ep.id === randomEpisode.id);
+        if (episodeMedia) {
+          console.log('🖼️ Using random episode thumbnail:', episodeMedia.id);
+          return `${apiUrl}/api/thumbnails/${episodeMedia.id}`;
+        }
+      }
+    }
+
+    // Fallback to series banner or thumbnail
     if (media.banner_path) {
+      console.log('🖼️ Using series banner');
       return `${apiUrl}/api/admin/assets/${media.banner_path.split('/').pop()}`;
     }
+
+    console.log('🖼️ Using series thumbnail:', media.id);
     return `${apiUrl}/api/thumbnails/${media.id}`;
   };
 
@@ -341,7 +418,7 @@ export default function TVSeriesPage() {
                   transition={{ duration: 0.6, delay: 0.1 }}
                   className="flex items-center gap-2 mb-4 text-sm text-white/60"
                 >
-                  <button 
+                  <button
                     onClick={() => navigate.push('/tv-series')}
                     className="hover:text-white transition-colors"
                   >
@@ -362,7 +439,7 @@ export default function TVSeriesPage() {
                     <Tv className="w-8 h-8 text-red-500" />
                     <span className="text-red-400 font-semibold text-lg">TV SERIES</span>
                   </div>
-                  
+
                   <h1 className="text-4xl md:text-6xl lg:text-7xl font-bold text-white mb-4 leading-tight">
                     {series.title}
                   </h1>
@@ -488,32 +565,80 @@ export default function TVSeriesPage() {
         <div className="container mx-auto px-6 md:px-12 lg:px-16">
           <ScrollReveal direction="up" delay={0.2}>
             <h2 className="text-3xl font-bold text-white mb-8">Seasons</h2>
-            
+
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
-              {seasons.map((season) => (
-                <motion.div
-                  key={season.id}
-                  className="group cursor-pointer"
-                  onClick={() => handleSeasonSelect(season.season_number)}
-                  whileHover={{ scale: 1.05 }}
-                  transition={{ duration: 0.2 }}
-                >
-                  <GlassCard className="p-6 text-center hover:bg-white/10 transition-all duration-300">
-                    <div className="w-16 h-16 bg-red-600 rounded-full flex items-center justify-center mx-auto mb-4 group-hover:bg-red-500 transition-colors">
-                      <span className="text-2xl font-bold text-white">{season.season_number}</span>
+              {seasons.sort((a, b) => a.season_number - b.season_number).map((season) => {
+                // Get random episode from season for thumbnail
+                const getRandomSeasonThumbnail = () => {
+                  if (season.episodes && season.episodes.length > 0) {
+                    const randomEpisode = season.episodes[Math.floor(Math.random() * season.episodes.length)];
+                    return episodes.find(ep => ep.id === randomEpisode.id);
+                  }
+                  return null;
+                };
+
+                const thumbnailEpisode = getRandomSeasonThumbnail();
+
+                return (
+                  <motion.div
+                    key={season.id}
+                    className="group cursor-pointer"
+                    onClick={() => handleSeasonSelect(season.season_number)}
+                    whileHover={{ scale: 1.05 }}
+                    transition={{ duration: 0.2 }}
+                  >
+                    <div className="relative aspect-[2/3] bg-gray-800 rounded-lg overflow-hidden mb-3 group-hover:scale-105 transition-transform duration-300">
+                      {thumbnailEpisode ? (
+                        <img
+                          src={`${getApiUrl()}/api/thumbnails/${thumbnailEpisode.id}`}
+                          alt={`${series?.title} ${season.name}`}
+                          className="w-full h-full object-cover"
+                          loading="lazy"
+                        />
+                      ) : (
+                        <div className="w-full h-full bg-gradient-to-br from-red-600 to-red-800 flex items-center justify-center">
+                          <span className="text-4xl font-bold text-white">{season.season_number}</span>
+                        </div>
+                      )}
+
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+
+                      <div className="absolute top-2 left-2 bg-red-600 text-white px-2 py-1 rounded text-xs font-semibold">
+                        S{season.season_number}
+                      </div>
+
+                      <div className="absolute bottom-0 left-0 right-0 p-3 transform translate-y-full group-hover:translate-y-0 transition-transform duration-300">
+                        <div className="text-white text-xs text-center mb-2">
+                          {season.episode_count} Episode{season.episode_count !== 1 ? 's' : ''}
+                        </div>
+                        {season.episodes && season.episodes.length > 0 && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const firstEpisode = episodes.find(ep => ep.id === season.episodes![0].id);
+                              if (firstEpisode) handlePlay(firstEpisode);
+                            }}
+                            className="w-full bg-red-600 hover:bg-red-700 text-white py-2 px-3 rounded text-xs font-medium flex items-center justify-center gap-1"
+                          >
+                            <Play className="w-3 h-3" />
+                            Play
+                          </button>
+                        )}
+                      </div>
                     </div>
-                    
-                    <h3 className="text-xl font-semibold text-white mb-2">{season.name}</h3>
-                    <p className="text-white/60 text-sm mb-3">{season.episode_count} Episodes</p>
-                    
+
+                    <h3 className="text-white font-medium text-sm group-hover:text-red-400 transition-colors duration-300">
+                      {season.name}
+                    </h3>
+
                     {season.overview && (
-                      <p className="text-white/80 text-sm line-clamp-3">
+                      <p className="text-white/60 text-xs mt-1 line-clamp-2">
                         {season.overview}
                       </p>
                     )}
-                  </GlassCard>
-                </motion.div>
-              ))}
+                  </motion.div>
+                );
+              })}
             </div>
           </ScrollReveal>
 
@@ -522,7 +647,7 @@ export default function TVSeriesPage() {
             <ScrollReveal direction="up" delay={0.4}>
               <div className="mt-16">
                 <h2 className="text-3xl font-bold text-white mb-8">Latest Episodes</h2>
-                
+
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
                   {episodes.slice(0, 8).map((episode, index) => {
                     const seasonNumber = extractSeasonNumber(episode.title) || 1;
@@ -546,7 +671,7 @@ export default function TVSeriesPage() {
           <ScrollReveal direction="up" delay={0.6}>
             <div className="mt-16">
               <h2 className="text-3xl font-bold text-white mb-8">About {series.title}</h2>
-              
+
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
                 <div>
                   <h3 className="text-xl font-semibold text-white mb-4">Series Information</h3>
@@ -623,6 +748,11 @@ export default function TVSeriesPage() {
           isOpen={isPlayerOpen}
           onClose={() => setIsPlayerOpen(false)}
           startTime={continueWatching?.progress || 0}
+          onPlayNext={(nextMedia) => {
+            console.log('Playing next episode:', nextMedia.title);
+            setSelectedMedia(nextMedia);
+            // Keep player open and switch to next episode
+          }}
         />
       )}
     </div>

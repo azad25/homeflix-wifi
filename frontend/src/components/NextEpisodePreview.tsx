@@ -40,7 +40,7 @@ const NextEpisodePreview: React.FC<NextEpisodePreviewProps> = ({
     const interval = setInterval(() => {
       setCountdown((prev) => {
         if (prev <= 1) {
-          console.log('NextEpisodePreview: Auto-playing next episode');
+          console.log('NextEpisodePreview: Auto-playing next episode:', nextEpisode.title);
           onPlayNext();
           return 0;
         }

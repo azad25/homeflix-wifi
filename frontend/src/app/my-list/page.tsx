@@ -210,6 +210,12 @@ export default function MyListPage() {
           media={selectedMedia}
           isOpen={isPlayerOpen}
           onClose={() => setIsPlayerOpen(false)}
+          startTime={0}
+          onPlayNext={(nextMedia) => {
+            console.log('Playing next episode:', nextMedia.title);
+            setSelectedMedia(nextMedia);
+            // Keep player open and switch to next episode
+          }}
         />
       )}
     </div>

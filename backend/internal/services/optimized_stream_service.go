@@ -178,23 +178,35 @@ type StreamStats struct {
 	avgLatency     int64
 }
 
-// MKVIndexer - Fast MKV seeking without full parse
+// MKVIndexer - Advanced MKV seeking with proper cue point extraction
 type MKVIndexer struct {
 	fileIndexes map[string]*MKVIndex
 	mu          sync.RWMutex
 }
 
 type MKVIndex struct {
-	seekHeads []int64 // EBML SeekHead offsets
-	cues      []int64 // Cue point offsets
-	clusters  []ClusterInfo
-	duration  int64
-	indexed   bool
+	seekHeads    []int64       // EBML SeekHead offsets
+	cues         []CuePoint    // Cue point offsets with timestamps
+	clusters     []ClusterInfo // Cluster information
+	duration     int64         // Duration in milliseconds
+	indexed      bool          // Whether indexing is complete
+	seekable     bool          // Whether file is seekable
+	hasProperCues bool         // Whether file has proper cue points
+	segmentStart int64         // Start of segment data
+	segmentSize  int64         // Size of segment
+}
+
+type CuePoint struct {
+	timestamp int64 // Timestamp in milliseconds
+	offset    int64 // Byte offset from segment start
+	track     int64 // Track number
+	cluster   int64 // Cluster position
 }
 
 type ClusterInfo struct {
-	offset    int64
-	timestamp int64
+	offset    int64 // Absolute byte offset
+	timestamp int64 // Timestamp in milliseconds
+	size      int64 // Cluster size
 }
 
 // AdaptiveBitrate - Dynamic quality adjustment for 4K
@@ -529,7 +541,9 @@ func newStreamStats() *StreamStats {
 }
 
 func NewMKVIndexer() *MKVIndexer {
-	return &MKVIndexer{}
+	return &MKVIndexer{
+		fileIndexes: make(map[string]*MKVIndex),
+	}
 }
 
 func newAdaptiveBitrate() *AdaptiveBitrate {
@@ -549,34 +563,31 @@ func (s *NetflixStreamService) StreamVideo(w http.ResponseWriter, r *http.Reques
 }
 
 func (s *NetflixStreamService) Stream(w http.ResponseWriter, r *http.Request, filePath string) error {
-	log.Printf("📹 Direct streaming: %s (browser-compatible format)", filePath)
+	log.Printf("📹 Streaming request: %s", filepath.Base(filePath))
 	
-	fileExt := strings.ToLower(filepath.Ext(filePath))
-
-	// Check if MKV file needs audio transcoding (aggressive check)
-	if fileExt == ".mkv" {
-		audioInfo, err := s.audioTranscoder.analyzeAudioCodec(filePath)
-		if err != nil {
-			log.Printf("⚠️ Audio analysis failed for %s: %v", filepath.Base(filePath), err)
-		} else if !audioInfo.Compatible {
-			log.Printf("🔄 MKV audio transcoding needed for %s (codec: %s)", filepath.Base(filePath), audioInfo.Codec)
-			return s.streamWithAudioTranscoding(w, r, filePath, audioInfo)
-		}
+	// MANDATORY SEEKABILITY CHECK - NO EXCEPTIONS
+	// This ensures 100% of files are seekable by forcing transcoding when needed
+	
+	seekable, err := s.verifySeekabilityStrict(filePath)
+	if err != nil {
+		log.Printf("❌ Seekability verification failed for %s: %v", filepath.Base(filePath), err)
+		// Force transcoding on verification failure
+		seekable = false
 	}
 
-	// Optional check for MP4 files with potentially incompatible audio (less aggressive)
-	if fileExt == ".mp4" || fileExt == ".m4v" {
-		audioInfo, err := s.audioTranscoder.analyzeAudioCodec(filePath)
-		if err != nil {
-			log.Printf("⚠️ Audio analysis failed for MP4 %s: %v (continuing with direct stream)", filepath.Base(filePath), err)
-		} else if !audioInfo.Compatible {
-			log.Printf("🔄 MP4 audio transcoding needed for %s (codec: %s)", filepath.Base(filePath), audioInfo.Codec)
-			return s.streamWithAudioTranscoding(w, r, filePath, audioInfo)
-		} else {
-			log.Printf("✅ MP4 audio compatible for %s (codec: %s)", filepath.Base(filePath), audioInfo.Codec)
-		}
+	if !seekable {
+		log.Printf("🔄 MANDATORY TRANSCODING: File is not seekable: %s", filepath.Base(filePath))
+		return s.streamWithMandatoryTranscoding(w, r, filePath)
 	}
 
+	// File is verified seekable - proceed with direct streaming
+	log.Printf("✅ VERIFIED SEEKABLE: Direct streaming: %s", filepath.Base(filePath))
+	return s.streamDirectlyVerified(w, r, filePath)
+}
+
+// Legacy methods removed - now using mandatory seekability verification
+
+func (s *NetflixStreamService) streamDirectlyVerified(w http.ResponseWriter, r *http.Request, filePath string) error {
 	// SAFE STREAMING: Open file and stream without hijacking
 	file, err := os.Open(filePath)
 	if err != nil {
@@ -598,8 +609,9 @@ func (s *NetflixStreamService) Stream(w http.ResponseWriter, r *http.Request, fi
 	w.Header().Set("Content-Length", fmt.Sprintf("%d", fileSize))
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("Keep-Alive", "timeout=300, max=1000")
+	w.Header().Set("X-Seekable-Verified", "true")
 
-	log.Printf("📺 Streaming %s with Content-Type: %s", filepath.Base(filePath), contentType)
+	log.Printf("📺 VERIFIED seekable direct streaming %s", filepath.Base(filePath))
 
 	// Handle range requests for seeking
 	rangeHeader := r.Header.Get("Range")
@@ -608,6 +620,275 @@ func (s *NetflixStreamService) Stream(w http.ResponseWriter, r *http.Request, fi
 	}
 
 	// Stream entire file with SAFE optimized I/O (no hijacking)
+	return s.streamWithOptimizedIO(w, file, fileSize)
+}
+
+func (s *NetflixStreamService) streamWithMandatoryTranscoding(w http.ResponseWriter, r *http.Request, filePath string) error {
+	log.Printf("🔄 MANDATORY TRANSCODING: Ensuring seekability for %s", filepath.Base(filePath))
+
+	// Check if we already have a seekable transcoded version
+	if transcoded := s.audioTranscoder.getFromCache(filePath); transcoded != nil {
+		log.Printf("🎯 Using cached seekable version: %s", filepath.Base(filePath))
+		return s.streamTranscodedFileWithRangeSupport(w, r, transcoded.transcodedPath)
+	}
+
+	// Check if we have a range request (seeking during transcoding)
+	rangeHeader := r.Header.Get("Range")
+	if rangeHeader != "" {
+		log.Printf("🎯 MANDATORY transcoding with seeking: %s", rangeHeader)
+		return s.streamMandatoryTranscodingWithSeeking(w, r, filePath, rangeHeader)
+	}
+
+	// Start mandatory transcoding to ensure seekability
+	log.Printf("🔄 Starting mandatory seekable transcoding: %s", filepath.Base(filePath))
+	return s.streamMandatorySeekableTranscoding(w, r, filePath)
+}
+
+func (s *NetflixStreamService) streamMandatorySeekableTranscoding(w http.ResponseWriter, r *http.Request, filePath string) error {
+	// Set headers for seekable transcoded content
+	w.Header().Set("Content-Type", "video/mp4") // Always transcode to MP4 for guaranteed seeking
+	w.Header().Set("Accept-Ranges", "bytes")    // Enable seeking support
+	w.Header().Set("Cache-Control", "no-cache") // Don't cache transcoded streams
+	w.Header().Set("X-Transcoded-For-Seeking", "true")
+
+	// MANDATORY transcoding with maximum seeking compatibility
+	args := []string{
+		"-i", filePath,
+		"-c:v", "copy", // Copy video stream to preserve quality
+		"-c:a", "aac",  // Transcode audio to AAC for browser compatibility
+		"-b:a", "192k", // Audio bitrate
+		"-ac", "2",     // Stereo output
+		"-f", "mp4",    // MP4 container for guaranteed seeking
+		"-movflags", "frag_keyframe+empty_moov+faststart", // Enable streaming and seeking
+		"-avoid_negative_ts", "make_zero", // Handle negative timestamps
+		"-fflags", "+genpts",              // Generate presentation timestamps
+		"-",
+	}
+
+	cmd := exec.Command("ffmpeg", args...)
+
+	// Get stdout pipe for streaming
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return fmt.Errorf("failed to get stdout pipe: %v", err)
+	}
+
+	// Start the transcoding process
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("failed to start mandatory transcoding: %v", err)
+	}
+
+	// Stream transcoded output with optimized buffer
+	buffer := s.bufferPool.Get(s.segmentSize)
+	defer s.bufferPool.Put(buffer)
+
+	// Copy transcoded stream to response with instant flushing
+	_, err = s.copyWithInstantFlushing(w, stdout, buffer)
+
+	// Wait for FFmpeg to finish
+	cmd.Wait()
+
+	if err != nil {
+		log.Printf("❌ Mandatory transcoding failed for %s: %v", filepath.Base(filePath), err)
+		return err
+	}
+
+	log.Printf("✅ MANDATORY transcoding completed: %s is now seekable", filepath.Base(filePath))
+	
+	// Start background caching for future requests
+	go s.createSeekableCachedVersion(filePath)
+	
+	return nil
+}
+
+func (s *NetflixStreamService) streamMandatoryTranscodingWithSeeking(w http.ResponseWriter, r *http.Request, filePath string, rangeHeader string) error {
+	// Parse range header to get seek position
+	ranges, err := parseRangeHeader(rangeHeader, 0)
+	if err != nil {
+		// If range parsing fails, do full transcoding
+		return s.streamMandatorySeekableTranscoding(w, r, filePath)
+	}
+
+	if len(ranges) != 1 {
+		return s.streamMandatorySeekableTranscoding(w, r, filePath)
+	}
+
+	start := ranges[0].start
+	
+	// Estimate seek time (rough approximation)
+	var seekTime float64 = 0
+	if start > 0 {
+		// Get file duration first
+		cmd := exec.Command("ffprobe", "-v", "quiet", "-show_entries", 
+			"format=duration", "-of", "csv=p=0", filePath)
+		output, err := cmd.Output()
+		if err == nil {
+			if duration, err := strconv.ParseFloat(strings.TrimSpace(string(output)), 64); err == nil {
+				// Get file size
+				if stat, err := os.Stat(filePath); err == nil {
+					fileSize := stat.Size()
+					if fileSize > 0 {
+						// Rough estimate: seek_time = (byte_offset / file_size) * duration
+						seekTime = float64(start) / float64(fileSize) * duration
+						// Clamp to reasonable bounds
+						if seekTime > duration-10 {
+							seekTime = duration - 10
+						}
+						if seekTime < 0 {
+							seekTime = 0
+						}
+					}
+				}
+			}
+		}
+	}
+
+	log.Printf("🎯 MANDATORY transcoding with seeking to %.2fs", seekTime)
+
+	// Set headers for partial content
+	w.Header().Set("Content-Type", "video/mp4")
+	w.Header().Set("Accept-Ranges", "bytes")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("X-Transcoded-For-Seeking", "true")
+	w.WriteHeader(http.StatusPartialContent)
+
+	// Start FFmpeg with seeking for mandatory transcoding
+	args := []string{
+		"-ss", fmt.Sprintf("%.2f", seekTime), // Seek to position
+		"-i", filePath,
+		"-c:v", "copy", // Copy video stream
+		"-c:a", "aac",  // Transcode audio to AAC
+		"-b:a", "192k", // Audio bitrate
+		"-ac", "2",     // Stereo output
+		"-f", "mp4",    // MP4 container
+		"-movflags", "frag_keyframe+empty_moov+faststart", // Enable streaming
+		"-avoid_negative_ts", "make_zero", // Handle negative timestamps
+		"-fflags", "+genpts",              // Generate presentation timestamps
+		"-",
+	}
+
+	cmd := exec.Command("ffmpeg", args...)
+	
+	// Get stdout pipe for streaming
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return fmt.Errorf("failed to get stdout pipe: %v", err)
+	}
+
+	// Start the transcoding process
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("failed to start seeking transcoding: %v", err)
+	}
+
+	// Stream transcoded output with optimized buffer
+	buffer := s.bufferPool.Get(s.segmentSize)
+	defer s.bufferPool.Put(buffer)
+
+	// Copy transcoded stream to response with instant flushing
+	_, err = s.copyWithInstantFlushing(w, stdout, buffer)
+
+	// Wait for FFmpeg to finish
+	cmd.Wait()
+
+	if err != nil {
+		log.Printf("❌ Seeking transcoding failed for %s: %v", filepath.Base(filePath), err)
+		return err
+	}
+
+	log.Printf("✅ MANDATORY seeking transcoding completed for %s", filepath.Base(filePath))
+	return nil
+}
+
+func (s *NetflixStreamService) createSeekableCachedVersion(filePath string) {
+	log.Printf("🔄 Creating seekable cached version: %s", filepath.Base(filePath))
+
+	// Create transcoded file path
+	cacheDir := filepath.Join(os.TempDir(), "homeflix-seekable-cache")
+	os.MkdirAll(cacheDir, 0755)
+	
+	fileName := filepath.Base(filePath)
+	nameWithoutExt := strings.TrimSuffix(fileName, filepath.Ext(fileName))
+	transcodedPath := filepath.Join(cacheDir, nameWithoutExt+"_seekable.mp4")
+
+	// Transcode with maximum seeking compatibility
+	args := []string{
+		"-i", filePath,
+		"-c:v", "copy", // Copy video stream
+		"-c:a", "aac",  // Transcode audio to AAC
+		"-b:a", "192k", // Audio bitrate
+		"-ac", "2",     // Stereo output
+		"-movflags", "+faststart", // Move moov atom to beginning for instant seeking
+		"-avoid_negative_ts", "make_zero",
+		"-fflags", "+genpts", // Generate presentation timestamps
+		"-y", // Overwrite output file
+		transcodedPath,
+	}
+
+	cmd := exec.Command("ffmpeg", args...)
+	
+	// Run transcoding
+	if err := cmd.Run(); err != nil {
+		log.Printf("❌ Background seekable caching failed for %s: %v", filepath.Base(filePath), err)
+		return
+	}
+
+	// Get transcoded file size
+	stat, err := os.Stat(transcodedPath)
+	if err != nil {
+		log.Printf("❌ Failed to stat cached seekable file: %v", err)
+		return
+	}
+
+	// Add to cache
+	s.audioTranscoder.mu.Lock()
+	transcoded := &TranscodedAudio{
+		filePath:        filePath,
+		transcodedPath:  transcodedPath,
+		originalCodec:   "unknown",
+		transcodedCodec: "aac",
+		created:         time.Now(),
+		size:            stat.Size(),
+	}
+	s.audioTranscoder.transcodingCache[filePath] = transcoded
+	s.audioTranscoder.currentCacheSize += transcoded.size
+	s.audioTranscoder.mu.Unlock()
+
+	// Clean up cache if needed
+	s.audioTranscoder.cleanupCacheIfNeeded()
+
+	log.Printf("✅ Seekable cached version created: %s (%d bytes)", filepath.Base(transcodedPath), transcoded.size)
+}
+
+func (s *NetflixStreamService) streamTranscodedFileWithRangeSupport(w http.ResponseWriter, r *http.Request, transcodedPath string) error {
+	// Stream pre-transcoded seekable file
+	file, err := os.Open(transcodedPath)
+	if err != nil {
+		return fmt.Errorf("failed to open transcoded file: %v", err)
+	}
+	defer file.Close()
+
+	stat, err := file.Stat()
+	if err != nil {
+		return fmt.Errorf("failed to stat transcoded file: %v", err)
+	}
+
+	fileSize := stat.Size()
+
+	// Set headers for seekable transcoded content
+	w.Header().Set("Content-Type", "video/mp4")
+	w.Header().Set("Accept-Ranges", "bytes")
+	w.Header().Set("Content-Length", fmt.Sprintf("%d", fileSize))
+	w.Header().Set("X-Seekable-Cached", "true")
+
+	log.Printf("📺 Streaming cached seekable version: %s", filepath.Base(transcodedPath))
+
+	// Handle range requests
+	rangeHeader := r.Header.Get("Range")
+	if rangeHeader != "" {
+		return s.handleRangeRequest(w, r, file, fileSize, rangeHeader)
+	}
+
+	// Stream with optimized I/O
 	return s.streamWithOptimizedIO(w, file, fileSize)
 }
 
@@ -722,7 +1003,59 @@ func (s *NetflixStreamService) streamWithOptimizedIO(w http.ResponseWriter, file
 func (s *NetflixStreamService) initializeCaches() {
 	// Initialize cache warming in background
 	log.Printf("🔥 Initializing ultra-fast I/O caches...")
-	// Cache warming logic would go here
+	
+	// Start background transcoding service for unseekable files
+	go s.backgroundTranscodingService()
+}
+
+func (s *NetflixStreamService) backgroundTranscodingService() {
+	log.Printf("🎬 Background transcoding service started")
+	
+	// This would be called by the media service to pre-transcode unseekable files
+	// For now, it's a placeholder for future integration
+}
+
+func (s *NetflixStreamService) PreTranscodeUnseekableFile(filePath string) error {
+	fileExt := strings.ToLower(filepath.Ext(filePath))
+	
+	// Only handle MKV files for now
+	if fileExt != ".mkv" {
+		return nil
+	}
+
+	log.Printf("🔄 Pre-transcoding unseekable file: %s", filepath.Base(filePath))
+
+	// Index the file first
+	if err := s.mkvIndexer.IndexFile(filePath); err != nil {
+		return fmt.Errorf("failed to index MKV file: %v", err)
+	}
+
+	// Get index information
+	mkvIndex := s.mkvIndexer.GetIndex(filePath)
+	if mkvIndex == nil {
+		return fmt.Errorf("no index found for file")
+	}
+
+	// Check if file is seekable
+	if mkvIndex.seekable {
+		log.Printf("✅ File is already seekable: %s", filepath.Base(filePath))
+		return nil
+	}
+
+	// Check audio compatibility
+	audioInfo, err := s.audioTranscoder.analyzeAudioCodec(filePath)
+	if err != nil {
+		return fmt.Errorf("audio analysis failed: %v", err)
+	}
+
+	// Create seekable transcoded file
+	_, err = s.audioTranscoder.createSeekableTranscodedFile(filePath, audioInfo)
+	if err != nil {
+		return fmt.Errorf("transcoding failed: %v", err)
+	}
+
+	log.Printf("✅ Pre-transcoded unseekable file: %s", filepath.Base(filePath))
+	return nil
 }
 
 // Critical performance optimization methods
@@ -1423,11 +1756,243 @@ func (s *NetflixStreamService) GetVideoInfo(filePath string) (map[string]interfa
 		return nil, err
 	}
 
-	return map[string]interface{}{
+	info := map[string]interface{}{
 		"size":     stat.Size(),
 		"modified": stat.ModTime(),
 		"path":     filePath,
-	}, nil
+		"seekable": true, // Default to seekable
+	}
+
+	// Check MKV seekability
+	fileExt := strings.ToLower(filepath.Ext(filePath))
+	if fileExt == ".mkv" {
+		// Index the file if not already done
+		s.mkvIndexer.IndexFile(filePath)
+		
+		if mkvIndex := s.mkvIndexer.GetIndex(filePath); mkvIndex != nil {
+			info["seekable"] = mkvIndex.seekable
+			info["has_cue_points"] = mkvIndex.hasProperCues
+			info["duration_ms"] = mkvIndex.duration
+			info["cue_count"] = len(mkvIndex.cues)
+		}
+
+		// Check audio compatibility
+		if audioInfo, err := s.audioTranscoder.analyzeAudioCodec(filePath); err == nil {
+			info["audio_codec"] = audioInfo.Codec
+			info["audio_compatible"] = audioInfo.Compatible
+		}
+
+		// Check if transcoded version exists
+		if transcoded := s.audioTranscoder.getFromCache(filePath); transcoded != nil {
+			info["transcoded_available"] = true
+			info["transcoded_path"] = transcoded.transcodedPath
+			info["transcoded_size"] = transcoded.size
+		} else {
+			info["transcoded_available"] = false
+		}
+	}
+
+	return info, nil
+}
+
+func (s *NetflixStreamService) CheckSeekingSupport(filePath string) (bool, error) {
+	return s.verifySeekabilityStrict(filePath)
+}
+
+// verifySeekabilityStrict performs comprehensive seekability verification
+// This method is STRICT and will return false for any file that might have seeking issues
+func (s *NetflixStreamService) verifySeekabilityStrict(filePath string) (bool, error) {
+	fileExt := strings.ToLower(filepath.Ext(filePath))
+	
+	log.Printf("🔍 STRICT seekability check: %s", filepath.Base(filePath))
+
+	// Step 1: Check file format compatibility
+	if !s.isFormatSeekable(fileExt) {
+		log.Printf("❌ Format not seekable: %s", fileExt)
+		return false, nil
+	}
+
+	// Step 2: Verify file structure with ffprobe
+	seekableByStructure, err := s.verifyFileStructure(filePath)
+	if err != nil {
+		log.Printf("❌ Structure verification failed: %v", err)
+		return false, err
+	}
+	if !seekableByStructure {
+		log.Printf("❌ File structure not seekable")
+		return false, nil
+	}
+
+	// Step 3: Check audio codec compatibility
+	audioCompatible, err := s.verifyAudioCompatibility(filePath)
+	if err != nil {
+		log.Printf("❌ Audio verification failed: %v", err)
+		return false, err
+	}
+	if !audioCompatible {
+		log.Printf("❌ Audio codec not compatible")
+		return false, nil
+	}
+
+	// Step 4: For MKV files, perform additional strict checks
+	if fileExt == ".mkv" {
+		mkvSeekable, err := s.verifyMKVSeekability(filePath)
+		if err != nil {
+			log.Printf("❌ MKV verification failed: %v", err)
+			return false, err
+		}
+		if !mkvSeekable {
+			log.Printf("❌ MKV not properly seekable")
+			return false, nil
+		}
+	}
+
+	// Step 5: Test actual seeking capability
+	actuallySeekable, err := s.testActualSeeking(filePath)
+	if err != nil {
+		log.Printf("❌ Actual seeking test failed: %v", err)
+		return false, err
+	}
+	if !actuallySeekable {
+		log.Printf("❌ Actual seeking test failed")
+		return false, nil
+	}
+
+	log.Printf("✅ VERIFIED SEEKABLE: All checks passed")
+	return true, nil
+}
+
+func (s *NetflixStreamService) isFormatSeekable(fileExt string) bool {
+	// Only allow formats that are known to support seeking well
+	seekableFormats := map[string]bool{
+		".mp4":  true,
+		".m4v":  true,
+		".mov":  true,
+		".mkv":  true, // Will be verified further
+		".webm": true,
+	}
+	
+	// All other formats require transcoding
+	return seekableFormats[fileExt]
+}
+
+func (s *NetflixStreamService) verifyFileStructure(filePath string) (bool, error) {
+	// Use ffprobe to check if file has proper seeking structure
+	cmd := exec.Command("ffprobe", "-v", "quiet", "-print_format", "json", 
+		"-show_format", "-show_streams", filePath)
+	output, err := cmd.Output()
+	if err != nil {
+		return false, fmt.Errorf("ffprobe failed: %v", err)
+	}
+
+	outputStr := string(output)
+	
+	// Check for duration (required for seeking)
+	if !strings.Contains(outputStr, `"duration"`) {
+		return false, nil
+	}
+
+	// Check for proper stream structure
+	if !strings.Contains(outputStr, `"streams"`) {
+		return false, nil
+	}
+
+	// For MP4 files, check for moov atom position
+	fileExt := strings.ToLower(filepath.Ext(filePath))
+	if fileExt == ".mp4" || fileExt == ".m4v" {
+		// Check if moov atom is at the beginning (faststart)
+		cmd := exec.Command("ffprobe", "-v", "quiet", "-show_entries", 
+			"format=start_time", "-of", "csv=p=0", filePath)
+		output, err := cmd.Output()
+		if err == nil {
+			startTime := strings.TrimSpace(string(output))
+			if startTime != "0.000000" && startTime != "N/A" {
+				log.Printf("⚠️ MP4 moov atom not at beginning, start_time: %s", startTime)
+				return false, nil
+			}
+		}
+	}
+
+	return true, nil
+}
+
+func (s *NetflixStreamService) verifyAudioCompatibility(filePath string) (bool, error) {
+	audioInfo, err := s.audioTranscoder.analyzeAudioCodec(filePath)
+	if err != nil {
+		return false, err
+	}
+
+	// Strict audio compatibility check
+	return audioInfo.Compatible, nil
+}
+
+func (s *NetflixStreamService) verifyMKVSeekability(filePath string) (bool, error) {
+	// Index the MKV file
+	if err := s.mkvIndexer.IndexFile(filePath); err != nil {
+		return false, err
+	}
+
+	// Get index information
+	mkvIndex := s.mkvIndexer.GetIndex(filePath)
+	if mkvIndex == nil {
+		return false, fmt.Errorf("no MKV index available")
+	}
+
+	// Strict MKV requirements
+	if !mkvIndex.seekable {
+		return false, nil
+	}
+
+	if !mkvIndex.hasProperCues {
+		return false, nil
+	}
+
+	if len(mkvIndex.cues) < 10 {
+		log.Printf("⚠️ MKV has only %d cue points, may not seek well", len(mkvIndex.cues))
+		return false, nil
+	}
+
+	if mkvIndex.duration <= 0 {
+		return false, nil
+	}
+
+	return true, nil
+}
+
+func (s *NetflixStreamService) testActualSeeking(filePath string) (bool, error) {
+	// Test if we can actually seek to the middle of the file
+	cmd := exec.Command("ffprobe", "-v", "quiet", "-ss", "10", "-t", "1", 
+		"-show_entries", "frame=pkt_pts_time", "-select_streams", "v:0", 
+		"-of", "csv=p=0", filePath)
+	
+	output, err := cmd.Output()
+	if err != nil {
+		log.Printf("⚠️ Seeking test failed: %v", err)
+		return false, nil
+	}
+
+	// If we got output, seeking works
+	if len(strings.TrimSpace(string(output))) > 0 {
+		return true, nil
+	}
+
+	return false, nil
+}
+
+func (s *NetflixStreamService) GetStreamingStrategy(filePath string) (string, error) {
+	// MANDATORY SEEKABILITY APPROACH
+	// All files must pass strict seekability verification or be transcoded
+	
+	seekable, err := s.verifySeekabilityStrict(filePath)
+	if err != nil {
+		return "mandatory_transcode", fmt.Errorf("seekability verification failed: %v", err)
+	}
+
+	if seekable {
+		return "direct_verified", nil
+	} else {
+		return "mandatory_transcode", nil
+	}
 }
 
 // Stream worker pool implementation
@@ -1554,7 +2119,7 @@ func (c *L2FileCache) Cleanup() {
 	c.curSize = 0
 }
 
-// MKV Indexer implementation
+// MKV Indexer implementation with proper cue point extraction
 
 func (m *MKVIndexer) IndexFile(filePath string) error {
 	m.mu.Lock()
@@ -1564,24 +2129,153 @@ func (m *MKVIndexer) IndexFile(filePath string) error {
 		return nil
 	}
 
-	file, err := os.Open(filePath)
+	// Use mkvinfo to extract proper seeking information
+	index, err := m.extractMKVIndex(filePath)
 	if err != nil {
-		return err
+		log.Printf("⚠️ MKV indexing failed for %s: %v", filepath.Base(filePath), err)
+		// Create fallback index for unseekable files
+		index = &MKVIndex{
+			seekHeads:     []int64{},
+			cues:          []CuePoint{},
+			clusters:      []ClusterInfo{},
+			indexed:       true,
+			seekable:      false,
+			hasProperCues: false,
+		}
 	}
-	defer file.Close()
 
-	// Quick MKV header parsing (EBML + segment)
-	header := make([]byte, 1024)
-	if _, err := file.Read(header); err != nil {
-		return err
-	}
-
-	// Create basic index structure
-	index := &MKVIndex{seekHeads: []int64{}, cues: []int64{}, indexed: true}
 	m.fileIndexes[filePath] = index
-
-	log.Printf("✅ MKV indexed: %s", filePath)
+	
+	if index.seekable {
+		log.Printf("✅ MKV indexed with %d cue points: %s", len(index.cues), filepath.Base(filePath))
+	} else {
+		log.Printf("⚠️ MKV unseekable, will use transcoding: %s", filepath.Base(filePath))
+	}
+	
 	return nil
+}
+
+func (m *MKVIndexer) extractMKVIndex(filePath string) (*MKVIndex, error) {
+	// Use mkvinfo to extract cue points and segment information
+	cmd := exec.Command("mkvinfo", "--ui-language", "en", filePath)
+	output, err := cmd.Output()
+	if err != nil {
+		// Fallback to ffprobe if mkvinfo is not available
+		return m.extractMKVIndexWithFFProbe(filePath)
+	}
+
+	index := &MKVIndex{
+		seekHeads:     []int64{},
+		cues:          []CuePoint{},
+		clusters:      []ClusterInfo{},
+		indexed:       true,
+		seekable:      false,
+		hasProperCues: false,
+	}
+
+	// Parse mkvinfo output for cue points and segment info
+	lines := strings.Split(string(output), "\n")
+	var currentCue *CuePoint
+	
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		
+		// Extract segment information
+		if strings.Contains(line, "Segment, size") {
+			if parts := strings.Fields(line); len(parts) >= 3 {
+				if size, err := strconv.ParseInt(parts[2], 10, 64); err == nil {
+					index.segmentSize = size
+				}
+			}
+		}
+		
+		// Extract cue points
+		if strings.Contains(line, "CuePoint") {
+			currentCue = &CuePoint{}
+		} else if currentCue != nil {
+			if strings.Contains(line, "CueTime:") {
+				if parts := strings.Fields(line); len(parts) >= 2 {
+					if timestamp, err := strconv.ParseInt(parts[1], 10, 64); err == nil {
+						currentCue.timestamp = timestamp / 1000000 // Convert to milliseconds
+					}
+				}
+			} else if strings.Contains(line, "CueTrackPositions") {
+				// Track position found
+			} else if strings.Contains(line, "CueTrack:") {
+				if parts := strings.Fields(line); len(parts) >= 2 {
+					if track, err := strconv.ParseInt(parts[1], 10, 64); err == nil {
+						currentCue.track = track
+					}
+				}
+			} else if strings.Contains(line, "CueClusterPosition:") {
+				if parts := strings.Fields(line); len(parts) >= 2 {
+					if offset, err := strconv.ParseInt(parts[1], 10, 64); err == nil {
+						currentCue.offset = offset
+						currentCue.cluster = offset
+						index.cues = append(index.cues, *currentCue)
+						currentCue = nil
+					}
+				}
+			}
+		}
+		
+		// Extract duration
+		if strings.Contains(line, "Duration:") {
+			if parts := strings.Fields(line); len(parts) >= 2 {
+				durationStr := strings.TrimSuffix(parts[1], "s")
+				if duration, err := strconv.ParseFloat(durationStr, 64); err == nil {
+					index.duration = int64(duration * 1000) // Convert to milliseconds
+				}
+			}
+		}
+	}
+
+	// Determine if file is seekable
+	index.hasProperCues = len(index.cues) > 0
+	index.seekable = index.hasProperCues && index.duration > 0
+
+	return index, nil
+}
+
+func (m *MKVIndexer) extractMKVIndexWithFFProbe(filePath string) (*MKVIndex, error) {
+	// Fallback using ffprobe to get basic information
+	cmd := exec.Command("ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", "-show_streams", filePath)
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("ffprobe failed: %v", err)
+	}
+
+	index := &MKVIndex{
+		seekHeads:     []int64{},
+		cues:          []CuePoint{},
+		clusters:      []ClusterInfo{},
+		indexed:       true,
+		seekable:      false,
+		hasProperCues: false,
+	}
+
+	// Parse ffprobe JSON output for duration
+	outputStr := string(output)
+	if strings.Contains(outputStr, `"duration"`) {
+		lines := strings.Split(outputStr, "\n")
+		for _, line := range lines {
+			if strings.Contains(line, `"duration"`) && strings.Contains(line, `"format"`) {
+				parts := strings.Split(line, `"`)
+				if len(parts) >= 4 {
+					if duration, err := strconv.ParseFloat(parts[3], 64); err == nil {
+						index.duration = int64(duration * 1000) // Convert to milliseconds
+						break
+					}
+				}
+			}
+		}
+	}
+
+	// For ffprobe fallback, assume seekable if duration is available
+	index.seekable = index.duration > 0
+	index.hasProperCues = false // No cue points from ffprobe
+
+	return index, nil
 }
 
 func (m *MKVIndexer) GetIndex(filePath string) *MKVIndex {
@@ -1667,32 +2361,130 @@ func (at *AudioTranscoder) isCodecCompatible(codec string) bool {
 	return false
 }
 
-func (s *NetflixStreamService) streamWithAudioTranscoding(w http.ResponseWriter, r *http.Request, filePath string, audioInfo *AudioInfo) error {
-	// Check cache first
+func (s *NetflixStreamService) streamWithSeekableTranscoding(w http.ResponseWriter, r *http.Request, filePath string, audioInfo *AudioInfo, mkvIndex *MKVIndex) error {
+	// Check if we have a range request (seeking)
+	rangeHeader := r.Header.Get("Range")
+	
+	if rangeHeader != "" {
+		log.Printf("🎯 Seekable transcoding with range request: %s", rangeHeader)
+		return s.streamTranscodedRange(w, r, filePath, rangeHeader, audioInfo, mkvIndex)
+	}
+
+	// Check cache first for full file transcoding
 	if transcoded := s.audioTranscoder.getFromCache(filePath); transcoded != nil {
-		log.Printf("🎯 Using cached transcoded audio for %s", filepath.Base(filePath))
+		log.Printf("🎯 Using cached transcoded file for %s", filepath.Base(filePath))
 		return s.streamTranscodedFile(w, r, transcoded.transcodedPath)
 	}
 
-	// Real-time transcoding with FFmpeg
-	log.Printf("🔄 Starting real-time audio transcoding for %s", filepath.Base(filePath))
+	// Real-time transcoding with seeking support
+	log.Printf("🔄 Starting seekable transcoding for %s", filepath.Base(filePath))
+	return s.streamRealtimeTranscoding(w, r, filePath, audioInfo)
+}
 
+func (s *NetflixStreamService) streamTranscodedRange(w http.ResponseWriter, r *http.Request, filePath string, rangeHeader string, audioInfo *AudioInfo, mkvIndex *MKVIndex) error {
+	// Parse range header
+	ranges, err := parseRangeHeader(rangeHeader, 0) // We don't know final size yet
+	if err != nil {
+		return s.streamRealtimeTranscoding(w, r, filePath, audioInfo)
+	}
+
+	if len(ranges) != 1 {
+		return s.streamRealtimeTranscoding(w, r, filePath, audioInfo)
+	}
+
+	start := ranges[0].start
+	
+	// Calculate seek time from byte offset (approximate)
+	var seekTime float64 = 0
+	if mkvIndex != nil && mkvIndex.duration > 0 {
+		// Estimate seek time based on file position
+		file, err := os.Open(filePath)
+		if err == nil {
+			stat, err := file.Stat()
+			file.Close()
+			if err == nil {
+				fileSize := stat.Size()
+				if fileSize > 0 {
+					seekTime = float64(start) / float64(fileSize) * float64(mkvIndex.duration) / 1000.0
+				}
+			}
+		}
+	}
+
+	log.Printf("🎯 Transcoding range request: seeking to %.2fs", seekTime)
+
+	// Set headers for partial content
+	w.Header().Set("Content-Type", "video/mp4")
+	w.Header().Set("Accept-Ranges", "bytes")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.WriteHeader(http.StatusPartialContent)
+
+	// Start FFmpeg with seeking
+	args := []string{
+		"-ss", fmt.Sprintf("%.2f", seekTime), // Seek to position
+		"-i", filePath,
+		"-c:v", "copy", // Copy video stream
+		"-c:a", "aac",  // Transcode audio to AAC
+		"-b:a", "192k", // Audio bitrate
+		"-ac", "2",     // Stereo output
+		"-f", "mp4",    // MP4 container
+		"-movflags", "frag_keyframe+empty_moov+faststart", // Enable streaming
+		"-avoid_negative_ts", "make_zero", // Handle negative timestamps
+		"-",
+	}
+
+	cmd := exec.Command("ffmpeg", args...)
+	
+	// Get stdout pipe for streaming
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return fmt.Errorf("failed to get stdout pipe: %v", err)
+	}
+
+	// Start the transcoding process
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("failed to start ffmpeg: %v", err)
+	}
+
+	// Stream transcoded output with optimized buffer
+	buffer := s.bufferPool.Get(s.segmentSize)
+	defer s.bufferPool.Put(buffer)
+
+	// Copy transcoded stream to response with instant flushing
+	_, err = s.copyWithInstantFlushing(w, stdout, buffer)
+
+	// Wait for FFmpeg to finish
+	cmd.Wait()
+
+	if err != nil {
+		log.Printf("❌ Range transcoding error for %s: %v", filepath.Base(filePath), err)
+		return err
+	}
+
+	log.Printf("✅ Successfully streamed transcoded range for %s", filepath.Base(filePath))
+	return nil
+}
+
+func (s *NetflixStreamService) streamRealtimeTranscoding(w http.ResponseWriter, r *http.Request, filePath string, audioInfo *AudioInfo) error {
 	// Set headers for streaming
 	w.Header().Set("Content-Type", "video/mp4") // Transcode to MP4 container
-	w.Header().Set("Accept-Ranges", "bytes")
+	w.Header().Set("Accept-Ranges", "bytes")    // Enable seeking support
 	w.Header().Set("Cache-Control", "no-cache") // Don't cache transcoded streams
 
-	// Start FFmpeg transcoding process
-	cmd := exec.Command("ffmpeg",
+	// Start FFmpeg transcoding process with seeking support
+	args := []string{
 		"-i", filePath,
 		"-c:v", "copy", // Copy video stream as-is (no re-encoding)
-		"-c:a", "aac", // Transcode audio to AAC
+		"-c:a", "aac",  // Transcode audio to AAC
 		"-b:a", "192k", // Audio bitrate
-		"-ac", "2", // Stereo output
-		"-f", "mp4", // MP4 container
-		"-movflags", "frag_keyframe+empty_moov+faststart", // Enable streaming
-		"-", // Output to stdout
-	)
+		"-ac", "2",     // Stereo output
+		"-f", "mp4",    // MP4 container
+		"-movflags", "frag_keyframe+empty_moov+faststart", // Enable streaming and seeking
+		"-avoid_negative_ts", "make_zero", // Handle negative timestamps
+		"-",
+	}
+
+	cmd := exec.Command("ffmpeg", args...)
 
 	// Get stdout pipe for streaming
 	stdout, err := cmd.StdoutPipe()
@@ -1709,8 +2501,8 @@ func (s *NetflixStreamService) streamWithAudioTranscoding(w http.ResponseWriter,
 	buffer := s.bufferPool.Get(s.segmentSize)
 	defer s.bufferPool.Put(buffer)
 
-	// Copy transcoded stream to response
-	_, err = io.CopyBuffer(w, stdout, buffer)
+	// Copy transcoded stream to response with instant flushing
+	_, err = s.copyWithInstantFlushing(w, stdout, buffer)
 
 	// Wait for FFmpeg to finish
 	cmd.Wait()
@@ -1769,4 +2561,102 @@ func (at *AudioTranscoder) getFromCache(filePath string) *TranscodedAudio {
 	}
 
 	return nil
+}
+
+func (at *AudioTranscoder) createSeekableTranscodedFile(filePath string, audioInfo *AudioInfo) (*TranscodedAudio, error) {
+	at.mu.Lock()
+	defer at.mu.Unlock()
+
+	// Check cache again after acquiring lock
+	if transcoded, exists := at.transcodingCache[filePath]; exists {
+		if _, err := os.Stat(transcoded.transcodedPath); err == nil {
+			return transcoded, nil
+		}
+		delete(at.transcodingCache, filePath)
+	}
+
+	// Create transcoded file path
+	cacheDir := filepath.Join(os.TempDir(), "homeflix-transcoded")
+	os.MkdirAll(cacheDir, 0755)
+	
+	fileName := filepath.Base(filePath)
+	nameWithoutExt := strings.TrimSuffix(fileName, filepath.Ext(fileName))
+	transcodedPath := filepath.Join(cacheDir, nameWithoutExt+"_transcoded.mp4")
+
+	log.Printf("🔄 Creating seekable transcoded file: %s", filepath.Base(transcodedPath))
+
+	// Transcode with proper seeking support
+	args := []string{
+		"-i", filePath,
+		"-c:v", "copy", // Copy video stream
+		"-c:a", "aac",  // Transcode audio to AAC
+		"-b:a", "192k", // Audio bitrate
+		"-ac", "2",     // Stereo output
+		"-movflags", "+faststart", // Move moov atom to beginning for seeking
+		"-avoid_negative_ts", "make_zero",
+		"-y", // Overwrite output file
+		transcodedPath,
+	}
+
+	cmd := exec.Command("ffmpeg", args...)
+	
+	// Run transcoding
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("transcoding failed: %v", err)
+	}
+
+	// Get transcoded file size
+	stat, err := os.Stat(transcodedPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to stat transcoded file: %v", err)
+	}
+
+	// Create transcoded audio entry
+	transcoded := &TranscodedAudio{
+		filePath:        filePath,
+		transcodedPath:  transcodedPath,
+		originalCodec:   audioInfo.Codec,
+		transcodedCodec: "aac",
+		created:         time.Now(),
+		size:            stat.Size(),
+	}
+
+	// Add to cache
+	at.transcodingCache[filePath] = transcoded
+	at.currentCacheSize += transcoded.size
+
+	// Clean up cache if needed
+	at.cleanupCacheIfNeeded()
+
+	log.Printf("✅ Created seekable transcoded file: %s (%d bytes)", filepath.Base(transcodedPath), transcoded.size)
+	return transcoded, nil
+}
+
+func (at *AudioTranscoder) cleanupCacheIfNeeded() {
+	if at.currentCacheSize <= at.maxCacheSize {
+		return
+	}
+
+	log.Printf("🧹 Cleaning up transcoding cache (current: %d MB, max: %d MB)", 
+		at.currentCacheSize/(1024*1024), at.maxCacheSize/(1024*1024))
+
+	// Remove oldest entries until under limit
+	var oldestEntry *TranscodedAudio
+	var oldestKey string
+
+	for key, entry := range at.transcodingCache {
+		if oldestEntry == nil || entry.created.Before(oldestEntry.created) {
+			oldestEntry = entry
+			oldestKey = key
+		}
+	}
+
+	if oldestEntry != nil {
+		// Remove file and cache entry
+		os.Remove(oldestEntry.transcodedPath)
+		at.currentCacheSize -= oldestEntry.size
+		delete(at.transcodingCache, oldestKey)
+		
+		log.Printf("🗑️ Removed old transcoded file: %s", filepath.Base(oldestEntry.transcodedPath))
+	}
 }

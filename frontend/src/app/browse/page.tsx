@@ -1,22 +1,17 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from "react";
-import { Filter, Film, Search, X, Grid, List } from "lucide-react";
+import { Film, Search, X, Grid, List } from "lucide-react";
 import { useNavigate } from '@/hooks/useNavigate';
 import { Media } from "../../types/media";
 import VideoPlayer from "../../components/VideoPlayer";
 import Navbar from "../../components/Navbar";
 import RecentlyWatched from "../../components/RecentlyWatched";
-import LazyMediaGrid from "../../components/LazyMediaGrid";
 import RedLoader from "../../components/RedLoader";
 import { getApiUrl, fetchUniqueRecommendations, preloadAssets, smartSearch, fetchMediaByGenre } from "../../lib/api";
 import NetflixMediaCard from "../../components/NetflixMediaCard";
 import {
-  NetflixHorizontalRow,
   ScrollXHero,
-  ParallaxSection,
-  GradientBackground,
-  ScrollReveal,
   MagneticButton,
   FloatingElement
 } from '@/components/scrollx';
@@ -37,7 +32,6 @@ export default function BrowsePage() {
   const [selectedGenre, setSelectedGenre] = useState<string>("all");
   const [sortBy, setSortBy] = useState<string>("recent");
   const [searchQuery, setSearchQuery] = useState<string>("");
-  const [showGenreSidebar, setShowGenreSidebar] = useState<boolean>(false); // Start closed on mobile
   const [viewMode, setViewMode] = useState<string>("grid");
   const [selectedMedia, setSelectedMedia] = useState<Media | null>(null);
   const [isPlayerOpen, setIsPlayerOpen] = useState(false);
@@ -48,68 +42,7 @@ export default function BrowsePage() {
   const [hasMore, setHasMore] = useState(true);
   const ITEMS_PER_PAGE = 24;
 
-  useEffect(() => {
-    fetchData();
-
-    // Open sidebar on desktop by default
-    const checkScreenSize = () => {
-      setShowGenreSidebar(window.innerWidth >= 1024); // lg breakpoint
-    };
-
-    checkScreenSize();
-    window.addEventListener('resize', checkScreenSize);
-
-    return () => window.removeEventListener('resize', checkScreenSize);
-  }, []);
-
-  useEffect(() => {
-    // Debounce search to avoid too many API calls
-    const timeoutId = setTimeout(() => {
-      filterAndSortMedia();
-    }, searchQuery.trim() ? 300 : 0); // 300ms delay for search, immediate for other filters
-
-    return () => clearTimeout(timeoutId);
-  }, [allMedia, selectedGenre, sortBy, searchQuery]);
-
-  useEffect(() => {
-    // Reset pagination when filters change
-    setCurrentPage(1);
-    setDisplayedMedia([]);
-    setHasMore(true);
-    loadMoreMedia(1);
-  }, [filteredMedia]);
-
-  const fetchData = async () => {
-    setLoading(true);
-    try {
-      const apiUrl = getApiUrl();
-
-      // Fetch movies only and genres
-      const [moviesResponse, genresResponse] = await Promise.all([
-        fetch(`${apiUrl}/api/media/movies`),
-        fetch(`${apiUrl}/api/genres`)
-      ]);
-
-      const moviesData = await moviesResponse.json();
-      const genresData = await genresResponse.json();
-
-      // Use only movies for browse page
-      const mediaData = moviesData;
-
-      setAllMedia(mediaData);
-      setGenres(genresData);
-
-      // Fetch featured media from recommendations with fallback
-      await fetchFeaturedMedia();
-
-      setLoading(false);
-    } catch (error) {
-      console.error("Error fetching data:", error);
-      setLoading(false);
-    }
-  };
-
-  const fetchFeaturedMedia = async () => {
+  const fetchFeaturedMedia = useCallback(async (mediaData: Media[]) => {
     try {
       console.log('🎬 Fetching unique featured media with session awareness...');
 
@@ -119,14 +52,19 @@ export default function BrowsePage() {
       try {
         featured = await fetchUniqueRecommendations('mixed', 20);
         console.log(`✅ Got ${featured.length} unique recommendations`);
-      } catch (error) {
+      } catch {
         console.warn('❌ Unique recommendations failed, using fallback');
 
         // Fallback to regular API
         const apiUrl = getApiUrl();
-        const response = await fetch(`${apiUrl}/api/movies?limit=20`);
-        if (response.ok) {
-          featured = await response.json();
+        try {
+          const response = await fetch(`${apiUrl}/api/movies?limit=20`);
+          if (response.ok) {
+            featured = await response.json();
+          }
+        } catch (fallbackError) {
+          console.warn('❌ Fallback API also failed, using provided media data');
+          featured = mediaData.slice(0, 20);
         }
       }
 
@@ -155,13 +93,13 @@ export default function BrowsePage() {
         }
       }
 
-      // If still no movies, use highest rated movies from allMedia
-      if (featured.length === 0 && allMedia.length > 0) {
-        const movies = allMedia.filter((item: Media) => item.type === 'movie');
+      // If still no movies, use highest rated movies from provided data
+      if (featured.length === 0 && mediaData.length > 0) {
+        const movies = mediaData.filter((item: Media) => item.type === 'movie');
         featured = movies
           .sort((a, b) => (b.rating || 0) - (a.rating || 0))
           .slice(0, 8);
-        console.log(`✅ Using ${featured.length} highest rated movies from allMedia`);
+        console.log(`✅ Using ${featured.length} highest rated movies from provided data`);
       }
 
       setFeaturedMedia(featured);
@@ -172,17 +110,64 @@ export default function BrowsePage() {
       }
     } catch (error) {
       console.error("Error fetching featured media:", error);
-      // Fallback to highest rated from allMedia
-      if (allMedia.length > 0) {
-        const featured = [...allMedia]
+      // Fallback to highest rated from provided data
+      if (mediaData.length > 0) {
+        const featured = [...mediaData]
           .sort((a, b) => (b.rating || 0) - (a.rating || 0))
           .slice(0, 8);
         setFeaturedMedia(featured);
       }
     }
-  };
+  }, []);
 
-  const filterAndSortMedia = async () => {
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const apiUrl = getApiUrl();
+
+      // Fetch movies only and genres with error handling
+      const [moviesResponse, genresResponse] = await Promise.all([
+        fetch(`${apiUrl}/api/media/movies`).catch(() => null),
+        fetch(`${apiUrl}/api/genres`).catch(() => null)
+      ]);
+
+      let mediaData: Media[] = [];
+      let genresData: Genre[] = [];
+
+      if (moviesResponse && moviesResponse.ok) {
+        mediaData = await moviesResponse.json();
+      } else {
+        console.warn('Failed to fetch movies, trying fallback endpoint');
+        try {
+          const fallbackResponse = await fetch(`${apiUrl}/api/movies`);
+          if (fallbackResponse.ok) {
+            mediaData = await fallbackResponse.json();
+          }
+        } catch (fallbackError) {
+          console.error('Fallback movies endpoint also failed:', fallbackError);
+        }
+      }
+
+      if (genresResponse && genresResponse.ok) {
+        genresData = await genresResponse.json();
+      } else {
+        console.warn('Failed to fetch genres, using empty array');
+      }
+
+      setAllMedia(mediaData);
+      setGenres(genresData);
+
+      // Fetch featured media from recommendations with fallback
+      await fetchFeaturedMedia(mediaData);
+
+    } catch (error) {
+      console.error("Error fetching data:", error);
+    } finally {
+      setLoading(false);
+    }
+  }, [fetchFeaturedMedia]);
+
+  const filterAndSortMedia = useCallback(async () => {
     let filtered = [...allMedia];
 
     // Use backend search if there's a search query
@@ -198,8 +183,8 @@ export default function BrowsePage() {
         filtered = searchResults.filter((media: Media) => mediaIds.has(media.id));
 
         console.log(`✅ Backend search returned ${searchResults.length} results, filtered to ${filtered.length} main titles`);
-      } catch (error) {
-        console.error("Backend search failed, falling back to client-side search:", error);
+      } catch (searchError) {
+        console.error("Backend search failed, falling back to client-side search:", searchError);
         // Fallback to client-side search
         filtered = allMedia.filter(media =>
           media.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -226,8 +211,8 @@ export default function BrowsePage() {
           filtered = genreResults.filter((media: Media) => mediaIds.has(media.id));
 
           console.log(`✅ Backend genre API returned ${genreResults.length} results, filtered to ${filtered.length} main titles`);
-        } catch (error) {
-          console.error("Backend genre fetch failed, falling back to client-side filtering:", error);
+        } catch (genreError) {
+          console.error("Backend genre fetch failed, falling back to client-side filtering:", genreError);
           // Fallback to client-side filtering
           filtered = filtered.filter(media =>
             (media.genres || []).some(genre => genre.name === selectedGenre)
@@ -273,21 +258,7 @@ export default function BrowsePage() {
     }
 
     setFilteredMedia(filtered);
-  };
-
-  const handlePlay = (media: Media) => {
-    setSelectedMedia(media);
-    setIsPlayerOpen(true);
-  };
-
-  const handleInfo = (media: Media) => {
-    // Browse page only shows movies
-    navigate.push(`/movie/${media.id}`);
-  };
-
-  const handleSearch = (query: string) => {
-    setSearchQuery(query);
-  };
+  }, [allMedia, selectedGenre, sortBy, searchQuery]);
 
   const loadMoreMedia = useCallback((page: number = currentPage) => {
     const startIndex = (page - 1) * ITEMS_PER_PAGE;
@@ -303,6 +274,41 @@ export default function BrowsePage() {
     setHasMore(endIndex < filteredMedia.length);
     setLoadingMore(false);
   }, [filteredMedia, currentPage, ITEMS_PER_PAGE]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  useEffect(() => {
+    // Debounce search to avoid too many API calls
+    const timeoutId = setTimeout(() => {
+      filterAndSortMedia();
+    }, searchQuery.trim() ? 300 : 0); // 300ms delay for search, immediate for other filters
+
+    return () => clearTimeout(timeoutId);
+  }, [allMedia, selectedGenre, sortBy, searchQuery, filterAndSortMedia]);
+
+  useEffect(() => {
+    // Reset pagination when filters change
+    setCurrentPage(1);
+    setDisplayedMedia([]);
+    setHasMore(true);
+    loadMoreMedia(1);
+  }, [filteredMedia, loadMoreMedia]);
+
+  const handlePlay = (media: Media) => {
+    setSelectedMedia(media);
+    setIsPlayerOpen(true);
+  };
+
+  const handleInfo = (media: Media) => {
+    // Browse page only shows movies
+    navigate.push(`/movie/${media.id}`);
+  };
+
+  const handleSearch = (query: string) => {
+    setSearchQuery(query);
+  };
 
   const handleLoadMore = useCallback(() => {
     if (!loadingMore && hasMore) {
@@ -336,11 +342,44 @@ export default function BrowsePage() {
       )}
 
 
-      {/* Main Content with Fixed Sidebar Layout */}
+      {/* Main Content with Responsive Layout */}
       <div className="relative bg-gradient-to-b from-red-900/20 via-black to-black min-h-screen">
-        <div className="flex h-full">
-          {/* Fixed Genre Sidebar - Always visible, no close button */}
-          <div className="w-80 flex-shrink-0 border-r border-white/10">
+        <div className="flex flex-col lg:flex-row h-full">
+          {/* Mobile Genre Filter - Horizontal scroll on mobile */}
+          <div className="lg:hidden px-4 py-4 border-b border-white/10">
+            <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+              <button
+                onClick={() => setSelectedGenre("all")}
+                className={`flex-shrink-0 px-4 py-2 rounded-full text-sm transition-all ${selectedGenre === "all"
+                  ? "bg-red-600 text-white"
+                  : "bg-black/50 text-gray-300 hover:bg-white/10 hover:text-white"
+                  }`}
+              >
+                All ({allMedia.length})
+              </button>
+              {genres.map((genre) => {
+                const genreCount = allMedia.filter(media =>
+                  media.genres?.some(g => g.name === genre.name)
+                ).length;
+
+                return (
+                  <button
+                    key={genre.id}
+                    onClick={() => setSelectedGenre(genre.name)}
+                    className={`flex-shrink-0 px-4 py-2 rounded-full text-sm transition-all ${selectedGenre === genre.name
+                      ? "bg-red-600 text-white"
+                      : "bg-black/50 text-gray-300 hover:bg-white/10 hover:text-white"
+                      }`}
+                  >
+                    {genre.name} ({genreCount})
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Desktop Genre Sidebar - Hidden on mobile */}
+          <div className="hidden lg:block w-80 flex-shrink-0 border-r border-white/10">
             <div className="sticky top-20 px-4 py-6">
               <div className="bg-black/40 backdrop-blur-md rounded-2xl border border-white/20 p-6">
                 <div className="mb-6">
@@ -390,7 +429,7 @@ export default function BrowsePage() {
           </div>
 
           {/* Main Content Area */}
-          <div className="flex-1 px-6 py-6 overflow-hidden">
+          <div className="flex-1 px-4 lg:px-6 py-4 lg:py-6 overflow-hidden">
             {/* Header */}
             <div className="mb-6">
               <h1 className="text-2xl md:text-3xl font-bold text-white mb-2">
@@ -402,8 +441,8 @@ export default function BrowsePage() {
             </div>
 
             {/* Search Bar */}
-            <div className="mb-6">
-              <div className="relative max-w-2xl">
+            <div className="mb-4 lg:mb-6">
+              <div className="relative">
                 {searchLoading ? (
                   <div className="absolute left-4 top-1/2 transform -translate-y-1/2">
                     <RedLoader size="small" />
@@ -416,7 +455,7 @@ export default function BrowsePage() {
                   placeholder="Search your collection..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full bg-black/50 backdrop-blur-md text-white pl-12 pr-10 py-3 rounded-xl border border-white/20 focus:border-red-500 focus:outline-none placeholder-gray-400 transition-all"
+                  className="w-full bg-black/50 backdrop-blur-md text-white pl-12 pr-10 py-3 rounded-xl border border-white/20 focus:border-red-500 focus:outline-none placeholder-gray-400 transition-all text-sm lg:text-base"
                 />
                 {searchQuery && !searchLoading && (
                   <button
@@ -429,13 +468,13 @@ export default function BrowsePage() {
               </div>
             </div>
             {/* Controls */}
-            <div className="flex items-center gap-4 mb-4">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 sm:gap-4 mb-4">
               {/* Sort Filter */}
-              <div className="relative">
+              <div className="relative w-full sm:w-auto">
                 <select
                   value={sortBy}
                   onChange={(e) => setSortBy(e.target.value)}
-                  className="bg-black/50 backdrop-blur-md border border-white/20 text-white px-4 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 text-sm"
+                  className="w-full sm:w-auto bg-black/50 backdrop-blur-md border border-white/20 text-white px-4 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 text-sm"
                 >
                   <option value="recent">Recently Added</option>
                   <option value="popular">Most Popular</option>
@@ -508,12 +547,12 @@ export default function BrowsePage() {
               />
             </div>
 
-            {/* Content Grid - 5 cards per row with smaller cards */}
+            {/* Content Grid - Responsive grid */}
             <div className="pb-20">
               <div>
                 {filteredMedia.length > 0 ? (
                   <div className={viewMode === "grid"
-                    ? "grid grid-cols-5 gap-3"
+                    ? "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2 sm:gap-3"
                     : "space-y-3"
                   }>
                     {displayedMedia.map((media, index) => (
@@ -532,11 +571,11 @@ export default function BrowsePage() {
 
                     {/* Load More Button */}
                     {hasMore && (
-                      <div className={viewMode === "grid" ? "col-span-full flex justify-center mt-6" : "flex justify-center mt-6"}>
+                      <div className={viewMode === "grid" ? "col-span-full flex justify-center mt-4 lg:mt-6" : "flex justify-center mt-4 lg:mt-6"}>
                         <MagneticButton
                           onClick={handleLoadMore}
                           disabled={loadingMore}
-                          className="bg-red-600 hover:bg-red-700 disabled:bg-gray-600 text-white px-6 py-2 rounded-lg font-semibold transition-colors text-sm"
+                          className="bg-red-600 hover:bg-red-700 disabled:bg-gray-600 text-white px-4 lg:px-6 py-2 rounded-lg font-semibold transition-colors text-sm"
                         >
                           {loadingMore ? <RedLoader size="small" /> : 'Load More'}
                         </MagneticButton>
@@ -578,6 +617,11 @@ export default function BrowsePage() {
           isOpen={isPlayerOpen}
           onClose={() => setIsPlayerOpen(false)}
           startTime={0}
+          onPlayNext={(nextMedia) => {
+            console.log('Playing next episode:', nextMedia.title);
+            setSelectedMedia(nextMedia);
+            // Keep player open and switch to next episode
+          }}
         />
       )}
     </div>

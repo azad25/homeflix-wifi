@@ -24,11 +24,11 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  
+
   // State declarations
   const [showPauseScreen, setShowPauseScreen] = useState(false);
   const [videoSrc, setVideoSrc] = useState<string>('');
-  
+
 
   // Chromecast integration
   const {
@@ -123,7 +123,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
       const handleCanPlay = () => {
         setIsBuffering(false);
         if (wasPlaying) {
-          video.play().catch(console.error);
+          video.play().catch(() => {});
         }
         video.removeEventListener('canplay', handleCanPlay);
       };
@@ -147,22 +147,79 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
     checkMobile();
   }, []);
 
-  // Initialize video source once when player opens
+  // Handle media changes (when switching episodes)
   useEffect(() => {
-    if (isOpen && media.id && !videoSrc) {
+    if (isOpen && media.id) {
       const video = videoRef.current;
       if (video) {
-        const initialVideoSrc = getStreamUrl(media.id, 'high', 'mp4');
-        video.src = initialVideoSrc;
-        setVideoSrc(initialVideoSrc);
-        setHasInitiallyLoaded(false); // Reset flag when opening new video
+
+        
+        // Reset all playback states for new episode
+        setCurrentTime(0);
+        setDuration(0);
+        setIsPlaying(false);
+        setIsLoading(true);
+        setIsBuffering(true);
+        setShowPauseScreen(false);
+        setShowResumeNotification(false);
+        setResumeTime(0);
+        setHasInitiallyLoaded(false);
+        
+        // Load new video source
+        const newVideoSrc = getStreamUrl(media.id, 'high', 'mp4');
+        video.src = newVideoSrc;
+        setVideoSrc(newVideoSrc);
+        
+        // Load and auto-play the new episode
+        video.load();
+        
+        // Auto-play after a short delay to ensure loading
+        setTimeout(() => {
+          if (video.readyState >= 2) {
+            video.play().catch(() => {});
+          } else {
+            // Wait for canplay event
+            const handleCanPlay = () => {
+              video.play().catch(() => {});
+              video.removeEventListener('canplay', handleCanPlay);
+            };
+            video.addEventListener('canplay', handleCanPlay);
+          }
+        }, 100);
+      }
+    }
+  }, [media.id, media.title, isOpen, getStreamUrl]);
+
+  // Initialize video source when player opens or media changes
+  useEffect(() => {
+    if (isOpen && media.id) {
+      const video = videoRef.current;
+      if (video) {
+        const newVideoSrc = getStreamUrl(media.id, 'high', 'mp4');
+        
+        // Only update source if it's different (new episode)
+        if (newVideoSrc !== videoSrc) {
+
+          video.src = newVideoSrc;
+          setVideoSrc(newVideoSrc);
+          setHasInitiallyLoaded(false); // Reset flag when loading new video
+          setIsLoading(true);
+          setIsBuffering(true);
+          setCurrentTime(0);
+          setDuration(0);
+          
+          // Reset other states for new episode
+          setShowPauseScreen(false);
+          setShowResumeNotification(false);
+          setResumeTime(0);
+        }
       }
     } else if (!isOpen) {
       // Reset video source when player closes
       setVideoSrc('');
       setHasInitiallyLoaded(false);
     }
-  }, [media.id, isOpen, videoSrc, getStreamUrl]);
+  }, [media.id, isOpen, getStreamUrl]);
 
   // Load subtitles
   useEffect(() => {
@@ -187,32 +244,130 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
   // Fetch next episode for TV series
   useEffect(() => {
     const fetchNextEpisode = async () => {
-      if (media.type === 'episode' && media.series_id && media.season_number && media.episode_number) {
+
+
+      if (media.type === 'episode') {
         try {
           const response = await fetch(`${getApiUrl()}/api/media`);
           const allMedia: Media[] = await response.json();
 
-          // Find next episode
-          const next = allMedia.find((m: Media) =>
-            m.series_id === media.series_id &&
-            m.season_number === media.season_number &&
-            m.episode_number === (media.episode_number || 0) + 1
-          );
+          // Extract season and episode numbers from title if not available in metadata
+          let currentSeason = media.season_number;
+          let currentEpisodeNum = media.episode_number;
 
-          // If no next episode in current season, try first episode of next season
-          if (!next) {
-            const nextSeason = allMedia.find((m: Media) =>
-              m.series_id === media.series_id &&
-              m.season_number === (media.season_number || 0) + 1 &&
-              m.episode_number === 1
-            );
-            setNextEpisode(nextSeason || null);
+
+
+          if (!currentSeason || !currentEpisodeNum) {
+            const episodeMatch = media.title.match(/[Ss](\d+)[Ee](\d+)/);
+            if (episodeMatch) {
+              currentSeason = parseInt(episodeMatch[1]);
+              currentEpisodeNum = parseInt(episodeMatch[2]);
+
+            }
+          }
+
+          if (currentSeason && currentEpisodeNum) {
+
+
+            // Find episodes from the same series
+            const seriesEpisodes = allMedia.filter((m: Media) => {
+              if (m.type !== 'episode') return false;
+
+              // Method 1: Direct series_id match (most reliable)
+              if (media.series_id && m.series_id === media.series_id) {
+                return true;
+              }
+
+              // Method 2: Extract series name from title (remove season/episode info)
+              const currentSeriesName = media.title.replace(/\s*-?\s*S\d+E\d+.*$/i, '').trim();
+              const candidateSeriesName = m.title.replace(/\s*-?\s*S\d+E\d+.*$/i, '').trim();
+
+              if (currentSeriesName && candidateSeriesName &&
+                currentSeriesName.toLowerCase() === candidateSeriesName.toLowerCase()) {
+                return true;
+              }
+
+              // Method 3: Check if titles start with the same series name
+              const currentFirstWord = media.title.split(' ')[0].toLowerCase();
+              const candidateFirstWord = m.title.split(' ')[0].toLowerCase();
+
+              if (currentFirstWord.length > 3 && currentFirstWord === candidateFirstWord) {
+                return true;
+              }
+
+              // Method 4: File path similarity (same directory)
+              if (media.file_path && m.file_path) {
+                const currentDir = media.file_path.split('/').slice(0, -1).join('/');
+                const candidateDir = m.file_path.split('/').slice(0, -1).join('/');
+                if (currentDir && candidateDir && currentDir === candidateDir) {
+                  return true;
+                }
+              }
+
+              return false;
+            });
+
+
+
+            // First, try to find the next episode in the same season
+            let nextEpisodeInSeason = seriesEpisodes.find((m: Media) => {
+              let season = m.season_number;
+              let episode = m.episode_number;
+
+              if (!season || !episode) {
+                const episodeMatch = m.title.match(/[Ss](\d+)[Ee](\d+)/);
+                if (episodeMatch) {
+                  season = parseInt(episodeMatch[1]);
+                  episode = parseInt(episodeMatch[2]);
+                }
+              }
+
+              const isNext = season === currentSeason && episode === currentEpisodeNum + 1;
+
+              return isNext;
+            });
+
+            if (nextEpisodeInSeason) {
+              setNextEpisode(nextEpisodeInSeason);
+
+              return;
+            }
+
+            // If no next episode in current season, try first episode of next season
+            const firstEpisodeNextSeason = seriesEpisodes.find((m: Media) => {
+              let season = m.season_number;
+              let episode = m.episode_number;
+
+              if (!season || !episode) {
+                const episodeMatch = m.title.match(/[Ss](\d+)[Ee](\d+)/);
+                if (episodeMatch) {
+                  season = parseInt(episodeMatch[1]);
+                  episode = parseInt(episodeMatch[2]);
+                }
+              }
+
+              const isNextSeason = season === currentSeason + 1 && episode === 1;
+
+              return isNextSeason;
+            });
+
+            if (firstEpisodeNextSeason) {
+              setNextEpisode(firstEpisodeNextSeason);
+
+            } else {
+              setNextEpisode(null);
+
+            }
           } else {
-            setNextEpisode(next);
+
           }
         } catch (error) {
-          // Error fetching next episode
+
+          setNextEpisode(null);
         }
+      } else {
+
+        setNextEpisode(null);
       }
     };
 
@@ -279,34 +434,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
     }
   }, [castState.isConnected, media, loadCastMedia, isCasting]);
 
-  const handlePlayNext = () => {
-    if (nextEpisode && onPlayNext) {
-      onPlayNext(nextEpisode);
-    }
-  };
-
-  const handleCancelNext = () => {
-    setShowNextEpisode(false);
-  };
-
-  const handleResumePlayback = () => {
-    const video = videoRef.current;
-    if (video && resumeTime > 0) {
-      video.currentTime = resumeTime;
-      setCurrentTime(resumeTime);
-      setShowResumeNotification(false);
-    }
-  };
-
-  const handleStartFromBeginning = () => {
-    const video = videoRef.current;
-    if (video) {
-      video.currentTime = 0;
-      setCurrentTime(0);
-      setShowResumeNotification(false);
-    }
-  };
-
   // Utility function to format time in MM:SS or HH:MM:SS format
   const formatTime = (seconds: number): string => {
     if (!seconds || !isFinite(seconds)) return '00:00';
@@ -327,23 +454,23 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
 
     // Enhanced duration detection for progress saving
     let currentDuration = duration;
-    
+
     // If no duration from state, try video element
     if (!currentDuration || currentDuration === 0) {
       currentDuration = video.duration;
     }
-    
+
     // If still no duration, try seekable range (important for MKV)
     if (!currentDuration || currentDuration === 0 || !isFinite(currentDuration)) {
       if (video.seekable && video.seekable.length > 0) {
         currentDuration = video.seekable.end(video.seekable.length - 1);
       }
     }
-    
+
     // Enhanced fallback for different file types
     if (!currentDuration || currentDuration === 0 || !isFinite(currentDuration)) {
       const fileExt = media.file_path ? media.file_path.toLowerCase().split('.').pop() : '';
-      
+
       if (fileExt === 'mkv') {
         // For MKV files, use a more conservative estimate
         currentDuration = Math.max(video.currentTime * 1.5, 3600); // 1.5x current time or 1 hour minimum
@@ -351,19 +478,88 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
         // For other formats, use original logic
         currentDuration = Math.max(video.currentTime + 60, 3600);
       }
-      
-      console.log(`Using fallback duration for progress: ${currentDuration}s (${fileExt} file)`);
+
+
     }
 
     try {
       await updatePlaybackProgress(media.id, video.currentTime, currentDuration);
-      console.log(`Progress saved: ${video.currentTime}s / ${currentDuration}s`);
+
     } catch (error) {
-      console.warn('Failed to save progress:', error);
+
       // Prevent error from bubbling up and causing page reload
       return;
     }
   }, [duration, media.id, media.file_path]);
+
+  const handlePlayNext = useCallback(async () => {
+
+
+    if (nextEpisode) {
+      // Save current progress before switching
+      try {
+        await saveCurrentProgress();
+      } catch (error) {
+
+      }
+
+
+
+      // If onPlayNext callback is provided, use it
+      if (onPlayNext) {
+
+        onPlayNext(nextEpisode);
+      } else {
+
+        // Fallback: handle episode change internally
+        // This will trigger the media change effect above
+        setIsLoading(true);
+        setIsBuffering(true);
+        
+        const video = videoRef.current;
+        if (video) {
+          // Pause current video
+          video.pause();
+          
+          // Update video source directly
+          const newVideoSrc = getStreamUrl(nextEpisode.id, 'high', 'mp4');
+          video.src = newVideoSrc;
+          setVideoSrc(newVideoSrc);
+          
+          // Reset states
+          setCurrentTime(0);
+          setDuration(0);
+          setHasInitiallyLoaded(false);
+          
+          // Load and play new episode
+          video.load();
+          video.addEventListener('canplay', () => {
+            video.play().catch(() => {});
+          }, { once: true });
+        }
+      }
+    } else {
+
+    }
+  }, [nextEpisode, onPlayNext, saveCurrentProgress, media, getStreamUrl]);
+
+  const handleResumePlayback = () => {
+    const video = videoRef.current;
+    if (video && resumeTime > 0) {
+      video.currentTime = resumeTime;
+      setCurrentTime(resumeTime);
+      setShowResumeNotification(false);
+    }
+  };
+
+  const handleStartFromBeginning = () => {
+    const video = videoRef.current;
+    if (video) {
+      video.currentTime = 0;
+      setCurrentTime(0);
+      setShowResumeNotification(false);
+    }
+  };
 
   const togglePlay = useCallback(async () => {
     try {
@@ -387,15 +583,15 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
           // Failed to resume video
         });
       } else {
-          // Save progress before pausing
+        // Save progress before pausing
         await saveCurrentProgress();
-        
+
         video.pause();
       }
     } catch (error) {
       // Prevent error from causing page reload
     }
-  }, [isCasting, castState.isConnected, isPlaying, pauseCast, playCast, saveCurrentProgress]);
+  }, [isCasting, castState.isConnected, isPlaying, pauseCast, playCast]);
 
   const toggleMute = () => {
     if (isCasting && castState.isConnected) {
@@ -439,7 +635,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
 
     // Throttle seeking to prevent rapid requests
     if (isBuffering) {
-      console.log('Seek throttled - already buffering');
       return;
     }
 
@@ -455,7 +650,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
     try {
       video.currentTime = newTime;
       setCurrentTime(newTime);
-      
+
       // Add timeout to clear buffering state if seek doesn't complete
       setTimeout(() => {
         setIsBuffering(false);
@@ -463,6 +658,10 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
     } catch (error) {
       setIsBuffering(false);
     }
+  };
+
+  const handleCancelNext = () => {
+    setShowNextEpisode(false);
   };
 
   const seekBackward = (seconds: number) => {
@@ -477,7 +676,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
 
     // Throttle seeking to prevent rapid requests
     if (isBuffering) {
-      console.log('Seek throttled - already buffering');
       return;
     }
 
@@ -487,7 +685,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
     try {
       video.currentTime = newTime;
       setCurrentTime(newTime);
-      
+
       // Add timeout to clear buffering state if seek doesn't complete
       setTimeout(() => {
         setIsBuffering(false);
@@ -514,10 +712,10 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
     }
 
     if (!document.fullscreenElement) {
-      container.requestFullscreen().catch(() => {});
+      container.requestFullscreen().catch(() => { });
       setShowControls(true); // Show controls when entering fullscreen
     } else {
-      document.exitFullscreen().catch(() => {});
+      document.exitFullscreen().catch(() => { });
       setShowControls(true); // Show controls when exiting fullscreen
     }
   };
@@ -593,10 +791,10 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
         if (fileExt === 'mkv') {
           // Allow seeking in MKV files using current time as reference
           targetDuration = Math.max(video.currentTime * 2, 3600); // Estimate based on current position
-          console.log(`MKV seeking with estimated duration: ${targetDuration}s`);
+
         } else {
           // Conservative fallback - don't allow seeking without duration for other formats
-          console.warn('No duration available for seeking');
+
           return;
         }
       }
@@ -684,7 +882,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
             const fileExt = media.file_path ? media.file_path.toLowerCase().split('.').pop() : '';
             if (fileExt === 'mkv') {
               currentDuration = Math.max(video.currentTime * 2, 3600);
-              console.log(`MKV dragging with estimated duration: ${currentDuration}s`);
+
             } else {
               // No duration available - skip dragging for other formats
               return;
@@ -729,7 +927,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
 
       // Resume playback if it was playing before dragging
       if (video && wasPlaying) {
-        video.play().catch(() => {});
+        video.play().catch(() => { });
       }
 
       document.removeEventListener('mousemove', handleMove);
@@ -793,7 +991,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
       }
     }
     onClose();
-  }, [saveCurrentProgress, onClose]);
+  }, [onClose]);
 
   const toggleSubtitles = () => {
     setSubtitlesEnabled(!subtitlesEnabled);
@@ -891,10 +1089,10 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
       // Save progress when component unmounts (video player closes)
       const video = videoRef.current;
       if (video && video.currentTime > 30) {
-        saveCurrentProgress().catch(() => {});
+        saveCurrentProgress().catch(() => { });
       }
     };
-  }, [isOpen, saveCurrentProgress]);
+  }, [isOpen]);
 
   // ...
   return (
@@ -922,28 +1120,55 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
             webkit-playsinline="true"
             onPause={async () => {
               setIsPlaying(false);
-              
+
               // Save progress immediately when pausing
               await saveCurrentProgress();
             }}
-            onEnded={() => setIsPlaying(false)}
+            //onend
+            onEnded={async () => {
+              setIsPlaying(false);
+
+              // Save progress for current episode
+              try {
+                await saveCurrentProgress();
+              } catch (error) {
+
+              }
+
+              // Auto-play next episode if available
+              if (nextEpisode) {
+
+
+                // Use setTimeout to ensure state is updated before playing next
+                setTimeout(() => {
+                  if (onPlayNext) {
+                    onPlayNext(nextEpisode);
+                  } else {
+                    // Fallback: show next episode preview or reload
+                    setShowNextEpisode(true);
+                  }
+                }, 500);
+              } else {
+
+              }
+            }}
             onError={(e) => {
               const video = videoRef.current;
               if (video) {
                 const error = video.error;
                 if (error) {
-                  console.log(`Video error: ${error.code} - ${error.message}`);
-                  
+
+
                   // Handle network errors that might cause disconnections
                   if (error.code === MediaError.MEDIA_ERR_NETWORK) {
-                    console.log('Network error detected, attempting recovery...');
+
                     // Don't immediately reload, let the browser handle buffering
                     setIsBuffering(true);
-                    
+
                     // Try to recover after a short delay
                     setTimeout(() => {
                       if (video.readyState < 2) {
-                        console.log('Attempting video recovery...');
+
                         video.load();
                       }
                       setIsBuffering(false);
@@ -968,7 +1193,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                 } else {
                   // Save progress before pausing
                   await saveCurrentProgress();
-                  
+
                   video.pause();
                 }
               }
@@ -991,12 +1216,13 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
             onCanPlay={() => {
               setIsLoading(false);
               setIsBuffering(false);
-              
-              // LAN optimization: Set aggressive buffering parameters
+
               const video = videoRef.current;
               if (video) {
-                const fileExt = media.file_path ? media.file_path.toLowerCase().split('.').pop() : '';
+
                 
+                const fileExt = media.file_path ? media.file_path.toLowerCase().split('.').pop() : '';
+
                 // Optimize for LAN streaming
                 try {
                   if (fileExt === 'mkv') {
@@ -1009,12 +1235,20 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                     (video as any).bufferAheadTime = 30; // 30 seconds buffer
                     (video as any).maxBufferLength = 300; // 5 minutes max buffer
                   }
-                  
+
                   // Set LAN-specific hints
                   (video as any).networkType = 'lan';
                   (video as any).chunkSizeHint = 'large';
                 } catch (error) {
                   // Browser doesn't support these properties
+                }
+
+                // Auto-play new episodes (when switching from one episode to another)
+                if (!hasInitiallyLoaded && video.currentTime === 0) {
+
+                  video.play().catch(error => {
+
+                  });
                 }
               }
             }}
@@ -1022,20 +1256,22 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
               const video = videoRef.current;
               if (!video) return;
 
+
+
               // Enhanced duration detection for MKV and other formats
               let videoDuration = video.duration;
               const fileExt = media.file_path ? media.file_path.toLowerCase().split('.').pop() : '';
-              
+
               // Check if duration is invalid (common with MKV files)
               if (!videoDuration || videoDuration === 0 || !isFinite(videoDuration)) {
-                console.log('Video duration unavailable, trying seekable range...');
-                
+
+
                 // Try to get duration from seekable range (works better for MKV)
                 if (video.seekable && video.seekable.length > 0) {
                   videoDuration = video.seekable.end(video.seekable.length - 1);
-                  console.log(`Duration from seekable range: ${videoDuration}s`);
+
                 }
-                
+
                 // If still no duration, set enhanced fallback for MKV files
                 if (!videoDuration || videoDuration === 0) {
                   if (fileExt === 'mkv') {
@@ -1045,21 +1281,21 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                       const mediaData = await response.json();
                       if (mediaData.duration && mediaData.duration > 0) {
                         videoDuration = mediaData.duration;
-                        console.log(`MKV duration from backend: ${videoDuration}s`);
+
                       } else {
                         videoDuration = 7200; // 2 hours fallback
-                        console.log('Using MKV fallback duration: 2 hours');
+
                       }
                     } catch (error) {
                       videoDuration = 7200; // 2 hours fallback
-                      console.log('Using MKV fallback duration: 2 hours (backend failed)');
+
                     }
                   } else {
                     videoDuration = 0; // Keep as 0 for other formats
                   }
                 }
               } else {
-                console.log(`Video duration from metadata: ${videoDuration}s`);
+
               }
 
               // For MKV files, set additional seeking hints
@@ -1068,7 +1304,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                   // Set MKV-specific buffering hints
                   (video as any).mkvOptimized = true;
                   (video as any).seekingStrategy = 'cluster-based';
-                  console.log('MKV seeking optimization enabled');
+
                 } catch (error) {
                   // Browser doesn't support these properties
                 }
@@ -1118,6 +1354,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
               setIsLoading(false);
               const video = videoRef.current;
               if (video && video.readyState >= 2) {
+
+                
                 video.volume = volume;
                 video.muted = false; // Always unmuted for video player
                 setIsMuted(false);
@@ -1126,6 +1364,14 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                 if (!hasInitiallyLoaded && resumeTime > 0 && video.currentTime < 5 && Math.abs(video.currentTime - resumeTime) > 5) {
                   video.currentTime = resumeTime;
                   setCurrentTime(resumeTime);
+                }
+
+                // Auto-play for new episodes
+                if (!hasInitiallyLoaded && video.currentTime === 0 && video.paused) {
+
+                  video.play().catch(error => {
+
+                  });
                 }
               }
             }}
@@ -1138,32 +1384,32 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
               // Enhanced duration detection during playback (especially for MKV)
               if (!duration || duration === 0) {
                 let newDuration = 0;
-                
+
                 // Try video.duration first
                 if (video.duration && video.duration > 0 && isFinite(video.duration)) {
                   newDuration = video.duration;
-                  console.log(`Duration updated from video.duration: ${newDuration}s`);
+
                 }
-                
+
                 // If no video.duration, try seekable range
                 if (!newDuration && video.seekable && video.seekable.length > 0) {
                   const seekableEnd = video.seekable.end(video.seekable.length - 1);
                   if (seekableEnd > 0 && isFinite(seekableEnd)) {
                     newDuration = seekableEnd;
-                    console.log(`Duration updated from seekable range: ${newDuration}s`);
+
                   }
                 }
-                
+
                 // Update duration if we found a valid one
                 if (newDuration > 0) {
                   setDuration(newDuration);
                 }
               }
-              
+
               // For MKV files with fallback duration, update to real duration when available
               if (duration === 7200 && video.duration && video.duration > 0 && video.duration !== 7200) {
                 setDuration(video.duration);
-                console.log(`MKV duration updated from fallback to real: ${video.duration}s`);
+
               }
             }}
             onSeeking={() => {
@@ -1318,6 +1564,22 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                     >
                       <RotateCw className="w-8 h-8" />
                     </button>
+
+                    {/* Next Episode Button - Only show for episodes when next episode exists */}
+                    {nextEpisode && media.type === 'episode' && (
+                      <button
+                        type="button"
+                        onClick={() => {
+
+                          handlePlayNext();
+                        }}
+                        className="bg-black/50 text-white rounded-full p-3 hover:bg-black/70 transition-all duration-200 hover:scale-110 flex items-center gap-2"
+                        title={`Play Next Episode: ${nextEpisode.title}`}
+                      >
+                        <span className="text-sm font-medium">Next</span>
+                        <Play className="w-5 h-5" />
+                      </button>
+                    )}
                   </div>
                 </div>
 
@@ -1787,13 +2049,13 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
               transition={{ delay: 0.1, duration: 0.3 }}
               className="flex-shrink-0 flex justify-center"
             >
-              <motion.div 
+              <motion.div
                 className="bg-[#C0392B]/20 rounded-full p-6 backdrop-blur-sm hover:bg-[#C0392B]/30 transition-colors duration-200 cursor-pointer"
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
                 onClick={(e) => {
                   e.stopPropagation();
-    const video = videoRef.current;
+                  const video = videoRef.current;
                   if (video && video.paused) {
                     // Just resume playback, don't change any state that might cause remount
                     video.play().catch(() => {
@@ -1815,7 +2077,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
             transition={{ delay: 0.2, duration: 0.3 }}
             onClick={(e) => {
               e.stopPropagation();
-              console.log('Close button clicked from pause screen');
+
               handleClose();
             }}
             className="absolute top-6 right-6 bg-black/50 hover:bg-black/70 text-white rounded-full p-3 transition-all duration-200 hover:scale-110 border border-white/20 hover:border-red-500/50"

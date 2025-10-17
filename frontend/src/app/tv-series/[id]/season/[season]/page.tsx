@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 import { ArrowLeft, Play, Info, Star, Clock, Calendar, ChevronLeft, ChevronRight } from "lucide-react";
 import { motion } from "framer-motion";
 import { Media } from '@/types/media';
@@ -11,7 +11,6 @@ import Navbar from '@/components/Navbar';
 import VideoPlayer from '@/components/VideoPlayer';
 import NetflixMediaCard from '@/components/NetflixMediaCard';
 import {
-  ParallaxSection,
   ScrollReveal,
   GlassCard,
   GradientBackground,
@@ -52,7 +51,60 @@ export default function SeasonPage() {
   const fetchSeasonData = async () => {
     try {
       const apiUrl = getApiUrl();
+      const seasonNumber = parseInt(params.season as string);
       
+      // First try to use the hierarchical API
+      try {
+        // Get series info from hierarchical API
+        const seriesResponse = await fetch(`${apiUrl}/api/series/${params.id}`);
+        if (seriesResponse.ok) {
+          const seriesData = await seriesResponse.json();
+          setSeries(seriesData);
+
+          // Get episodes for this specific season
+          const episodesResponse = await fetch(`${apiUrl}/api/series/${params.id}/seasons/${seasonNumber}/episodes`);
+          if (episodesResponse.ok) {
+            const episodesData = await episodesResponse.json();
+            
+            // Convert to Episode format and sort
+            const episodeList: Episode[] = episodesData
+              .map((media: Media, index: number) => ({
+                id: media.id,
+                episode_number: media.episode_number || extractEpisodeNumber(media.title) || index + 1,
+                name: media.title,
+                overview: media.description || '',
+                still_path: media.thumbnail_path,
+                air_date: media.release_date,
+                runtime: media.duration ? Math.floor(media.duration / 60) : undefined,
+                vote_average: media.rating,
+                media: media
+              }))
+              .sort((a: Episode, b: Episode) => a.episode_number - b.episode_number);
+
+            setEpisodes(episodeList);
+
+            // Get all seasons to calculate total
+            const seasonsResponse = await fetch(`${apiUrl}/api/series/${params.id}/seasons`);
+            if (seasonsResponse.ok) {
+              const seasonsData = await seasonsResponse.json();
+              setTotalSeasons(seasonsData.length);
+            }
+
+            // Preload assets
+            if (episodeList.length > 0) {
+              const mediaList = episodeList.map(ep => ep.media!).filter(Boolean);
+              preloadAssets(mediaList, ['thumbnail']);
+            }
+
+            setLoading(false);
+            return;
+          }
+        }
+      } catch (error) {
+        console.warn('Hierarchical API not available, falling back to media API:', error);
+      }
+
+      // Fallback to original method
       // Get series info
       const seriesResponse = await fetch(`${apiUrl}/api/media/${params.id}`);
       const seriesData = await seriesResponse.json();
@@ -63,7 +115,6 @@ export default function SeasonPage() {
       const allMedia = await allMediaResponse.json();
       
       // Filter episodes for this series and season
-      const seasonNumber = parseInt(params.season as string);
       const seriesEpisodes = allMedia.filter((media: Media) => {
         const belongsToSeries = media.type === 'episode' && (
           media.title.toLowerCase().includes(seriesData.title.toLowerCase()) ||
@@ -403,10 +454,41 @@ export default function SeasonPage() {
       {/* Video Player Modal */}
       {selectedMedia && (
         <VideoPlayer
+          key={selectedMedia.id} // Force re-render when media changes
           media={selectedMedia}
           isOpen={isPlayerOpen}
           onClose={() => setIsPlayerOpen(false)}
           startTime={0}
+          onPlayNext={(nextMedia) => {
+            console.log('🎬 Season page onPlayNext called with:', nextMedia.title);
+            
+            // Find current episode index
+            const currentIndex = episodes.findIndex(ep => ep.media?.id === selectedMedia.id);
+            console.log('🎬 Current episode index:', currentIndex, 'of', episodes.length);
+            
+            // Get next episode in the season
+            if (currentIndex !== -1 && currentIndex < episodes.length - 1) {
+              const nextEpisode = episodes[currentIndex + 1];
+              if (nextEpisode.media) {
+                console.log('🎬 Playing next episode in season:', nextEpisode.media.title);
+                setSelectedMedia(nextEpisode.media);
+                return;
+              }
+            }
+            
+            // If no next episode in current season, try to go to next season
+            const nextSeasonNumber = currentSeason + 1;
+            console.log('🎬 No more episodes in season, trying season', nextSeasonNumber);
+            if (nextSeasonNumber <= totalSeasons) {
+              // Navigate to next season and play first episode
+              console.log('🎬 Navigating to next season:', nextSeasonNumber);
+              navigate.push(`/tv-series/${params.id}/season/${nextSeasonNumber}`);
+            } else {
+              // No more episodes, close player
+              console.log('🎬 No more seasons, closing player');
+              setIsPlayerOpen(false);
+            }
+          }}
         />
       )}
     </div>

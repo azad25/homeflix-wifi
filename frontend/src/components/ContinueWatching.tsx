@@ -39,20 +39,29 @@ export const ContinueWatching: React.FC<ContinueWatchingProps> = ({
   // Helper function to find the next episode in a series
   const findNextEpisode = async (currentEpisode: Media, allMedia: Media[]): Promise<Media | null> => {
     try {
-      // Extract season and episode numbers from the current episode title
-      const currentSeasonMatch = currentEpisode.title.match(/[Ss](\d+)[Ee](\d+)/);
-      if (!currentSeasonMatch) return null;
+      // Extract season and episode numbers from metadata or title
+      let currentSeason = currentEpisode.season_number;
+      let currentEpisodeNum = currentEpisode.episode_number;
 
-      const currentSeason = parseInt(currentSeasonMatch[1]);
-      const currentEpisodeNum = parseInt(currentSeasonMatch[2]);
+      if (!currentSeason || !currentEpisodeNum) {
+        const currentSeasonMatch = currentEpisode.title.match(/[Ss](\d+)[Ee](\d+)/);
+        if (!currentSeasonMatch) {
+          console.log('Could not extract season/episode from title:', currentEpisode.title);
+          return null;
+        }
+        currentSeason = parseInt(currentSeasonMatch[1]);
+        currentEpisodeNum = parseInt(currentSeasonMatch[2]);
+      }
+
+      console.log(`Looking for next episode after S${currentSeason}E${currentEpisodeNum} of ${currentEpisode.title}`);
 
       // Find episodes from the same series
       const seriesEpisodes = allMedia.filter((media: Media) => {
         if (media.type !== 'episode') return false;
 
-        // Check if it belongs to the same series
+        // Check if it belongs to the same series using multiple methods
         const belongsToSeries =
-          media.series_id === currentEpisode.series_id ||
+          (currentEpisode.series_id && media.series_id === currentEpisode.series_id) ||
           (currentEpisode.title && media.title.toLowerCase().includes(
             currentEpisode.title.split(' ')[0].toLowerCase()
           )) ||
@@ -62,31 +71,48 @@ export const ContinueWatching: React.FC<ContinueWatchingProps> = ({
         return belongsToSeries;
       });
 
+      console.log(`Found ${seriesEpisodes.length} episodes in the same series`);
+
       // First, try to find the next episode in the same season
       const nextEpisodeInSeason = seriesEpisodes.find((media: Media) => {
-        const episodeMatch = media.title.match(/[Ss](\d+)[Ee](\d+)/);
-        if (!episodeMatch) return false;
+        let season = media.season_number;
+        let episode = media.episode_number;
 
-        const season = parseInt(episodeMatch[1]);
-        const episode = parseInt(episodeMatch[2]);
+        if (!season || !episode) {
+          const episodeMatch = media.title.match(/[Ss](\d+)[Ee](\d+)/);
+          if (!episodeMatch) return false;
+          season = parseInt(episodeMatch[1]);
+          episode = parseInt(episodeMatch[2]);
+        }
 
         return season === currentSeason && episode === currentEpisodeNum + 1;
       });
 
       if (nextEpisodeInSeason) {
+        console.log(`Found next episode in same season: ${nextEpisodeInSeason.title}`);
         return nextEpisodeInSeason;
       }
 
       // If no next episode in current season, try first episode of next season
       const firstEpisodeNextSeason = seriesEpisodes.find((media: Media) => {
-        const episodeMatch = media.title.match(/[Ss](\d+)[Ee](\d+)/);
-        if (!episodeMatch) return false;
+        let season = media.season_number;
+        let episode = media.episode_number;
 
-        const season = parseInt(episodeMatch[1]);
-        const episode = parseInt(episodeMatch[2]);
+        if (!season || !episode) {
+          const episodeMatch = media.title.match(/[Ss](\d+)[Ee](\d+)/);
+          if (!episodeMatch) return false;
+          season = parseInt(episodeMatch[1]);
+          episode = parseInt(episodeMatch[2]);
+        }
 
         return season === currentSeason + 1 && episode === 1;
       });
+
+      if (firstEpisodeNextSeason) {
+        console.log(`Found first episode of next season: ${firstEpisodeNextSeason.title}`);
+      } else {
+        console.log('No next episode found');
+      }
 
       return firstEpisodeNextSeason || null;
     } catch (error) {

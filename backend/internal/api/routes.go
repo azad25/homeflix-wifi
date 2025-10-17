@@ -234,5 +234,8 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		api.GET("/admin/watcher/status", watcherHandler.GetWatcherStatus)
 		api.POST("/admin/watcher/scan/manual", watcherHandler.TriggerManualScan)
 		api.POST("/admin/watcher/scan/incremental", watcherHandler.TriggerIncrementalScan)
+
+		// Now Playing TV Channel endpoints
+		api.GET("/now-playing/previews", handlers.GetNowPlayingPreviews())
 	}
 }

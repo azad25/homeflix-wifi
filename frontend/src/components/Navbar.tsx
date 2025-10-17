@@ -45,6 +45,7 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
   const navItems = [
     { name: "Movies", href: "/movies" },
     { name: "TV Shows", href: "/tv-shows" },
+    { name: "Now Playing", href: "/now-playing" },
     { name: "New & Popular", href: "/new-popular" },
     { name: "My List", href: "/my-list" },
     { name: "Browse", href: "/browse" },
