@@ -222,11 +222,12 @@ export const useChromecast = () => {
       return;
     }
 
+    console.log('Attempting to connect to cast device...');
     setCastState(prev => ({ ...prev, isConnecting: true }));
 
     window.chrome.cast.requestSession(
       (session: any) => {
-        console.log('Cast session requested successfully:', session);
+        console.log('Cast session established successfully:', session.receiver?.friendlyName);
         sessionRef.current = session;
         setCastState(prev => ({
           ...prev,
@@ -238,7 +239,11 @@ export const useChromecast = () => {
       },
       (error: any) => {
         console.error('Cast session request failed:', error);
-        setCastState(prev => ({ ...prev, isConnecting: false }));
+        setCastState(prev => ({ 
+          ...prev, 
+          isConnecting: false,
+          isConnected: false 
+        }));
       }
     );
   }, []);
@@ -264,6 +269,8 @@ export const useChromecast = () => {
       return;
     }
 
+    console.log('Loading media on cast device:', media.contentId);
+
     const mediaInfo = new window.chrome.cast.media.MediaInfo(
       media.contentId,
       media.contentType
@@ -285,16 +292,34 @@ export const useChromecast = () => {
 
     const request = new window.chrome.cast.media.LoadRequest(mediaInfo);
     request.autoplay = true;
+    request.currentTime = 0;
 
     sessionRef.current.loadMedia(
       request,
-      (media: any) => {
-        console.log('Media loaded successfully on cast device:', media);
-        mediaRef.current = media;
-        setupMediaListeners(media);
+      (loadedMedia: any) => {
+        console.log('Media loaded successfully on cast device:', loadedMedia);
+        mediaRef.current = loadedMedia;
+        setupMediaListeners(loadedMedia);
+        
+        // Ensure playback starts
+        setTimeout(() => {
+          if (loadedMedia && loadedMedia.playerState !== 'PLAYING') {
+            console.log('Starting playback on cast device');
+            loadedMedia.play(null, 
+              () => console.log('Cast playback started successfully'),
+              (error: any) => console.error('Failed to start cast playback:', error)
+            );
+          }
+        }, 1000);
       },
       (error: any) => {
         console.error('Failed to load media on cast device:', error);
+        // Reset casting state on error
+        setCastState(prev => ({
+          ...prev,
+          isConnected: false,
+          isConnecting: false,
+        }));
       }
     );
   }, []);
@@ -302,21 +327,29 @@ export const useChromecast = () => {
   // Media control functions
   const play = useCallback(() => {
     if (mediaRef.current) {
+      console.log('Playing cast media...');
       mediaRef.current.play(null, () => {
         console.log('Cast media play success');
+        setCastState(prev => ({ ...prev, playerState: 'PLAYING' }));
       }, (error: any) => {
         console.error('Cast media play failed:', error);
       });
+    } else {
+      console.warn('No media loaded on cast device');
     }
   }, []);
 
   const pause = useCallback(() => {
     if (mediaRef.current) {
+      console.log('Pausing cast media...');
       mediaRef.current.pause(null, () => {
         console.log('Cast media pause success');
+        setCastState(prev => ({ ...prev, playerState: 'PAUSED' }));
       }, (error: any) => {
         console.error('Cast media pause failed:', error);
       });
+    } else {
+      console.warn('No media loaded on cast device');
     }
   }, []);
 

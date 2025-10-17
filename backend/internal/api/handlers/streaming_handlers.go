@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"homeflix-backend/internal/models"
 	"homeflix-backend/internal/services"
 
 	"github.com/gin-gonic/gin"
@@ -127,6 +128,86 @@ func GetSubtitles(mediaService *services.MediaService) gin.HandlerFunc {
 		}
 		
 		c.JSON(http.StatusOK, subtitles)
+	}
+}
+
+func ServeSubtitleFile(mediaService *services.MediaService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id, err := strconv.ParseUint(c.Param("id"), 10, 32)
+		if err != nil {
+			log.Printf("❌ Invalid media ID: %s", c.Param("id"))
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid media ID"})
+			return
+		}
+
+		// Get language parameter
+		language := c.Query("lang")
+		if language == "" {
+			language = "English" // Default to English
+		}
+
+		log.Printf("📝 Serving subtitle for media ID %d, language: %s", id, language)
+
+		// Get subtitles for this media
+		subtitles, err := mediaService.GetSubtitles(uint(id))
+		if err != nil {
+			log.Printf("❌ Failed to get subtitles for media ID %d: %v", id, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		log.Printf("📊 Found %d subtitle(s) for media ID %d", len(subtitles), id)
+
+		// Find subtitle file for requested language
+		var subtitleFile *models.Subtitle
+		for _, sub := range subtitles {
+			log.Printf("   📝 Available subtitle: %s (%s)", sub.Language, sub.FilePath)
+			if strings.EqualFold(sub.Language, language) {
+				subtitleFile = &sub
+				break
+			}
+		}
+
+		// If no exact match, try to find any subtitle file
+		if subtitleFile == nil && len(subtitles) > 0 {
+			subtitleFile = &subtitles[0] // Use first available subtitle
+			log.Printf("📝 Using first available subtitle: %s", subtitleFile.Language)
+		}
+
+		if subtitleFile == nil {
+			log.Printf("❌ No subtitle file found for media ID %d, language: %s", id, language)
+			c.JSON(http.StatusNotFound, gin.H{"error": "No subtitle file found"})
+			return
+		}
+
+		// Check if subtitle file exists
+		if _, err := os.Stat(subtitleFile.FilePath); os.IsNotExist(err) {
+			log.Printf("❌ Subtitle file not found on disk: %s", subtitleFile.FilePath)
+			c.JSON(http.StatusNotFound, gin.H{"error": "Subtitle file not found on disk"})
+			return
+		}
+
+		// Determine content type based on format
+		contentType := "text/plain"
+		switch strings.ToLower(subtitleFile.Format) {
+		case "srt":
+			contentType = "text/srt"
+		case "vtt":
+			contentType = "text/vtt"
+		case "ass", "ssa":
+			contentType = "text/ass"
+		}
+
+		log.Printf("✅ Serving subtitle file: %s (%s)", subtitleFile.FilePath, contentType)
+
+		// Set headers for subtitle serving
+		c.Header("Content-Type", contentType+"; charset=utf-8")
+		c.Header("Cache-Control", "public, max-age=3600") // Cache for 1 hour
+		c.Header("Access-Control-Allow-Origin", "*")
+		c.Header("Access-Control-Allow-Headers", "Range")
+
+		// Serve the subtitle file
+		c.File(subtitleFile.FilePath)
 	}
 }
 
@@ -490,5 +571,68 @@ func PreTranscodeMedia(streamService *services.NetflixStreamService, mediaServic
 			"media_id": id,
 			"status":   "processing",
 		})
+	}
+}
+
+// CheckAudioCompatibility checks audio codec compatibility for different browsers
+func CheckAudioCompatibility(streamService *services.NetflixStreamService, mediaService *services.MediaService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		mediaID := c.Param("id")
+		
+		// Parse media ID
+		id, err := strconv.ParseUint(mediaID, 10, 32)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid media ID"})
+			return
+		}
+		
+		// Get media information from database
+		media, err := mediaService.GetMediaByID(uint(id))
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Media not found"})
+			return
+		}
+		
+		// Use the file path from the media record
+		filePath := media.FilePath
+		if filePath == "" {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Media file path not available"})
+			return
+		}
+		
+		// Check audio compatibility for different browsers
+		chromeCompatible, chromeErr := streamService.CheckChromeAudioCompatibility(filePath)
+		generalCompatible, generalErr := streamService.CheckGeneralAudioCompatibility(filePath)
+		
+		// Get detailed audio info
+		audioInfo, audioErr := streamService.GetAudioInfo(filePath)
+		
+		response := gin.H{
+			"media_id":   id,
+			"file_path":  filePath,
+			"chrome": gin.H{
+				"needs_transcoding": chromeCompatible,
+				"error":            nil,
+			},
+			"general": gin.H{
+				"needs_transcoding": generalCompatible,
+				"error":            nil,
+			},
+			"audio_info": audioInfo,
+		}
+		
+		if chromeErr != nil {
+			response["chrome"].(gin.H)["error"] = chromeErr.Error()
+		}
+		
+		if generalErr != nil {
+			response["general"].(gin.H)["error"] = generalErr.Error()
+		}
+		
+		if audioErr != nil {
+			response["audio_error"] = audioErr.Error()
+		}
+		
+		c.JSON(http.StatusOK, response)
 	}
 }
