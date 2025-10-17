@@ -88,6 +88,23 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
   const [isTranscoded, setIsTranscoded] = useState(false);
   const [hasInitiallyLoaded, setHasInitiallyLoaded] = useState(false);
   const [currentSubtitleText, setCurrentSubtitleText] = useState<string>('');
+  const [audioIssueDetected, setAudioIssueDetected] = useState(false);
+
+  // Chrome audio context activation helper
+  const activateAudioContext = useCallback(async () => {
+    try {
+      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+      if (audioContext.state === 'suspended') {
+        await audioContext.resume();
+        console.log('✅ Chrome audio context activated');
+        return true;
+      }
+      return true;
+    } catch (error) {
+      console.warn('⚠️ Audio context activation failed:', error);
+      return false;
+    }
+  }, []);
 
   const getStreamUrl = useCallback((mediaId: number, quality?: string, format?: string, seekTime?: number) => {
     const baseUrl = `${getApiUrl()}/api/stream/${mediaId}`;
@@ -245,6 +262,11 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
           setCurrentTime(0);
           setDuration(0);
 
+          // CHROME AUDIO FIX: Ensure audio is always enabled
+          video.muted = false;
+          video.volume = volume > 0 ? volume : 1.0;
+          setIsMuted(false);
+
           // Reset other states for new episode
           setShowPauseScreen(false);
           setShowResumeNotification(false);
@@ -256,7 +278,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
       setVideoSrc('');
       setHasInitiallyLoaded(false);
     }
-  }, [media.id, isOpen, getStreamUrl]);
+  }, [media.id, isOpen, getStreamUrl, volume]);
 
   // Load subtitles
   useEffect(() => {
@@ -697,20 +719,35 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
       }
 
       if (video.paused) {
-        // Just resume playback from current position - no source changes
+        // CHROME AUDIO FIX: Ensure audio is enabled before playing
+        video.muted = false;
+        video.volume = volume > 0 ? volume : 1.0;
+        setIsMuted(false);
+
+        // Activate audio context for Chrome
+        try {
+          const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+          if (audioContext.state === 'suspended') {
+            await audioContext.resume();
+            console.log('✅ Chrome audio context resumed on play');
+          }
+        } catch (error) {
+          console.warn('⚠️ Audio context resume failed:', error);
+        }
+
+        // Resume playback with audio enabled
         video.play().catch(() => {
-          // Failed to resume video
+          console.warn('⚠️ Failed to resume video');
         });
       } else {
         // Save progress before pausing
         await saveCurrentProgress();
-
         video.pause();
       }
     } catch (error) {
       // Prevent error from causing page reload
     }
-  }, [isCasting, castState.isConnected, isPlaying, pauseCast, playCast]);
+  }, [isCasting, castState.isConnected, isPlaying, pauseCast, playCast, volume]);
 
   const toggleMute = () => {
     if (isCasting && castState.isConnected) {
@@ -1068,6 +1105,32 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
     document.addEventListener('touchend', handleEnd);
   };
 
+  // Chrome audio context activation on user interaction
+  useEffect(() => {
+    const activateOnInteraction = async () => {
+      await activateAudioContext();
+      const video = videoRef.current;
+      if (video) {
+        video.muted = false;
+        video.volume = volume > 0 ? volume : 1.0;
+        setIsMuted(false);
+      }
+    };
+
+    // Activate audio context on any user interaction
+    if (isOpen) {
+      document.addEventListener('click', activateOnInteraction, { once: true });
+      document.addEventListener('keydown', activateOnInteraction, { once: true });
+      document.addEventListener('touchstart', activateOnInteraction, { once: true });
+
+      return () => {
+        document.removeEventListener('click', activateOnInteraction);
+        document.removeEventListener('keydown', activateOnInteraction);
+        document.removeEventListener('touchstart', activateOnInteraction);
+      };
+    }
+  }, [isOpen, activateAudioContext, volume]);
+
   // Handle mouse movement to show/hide controls
   useEffect(() => {
     const handleMouseMove = () => {
@@ -1242,10 +1305,20 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
           <video
             ref={videoRef}
             className="w-full h-full object-contain bg-black"
-            onPlay={() => {
+            onPlay={async () => {
               setIsPlaying(true);
               // Don't immediately hide pause screen, let it fade out naturally
               setIsBuffering(false); // Clear any buffering state
+              
+              // CHROME AUDIO FIX: Ensure audio is activated when video starts playing
+              await activateAudioContext();
+              const video = videoRef.current;
+              if (video) {
+                video.muted = false;
+                video.volume = volume > 0 ? volume : 1.0;
+                setIsMuted(false);
+                console.log('✅ Chrome audio enabled on play');
+              }
             }}
             autoPlay
             controls={false}
@@ -1311,23 +1384,43 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
               }
             }}
             onClick={async (e) => {
-              // Ensure sound is always on when clicking video
+              // CHROME AUDIO FIX: Ensure sound is always enabled and unmuted
               if (videoRef.current) {
                 const video = videoRef.current;
+                
+                // Force unmute and set volume for Chrome
                 video.muted = false;
                 video.volume = volume > 0 ? volume : 1.0;
                 setIsMuted(false);
+                setVolume(video.volume);
 
-                if (video.paused) {
-                  // Just resume playback, don't reload or make new requests
-                  video.play().catch(() => {
-                    // Play failed on video click
-                  });
-                } else {
-                  // Save progress before pausing
-                  await saveCurrentProgress();
-
-                  video.pause();
+                // Chrome audio context fix - ensure audio is activated
+                try {
+                  if (video.paused) {
+                    // Resume playback with audio enabled
+                    await video.play();
+                    console.log('✅ Chrome audio: Video resumed with sound enabled');
+                  } else {
+                    // Save progress before pausing
+                    await saveCurrentProgress();
+                    video.pause();
+                  }
+                } catch (error) {
+                  console.warn('⚠️ Chrome audio: Play failed on video click:', error);
+                  // Try to enable audio context manually
+                  try {
+                    const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+                    if (audioContext.state === 'suspended') {
+                      await audioContext.resume();
+                      console.log('✅ Chrome audio: Audio context resumed');
+                    }
+                    // Retry play
+                    if (video.paused) {
+                      await video.play();
+                    }
+                  } catch (contextError) {
+                    console.warn('⚠️ Chrome audio: Audio context fix failed:', contextError);
+                  }
                 }
               }
             }}
@@ -1367,6 +1460,11 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
               if (video) {
                 const fileExt = media.file_path ? media.file_path.toLowerCase().split('.').pop() : '';
 
+                // CHROME AUDIO FIX: Ensure audio is always enabled when video can play
+                video.muted = false;
+                video.volume = volume > 0 ? volume : 1.0;
+                setIsMuted(false);
+
                 // ULTRA-INSTANT LAN STREAMING OPTIMIZATION
                 try {
                   if (fileExt === 'mkv') {
@@ -1402,14 +1500,32 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                   // Browser doesn't support these properties - continue anyway
                 }
 
-                // INSTANT auto-play for new episodes with zero delay
+                // INSTANT auto-play for new episodes with zero delay and audio enabled
                 if (!hasInitiallyLoaded && video.currentTime === 0) {
-                  // Use requestAnimationFrame for immediate playback
-                  requestAnimationFrame(() => {
+                  // Activate audio context before playing
+                  const playWithAudio = async () => {
+                    try {
+                      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+                      if (audioContext.state === 'suspended') {
+                        await audioContext.resume();
+                        console.log('✅ Chrome audio context activated for autoplay');
+                      }
+                    } catch (error) {
+                      console.warn('⚠️ Audio context activation failed for autoplay:', error);
+                    }
+
+                    // Ensure audio is enabled
+                    video.muted = false;
+                    video.volume = volume > 0 ? volume : 1.0;
+                    
+                    // Play with audio
                     video.play().catch(error => {
                       console.warn('Ultra-instant autoplay failed:', error);
                     });
-                  });
+                  };
+
+                  // Use requestAnimationFrame for immediate playback
+                  requestAnimationFrame(playWithAudio);
                 }
               }
             }}
@@ -1523,10 +1639,26 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
               const video = videoRef.current;
               if (video && video.readyState >= 2) {
 
-
-                video.volume = volume;
+                // CHROME AUDIO FIX: Force audio settings
+                video.volume = volume > 0 ? volume : 1.0;
                 video.muted = false; // Always unmuted for video player
                 setIsMuted(false);
+                setVolume(video.volume);
+
+                // Chrome audio context activation
+                const activateAudioContext = async () => {
+                  try {
+                    const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+                    if (audioContext.state === 'suspended') {
+                      await audioContext.resume();
+                      console.log('✅ Chrome audio context activated on load');
+                    }
+                  } catch (error) {
+                    console.warn('⚠️ Audio context activation failed:', error);
+                  }
+                };
+
+                activateAudioContext();
 
                 // Only seek to resume time on initial load if video is at the beginning and we have a valid resume time
                 if (!hasInitiallyLoaded && resumeTime > 0 && video.currentTime < 5 && Math.abs(video.currentTime - resumeTime) > 5) {
@@ -1534,11 +1666,14 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                   setCurrentTime(resumeTime);
                 }
 
-                // Auto-play for new episodes
+                // Auto-play for new episodes with audio enabled
                 if (!hasInitiallyLoaded && video.currentTime === 0 && video.paused) {
-
+                  // Ensure audio is enabled before playing
+                  video.muted = false;
+                  video.volume = volume > 0 ? volume : 1.0;
+                  
                   video.play().catch(error => {
-
+                    console.warn('⚠️ Auto-play failed:', error);
                   });
                 }
               }
@@ -1548,6 +1683,38 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
               if (!video || isCasting) return;
 
               setCurrentTime(video.currentTime);
+
+              // CHROME AUDIO ISSUE DETECTION
+              // Check if video is playing but muted or has no audio tracks
+              if (video.currentTime > 2 && !audioIssueDetected) {
+                const isMutedUnexpectedly = video.muted && !isMuted;
+                const hasZeroVolume = video.volume === 0 && volume > 0;
+                
+                // Check for audio tracks using a safer approach
+                let hasNoAudio = false;
+                try {
+                  // Try to access audioTracks if available (some browsers support it)
+                  const audioTracks = (video as any).audioTracks;
+                  if (audioTracks && audioTracks.length === 0) {
+                    hasNoAudio = true;
+                  }
+                } catch (error) {
+                  // audioTracks not supported, skip this check
+                }
+                
+                if (isMutedUnexpectedly || hasZeroVolume || hasNoAudio) {
+                  console.warn('⚠️ Audio issue detected - attempting to fix');
+                  setAudioIssueDetected(true);
+                  
+                  // Try to fix audio issues
+                  video.muted = false;
+                  video.volume = volume > 0 ? volume : 1.0;
+                  setIsMuted(false);
+                  
+                  // Activate audio context
+                  activateAudioContext();
+                }
+              }
 
               // Enhanced duration detection during playback (especially for MKV)
               if (!duration || duration === 0) {
@@ -1601,6 +1768,15 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
             preload="auto"
             muted={false}
             crossOrigin="anonymous"
+            // Chrome audio fix attributes
+            onVolumeChange={() => {
+              const video = videoRef.current;
+              if (video && video.muted && !isMuted) {
+                // Prevent Chrome from auto-muting
+                video.muted = false;
+                console.log('✅ Prevented Chrome auto-mute');
+              }
+            }}
             // ULTRA-INSTANT LAN STREAMING ATTRIBUTES - Sub-millisecond response
             style={{
               // Hint to browser about expected video size for instant rendering
@@ -1730,6 +1906,59 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                 className="absolute inset-0 flex items-center justify-center bg-black/30 backdrop-blur-sm z-40"
               >
                 <RedLoader size="large" />
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Audio Issue Warning */}
+          <AnimatePresence>
+            {audioIssueDetected && (
+              <motion.div
+                initial={{ opacity: 0, y: -50 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -50 }}
+                className="absolute top-20 left-1/2 transform -translate-x-1/2 z-50"
+              >
+                <div className="bg-red-600/90 backdrop-blur-sm text-white p-4 rounded-lg border border-red-500/50 flex items-center gap-4">
+                  <div className="flex-1">
+                    <p className="font-medium">Audio Issue Detected</p>
+                    <p className="text-sm text-red-100">Chrome may have audio compatibility issues with this file</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const video = videoRef.current;
+                      if (video) {
+                        // Force reload with transcoding
+                        const currentTimeBackup = video.currentTime;
+                        const newUrl = getStreamUrl(media.id, 'high', 'mp4') + '&force_transcode=true';
+                        video.src = newUrl;
+                        video.load();
+                        
+                        const handleCanPlay = () => {
+                          video.currentTime = currentTimeBackup;
+                          video.muted = false;
+                          video.volume = volume > 0 ? volume : 1.0;
+                          video.play().catch(() => {});
+                          video.removeEventListener('canplay', handleCanPlay);
+                        };
+                        
+                        video.addEventListener('canplay', handleCanPlay);
+                        setAudioIssueDetected(false);
+                      }
+                    }}
+                    className="px-3 py-1 text-sm bg-white/20 hover:bg-white/30 rounded transition-colors"
+                  >
+                    Fix Audio
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAudioIssueDetected(false)}
+                    className="text-red-100 hover:text-white transition-colors"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
               </motion.div>
             )}
           </AnimatePresence>

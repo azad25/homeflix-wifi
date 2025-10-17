@@ -1298,11 +1298,11 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
 
   const getTitleSizeClass = () => {
     const titleLength = currentMedia.title.length;
-    if (titleLength > 50) return 'text-2xl md:text-3xl lg:text-4xl';
-    if (titleLength > 35) return 'text-2xl md:text-4xl lg:text-5xl';
-    if (titleLength > 25) return 'text-3xl md:text-5xl lg:text-6xl';
-    if (titleLength > 15) return 'text-4xl md:text-6xl lg:text-7xl';
-    return 'text-5xl md:text-7xl lg:text-8xl';
+    if (titleLength > 50) return 'text-xl md:text-2xl lg:text-3xl';
+    if (titleLength > 35) return 'text-xl md:text-3xl lg:text-4xl';
+    if (titleLength > 25) return 'text-2xl md:text-4xl lg:text-5xl';
+    if (titleLength > 15) return 'text-3xl md:text-5xl lg:text-6xl';
+    return 'text-4xl md:text-6xl lg:text-7xl';
   };
 
   const getGenreBasedStyling = () => {
@@ -2415,12 +2415,12 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
             <ScrollReveal delay={0.3}>
               <motion.p
                 key={`desc-${currentMedia.id}`}
-                className="text-lg md:text-xl text-gray-200 mb-8 max-w-2xl leading-relaxed bg-black/20 backdrop-blur-sm p-4 rounded-lg border border-white/10"
+                className="text-sm md:text-base text-gray-200 mb-6 max-w-2xl leading-relaxed bg-black/20 backdrop-blur-sm p-3 rounded-lg border border-white/10"
                 initial={{ opacity: 0, y: 30 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.8, delay: 0.3 }}
               >
-                {currentMedia.description ? `${currentMedia.description.substring(0, 250)}` : "Experience premium entertainment with stunning visuals and immersive storytelling."}
+                {currentMedia.description ? `${currentMedia.description.substring(0, 200)}` : "Experience premium entertainment with stunning visuals and immersive storytelling."}
               </motion.p>
             </ScrollReveal>
 

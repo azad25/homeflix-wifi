@@ -583,15 +583,45 @@ func (s *NetflixStreamService) StreamVideo(w http.ResponseWriter, r *http.Reques
 func (s *NetflixStreamService) Stream(w http.ResponseWriter, r *http.Request, filePath string) error {
 	log.Printf("📹 Streaming request: %s", filepath.Base(filePath))
 	
+	// Check for force transcoding parameter
+	forceTranscode := r.URL.Query().Get("force_transcode") == "true"
+	if forceTranscode {
+		log.Printf("🔄 FORCE TRANSCODING requested for: %s", filepath.Base(filePath))
+		return s.streamWithAudioTranscoding(w, r, filePath)
+	}
+	
 	// Check User-Agent to determine browser compatibility
 	userAgent := r.Header.Get("User-Agent")
-	isChrome := strings.Contains(strings.ToLower(userAgent), "chrome") && !strings.Contains(strings.ToLower(userAgent), "safari")
+	userAgentLower := strings.ToLower(userAgent)
+	
+	// Improved Chrome detection - Chrome includes "Chrome" but not "Edg" (Edge) or "OPR" (Opera)
+	isChrome := strings.Contains(userAgentLower, "chrome") && 
+		!strings.Contains(userAgentLower, "edg") && 
+		!strings.Contains(userAgentLower, "opr") &&
+		!strings.Contains(userAgentLower, "firefox")
+	
+	// Additional Chrome detection patterns
+	if !isChrome && strings.Contains(userAgentLower, "chrome/") {
+		isChrome = true
+		log.Printf("🔍 Chrome detected via Chrome/ pattern")
+	}
 	
 	log.Printf("🌐 Browser detection: User-Agent=%s, isChrome=%v", userAgent, isChrome)
+	log.Printf("🔍 Chrome detection details: contains_chrome=%v, contains_edg=%v, contains_opr=%v, contains_firefox=%v", 
+		strings.Contains(userAgentLower, "chrome"),
+		strings.Contains(userAgentLower, "edg"),
+		strings.Contains(userAgentLower, "opr"),
+		strings.Contains(userAgentLower, "firefox"))
 	
 	// CHROME AUDIO COMPATIBILITY CHECK
 	// Chrome is strict about audio codecs - only supports AAC, MP3, Opus
-	if isChrome {
+	// Also check for Chrome-specific headers or force check for AC3 audio
+	forceAudioCheck := strings.Contains(userAgentLower, "chrome") || r.Header.Get("X-Force-Chrome-Check") == "true"
+	
+	if isChrome || forceAudioCheck {
+		if forceAudioCheck && !isChrome {
+			log.Printf("🔍 Forcing Chrome audio check due to Chrome user agent pattern")
+		}
 		log.Printf("🔍 Chrome detected - checking audio compatibility for %s", filepath.Base(filePath))
 		needsAudioTranscoding, err := s.checkChromeAudioCompatibility(filePath)
 		if err != nil {
@@ -608,11 +638,92 @@ func (s *NetflixStreamService) Stream(w http.ResponseWriter, r *http.Request, fi
 		}
 	} else {
 		log.Printf("🌐 Non-Chrome browser detected - using direct streaming: %s", filepath.Base(filePath))
+		
+		// Even for non-Chrome, check if this is actually Chrome with AC3 audio
+		if strings.Contains(userAgentLower, "chrome") {
+			log.Printf("⚠️ Detected Chrome in User-Agent but not flagged as Chrome - checking AC3 audio")
+			needsAudioTranscoding, err := s.checkChromeAudioCompatibility(filePath)
+			if err != nil {
+				log.Printf("⚠️ Audio compatibility check failed: %v", err)
+			}
+			if needsAudioTranscoding {
+				log.Printf("🔄 FORCING Chrome audio transcoding for AC3 compatibility")
+				return s.streamWithAudioTranscoding(w, r, filePath)
+			}
+		}
 	}
 	
 	// File is compatible - proceed with direct streaming
 	log.Printf("✅ DIRECT STREAMING (with seeking support): %s", filepath.Base(filePath))
 	return s.streamDirectlyWithSeeking(w, r, filePath)
+}
+
+// checkChromeAudioCompatibility checks if the audio codec is compatible with Chrome
+func (s *NetflixStreamService) checkChromeAudioCompatibility(filePath string) (bool, error) {
+	// Use ffprobe to check audio codec
+	cmd := exec.Command("ffprobe", "-v", "quiet", "-print_format", "json", "-show_streams", "-select_streams", "a:0", filePath)
+	output, err := cmd.Output()
+	if err != nil {
+		return false, fmt.Errorf("ffprobe failed: %v", err)
+	}
+
+	outputStr := string(output)
+	
+	// Extract codec name from JSON output
+	var codecName string
+	lines := strings.Split(outputStr, "\n")
+	for _, line := range lines {
+		if strings.Contains(line, `"codec_name"`) {
+			parts := strings.Split(line, `"`)
+			if len(parts) >= 4 {
+				codecName = strings.TrimSpace(parts[3])
+				break
+			}
+		}
+	}
+
+	if codecName == "" {
+		log.Printf("⚠️ No audio codec found in %s", filepath.Base(filePath))
+		return false, nil // Assume needs transcoding if no audio codec found
+	}
+
+	// Chrome-compatible audio codecs (strict compatibility for reliable audio playback)
+	chromeCompatibleCodecs := map[string]bool{
+		"aac":       true,  // AAC is Chrome's preferred codec
+		"mp3":       true,  // MP3 is widely supported
+		"opus":      true,  // Opus is supported in WebM
+		"vorbis":    true,  // Vorbis is supported in WebM
+		"ac3":       false, // AC3 has unreliable Chrome support - FORCE transcoding for audio
+		"eac3":      false, // Enhanced AC3 has unreliable Chrome support - FORCE transcoding
+		"dts":       false, // DTS is not supported in Chrome - needs transcoding
+		"truehd":    false, // TrueHD is not supported in Chrome - needs transcoding
+		"mlp":       false, // MLP is not supported in Chrome - needs transcoding
+		"flac":      true,  // FLAC is supported in Chrome
+		"pcm_s16le": false, // PCM is not well supported in Chrome for video containers
+		"pcm_s24le": false, // PCM is not well supported in Chrome for video containers
+		"wmav2":     false, // Windows Media Audio - needs transcoding
+		"wmapro":    false, // Windows Media Audio Pro - needs transcoding
+	}
+
+	codecName = strings.ToLower(codecName)
+	isCompatible, exists := chromeCompatibleCodecs[codecName]
+	
+	if !exists {
+		// Unknown codec - assume incompatible for Chrome
+		log.Printf("⚠️ Unknown audio codec '%s' for Chrome - assuming incompatible", codecName)
+		return true, nil // Needs transcoding
+	}
+
+	log.Printf("🎵 Audio codec analysis: %s -> Chrome compatible: %v", codecName, isCompatible)
+	
+	// Special handling for AC3 - always transcode for Chrome even if marked compatible elsewhere
+	if codecName == "ac3" || codecName == "eac3" {
+		log.Printf("🔄 FORCING AC3/EAC3 transcoding for Chrome audio compatibility")
+		return true, nil // Force transcoding for AC3/EAC3
+	}
+	
+	// Return true if needs transcoding (codec is NOT compatible)
+	return !isCompatible, nil
 }
 
 func (s *NetflixStreamService) streamWithAudioTranscoding(w http.ResponseWriter, r *http.Request, filePath string) error {
@@ -637,23 +748,28 @@ func (s *NetflixStreamService) streamWithAudioTranscoding(w http.ResponseWriter,
 }
 
 func (s *NetflixStreamService) streamChromeCompatibleTranscoding(w http.ResponseWriter, r *http.Request, filePath string) error {
-	// Set headers for Chrome-compatible transcoded content
+	// Set headers for Chrome-compatible transcoded content with audio optimization
 	w.Header().Set("Content-Type", "video/mp4") // Always transcode to MP4 for Chrome
 	w.Header().Set("Accept-Ranges", "bytes")    // Enable seeking support
 	w.Header().Set("Cache-Control", "no-cache") // Don't cache transcoded streams
 	w.Header().Set("X-Transcoded-For-Chrome", "true")
+	w.Header().Set("X-Audio-Optimized", "true") // Indicate audio optimization
 
-	// Chrome-compatible transcoding: Copy video, transcode audio to AAC
+	// Chrome-compatible transcoding with enhanced audio settings
 	args := []string{
 		"-i", filePath,
 		"-c:v", "copy", // Copy video stream to preserve quality and speed
 		"-c:a", "aac",  // Transcode audio to AAC for Chrome compatibility
-		"-b:a", "192k", // Good quality audio bitrate
+		"-b:a", "256k", // Higher quality audio bitrate for better Chrome compatibility
 		"-ac", "2",     // Stereo output
+		"-ar", "48000", // Standard sample rate for web compatibility
+		"-profile:a", "aac_low", // AAC-LC profile for maximum Chrome compatibility
 		"-f", "mp4",    // MP4 container for Chrome compatibility
 		"-movflags", "frag_keyframe+empty_moov+faststart", // Enable streaming and seeking
 		"-avoid_negative_ts", "make_zero", // Handle negative timestamps
 		"-fflags", "+genpts",              // Generate presentation timestamps
+		"-map", "0:v:0", // Map first video stream
+		"-map", "0:a:0", // Map first audio stream
 		"-",
 	}
 
@@ -744,18 +860,22 @@ func (s *NetflixStreamService) streamAudioTranscodingWithSeeking(w http.Response
 	w.Header().Set("X-Transcoded-For-Chrome", "true")
 	w.WriteHeader(http.StatusPartialContent)
 
-	// Start FFmpeg with seeking for Chrome audio transcoding
+	// Start FFmpeg with seeking for Chrome audio transcoding with enhanced audio settings
 	args := []string{
 		"-ss", fmt.Sprintf("%.2f", seekTime), // Seek to position
 		"-i", filePath,
 		"-c:v", "copy", // Copy video stream
 		"-c:a", "aac",  // Transcode audio to AAC for Chrome
-		"-b:a", "192k", // Audio bitrate
+		"-b:a", "256k", // Higher quality audio bitrate
 		"-ac", "2",     // Stereo output
+		"-ar", "48000", // Standard sample rate
+		"-profile:a", "aac_low", // AAC-LC profile for Chrome compatibility
 		"-f", "mp4",    // MP4 container
 		"-movflags", "frag_keyframe+empty_moov+faststart", // Enable streaming
 		"-avoid_negative_ts", "make_zero", // Handle negative timestamps
 		"-fflags", "+genpts",              // Generate presentation timestamps
+		"-map", "0:v:0", // Map first video stream
+		"-map", "0:a:0", // Map first audio stream
 		"-",
 	}
 
@@ -802,16 +922,20 @@ func (s *NetflixStreamService) createChromeCompatibleCachedVersion(filePath stri
 	nameWithoutExt := strings.TrimSuffix(fileName, filepath.Ext(fileName))
 	transcodedPath := filepath.Join(cacheDir, nameWithoutExt+"_chrome.mp4")
 
-	// Transcode with Chrome compatibility
+	// Transcode with enhanced Chrome compatibility and audio optimization
 	args := []string{
 		"-i", filePath,
 		"-c:v", "copy", // Copy video stream for speed
 		"-c:a", "aac",  // Transcode audio to AAC for Chrome
-		"-b:a", "192k", // Audio bitrate
+		"-b:a", "256k", // Higher quality audio bitrate
 		"-ac", "2",     // Stereo output
+		"-ar", "48000", // Standard sample rate for web
+		"-profile:a", "aac_low", // AAC-LC profile for maximum compatibility
 		"-movflags", "+faststart", // Move moov atom to beginning for instant seeking
 		"-avoid_negative_ts", "make_zero",
 		"-fflags", "+genpts", // Generate presentation timestamps
+		"-map", "0:v:0", // Map first video stream
+		"-map", "0:a:0", // Map first audio stream
 		"-y", // Overwrite output file
 		transcodedPath,
 	}
@@ -1896,6 +2020,88 @@ func checkNotModified(w http.ResponseWriter, r *http.Request, modTime time.Time,
 	}
 
 	return false
+}
+
+// Ultra-fast streaming methods for instant response
+
+func (s *NetflixStreamService) streamCachedRangeUltraFast(w http.ResponseWriter, r *http.Request, cached *CachedSegment, rangeHeader string) error {
+	return s.streamCachedRange(w, r, cached, rangeHeader)
+}
+
+func (s *NetflixStreamService) cachePreviewClipUltraFast(filePath string, fileSize int64, cacheKey string) {
+	s.cachePreviewClip(filePath, fileSize, cacheKey)
+}
+
+func (s *NetflixStreamService) streamFromMemoryMappedDataUltraFast(w http.ResponseWriter, r *http.Request, data []byte, fileSize int64, modTime time.Time) error {
+	// Set headers for memory-mapped streaming
+	headers := w.Header()
+	headers.Set("Content-Type", "video/mp4")
+	headers.Set("Accept-Ranges", "bytes")
+	headers.Set("Content-Length", fmt.Sprintf("%d", fileSize))
+	headers.Set("Cache-Control", "public, max-age=86400, immutable")
+	headers.Set("ETag", fmt.Sprintf(`"%d-%d"`, fileSize, modTime.Unix()))
+	headers.Set("Last-Modified", modTime.UTC().Format(http.TimeFormat))
+	headers.Set("X-Cache", "HIT-L2-MMAP")
+
+	// Check for conditional requests
+	etag := fmt.Sprintf(`"%d-%d"`, fileSize, modTime.Unix())
+	if checkNotModified(w, r, modTime, etag) {
+		return nil
+	}
+
+	// Handle range requests from memory-mapped data
+	rangeHeader := r.Header.Get("Range")
+	if rangeHeader != "" {
+		return s.streamMemoryMappedRange(w, r, data, fileSize, rangeHeader)
+	}
+
+	// Stream entire file from memory
+	_, err := w.Write(data)
+	if err == nil {
+		log.Printf("⚡ Memory-mapped ultra-fast stream: %d bytes", fileSize)
+	}
+	return err
+}
+
+func (s *NetflixStreamService) streamMemoryMappedRange(w http.ResponseWriter, r *http.Request, data []byte, fileSize int64, rangeHeader string) error {
+	ranges, err := parseRangeHeader(rangeHeader, fileSize)
+	if err != nil {
+		w.WriteHeader(http.StatusRequestedRangeNotSatisfiable)
+		return fmt.Errorf("invalid range header: %v", err)
+	}
+
+	if len(ranges) != 1 {
+		return fmt.Errorf("multiple ranges not supported for memory-mapped content")
+	}
+
+	start, end := ranges[0].start, ranges[0].end
+	contentLength := end - start + 1
+
+	// Set range response headers
+	w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, fileSize))
+	w.Header().Set("Content-Length", fmt.Sprintf("%d", contentLength))
+	w.Header().Set("X-Cache", "HIT-L2-MMAP-RANGE")
+	w.WriteHeader(http.StatusPartialContent)
+
+	// Stream range from memory-mapped data
+	rangeData := data[start : end+1]
+	_, err = w.Write(rangeData)
+	if err == nil {
+		log.Printf("⚡ Memory-mapped range stream: %d-%d (%d bytes)", start, end, contentLength)
+	}
+	return err
+}
+
+func (s *NetflixStreamService) handlePreviewRangeRequestUltraInstant(w http.ResponseWriter, r *http.Request, file *os.File, fileSize int64, rangeHeader string) error {
+	return s.handlePreviewRangeRequestInstant(w, r, file, fileSize, rangeHeader)
+}
+
+func (s *NetflixStreamService) streamPreviewWithZeroCopySendfile(w http.ResponseWriter, r *http.Request, file *os.File, fileSize int64) error {
+	return s.streamPreviewSendfile(w, r, file, fileSize)
+}
+
+func (s *NetflixStreamService) streamPreviewUltraOptimized(w http.ResponseWriter, r *http.Request, file *os.File, fileSize int64) error {
+	return s.streamPreviewWithOptimizedIO(w, file, fileSize)
 }
 
 // ULTRA-INSTANT preview clip streaming with sub-millisecond response for LAN
@@ -3267,284 +3473,24 @@ func (at *AudioTranscoder) cleanupCacheIfNeeded() {
 		return
 	}
 
-	log.Printf("🧹 Cleaning up transcoding cache (current: %d MB, max: %d MB)", 
-		at.currentCacheSize/(1024*1024), at.maxCacheSize/(1024*1024))
-
-	// Remove oldest entries until under limit
-	var oldestEntry *TranscodedAudio
+	// Remove oldest transcoded files
+	var oldestFile *TranscodedAudio
 	var oldestKey string
 
-	for key, entry := range at.transcodingCache {
-		if oldestEntry == nil || entry.created.Before(oldestEntry.created) {
-			oldestEntry = entry
+	for key, transcoded := range at.transcodingCache {
+		if oldestFile == nil || transcoded.created.Before(oldestFile.created) {
+			oldestFile = transcoded
 			oldestKey = key
 		}
 	}
 
-	if oldestEntry != nil {
+	if oldestFile != nil {
 		// Remove file and cache entry
-		os.Remove(oldestEntry.transcodedPath)
-		at.currentCacheSize -= oldestEntry.size
+		os.Remove(oldestFile.transcodedPath)
 		delete(at.transcodingCache, oldestKey)
-		
-		log.Printf("🗑️ Removed old transcoded file: %s", filepath.Base(oldestEntry.transcodedPath))
+		at.currentCacheSize -= oldestFile.size
+		log.Printf("🗑️ Cleaned up old transcoded file: %s", filepath.Base(oldestFile.transcodedPath))
 	}
-}
-
-// Ultra-fast streaming methods for sub-millisecond LAN performance
-
-func (s *NetflixStreamService) streamCachedRangeUltraFast(w http.ResponseWriter, r *http.Request, cached *CachedSegment, rangeHeader string) error {
-	// Ultra-fast range parsing
-	ranges, err := parseRangeHeaderFast(rangeHeader, cached.size)
-	if err != nil {
-		w.WriteHeader(http.StatusRequestedRangeNotSatisfiable)
-		return fmt.Errorf("invalid range header: %v", err)
-	}
-
-	if len(ranges) != 1 {
-		return fmt.Errorf("multiple ranges not supported for cached content")
-	}
-
-	start, end := ranges[0].start, ranges[0].end
-	contentLength := end - start + 1
-
-	// Set range response headers with single operation
-	headers := w.Header()
-	headers.Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, cached.size))
-	headers.Set("Content-Length", fmt.Sprintf("%d", contentLength))
-	headers.Set("X-Cache", "HIT-L1-RANGE-ULTRA-INSTANT")
-	headers.Set("X-Response-Time", "sub-millisecond")
-	w.WriteHeader(http.StatusPartialContent)
-
-	// Stream range from cached data - ultra-instant response
-	rangeData := cached.data[start : end+1]
-	_, err = w.Write(rangeData)
-	if err == nil {
-		log.Printf("⚡ L1 ULTRA-INSTANT range hit: %d-%d (%d MB) - sub-ms", start, end, contentLength/(1024*1024))
-	}
-	return err
-}
-
-func (s *NetflixStreamService) cachePreviewClipUltraFast(filePath string, fileSize int64, cacheKey string) {
-	// Check if already cached
-	if s.l1Cache.Get(cacheKey) != nil {
-		return
-	}
-
-	// Read entire file into memory for ultra-fast caching
-	file, err := os.OpenFile(filePath, os.O_RDONLY, 0)
-	if err != nil {
-		log.Printf("❌ Failed to open file for ultra-fast caching: %v", err)
-		return
-	}
-	defer file.Close()
-
-	// Use memory mapping for ultra-fast reading
-	data, err := syscall.Mmap(int(file.Fd()), 0, int(fileSize), 
-		syscall.PROT_READ, syscall.MAP_SHARED|syscall.MAP_POPULATE)
-	if err != nil {
-		// Fallback to regular read
-		data = make([]byte, fileSize)
-		_, err = io.ReadFull(file, data)
-		if err != nil {
-			log.Printf("❌ Failed to read file for ultra-fast caching: %v", err)
-			return
-		}
-	} else {
-		// Copy from mmap to owned memory
-		ownedData := make([]byte, fileSize)
-		copy(ownedData, data)
-		syscall.Munmap(data)
-		data = ownedData
-	}
-
-	// Store in L1 cache for ultra-instant future access
-	s.l1Cache.Put(cacheKey, data, 0, fileSize)
-	log.Printf("🔥 ULTRA-FAST cached preview: %s (%d MB) - next access will be sub-ms", filepath.Base(filePath), fileSize/(1024*1024))
-}
-
-func (s *NetflixStreamService) streamFromMemoryMappedDataUltraFast(w http.ResponseWriter, r *http.Request, data []byte, fileSize int64, modTime time.Time) error {
-	// Set headers for ultra-instant response
-	headers := w.Header()
-	headers.Set("Content-Type", "video/mp4")
-	headers.Set("Accept-Ranges", "bytes")
-	headers.Set("Content-Length", fmt.Sprintf("%d", fileSize))
-	headers.Set("Cache-Control", "public, max-age=86400, immutable")
-	headers.Set("ETag", fmt.Sprintf(`"%d-%d"`, fileSize, modTime.Unix()))
-	headers.Set("Last-Modified", modTime.UTC().Format(http.TimeFormat))
-	headers.Set("X-Memory-Mapped", "true")
-	headers.Set("X-Ultra-Instant", "true")
-
-	// Check for conditional requests
-	etag := fmt.Sprintf(`"%d-%d"`, fileSize, modTime.Unix())
-	if checkNotModified(w, r, modTime, etag) {
-		return nil
-	}
-
-	// Handle range requests from memory-mapped data
-	rangeHeader := r.Header.Get("Range")
-	if rangeHeader != "" {
-		return s.streamMemoryMappedRange(w, r, data, fileSize, rangeHeader)
-	}
-
-	// Single write operation from memory-mapped data
-	_, err := w.Write(data)
-	if err == nil {
-		log.Printf("⚡ Memory-mapped ultra-instant: %d MB - sub-ms", fileSize/(1024*1024))
-	}
-	return err
-}
-
-func (s *NetflixStreamService) streamMemoryMappedRange(w http.ResponseWriter, r *http.Request, data []byte, fileSize int64, rangeHeader string) error {
-	// Ultra-fast range parsing
-	ranges, err := parseRangeHeaderFast(rangeHeader, fileSize)
-	if err != nil {
-		w.WriteHeader(http.StatusRequestedRangeNotSatisfiable)
-		return fmt.Errorf("invalid range header: %v", err)
-	}
-
-	if len(ranges) != 1 {
-		return fmt.Errorf("multiple ranges not supported")
-	}
-
-	start, end := ranges[0].start, ranges[0].end
-	contentLength := end - start + 1
-
-	// Set range headers
-	headers := w.Header()
-	headers.Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, fileSize))
-	headers.Set("Content-Length", fmt.Sprintf("%d", contentLength))
-	headers.Set("X-Memory-Mapped-Range", "true")
-	w.WriteHeader(http.StatusPartialContent)
-
-	// Stream range from memory-mapped data
-	rangeData := data[start : end+1]
-	_, err = w.Write(rangeData)
-	if err == nil {
-		log.Printf("⚡ Memory-mapped range ultra-instant: %d-%d (%d MB) - sub-ms", start, end, contentLength/(1024*1024))
-	}
-	return err
-}
-
-func (s *NetflixStreamService) handlePreviewRangeRequestUltraInstant(w http.ResponseWriter, r *http.Request, file *os.File, fileSize int64, rangeHeader string) error {
-	// Ultra-fast range parsing
-	ranges, err := parseRangeHeaderFast(rangeHeader, fileSize)
-	if err != nil {
-		w.WriteHeader(http.StatusRequestedRangeNotSatisfiable)
-		return fmt.Errorf("invalid range header: %v", err)
-	}
-
-	if len(ranges) != 1 {
-		return fmt.Errorf("multiple ranges not supported")
-	}
-
-	start, end := ranges[0].start, ranges[0].end
-	contentLength := end - start + 1
-
-	// Set headers for ultra-instant range response
-	headers := w.Header()
-	headers.Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, fileSize))
-	headers.Set("Content-Length", fmt.Sprintf("%d", contentLength))
-	headers.Set("X-Ultra-Instant-Range", "true")
-	w.WriteHeader(http.StatusPartialContent)
-
-	// Try zero-copy sendfile for large ranges
-	if s.enableSendfile && contentLength > 1024*1024 { // > 1MB
-		err := s.streamRangeWithZeroCopySendfile(w, r, file, start, contentLength)
-		if err == nil {
-			log.Printf("⚡ Zero-copy range sendfile: %d-%d (%d MB) - ULTRA-INSTANT", start, end, contentLength/(1024*1024))
-			return nil
-		}
-	}
-
-	// Fallback to optimized range streaming
-	_, err = file.Seek(start, 0)
-	if err != nil {
-		return fmt.Errorf("failed to seek: %v", err)
-	}
-
-	// Use large buffer for instant range delivery
-	buffer := s.bufferPool.Get(64 * 1024 * 1024) // 64MB buffer
-	defer s.bufferPool.Put(buffer)
-
-	limitedReader := io.LimitReader(file, contentLength)
-	_, err = s.copyWithZeroLatencyFlushing(w, limitedReader, buffer)
-	
-	if err == nil {
-		log.Printf("⚡ Ultra-optimized range: %d-%d (%d MB) - instant", start, end, contentLength/(1024*1024))
-	}
-	return err
-}
-
-func (s *NetflixStreamService) streamPreviewWithZeroCopySendfile(w http.ResponseWriter, r *http.Request, file *os.File, fileSize int64) error {
-	// Use zero-copy sendfile for ultra-instant preview streaming
-	return s.streamWithSendfileZeroCopy(w, file, fileSize)
-}
-
-func (s *NetflixStreamService) streamPreviewUltraOptimized(w http.ResponseWriter, r *http.Request, file *os.File, fileSize int64) error {
-	// Ultra-optimized I/O streaming for previews
-	buffer := s.bufferPool.Get(256 * 1024 * 1024) // 256MB buffer for ultra-instant preview
-	defer s.bufferPool.Put(buffer)
-
-	// Set ultra-aggressive headers
-	headers := w.Header()
-	headers.Set("Cache-Control", "no-cache, no-store, must-revalidate")
-	headers.Set("X-Accel-Buffering", "no")
-	headers.Set("X-Ultra-Optimized-Preview", "true")
-
-	// Force immediate header flush
-	if flusher, ok := w.(http.Flusher); ok {
-		flusher.Flush()
-	}
-
-	// Ultra-instant streaming with zero-latency flushing
-	_, err := s.copyWithZeroLatencyFlushing(w, file, buffer)
-	if err != nil {
-		return fmt.Errorf("ultra-optimized preview streaming failed: %v", err)
-	}
-
-	log.Printf("⚡ Ultra-optimized preview: %d MB - instant", fileSize/(1024*1024))
-	return nil
-}
-
-// checkChromeAudioCompatibility checks if the audio codec is Chrome-compatible
-func (s *NetflixStreamService) checkChromeAudioCompatibility(filePath string) (bool, error) {
-	audioInfo, err := s.audioTranscoder.analyzeAudioCodec(filePath)
-	if err != nil {
-		log.Printf("⚠️ Audio analysis failed for %s: %v", filepath.Base(filePath), err)
-		return false, nil // Assume needs transcoding if we can't analyze
-	}
-
-	// Chrome-compatible audio codecs (case-insensitive)
-	chromeCompatibleCodecs := map[string]bool{
-		"aac":    true,
-		"mp3":    true,
-		"opus":   true,
-		"vorbis": true,
-		"flac":   true, // Chrome supports FLAC
-	}
-
-	codecLower := strings.ToLower(audioInfo.Codec)
-	log.Printf("🔍 Chrome audio check: %s codec = %s", filepath.Base(filePath), audioInfo.Codec)
-
-	// Check if codec is Chrome-compatible
-	if chromeCompatibleCodecs[codecLower] {
-		log.Printf("✅ Chrome-compatible audio: %s", audioInfo.Codec)
-		return false, nil // No transcoding needed
-	}
-
-	// Check for problematic codecs that Chrome definitely doesn't support
-	problematicCodecs := []string{"ac3", "eac3", "dts", "truehd", "mlp", "pcm"}
-	for _, problematic := range problematicCodecs {
-		if strings.Contains(codecLower, problematic) {
-			log.Printf("❌ Chrome-incompatible audio: %s (needs transcoding)", audioInfo.Codec)
-			return true, nil // Needs transcoding
-		}
-	}
-
-	// If unknown codec, assume it needs transcoding for Chrome
-	log.Printf("⚠️ Unknown audio codec for Chrome: %s (transcoding for safety)", audioInfo.Codec)
-	return true, nil
 }
 
 // checkAudioCompatibility checks if the audio codec is browser-compatible
