@@ -49,6 +49,8 @@ func Initialize(databaseURL string) (*gorm.DB, error) {
 		&models.Season{}, // Added missing Season model
 		&models.Genre{},
 		&models.Subtitle{},
+		&models.SubtitleTrack{}, // New enhanced subtitle tracks
+		&models.AudioTrack{},    // New audio tracks
 		&models.User{},
 		&models.WatchlistItem{},
 		&models.ViewHistory{},
@@ -123,6 +125,10 @@ func createOptimizedIndexes(db *gorm.DB) error {
 		"CREATE INDEX IF NOT EXISTS idx_playback_progresses_media_id ON playback_progresses(media_id)",
 		"CREATE INDEX IF NOT EXISTS idx_my_lists_media_id ON my_lists(media_id)",
 		"CREATE INDEX IF NOT EXISTS idx_watch_histories_media_id ON watch_histories(media_id)",
+		"CREATE INDEX IF NOT EXISTS idx_subtitle_tracks_media_id ON subtitle_tracks(media_id)",
+		"CREATE INDEX IF NOT EXISTS idx_subtitle_tracks_language ON subtitle_tracks(language)",
+		"CREATE INDEX IF NOT EXISTS idx_audio_tracks_media_id ON audio_tracks(media_id)",
+		"CREATE INDEX IF NOT EXISTS idx_audio_tracks_language ON audio_tracks(language)",
 	}
 
 	for _, index := range indexes {

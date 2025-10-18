@@ -817,6 +817,87 @@ func (s *MediaService) GetSubtitles(mediaID uint) ([]models.Subtitle, error) {
 	return subtitles, err
 }
 
+// GetSubtitleTracks returns all subtitle tracks (internal and external) for a media item
+func (s *MediaService) GetSubtitleTracks(mediaID uint) ([]models.SubtitleTrack, error) {
+	var tracks []models.SubtitleTrack
+	err := s.DBManager.WithReadOnly(func(db *gorm.DB) error {
+		return db.Where("media_id = ?", mediaID).Order("is_default DESC, stream_index ASC").Find(&tracks).Error
+	})
+	return tracks, err
+}
+
+// GetAudioTracks returns all audio tracks for a media item
+func (s *MediaService) GetAudioTracks(mediaID uint) ([]models.AudioTrack, error) {
+	var tracks []models.AudioTrack
+	err := s.DBManager.WithReadOnly(func(db *gorm.DB) error {
+		return db.Where("media_id = ?", mediaID).Order("is_default DESC, stream_index ASC").Find(&tracks).Error
+	})
+	return tracks, err
+}
+
+// GetSubtitleTrack returns a specific subtitle track by ID
+func (s *MediaService) GetSubtitleTrack(trackID uint) (*models.SubtitleTrack, error) {
+	var track models.SubtitleTrack
+	err := s.DBManager.WithReadOnly(func(db *gorm.DB) error {
+		return db.First(&track, trackID).Error
+	})
+	return &track, err
+}
+
+// CreateSubtitleTrack creates a new subtitle track entry
+func (s *MediaService) CreateSubtitleTrack(track *models.SubtitleTrack) error {
+	return s.DBManager.WithTx(func(tx *gorm.DB) error {
+		return tx.Create(track).Error
+	})
+}
+
+// CreateAudioTrack creates a new audio track entry
+func (s *MediaService) CreateAudioTrack(track *models.AudioTrack) error {
+	return s.DBManager.WithTx(func(tx *gorm.DB) error {
+		return tx.Create(track).Error
+	})
+}
+
+// SaveSubtitleTracks saves multiple subtitle tracks for a media item
+func (s *MediaService) SaveSubtitleTracks(mediaID uint, tracks []models.SubtitleTrack) error {
+	return s.DBManager.WithTx(func(tx *gorm.DB) error {
+		// First, delete existing internal tracks for this media
+		if err := tx.Where("media_id = ? AND track_type = ?", mediaID, "internal").Delete(&models.SubtitleTrack{}).Error; err != nil {
+			return fmt.Errorf("failed to delete existing internal subtitle tracks: %w", err)
+		}
+		
+		// Create new tracks
+		for _, track := range tracks {
+			track.MediaID = mediaID
+			if err := tx.Create(&track).Error; err != nil {
+				return fmt.Errorf("failed to create subtitle track: %w", err)
+			}
+		}
+		
+		return nil
+	})
+}
+
+// SaveAudioTracks saves multiple audio tracks for a media item
+func (s *MediaService) SaveAudioTracks(mediaID uint, tracks []models.AudioTrack) error {
+	return s.DBManager.WithTx(func(tx *gorm.DB) error {
+		// First, delete existing tracks for this media
+		if err := tx.Where("media_id = ?", mediaID).Delete(&models.AudioTrack{}).Error; err != nil {
+			return fmt.Errorf("failed to delete existing audio tracks: %w", err)
+		}
+		
+		// Create new tracks
+		for _, track := range tracks {
+			track.MediaID = mediaID
+			if err := tx.Create(&track).Error; err != nil {
+				return fmt.Errorf("failed to create audio track: %w", err)
+			}
+		}
+		
+		return nil
+	})
+}
+
 // GetMediaByRating returns media sorted by rating (highest first)
 func (s *MediaService) GetMediaByRating(limit int) ([]models.Media, error) {
 	var media []models.Media
@@ -1008,3 +1089,4 @@ func (s *MediaService) GetHighestRated(limit int) ([]models.Media, error) {
 	
 	return media, err
 }
+

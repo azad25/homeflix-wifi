@@ -69,6 +69,12 @@ type MediaServiceInterface interface {
 	AssignGenresToMedia(mediaID uint, genreIDs []uint) error
 	CreateSubtitle(subtitle *models.Subtitle) error
 	SearchMedia(query string) ([]models.Media, error)
+	SaveSubtitleTracks(mediaID uint, tracks []models.SubtitleTrack) error
+	SaveAudioTracks(mediaID uint, tracks []models.AudioTrack) error
+	GetSubtitleTracks(mediaID uint) ([]models.SubtitleTrack, error)
+	GetAudioTracks(mediaID uint) ([]models.AudioTrack, error)
+	CreateSubtitleTrack(track *models.SubtitleTrack) error
+	CreateAudioTrack(track *models.AudioTrack) error
 }
 
 // ThumbnailServiceInterface defines the interface for thumbnail operations

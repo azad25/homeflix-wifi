@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -2524,6 +2525,12 @@ func (s *NetflixStreamService) GetVideoInfo(filePath string) (map[string]interfa
 		"seekable": true, // Default to seekable
 	}
 
+	// Extract all stream information
+	streams, err := s.getStreamInfo(filePath)
+	if err == nil {
+		info["streams"] = streams
+	}
+
 	// Check MKV seekability
 	fileExt := strings.ToLower(filepath.Ext(filePath))
 	if fileExt == ".mkv" {
@@ -2554,6 +2561,143 @@ func (s *NetflixStreamService) GetVideoInfo(filePath string) (map[string]interfa
 	}
 
 	return info, nil
+}
+
+// getStreamInfo extracts detailed stream information from a video file
+func (s *NetflixStreamService) getStreamInfo(filePath string) (map[string]interface{}, error) {
+	cmd := exec.Command("ffprobe",
+		"-v", "quiet",
+		"-print_format", "json",
+		"-show_streams",
+		filePath)
+
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("ffprobe failed: %v", err)
+	}
+
+	var probeData struct {
+		Streams []struct {
+			Index       int    `json:"index"`
+			CodecType   string `json:"codec_type"`
+			CodecName   string `json:"codec_name"`
+			Language    string `json:"tags.language"`
+			Title       string `json:"tags.title"`
+			Channels    int    `json:"channels"`
+			SampleRate  string `json:"sample_rate"`
+			BitRate     string `json:"bit_rate"`
+			Disposition struct {
+				Default  int `json:"default"`
+				Forced   int `json:"forced"`
+				Hearing  int `json:"hearing_impaired"`
+			} `json:"disposition"`
+			Tags struct {
+				Language string `json:"language"`
+				Title    string `json:"title"`
+			} `json:"tags"`
+		} `json:"streams"`
+	}
+
+	if err := json.Unmarshal(output, &probeData); err != nil {
+		return nil, fmt.Errorf("failed to parse ffprobe output: %v", err)
+	}
+
+	result := map[string]interface{}{
+		"video_streams":    []map[string]interface{}{},
+		"audio_streams":    []map[string]interface{}{},
+		"subtitle_streams": []map[string]interface{}{},
+	}
+
+	for _, stream := range probeData.Streams {
+		streamInfo := map[string]interface{}{
+			"index":      stream.Index,
+			"codec_name": stream.CodecName,
+			"language":   getLanguage(stream),
+			"title":      getTitle(stream),
+			"is_default": stream.Disposition.Default == 1,
+		}
+
+		switch stream.CodecType {
+		case "video":
+			result["video_streams"] = append(result["video_streams"].([]map[string]interface{}), streamInfo)
+		case "audio":
+			streamInfo["channels"] = stream.Channels
+			if stream.SampleRate != "" {
+				if sampleRate, err := strconv.Atoi(stream.SampleRate); err == nil {
+					streamInfo["sample_rate"] = sampleRate
+				}
+			}
+			if stream.BitRate != "" {
+				if bitrate, err := strconv.Atoi(stream.BitRate); err == nil {
+					streamInfo["bitrate"] = bitrate
+				}
+			}
+			result["audio_streams"] = append(result["audio_streams"].([]map[string]interface{}), streamInfo)
+		case "subtitle":
+			streamInfo["is_forced"] = stream.Disposition.Forced == 1
+			streamInfo["is_hearing_impaired"] = stream.Disposition.Hearing == 1
+			result["subtitle_streams"] = append(result["subtitle_streams"].([]map[string]interface{}), streamInfo)
+		}
+	}
+
+	return result, nil
+}
+
+// Helper functions for stream info extraction
+func getLanguage(stream struct {
+	Index       int    `json:"index"`
+	CodecType   string `json:"codec_type"`
+	CodecName   string `json:"codec_name"`
+	Language    string `json:"tags.language"`
+	Title       string `json:"tags.title"`
+	Channels    int    `json:"channels"`
+	SampleRate  string `json:"sample_rate"`
+	BitRate     string `json:"bit_rate"`
+	Disposition struct {
+		Default  int `json:"default"`
+		Forced   int `json:"forced"`
+		Hearing  int `json:"hearing_impaired"`
+	} `json:"disposition"`
+	Tags struct {
+		Language string `json:"language"`
+		Title    string `json:"title"`
+	} `json:"tags"`
+}) string {
+	if stream.Tags.Language != "" {
+		return stream.Tags.Language
+	}
+	if stream.Language != "" {
+		return stream.Language
+	}
+	return "unknown"
+}
+
+func getTitle(stream struct {
+	Index       int    `json:"index"`
+	CodecType   string `json:"codec_type"`
+	CodecName   string `json:"codec_name"`
+	Language    string `json:"tags.language"`
+	Title       string `json:"tags.title"`
+	Channels    int    `json:"channels"`
+	SampleRate  string `json:"sample_rate"`
+	BitRate     string `json:"bit_rate"`
+	Disposition struct {
+		Default  int `json:"default"`
+		Forced   int `json:"forced"`
+		Hearing  int `json:"hearing_impaired"`
+	} `json:"disposition"`
+	Tags struct {
+		Language string `json:"language"`
+		Title    string `json:"title"`
+	} `json:"tags"`
+}) string {
+	if stream.Tags.Title != "" {
+		return stream.Tags.Title
+	}
+	if stream.Title != "" {
+		return stream.Title
+	}
+	return fmt.Sprintf("%s Track %d", strings.Title(stream.CodecType), stream.Index)
 }
 
 func (s *NetflixStreamService) CheckSeekingSupport(filePath string) (bool, error) {

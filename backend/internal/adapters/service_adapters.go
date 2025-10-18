@@ -147,6 +147,30 @@ func (a *MediaServiceAdapter) SearchMedia(query string) ([]models.Media, error) 
 	return a.service.SearchMedia(query)
 }
 
+func (a *MediaServiceAdapter) SaveSubtitleTracks(mediaID uint, tracks []models.SubtitleTrack) error {
+	return a.service.SaveSubtitleTracks(mediaID, tracks)
+}
+
+func (a *MediaServiceAdapter) SaveAudioTracks(mediaID uint, tracks []models.AudioTrack) error {
+	return a.service.SaveAudioTracks(mediaID, tracks)
+}
+
+func (a *MediaServiceAdapter) GetSubtitleTracks(mediaID uint) ([]models.SubtitleTrack, error) {
+	return a.service.GetSubtitleTracks(mediaID)
+}
+
+func (a *MediaServiceAdapter) GetAudioTracks(mediaID uint) ([]models.AudioTrack, error) {
+	return a.service.GetAudioTracks(mediaID)
+}
+
+func (a *MediaServiceAdapter) CreateSubtitleTrack(track *models.SubtitleTrack) error {
+	return a.service.CreateSubtitleTrack(track)
+}
+
+func (a *MediaServiceAdapter) CreateAudioTrack(track *models.AudioTrack) error {
+	return a.service.CreateAudioTrack(track)
+}
+
 // ThumbnailServiceAdapter adapts services.ThumbnailService to interfaces.ThumbnailServiceInterface
 type ThumbnailServiceAdapter struct {
 	service *services.ThumbnailService

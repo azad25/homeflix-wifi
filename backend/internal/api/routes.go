@@ -126,6 +126,11 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		// Subtitles
 		api.GET("/subtitles/:id", handlers.GetSubtitles(mediaService))
 		api.GET("/subtitles/:id/file", handlers.ServeSubtitleFile(mediaService))
+		
+		// Enhanced subtitle and audio track endpoints
+		api.GET("/media/:id/subtitles", handlers.GetSubtitleTracks(mediaService))
+		api.GET("/media/:id/audio", handlers.GetAudioTracks(mediaService))
+		api.GET("/media/:id/subtitles/:trackId/file", handlers.GetSubtitleFile(mediaService))
 
 		// ALAC Audio endpoints
 		api.GET("/audio/alac/:id", handlers.GetALACAudio(alacService))

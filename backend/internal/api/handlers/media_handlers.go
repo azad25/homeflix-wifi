@@ -1,7 +1,11 @@
 package handlers
 
 import (
+	"fmt"
+	"log"
 	"net/http"
+	"os"
+	"os/exec"
 	"regexp"
 	"strconv"
 	"strings"
@@ -510,3 +514,157 @@ func performSmartSearch(mediaService *services.MediaService, query string) ([]in
 
 	return finalResults, nil
 }
+
+// GetSubtitleTracks returns all subtitle tracks for a media item
+func GetSubtitleTracks(mediaService *services.MediaService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id, err := strconv.ParseUint(c.Param("id"), 10, 32)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid media ID"})
+			return
+		}
+
+		tracks, err := mediaService.GetSubtitleTracks(uint(id))
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		c.JSON(http.StatusOK, tracks)
+	}
+}
+
+// GetAudioTracks returns all audio tracks for a media item
+func GetAudioTracks(mediaService *services.MediaService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id, err := strconv.ParseUint(c.Param("id"), 10, 32)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid media ID"})
+			return
+		}
+
+		tracks, err := mediaService.GetAudioTracks(uint(id))
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		c.JSON(http.StatusOK, tracks)
+	}
+}
+
+// GetSubtitleFile serves subtitle files (both internal and external)
+func GetSubtitleFile(mediaService *services.MediaService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id, err := strconv.ParseUint(c.Param("id"), 10, 32)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid media ID"})
+			return
+		}
+
+		trackID, err := strconv.ParseUint(c.Param("trackId"), 10, 32)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid track ID"})
+			return
+		}
+
+		// Get the subtitle track
+		track, err := mediaService.GetSubtitleTrack(uint(trackID))
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Subtitle track not found"})
+			return
+		}
+
+		// Verify the track belongs to the requested media
+		if track.MediaID != uint(id) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Track does not belong to this media"})
+			return
+		}
+
+		if track.TrackType == "external" && track.FilePath != "" {
+			// Verify external subtitle file exists
+			if _, err := os.Stat(track.FilePath); err != nil {
+				log.Printf("❌ External subtitle file not found: %s", track.FilePath)
+				c.JSON(http.StatusNotFound, gin.H{"error": "Subtitle file not found on disk"})
+				return
+			}
+
+			// Set appropriate headers for subtitle files
+			contentType := getSubtitleContentType(track.Format)
+			c.Header("Content-Type", contentType)
+			c.Header("Content-Disposition", "inline")
+			c.Header("Cache-Control", "public, max-age=3600") // Cache for 1 hour
+			c.Header("Access-Control-Allow-Origin", "*")
+			c.Header("Access-Control-Allow-Headers", "Range")
+
+			log.Printf("📄 Serving external subtitle: %s (%s)", track.FilePath, contentType)
+			
+			// Serve external subtitle file
+			c.File(track.FilePath)
+		} else if track.TrackType == "internal" {
+			// Extract internal subtitle using ffmpeg
+			media, err := mediaService.GetMediaByID(uint(id))
+			if err != nil {
+				c.JSON(http.StatusNotFound, gin.H{"error": "Media not found"})
+				return
+			}
+
+			subtitleData, err := extractInternalSubtitle(media.FilePath, track.StreamIndex)
+			if err != nil {
+				log.Printf("❌ Failed to extract internal subtitle: %v", err)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to extract subtitle"})
+				return
+			}
+
+			// Set appropriate content type
+			contentType := getSubtitleContentType(track.CodecName)
+			c.Header("Content-Type", contentType)
+			c.Header("Content-Disposition", "inline")
+			c.Header("Cache-Control", "public, max-age=1800") // Cache for 30 minutes
+			c.Header("Access-Control-Allow-Origin", "*")
+
+			log.Printf("📄 Serving internal subtitle: stream %d (%s)", track.StreamIndex, contentType)
+			c.Data(http.StatusOK, contentType, subtitleData)
+		} else {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Subtitle file not available"})
+		}
+	}
+}
+
+// getSubtitleContentType returns the appropriate content type for subtitle formats
+func getSubtitleContentType(format string) string {
+	switch strings.ToLower(format) {
+	case "srt", "subrip":
+		return "text/srt; charset=utf-8"
+	case "vtt", "webvtt":
+		return "text/vtt; charset=utf-8"
+	case "ass", "ssa":
+		return "text/ass; charset=utf-8"
+	case "sub":
+		return "text/sub; charset=utf-8"
+	case "sbv":
+		return "text/sbv; charset=utf-8"
+	case "ttml", "dfxp":
+		return "application/ttml+xml; charset=utf-8"
+	default:
+		return "text/plain; charset=utf-8"
+	}
+}
+
+// extractInternalSubtitle extracts internal subtitle track using ffmpeg
+func extractInternalSubtitle(videoPath string, streamIndex int) ([]byte, error) {
+	cmd := exec.Command("ffmpeg",
+		"-i", videoPath,
+		"-map", fmt.Sprintf("0:s:%d", streamIndex),
+		"-c:s", "srt", // Convert to SRT format for web compatibility
+		"-f", "srt",
+		"-")
+
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("ffmpeg subtitle extraction failed: %v", err)
+	}
+
+	return output, nil
+}
+

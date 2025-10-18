@@ -265,3 +265,42 @@ type Recommendation struct {
 	ClickedAt   *time.Time `json:"clicked_at,omitempty"`
 }
 
+// SubtitleTrack represents subtitle tracks (internal and external)
+type SubtitleTrack struct {
+	ID          uint           `json:"id" gorm:"primarykey"`
+	CreatedAt   time.Time      `json:"created_at"`
+	UpdatedAt   time.Time      `json:"updated_at"`
+	DeletedAt   gorm.DeletedAt `json:"-" gorm:"index"`
+	
+	MediaID     uint   `json:"media_id" gorm:"not null"`
+	StreamIndex int    `json:"stream_index"` // For internal tracks
+	Language    string `json:"language" gorm:"not null"`
+	Title       string `json:"title"`
+	CodecName   string `json:"codec_name"`   // "subrip", "ass", "webvtt", etc.
+	FilePath    string `json:"file_path"`    // For external subtitle files
+	Format      string `json:"format"`       // "srt", "vtt", "ass", etc.
+	TrackType   string `json:"track_type"`   // "internal" or "external"
+	IsDefault   bool   `json:"is_default"`
+	IsForced    bool   `json:"is_forced"`
+	IsHearing   bool   `json:"is_hearing_impaired"`
+}
+
+// AudioTrack represents audio tracks in media files
+type AudioTrack struct {
+	ID          uint           `json:"id" gorm:"primarykey"`
+	CreatedAt   time.Time      `json:"created_at"`
+	UpdatedAt   time.Time      `json:"updated_at"`
+	DeletedAt   gorm.DeletedAt `json:"-" gorm:"index"`
+	
+	MediaID     uint   `json:"media_id" gorm:"not null"`
+	StreamIndex int    `json:"stream_index" gorm:"not null"`
+	Language    string `json:"language" gorm:"not null"`
+	Title       string `json:"title"`
+	CodecName   string `json:"codec_name"`   // "aac", "ac3", "dts", etc.
+	Channels    int    `json:"channels"`     // Number of audio channels
+	SampleRate  int    `json:"sample_rate"`  // Sample rate in Hz
+	Bitrate     int    `json:"bitrate"`      // Bitrate in bps
+	TrackType   string `json:"track_type"`   // "internal" (always for audio)
+	IsDefault   bool   `json:"is_default"`
+}
+

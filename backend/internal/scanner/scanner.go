@@ -1593,6 +1593,14 @@ func (s *MediaScanner) processVideoFile(path string, info os.FileInfo) error {
 				log.Printf("⚠️ Timeout extracting video metadata for %s", media.Title)
 			}
 
+			// Extract subtitle and audio track information
+			s.extractSubtitleAndAudioTracks(media, path)
+			
+			// Also process tracks using the new method for enhanced track detection
+			if err := s.processMediaTracks(media); err != nil {
+				log.Printf("⚠️ Failed to process media tracks for %s: %v", media.Title, err)
+			}
+
 			// Then try to get enhanced metadata from TMDB with fallback to file-based metadata
 			if s.GetTMDBService() != nil {
 				tmdbDone := make(chan struct{}, 1)
@@ -1859,6 +1867,373 @@ func (s *MediaScanner) processVideoFile(path string, info os.FileInfo) error {
 	return nil
 }
 
+// extractSubtitleAndAudioTracks extracts internal subtitle and audio track information
+func (s *MediaScanner) extractSubtitleAndAudioTracks(media *models.Media, path string) {
+	log.Printf("🎬 Extracting subtitle and audio tracks for: %s", media.Title)
+	
+	// Use ffprobe to extract all stream information
+	cmd := exec.Command("ffprobe",
+		"-v", "quiet",
+		"-print_format", "json",
+		"-show_streams",
+		path)
+
+	output, err := cmd.Output()
+	if err != nil {
+		log.Printf("⚠️ Failed to extract stream info for %s: %v", media.Title, err)
+		return
+	}
+
+	var probeData struct {
+		Streams []struct {
+			Index       int    `json:"index"`
+			CodecType   string `json:"codec_type"`
+			CodecName   string `json:"codec_name"`
+			Language    string `json:"tags.language"`
+			Title       string `json:"tags.title"`
+			Disposition struct {
+				Default  int `json:"default"`
+				Forced   int `json:"forced"`
+				Hearing  int `json:"hearing_impaired"`
+			} `json:"disposition"`
+			Tags struct {
+				Language string `json:"language"`
+				Title    string `json:"title"`
+			} `json:"tags"`
+		} `json:"streams"`
+	}
+
+	if err := json.Unmarshal(output, &probeData); err != nil {
+		log.Printf("⚠️ Failed to parse stream info for %s: %v", media.Title, err)
+		return
+	}
+
+	// Process subtitle streams
+	var subtitleTracks []models.SubtitleTrack
+	var audioTracks []models.AudioTrack
+	
+	for _, stream := range probeData.Streams {
+		if stream.CodecType == "subtitle" {
+			language := stream.Tags.Language
+			if language == "" {
+				language = stream.Language
+			}
+			if language == "" {
+				language = "unknown"
+			}
+
+			title := stream.Tags.Title
+			if title == "" {
+				title = fmt.Sprintf("Subtitle Track %d", stream.Index)
+			}
+
+			subtitleTrack := models.SubtitleTrack{
+				MediaID:     media.ID,
+				StreamIndex: stream.Index,
+				Language:    language,
+				Title:       title,
+				CodecName:   stream.CodecName,
+				IsDefault:   stream.Disposition.Default == 1,
+				IsForced:    stream.Disposition.Forced == 1,
+				IsHearing:   stream.Disposition.Hearing == 1,
+				TrackType:   "internal",
+			}
+			subtitleTracks = append(subtitleTracks, subtitleTrack)
+			
+			log.Printf("📝 Found internal subtitle: %s (%s) - %s", language, stream.CodecName, title)
+		} else if stream.CodecType == "audio" {
+			language := stream.Tags.Language
+			if language == "" {
+				language = stream.Language
+			}
+			if language == "" {
+				language = "unknown"
+			}
+
+			title := stream.Tags.Title
+			if title == "" {
+				title = fmt.Sprintf("Audio Track %d", stream.Index)
+			}
+
+			audioTrack := models.AudioTrack{
+				MediaID:     media.ID,
+				StreamIndex: stream.Index,
+				Language:    language,
+				Title:       title,
+				CodecName:   stream.CodecName,
+				IsDefault:   stream.Disposition.Default == 1,
+				TrackType:   "internal",
+			}
+			audioTracks = append(audioTracks, audioTrack)
+			
+			log.Printf("🎵 Found audio track: %s (%s) - %s", language, stream.CodecName, title)
+		}
+	}
+
+	// Also scan for external subtitle files
+	externalSubs := s.findExternalSubtitles(path)
+	for _, extSub := range externalSubs {
+		subtitleTrack := models.SubtitleTrack{
+			MediaID:   media.ID,
+			Language:  extSub.Language,
+			Title:     fmt.Sprintf("External %s", extSub.Language),
+			FilePath:  extSub.FilePath,
+			Format:    extSub.Format,
+			TrackType: "external",
+		}
+		subtitleTracks = append(subtitleTracks, subtitleTrack)
+		
+		log.Printf("📄 Found external subtitle: %s (%s)", extSub.Language, extSub.Format)
+	}
+
+	// Save tracks to database
+	if len(subtitleTracks) > 0 {
+		if err := s.GetMediaService().SaveSubtitleTracks(media.ID, subtitleTracks); err != nil {
+			log.Printf("⚠️ Failed to save subtitle tracks for %s: %v", media.Title, err)
+		} else {
+			log.Printf("✅ Saved %d subtitle tracks for %s", len(subtitleTracks), media.Title)
+		}
+	}
+
+	if len(audioTracks) > 0 {
+		if err := s.GetMediaService().SaveAudioTracks(media.ID, audioTracks); err != nil {
+			log.Printf("⚠️ Failed to save audio tracks for %s: %v", media.Title, err)
+		} else {
+			log.Printf("✅ Saved %d audio tracks for %s", len(audioTracks), media.Title)
+		}
+	}
+}
+
+// findExternalSubtitles finds external subtitle files for a video
+func (s *MediaScanner) findExternalSubtitles(videoPath string) []ExternalSubtitle {
+	var subtitles []ExternalSubtitle
+	
+	dir := filepath.Dir(videoPath)
+	baseName := strings.TrimSuffix(filepath.Base(videoPath), filepath.Ext(videoPath))
+	
+	// Common subtitle extensions
+	subtitleExts := []string{".srt", ".vtt", ".ass", ".ssa", ".sub", ".idx", ".sbv", ".ttml", ".dfxp"}
+	
+	// Enhanced language patterns to detect
+	langPatterns := map[string]string{
+		"en":       "English",
+		"eng":      "English",
+		"english":  "English",
+		"es":       "Spanish",
+		"spa":      "Spanish", 
+		"spanish":  "Spanish",
+		"fr":       "French",
+		"fre":      "French",
+		"french":   "French",
+		"de":       "German",
+		"ger":      "German",
+		"german":   "German",
+		"it":       "Italian",
+		"ita":      "Italian",
+		"italian":  "Italian",
+		"pt":       "Portuguese",
+		"por":      "Portuguese",
+		"portuguese": "Portuguese",
+		"ru":       "Russian",
+		"rus":      "Russian",
+		"russian":  "Russian",
+		"ja":       "Japanese",
+		"jpn":      "Japanese",
+		"japanese": "Japanese",
+		"ko":       "Korean",
+		"kor":      "Korean",
+		"korean":   "Korean",
+		"zh":       "Chinese",
+		"chi":      "Chinese",
+		"chinese":  "Chinese",
+		"ar":       "Arabic",
+		"ara":      "Arabic",
+		"arabic":   "Arabic",
+		"hi":       "Hindi",
+		"hin":      "Hindi",
+		"hindi":    "Hindi",
+		"nl":       "Dutch",
+		"dut":      "Dutch",
+		"dutch":    "Dutch",
+		"sv":       "Swedish",
+		"swe":      "Swedish",
+		"swedish":  "Swedish",
+		"no":       "Norwegian",
+		"nor":      "Norwegian",
+		"norwegian": "Norwegian",
+		"da":       "Danish",
+		"dan":      "Danish",
+		"danish":   "Danish",
+		"fi":       "Finnish",
+		"fin":      "Finnish",
+		"finnish":  "Finnish",
+		"pl":       "Polish",
+		"pol":      "Polish",
+		"polish":   "Polish",
+		"tr":       "Turkish",
+		"tur":      "Turkish",
+		"turkish":  "Turkish",
+		"he":       "Hebrew",
+		"heb":      "Hebrew",
+		"hebrew":   "Hebrew",
+		"th":       "Thai",
+		"tha":      "Thai",
+		"thai":     "Thai",
+		"vi":       "Vietnamese",
+		"vie":      "Vietnamese",
+		"vietnamese": "Vietnamese",
+	}
+	
+	log.Printf("🔍 Scanning for external subtitles in: %s", dir)
+	log.Printf("🎬 Video base name: %s", baseName)
+	
+	// Scan directory for subtitle files
+	files, err := os.ReadDir(dir)
+	if err != nil {
+		log.Printf("⚠️ Failed to read directory %s: %v", dir, err)
+		return subtitles
+	}
+	
+	for _, file := range files {
+		if file.IsDir() {
+			continue
+		}
+		
+		fileName := file.Name()
+		fileExt := strings.ToLower(filepath.Ext(fileName))
+		
+		// Check if it's a subtitle file
+		isSubtitle := false
+		for _, ext := range subtitleExts {
+			if fileExt == ext {
+				isSubtitle = true
+				break
+			}
+		}
+		
+		if !isSubtitle {
+			continue
+		}
+		
+		// Enhanced matching logic for subtitle files
+		fileBaseName := strings.TrimSuffix(fileName, fileExt)
+		fileBaseNameLower := strings.ToLower(fileBaseName)
+		baseNameLower := strings.ToLower(baseName)
+		
+		// Multiple matching strategies
+		isMatch := false
+		
+		// Strategy 1: Exact prefix match
+		if strings.HasPrefix(fileBaseNameLower, baseNameLower) {
+			isMatch = true
+		}
+		
+		// Strategy 2: Remove common video suffixes and try again
+		if !isMatch {
+			// Remove common video quality/source indicators from base name
+			cleanBaseName := baseNameLower
+			videoSuffixes := []string{
+				"1080p", "720p", "480p", "4k", "2160p",
+				"bluray", "bdrip", "webrip", "web-dl", "hdtv",
+				"x264", "x265", "h264", "h265", "hevc",
+				"aac", "ac3", "dts", "mp3",
+				"yify", "rarbg", "yts", "eztv",
+			}
+			
+			for _, suffix := range videoSuffixes {
+				cleanBaseName = strings.ReplaceAll(cleanBaseName, "."+suffix, "")
+				cleanBaseName = strings.ReplaceAll(cleanBaseName, "-"+suffix, "")
+				cleanBaseName = strings.ReplaceAll(cleanBaseName, "_"+suffix, "")
+				cleanBaseName = strings.ReplaceAll(cleanBaseName, " "+suffix, "")
+			}
+			
+			if strings.HasPrefix(fileBaseNameLower, cleanBaseName) {
+				isMatch = true
+			}
+		}
+		
+		// Strategy 3: Check if subtitle filename contains the main title words
+		if !isMatch {
+			baseWords := strings.Fields(strings.ReplaceAll(strings.ReplaceAll(baseNameLower, ".", " "), "_", " "))
+			if len(baseWords) > 0 {
+				mainTitle := baseWords[0]
+				if len(mainTitle) > 3 && strings.Contains(fileBaseNameLower, mainTitle) {
+					isMatch = true
+				}
+			}
+		}
+		
+		if !isMatch {
+			continue
+		}
+		
+		// Extract language from filename
+		language := "Unknown"
+		
+		// Enhanced language detection
+		fileNameForLang := strings.ToLower(fileName)
+		
+		// Try to extract language from filename patterns
+		for code, lang := range langPatterns {
+			// Pattern 1: .lang. (e.g., movie.en.srt)
+			pattern1 := fmt.Sprintf(`\.%s\.`, code)
+			if matched, _ := regexp.MatchString(pattern1, fileNameForLang); matched {
+				language = lang
+				break
+			}
+			
+			// Pattern 2: _lang_ (e.g., movie_en_srt)
+			pattern2 := fmt.Sprintf(`_%s_`, code)
+			if matched, _ := regexp.MatchString(pattern2, fileNameForLang); matched {
+				language = lang
+				break
+			}
+			
+			// Pattern 3: -lang- (e.g., movie-en-srt)
+			pattern3 := fmt.Sprintf(`-%s-`, code)
+			if matched, _ := regexp.MatchString(pattern3, fileNameForLang); matched {
+				language = lang
+				break
+			}
+			
+			// Pattern 4: lang at end (e.g., movie.en.srt, movie_en.srt)
+			pattern4 := fmt.Sprintf(`[._-]%s$`, code)
+			baseWithoutExt := strings.TrimSuffix(fileNameForLang, fileExt)
+			if matched, _ := regexp.MatchString(pattern4, baseWithoutExt); matched {
+				language = lang
+				break
+			}
+		}
+		
+		// Get absolute file path
+		fullPath := filepath.Join(dir, fileName)
+		
+		// Verify file exists and is readable
+		if _, err := os.Stat(fullPath); err != nil {
+			log.Printf("⚠️ Subtitle file not accessible: %s (%v)", fullPath, err)
+			continue
+		}
+		
+		subtitle := ExternalSubtitle{
+			FilePath: fullPath,
+			Language: language,
+			Format:   strings.TrimPrefix(fileExt, "."),
+		}
+		
+		subtitles = append(subtitles, subtitle)
+		log.Printf("📄 Found external subtitle: %s (%s) - %s", language, subtitle.Format, fullPath)
+	}
+	
+	log.Printf("✅ Found %d external subtitle files for %s", len(subtitles), filepath.Base(videoPath))
+	return subtitles
+}
+
+type ExternalSubtitle struct {
+	FilePath string
+	Language string
+	Format   string
+}
+
 // formatCurrency formats a number as currency for logging
 func formatCurrency(amount int64) string {
 	if amount == 0 {
@@ -1929,6 +2304,28 @@ func (s *MediaScanner) processSubtitleFile(path string) error {
 	// Extract language from filename
 	language := s.extractLanguageFromSubtitle(path)
 
+	// Create external subtitle track entry
+	subtitleTrack := &models.SubtitleTrack{
+		MediaID:     media.ID,
+		StreamIndex: -1, // External subtitles don't have stream index
+		Language:    language,
+		Title:       fmt.Sprintf("%s (External)", language),
+		CodecName:   strings.TrimPrefix(filepath.Ext(path), "."),
+		FilePath:    path,
+		Format:      strings.TrimPrefix(filepath.Ext(path), "."),
+		TrackType:   "external",
+		IsDefault:   false,
+		IsForced:    false,
+		IsHearing:   strings.Contains(strings.ToLower(path), "cc") || strings.Contains(strings.ToLower(path), "sdh"),
+	}
+
+	err = s.GetMediaService().CreateSubtitleTrack(subtitleTrack)
+	if err != nil {
+		log.Printf("❌ Failed to create subtitle track: %v", err)
+		return err
+	}
+
+	// Also create legacy subtitle entry for backward compatibility
 	subtitle := &models.Subtitle{
 		MediaID:  media.ID,
 		Language: language,
@@ -1937,6 +2334,276 @@ func (s *MediaScanner) processSubtitleFile(path string) error {
 	}
 
 	return s.GetMediaService().CreateSubtitle(subtitle)
+}
+
+// processMediaTracks analyzes video file and extracts internal subtitle and audio tracks
+func (s *MediaScanner) processMediaTracks(media *models.Media) error {
+	if media.FilePath == "" {
+		return nil
+	}
+
+	log.Printf("🎬 Analyzing tracks for: %s", filepath.Base(media.FilePath))
+
+	// Use ffprobe to get track information
+	tracks, err := s.analyzeMediaTracks(media.FilePath)
+	if err != nil {
+		log.Printf("⚠️ Failed to analyze tracks for %s: %v", media.Title, err)
+		return nil // Don't fail the entire process
+	}
+
+	// Process subtitle tracks
+	for _, track := range tracks.SubtitleTracks {
+		track.MediaID = media.ID
+		
+		// Check if track already exists
+		existingTracks, _ := s.GetMediaService().GetSubtitleTracks(media.ID)
+		exists := false
+		for _, existing := range existingTracks {
+			if existing.StreamIndex == track.StreamIndex && existing.TrackType == "internal" {
+				exists = true
+				break
+			}
+		}
+		
+		if !exists {
+			err = s.GetMediaService().CreateSubtitleTrack(&track)
+			if err != nil {
+				log.Printf("⚠️ Failed to create subtitle track: %v", err)
+			} else {
+				log.Printf("✅ Added internal subtitle track: %s (stream %d)", track.Language, track.StreamIndex)
+			}
+		}
+	}
+
+	// Process audio tracks
+	for _, track := range tracks.AudioTracks {
+		track.MediaID = media.ID
+		
+		// Check if track already exists
+		existingTracks, _ := s.GetMediaService().GetAudioTracks(media.ID)
+		exists := false
+		for _, existing := range existingTracks {
+			if existing.StreamIndex == track.StreamIndex {
+				exists = true
+				break
+			}
+		}
+		
+		if !exists {
+			err = s.GetMediaService().CreateAudioTrack(&track)
+			if err != nil {
+				log.Printf("⚠️ Failed to create audio track: %v", err)
+			} else {
+				log.Printf("✅ Added audio track: %s (stream %d, %dch)", track.Language, track.StreamIndex, track.Channels)
+			}
+		}
+	}
+
+	return nil
+}
+
+// MediaTracks holds the analyzed track information
+type MediaTracks struct {
+	SubtitleTracks []models.SubtitleTrack
+	AudioTracks    []models.AudioTrack
+}
+
+// analyzeMediaTracks uses ffprobe to extract track information from media files
+func (s *MediaScanner) analyzeMediaTracks(filePath string) (*MediaTracks, error) {
+	// Use ffprobe to get detailed stream information
+	cmd := exec.Command("ffprobe", 
+		"-v", "quiet",
+		"-print_format", "json",
+		"-show_streams",
+		filePath)
+
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("ffprobe failed: %v", err)
+	}
+
+	// Parse ffprobe output
+	var probeResult struct {
+		Streams []struct {
+			Index       int               `json:"index"`
+			CodecType   string            `json:"codec_type"`
+			CodecName   string            `json:"codec_name"`
+			Tags        map[string]string `json:"tags"`
+			Channels    int               `json:"channels"`
+			SampleRate  string            `json:"sample_rate"`
+			BitRate     string            `json:"bit_rate"`
+			Disposition struct {
+				Default         int `json:"default"`
+				Forced          int `json:"forced"`
+				HearingImpaired int `json:"hearing_impaired"`
+			} `json:"disposition"`
+		} `json:"streams"`
+	}
+
+	err = json.Unmarshal(output, &probeResult)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse ffprobe output: %v", err)
+	}
+
+	tracks := &MediaTracks{
+		SubtitleTracks: []models.SubtitleTrack{},
+		AudioTracks:    []models.AudioTrack{},
+	}
+
+	subtitleIndex := 0
+	audioIndex := 0
+
+	for _, stream := range probeResult.Streams {
+		switch stream.CodecType {
+		case "subtitle":
+			language := s.extractLanguageFromTags(stream.Tags)
+			title := s.extractTitleFromTags(stream.Tags, language, "subtitle")
+			
+			track := models.SubtitleTrack{
+				StreamIndex:         subtitleIndex,
+				Language:           language,
+				Title:              title,
+				CodecName:          stream.CodecName,
+				TrackType:          "internal",
+				IsDefault:          stream.Disposition.Default == 1,
+				IsForced:           stream.Disposition.Forced == 1,
+				IsHearing:          stream.Disposition.HearingImpaired == 1,
+			}
+			
+			tracks.SubtitleTracks = append(tracks.SubtitleTracks, track)
+			subtitleIndex++
+
+		case "audio":
+			language := s.extractLanguageFromTags(stream.Tags)
+			title := s.extractTitleFromTags(stream.Tags, language, "audio")
+			
+			sampleRate := 0
+			if stream.SampleRate != "" {
+				sampleRate, _ = strconv.Atoi(stream.SampleRate)
+			}
+			
+			bitrate := 0
+			if stream.BitRate != "" {
+				bitrate, _ = strconv.Atoi(stream.BitRate)
+			}
+			
+			track := models.AudioTrack{
+				StreamIndex: audioIndex,
+				Language:    language,
+				Title:       title,
+				CodecName:   stream.CodecName,
+				Channels:    stream.Channels,
+				SampleRate:  sampleRate,
+				Bitrate:     bitrate,
+				TrackType:   "internal",
+				IsDefault:   stream.Disposition.Default == 1,
+			}
+			
+			tracks.AudioTracks = append(tracks.AudioTracks, track)
+			audioIndex++
+		}
+	}
+
+	return tracks, nil
+}
+
+// extractLanguageFromTags extracts language from ffprobe tags
+func (s *MediaScanner) extractLanguageFromTags(tags map[string]string) string {
+	// Check various tag keys for language information
+	languageKeys := []string{"language", "lang", "LANGUAGE", "LANG"}
+	
+	for _, key := range languageKeys {
+		if lang, exists := tags[key]; exists && lang != "" {
+			return s.normalizeLanguage(lang)
+		}
+	}
+	
+	return "Unknown"
+}
+
+// extractTitleFromTags extracts title from ffprobe tags
+func (s *MediaScanner) extractTitleFromTags(tags map[string]string, language, trackType string) string {
+	// Check various tag keys for title information
+	titleKeys := []string{"title", "TITLE", "handler_name", "HANDLER_NAME"}
+	
+	for _, key := range titleKeys {
+		if title, exists := tags[key]; exists && title != "" {
+			return title
+		}
+	}
+	
+	// Generate default title
+	if trackType == "audio" {
+		return fmt.Sprintf("%s Audio", language)
+	}
+	return fmt.Sprintf("%s Subtitles", language)
+}
+
+// normalizeLanguage converts language codes to full language names
+func (s *MediaScanner) normalizeLanguage(lang string) string {
+	lang = strings.ToLower(strings.TrimSpace(lang))
+	
+	languageMap := map[string]string{
+		"en":  "English",
+		"eng": "English",
+		"es":  "Spanish",
+		"spa": "Spanish",
+		"fr":  "French",
+		"fre": "French",
+		"de":  "German",
+		"ger": "German",
+		"it":  "Italian",
+		"ita": "Italian",
+		"pt":  "Portuguese",
+		"por": "Portuguese",
+		"ru":  "Russian",
+		"rus": "Russian",
+		"ja":  "Japanese",
+		"jpn": "Japanese",
+		"ko":  "Korean",
+		"kor": "Korean",
+		"zh":  "Chinese",
+		"chi": "Chinese",
+		"ar":  "Arabic",
+		"ara": "Arabic",
+		"nl":  "Dutch",
+		"dut": "Dutch",
+		"sv":  "Swedish",
+		"swe": "Swedish",
+		"no":  "Norwegian",
+		"nor": "Norwegian",
+		"da":  "Danish",
+		"dan": "Danish",
+		"fi":  "Finnish",
+		"fin": "Finnish",
+		"pl":  "Polish",
+		"pol": "Polish",
+		"cs":  "Czech",
+		"cze": "Czech",
+		"hu":  "Hungarian",
+		"hun": "Hungarian",
+		"tr":  "Turkish",
+		"tur": "Turkish",
+		"he":  "Hebrew",
+		"heb": "Hebrew",
+		"hi":  "Hindi",
+		"hin": "Hindi",
+		"th":  "Thai",
+		"tha": "Thai",
+		"vi":  "Vietnamese",
+		"vie": "Vietnamese",
+	}
+	
+	if fullName, exists := languageMap[lang]; exists {
+		return fullName
+	}
+	
+	// If not found, capitalize first letter
+	if len(lang) > 0 {
+		return strings.ToUpper(lang[:1]) + lang[1:]
+	}
+	
+	return "Unknown"
 }
 
 // MediaSearchResult contains information about how media was found and what needs updating
