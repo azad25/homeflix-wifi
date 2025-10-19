@@ -1319,7 +1319,7 @@ export default function MoviePage() {
 
       {/* Recommendations */}
       {/* Enhanced Recommendations Section */}
-      <div className="py-16 bg-black">
+      <div className="py-8 bg-black">
         <div className="container mx-auto px-6 md:px-12 lg:px-16">
           <RecommendationSection
             currentMedia={media}

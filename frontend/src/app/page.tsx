@@ -8,7 +8,7 @@ import VideoPlayer from '@/components/VideoPlayer';
 import RedLoader from '@/components/RedLoader';
 import { getApiUrl, fetchUniqueRecommendations, preloadAssets } from '@/lib/api';
 import { Media } from '@/types/media';
-import { ScrollXHero, NetflixHorizontalRow } from '@/components/scrollx';
+import { ScrollXHero, EnhancedHorizontalRow } from '@/components/scrollx';
 import RecentlyWatched from '@/components/RecentlyWatched';
 import ContinueWatching from '@/components/ContinueWatching';
 
@@ -30,22 +30,22 @@ export default function Home() {
 
   useEffect(() => {
     fetchInitialData();
-    
+
     // Set up auto-refresh every 5 minutes for recommendations
     const interval = setInterval(() => {
       fetchInitialData();
     }, 5 * 60 * 1000); // 5 minutes in milliseconds
-    
+
     return () => clearInterval(interval);
   }, []);
 
   const fetchInitialData = async () => {
     try {
       const { getApiUrl, API_ENDPOINTS, apiCall } = await import('../lib/api');
-      
+
       // Fetch all media
       const allMedia = await apiCall(API_ENDPOINTS.media);
-      
+
       // Get unique MOVIE recommendations for hero section (HOME page shows movies only)
       let highQualityMedia: Media[] = [];
       try {
@@ -61,7 +61,7 @@ export default function Home() {
           .filter((item: Media) => item.type === 'movie' && (item.rating || 0) >= 6.0)
           .slice(0, 10);
       }
-      
+
       // If not enough movie recommendations, fallback to all movies
       if (highQualityMedia.length < 5) {
         highQualityMedia = allMedia
@@ -69,84 +69,84 @@ export default function Home() {
           .sort((a: Media, b: Media) => (b.rating || 0) - (a.rating || 0))
           .slice(0, 10);
       }
-      
+
       // Filter for movies only and prioritize higher rated content
       const movieRecommendations = highQualityMedia.filter((item: Media) => item.type === 'movie');
       const featuredSelection = movieRecommendations
         .sort((a: Media, b: Media) => (b.rating || 0) - (a.rating || 0))
         .slice(0, 5);
-      
+
       // Fallback to movies from allMedia if not enough recommendations
       const fallbackMovies = allMedia.filter((item: Media) => item.type === 'movie').slice(0, 5);
       setFeaturedMedia(featuredSelection.length > 0 ? featuredSelection : fallbackMovies);
-      
+
       // Recent movies (latest by ID)
       const recentMovies = allMedia
         .filter((item: Media) => item.type === "movie")
         .sort((a: Media, b: Media) => b.id - a.id)
         .slice(0, 20);
       setRecentMovies(recentMovies);
-      
+
       // Popular movies (most viewed)
       const popularMovies = allMedia
         .filter((item: Media) => item.type === "movie")
         .sort((a: Media, b: Media) => (b.view_count || 0) - (a.view_count || 0))
         .slice(0, 20);
       setPopularMovies(popularMovies);
-      
+
       // Popular series (most viewed TV shows)
       const popularSeries = allMedia
         .filter((item: Media) => item.type === "episode")
         .sort((a: Media, b: Media) => (b.view_count || 0) - (a.view_count || 0))
         .slice(0, 20);
       setPopularSeries(popularSeries);
-      
+
       // Trending now (highest rated recent content)
       const trendingNow = allMedia
         .sort((a: Media, b: Media) => (b.rating || 0) - (a.rating || 0))
         .slice(0, 20);
       setTrendingNow(trendingNow);
-      
+
       // Genre-based collections
       const actionMovies = allMedia
-        .filter((item: Media) => 
-          item.type === "movie" && 
+        .filter((item: Media) =>
+          item.type === "movie" &&
           (item.genres || []).some(genre => genre.name.toLowerCase().includes('action'))
         )
         .sort((a: Media, b: Media) => (b.rating || 0) - (a.rating || 0))
         .slice(0, 20);
       setActionMovies(actionMovies);
-      
+
       const comedyMovies = allMedia
-        .filter((item: Media) => 
-          item.type === "movie" && 
+        .filter((item: Media) =>
+          item.type === "movie" &&
           (item.genres || []).some(genre => genre.name.toLowerCase().includes('comedy'))
         )
         .sort((a: Media, b: Media) => (b.rating || 0) - (a.rating || 0))
         .slice(0, 20);
       setComedyMovies(comedyMovies);
-      
+
       const dramaMovies = allMedia
-        .filter((item: Media) => 
-          item.type === "movie" && 
+        .filter((item: Media) =>
+          item.type === "movie" &&
           (item.genres || []).some(genre => genre.name.toLowerCase().includes('drama'))
         )
         .sort((a: Media, b: Media) => (b.rating || 0) - (a.rating || 0))
         .slice(0, 20);
       setDramaMovies(dramaMovies);
-      
+
       const horrorMovies = allMedia
-        .filter((item: Media) => 
-          item.type === "movie" && 
-          (item.genres || []).some(genre => 
-            genre.name.toLowerCase().includes('horror') || 
+        .filter((item: Media) =>
+          item.type === "movie" &&
+          (item.genres || []).some(genre =>
+            genre.name.toLowerCase().includes('horror') ||
             genre.name.toLowerCase().includes('thriller')
           )
         )
         .sort((a: Media, b: Media) => (b.rating || 0) - (a.rating || 0))
         .slice(0, 20);
       setHorrorMovies(horrorMovies);
-      
+
       // Preload assets for better performance
       const allContentForPreload = [
         ...featuredSelection,
@@ -154,11 +154,11 @@ export default function Home() {
         ...popularMovies.slice(0, 10),
         ...trendingNow.slice(0, 10)
       ];
-      
+
       if (allContentForPreload.length > 0) {
         preloadAssets(allContentForPreload, ['thumbnail', 'preview']);
       }
-      
+
       setLoading(false);
     } catch (error) {
       console.error("Error fetching data:", error);
@@ -278,7 +278,7 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-black">
       <Navbar onSearch={handleSearch} />
-      
+
       {/* ScrollX Hero Section */}
       {featuredMedia.length > 0 && (
         <ScrollXHero
@@ -292,28 +292,21 @@ export default function Home() {
       )}
 
       {/* Main Content - Netflix Style */}
-      <div className="relative bg-black" style={{ overflow: 'visible' }}>
+      <div className="relative bg-black" style={{ overflow: 'visible', zIndex: 10 }}>
         {searchResults.length > 0 ? (
           <div className="py-12" style={{ overflow: 'visible' }}>
-            <NetflixHorizontalRow
+            <EnhancedHorizontalRow
               title="Search Results"
               media={searchResults}
               onPlay={handlePlay}
               onInfo={handleInfo}
               priority={true}
-              variant="portrait"
               size="medium"
             />
           </div>
         ) : (
-          <div className="space-y-4 pb-32" style={{ overflow: 'visible' }}>
+          <div className="space-y-2 pb-32" style={{ overflow: 'visible', transformStyle: 'preserve-3d' }}>
             {/* Continue Watching */}
-            <ContinueWatching
-              onPlay={handlePlay}
-              onInfo={handleInfo}
-            />
-
-            {/* Recently Watched */}
             <RecentlyWatched
               onPlay={handlePlay}
               onInfo={handleInfo}
@@ -321,12 +314,11 @@ export default function Home() {
 
             {/* Trending Now */}
             {trendingNow.length > 0 && (
-              <NetflixHorizontalRow
+              <EnhancedHorizontalRow
                 title="Trending Now"
                 media={trendingNow}
                 onPlay={handlePlay}
                 onInfo={handleInfo}
-                variant="portrait"
                 size="large"
                 priority={true}
               />
@@ -334,84 +326,77 @@ export default function Home() {
 
             {/* Popular Movies */}
             {popularMovies.length > 0 && (
-              <NetflixHorizontalRow
+              <EnhancedHorizontalRow
                 title="Popular Movies"
                 media={popularMovies}
                 onPlay={handlePlay}
                 onInfo={handleInfo}
-                variant="portrait"
                 size="medium"
               />
             )}
 
             {/* Popular TV Shows */}
             {popularSeries.length > 0 && (
-              <NetflixHorizontalRow
+              <EnhancedHorizontalRow
                 title="Popular TV Shows"
                 media={popularSeries}
                 onPlay={handlePlay}
                 onInfo={handleInfo}
-                variant="portrait"
                 size="medium"
               />
             )}
 
             {/* Action Movies */}
             {actionMovies.length > 0 && (
-              <NetflixHorizontalRow
+              <EnhancedHorizontalRow
                 title="Action & Adventure"
                 media={actionMovies}
                 onPlay={handlePlay}
                 onInfo={handleInfo}
-                variant="portrait"
                 size="medium"
               />
             )}
 
             {/* Comedy Movies */}
             {comedyMovies.length > 0 && (
-              <NetflixHorizontalRow
+              <EnhancedHorizontalRow
                 title="Comedy Movies"
                 media={comedyMovies}
                 onPlay={handlePlay}
                 onInfo={handleInfo}
-                variant="portrait"
                 size="medium"
               />
             )}
 
             {/* Drama Movies */}
             {dramaMovies.length > 0 && (
-              <NetflixHorizontalRow
+              <EnhancedHorizontalRow
                 title="Drama Movies"
                 media={dramaMovies}
                 onPlay={handlePlay}
                 onInfo={handleInfo}
-                variant="portrait"
                 size="medium"
               />
             )}
 
             {/* Horror & Thriller */}
             {horrorMovies.length > 0 && (
-              <NetflixHorizontalRow
+              <EnhancedHorizontalRow
                 title="Horror & Thriller"
                 media={horrorMovies}
                 onPlay={handlePlay}
                 onInfo={handleInfo}
-                variant="portrait"
                 size="medium"
               />
             )}
 
             {/* Recently Added */}
             {recentMovies.length > 0 && (
-              <NetflixHorizontalRow
+              <EnhancedHorizontalRow
                 title="Recently Added"
                 media={recentMovies}
                 onPlay={handlePlay}
                 onInfo={handleInfo}
-                variant="portrait"
                 size="medium"
               />
             )}

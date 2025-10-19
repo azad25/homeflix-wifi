@@ -8,7 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamService *services.OptimizedStreamService, thumbnailService *services.ThumbnailService, userService *services.UserService, recommendationService *services.RecommendationService, playbackService *services.PlaybackService, geminiService *services.GeminiService, celeryService *services.CeleryService, alacService *services.ALACAudioService, tmdbService *services.TMDBService, mediaScanner *scanner.MediaScanner, watcherService *services.WatcherService, redisCache *services.RedisAssetCache, transcodeService *services.TranscodeService) {
+func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamService *services.OptimizedStreamService, thumbnailService *services.ThumbnailService, userService *services.UserService, recommendationService *services.RecommendationService, playbackService *services.PlaybackService, geminiService *services.GeminiService, celeryService *services.CeleryService, alacService *services.ALACAudioService, tmdbService *services.TMDBService, mediaScanner *scanner.MediaScanner, watcherService *services.WatcherService, redisCache *services.RedisAssetCache, transcodeService *services.TranscodeService, newsService *services.NewsService) {
 	api := r.Group("/api")
 	{
 		// Media routes
@@ -37,6 +37,7 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		celeryHandlers := handlers.NewCeleryHandlers(celeryService)
 		scannerHandlers := handlers.NewScannerHandlers(mediaScanner)
 		watcherHandler := NewWatcherHandler(watcherService)
+		newsHandlers := handlers.NewNewsHandlers(newsService)
 
 		// Initialize Redis asset handlers if Redis cache is available
 		var redisAssetHandlers *handlers.RedisAssetHandlers
@@ -243,5 +244,11 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 
 		// Now Playing TV Channel endpoints
 		api.GET("/now-playing/previews", handlers.GetNowPlayingPreviews())
+
+		// News endpoints for TV channel
+		api.GET("/news/latest", newsHandlers.GetLatestNews())
+		api.GET("/news/breaking", newsHandlers.GetBreakingNews())
+		api.GET("/news/ticker", newsHandlers.GetNewsForTicker())
+		api.GET("/news/health", newsHandlers.GetNewsHealth())
 	}
 }

@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Play, Pause, Volume2, VolumeX, Maximize, Minimize, Tv } from "lucide-react";
 import { getApiUrl } from "@/lib/api";
 import { useNavigate } from "@/hooks/useNavigate";
+import BreakingNewsTicker from "./BreakingNewsTicker";
 
 interface PreviewVideo {
   id: string;
@@ -18,6 +19,18 @@ interface NowPlayingResponse {
   total: number;
   page: number;
   limit: number;
+}
+
+interface NewsItem {
+  id: string;
+  text: string;
+  source: string;
+  time: string;
+}
+
+interface NewsResponse {
+  items: NewsItem[];
+  total: number;
 }
 
 const NowPlayingChannel: React.FC = () => {
@@ -34,14 +47,47 @@ const NowPlayingChannel: React.FC = () => {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [nextVideo, setNextVideo] = useState<PreviewVideo | null>(null);
   const [failedVideos, setFailedVideos] = useState<Set<string>>(new Set());
+  const [newsItems, setNewsItems] = useState<NewsItem[]>([]);
+  const [currentTime, setCurrentTime] = useState<string>("");
   const videoRef = useRef<HTMLVideoElement>(null);
   const nextVideoRef = useRef<HTMLVideoElement>(null);
   const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const videoErrorTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const healthCheckIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const newsIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const clockIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const VIDEOS_PER_BATCH = 5;
+
+  // Fetch news for ticker
+  const fetchNews = useCallback(async () => {
+    try {
+      const apiUrl = getApiUrl();
+      console.log("Fetching news from:", `${apiUrl}/api/news/ticker`);
+      const response = await fetch(`${apiUrl}/api/news/ticker`);
+      
+      if (response.ok) {
+        const data: NewsResponse = await response.json();
+        console.log("News data received:", data);
+        setNewsItems(data.items || []);
+      } else {
+        console.error("News API response not ok:", response.status);
+      }
+    } catch (err) {
+      console.error("Error fetching news:", err);
+    }
+  }, []);
+
+  // Update current time
+  const updateClock = useCallback(() => {
+    const now = new Date();
+    setCurrentTime(now.toLocaleTimeString('en-US', { 
+      hour12: false, 
+      hour: '2-digit', 
+      minute: '2-digit' 
+    }));
+  }, []);
 
   // Fetch videos from API
   const fetchVideos = useCallback(async (page: number, random: boolean = false) => {
@@ -208,6 +254,37 @@ const NowPlayingChannel: React.FC = () => {
     setIsFullscreen(isCurrentlyFullscreen);
   }, []);
 
+  // Handle keyboard events
+  const handleKeyDown = useCallback((event: KeyboardEvent) => {
+    switch (event.key.toLowerCase()) {
+      case 'f':
+        event.preventDefault();
+        toggleFullscreen();
+        break;
+      case 'escape':
+        if (isFullscreen) {
+          event.preventDefault();
+          toggleFullscreen();
+        }
+        break;
+      case ' ':
+      case 'spacebar':
+        event.preventDefault();
+        togglePlayPause();
+        break;
+      case 'm':
+        event.preventDefault();
+        toggleMute();
+        break;
+      case 'arrowright':
+        event.preventDefault();
+        skipToNextVideo();
+        break;
+      default:
+        break;
+    }
+  }, [isFullscreen, toggleFullscreen, togglePlayPause, toggleMute, skipToNextVideo]);
+
   // Get current video, skipping failed ones
   const getCurrentVideo = useCallback(() => {
     if (videos.length === 0) return null;
@@ -328,34 +405,101 @@ const NowPlayingChannel: React.FC = () => {
     };
   }, [handleFullscreenChange]);
 
-  // Health check system for 24/7 operation
+  // Setup keyboard event listeners
   useEffect(() => {
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [handleKeyDown]);
+
+  // Setup news fetching
+  useEffect(() => {
+    // Initial fetch
+    fetchNews();
+    
+    // Fetch news every 2 minutes
+    newsIntervalRef.current = setInterval(fetchNews, 2 * 60 * 1000);
+    
+    return () => {
+      if (newsIntervalRef.current) {
+        clearInterval(newsIntervalRef.current);
+      }
+    };
+  }, [fetchNews]);
+
+  // Setup clock updates
+  useEffect(() => {
+    // Initial update
+    updateClock();
+    
+    // Update every second
+    clockIntervalRef.current = setInterval(updateClock, 1000);
+    
+    return () => {
+      if (clockIntervalRef.current) {
+        clearInterval(clockIntervalRef.current);
+      }
+    };
+  }, [updateClock]);
+
+  // Enhanced health check system for 24/7 operation
+  useEffect(() => {
+    let lastCurrentTime = 0;
+    let stuckCount = 0;
+    
     const healthCheck = () => {
       const video = videoRef.current;
       if (!video || !currentVideo) return;
 
-      // Check if video is stuck or not progressing
-      const currentTime = video.currentTime;
-      const duration = video.duration;
+      try {
+        const currentTime = video.currentTime;
+        const duration = video.duration;
+        const readyState = video.readyState;
 
-      // If video is paused and not ended, try to resume
-      if (video.paused && !video.ended) {
-        console.log('Health check: Video paused, attempting to resume...');
-        video.play().catch(() => {
-          console.warn('Health check: Failed to resume, skipping...');
+        // Check if video is stuck at the same position
+        if (currentTime === lastCurrentTime && !video.paused && !video.ended) {
+          stuckCount++;
+          if (stuckCount >= 3) { // 30 seconds of being stuck
+            console.log('Health check: Video stuck, skipping...');
+            skipToNextVideo();
+            stuckCount = 0;
+            return;
+          }
+        } else {
+          stuckCount = 0;
+        }
+        lastCurrentTime = currentTime;
+
+        // If video is paused unexpectedly, try to resume
+        if (video.paused && !video.ended && isPlaying) {
+          console.log('Health check: Video paused unexpectedly, resuming...');
+          video.play().catch(() => {
+            console.warn('Health check: Failed to resume, skipping...');
+            skipToNextVideo();
+          });
+        }
+
+        // Check for network stalls
+        if (readyState < 3 && currentTime > 0) {
+          console.log('Health check: Network stall detected, may skip soon...');
+        }
+
+        // If video duration is very short or invalid, skip it
+        if (duration && duration < 3) {
+          console.log('Health check: Video too short, skipping...');
           skipToNextVideo();
-        });
-      }
+        }
 
-      // If video seems stuck at the same position for too long
-      if (currentTime > 0 && video.readyState === 4 && video.paused) {
-        console.log('Health check: Video appears stuck, restarting...');
-        skipToNextVideo();
-      }
+        // Memory cleanup - force garbage collection periodically
+        if (Math.random() < 0.1) { // 10% chance each check
+          if (window.gc) {
+            window.gc();
+          }
+        }
 
-      // If video duration is very short or invalid, skip it
-      if (duration && duration < 5) {
-        console.log('Health check: Video too short, skipping...');
+      } catch (error) {
+        console.error('Health check error:', error);
         skipToNextVideo();
       }
     };
@@ -368,7 +512,7 @@ const NowPlayingChannel: React.FC = () => {
         clearInterval(healthCheckIntervalRef.current);
       }
     };
-  }, [currentVideo, skipToNextVideo]);
+  }, [currentVideo, skipToNextVideo, isPlaying]);
 
   // Cleanup timeouts on unmount
   useEffect(() => {
@@ -381,6 +525,12 @@ const NowPlayingChannel: React.FC = () => {
       }
       if (healthCheckIntervalRef.current) {
         clearInterval(healthCheckIntervalRef.current);
+      }
+      if (newsIntervalRef.current) {
+        clearInterval(newsIntervalRef.current);
+      }
+      if (clockIntervalRef.current) {
+        clearInterval(clockIntervalRef.current);
       }
     };
   }, []);
@@ -436,6 +586,49 @@ const NowPlayingChannel: React.FC = () => {
     }
   }, [currentVideo, failedVideos, skipToNextVideo]);
 
+  // Memory management and error recovery
+  useEffect(() => {
+    const handleError = (event: ErrorEvent) => {
+      console.error('Global error caught:', event.error);
+      // Don't let errors crash the app
+      event.preventDefault();
+    };
+
+    const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
+      console.error('Unhandled promise rejection:', event.reason);
+      // Don't let promise rejections crash the app
+      event.preventDefault();
+    };
+
+    window.addEventListener('error', handleError);
+    window.addEventListener('unhandledrejection', handleUnhandledRejection);
+
+    return () => {
+      window.removeEventListener('error', handleError);
+      window.removeEventListener('unhandledrejection', handleUnhandledRejection);
+    };
+  }, []);
+
+  // Periodic memory cleanup
+  useEffect(() => {
+    const memoryCleanup = () => {
+      // Clear failed videos list if it gets too large
+      if (failedVideos.size > 50) {
+        console.log('Clearing failed videos list for memory management');
+        setFailedVideos(new Set());
+      }
+
+      // Force garbage collection if available
+      if (window.gc) {
+        window.gc();
+      }
+    };
+
+    const cleanupInterval = setInterval(memoryCleanup, 5 * 60 * 1000); // Every 5 minutes
+
+    return () => clearInterval(cleanupInterval);
+  }, [failedVideos.size]);
+
   if (isLoading && videos.length === 0) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
@@ -472,15 +665,15 @@ const NowPlayingChannel: React.FC = () => {
   return (
     <div
       ref={containerRef}
-      className={`relative w-full bg-black overflow-hidden ${isFullscreen ? 'h-screen' : 'max-w-6xl mx-auto rounded-lg shadow-2xl'
+      className={`relative w-full bg-black overflow-hidden ${isFullscreen ? 'h-screen' : 'h-screen'
         }`}
       onMouseMove={handleMouseMove}
       onTouchStart={() => resetControlsTimeout()}
       onMouseLeave={() => setShowControls(false)}
-      onClick={() => resetControlsTimeout()}
+      onClick={togglePlayPause}
     >
       {/* Video Player */}
-      <div className={`relative bg-black ${isFullscreen ? 'h-full' : 'aspect-video'}`}>
+      <div className="relative bg-black h-full">
         {currentVideo && (
           <video
             ref={videoRef}
@@ -524,9 +717,13 @@ const NowPlayingChannel: React.FC = () => {
         )}
 
         {/* HomeFlix TV Watermark - Always visible, clickable link to home */}
-        <div className="absolute top-3 right-3 lg:top-6 lg:right-6 z-50">
+        <div className="absolute top-3 right-3 lg:top-6 lg:right-6 z-40">
           <button
-            className="text-white hover:text-white text-lg lg:text-xl font-bold tracking-wider drop-shadow-lg transition-colors duration-200 cursor-pointer"
+            onClick={(e) => {
+              e.stopPropagation();
+              navigate.push("/");
+            }}
+            className="text-white hover:text-red-400 text-lg lg:text-xl font-bold tracking-wider drop-shadow-lg transition-colors duration-200 cursor-pointer"
           >
             HOMEFLIX
           </button>
@@ -545,7 +742,10 @@ const NowPlayingChannel: React.FC = () => {
               {/* Center Play Button */}
               <div className="absolute inset-0 flex items-center justify-center pointer-events-auto">
                 <button
-                  onClick={togglePlayPause}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    togglePlayPause();
+                  }}
                   className="bg-black bg-opacity-60 hover:bg-opacity-80 text-white p-4 lg:p-6 rounded-full transition-all duration-200 transform hover:scale-110 shadow-lg"
                 >
                   {isPlaying ? (
@@ -561,7 +761,10 @@ const NowPlayingChannel: React.FC = () => {
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2 lg:gap-4">
                     <button
-                      onClick={togglePlayPause}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        togglePlayPause();
+                      }}
                       className="bg-black bg-opacity-60 hover:bg-opacity-80 text-white p-2 lg:p-3 rounded-full transition-colors shadow-lg"
                     >
                       {isPlaying ? (
@@ -572,7 +775,10 @@ const NowPlayingChannel: React.FC = () => {
                     </button>
 
                     <button
-                      onClick={toggleMute}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleMute();
+                      }}
                       className="bg-black bg-opacity-60 hover:bg-opacity-80 text-white p-2 lg:p-3 rounded-full transition-colors shadow-lg"
                     >
                       {isMuted ? (
@@ -583,14 +789,14 @@ const NowPlayingChannel: React.FC = () => {
                     </button>
 
                     <button
-                      onClick={toggleFullscreen}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        skipToNextVideo();
+                      }}
                       className="bg-black bg-opacity-60 hover:bg-opacity-80 text-white p-2 lg:p-3 rounded-full transition-colors shadow-lg"
+                      title="Next Video (→)"
                     >
-                      {isFullscreen ? (
-                        <Minimize className="w-5 h-5 lg:w-6 lg:h-6" />
-                      ) : (
-                        <Maximize className="w-5 h-5 lg:w-6 lg:h-6" />
-                      )}
+                      <span className="text-xs lg:text-sm font-bold">NEXT</span>
                     </button>
                   </div>
 
@@ -605,10 +811,17 @@ const NowPlayingChannel: React.FC = () => {
             </motion.div>
           )}
         </AnimatePresence>
+
+        {/* Breaking News Ticker - Always visible overlay */}
+        <BreakingNewsTicker 
+          newsItems={newsItems}
+          currentTime={currentTime}
+          isFullscreen={true}
+        />
       </div>
 
       {/* Channel Info - Only show when not fullscreen, mobile-responsive */}
-      {!isFullscreen && (
+      {false && (
         <div className="bg-gray-900 p-3 lg:p-4">
           <div className="flex items-center justify-between">
             <div className="flex-1 min-w-0">

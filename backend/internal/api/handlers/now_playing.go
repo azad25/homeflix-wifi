@@ -48,8 +48,6 @@ func GetNowPlayingPreviews() gin.HandlerFunc {
 			limit = 5
 		}
 
-		isRandom := randomStr == "true"
-
 		// Seed random number generator
 		rand.Seed(time.Now().UnixNano())
 
@@ -71,15 +69,15 @@ func GetNowPlayingPreviews() gin.HandlerFunc {
 			}
 		}
 
-		// Sort files for consistent ordering, or shuffle if random requested
-		if isRandom {
-			// Shuffle the files for random playback
-			for i := len(videoFiles) - 1; i > 0; i-- {
-				j := rand.Intn(i + 1)
-				videoFiles[i], videoFiles[j] = videoFiles[j], videoFiles[i]
-			}
-		} else {
+		// Default behavior is random for TV channel experience
+		// Only sort alphabetically if explicitly requested with random=false
+		if randomStr == "false" {
 			sort.Strings(videoFiles)
+		} else {
+			// Shuffle the files for random playback (default behavior)
+			rand.Shuffle(len(videoFiles), func(i, j int) {
+				videoFiles[i], videoFiles[j] = videoFiles[j], videoFiles[i]
+			})
 		}
 
 		// Calculate pagination

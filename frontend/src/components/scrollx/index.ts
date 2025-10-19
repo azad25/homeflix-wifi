@@ -10,3 +10,5 @@ export { ParticleField, FloatingElement } from './FloatingElements';
 export { default as FolderTree } from './FolderTree';
 export { default as NetflixMovieCard } from './NetflixMovieCard';
 export { default as NetflixHorizontalRow } from './NetflixHorizontalRow';
+export { default as EnhancedMovieCard } from './EnhancedMovieCard';
+export { default as EnhancedHorizontalRow } from './EnhancedHorizontalRow';

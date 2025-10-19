@@ -8,7 +8,7 @@ import { Media } from '../../types/media';
 import VideoPlayer from "@/components/VideoPlayer";
 import RedLoader from '@/components/RedLoader';
 import { getApiUrl, fetchUniqueRecommendations, preloadAssets } from '@/lib/api';
-import { ScrollXHero, NetflixHorizontalRow, ParallaxSection, GradientBackground, ScrollReveal } from '@/components/scrollx';
+import { ScrollXHero, EnhancedHorizontalRow, ParallaxSection, GradientBackground, ScrollReveal } from '@/components/scrollx';
 import RecentlyWatched from '@/components/RecentlyWatched';
 
 export default function MoviesPage() {
@@ -179,10 +179,10 @@ export default function MoviesPage() {
       )}
 
       {/* Main Content with Parallax Background */}
-      <div className="relative bg-gradient-to-b from-red-900/20 via-black to-black" style={{ overflow: 'visible' }}>
-        <div className="relative z-10 py-12" style={{ overflow: 'visible' }}>
+      <div className="relative bg-gradient-to-b from-red-900/20 via-black to-black" style={{ overflow: 'visible', zIndex: 10 }}>
+        <div className="relative z-10 py-8" style={{ overflow: 'visible', transformStyle: 'preserve-3d' }}>
           {/* Recently Watched Movies */}
-          <div className="mb-8">
+          <div className="mb-4">
             <RecentlyWatched
               onPlay={handlePlay}
               onInfo={handleInfo}
@@ -192,12 +192,11 @@ export default function MoviesPage() {
           {/* Popular Movies */}
           <ParallaxSection speed={0.4}>
             <ScrollReveal direction="up" delay={0.4}>
-              <NetflixHorizontalRow
+              <EnhancedHorizontalRow
                 title="Popular Movies"
                 media={popularMovies}
                 onPlay={handlePlay}
                 onInfo={handleInfo}
-                variant="portrait"
                 size="medium"
               />
             </ScrollReveal>
@@ -206,12 +205,11 @@ export default function MoviesPage() {
           {/* Recent Movies */}
           <ParallaxSection speed={0.5}>
             <ScrollReveal direction="up" delay={0.6}>
-              <NetflixHorizontalRow
+              <EnhancedHorizontalRow
                 title="Recently Added"
                 media={recentMovies}
                 onPlay={handlePlay}
                 onInfo={handleInfo}
-                variant="portrait"
                 size="medium"
               />
             </ScrollReveal>
@@ -221,12 +219,11 @@ export default function MoviesPage() {
           {actionMovies.length > 0 && (
             <ParallaxSection speed={0.6}>
               <ScrollReveal direction="up" delay={0.8}>
-                <NetflixHorizontalRow
+                <EnhancedHorizontalRow
                   title="Action & Adventure"
                   media={actionMovies}
                   onPlay={handlePlay}
                   onInfo={handleInfo}
-                  variant="portrait"
                   size="medium"
                 />
               </ScrollReveal>
@@ -237,12 +234,11 @@ export default function MoviesPage() {
           {comedyMovies.length > 0 && (
             <ParallaxSection speed={0.7}>
               <ScrollReveal direction="up" delay={1.0}>
-                <NetflixHorizontalRow
+                <EnhancedHorizontalRow
                   title="Comedy Movies"
                   media={comedyMovies}
                   onPlay={handlePlay}
                   onInfo={handleInfo}
-                  variant="portrait"
                   size="medium"
                 />
               </ScrollReveal>
@@ -253,12 +249,11 @@ export default function MoviesPage() {
           {dramaMovies.length > 0 && (
             <ParallaxSection speed={0.8}>
               <ScrollReveal direction="up" delay={1.2}>
-                <NetflixHorizontalRow
+                <EnhancedHorizontalRow
                   title="Drama Movies"
                   media={dramaMovies}
                   onPlay={handlePlay}
                   onInfo={handleInfo}
-                  variant="portrait"
                   size="medium"
                 />
               </ScrollReveal>
@@ -269,12 +264,11 @@ export default function MoviesPage() {
           {sciFiMovies.length > 0 && (
             <ParallaxSection speed={0.9}>
               <ScrollReveal direction="up" delay={1.4}>
-                <NetflixHorizontalRow
+                <EnhancedHorizontalRow
                   title="Sci-Fi & Fantasy"
                   media={sciFiMovies}
                   onPlay={handlePlay}
                   onInfo={handleInfo}
-                  variant="portrait"
                   size="medium"
                 />
               </ScrollReveal>
@@ -285,12 +279,11 @@ export default function MoviesPage() {
           {horrorMovies.length > 0 && (
             <ParallaxSection speed={1.0}>
               <ScrollReveal direction="up" delay={1.6}>
-                <NetflixHorizontalRow
+                <EnhancedHorizontalRow
                   title="Horror & Thriller"
                   media={horrorMovies}
                   onPlay={handlePlay}
                   onInfo={handleInfo}
-                  variant="portrait"
                   size="medium"
                 />
               </ScrollReveal>

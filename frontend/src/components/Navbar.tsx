@@ -79,6 +79,7 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
                   <NavigationLink
                     key={item.name}
                     href={item.href}
+                    target={item.href == "/now-playing" ? "_blank" : ""}
                     className={`transition-colors text-sm font-medium ${
                       isActive 
                         ? "text-red-500" 

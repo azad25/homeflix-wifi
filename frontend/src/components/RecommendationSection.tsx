@@ -476,9 +476,10 @@ const RecommendationSection: React.FC<RecommendationSectionProps> = ({
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.3, delay: index * 0.1 }}
+          whileHover={{ scale: 1.05, y: -5 }}
         >
           {/* Main Card */}
-          <div className="relative w-full aspect-video bg-gray-900 rounded-lg overflow-hidden shadow-lg">
+          <div className="relative w-full aspect-[2/3] bg-gray-900 rounded-lg overflow-hidden shadow-lg">
             {/* Thumbnail Image with Fallback */}
             <div className="relative w-full h-full">
               <Image
@@ -528,8 +529,15 @@ const RecommendationSection: React.FC<RecommendationSectionProps> = ({
                 </div>
               )}
 
-              {/* Gradient overlay */}
-              <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
+              {/* Quality Badge - Top Right */}
+              <div className="absolute top-3 right-3 z-10">
+                <span className="bg-blue-600 text-white text-xs px-2 py-1 rounded-md font-bold shadow-lg">
+                  HD
+                </span>
+              </div>
+
+              {/* Gradient overlay for text */}
+              <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent" />
 
               {/* Play button overlay */}
               <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300">
@@ -538,169 +546,62 @@ const RecommendationSection: React.FC<RecommendationSectionProps> = ({
                     e.stopPropagation();
                     onPlay(media);
                   }}
-                  className="bg-white/20 backdrop-blur-sm rounded-full p-4 hover:bg-white/30 transition-colors"
+                  className="bg-white/90 backdrop-blur-sm rounded-full p-4 hover:bg-white transition-colors"
                   whileHover={{ scale: 1.1 }}
                   whileTap={{ scale: 0.95 }}
                 >
-                  <Play className="w-8 h-8 text-white fill-white" />
+                  <Play className="w-6 h-6 text-black fill-black" />
                 </motion.button>
               </div>
 
-              {/* Title overlay */}
-              <div className="absolute bottom-0 left-0 right-0 p-4">
-                <h3 className="text-white font-semibold text-sm line-clamp-2 mb-1">
+              {/* Content Overlay - Bottom */}
+              <div className="absolute bottom-0 left-0 right-0 p-4 z-10">
+                {/* Title */}
+                <h3 className="text-white font-bold text-sm line-clamp-2 mb-2 drop-shadow-lg">
                   {media.title}
                 </h3>
-                <div className="flex items-center gap-2 text-xs text-white/80">
+
+                {/* Year and Rating Row */}
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-gray-300 text-sm font-medium drop-shadow">
+                    {new Date().getFullYear()}
+                  </span>
                   {media.rating && (
-                    <div className="flex items-center gap-1">
-                      <Star className="w-3 h-3 fill-yellow-400 text-yellow-400" />
-                      <span>{media.rating}</span>
-                    </div>
-                  )}
-                  {media.duration && (
-                    <div className="flex items-center gap-1">
-                      <Clock className="w-3 h-3" />
-                      <span>{formatRuntime(Math.floor(media.duration / 60))}</span>
+                    <div className="flex items-center gap-1 bg-black/50 px-2 py-1 rounded-md">
+                      <Star className="w-3 h-3 text-yellow-400 fill-current" />
+                      <span className="text-white text-sm font-medium">{media.rating.toFixed(1)}</span>
                     </div>
                   )}
                 </div>
+
+                {/* Genres Row */}
+                {media.genres && media.genres.length > 0 && (
+                  <div className="flex flex-wrap gap-1">
+                    {media.genres.slice(0, 2).map((genre, index) => (
+                      <span
+                        key={genre.id || index}
+                        className="text-xs text-white bg-red-600/80 px-2 py-1 rounded-md font-medium backdrop-blur-sm"
+                      >
+                        {genre.name}
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                {/* Duration */}
+                {media.duration && (
+                  <div className="flex items-center gap-1 mt-2 text-gray-300 text-xs">
+                    <Clock className="w-3 h-3" />
+                    <span>{formatRuntime(Math.floor(media.duration / 60))}</span>
+                  </div>
+                )}
               </div>
             </div>
           </div>
 
         </motion.div>
 
-        {/* Netflix-style Expanded Card - Rendered as Portal */}
-        {isHovered && typeof document !== 'undefined' && createPortal(
-          <AnimatePresence>
-            <motion.div
-              className="fixed bg-gray-900 rounded-lg shadow-2xl border border-gray-700 pointer-events-auto"
-              style={{
-                zIndex: 9999,
-                top: cardPosition.top - 20,
-                left: Math.max(20, Math.min(cardPosition.left - 40, window.innerWidth - 400)),
-                width: Math.max(cardPosition.width * 1.3, 350),
-                maxWidth: '400px'
-              }}
-              initial={{ opacity: 0, scale: 0.8, y: -20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.8, y: -20 }}
-              transition={{ duration: 0.2 }}
-            >
-              {/* Expanded thumbnail with video */}
-              <div className="relative w-full aspect-video rounded-t-lg overflow-hidden">
-                {/* Background Image */}
-                <Image
-                  src={getImageUrl(media)}
-                  alt={media.title}
-                  fill
-                  className={`object-cover transition-opacity duration-300 ${showVideo && videoLoaded ? 'opacity-0' : 'opacity-100'
-                    }`}
-                  onError={() => {
-                    // Handle image error gracefully
-                    const img = document.querySelector(`img[alt="${media.title}"]`) as HTMLImageElement;
-                    if (img) {
-                      img.style.display = 'none';
-                    }
-                  }}
-                  sizes="400px"
-                />
 
-                {/* Preview Video in expanded view */}
-                {showVideo && videoRef.current && (
-                  <video
-                    className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-500 ${videoLoaded ? 'opacity-100' : 'opacity-0'
-                      }`}
-                    autoPlay
-                    muted
-                    loop
-                    playsInline
-                  >
-                    <source src={`${getPreviewVideoUrl(media)}?quality=preview`} type="video/mp4" />
-                    <source src={getPreviewVideoUrl(media)} type="video/mp4" />
-                  </video>
-                )}
-
-                <div className="absolute inset-0 bg-gradient-to-t from-gray-900 via-transparent to-transparent" />
-              </div>
-
-              {/* Expanded content */}
-              <div className="p-4">
-                {/* Action buttons */}
-                <div className="flex items-center gap-2 mb-3">
-                  <motion.button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onPlay(media);
-                    }}
-                    className="bg-white text-black rounded-full p-2 hover:bg-gray-200 transition-colors"
-                    whileHover={{ scale: 1.1 }}
-                    whileTap={{ scale: 0.95 }}
-                  >
-                    <Play className="w-4 h-4 fill-black" />
-                  </motion.button>
-
-                  <motion.button
-                    className="bg-gray-700 text-white rounded-full p-2 hover:bg-gray-600 transition-colors"
-                    whileHover={{ scale: 1.1 }}
-                    whileTap={{ scale: 0.95 }}
-                  >
-                    <Plus className="w-4 h-4" />
-                  </motion.button>
-
-                  <motion.button
-                    className="bg-gray-700 text-white rounded-full p-2 hover:bg-gray-600 transition-colors"
-                    whileHover={{ scale: 1.1 }}
-                    whileTap={{ scale: 0.95 }}
-                  >
-                    <ThumbsUp className="w-4 h-4" />
-                  </motion.button>
-
-                  <motion.button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleRecommendationClick();
-                    }}
-                    className="bg-gray-700 text-white rounded-full p-2 hover:bg-gray-600 transition-colors ml-auto"
-                    whileHover={{ scale: 1.1 }}
-                    whileTap={{ scale: 0.95 }}
-                  >
-                    <ChevronDown className="w-4 h-4" />
-                  </motion.button>
-                </div>
-
-                {/* Metadata */}
-                <div className="flex items-center gap-2 text-xs text-green-400 mb-2">
-                  <span className="font-semibold">
-                    {Math.round((media.rating || 0) * 10)}% Match
-                  </span>
-                  <span className="text-white/60">
-                    {new Date().getFullYear()}
-                  </span>
-                  {media.duration && (
-                    <span className="text-white/60">
-                      {formatRuntime(Math.floor(media.duration / 60))}
-                    </span>
-                  )}
-                </div>
-
-                {/* Genres */}
-                {media.genres && media.genres.length > 0 && (
-                  <div className="flex flex-wrap gap-1 text-xs text-white/80">
-                    {media.genres.slice(0, 3).map((genre, idx) => (
-                      <span key={genre.id}>
-                        {genre.name}
-                        {idx < Math.min(media.genres!.length - 1, 2) && ' • '}
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </motion.div>
-          </AnimatePresence>,
-          document.body
-        )}
       </>
     );
   };
@@ -745,8 +646,8 @@ const RecommendationSection: React.FC<RecommendationSectionProps> = ({
     if (media.length === 0) return null;
 
     return (
-      <div className="relative group mb-12">
-        <h2 className="text-white text-xl font-semibold mb-4 px-4 md:px-0">
+      <div className="relative group mb-8">
+        <h2 className="text-white text-xl font-semibold mb-3 px-4 md:px-0">
           {title}
         </h2>
 
@@ -778,14 +679,14 @@ const RecommendationSection: React.FC<RecommendationSectionProps> = ({
           {/* Scrollable container */}
           <div
             ref={scrollRef}
-            className="flex gap-2 overflow-x-auto pb-4 px-4 md:px-0 netflix-scroll"
+            className="flex gap-4 overflow-x-auto pb-4 px-4 md:px-0 netflix-scroll"
             style={{
               scrollbarWidth: 'none',
               msOverflowStyle: 'none'
             }}
           >
             {media.map((item, index) => (
-              <div key={item.id} className="flex-none w-64 md:w-80">
+              <div key={item.id} className="flex-none w-56 md:w-64">
                 <NetflixCard media={item} index={index} />
               </div>
             ))}

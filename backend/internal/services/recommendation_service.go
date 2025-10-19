@@ -29,10 +29,10 @@ func (s *RecommendationService) GetDefaultRecommendations(limit int) ([]models.M
 	var media []models.Media
 	
 	// CRITICAL: Filter out episodes, only show main series and movies
-	// Get popular and highly rated media as default recommendations
+	// Get diverse mix of content - not just high-rated content
 	err := s.db.Preload("Genres").
-		Where("(rating > ? OR view_count > ?) AND type != ?", 7.0, 10, "episode").
-		Order("rating DESC, view_count DESC, created_at DESC").
+		Where("type != ?", "episode").
+		Order("created_at DESC, view_count DESC, rating DESC").
 		Limit(limit).
 		Find(&media).Error
 	
@@ -164,12 +164,12 @@ func (s *RecommendationService) GetTrendingRecommendations(limit int) ([]models.
 
 // GetSimilarMedia finds media similar to what user has watched
 func (s *RecommendationService) GetSimilarMedia(userID uint, limit int) ([]models.Media, error) {
-	// Get user's highly rated media
+	// Get user's rated media (all ratings, not just high ones)
 	var userRatings []models.UserRating
 	s.db.Preload("Media").Preload("Media.Genres").
-		Where("user_id = ? AND rating >= 7", userID).
+		Where("user_id = ? AND rating >= 5", userID).
 		Order("rating DESC").
-		Limit(5).
+		Limit(10).
 		Find(&userRatings)
 
 	if len(userRatings) == 0 {
@@ -249,25 +249,32 @@ func (s *RecommendationService) calculateRecommendationScore(media models.Media,
 	timeVariation := float32((hourOfDay + dayOfWeek*24) % 100) * 0.01
 	score += timeVariation
 
-	// Recency boost with graduated scoring
+	// Recency boost with graduated scoring (prioritize new content over ratings)
 	daysSinceAdded := int(now.Sub(media.CreatedAt).Hours() / 24)
 	if daysSinceAdded <= 7 {
-		score += 3 // New content gets highest boost
+		score += 5 // New content gets highest boost
 	} else if daysSinceAdded <= 30 {
-		score += 2 // Recent content gets medium boost
+		score += 3 // Recent content gets medium boost
 	} else if daysSinceAdded <= 90 {
-		score += 1 // Somewhat recent content gets small boost
+		score += 2 // Somewhat recent content gets small boost
 	}
 
-	// Rating boost with exponential scaling
-	if media.Rating > 6 {
-		ratingBoost := float32(media.Rating - 6) * float32(media.Rating - 6) * 0.5
+	// Balanced rating boost - don't over-prioritize high ratings
+	if media.Rating > 5 {
+		// Linear scaling instead of exponential to reduce high-rating bias
+		ratingBoost := float32(media.Rating - 5) * 0.3
 		score += ratingBoost
 	}
 
-	// Diversity boost - slightly favor less popular content to avoid echo chamber
-	if media.ViewCount < 50 && media.Rating > 7 {
-		score += 1.5 // Hidden gems boost
+	// Diversity boost - favor content across all rating ranges
+	if media.ViewCount < 50 {
+		if media.Rating > 6.5 {
+			score += 1.5 // Hidden gems boost
+		} else if media.Rating > 5.5 {
+			score += 1.0 // Decent underrated content
+		} else {
+			score += 0.5 // Give all content a chance
+		}
 	}
 
 	// Seasonal/trending boost based on recent views
@@ -708,12 +715,12 @@ func (s *RecommendationService) getLatestAddedPriority(limit int) []models.Media
 		Limit(limit).
 		Find(&media)
 	
-	// If not enough recent content, fill with older high-rated
+	// If not enough recent content, fill with older diverse content
 	if len(media) < limit {
 		var olderMedia []models.Media
 		s.db.Preload("Genres").
-			Where("created_at <= ? AND rating > ? AND type != ?", cutoff, 7.0, "episode").
-			Order("rating DESC, created_at DESC").
+			Where("created_at <= ? AND type != ?", cutoff, "episode").
+			Order("view_count DESC, rating DESC, created_at DESC").
 			Limit(limit - len(media)).
 			Find(&olderMedia)
 		media = append(media, olderMedia...)
@@ -735,10 +742,10 @@ func (s *RecommendationService) getRecentYearsFocus(limit int) []models.Media {
 func (s *RecommendationService) getCurrentYearHighRated(limit int) []models.Media {
 	var media []models.Media
 	currentYear := time.Now().Year()
-	// Prioritize current year (2024) content
+	// Prioritize current year content with diverse ratings
 	s.db.Preload("Genres").
-		Where("year = ? AND rating > ? AND type != ?", currentYear, 6.5, "episode").
-		Order("rating DESC, created_at DESC").
+		Where("year = ? AND type != ?", currentYear, "episode").
+		Order("created_at DESC, view_count DESC, rating DESC").
 		Limit(limit).
 		Find(&media)
 	
@@ -746,8 +753,8 @@ func (s *RecommendationService) getCurrentYearHighRated(limit int) []models.Medi
 	if len(media) < limit {
 		var prevYearMedia []models.Media
 		s.db.Preload("Genres").
-			Where("year = ? AND rating > ? AND type != ?", currentYear-1, 6.5, "episode").
-			Order("rating DESC, created_at DESC").
+			Where("year = ? AND type != ?", currentYear-1, "episode").
+			Order("created_at DESC, view_count DESC, rating DESC").
 			Limit(limit - len(media)).
 			Find(&prevYearMedia)
 		media = append(media, prevYearMedia...)
@@ -781,11 +788,11 @@ func (s *RecommendationService) getRecentQualityContent(limit int) []models.Medi
 
 func (s *RecommendationService) getFreshDiscoveries(limit int) []models.Media {
 	var media []models.Media
-	// Recent content with low view counts (hidden gems)
+	// Recent content with low view counts (fresh discoveries across all ratings)
 	cutoff := time.Now().AddDate(0, -4, 0) // Last 4 months
 	s.db.Preload("Genres").
-		Where("created_at > ? AND view_count < ? AND rating > ? AND type != ?", cutoff, 20, 7.0, "episode").
-		Order("rating DESC, created_at DESC").
+		Where("created_at > ? AND view_count < ? AND type != ?", cutoff, 20, "episode").
+		Order("created_at DESC, rating DESC").
 		Limit(limit).
 		Find(&media)
 	return media
@@ -815,8 +822,8 @@ func (s *RecommendationService) getLatestGenreMix(limit int) []models.Media {
 func (s *RecommendationService) getLatestHighRated(limit int) []models.Media {
 	var media []models.Media
 	s.db.Preload("Genres").
-		Where("rating > ? AND type != ?", 7.0, "episode").
-		Order("created_at DESC, rating DESC").
+		Where("type != ?", "episode").
+		Order("created_at DESC, view_count DESC, rating DESC").
 		Limit(limit).
 		Find(&media)
 	return media
@@ -859,10 +866,10 @@ func (s *RecommendationService) getPopularUnderratedMix(limit int) []models.Medi
 		Limit(limit / 2).
 		Find(&popular)
 	
-	// Get underrated gems
+	// Get lesser-known content (not just high-rated)
 	s.db.Preload("Genres").
-		Where("rating > ? AND view_count < ? AND type != ?", 7.5, 20, "episode").
-		Order("rating DESC").
+		Where("view_count < ? AND type != ?", 20, "episode").
+		Order("created_at DESC, rating DESC").
 		Limit(limit / 2).
 		Find(&underrated)
 	
@@ -889,8 +896,8 @@ func (s *RecommendationService) getDecadeMixContent(limit int) []models.Media {
 func (s *RecommendationService) getHiddenGems(limit int) []models.Media {
 	var media []models.Media
 	s.db.Preload("Genres").
-		Where("rating > ? AND view_count < ? AND type != ?", 7.5, 30, "episode").
-		Order("rating DESC, created_at DESC").
+		Where("view_count < ? AND type != ?", 30, "episode").
+		Order("created_at DESC, rating DESC").
 		Limit(limit).
 		Find(&media)
 	return media
@@ -1018,8 +1025,8 @@ func (s *RecommendationService) getHighRatedRecent(limit int) []models.Media {
 	var media []models.Media
 	cutoff := time.Now().AddDate(0, 0, -60) // Last 60 days
 	s.db.Preload("Genres").
-		Where("created_at > ? AND rating > ? AND type != ?", cutoff, 7.0, "episode").
-		Order("rating DESC, created_at DESC").
+		Where("created_at > ? AND type != ?", cutoff, "episode").
+		Order("created_at DESC, view_count DESC, rating DESC").
 		Limit(limit).
 		Find(&media)
 	return media
@@ -1093,8 +1100,8 @@ func (s *RecommendationService) getPopularRecentReleases(limit int) []models.Med
 func (s *RecommendationService) getPopularHighRated(limit int) []models.Media {
 	var media []models.Media
 	s.db.Preload("Genres").
-		Where("rating > ? AND view_count > ? AND type != ?", 7.5, 15, "episode").
-		Order("rating DESC, view_count DESC").
+		Where("view_count > ? AND type != ?", 15, "episode").
+		Order("view_count DESC, rating DESC").
 		Limit(limit).
 		Find(&media)
 	return media
@@ -1144,8 +1151,8 @@ func (s *RecommendationService) getRecentHighRated(limit int) []models.Media {
 	var media []models.Media
 	cutoff := time.Now().AddDate(0, 0, -90) // Last 90 days
 	s.db.Preload("Genres").
-		Where("created_at > ? AND rating > ? AND type != ?", cutoff, 7.0, "episode").
-		Order("rating DESC, created_at DESC").
+		Where("created_at > ? AND type != ?", cutoff, "episode").
+		Order("created_at DESC, view_count DESC, rating DESC").
 		Limit(limit).
 		Find(&media)
 	return media
@@ -1391,8 +1398,8 @@ func (s *RecommendationService) getPersonalizedDiscovery(userID uint, limit int)
 		s.db.Preload("Genres").
 			Joins("JOIN media_genres ON media.id = media_genres.media_id").
 			Joins("JOIN genres ON media_genres.genre_id = genres.id").
-			Where("genres.name = ? AND media.rating > ? AND media.type != ?", genre, 7.0, "episode").
-			Order("media.rating DESC").
+			Where("genres.name = ? AND media.type != ?", genre, "episode").
+			Order("media.created_at DESC, media.rating DESC").
 			Limit(limit / 3).
 			Find(&genreMedia)
 		media = append(media, genreMedia...)

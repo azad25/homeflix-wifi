@@ -102,14 +102,16 @@ func GetHighRatedRecommendations(recommendationService *services.RecommendationS
 			}
 		}
 		
-		// Use personalized recommendations for user ID 1 with high rating preference
-		userID := uint(1)
-		media, err := recommendationService.GetRecommendationsForUser(userID, limit)
+		// Generate session ID for duplicate prevention
+		sessionID := generateSessionID(c)
+		
+		// Use dynamic recommendations with diverse content across all ratings
+		media, err := recommendationService.GetDynamicRecommendations("popular", limit, sessionID)
 		if err != nil {
-			// Fallback to default recommendations (which prioritize high ratings)
+			// Fallback to default recommendations (now diverse, not high-rating biased)
 			media, err = recommendationService.GetDefaultRecommendations(limit)
 			if err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch high-rated recommendations"})
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch recommendations"})
 				return
 			}
 		}

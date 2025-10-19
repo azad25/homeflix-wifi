@@ -47,6 +47,7 @@ func main() {
 	celeryService := services.NewCeleryService()
 	alacService := services.NewALACAudioService("./alac_audio")
 	tmdbService := services.NewTMDBService()
+	newsService := services.NewNewsService()
 
 	// Initialize Redis asset cache for instant asset loading
 	redisURL := os.Getenv("REDIS_URL")
@@ -180,8 +181,11 @@ func main() {
 		MaxAge:           12 * time.Hour, // Cache preflight for 12 hours
 	}))
 
+	// Start news service
+	newsService.Start()
+
 	// Initialize API routes
-	api.SetupRoutes(r, mediaService, streamService, thumbnailService, userService, recommendationService, playbackService, geminiService, celeryService, alacService, tmdbService, mediaScanner, watcherService, redisCache, transcodeService)
+	api.SetupRoutes(r, mediaService, streamService, thumbnailService, userService, recommendationService, playbackService, geminiService, celeryService, alacService, tmdbService, mediaScanner, watcherService, redisCache, transcodeService, newsService)
 
 	// Start server with optimizations
 	port := os.Getenv("PORT")
