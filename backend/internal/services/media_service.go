@@ -860,41 +860,64 @@ func (s *MediaService) CreateAudioTrack(track *models.AudioTrack) error {
 
 // SaveSubtitleTracks saves multiple subtitle tracks for a media item
 func (s *MediaService) SaveSubtitleTracks(mediaID uint, tracks []models.SubtitleTrack) error {
+	log.Printf("🎬 Saving %d subtitle tracks for media ID %d", len(tracks), mediaID)
+	
 	return s.DBManager.WithTx(func(tx *gorm.DB) error {
 		// First, delete existing internal tracks for this media
-		if err := tx.Where("media_id = ? AND track_type = ?", mediaID, "internal").Delete(&models.SubtitleTrack{}).Error; err != nil {
-			return fmt.Errorf("failed to delete existing internal subtitle tracks: %w", err)
+		result := tx.Where("media_id = ? AND track_type = ?", mediaID, "internal").Delete(&models.SubtitleTrack{})
+		if result.Error != nil {
+			log.Printf("❌ Failed to delete existing internal subtitle tracks: %v", result.Error)
+			return fmt.Errorf("failed to delete existing internal subtitle tracks: %w", result.Error)
 		}
+		log.Printf("🗑️ Deleted %d existing internal subtitle tracks for media ID %d", result.RowsAffected, mediaID)
 		
 		// Create new tracks
-		for _, track := range tracks {
+		for i, track := range tracks {
 			track.MediaID = mediaID
 			if err := tx.Create(&track).Error; err != nil {
+				log.Printf("❌ Failed to create subtitle track %d (%s): %v", i, track.Language, err)
 				return fmt.Errorf("failed to create subtitle track: %w", err)
 			}
+			log.Printf("✅ Created subtitle track: %s (%s) - stream %d", track.Language, track.TrackType, track.StreamIndex)
 		}
 		
+		log.Printf("✅ Successfully saved %d subtitle tracks for media ID %d", len(tracks), mediaID)
 		return nil
 	})
 }
 
 // SaveAudioTracks saves multiple audio tracks for a media item
 func (s *MediaService) SaveAudioTracks(mediaID uint, tracks []models.AudioTrack) error {
+	log.Printf("🎵 Saving %d audio tracks for media ID %d", len(tracks), mediaID)
+	
 	return s.DBManager.WithTx(func(tx *gorm.DB) error {
 		// First, delete existing tracks for this media
-		if err := tx.Where("media_id = ?", mediaID).Delete(&models.AudioTrack{}).Error; err != nil {
-			return fmt.Errorf("failed to delete existing audio tracks: %w", err)
+		result := tx.Where("media_id = ?", mediaID).Delete(&models.AudioTrack{})
+		if result.Error != nil {
+			log.Printf("❌ Failed to delete existing audio tracks: %v", result.Error)
+			return fmt.Errorf("failed to delete existing audio tracks: %w", result.Error)
 		}
+		log.Printf("🗑️ Deleted %d existing audio tracks for media ID %d", result.RowsAffected, mediaID)
 		
 		// Create new tracks
-		for _, track := range tracks {
+		for i, track := range tracks {
 			track.MediaID = mediaID
 			if err := tx.Create(&track).Error; err != nil {
+				log.Printf("❌ Failed to create audio track %d (%s): %v", i, track.Language, err)
 				return fmt.Errorf("failed to create audio track: %w", err)
 			}
+			log.Printf("✅ Created audio track: %s (%s) - stream %d, %dch", track.Language, track.CodecName, track.StreamIndex, track.Channels)
 		}
 		
+		log.Printf("✅ Successfully saved %d audio tracks for media ID %d", len(tracks), mediaID)
 		return nil
+	})
+}
+
+// UpdateSubtitleTrackPath updates the file path for a subtitle track
+func (s *MediaService) UpdateSubtitleTrackPath(trackID uint, newPath string) error {
+	return s.DBManager.WithTx(func(tx *gorm.DB) error {
+		return tx.Model(&models.SubtitleTrack{}).Where("id = ?", trackID).Update("file_path", newPath).Error
 	})
 }
 

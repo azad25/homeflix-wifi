@@ -1567,6 +1567,18 @@ func (s *MediaScanner) processVideoFile(path string, info os.FileInfo) error {
 		}
 	}
 
+	// CRITICAL: Extract subtitle and audio track information SYNCHRONOUSLY
+	// This ensures tracks are available immediately after media is saved
+	log.Printf("🎬 Processing tracks for: %s", media.Title)
+	s.extractSubtitleAndAudioTracks(media, path)
+	
+	// Also process tracks using the new method for enhanced track detection
+	if err := s.processMediaTracks(media); err != nil {
+		log.Printf("⚠️ Failed to process media tracks for %s: %v", media.Title, err)
+	} else {
+		log.Printf("✅ Successfully processed tracks for: %s", media.Title)
+	}
+
 	// Extract additional metadata using FFprobe and TMDB (async with recovery and shorter timeouts)
 	if s.canSpawnGoroutine() {
 		go func() {
@@ -1591,14 +1603,6 @@ func (s *MediaScanner) processVideoFile(path string, info os.FileInfo) error {
 				}
 			case <-time.After(10 * time.Second):
 				log.Printf("⚠️ Timeout extracting video metadata for %s", media.Title)
-			}
-
-			// Extract subtitle and audio track information
-			s.extractSubtitleAndAudioTracks(media, path)
-			
-			// Also process tracks using the new method for enhanced track detection
-			if err := s.processMediaTracks(media); err != nil {
-				log.Printf("⚠️ Failed to process media tracks for %s: %v", media.Title, err)
 			}
 
 			// Then try to get enhanced metadata from TMDB with fallback to file-based metadata
@@ -2209,8 +2213,44 @@ func (s *MediaScanner) findExternalSubtitles(videoPath string) []ExternalSubtitl
 		fullPath := filepath.Join(dir, fileName)
 		
 		// Verify file exists and is readable
-		if _, err := os.Stat(fullPath); err != nil {
+		fileInfo, err := os.Stat(fullPath)
+		if err != nil {
 			log.Printf("⚠️ Subtitle file not accessible: %s (%v)", fullPath, err)
+			continue
+		}
+		
+		// Check if file is not empty
+		if fileInfo.Size() == 0 {
+			log.Printf("⚠️ Subtitle file is empty: %s", fullPath)
+			continue
+		}
+		
+		// Try to read a small portion to verify it's a text file
+		file, err := os.Open(fullPath)
+		if err != nil {
+			log.Printf("⚠️ Cannot open subtitle file: %s (%v)", fullPath, err)
+			continue
+		}
+		
+		// Read first 512 bytes to check if it's a text file
+		buffer := make([]byte, 512)
+		n, err := file.Read(buffer)
+		file.Close()
+		
+		if err != nil && n == 0 {
+			log.Printf("⚠️ Cannot read subtitle file: %s (%v)", fullPath, err)
+			continue
+		}
+		
+		// Basic check if it looks like a subtitle file (contains common subtitle patterns)
+		content := string(buffer[:n])
+		isValidSubtitle := strings.Contains(content, "-->") || 
+			strings.Contains(content, "WEBVTT") ||
+			strings.Contains(content, "[Script Info]") || // ASS/SSA
+			strings.Contains(content, "Dialogue:") // ASS/SSA
+		
+		if !isValidSubtitle {
+			log.Printf("⚠️ File doesn't appear to be a valid subtitle: %s", fullPath)
 			continue
 		}
 		
@@ -2221,7 +2261,7 @@ func (s *MediaScanner) findExternalSubtitles(videoPath string) []ExternalSubtitl
 		}
 		
 		subtitles = append(subtitles, subtitle)
-		log.Printf("📄 Found external subtitle: %s (%s) - %s", language, subtitle.Format, fullPath)
+		log.Printf("📄 Found external subtitle: %s (%s) - %s (%d bytes)", language, subtitle.Format, fullPath, fileInfo.Size())
 	}
 	
 	log.Printf("✅ Found %d external subtitle files for %s", len(subtitles), filepath.Base(videoPath))
@@ -2460,7 +2500,7 @@ func (s *MediaScanner) analyzeMediaTracks(filePath string) (*MediaTracks, error)
 			title := s.extractTitleFromTags(stream.Tags, language, "subtitle")
 			
 			track := models.SubtitleTrack{
-				StreamIndex:         subtitleIndex,
+				StreamIndex:         subtitleIndex, // Use subtitle-specific index for ffmpeg extraction
 				Language:           language,
 				Title:              title,
 				CodecName:          stream.CodecName,
@@ -2488,7 +2528,7 @@ func (s *MediaScanner) analyzeMediaTracks(filePath string) (*MediaTracks, error)
 			}
 			
 			track := models.AudioTrack{
-				StreamIndex: audioIndex,
+				StreamIndex: audioIndex, // Use audio-specific index
 				Language:    language,
 				Title:       title,
 				CodecName:   stream.CodecName,

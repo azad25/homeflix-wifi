@@ -1,11 +1,13 @@
 package handlers
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -582,11 +584,45 @@ func GetSubtitleFile(mediaService *services.MediaService) gin.HandlerFunc {
 		}
 
 		if track.TrackType == "external" && track.FilePath != "" {
+			log.Printf("🔍 Looking for external subtitle file: %s", track.FilePath)
+			
 			// Verify external subtitle file exists
 			if _, err := os.Stat(track.FilePath); err != nil {
-				log.Printf("❌ External subtitle file not found: %s", track.FilePath)
-				c.JSON(http.StatusNotFound, gin.H{"error": "Subtitle file not found on disk"})
-				return
+				log.Printf("❌ External subtitle file not found: %s (error: %v)", track.FilePath, err)
+				
+				// Try to find the file in the same directory as the video
+				media, err := mediaService.GetMediaByID(uint(id))
+				if err == nil && media.FilePath != "" {
+					videoDir := filepath.Dir(media.FilePath)
+					subtitleFileName := filepath.Base(track.FilePath)
+					alternativePath := filepath.Join(videoDir, subtitleFileName)
+					
+					log.Printf("🔍 Trying alternative path: %s", alternativePath)
+					if _, err := os.Stat(alternativePath); err == nil {
+						log.Printf("✅ Found subtitle at alternative path: %s", alternativePath)
+						track.FilePath = alternativePath
+						
+						// Update the database with the correct path
+						go func() {
+							if err := mediaService.UpdateSubtitleTrackPath(track.ID, alternativePath); err != nil {
+								log.Printf("⚠️ Failed to update subtitle track path: %v", err)
+							}
+						}()
+					} else {
+						log.Printf("❌ Subtitle file not found at alternative path either: %s", alternativePath)
+						c.JSON(http.StatusNotFound, gin.H{
+							"error": "Subtitle file not found on disk",
+							"details": fmt.Sprintf("Checked paths: %s, %s", track.FilePath, alternativePath),
+						})
+						return
+					}
+				} else {
+					c.JSON(http.StatusNotFound, gin.H{
+						"error": "Subtitle file not found on disk",
+						"path": track.FilePath,
+					})
+					return
+				}
 			}
 
 			// Set appropriate headers for subtitle files
@@ -653,18 +689,352 @@ func getSubtitleContentType(format string) string {
 
 // extractInternalSubtitle extracts internal subtitle track using ffmpeg
 func extractInternalSubtitle(videoPath string, streamIndex int) ([]byte, error) {
+	log.Printf("🎬 Extracting internal subtitle: stream %d from %s", streamIndex, filepath.Base(videoPath))
+	
+	// First, get stream information to determine the correct mapping
+	probeCmd := exec.Command("ffprobe",
+		"-v", "quiet",
+		"-print_format", "json",
+		"-show_streams",
+		"-select_streams", "s",
+		videoPath)
+	
+	probeOutput, err := probeCmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("failed to probe subtitle streams: %v", err)
+	}
+	
+	var probeData struct {
+		Streams []struct {
+			Index     int    `json:"index"`
+			CodecType string `json:"codec_type"`
+			CodecName string `json:"codec_name"`
+		} `json:"streams"`
+	}
+	
+	if err := json.Unmarshal(probeOutput, &probeData); err != nil {
+		return nil, fmt.Errorf("failed to parse probe output: %v", err)
+	}
+	
+	// Find the actual stream index for subtitles
+	var actualStreamIndex int = -1
+	subtitleCount := 0
+	
+	for _, stream := range probeData.Streams {
+		if stream.CodecType == "subtitle" {
+			if subtitleCount == streamIndex {
+				actualStreamIndex = stream.Index
+				break
+			}
+			subtitleCount++
+		}
+	}
+	
+	// If not found using subtitle-specific index, try using the streamIndex as actual stream index
+	if actualStreamIndex == -1 {
+		// Check if the streamIndex itself is a valid subtitle stream
+		for _, stream := range probeData.Streams {
+			if stream.CodecType == "subtitle" && stream.Index == streamIndex {
+				actualStreamIndex = streamIndex
+				log.Printf("🎬 Using streamIndex %d directly as actual stream index", streamIndex)
+				break
+			}
+		}
+	}
+	
+	if actualStreamIndex == -1 {
+		return nil, fmt.Errorf("subtitle stream %d not found (checked both subtitle-specific and actual indices)", streamIndex)
+	}
+	
+	log.Printf("🎬 Using actual stream index %d for subtitle stream %d", actualStreamIndex, streamIndex)
+	
+	// Extract subtitle using the correct stream index
 	cmd := exec.Command("ffmpeg",
+		"-v", "error", // Reduce verbosity but show errors
 		"-i", videoPath,
-		"-map", fmt.Sprintf("0:s:%d", streamIndex),
+		"-map", fmt.Sprintf("0:%d", actualStreamIndex), // Use absolute stream index
 		"-c:s", "srt", // Convert to SRT format for web compatibility
 		"-f", "srt",
 		"-")
 
 	output, err := cmd.Output()
 	if err != nil {
-		return nil, fmt.Errorf("ffmpeg subtitle extraction failed: %v", err)
+		// Try alternative extraction method for problematic codecs
+		log.Printf("⚠️ Standard extraction failed, trying alternative method: %v", err)
+		return extractInternalSubtitleAlternative(videoPath, actualStreamIndex)
 	}
 
+	if len(output) == 0 {
+		return nil, fmt.Errorf("extracted subtitle is empty")
+	}
+
+	log.Printf("✅ Successfully extracted internal subtitle: %d bytes", len(output))
 	return output, nil
+}
+
+// extractInternalSubtitleAlternative tries alternative extraction methods
+func extractInternalSubtitleAlternative(videoPath string, streamIndex int) ([]byte, error) {
+	log.Printf("🔄 Trying alternative subtitle extraction for stream %d", streamIndex)
+	
+	// Method 1: Try without codec conversion (keep original format)
+	cmd := exec.Command("ffmpeg",
+		"-v", "error",
+		"-i", videoPath,
+		"-map", fmt.Sprintf("0:%d", streamIndex),
+		"-c:s", "copy", // Keep original subtitle format
+		"-f", "srt",    // But force SRT container
+		"-")
+
+	output, err := cmd.Output()
+	if err == nil && len(output) > 0 {
+		log.Printf("✅ Alternative method 1 succeeded: %d bytes", len(output))
+		return output, nil
+	}
+	
+	// Method 2: Try with text output
+	cmd = exec.Command("ffmpeg",
+		"-v", "error",
+		"-i", videoPath,
+		"-map", fmt.Sprintf("0:%d", streamIndex),
+		"-f", "srt",
+		"-")
+
+	output, err = cmd.Output()
+	if err == nil && len(output) > 0 {
+		log.Printf("✅ Alternative method 2 succeeded: %d bytes", len(output))
+		return output, nil
+	}
+	
+	// Method 3: Try extracting as WebVTT and convert
+	cmd = exec.Command("ffmpeg",
+		"-v", "error",
+		"-i", videoPath,
+		"-map", fmt.Sprintf("0:%d", streamIndex),
+		"-f", "webvtt",
+		"-")
+
+	vttOutput, err := cmd.Output()
+	if err == nil && len(vttOutput) > 0 {
+		// Convert WebVTT to SRT
+		srtOutput := convertWebVTTToSRT(string(vttOutput))
+		if len(srtOutput) > 0 {
+			log.Printf("✅ Alternative method 3 (WebVTT->SRT) succeeded: %d bytes", len(srtOutput))
+			return []byte(srtOutput), nil
+		}
+	}
+	
+	return nil, fmt.Errorf("all subtitle extraction methods failed for stream %d", streamIndex)
+}
+
+// convertWebVTTToSRT converts WebVTT format to SRT format
+func convertWebVTTToSRT(vttContent string) string {
+	lines := strings.Split(vttContent, "\n")
+	var srtLines []string
+	var counter int = 1
+	
+	for i := 0; i < len(lines); i++ {
+		line := strings.TrimSpace(lines[i])
+		
+		// Skip WebVTT header and empty lines
+		if line == "WEBVTT" || line == "" {
+			continue
+		}
+		
+		// Look for timestamp lines (contain "-->")
+		if strings.Contains(line, "-->") {
+			// Add counter
+			srtLines = append(srtLines, fmt.Sprintf("%d", counter))
+			counter++
+			
+			// Convert WebVTT timestamp format to SRT format
+			// WebVTT: 00:00:01.000 --> 00:00:04.000
+			// SRT:    00:00:01,000 --> 00:00:04,000
+			srtTimestamp := strings.ReplaceAll(line, ".", ",")
+			srtLines = append(srtLines, srtTimestamp)
+			
+			// Collect subtitle text until next timestamp or end
+			i++
+			var textLines []string
+			for i < len(lines) {
+				textLine := strings.TrimSpace(lines[i])
+				if textLine == "" {
+					break
+				}
+				if strings.Contains(textLine, "-->") {
+					i-- // Back up one line
+					break
+				}
+				textLines = append(textLines, textLine)
+				i++
+			}
+			
+			// Add text lines
+			for _, textLine := range textLines {
+				srtLines = append(srtLines, textLine)
+			}
+			
+			// Add empty line between subtitles
+			srtLines = append(srtLines, "")
+		}
+	}
+	
+	return strings.Join(srtLines, "\n")
+}
+
+// ExtractMediaTracks manually extracts subtitle and audio tracks for a media file
+func ExtractMediaTracks(mediaService *services.MediaService, scanner interface{}) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id, err := strconv.ParseUint(c.Param("id"), 10, 32)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid media ID"})
+			return
+		}
+
+		// Get the media file
+		media, err := mediaService.GetMediaByID(uint(id))
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Media not found"})
+			return
+		}
+
+		// Check if file exists
+		if _, err := os.Stat(media.FilePath); err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Media file not found on disk"})
+			return
+		}
+
+		log.Printf("🎬 Manually extracting tracks for: %s", media.Title)
+
+		// Extract tracks using ffprobe
+		cmd := exec.Command("ffprobe",
+			"-v", "quiet",
+			"-print_format", "json",
+			"-show_streams",
+			media.FilePath)
+
+		output, err := cmd.Output()
+		if err != nil {
+			log.Printf("⚠️ Failed to extract stream info for %s: %v", media.Title, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to analyze media file"})
+			return
+		}
+
+		var probeData struct {
+			Streams []struct {
+				Index       int    `json:"index"`
+				CodecType   string `json:"codec_type"`
+				CodecName   string `json:"codec_name"`
+				Language    string `json:"tags.language"`
+				Title       string `json:"tags.title"`
+				Disposition struct {
+					Default  int `json:"default"`
+					Forced   int `json:"forced"`
+					Hearing  int `json:"hearing_impaired"`
+				} `json:"disposition"`
+				Tags struct {
+					Language string `json:"language"`
+					Title    string `json:"title"`
+				} `json:"tags"`
+			} `json:"streams"`
+		}
+
+		if err := json.Unmarshal(output, &probeData); err != nil {
+			log.Printf("⚠️ Failed to parse stream info for %s: %v", media.Title, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to parse media information"})
+			return
+		}
+
+		// Process subtitle streams
+		var subtitleTracks []models.SubtitleTrack
+		var audioTracks []models.AudioTrack
+		
+		for _, stream := range probeData.Streams {
+			if stream.CodecType == "subtitle" {
+				language := stream.Tags.Language
+				if language == "" {
+					language = stream.Language
+				}
+				if language == "" {
+					language = "unknown"
+				}
+
+				title := stream.Tags.Title
+				if title == "" {
+					title = fmt.Sprintf("Subtitle Track %d", stream.Index)
+				}
+
+				subtitleTrack := models.SubtitleTrack{
+					MediaID:     media.ID,
+					StreamIndex: stream.Index,
+					Language:    language,
+					Title:       title,
+					CodecName:   stream.CodecName,
+					IsDefault:   stream.Disposition.Default == 1,
+					IsForced:    stream.Disposition.Forced == 1,
+					IsHearing:   stream.Disposition.Hearing == 1,
+					TrackType:   "internal",
+				}
+				subtitleTracks = append(subtitleTracks, subtitleTrack)
+				
+				log.Printf("📝 Found internal subtitle: %s (%s) - %s", language, stream.CodecName, title)
+			} else if stream.CodecType == "audio" {
+				language := stream.Tags.Language
+				if language == "" {
+					language = stream.Language
+				}
+				if language == "" {
+					language = "unknown"
+				}
+
+				title := stream.Tags.Title
+				if title == "" {
+					title = fmt.Sprintf("Audio Track %d", stream.Index)
+				}
+
+				audioTrack := models.AudioTrack{
+					MediaID:     media.ID,
+					StreamIndex: stream.Index,
+					Language:    language,
+					Title:       title,
+					CodecName:   stream.CodecName,
+					IsDefault:   stream.Disposition.Default == 1,
+					TrackType:   "internal",
+				}
+				audioTracks = append(audioTracks, audioTrack)
+				
+				log.Printf("🎵 Found audio track: %s (%s) - %s", language, stream.CodecName, title)
+			}
+		}
+
+		// Save tracks to database
+		var results = gin.H{
+			"media_id": media.ID,
+			"title": media.Title,
+			"subtitle_tracks": len(subtitleTracks),
+			"audio_tracks": len(audioTracks),
+		}
+
+		if len(subtitleTracks) > 0 {
+			if err := mediaService.SaveSubtitleTracks(media.ID, subtitleTracks); err != nil {
+				log.Printf("⚠️ Failed to save subtitle tracks for %s: %v", media.Title, err)
+				results["subtitle_error"] = err.Error()
+			} else {
+				log.Printf("✅ Saved %d subtitle tracks for %s", len(subtitleTracks), media.Title)
+				results["subtitle_success"] = true
+			}
+		}
+
+		if len(audioTracks) > 0 {
+			if err := mediaService.SaveAudioTracks(media.ID, audioTracks); err != nil {
+				log.Printf("⚠️ Failed to save audio tracks for %s: %v", media.Title, err)
+				results["audio_error"] = err.Error()
+			} else {
+				log.Printf("✅ Saved %d audio tracks for %s", len(audioTracks), media.Title)
+				results["audio_success"] = true
+			}
+		}
+
+		c.JSON(http.StatusOK, results)
+	}
 }
 
