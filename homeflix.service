@@ -1,0 +1,19 @@
+[Unit]
+Description=HomeFlix - Netflix Clone
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=azad
+Group=azad
+WorkingDirectory=/home/azad/homeflix-local/homeflix-wifi
+ExecStart=/home/azad/homeflix-local/homeflix-wifi/start-service.sh
+ExecStop=/home/azad/homeflix-local/homeflix-wifi/stop-service.sh
+Restart=always
+RestartSec=10
+Environment=NODE_ENV=production
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/go/bin
+
+[Install]
+WantedBy=multi-user.target

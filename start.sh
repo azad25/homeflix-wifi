@@ -17,6 +17,7 @@ check_dependency "go"
 check_dependency "node"
 check_dependency "npm"
 check_dependency "ffmpeg"
+check_dependency "redis-server"
 
 echo "✅ All dependencies found!"
 

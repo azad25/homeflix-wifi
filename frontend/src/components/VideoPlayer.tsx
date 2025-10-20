@@ -225,6 +225,22 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
     checkMobile();
   }, []);
 
+  // Handle page scroll when video player opens/closes
+  useEffect(() => {
+    if (isOpen) {
+      // Disable page scroll when video player is open
+      document.body.style.overflow = 'hidden';
+    } else {
+      // Re-enable page scroll when video player is closed
+      document.body.style.overflow = 'auto';
+    }
+
+    // Cleanup function to ensure scroll is restored
+    return () => {
+      document.body.style.overflow = 'auto';
+    };
+  }, [isOpen]);
+
   // Handle media changes (when switching episodes)
   useEffect(() => {
     if (isOpen && media.id) {
@@ -416,7 +432,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
         const updateSubtitleText = () => {
           const currentTime = video.currentTime;
           const activeCue = cues.find(cue => currentTime >= cue.start && currentTime <= cue.end);
-          
+
           if (activeCue && subtitlesEnabled) {
             setCurrentSubtitleText(activeCue.text || '');
           } else {
@@ -755,35 +771,56 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
     }
   }, [media, isOpen]);
 
-  // Handle cast state changes
+  // Handle cast state changes with YouTube-like behavior
   useEffect(() => {
     const wasConnected = isCasting;
     setIsCasting(castState.isConnected);
 
     // Update local state with cast state when casting
     if (castState.isConnected) {
+      // Sync UI state with cast device
       setIsPlaying(castState.playerState === 'PLAYING');
       setCurrentTime(castState.currentTime);
       setDuration(castState.duration);
       setVolume(castState.volumeLevel);
       setIsMuted(castState.isMuted);
 
-      // If just connected, ensure local video is paused
+      // If just connected, ensure local video is paused immediately
       if (!wasConnected) {
         const video = videoRef.current;
         if (video && !video.paused) {
           video.pause();
-          console.log('Paused local video due to cast connection');
+          console.log('✅ Paused local video due to cast connection');
         }
       }
-    } else if (wasConnected) {
-      // If disconnected from cast, resume local video if it was playing
-      const video = videoRef.current;
-      if (video && video.paused && castState.playerState === 'PLAYING') {
-        video.currentTime = castState.currentTime;
-        video.play().catch(console.error);
-        console.log('Resumed local video after cast disconnection');
+
+      // YouTube-like behavior: Show cast status in UI
+      if (castState.playerState) {
+        console.log('🎬 Cast status:', {
+          playerState: castState.playerState,
+          currentTime: castState.currentTime,
+          duration: castState.duration,
+          deviceName: castState.deviceName
+        });
       }
+
+    } else if (wasConnected) {
+      // If disconnected from cast, resume local video seamlessly
+      const video = videoRef.current;
+      if (video) {
+        // Sync time from cast device
+        if (castState.currentTime > 0) {
+          video.currentTime = castState.currentTime;
+        }
+
+        // Resume playback if it was playing on cast device
+        if (castState.playerState === 'PLAYING') {
+          video.play().catch(console.error);
+          console.log('✅ Resumed local video after cast disconnection');
+        }
+      }
+
+      console.log('🎬 Cast disconnected, resumed local playback');
     }
   }, [castState, isCasting]);
 
@@ -796,16 +833,25 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
     }
   }, [castState.isConnected, connectToCast, disconnectFromCast]);
 
-  // Load media to cast device when connected with compatible streaming
+  // Load media to cast device when connected with YouTube-like instant casting
   useEffect(() => {
     if (castState.isConnected && media && !isCasting) {
-      // Use standard quality for cast devices (better compatibility)
-      const streamUrl = getStreamUrl(media.id, 'high', 'mp4');
-      const thumbnailUrl = `${getApiUrl()}/api/thumbnails/${media.id}`;
+      const video = videoRef.current;
+      const currentPlaybackTime = video ? video.currentTime : 0;
+      const wasPlaying = video ? !video.paused : false;
 
+      // Use most basic stream URL for maximum compatibility with BRAVIA TV
+      const streamUrl = `${getApiUrl()}/api/stream/${media.id}`;
+      const thumbnailUrl = `${getApiUrl()}/api/thumbnails/${media.id}`;
+      
+      console.log('🎬 Testing stream URL accessibility:', streamUrl);
+
+      // Try different content types for better BRAVIA compatibility
+      const contentType = media.file_path?.toLowerCase().endsWith('.mkv') ? 'video/x-matroska' : 'video/mp4';
+      
       const castMedia: CastMedia = {
         contentId: streamUrl,
-        contentType: 'video/mp4',
+        contentType: contentType,
         title: media.title,
         subtitle: media.type === 'episode'
           ? `S${media.season_number}E${media.episode_number}`
@@ -820,19 +866,57 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
           }]
         }
       };
+      
+      console.log('🎬 Using content type:', contentType, 'for file:', media.file_path);
 
-      console.log('Loading media to cast device:', castMedia);
-      loadCastMedia(castMedia);
-      setIsCasting(true);
+      console.log('🎬 Loading media to cast device:', castMedia);
+      console.log('🎬 Current playback time:', currentPlaybackTime, 'Was playing:', wasPlaying);
 
-      // Pause local video when casting starts
-      const video = videoRef.current;
+      // Test stream URL accessibility before casting
+      fetch(streamUrl, { method: 'HEAD' })
+        .then(response => {
+          console.log('🎬 Stream URL test:', response.status, response.headers.get('content-type'));
+          if (response.ok) {
+            console.log('✅ Stream URL is accessible, proceeding with cast');
+            // Load media without start time first (better compatibility)
+            loadCastMedia(castMedia);
+            setIsCasting(true);
+          } else {
+            console.error('❌ Stream URL not accessible:', response.status);
+          }
+        })
+        .catch(error => {
+          console.error('❌ Stream URL test failed:', error);
+          // Try casting anyway
+          loadCastMedia(castMedia);
+          setIsCasting(true);
+        });
+
+      // Pause local video immediately when casting starts
       if (video && !video.paused) {
         video.pause();
-        console.log('Paused local video for casting');
+        console.log('✅ Paused local video for casting');
       }
+
+      // YouTube-like behavior: Wait for media to load, then play and seek
+      setTimeout(() => {
+        if (castState.isConnected) {
+          console.log('🎬 Attempting to start cast playback...');
+          playCast();
+          
+          // Seek to position after playback starts
+          if (currentPlaybackTime > 10) {
+            setTimeout(() => {
+              if (castState.isConnected) {
+                console.log('🎬 Seeking to position:', currentPlaybackTime);
+                seekCast(currentPlaybackTime);
+              }
+            }, 2000);
+          }
+        }
+      }, 3000);
     }
-  }, [castState.isConnected, media, loadCastMedia, isCasting]);
+  }, [castState.isConnected, media, loadCastMedia, isCasting, seekCast, playCast]);
 
   // Utility function to format time in MM:SS or HH:MM:SS format
   const formatTime = (seconds: number): string => {
@@ -964,9 +1048,12 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
   const togglePlay = useCallback(async () => {
     try {
       if (isCasting && castState.isConnected) {
+        console.log('🎬 Cast toggle play - Current state:', castState.playerState, 'isPlaying:', isPlaying);
         if (isPlaying) {
+          console.log('🎬 Pausing cast...');
           pauseCast();
         } else {
+          console.log('🎬 Playing cast...');
           playCast();
         }
         return;
@@ -1622,6 +1709,60 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
           className="fixed inset-0 z-50 bg-black"
           ref={containerRef}
         >
+          {/* Click overlay for play/pause functionality - only covers video area, not controls */}
+          <div
+            className="absolute inset-0 z-5 cursor-pointer transition-all duration-300"
+            style={{
+              // Dynamically exclude control areas when they're visible
+              bottom: showControls ? '120px' : '0px',
+              top: showControls ? '80px' : '0px'
+            }}
+            onClick={async (e) => {
+              e.preventDefault();
+              e.stopPropagation();
+
+              // CHROME AUDIO FIX: Ensure sound is always enabled and unmuted
+              if (videoRef.current) {
+                const video = videoRef.current;
+
+                // Force unmute and set volume for Chrome
+                video.muted = false;
+                video.volume = volume > 0 ? volume : 1.0;
+                setIsMuted(false);
+                setVolume(video.volume);
+
+                // Chrome audio context fix - ensure audio is activated
+                try {
+                  if (video.paused) {
+                    // Resume playback with audio enabled
+                    await video.play();
+                    console.log('✅ Chrome audio: Video resumed with sound enabled');
+                  } else {
+                    // Save progress before pausing
+                    await saveCurrentProgress();
+                    video.pause();
+                  }
+                } catch (error) {
+                  console.warn('⚠️ Chrome audio: Play failed on video click:', error);
+                  // Try to enable audio context manually
+                  try {
+                    const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+                    if (audioContext.state === 'suspended') {
+                      await audioContext.resume();
+                      console.log('✅ Chrome audio: Audio context resumed');
+                    }
+                    // Retry play
+                    if (video.paused) {
+                      await video.play();
+                    }
+                  } catch (contextError) {
+                    console.warn('⚠️ Chrome audio: Audio context fix failed:', contextError);
+                  }
+                }
+              }
+            }}
+          />
+
           {/* Video */}
           <video
             ref={videoRef}
@@ -1704,47 +1845,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                 }
               }
             }}
-            onClick={async (e) => {
-              // CHROME AUDIO FIX: Ensure sound is always enabled and unmuted
-              if (videoRef.current) {
-                const video = videoRef.current;
 
-                // Force unmute and set volume for Chrome
-                video.muted = false;
-                video.volume = volume > 0 ? volume : 1.0;
-                setIsMuted(false);
-                setVolume(video.volume);
-
-                // Chrome audio context fix - ensure audio is activated
-                try {
-                  if (video.paused) {
-                    // Resume playback with audio enabled
-                    await video.play();
-                    console.log('✅ Chrome audio: Video resumed with sound enabled');
-                  } else {
-                    // Save progress before pausing
-                    await saveCurrentProgress();
-                    video.pause();
-                  }
-                } catch (error) {
-                  console.warn('⚠️ Chrome audio: Play failed on video click:', error);
-                  // Try to enable audio context manually
-                  try {
-                    const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-                    if (audioContext.state === 'suspended') {
-                      await audioContext.resume();
-                      console.log('✅ Chrome audio: Audio context resumed');
-                    }
-                    // Retry play
-                    if (video.paused) {
-                      await video.play();
-                    }
-                  } catch (contextError) {
-                    console.warn('⚠️ Chrome audio: Audio context fix failed:', contextError);
-                  }
-                }
-              }
-            }}
             onLoadStart={() => {
               setIsLoading(true);
               setIsBuffering(true);
@@ -2296,7 +2397,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/50 pointer-events-none"
+                className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/50 pointer-events-none z-20"
                 onClick={(e) => e.stopPropagation()}
               >
                 {/* Top Controls */}
@@ -2589,32 +2690,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                           />
                         </div>
 
-                        {availableSubtitles.length > 0 && (
-                          <button
-                            type="button"
-                            onClick={toggleSubtitles}
-                            className={`relative transition-colors ${subtitlesEnabled ? 'text-red-500 hover:text-red-400' : 'text-white hover:text-white/70'
-                              }`}
-                            title={`${subtitlesEnabled ? "Disable" : "Enable"} Subtitles (c) - ${availableSubtitles.length} track${availableSubtitles.length > 1 ? 's' : ''} available (${availableSubtitles.filter(s => s.trackType === 'internal').length} internal, ${availableSubtitles.filter(s => s.trackType === 'external').length} external)`}
-                          >
-                            <Subtitles className="w-6 h-6" />
-                            {availableSubtitles.length > 1 && (
-                              <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-4 h-4 flex items-center justify-center">
-                                {availableSubtitles.length}
-                              </span>
-                            )}
-                          </button>
-                        )}
 
-                        {/* Settings Button */}
-                        <button
-                          type="button"
-                          onClick={() => setShowSettings(true)}
-                          className="text-white hover:text-white/70 transition-colors"
-                          title="Settings"
-                        >
-                          <Settings className="w-6 h-6" />
-                        </button>
 
                         <span className="text-white text-sm">
                           {formatTime(isCasting && castState.isConnected ? castState.currentTime : currentTime)} / {duration > 0 ? formatTime(isCasting && castState.isConnected ? castState.duration : duration) : 'Live'}
@@ -2625,6 +2701,12 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                           <div className="flex items-center gap-2 text-blue-400 text-sm">
                             <Tv className="w-4 h-4" />
                             <span>Casting to {castState.deviceName}</span>
+                            {castState.playerState === 'BUFFERING' && (
+                              <div className="w-3 h-3 border border-blue-400 border-t-transparent rounded-full animate-spin" />
+                            )}
+                            {castState.playerState === 'PLAYING' && (
+                              <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
+                            )}
                           </div>
                         )}
                       </div>
@@ -2640,6 +2722,29 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                         onClick={handleCastClick}
                         className=""
                       />
+
+                      {/* Settings Button */}
+                      <button
+                        type="button"
+                        onClick={() => setShowSettings(true)}
+                        className="text-white hover:text-white/70 transition-colors"
+                        title="Settings"
+                      >
+                        <Settings className="w-6 h-6" />
+                      </button>
+
+                      {/* Subtitles Button */}
+                      {availableSubtitles.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={toggleSubtitles}
+                          className={`transition-colors ${subtitlesEnabled ? 'text-red-500 hover:text-red-400' : 'text-white hover:text-white/70'
+                            }`}
+                          title={`${subtitlesEnabled ? "Disable" : "Enable"} Subtitles (c) - ${availableSubtitles.length} track${availableSubtitles.length > 1 ? 's' : ''} available (${availableSubtitles.filter(s => s.trackType === 'internal').length} internal, ${availableSubtitles.filter(s => s.trackType === 'external').length} external)`}
+                        >
+                          <Subtitles className="w-6 h-6" />
+                        </button>
+                      )}
 
                       <button
                         type="button"
@@ -2727,188 +2832,192 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
             onSubtitleStyleChange={setSubtitleStyle}
             subtitleStyle={subtitleStyle}
           />
-        </motion.div>
-      )}
-      {showPauseScreen && !isLoading && !isBuffering && !isCasting && (
-        <motion.div
-          key="netflix-pause-overlay"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.3 }}
-          className="absolute inset-0 z-50 bg-black/60 backdrop-blur-sm flex flex-col items-center justify-center cursor-pointer"
-          onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            const video = videoRef.current;
-            if (video && video.paused) {
-              // Just resume playback from current position - no seeking or progress loading
-              video.play().catch(() => {
-                // Failed to resume video
-              });
-            }
-          }}
-        >
-          {/* Content Container */}
-          <motion.div
-            initial={{ scale: 0.95, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            exit={{ scale: 0.95, opacity: 0 }}
-            transition={{ duration: 0.3, delay: 0.1 }}
-            className="max-w-4xl w-full px-8 flex justify-between items-start gap-8"
-            onClick={(e) => {
-              e.stopPropagation();
-            }}
-          >
-            {/* Left Content */}
-            <motion.div
-              initial={{ x: -20, opacity: 0 }}
-              animate={{ x: 0, opacity: 1 }}
-              exit={{ x: -20, opacity: 0 }}
-              transition={{ duration: 0.4, delay: 0.1 }}
-              className="flex-1 text-left max-w-2xl"
-            >
-              {/* Title */}
-              <motion.h1
-                initial={{ y: 20, opacity: 0 }}
-                animate={{ y: 0, opacity: 1 }}
-                exit={{ y: 20, opacity: 0 }}
-                transition={{ delay: 0.15, duration: 0.3 }}
-                className="text-5xl md:text-6xl font-bold text-[#C0392B] mb-6 leading-tight drop-shadow-lg"
-              >
-                {media.title}
-              </motion.h1>
 
-              {/* Year, Rating and Type Info */}
+          {/* Pause Screen Overlay - Inside main container for fullscreen support */}
+          <AnimatePresence>
+            {showPauseScreen && !isLoading && !isBuffering && !isCasting && (
               <motion.div
-                initial={{ y: 20, opacity: 0 }}
-                animate={{ y: 0, opacity: 1 }}
-                exit={{ y: 20, opacity: 0 }}
-                transition={{ delay: 0.2, duration: 0.3 }}
-                className="flex items-center justify-start gap-3 mb-8 text-white/80 flex-wrap"
-              >
-                {media.year && (
-                  <>
-                    <span className="text-xl font-semibold">{media.year}</span>
-                    <span className="w-1.5 h-1.5 bg-white/60 rounded-full"></span>
-                  </>
-                )}
-                {media.type === 'episode' && (
-                  <>
-                    <span className="text-xl font-semibold">
-                      S{String(media.season_number).padStart(2, '0')}E{String(media.episode_number).padStart(2, '0')}
-                    </span>
-                    <span className="w-1.5 h-1.5 bg-white/60 rounded-full"></span>
-                  </>
-                )}
-                {media.rating && (
-                  <span className="text-xl font-semibold text-yellow-500">{media.rating.toFixed(1)}</span>
-                )}
-                {media.genre_names && (
-                  <span className="text-xl font-semibold text-white/80">{media.genre_names?.[0]}</span>
-                )}
-              </motion.div>
-
-              {/* Description */}
-              {media.description && (
-                <motion.p
-                  initial={{ y: 20, opacity: 0 }}
-                  animate={{ y: 0, opacity: 1 }}
-                  exit={{ y: 20, opacity: 0 }}
-                  transition={{ delay: 0.25, duration: 0.3 }}
-                  className="text-lg text-white/75 mb-8 line-clamp-4 leading-relaxed"
-                >
-                  {media.description}
-                </motion.p>
-              )}
-
-              {/* Progress Bar */}
-              {duration > 0 && (
-                <motion.div
-                  initial={{ y: 20, opacity: 0 }}
-                  animate={{ y: 0, opacity: 1 }}
-                  exit={{ y: 20, opacity: 0 }}
-                  transition={{ delay: 0.3, duration: 0.3 }}
-                  className="w-full h-1 bg-white/20 rounded-full mb-8"
-                >
-                  <motion.div
-                    className="h-full bg-[#C0392B] rounded-full"
-                    initial={{ width: 0 }}
-                    animate={{ width: `${(currentTime / duration) * 100}%` }}
-                    transition={{ duration: 0.5 }}
-                  />
-                </motion.div>
-              )}
-
-              {/* Time Info */}
-              <motion.div
-                initial={{ y: 20, opacity: 0 }}
-                animate={{ y: 0, opacity: 1 }}
-                exit={{ y: 20, opacity: 0 }}
-                transition={{ delay: 0.3, duration: 0.3 }}
-                className="text-white/60 text-sm"
-              >
-                <p className="font-medium">
-                  {formatTime(currentTime)} / {duration > 0 ? formatTime(duration) : 'Live'}
-                </p>
-              </motion.div>
-            </motion.div>
-
-            {/* Right Play Icon */}
-            <motion.div
-              initial={{ scale: 0.8, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.8, opacity: 0 }}
-              transition={{ delay: 0.1, duration: 0.3 }}
-              className="flex-shrink-0 flex justify-center"
-            >
-              <motion.div
-                className="bg-[#C0392B]/20 rounded-full p-6 backdrop-blur-sm hover:bg-[#C0392B]/30 transition-colors duration-200 cursor-pointer"
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
+                key="netflix-pause-overlay"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.3 }}
+                className="absolute inset-0 z-50 bg-black/60 backdrop-blur-sm flex flex-col items-center justify-center cursor-pointer"
                 onClick={(e) => {
+                  e.preventDefault();
                   e.stopPropagation();
                   const video = videoRef.current;
                   if (video && video.paused) {
-                    // Just resume playback, don't change any state that might cause remount
+                    // Just resume playback from current position - no seeking or progress loading
                     video.play().catch(() => {
-                      // Failed to resume video from play button
+                      // Failed to resume video
                     });
                   }
                 }}
               >
-                <Play className="w-16 h-16 fill-current text-[#C0392B]" />
+                {/* Content Container */}
+                <motion.div
+                  initial={{ scale: 0.95, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  exit={{ scale: 0.95, opacity: 0 }}
+                  transition={{ duration: 0.3, delay: 0.1 }}
+                  className="max-w-4xl w-full px-8 flex justify-between items-start gap-8"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                  }}
+                >
+                  {/* Left Content */}
+                  <motion.div
+                    initial={{ x: -20, opacity: 0 }}
+                    animate={{ x: 0, opacity: 1 }}
+                    exit={{ x: -20, opacity: 0 }}
+                    transition={{ duration: 0.4, delay: 0.1 }}
+                    className="flex-1 text-left max-w-2xl"
+                  >
+                    {/* Title */}
+                    <motion.h1
+                      initial={{ y: 20, opacity: 0 }}
+                      animate={{ y: 0, opacity: 1 }}
+                      exit={{ y: 20, opacity: 0 }}
+                      transition={{ delay: 0.15, duration: 0.3 }}
+                      className="text-5xl md:text-6xl font-bold text-[#C0392B] mb-6 leading-tight drop-shadow-lg"
+                    >
+                      {media.title}
+                    </motion.h1>
+
+                    {/* Year, Rating and Type Info */}
+                    <motion.div
+                      initial={{ y: 20, opacity: 0 }}
+                      animate={{ y: 0, opacity: 1 }}
+                      exit={{ y: 20, opacity: 0 }}
+                      transition={{ delay: 0.2, duration: 0.3 }}
+                      className="flex items-center justify-start gap-3 mb-8 text-white/80 flex-wrap"
+                    >
+                      {media.year && (
+                        <>
+                          <span className="text-xl font-semibold">{media.year}</span>
+                          <span className="w-1.5 h-1.5 bg-white/60 rounded-full"></span>
+                        </>
+                      )}
+                      {media.type === 'episode' && (
+                        <>
+                          <span className="text-xl font-semibold">
+                            S{String(media.season_number).padStart(2, '0')}E{String(media.episode_number).padStart(2, '0')}
+                          </span>
+                          <span className="w-1.5 h-1.5 bg-white/60 rounded-full"></span>
+                        </>
+                      )}
+                      {media.rating && (
+                        <span className="text-xl font-semibold text-yellow-500">{media.rating.toFixed(1)}</span>
+                      )}
+                      {media.genre_names && (
+                        <span className="text-xl font-semibold text-white/80">{media.genre_names?.[0]}</span>
+                      )}
+                    </motion.div>
+
+                    {/* Description */}
+                    {media.description && (
+                      <motion.p
+                        initial={{ y: 20, opacity: 0 }}
+                        animate={{ y: 0, opacity: 1 }}
+                        exit={{ y: 20, opacity: 0 }}
+                        transition={{ delay: 0.25, duration: 0.3 }}
+                        className="text-lg text-white/75 mb-8 line-clamp-4 leading-relaxed"
+                      >
+                        {media.description}
+                      </motion.p>
+                    )}
+
+                    {/* Progress Bar */}
+                    {duration > 0 && (
+                      <motion.div
+                        initial={{ y: 20, opacity: 0 }}
+                        animate={{ y: 0, opacity: 1 }}
+                        exit={{ y: 20, opacity: 0 }}
+                        transition={{ delay: 0.3, duration: 0.3 }}
+                        className="w-full h-1 bg-white/20 rounded-full mb-8"
+                      >
+                        <motion.div
+                          className="h-full bg-[#C0392B] rounded-full"
+                          initial={{ width: 0 }}
+                          animate={{ width: `${(currentTime / duration) * 100}%` }}
+                          transition={{ duration: 0.5 }}
+                        />
+                      </motion.div>
+                    )}
+
+                    {/* Time Info */}
+                    <motion.div
+                      initial={{ y: 20, opacity: 0 }}
+                      animate={{ y: 0, opacity: 1 }}
+                      exit={{ y: 20, opacity: 0 }}
+                      transition={{ delay: 0.3, duration: 0.3 }}
+                      className="text-white/60 text-sm"
+                    >
+                      <p className="font-medium">
+                        {formatTime(currentTime)} / {duration > 0 ? formatTime(duration) : 'Live'}
+                      </p>
+                    </motion.div>
+                  </motion.div>
+
+                  {/* Right Play Icon */}
+                  <motion.div
+                    initial={{ scale: 0.8, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    exit={{ scale: 0.8, opacity: 0 }}
+                    transition={{ delay: 0.1, duration: 0.3 }}
+                    className="flex-shrink-0 flex justify-center"
+                  >
+                    <motion.div
+                      className="bg-[#C0392B]/20 rounded-full p-6 backdrop-blur-sm hover:bg-[#C0392B]/30 transition-colors duration-200 cursor-pointer"
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const video = videoRef.current;
+                        if (video && video.paused) {
+                          // Just resume playback, don't change any state that might cause remount
+                          video.play().catch(() => {
+                            // Failed to resume video from play button
+                          });
+                        }
+                      }}
+                    >
+                      <Play className="w-16 h-16 fill-current text-[#C0392B]" />
+                    </motion.div>
+                  </motion.div>
+                </motion.div>
+
+                {/* Close Button */}
+                <motion.button
+                  initial={{ opacity: 0, scale: 0.8 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.8 }}
+                  transition={{ delay: 0.2, duration: 0.3 }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+
+                    handleClose();
+                  }}
+                  className="absolute top-6 right-6 bg-black/50 hover:bg-black/70 text-white rounded-full p-3 transition-all duration-200 hover:scale-110 border border-white/20 hover:border-red-500/50"
+                  title="Close Player (Esc)"
+                >
+                  <X className="w-5 h-5" />
+                </motion.button>
+
+                {/* Resume Hint */}
+                <motion.div
+                  initial={{ y: 30, opacity: 0 }}
+                  animate={{ y: 0, opacity: 1 }}
+                  exit={{ y: 30, opacity: 0 }}
+                  transition={{ delay: 0.35, duration: 0.3 }}
+                  className="absolute bottom-12 text-red-100 text-sm font-bold text-center"
+                >
+                  <p><span className="font-bold text-[#C0392B]">HOMEFLIX</span> Studios</p>
+                </motion.div>
               </motion.div>
-            </motion.div>
-          </motion.div>
-
-          {/* Close Button */}
-          <motion.button
-            initial={{ opacity: 0, scale: 0.8 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.8 }}
-            transition={{ delay: 0.2, duration: 0.3 }}
-            onClick={(e) => {
-              e.stopPropagation();
-
-              handleClose();
-            }}
-            className="absolute top-6 right-6 bg-black/50 hover:bg-black/70 text-white rounded-full p-3 transition-all duration-200 hover:scale-110 border border-white/20 hover:border-red-500/50"
-            title="Close Player (Esc)"
-          >
-            <X className="w-5 h-5" />
-          </motion.button>
-
-          {/* Resume Hint */}
-          <motion.div
-            initial={{ y: 30, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            exit={{ y: 30, opacity: 0 }}
-            transition={{ delay: 0.35, duration: 0.3 }}
-            className="absolute bottom-12 text-white/50 text-sm text-center"
-          >
-            <p>Click anywhere or press <span className="font-semibold text-white/70">SPACE</span> to resume</p>
-          </motion.div>
+            )}
+          </AnimatePresence>
         </motion.div>
       )}
     </AnimatePresence>
