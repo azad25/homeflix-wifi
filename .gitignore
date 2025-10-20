@@ -63,10 +63,6 @@ yarn-error.log*
 *.sln
 *.sw?
 
-# Database
-*.db
-*.sqlite
-
 # Media files (you might want to track these, but excluding by default)
 /backend/thumbnails/
 /backend/posters/
