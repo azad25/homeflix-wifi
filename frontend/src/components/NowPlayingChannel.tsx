@@ -49,6 +49,7 @@ const NowPlayingChannel: React.FC = () => {
   const [failedVideos, setFailedVideos] = useState<Set<string>>(new Set());
   const [newsItems, setNewsItems] = useState<NewsItem[]>([]);
   const [currentTime, setCurrentTime] = useState<string>("");
+  const [newsLoaded, setNewsLoaded] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const nextVideoRef = useRef<HTMLVideoElement>(null);
   const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -66,38 +67,52 @@ const NowPlayingChannel: React.FC = () => {
       const apiUrl = getApiUrl();
       console.log("Fetching news from:", `${apiUrl}/api/news/ticker`);
       const response = await fetch(`${apiUrl}/api/news/ticker`);
-      
+
       if (response.ok) {
         const data: NewsResponse = await response.json();
         console.log("News data received:", data);
+        console.log("Setting news items:", data.items?.length || 0, "items");
         setNewsItems(data.items || []);
+        setNewsLoaded(true);
       } else {
         console.error("News API response not ok:", response.status);
+        setNewsLoaded(true); // Still mark as loaded to show fallback
       }
     } catch (err) {
       console.error("Error fetching news:", err);
+      setNewsLoaded(true); // Mark as loaded to show fallback
     }
   }, []);
 
   // Update current time
   const updateClock = useCallback(() => {
     const now = new Date();
-    setCurrentTime(now.toLocaleTimeString('en-US', { 
-      hour12: false, 
-      hour: '2-digit', 
-      minute: '2-digit' 
+    setCurrentTime(now.toLocaleTimeString('en-US', {
+      hour12: false,
+      hour: '2-digit',
+      minute: '2-digit'
     }));
   }, []);
 
-  // Fetch videos from API
-  const fetchVideos = useCallback(async (page: number, random: boolean = false) => {
+  // Fetch videos from API with better error handling and randomization
+  const fetchVideos = useCallback(async (page: number, random: boolean = true) => {
     try {
       setIsLoading(true);
       const apiUrl = getApiUrl();
       const randomParam = random ? "&random=true" : "";
+
+      // Add timeout to prevent hanging requests
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000);
+
       const response = await fetch(
-        `${apiUrl}/api/now-playing/previews?page=${page}&limit=${VIDEOS_PER_BATCH}${randomParam}`
+        `${apiUrl}/api/now-playing/previews?page=${page}&limit=${VIDEOS_PER_BATCH}${randomParam}&t=${Date.now()}`,
+        {
+          signal: controller.signal
+        }
       );
+
+      clearTimeout(timeoutId);
 
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
@@ -106,50 +121,54 @@ const NowPlayingChannel: React.FC = () => {
       const data: NowPlayingResponse = await response.json();
 
       if (data.videos && data.videos.length > 0) {
-        // Convert relative URLs to full URLs
-        const videosWithFullUrls = data.videos.map(video => ({
+        // Convert relative URLs to full URLs and shuffle for better randomization
+        let videosWithFullUrls = data.videos.map(video => ({
           ...video,
           url: `${apiUrl}${video.url}`
         }));
 
+        // Always shuffle videos for better randomization
+        videosWithFullUrls = videosWithFullUrls.sort(() => Math.random() - 0.5);
+
         setVideos(videosWithFullUrls);
         setTotalVideos(data.total);
 
-        // Start from random video index if this is the initial load with random videos
-        if (random && videosWithFullUrls.length > 0) {
-          const randomIndex = Math.floor(Math.random() * videosWithFullUrls.length);
-          setCurrentVideoIndex(randomIndex);
-        } else {
-          setCurrentVideoIndex(0);
-        }
+        // Always start from random index for better variety
+        const randomIndex = Math.floor(Math.random() * videosWithFullUrls.length);
+        setCurrentVideoIndex(randomIndex);
 
         setError(null);
+
+        // Clear failed videos list periodically to allow retry
+        if (failedVideos.size > 10) {
+          setFailedVideos(new Set());
+        }
       } else {
         setError("No preview videos available");
       }
     } catch (err) {
       console.error("Error fetching videos:", err);
-      setError("Failed to load preview videos");
+      if (err instanceof Error && err.name === 'AbortError') {
+        setError("Request timeout - retrying...");
+      } else {
+        setError("Failed to load preview videos");
+      }
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [failedVideos.size]);
 
-  // Load next batch of videos
+  // Load next batch of videos with better randomization
   const loadNextBatch = useCallback(async () => {
-    const nextPage = currentPage + 1;
     const maxPage = Math.ceil(totalVideos / VIDEOS_PER_BATCH);
 
-    if (nextPage > maxPage) {
-      // Loop back to random page for variety
-      const randomPage = Math.floor(Math.random() * Math.max(1, maxPage)) + 1;
-      setCurrentPage(randomPage);
-      await fetchVideos(randomPage, true); // Get random videos
-    } else {
-      setCurrentPage(nextPage);
-      await fetchVideos(nextPage, Math.random() > 0.7); // 30% chance of random videos
-    }
-  }, [currentPage, totalVideos, fetchVideos]);
+    // Always use random pages for better variety
+    const randomPage = Math.floor(Math.random() * Math.max(1, maxPage)) + 1;
+    setCurrentPage(randomPage);
+
+    // Always fetch with randomization enabled
+    await fetchVideos(randomPage, true);
+  }, [totalVideos, fetchVideos]);
 
   // Skip to next valid video
   const skipToNextVideo = useCallback(async () => {
@@ -315,11 +334,23 @@ const NowPlayingChannel: React.FC = () => {
 
   const currentVideo = getCurrentVideo();
 
-  // Initialize with random videos
+  // Initialize with random videos - more robust initialization
   useEffect(() => {
-    // Start with random page and random videos
-    const randomPage = Math.floor(Math.random() * 10) + 1; // Random page between 1-10
-    fetchVideos(randomPage, true); // Request random videos
+    const initializeVideos = async () => {
+      try {
+        // Start with random page and random videos
+        const randomPage = Math.floor(Math.random() * 20) + 1; // Random page between 1-20 for more variety
+        await fetchVideos(randomPage, true); // Request random videos
+      } catch (error) {
+        console.error('Failed to initialize videos:', error);
+        // Retry with page 1 if random page fails
+        setTimeout(() => {
+          fetchVideos(1, true);
+        }, 2000);
+      }
+    };
+
+    initializeVideos();
   }, [fetchVideos]);
 
   // Setup video event listeners with simplified error handling
@@ -349,7 +380,10 @@ const NowPlayingChannel: React.FC = () => {
       if (currentVideo) {
         setFailedVideos((prev: Set<string>) => new Set([...prev, currentVideo.id]));
       }
-      skipToNextVideo();
+      // Add small delay to prevent rapid error loops
+      setTimeout(() => {
+        skipToNextVideo();
+      }, 1000);
     };
 
     const handleStalled = () => {
@@ -364,7 +398,23 @@ const NowPlayingChannel: React.FC = () => {
           setFailedVideos((prev: Set<string>) => new Set([...prev, currentVideo.id]));
         }
         skipToNextVideo();
-      }, 8000); // 8 seconds timeout
+      }, 5000); // Reduced to 5 seconds for faster recovery
+    };
+
+    const handleWaiting = () => {
+      console.log('Video waiting for data...');
+      // Set a timeout for waiting state as well
+      if (videoErrorTimeoutRef.current) {
+        clearTimeout(videoErrorTimeoutRef.current);
+      }
+
+      videoErrorTimeoutRef.current = setTimeout(() => {
+        console.log('Video waiting too long, skipping...');
+        if (currentVideo) {
+          setFailedVideos((prev: Set<string>) => new Set([...prev, currentVideo.id]));
+        }
+        skipToNextVideo();
+      }, 10000); // 10 seconds for waiting
     };
 
     const handleLoadStart = () => {
@@ -379,6 +429,7 @@ const NowPlayingChannel: React.FC = () => {
     video.addEventListener("pause", handlePause);
     video.addEventListener("ended", handleVideoEnd);
     video.addEventListener("stalled", handleStalled);
+    video.addEventListener("waiting", handleWaiting);
     video.addEventListener("error", handleError);
 
     return () => {
@@ -388,6 +439,7 @@ const NowPlayingChannel: React.FC = () => {
       video.removeEventListener("pause", handlePause);
       video.removeEventListener("ended", handleVideoEnd);
       video.removeEventListener("stalled", handleStalled);
+      video.removeEventListener("waiting", handleWaiting);
       video.removeEventListener("error", handleError);
     };
   }, [handleVideoEnd, skipToNextVideo, currentVideo]);
@@ -413,14 +465,20 @@ const NowPlayingChannel: React.FC = () => {
     };
   }, [handleKeyDown]);
 
-  // Setup news fetching
+  // Setup news fetching with better reliability
   useEffect(() => {
     // Initial fetch
     fetchNews();
-    
-    // Fetch news every 2 minutes
-    newsIntervalRef.current = setInterval(fetchNews, 2 * 60 * 1000);
-    
+
+    // Fetch news every 90 seconds for more frequent updates
+    newsIntervalRef.current = setInterval(() => {
+      try {
+        fetchNews();
+      } catch (error) {
+        console.error('Error in news fetch interval:', error);
+      }
+    }, 90 * 1000);
+
     return () => {
       if (newsIntervalRef.current) {
         clearInterval(newsIntervalRef.current);
@@ -432,10 +490,10 @@ const NowPlayingChannel: React.FC = () => {
   useEffect(() => {
     // Initial update
     updateClock();
-    
+
     // Update every second
     clockIntervalRef.current = setInterval(updateClock, 1000);
-    
+
     return () => {
       if (clockIntervalRef.current) {
         clearInterval(clockIntervalRef.current);
@@ -443,16 +501,17 @@ const NowPlayingChannel: React.FC = () => {
     };
   }, [updateClock]);
 
-  // Enhanced health check system for 24/7 operation
+  // Enhanced health check system for 24/7 operation with crash prevention
   useEffect(() => {
     let lastCurrentTime = 0;
     let stuckCount = 0;
-    
-    const healthCheck = () => {
-      const video = videoRef.current;
-      if (!video || !currentVideo) return;
+    let errorCount = 0;
 
+    const healthCheck = () => {
       try {
+        const video = videoRef.current;
+        if (!video || !currentVideo) return;
+
         const currentTime = video.currentTime;
         const duration = video.duration;
         const readyState = video.readyState;
@@ -460,7 +519,7 @@ const NowPlayingChannel: React.FC = () => {
         // Check if video is stuck at the same position
         if (currentTime === lastCurrentTime && !video.paused && !video.ended) {
           stuckCount++;
-          if (stuckCount >= 3) { // 30 seconds of being stuck
+          if (stuckCount >= 2) { // 20 seconds of being stuck (reduced from 30)
             console.log('Health check: Video stuck, skipping...');
             skipToNextVideo();
             stuckCount = 0;
@@ -480,26 +539,50 @@ const NowPlayingChannel: React.FC = () => {
           });
         }
 
-        // Check for network stalls
-        if (readyState < 3 && currentTime > 0) {
-          console.log('Health check: Network stall detected, may skip soon...');
+        // Check for network stalls with timeout
+        if (readyState < 2 && currentTime === 0) {
+          console.log('Health check: Video not loading, may skip soon...');
         }
 
         // If video duration is very short or invalid, skip it
-        if (duration && duration < 3) {
-          console.log('Health check: Video too short, skipping...');
+        if (duration && (duration < 3 || isNaN(duration) || !isFinite(duration))) {
+          console.log('Health check: Invalid video duration, skipping...');
           skipToNextVideo();
         }
 
-        // Memory cleanup - force garbage collection periodically
-        if (Math.random() < 0.1) { // 10% chance each check
+        // Reset error count on successful check
+        errorCount = 0;
+
+        // Aggressive memory cleanup for 24/7 operation
+        if (Math.random() < 0.2) { // 20% chance each check
+          // Force garbage collection if available
           if (window.gc) {
             window.gc();
+          }
+
+          // Clear browser caches periodically
+          if ('caches' in window) {
+            caches.keys().then(names => {
+              names.forEach(name => {
+                if (name.includes('video') || name.includes('media')) {
+                  caches.delete(name);
+                }
+              });
+            }).catch(() => { });
           }
         }
 
       } catch (error) {
+        errorCount++;
         console.error('Health check error:', error);
+
+        // If too many errors, reload the page to prevent crash
+        if (errorCount >= 5) {
+          console.error('Too many health check errors, reloading page...');
+          window.location.reload();
+          return;
+        }
+
         skipToNextVideo();
       }
     };
@@ -586,19 +669,59 @@ const NowPlayingChannel: React.FC = () => {
     }
   }, [currentVideo, failedVideos, skipToNextVideo]);
 
-  // Memory management and error recovery
+  // Enhanced error recovery and crash prevention
   useEffect(() => {
+    let errorCount = 0;
+    const maxErrors = 10;
+
     const handleError = (event: ErrorEvent) => {
+      errorCount++;
       console.error('Global error caught:', event.error);
+
+      // If too many errors, reload the page
+      if (errorCount >= maxErrors) {
+        console.error('Too many errors, reloading page for stability...');
+        window.location.reload();
+        return;
+      }
+
+      // Try to recover by skipping to next video
+      try {
+        skipToNextVideo();
+      } catch (e) {
+        console.error('Failed to skip video during error recovery:', e);
+      }
+
       // Don't let errors crash the app
       event.preventDefault();
     };
 
     const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
+      errorCount++;
       console.error('Unhandled promise rejection:', event.reason);
+
+      // If too many rejections, reload the page
+      if (errorCount >= maxErrors) {
+        console.error('Too many promise rejections, reloading page for stability...');
+        window.location.reload();
+        return;
+      }
+
+      // Try to recover
+      try {
+        skipToNextVideo();
+      } catch (e) {
+        console.error('Failed to skip video during promise rejection recovery:', e);
+      }
+
       // Don't let promise rejections crash the app
       event.preventDefault();
     };
+
+    // Reset error count periodically
+    const resetErrorCount = setInterval(() => {
+      errorCount = Math.max(0, errorCount - 1);
+    }, 60000); // Reduce error count by 1 every minute
 
     window.addEventListener('error', handleError);
     window.addEventListener('unhandledrejection', handleUnhandledRejection);
@@ -606,28 +729,63 @@ const NowPlayingChannel: React.FC = () => {
     return () => {
       window.removeEventListener('error', handleError);
       window.removeEventListener('unhandledrejection', handleUnhandledRejection);
+      clearInterval(resetErrorCount);
     };
-  }, []);
+  }, [skipToNextVideo]);
 
-  // Periodic memory cleanup
+  // Enhanced memory cleanup and crash prevention
   useEffect(() => {
     const memoryCleanup = () => {
-      // Clear failed videos list if it gets too large
-      if (failedVideos.size > 50) {
-        console.log('Clearing failed videos list for memory management');
-        setFailedVideos(new Set());
-      }
+      try {
+        // Clear failed videos list if it gets too large
+        if (failedVideos.size > 20) { // Reduced threshold
+          console.log('Clearing failed videos list for memory management');
+          setFailedVideos(new Set());
+        }
 
-      // Force garbage collection if available
-      if (window.gc) {
-        window.gc();
+        // Force garbage collection if available
+        if (window.gc) {
+          window.gc();
+        }
+
+        // Clear any stale video elements
+        const video = videoRef.current;
+        if (video && video.readyState === 0) {
+          video.load();
+        }
+
+        // Monitor memory usage and reload if too high
+        if ('memory' in performance) {
+          const memInfo = (performance as any).memory;
+          if (memInfo.usedJSHeapSize > memInfo.jsHeapSizeLimit * 0.9) {
+            console.warn('High memory usage detected, reloading page...');
+            window.location.reload();
+          }
+        }
+
+      } catch (error) {
+        console.error('Memory cleanup error:', error);
       }
     };
 
-    const cleanupInterval = setInterval(memoryCleanup, 5 * 60 * 1000); // Every 5 minutes
+    const cleanupInterval = setInterval(memoryCleanup, 3 * 60 * 1000); // Every 3 minutes
 
     return () => clearInterval(cleanupInterval);
   }, [failedVideos.size]);
+
+  // Page reload safety net for long-running sessions
+  useEffect(() => {
+    const reloadInterval = setInterval(() => {
+      const uptime = Date.now() - performance.timing.navigationStart;
+      // Reload after 2 hours to prevent memory leaks and crashes
+      if (uptime > 2 * 60 * 60 * 1000) {
+        console.log('Reloading page after 2 hours for stability...');
+        window.location.reload();
+      }
+    }, 10 * 60 * 1000); // Check every 10 minutes
+
+    return () => clearInterval(reloadInterval);
+  }, []);
 
   if (isLoading && videos.length === 0) {
     return (
@@ -813,7 +971,7 @@ const NowPlayingChannel: React.FC = () => {
         </AnimatePresence>
 
         {/* Breaking News Ticker - Always visible overlay */}
-        <BreakingNewsTicker 
+        <BreakingNewsTicker
           newsItems={newsItems}
           currentTime={currentTime}
           isFullscreen={true}
@@ -829,7 +987,7 @@ const NowPlayingChannel: React.FC = () => {
                 <button
                   onClick={() => navigate.push("/")}
                   className="text-red-500 hover:text-red-400 text-xl lg:text-2xl font-bold tracking-wider drop-shadow-lg transition-colors duration-200 cursor-pointer">
-                HomeFlix TV  
+                  HomeFlix TV
                 </button></h2>
               <p className="text-gray-400 text-xs lg:text-sm truncate">
                 Live streaming • {totalVideos} videos in rotation • Tap for controls

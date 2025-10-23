@@ -98,7 +98,9 @@ type ThumbnailServiceInterface interface {
 // PosterServiceInterface defines the interface for poster operations
 type PosterServiceInterface interface {
 	DownloadPoster(title string, mediaID uint) error
+	DownloadPosterWithPath(title string, mediaID uint) (string, error)
 	GetPosterPath(mediaID uint, title string) string
+	SetTMDBService(tmdbService TMDBServiceInterface)
 }
 
 // GeminiServiceInterface defines the interface for AI metadata operations
@@ -126,6 +128,9 @@ type ALACAudioServiceInterface interface {
 type TMDBServiceInterface interface {
 	GenerateMediaMetadata(path, title string) (*MediaMetadata, error)
 	CleanTitle(title string) string
+	DownloadPoster(title string, mediaID uint, posterDir string) (string, error)
+	GetPosterURL(posterPath string, size string) string
+	TestConnection() error
 }
 
 // RecommendationServiceInterface defines the interface for recommendation operations

@@ -5,6 +5,7 @@ import { Play, Info, Plus, Volume2, VolumeX, ThumbsUp } from 'lucide-react';
 import Image from 'next/image';
 import { Media } from '../types/media';
 import { getApiUrl } from '../lib/api';
+import { useImageWithFallback } from '../lib/imageUtils';
 import UltraFastPreview from './UltraFastPreview';
 
 interface HoverVideoCardProps {
@@ -23,16 +24,13 @@ export default function HoverVideoCard({
   const [isHovered, setIsHovered] = useState(false);
   const [showVideo, setShowVideo] = useState(false);
   const [isVideoLoaded, setIsVideoLoaded] = useState(false);
+  const [imageError, setImageError] = useState(false);
+  const [fallbackError, setFallbackError] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const hideTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  const apiUrl = getApiUrl();
-  const getThumbnailUrl = () => {
-    // Always prioritize thumbnails first for consistent display
-    return `${apiUrl}/api/thumbnails/${media.id}`;
-  };
-  const thumbnailUrl = getThumbnailUrl();
+  const { primarySrc, fallbackSrc } = useImageWithFallback(media.id);
   
 
 
@@ -100,29 +98,37 @@ export default function HoverVideoCard({
     >
       {/* Base Card */}
       <div className="relative w-full aspect-video bg-gray-900 rounded-lg overflow-hidden">
-        {/* Thumbnail */}
-        <Image
-          src={thumbnailUrl}
-          alt={media.title}
-          fill
-          sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
-          className={`object-cover transition-opacity duration-300 ${
-            showVideo && isVideoLoaded ? 'opacity-0' : 'opacity-100'
-          }`}
-          loading="lazy"
-          onError={(e) => {
-            const target = e.target as HTMLImageElement;
-            // Create a gradient background as fallback
-            target.style.display = 'none';
-            const parent = target.parentElement;
-            if (parent && !parent.querySelector('.fallback-bg')) {
-              const fallback = document.createElement('div');
-              fallback.className = 'fallback-bg absolute inset-0 bg-gradient-to-br from-gray-700 via-gray-800 to-gray-900 flex items-center justify-center';
-              fallback.innerHTML = `<div class="text-white text-center"><div class="text-2xl mb-2">🎬</div><div class="text-sm">${media.title}</div></div>`;
-              parent.appendChild(fallback);
-            }
-          }}
-        />
+        {/* Poster/Thumbnail */}
+        {!fallbackError ? (
+          <Image
+            src={primarySrc}
+            alt={media.title}
+            fill
+            sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+            className={`object-cover transition-opacity duration-300 ${
+              showVideo && isVideoLoaded ? 'opacity-0' : 'opacity-100'
+            }`}
+            loading="lazy"
+            onError={(e) => {
+              const img = e.currentTarget;
+              if (img.src === primarySrc && !imageError) {
+                // First error: poster failed, try thumbnail
+                setImageError(true);
+                img.src = fallbackSrc;
+              } else if (!fallbackError) {
+                // Second error: thumbnail also failed
+                setFallbackError(true);
+              }
+            }}
+          />
+        ) : (
+          <div className="absolute inset-0 bg-gradient-to-br from-gray-700 via-gray-800 to-gray-900 flex items-center justify-center">
+            <div className="text-white text-center">
+              <div className="text-2xl mb-2">🎬</div>
+              <div className="text-sm">{media.title}</div>
+            </div>
+          </div>
+        )}
 
         {/* Ultra-Fast Video Preview */}
         {showVideo && (

@@ -7,6 +7,7 @@ import LazyImage from './LazyImage';
 import LazyVideo from './LazyVideo';
 import { Media } from '../types/media';
 import { getApiUrl } from '../lib/api';
+import { useImageWithFallback } from '../lib/imageUtils';
 import { addToWishlist, removeFromWishlist, isInWishlist } from '../lib/wishlist';
 
 interface NetflixCardProps {
@@ -38,11 +39,7 @@ const NetflixCard: React.FC<NetflixCardProps> = ({
   const hideTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const apiUrl = getApiUrl();
-
-  const getThumbnailUrl = () => {
-    // Always try thumbnails first for better compatibility
-    return `${apiUrl}/api/thumbnails/${media.id}`;
-  };
+  const { primarySrc, fallbackSrc } = useImageWithFallback(media.id);
 
 
   const getPreviewUrl = () => {
@@ -156,7 +153,13 @@ const NetflixCard: React.FC<NetflixCardProps> = ({
   };
 
   const handleImageError = () => {
-    setImageError(true);
+    if (!imageError) {
+      // First error: poster failed, try thumbnail
+      setImageError(true);
+    } else {
+      // Second error: thumbnail also failed
+      setImageError(true);
+    }
   };
 
   const handleWishlistToggle = (e: React.MouseEvent) => {
@@ -223,10 +226,10 @@ const NetflixCard: React.FC<NetflixCardProps> = ({
           position: isHovered ? 'relative' : 'relative',
         }}
       >
-        {/* Thumbnail Image with Lazy Loading */}
+        {/* Poster/Thumbnail Image with Lazy Loading */}
         {!imageError ? (
           <LazyImage
-            src={getThumbnailUrl()}
+            src={primarySrc}
             alt={media.title}
             fill
             sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
@@ -236,7 +239,7 @@ const NetflixCard: React.FC<NetflixCardProps> = ({
             onError={handleImageError}
             loaderSize="medium"
             showLoader={true}
-            fallbackSrc={getThumbnailUrl()}
+            fallbackSrc={fallbackSrc}
           />
         ) : (
           <div className="w-full h-full bg-gradient-to-br from-gray-700 via-gray-800 to-gray-900 flex items-center justify-center">

@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"encoding/xml"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"log"
 	"net/http"
 	"regexp"
@@ -52,8 +52,8 @@ const (
 	HeadlinesURL     = NewsAPIBaseURL + "/headlines?api_token=" + NewsAPIToken + "&locale=us&language=en"
 	
 	// RSS Feed URLs
-	RSSFeedURL1      = "https://rss.app/feeds/0GoThGUIM3yIxXms.xml"
-	RSSFeedURL2      = "https://rss.app/feeds/A7hkGBbRTZX4xtXj.xml"
+	RSSFeedURL1      = "https://rss.app/feeds/rO56tNFt146qV6bX.xml"
+	RSSFeedURL2      = "https://rss.app/feeds/tg57Lt7HK6HsAAQf.xml"
 )
 
 // RSS Feed structures
@@ -127,7 +127,7 @@ func (ns *NewsService) Stop() {
 }
 
 func (ns *NewsService) backgroundUpdater() {
-	ticker := time.NewTicker(5 * time.Minute) // Update every 5 minutes
+	ticker := time.NewTicker(3 * time.Minute) // Update every 3 minutes for more frequent updates
 	defer ticker.Stop()
 	
 	for {
@@ -147,15 +147,12 @@ func (ns *NewsService) fetchAllNews() {
 	newArticles := make([]NewsArticle, 0)
 	articlesChan := make(chan []NewsArticle, 10)
 	
-	// Fetch from TheNewsAPI.com endpoints and RSS feeds
+	// Fetch from RSS feeds only (removed NewsAPI)
 	sources := []struct {
 		name string
 		url  string
 		fetcher func(string) ([]NewsArticle, error)
 	}{
-		{"Top", TopNewsURL, ns.fetchNewsAPI},
-		{"All", AllNewsURL, ns.fetchNewsAPI},
-		{"Headlines", HeadlinesURL, ns.fetchHeadlinesAPI},
 		{"RSS-1", RSSFeedURL1, ns.fetchRSSFeed},
 		{"RSS-2", RSSFeedURL2, ns.fetchRSSFeed},
 	}
@@ -296,7 +293,7 @@ func (ns *NewsService) fetchNewsAPI(url string) ([]NewsArticle, error) {
 		return nil, fmt.Errorf("HTTP error: %d", resp.StatusCode)
 	}
 	
-	body, err := ioutil.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}
@@ -376,7 +373,7 @@ func (ns *NewsService) fetchHeadlinesAPI(url string) ([]NewsArticle, error) {
 		return nil, fmt.Errorf("HTTP error: %d", resp.StatusCode)
 	}
 	
-	body, err := ioutil.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}
@@ -455,7 +452,7 @@ func (ns *NewsService) fetchRSSFeed(url string) ([]NewsArticle, error) {
 		return nil, fmt.Errorf("HTTP error: %d", resp.StatusCode)
 	}
 	
-	body, err := ioutil.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}
@@ -568,33 +565,48 @@ func (ns *NewsService) generateFallbackNews() []NewsArticle {
 func (ns *NewsService) generateRotatingFallbackNews(count int) []NewsArticle {
 	now := time.Now()
 	
-	// Rotating news headlines for TV channel
+	// Expanded rotating news headlines for TV channel with more variety
 	newsTemplates := []string{
 		"Global markets show mixed results amid economic uncertainty",
-		"Technology sector reports strong quarterly earnings",
-		"International summit reaches breakthrough agreement",
-		"Climate change initiatives gain momentum worldwide",
-		"Space exploration mission achieves major milestone",
-		"Healthcare breakthrough offers new treatment options",
-		"Renewable energy adoption accelerates globally",
-		"Cybersecurity measures enhanced following recent threats",
-		"Educational reforms implemented in major cities",
-		"Transportation infrastructure receives significant investment",
-		"Scientific research reveals important discoveries",
-		"Cultural exchange programs expand internationally",
-		"Environmental protection efforts show positive results",
-		"Innovation in sustainable agriculture shows promise",
-		"Digital transformation accelerates across industries",
-		"Breaking: Major development in artificial intelligence research",
-		"Economic update: Financial markets respond to policy changes",
-		"International relations: New diplomatic agreements reached",
-		"Weather alert: Severe conditions expected in multiple regions",
-		"Sports update: Championship results announced",
-		"Entertainment news: Major film festival announces winners",
-		"Health advisory: New medical guidelines released",
-		"Travel update: International flight schedules adjusted",
-		"Business news: Major corporate merger announced",
-		"Science breakthrough: Researchers make significant discovery",
+		"Technology sector reports strong quarterly earnings breakthrough",
+		"International summit reaches historic climate agreement",
+		"Climate change initiatives gain unprecedented momentum worldwide",
+		"Space exploration mission achieves groundbreaking milestone",
+		"Healthcare breakthrough offers revolutionary treatment options",
+		"Renewable energy adoption accelerates across all continents",
+		"Cybersecurity measures enhanced following emerging threats",
+		"Educational reforms implemented in major metropolitan areas",
+		"Transportation infrastructure receives massive investment boost",
+		"Scientific research reveals game-changing discoveries",
+		"Cultural exchange programs expand to new international partners",
+		"Environmental protection efforts show remarkable positive results",
+		"Innovation in sustainable agriculture demonstrates promising outcomes",
+		"Digital transformation accelerates across multiple industries",
+		"Breaking: Major breakthrough in artificial intelligence research",
+		"Economic update: Financial markets respond to new policy changes",
+		"International relations: Groundbreaking diplomatic agreements reached",
+		"Weather alert: Severe weather conditions expected nationwide",
+		"Sports update: Championship finals produce stunning results",
+		"Entertainment news: Major film festival announces award winners",
+		"Health advisory: Important new medical guidelines released",
+		"Travel update: International flight schedules undergo adjustments",
+		"Business news: Significant corporate merger creates industry leader",
+		"Science breakthrough: Researchers achieve remarkable discovery",
+		"Technology update: New innovations reshape digital landscape",
+		"Global economy: Trade agreements boost international commerce",
+		"Environmental news: Conservation efforts yield positive outcomes",
+		"Medical research: Clinical trials show promising results",
+		"Space technology: Satellite missions expand communication networks",
+		"Energy sector: Clean technology adoption reaches new heights",
+		"Education news: Online learning platforms gain widespread acceptance",
+		"Infrastructure: Smart city initiatives launch in major urban centers",
+		"Innovation: Startup companies introduce revolutionary products",
+		"Agriculture: Precision farming techniques increase crop yields",
+		"Transportation: Electric vehicle adoption accelerates globally",
+		"Communications: 5G networks expand to rural communities",
+		"Manufacturing: Automation technologies transform production lines",
+		"Finance: Digital banking services reach underserved populations",
+		"Healthcare: Telemedicine platforms improve patient access",
 	}
 	
 	var articles []NewsArticle

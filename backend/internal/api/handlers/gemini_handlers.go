@@ -181,26 +181,67 @@ func UpdateMediaWithTMDB(mediaService *services.MediaService, tmdbService *servi
 			return
 		}
 
+		// Parse request body for enhanced options
+		var requestBody struct {
+			SearchTitle    string   `json:"searchTitle"`
+			PreserveFields []string `json:"preserveFields"`
+		}
+		
+		// Try to parse JSON body, but don't fail if it's empty (for backward compatibility)
+		if err := c.ShouldBindJSON(&requestBody); err != nil {
+			// If JSON parsing fails, use default behavior
+			requestBody.SearchTitle = media.Title
+			requestBody.PreserveFields = []string{}
+		}
+
+		// Use custom search title if provided, otherwise use media title
+		searchTitle := media.Title
+		if requestBody.SearchTitle != "" {
+			searchTitle = requestBody.SearchTitle
+		}
+
+		// Create metadata options
+		options := &services.MetadataOptions{
+			SearchTitle:    searchTitle,
+			PreserveFields: requestBody.PreserveFields,
+		}
+
 		// Try TMDB first, fallback to filename parsing if it fails
-		metadata, err := tmdbService.GenerateMediaMetadata(media.FilePath, media.Title)
+		metadata, err := tmdbService.GenerateMediaMetadataWithOptions(media.FilePath, media.Title, options)
 		if err != nil {
 			// Fallback: create metadata from filename
 			metadata = createFallbackMetadata(media.FilePath, media.Title)
 		}
 
-		// Update media with TMDB data
-		media.Title = metadata.Title
-		media.Tagline = metadata.Tagline
-		media.ShortDesc = metadata.ShortDesc
-		media.LongDesc = metadata.LongDesc
-		media.Description = metadata.Description
-		media.Year = metadata.Year
-		media.Country = metadata.Country
-		media.Language = metadata.Language
-		media.Rating = metadata.Rating
-		media.Stars = metadata.Stars
-		media.Director = metadata.Directors
-		media.GenreNames = metadata.Genres
+		// Update media with TMDB data, respecting preserved fields
+		if !contains(requestBody.PreserveFields, "title") {
+			media.Title = metadata.Title
+		}
+		if !contains(requestBody.PreserveFields, "tagline") {
+			media.Tagline = metadata.Tagline
+		}
+		if !contains(requestBody.PreserveFields, "description") {
+			media.ShortDesc = metadata.ShortDesc
+			media.LongDesc = metadata.LongDesc
+			media.Description = metadata.Description
+		}
+		if !contains(requestBody.PreserveFields, "year") {
+			media.Year = metadata.Year
+		}
+		if !contains(requestBody.PreserveFields, "country") {
+			media.Country = metadata.Country
+		}
+		if !contains(requestBody.PreserveFields, "language") {
+			media.Language = metadata.Language
+		}
+		if !contains(requestBody.PreserveFields, "rating") {
+			media.Rating = metadata.Rating
+		}
+		if !contains(requestBody.PreserveFields, "genre_names") {
+			media.Stars = metadata.Stars
+			media.Director = metadata.Directors
+			media.GenreNames = metadata.Genres
+		}
 		
 		// Update cast and crew information
 		media.Cast = metadata.Cast
@@ -410,4 +451,14 @@ func generateBasicDescription(title string, year int) string {
 		return title + " (" + strconv.Itoa(year) + ")"
 	}
 	return title
+}
+
+// contains checks if a slice contains a string
+func contains(slice []string, item string) bool {
+	for _, s := range slice {
+		if s == item {
+			return true
+		}
+	}
+	return false
 }

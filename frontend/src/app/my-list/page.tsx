@@ -42,9 +42,9 @@ export default function MyListPage() {
       const wishlistMedia = await fetchWishlistMedia(apiUrl);
       setWatchlist(wishlistMedia);
       
-      // Preload assets for better performance
+      // Preload assets for better performance (poster first, then thumbnail)
       if (wishlistMedia.length > 0) {
-        preloadAssets(wishlistMedia, ['thumbnail']);
+        preloadAssets(wishlistMedia, ['poster', 'thumbnail']);
       }
       
       setLoading(false);

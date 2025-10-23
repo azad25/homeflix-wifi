@@ -22,6 +22,12 @@ type TMDBService struct {
 	httpClient *http.Client
 }
 
+// MetadataOptions provides options for metadata generation
+type MetadataOptions struct {
+	SearchTitle    string   // Custom title to use for TMDB search
+	PreserveFields []string // Fields to preserve from manual editing
+}
+
 type TMDBSearchResponse struct {
 	Results []TMDBMovie `json:"results"`
 }
@@ -112,14 +118,20 @@ type TMDBCrew struct {
 func NewTMDBService() *TMDBService {
 	apiKey := os.Getenv("TMDB_API_KEY")
 	if apiKey == "" {
-		fmt.Println("Warning: TMDB_API_KEY not set")
+		log.Printf("⚠️ TMDB_API_KEY environment variable not set")
+		log.Printf("📖 To enable TMDB poster downloads:")
+		log.Printf("   1. Get a free API key from https://www.themoviedb.org/settings/api")
+		log.Printf("   2. Set TMDB_API_KEY environment variable")
+		log.Printf("   3. Restart the server")
+	} else {
+		log.Printf("✅ TMDB service initialized with API key")
 	}
 
 	return &TMDBService{
 		apiKey:  apiKey,
 		baseURL: "https://api.themoviedb.org/3",
 		httpClient: &http.Client{
-			Timeout: 10 * time.Second,
+			Timeout: 15 * time.Second, // Increased timeout for poster downloads
 		},
 	}
 }
@@ -215,10 +227,27 @@ func (t *TMDBService) GetMovieDetails(movieID int) (*TMDBMovieDetails, error) {
 }
 
 func (t *TMDBService) GenerateMediaMetadata(filePath, title string) (*interfaces.MediaMetadata, error) {
+	return t.GenerateMediaMetadataWithOptions(filePath, title, nil)
+}
+
+// GenerateMediaMetadataWithOptions generates metadata with options for preserving fields and custom search
+func (t *TMDBService) GenerateMediaMetadataWithOptions(filePath, title string, options *MetadataOptions) (*interfaces.MediaMetadata, error) {
+	// Default options if none provided
+	if options == nil {
+		options = &MetadataOptions{}
+	}
+
+	// Use custom search title if provided, otherwise use the original title
+	searchTitle := title
+	if options.SearchTitle != "" {
+		searchTitle = options.SearchTitle
+		log.Printf("🔍 Using custom search title: '%s'", searchTitle)
+	}
+
 	// Check if we received a bad title with "Unknown Movie" prefix
 	// If so, use the original filename instead
-	originalTitle := title
-	if strings.HasPrefix(title, "Unknown Movie") {
+	originalTitle := searchTitle
+	if strings.HasPrefix(searchTitle, "Unknown Movie") {
 		log.Printf("⚠️ Detected bad title with 'Unknown Movie' prefix, using filename instead")
 		originalTitle = filepath.Base(filePath)
 	}
@@ -352,10 +381,17 @@ func (t *TMDBService) GenerateMediaMetadata(filePath, title string) (*interfaces
 	// Detect quality from filename
 	quality := t.detectQuality(filePath)
 
-	// Create final title with year if not already present
+	// Create final title - preserve original if it's in preserve fields, otherwise use TMDB title
 	finalTitle := details.Title
-	if year > 0 && !strings.Contains(finalTitle, strconv.Itoa(year)) {
-		finalTitle = fmt.Sprintf("%s (%d)", finalTitle, year)
+	if options != nil && contains(options.PreserveFields, "title") {
+		// Keep the original title if it's being preserved
+		finalTitle = title
+		log.Printf("🔒 Preserving original title: '%s'", finalTitle)
+	} else {
+		// Use TMDB title with year if not already present
+		if year > 0 && !strings.Contains(finalTitle, strconv.Itoa(year)) {
+			finalTitle = fmt.Sprintf("%s (%d)", finalTitle, year)
+		}
 	}
 
 	metadata := &interfaces.MediaMetadata{
@@ -398,6 +434,187 @@ func (t *TMDBService) GenerateMediaMetadata(filePath, title string) (*interfaces
 		details.Title, budgetFormatted, boxOffice, details.VoteAverage, details.Runtime)
 
 	return metadata, nil
+}
+
+// DownloadPoster downloads a poster from TMDB for the given title and saves it locally
+func (t *TMDBService) DownloadPoster(title string, mediaID uint, posterDir string) (string, error) {
+	if t.apiKey == "" {
+		return "", fmt.Errorf("TMDB API key not configured")
+	}
+
+	log.Printf("🎨 TMDB: Searching for poster for '%s'", title)
+
+	// Extract year from title for better search accuracy
+	year := t.extractYear(title)
+	cleanTitle := t.CleanTitle(title)
+	searchTitle := t.RemoveYearFromTitle(cleanTitle)
+
+	log.Printf("🔍 TMDB: Search params - Title: '%s', Year: %d", searchTitle, year)
+
+	// Search for the movie
+	movie, err := t.SearchMovie(searchTitle, year)
+	if err != nil {
+		// Try fallback search without year
+		movie, err = t.SearchMovie(searchTitle, 0)
+		if err != nil {
+			return "", fmt.Errorf("movie not found in TMDB: %v", err)
+		}
+	}
+
+	log.Printf("✅ TMDB: Found movie - ID: %d, Title: '%s', Poster: '%s'", 
+		movie.ID, movie.Title, movie.PosterPath)
+
+	// Check if movie has a poster
+	if movie.PosterPath == "" {
+		return "", fmt.Errorf("no poster available for movie: %s", movie.Title)
+	}
+
+	// Create poster directories if they don't exist
+	if err := os.MkdirAll(posterDir, 0755); err != nil {
+		return "", fmt.Errorf("failed to create poster directory: %v", err)
+	}
+	if err := os.MkdirAll("./posters", 0755); err != nil {
+		return "", fmt.Errorf("failed to create root poster directory: %v", err)
+	}
+
+	// Generate filename using cleaned title
+	cleanTitleForFile := t.cleanTitleForFilename(cleanTitle)
+	filename := fmt.Sprintf("poster_%s.jpg", cleanTitleForFile)
+	
+	// Try root folder first (preferred location)
+	rootPosterPath := filepath.Join("./posters", filename)
+	backendPosterPath := filepath.Join(posterDir, filename)
+
+	// Construct full poster URL (using w500 for good quality)
+	posterURL := "https://image.tmdb.org/t/p/w500" + movie.PosterPath
+	log.Printf("📥 TMDB: Downloading poster from: %s", posterURL)
+
+	// Try to save to root folder first
+	if err := t.savePosterToFile(posterURL, rootPosterPath); err == nil {
+		log.Printf("✅ TMDB: Poster saved to root folder: %s", rootPosterPath)
+		return rootPosterPath, nil
+	}
+
+	// Fallback to backend folder
+	if err := t.savePosterToFile(posterURL, backendPosterPath); err != nil {
+		return "", fmt.Errorf("failed to save poster to any location: %v", err)
+	}
+
+	log.Printf("✅ TMDB: Poster saved to backend folder: %s", backendPosterPath)
+	return backendPosterPath, nil
+}
+
+// savePosterToFile saves the poster data to a file
+func (t *TMDBService) savePosterToFile(posterURL, filePath string) error {
+	// Download the poster
+	resp, err := t.httpClient.Get(posterURL)
+	if err != nil {
+		return fmt.Errorf("failed to download poster: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("failed to download poster: HTTP %d", resp.StatusCode)
+	}
+
+	// Create the file
+	file, err := os.Create(filePath)
+	if err != nil {
+		return fmt.Errorf("failed to create file %s: %v", filePath, err)
+	}
+	defer file.Close()
+
+	// Copy data to file
+	bytesWritten, err := file.ReadFrom(resp.Body)
+	if err != nil {
+		// Clean up partial file on error
+		os.Remove(filePath)
+		return fmt.Errorf("failed to write poster data: %v", err)
+	}
+
+	log.Printf("📁 TMDB: Wrote %d bytes to %s", bytesWritten, filePath)
+	return nil
+}
+
+// cleanTitleForFilename creates a safe filename from a title
+func (t *TMDBService) cleanTitleForFilename(title string) string {
+	// Remove or replace characters that are not safe for filenames
+	cleaned := strings.ReplaceAll(title, " ", "_")
+	cleaned = strings.ReplaceAll(cleaned, ":", "")
+	cleaned = strings.ReplaceAll(cleaned, "/", "_")
+	cleaned = strings.ReplaceAll(cleaned, "\\", "_")
+	cleaned = strings.ReplaceAll(cleaned, "?", "")
+	cleaned = strings.ReplaceAll(cleaned, "*", "")
+	cleaned = strings.ReplaceAll(cleaned, "<", "")
+	cleaned = strings.ReplaceAll(cleaned, ">", "")
+	cleaned = strings.ReplaceAll(cleaned, "|", "")
+	cleaned = strings.ReplaceAll(cleaned, "\"", "")
+	cleaned = strings.ReplaceAll(cleaned, "'", "")
+	cleaned = strings.ReplaceAll(cleaned, "(", "")
+	cleaned = strings.ReplaceAll(cleaned, ")", "")
+	
+	// Remove multiple underscores and trim
+	cleaned = regexp.MustCompile(`_+`).ReplaceAllString(cleaned, "_")
+	cleaned = strings.Trim(cleaned, "_")
+	
+	// Convert to lowercase for consistency
+	cleaned = strings.ToLower(cleaned)
+	
+	// Limit length to avoid filesystem issues
+	if len(cleaned) > 100 {
+		cleaned = cleaned[:100]
+	}
+	
+	// Ensure we have something if title was all special characters
+	if cleaned == "" {
+		cleaned = "untitled"
+	}
+	
+	return cleaned
+}
+
+// GetPosterURL returns the full poster URL for a given poster path
+func (t *TMDBService) GetPosterURL(posterPath string, size string) string {
+	if posterPath == "" {
+		return ""
+	}
+	
+	// Default to w500 if no size specified
+	if size == "" {
+		size = "w500"
+	}
+	
+	return "https://image.tmdb.org/t/p/" + size + posterPath
+}
+
+// TestConnection tests the TMDB API connection
+func (t *TMDBService) TestConnection() error {
+	if t.apiKey == "" {
+		return fmt.Errorf("TMDB API key not configured")
+	}
+
+	// Test with a simple configuration request
+	configURL := fmt.Sprintf("%s/configuration", t.baseURL)
+	req, err := http.NewRequest("GET", configURL, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create test request: %v", err)
+	}
+
+	req.Header.Set("Authorization", "Bearer "+t.apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := t.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to connect to TMDB API: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("TMDB API returned status %d", resp.StatusCode)
+	}
+
+	log.Printf("✅ TMDB API connection test successful")
+	return nil
 }
 
 // CleanTitle is a public method that exposes the title cleaning functionality
@@ -1001,4 +1218,14 @@ func (t *TMDBService) detectQuality(filePath string) string {
 	
 	// Default fallback
 	return "HD"
+}
+
+// contains checks if a slice contains a string
+func contains(slice []string, item string) bool {
+	for _, s := range slice {
+		if s == item {
+			return true
+		}
+	}
+	return false
 }

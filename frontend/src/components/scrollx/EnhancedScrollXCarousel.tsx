@@ -5,6 +5,7 @@ import { motion } from 'framer-motion';
 import { Media } from '../../types/media';
 import NetflixCard from './NetflixCard';
 import GenreTitle from '../GenreTitle';
+import { useImageWithFallback } from '../../lib/imageUtils';
 
 interface EnhancedScrollXCarouselProps {
   media: Media[];
@@ -201,17 +202,10 @@ const EnhancedMediaCard: React.FC<any> = ({
 }) => {
   const [isHovered, setIsHovered] = useState(false);
   const [imageError, setImageError] = useState(false);
+  const [fallbackError, setFallbackError] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
-  const getThumbnailUrl = () => {
-    // Validate media ID before making API call
-    if (!media?.id || typeof media.id !== 'number' || media.id <= 0) {
-      console.warn('Invalid media ID for thumbnail:', media?.id);
-      return null;
-    }
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8252';
-    return `${apiUrl}/api/thumbnails/${media.id}`;
-  };
+  const { primarySrc, fallbackSrc } = useImageWithFallback(media?.id || 0);
 
   const handleClick = async () => {
     // Validate media before handling click
@@ -295,15 +289,25 @@ const EnhancedMediaCard: React.FC<any> = ({
           </div>
         )}
 
-        {/* Image */}
+        {/* Poster/Thumbnail Image */}
         <div className="relative aspect-video overflow-hidden">
-          {!imageError && getThumbnailUrl() ? (
+          {!fallbackError ? (
             <motion.img
-              src={getThumbnailUrl() || ''}
+              src={primarySrc}
               alt={media.title}
               className="w-full h-full object-cover"
               loading="lazy"
-              onError={() => setImageError(true)}
+              onError={(e) => {
+                const img = e.currentTarget;
+                if (img.src === primarySrc && !imageError) {
+                  // First error: poster failed, try thumbnail
+                  setImageError(true);
+                  img.src = fallbackSrc;
+                } else if (!fallbackError) {
+                  // Second error: thumbnail also failed
+                  setFallbackError(true);
+                }
+              }}
               whileHover={{ scale: 1.1 }}
               transition={{ duration: 0.3 }}
             />

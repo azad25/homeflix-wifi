@@ -4,6 +4,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Play, Info, Plus, Check } from 'lucide-react';
 import { Media } from '@/types/media';
 import { getApiUrl, loadAssetWithFallback } from '@/lib/api';
+import { useImageWithFallback } from '@/lib/imageUtils';
 
 interface NetflixMediaCardProps {
   media: Media;
@@ -26,15 +27,17 @@ const NetflixMediaCard: React.FC<NetflixMediaCardProps> = ({
 }) => {
   const [isHovered, setIsHovered] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
-  const [thumbnailUrl, setThumbnailUrl] = useState<string>('');
   const [previewUrl, setPreviewUrl] = useState<string>('');
   const [imageError, setImageError] = useState(false);
+  const [fallbackError, setFallbackError] = useState(false);
   const [previewError, setPreviewError] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   
   const videoRef = useRef<HTMLVideoElement>(null);
   const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const previewTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  
+  const { primarySrc, fallbackSrc } = useImageWithFallback(media.id);
 
   // Load assets on mount
   useEffect(() => {
@@ -44,21 +47,13 @@ const NetflixMediaCard: React.FC<NetflixMediaCardProps> = ({
   const loadAssets = async () => {
     setIsLoading(true);
     try {
-      // Load thumbnail and preview only
-      const [thumbnail, preview] = await Promise.allSettled([
-        loadAssetWithFallback('thumbnail', media.id),
-        loadAssetWithFallback('preview', media.id)
-      ]);
-
-      if (thumbnail.status === 'fulfilled') {
-        setThumbnailUrl(thumbnail.value);
-      }
-
-      if (preview.status === 'fulfilled' && preview.value) {
-        setPreviewUrl(preview.value);
+      // Load preview only (poster/thumbnail handled by useImageWithFallback)
+      const preview = await loadAssetWithFallback('preview', media.id);
+      if (preview) {
+        setPreviewUrl(preview);
       }
     } catch (error) {
-      console.warn('Failed to load assets for media:', media.id);
+      console.warn('Failed to load preview for media:', media.id);
     } finally {
       setIsLoading(false);
     }
@@ -104,8 +99,17 @@ const NetflixMediaCard: React.FC<NetflixMediaCardProps> = ({
     }
   };
 
-  const handleImageError = () => {
-    setImageError(true);
+  const handleImageError = (event: React.SyntheticEvent<HTMLImageElement>) => {
+    const img = event.currentTarget;
+    
+    if (img.src === primarySrc && !imageError) {
+      // First error: poster failed, try thumbnail
+      setImageError(true);
+      img.src = fallbackSrc;
+    } else if (!fallbackError) {
+      // Second error: thumbnail also failed
+      setFallbackError(true);
+    }
   };
 
   const handleVideoError = () => {
@@ -114,8 +118,9 @@ const NetflixMediaCard: React.FC<NetflixMediaCardProps> = ({
   };
 
   const getDisplayImage = () => {
-    // Only use thumbnails
-    return thumbnailUrl;
+    // Use poster as primary, thumbnail as fallback
+    if (fallbackError) return null;
+    return imageError ? fallbackSrc : primarySrc;
   };
 
   const formatRating = (rating: number) => {
@@ -163,7 +168,7 @@ const NetflixMediaCard: React.FC<NetflixMediaCardProps> = ({
         {/* Thumbnail Image */}
         {!showPreview && getDisplayImage() && (
           <img
-            src={getDisplayImage()}
+            src={getDisplayImage() || ''}
             alt={media.title}
             className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
             onError={handleImageError}
@@ -172,7 +177,7 @@ const NetflixMediaCard: React.FC<NetflixMediaCardProps> = ({
         )}
 
         {/* Fallback for missing images */}
-        {!getDisplayImage() && !isLoading && (
+        {(fallbackError || !getDisplayImage()) && !isLoading && (
           <div className="absolute inset-0 bg-gradient-to-br from-gray-700 to-gray-900 flex items-center justify-center">
             <div className="text-center text-gray-400">
               <div className="text-2xl mb-2">🎬</div>

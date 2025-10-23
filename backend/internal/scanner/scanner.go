@@ -750,7 +750,113 @@ func (s *MediaScanner) EnsureCompleteSyncOnStartup() error {
 		return fmt.Errorf("startup sync validation failed: %v", err)
 	}
 	
+	// CRITICAL: Ensure all media have posters downloaded from TMDB on startup
+	progress.UpdateOperation("🎨 Checking and downloading missing posters from TMDB...")
+	if err := s.ensureAllPostersOnStartup(progress); err != nil {
+		log.Printf("⚠️ Warning: Poster download process had issues: %v", err)
+		// Don't fail startup for poster issues, just log warning
+	}
+	
 	log.Printf("✅ Startup media sync validation completed successfully")
+	return nil
+}
+
+// ensureAllPostersOnStartup downloads missing posters for all media on startup
+func (s *MediaScanner) ensureAllPostersOnStartup(progress *ProgressTracker) error {
+	if s.GetPosterService() == nil {
+		progress.LogWithProgress("⚠️ Poster service not available, skipping poster downloads")
+		return nil
+	}
+
+	progress.LogWithProgress("🎨 Starting poster download check for all media...")
+
+	// Get all media from database
+	allMedia, err := s.getAllMediaFromDatabase()
+	if err != nil {
+		return fmt.Errorf("failed to get media from database: %v", err)
+	}
+
+	progress.LogWithProgress(fmt.Sprintf("📊 Checking posters for %d media items", len(allMedia)))
+
+	// Filter media that need posters
+	var mediaNeedingPosters []models.Media
+	for _, media := range allMedia {
+		// Check if file exists
+		if _, err := os.Stat(media.FilePath); err != nil {
+			continue // Skip missing files
+		}
+
+		// Check if poster is missing
+		if s.isAssetMissing(media.PosterPath, "poster", media.ID, media.Title) {
+			// Also check if poster exists using poster service
+			if posterPath := s.GetPosterService().GetPosterPath(media.ID, media.Title); posterPath == "" {
+				mediaNeedingPosters = append(mediaNeedingPosters, media)
+			} else {
+				// Update database with found poster path
+				media.PosterPath = posterPath
+				s.GetMediaService().UpdateMedia(&media)
+				log.Printf("✅ Found existing poster for %s: %s", media.Title, posterPath)
+			}
+		}
+	}
+
+	if len(mediaNeedingPosters) == 0 {
+		progress.LogWithProgress("✅ All media already have posters!")
+		return nil
+	}
+
+	progress.LogWithProgress(fmt.Sprintf("🎨 Found %d media items needing posters, starting downloads...", len(mediaNeedingPosters)))
+
+	// Download posters in batches to avoid overwhelming TMDB API
+	batchSize := 5 // Small batch size to respect API limits
+	successful := 0
+	failed := 0
+
+	for i := 0; i < len(mediaNeedingPosters); i += batchSize {
+		end := i + batchSize
+		if end > len(mediaNeedingPosters) {
+			end = len(mediaNeedingPosters)
+		}
+
+		batch := mediaNeedingPosters[i:end]
+		batchNum := (i / batchSize) + 1
+		totalBatches := (len(mediaNeedingPosters) + batchSize - 1) / batchSize
+
+		progress.UpdateOperation(fmt.Sprintf("Downloading poster batch %d/%d (%d-%d of %d)", 
+			batchNum, totalBatches, i+1, end, len(mediaNeedingPosters)))
+
+		// Process batch sequentially to respect API rate limits
+		for _, media := range batch {
+			progress.UpdateOperation(fmt.Sprintf("Downloading poster for: %s", media.Title))
+			
+			if posterPath, err := s.GetPosterService().DownloadPosterWithPath(media.Title, media.ID); err != nil {
+				log.Printf("❌ Failed to download poster for %s: %v", media.Title, err)
+				failed++
+			} else if posterPath != "" {
+				// Update database with poster path
+				media.PosterPath = posterPath
+				if updateErr := s.GetMediaService().UpdateMedia(&media); updateErr != nil {
+					log.Printf("⚠️ Failed to update media with poster path: %v", updateErr)
+				} else {
+					successful++
+					log.Printf("✅ Downloaded and saved poster for: %s", media.Title)
+				}
+			}
+
+			// Small delay between downloads to respect API rate limits
+			time.Sleep(1 * time.Second)
+		}
+
+		// Longer delay between batches
+		if end < len(mediaNeedingPosters) {
+			progress.LogWithProgress(fmt.Sprintf("⏸️ Batch %d completed, waiting 5 seconds before next batch...", batchNum))
+			time.Sleep(5 * time.Second)
+		}
+	}
+
+	progress.LogWithProgress(fmt.Sprintf("✅ Poster download completed: %d successful, %d failed out of %d total", 
+		successful, failed, len(mediaNeedingPosters)))
+
 	return nil
 }
 
@@ -1407,49 +1513,33 @@ func (s *MediaScanner) processVideoFile(path string, info os.FileInfo) error {
 		log.Printf("🔄 Re-extracting metadata for: %s", path)
 		metadata = s.extractMetadataWithCacheLocal(path)
 
-		// CRITICAL FIX: For new media, always assign the extracted title
+		// CRITICAL FIX: Preserve existing titles - only set title for new media or empty titles
 		if media.ID == 0 && metadata.Title != "" {
+			// New media - set the extracted title
 			media.Title = metadata.Title
 			log.Printf("🏷️ New media title set to '%s'", metadata.Title)
-		} else if needsTitleFix {
-			// Update title if it needs fixing - but protect existing good titles
-			oldTitle := media.Title
-			newTitle := metadata.Title
-			
-			// Safety checks to prevent breaking existing titles
-			if oldTitle != "" && newTitle != "" {
-				// Don't change titles that are already good (have proper case, no technical terms)
-				if !s.titleNeedsCleaning(oldTitle) && s.titleNeedsCleaning(newTitle) {
-					log.Printf("🛡️ Protecting existing good title: '%s' (would change to '%s')", oldTitle, newTitle)
-					needsTitleFix = false
-				} else if s.isSequelTitle(oldTitle) && !s.isSequelTitle(newTitle) {
-					log.Printf("🛡️ Protecting sequel title: '%s' (would lose sequel info)", oldTitle)
-					needsTitleFix = false
-				} else {
-					media.Title = newTitle
-					log.Printf("🏷️ Title updated from '%s' to '%s'", oldTitle, newTitle)
-				}
-			} else if oldTitle == "" && newTitle != "" {
-				// Only update if old title is empty
-				media.Title = newTitle
-				log.Printf("🏷️ Title set to '%s' (was empty)", newTitle)
-			}
-
-			// Safety check for empty titles
-			if media.Title == "" {
-				log.Printf("⚠️ WARNING: Title is empty after update! Re-extracting from filename...")
-				// Re-extract using TMDB service directly from filename
+		} else if media.Title == "" || strings.TrimSpace(media.Title) == "" {
+			// Only update if title is completely empty
+			if metadata.Title != "" {
+				media.Title = metadata.Title
+				log.Printf("🏷️ Empty title filled with '%s'", metadata.Title)
+			} else {
+				// Fallback for empty metadata title
 				if s.GetTMDBService() != nil {
 					media.Title = s.GetTMDBService().CleanTitle(filepath.Base(path))
 				} else {
 					media.Title = s.cleanTitle(filepath.Base(path))
 				}
-
+				
 				// Final fallback if still empty
 				if media.Title == "" {
 					media.Title = strings.TrimSuffix(filepath.Base(path), filepath.Ext(filepath.Base(path)))
 				}
+				log.Printf("🏷️ Generated title from filename: '%s'", media.Title)
 			}
+		} else {
+			// PRESERVE EXISTING TITLES - Do not modify existing non-empty titles
+			log.Printf("🛡️ Preserving existing title: '%s' (not modifying)", media.Title)
 		}
 
 		// Update type if needed
@@ -1522,7 +1612,7 @@ func (s *MediaScanner) processVideoFile(path string, info os.FileInfo) error {
 		log.Printf("🎬 Movie metadata assigned - Title: %s, Year: %d", media.Title, metadata.Year)
 	}
 
-	// Enhanced title validation and sequel number preservation
+	// Enhanced title validation - only fix if title is actually empty
 	if media.Title == "" || strings.TrimSpace(media.Title) == "" {
 		log.Printf("🚨 CRITICAL: Empty title detected before database save! Path: %s", path)
 
@@ -1537,11 +1627,17 @@ func (s *MediaScanner) processVideoFile(path string, info os.FileInfo) error {
 			media.Title = strings.TrimSuffix(filepath.Base(path), filepath.Ext(filepath.Base(path)))
 			log.Printf("🔧 Using basic filename fallback: %s", media.Title)
 		}
+	} else {
+		log.Printf("✅ Title validation passed: '%s'", media.Title)
 	}
 
-	// Enhanced sequel and numbered movie detection
-	media.Title = s.enhanceSequelTitleDetection(media.Title, path)
-	log.Printf("🎬 Final enhanced title: %s", media.Title)
+	// Enhanced sequel and numbered movie detection - only for new media
+	if media.ID == 0 {
+		media.Title = s.enhanceSequelTitleDetection(media.Title, path)
+		log.Printf("🎬 Final enhanced title for new media: %s", media.Title)
+	} else {
+		log.Printf("🎬 Preserving existing media title: %s", media.Title)
+	}
 
 	// ENHANCED FIX: Use transaction-based upsert to prevent UNIQUE constraint violations
 	err = s.GetMediaService().UpsertMedia(media)
@@ -1757,6 +1853,7 @@ func (s *MediaScanner) processVideoFile(path string, info os.FileInfo) error {
 
 	// Determine asset generation needs based on flags
 	var needsThumbnail, needsPreview, needsPoster bool
+	isNewMedia := media.ID == 0 // Check if this is a new media item
 
 	// CRITICAL FIX: Prevent duplicate asset generation for same media in short time window
 	recentlyProcessed := false
@@ -1779,8 +1876,9 @@ func (s *MediaScanner) processVideoFile(path string, info os.FileInfo) error {
 		// Force regeneration of all assets
 		needsThumbnail = true
 		needsPreview = true
-		needsPoster = s.GetPosterService() != nil
-		log.Printf("🔄 Forcing asset regeneration for: %s", media.Title)
+		// Only download posters for new media items, not existing ones
+		needsPoster = s.GetPosterService() != nil && isNewMedia
+		log.Printf("🔄 Forcing asset regeneration for: %s (poster download: %v)", media.Title, needsPoster)
 	} else if recentlyProcessed {
 		// Skip asset generation if recently processed
 		needsThumbnail = false
@@ -1791,12 +1889,13 @@ func (s *MediaScanner) processVideoFile(path string, info os.FileInfo) error {
 		// Generate assets only if missing
 		needsThumbnail = media.ThumbnailPath == "" && !thumbnailExists
 		needsPreview = (media.PreviewPath == "" || media.PreviewClipPath == "") && !previewExists
-		needsPoster = media.PosterPath == "" && !posterExists
+		// Only download posters for new media items, not existing ones
+		needsPoster = media.PosterPath == "" && !posterExists && isNewMedia
 	}
 
-	// Debug logging for preview generation
-	log.Printf("🔍 Asset check for %s: needsThumbnail=%v, needsPreview=%v (PreviewPath='%s', PreviewClipPath='%s'), needsPoster=%v",
-		media.Title, needsThumbnail, needsPreview, media.PreviewPath, media.PreviewClipPath, needsPoster)
+	// Debug logging for asset generation
+	log.Printf("🔍 Asset check for %s (ID: %d, isNew: %v): needsThumbnail=%v, needsPreview=%v (PreviewPath='%s', PreviewClipPath='%s'), needsPoster=%v",
+		media.Title, media.ID, isNewMedia, needsThumbnail, needsPreview, media.PreviewPath, media.PreviewClipPath, needsPoster)
 
 	// Generate assets using batch-aware resource management with fallbacks (non-blocking)
 	if needsThumbnail || needsPreview {
@@ -1844,14 +1943,15 @@ func (s *MediaScanner) processVideoFile(path string, info os.FileInfo) error {
 					time.Sleep(3 * time.Second)
 				}
 
-				if err := s.GetPosterService().DownloadPoster(media.Title, media.ID); err != nil {
+				posterPath, err := s.GetPosterService().DownloadPosterWithPath(media.Title, media.ID)
+				if err != nil {
 					log.Printf("Failed to download poster for %s: %v", media.Title, err)
-				} else {
-					posterPath := s.GetPosterService().GetPosterPath(media.ID, media.Title)
-					if posterPath != "" {
-						media.PosterPath = posterPath
-						s.GetMediaService().UpdateMedia(media)
-						log.Printf("Updated media %s with poster: %s", media.Title, posterPath)
+				} else if posterPath != "" {
+					media.PosterPath = posterPath
+					if updateErr := s.GetMediaService().UpdateMedia(media); updateErr != nil {
+						log.Printf("⚠️ Failed to update media with poster path: %v", updateErr)
+					} else {
+						log.Printf("✅ Updated media %s with poster: %s", media.Title, posterPath)
 					}
 				}
 			}()
@@ -5070,15 +5170,15 @@ func (s *MediaScanner) regenerateMediaAssets(media *models.Media) {
 	// Generate poster only if missing
 	if needsPoster && s.GetPosterService() != nil {
 		go func() {
-			if err := s.GetPosterService().DownloadPoster(media.Title, media.ID); err != nil {
+			if posterPath, err := s.GetPosterService().DownloadPosterWithPath(media.Title, media.ID); err != nil {
 				log.Printf("❌ Failed to generate poster for %s: %v", media.Title, err)
-			} else {
-				posterPath := s.GetPosterService().GetPosterPath(media.ID, media.Title)
-				if posterPath != "" {
-					media.PosterPath = posterPath
-					s.GetMediaService().UpdateMedia(media)
+			} else if posterPath != "" {
+				media.PosterPath = posterPath
+				if updateErr := s.GetMediaService().UpdateMedia(media); updateErr != nil {
+					log.Printf("⚠️ Failed to update media with poster path: %v", updateErr)
+				} else {
+					log.Printf("✅ Poster generated for: %s", media.Title)
 				}
-				log.Printf("✅ Poster generated for: %s", media.Title)
 			}
 		}()
 	}
@@ -6195,3 +6295,4 @@ func (s *MediaScanner) setProcessLimits() error {
 	log.Printf("✅ Process memory limit set to 4GB")
 	return nil
 }
+

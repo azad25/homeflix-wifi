@@ -463,7 +463,8 @@ func (h *RedisAssetHandlers) GetThumbnailCachedWithFallback(mediaService *servic
 			h.redisCache.SetAssetPath(mediaID, "thumbnail", thumbnailPath)
 			// For small thumbnails, also cache the file data
 			if fileInfo, err := os.Stat(thumbnailPath); err == nil && fileInfo.Size() < 1024*1024 { // < 1MB
-				h.serveAndCacheAsset(c, mediaID, "thumbnail", thumbnailPath)
+				// Don't use the HTTP context in background goroutine - just cache the asset
+				h.redisCache.SetAsset(mediaID, "thumbnail", thumbnailPath)
 			}
 		}()
 
@@ -594,7 +595,7 @@ func (h *RedisAssetHandlers) GetPosterCachedWithFallback(mediaService *services.
 		c.File(posterPath)
 
 		// Cache for future requests
-		go h.serveAndCacheAsset(c, mediaID, "poster", posterPath)
+		go h.redisCache.SetAsset(mediaID, "poster", posterPath)
 	}
 }
 

@@ -9,6 +9,7 @@ import { getApiUrl } from '@/lib/api';
 import { useAudio } from '@/contexts/EnhancedAudioContext';
 import { cleanMovieTitle } from '@/lib/titleUtils';
 import { useNavigate } from '@/hooks/useNavigate';
+import ImageWithFallback from '@/components/ImageWithFallback';
 
 interface EnhancedMovieCardProps {
   media: Media;
@@ -36,8 +37,6 @@ const EnhancedMovieCard: React.FC<EnhancedMovieCardProps> = ({
   const [isMuted, setIsMuted] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [imageError, setImageError] = useState(false);
-  const [fallbackError, setFallbackError] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -45,10 +44,6 @@ const EnhancedMovieCard: React.FC<EnhancedMovieCardProps> = ({
   const hideTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const apiUrl = getApiUrl();
-
-  const getThumbnailUrl = () => {
-    return `${apiUrl}/api/thumbnails/${media.id}`;
-  };
 
   const getPreviewUrl = () => {
     return `${apiUrl}/api/preview-clips/${media.id}`;
@@ -169,13 +164,7 @@ const EnhancedMovieCard: React.FC<EnhancedMovieCardProps> = ({
     }
   };
 
-  const handleImageError = () => {
-    if (!imageError) {
-      setImageError(true);
-    } else if (!fallbackError) {
-      setFallbackError(true);
-    }
-  };
+
 
   const formatDuration = (seconds: number) => {
     const hours = Math.floor(seconds / 3600);
@@ -254,25 +243,16 @@ const EnhancedMovieCard: React.FC<EnhancedMovieCardProps> = ({
       >
         {/* Main Image Container - Full Height */}
         <div className="relative h-full overflow-hidden">
-          {!fallbackError ? (
-            <Image
-              src={getThumbnailUrl()}
-              alt={cleanMovieTitle(media.title)}
-              fill
-              sizes="(max-width: 768px) 50vw, (max-width: 1200px) 33vw, 25vw"
-              className={`object-cover transition-opacity duration-300 ${showPreview && isVideoLoaded ? 'opacity-0' : 'opacity-100'
-                }`}
-              loading={priority ? "eager" : "lazy"}
-              onError={handleImageError}
-            />
-          ) : (
-            <div className="w-full h-full bg-gradient-to-br from-gray-700 via-gray-800 to-gray-900 flex items-center justify-center">
-              <div className="text-white text-center p-2">
-                <div className="text-2xl mb-2">🎬</div>
-                <div className="text-xs font-medium line-clamp-2">{cleanMovieTitle(media.title)}</div>
-              </div>
-            </div>
-          )}
+          <ImageWithFallback
+            mediaId={media.id}
+            alt={cleanMovieTitle(media.title)}
+            fill
+            sizes="(max-width: 768px) 50vw, (max-width: 1200px) 33vw, 25vw"
+            className={`object-cover transition-opacity duration-300 ${showPreview && isVideoLoaded ? 'opacity-0' : 'opacity-100'
+              }`}
+            loading={priority ? "eager" : "lazy"}
+            priority={priority}
+          />
 
           {/* Preview Video */}
           {showPreview && (

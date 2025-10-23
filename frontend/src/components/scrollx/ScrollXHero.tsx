@@ -69,17 +69,17 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
     slideCount: 0,
     startTime: Date.now()
   });
-  
+
   // 24/7 BROWSER DETECTION AND OPTIMIZATION
   const browserOptimizations = useMemo(() => {
     if (typeof window === 'undefined') return { name: 'server', optimizations: {} };
-    
+
     const userAgent = navigator.userAgent;
     const isChrome = /Chrome/.test(userAgent) && !/Edge/.test(userAgent);
     const isFirefox = /Firefox/.test(userAgent);
     const isSafari = /Safari/.test(userAgent) && !/Chrome/.test(userAgent);
     const isEdge = /Edge/.test(userAgent);
-    
+
     return {
       name: isChrome ? 'chrome' : isFirefox ? 'firefox' : isSafari ? 'safari' : isEdge ? 'edge' : 'unknown',
       optimizations: {
@@ -96,37 +96,37 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
       }
     };
   }, []);
-  
+
   // 24/7 PERFORMANCE MONITORING
-  const monitor24x7Performance = useCallback(() => {
-    const metrics = performanceMetrics.current;
-    metrics.slideCount++;
-    
-    // Log performance stats every 100 slides
-    if (metrics.slideCount % 100 === 0) {
-      const uptime = Date.now() - metrics.startTime;
-      const uptimeHours = (uptime / (1000 * 60 * 60)).toFixed(2);
-      
-      console.log(`📊 24/7 Performance Stats (${browserOptimizations.name}):`);
-      console.log(`  ⏱️ Uptime: ${uptimeHours} hours`);
-      console.log(`  🎥 Slides shown: ${metrics.slideCount}`);
-      console.log(`  💾 URL cache size: ${urlCache.current.size}`);
-      console.log(`  🎦 Video elements: ${preloadRefs.current.size}`);
-      
-      // Memory usage estimation
-      if ('memory' in performance) {
-        const memory = (performance as any).memory;
-        console.log(`  🧠 Memory: ${(memory.usedJSHeapSize / 1024 / 1024).toFixed(2)}MB`);
-        
-        // Browser-specific memory warnings
-        const memoryMB = memory.usedJSHeapSize / 1024 / 1024;
-        if (memoryMB > 200) {
-          console.warn(`⚠️ High memory usage detected: ${memoryMB.toFixed(2)}MB`);
-          // Note: Cleanup will be triggered by health check system
-        }
-      }
-    }
-  }, [browserOptimizations.name]);
+  // const monitor24x7Performance = useCallback(() => {
+  //   const metrics = performanceMetrics.current;
+  //   metrics.slideCount++;
+
+  //   // Log performance stats every 100 slides
+  //   if (metrics.slideCount % 100 === 0) {
+  //     const uptime = Date.now() - metrics.startTime;
+  //     const uptimeHours = (uptime / (1000 * 60 * 60)).toFixed(2);
+
+  //     console.log(`📊 24/7 Performance Stats (${browserOptimizations.name}):`);
+  //     console.log(`  ⏱️ Uptime: ${uptimeHours} hours`);
+  //     console.log(`  🎥 Slides shown: ${metrics.slideCount}`);
+  //     console.log(`  💾 URL cache size: ${urlCache.current.size}`);
+  //     console.log(`  🎦 Video elements: ${preloadRefs.current.size}`);
+
+  //     // Memory usage estimation
+  //     if ('memory' in performance) {
+  //       const memory = (performance as any).memory;
+  //       console.log(`  🧠 Memory: ${(memory.usedJSHeapSize / 1024 / 1024).toFixed(2)}MB`);
+
+  //       // Browser-specific memory warnings
+  //       const memoryMB = memory.usedJSHeapSize / 1024 / 1024;
+  //       if (memoryMB > 200) {
+  //         console.warn(`⚠️ High memory usage detected: ${memoryMB.toFixed(2)}MB`);
+  //         // Note: Cleanup will be triggered by health check system
+  //       }
+  //     }
+  //   }
+  // }, [browserOptimizations.name]);
 
   const {
     setCurrentAudioElement,
@@ -245,17 +245,17 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
   const cleanupMemory = useCallback(() => {
     const now = Date.now();
     const opts = browserOptimizations.optimizations;
-    
+
     // Browser-specific cleanup intervals
     const cleanupInterval = opts.memoryCleanupInterval || 120000;
     if (now - lastCleanupTime.current < cleanupInterval) return;
-    
+
     console.log(`🧹 24/7 Memory cleanup starting (${browserOptimizations.name})...`);
-    
+
     // BROWSER-SPECIFIC URL CACHE CLEANUP
     const maxCacheSize = opts.conservativeMode ? 20 : 30;
     const keepSize = opts.conservativeMode ? 10 : 15;
-    
+
     if (urlCache.current.size > maxCacheSize) {
       const entries = Array.from(urlCache.current.entries());
       urlCache.current.clear();
@@ -263,18 +263,18 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
         urlCache.current.set(key, value);
       });
     }
-    
+
     // AGGRESSIVE VIDEO ELEMENT CLEANUP
     const currentId = currentMedia?.id?.toString();
     const keepIds = new Set([currentId].filter(Boolean));
-    
+
     preloadRefs.current.forEach((video, id) => {
       if (!keepIds.has(id)) {
         try {
           video.pause();
           video.src = '';
           video.load();
-          
+
           // Chrome-specific: Force DOM removal
           if (opts.videoBufferClear) {
             video.remove();
@@ -285,11 +285,11 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
         preloadRefs.current.delete(id);
       }
     });
-    
+
     // BROWSER-SPECIFIC API RESPONSE CLEANUP
     const maxResponses = opts.conservativeMode ? 5 : 10;
     const keepResponses = opts.conservativeMode ? 3 : 5;
-    
+
     setPreviousApiResponses(prev => {
       if (prev.size > maxResponses) {
         const array = Array.from(prev);
@@ -297,7 +297,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
       }
       return prev;
     });
-    
+
     // BROWSER-SPECIFIC GARBAGE COLLECTION
     if (opts.forceGC && typeof window !== 'undefined' && 'gc' in window) {
       try {
@@ -307,44 +307,44 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
         // Ignore if not available
       }
     }
-    
+
     lastCleanupTime.current = now;
     console.log(`✅ 24/7 Memory cleanup completed (${browserOptimizations.name})`);
   }, [currentMedia, browserOptimizations]);
-  
+
   // Update performance monitoring to use cleanupMemory
-  useEffect(() => {
-    const originalMonitor = monitor24x7Performance;
-    return () => {};
-  }, []);
-  
+  // useEffect(() => {
+  //   const originalMonitor = monitor24x7Performance;
+  //   return () => {};
+  // }, []);
+
   // 24/7 HEALTH CHECK SYSTEM
-  useEffect(() => {
-    const healthCheckInterval = setInterval(() => {
-      const metrics = performanceMetrics.current;
-      const uptime = Date.now() - metrics.startTime;
-      
-      // Health check every hour
-      if (uptime % (60 * 60 * 1000) < 10000) { // Within 10 seconds of each hour
-        console.log('👨‍⚕️ 24/7 Health Check:');
-        console.log(`  ✅ System running for ${(uptime / (1000 * 60 * 60)).toFixed(2)} hours`);
-        console.log(`  ✅ ${metrics.slideCount} slides displayed`);
-        console.log(`  ✅ Browser: ${browserOptimizations.name}`);
-        
-        // Auto-cleanup if memory is high
-        if ('memory' in performance) {
-          const memory = (performance as any).memory;
-          const memoryMB = memory.usedJSHeapSize / 1024 / 1024;
-          if (memoryMB > 150) {
-            console.log('👨‍⚕️ Triggering health cleanup due to high memory');
-            cleanupMemory();
-          }
-        }
-      }
-    }, 10000); // Check every 10 seconds
-    
-    return () => clearInterval(healthCheckInterval);
-  }, [browserOptimizations.name, cleanupMemory]);
+  // useEffect(() => {
+  //   const healthCheckInterval = setInterval(() => {
+  //     const metrics = performanceMetrics.current;
+  //     const uptime = Date.now() - metrics.startTime;
+
+  //     // Health check every hour
+  //     if (uptime % (60 * 60 * 1000) < 10000) { // Within 10 seconds of each hour
+  //       console.log('👨‍⚕️ 24/7 Health Check:');
+  //       console.log(`  ✅ System running for ${(uptime / (1000 * 60 * 60)).toFixed(2)} hours`);
+  //       console.log(`  ✅ ${metrics.slideCount} slides displayed`);
+  //       console.log(`  ✅ Browser: ${browserOptimizations.name}`);
+
+  //       // Auto-cleanup if memory is high
+  //       if ('memory' in performance) {
+  //         const memory = (performance as any).memory;
+  //         const memoryMB = memory.usedJSHeapSize / 1024 / 1024;
+  //         if (memoryMB > 150) {
+  //           console.log('👨‍⚕️ Triggering health cleanup due to high memory');
+  //           cleanupMemory();
+  //         }
+  //       }
+  //     }
+  //   }, 10000); // Check every 10 seconds
+
+  //   return () => clearInterval(healthCheckInterval);
+  // }, [browserOptimizations.name, cleanupMemory]);
 
   // Enhanced frontend recommendation system with latest movies and priority genre focus
   const generateFrontendRecommendations = (availableMedia: Media[], currentFeatured: Media[]): Media[] => {
@@ -575,11 +575,11 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
       try {
         // Use the available recommendation API endpoints with proper cycling
         const apiUrl = getApiUrl();
-        
+
         // Available recommendation endpoints from backend routes
         const recommendationEndpoints = [
           `${apiUrl}/api/recommendations/mixed?limit=25`,
-          `${apiUrl}/api/recommendations/trending?limit=25`, 
+          `${apiUrl}/api/recommendations/trending?limit=25`,
           `${apiUrl}/api/recommendations/popular?limit=25`,
           `${apiUrl}/api/recommendations/recent?limit=25`,
           `${apiUrl}/api/recommendations/personalized?limit=25`,
@@ -596,36 +596,36 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
         const endpointName = currentEndpoint.split('/').pop()?.split('?')[0] || 'unknown';
 
         console.log(`🎯 Fetching from ${endpointName} recommendations endpoint (cycle ${cycleNumber}, random offset: ${randomOffset})`);
-        
+
         // Call the specific recommendation endpoint with session and cache-busting in URL only
         const cacheBustingUrl = `${currentEndpoint}&_t=${timestamp}&_r=${randomOffset}&_session=hero-${timestamp}-${cycleNumber}-${randomOffset}`;
         const response = await fetch(cacheBustingUrl, {
           method: 'GET'
           // No custom headers to avoid CORS issues
         });
-        
+
         if (response.ok) {
           newMedia = await response.json();
           console.log(`✅ Got ${newMedia.length} unique ${endpointName} recommendations from backend`);
         } else {
           console.warn(`⚠️ ${endpointName} recommendations API failed with status: ${response.status}`);
-          
+
           // Try randomized fallback endpoints if primary fails
           const shuffledEndpoints = [...recommendationEndpoints].sort(() => Math.random() - 0.5);
           const fallbackEndpoints = shuffledEndpoints.filter((_, index) => index !== endpointIndex).slice(0, 2);
-          
+
           for (const fallbackEndpoint of fallbackEndpoints) {
             try {
               const fallbackName = fallbackEndpoint.split('/').pop()?.split('?')[0] || 'fallback';
               const fallbackTimestamp = Date.now();
               console.log(`🔄 Trying randomized fallback endpoint: ${fallbackName}`);
-              
+
               const fallbackCacheBustingUrl = `${fallbackEndpoint}&_t=${fallbackTimestamp}&_r=${Math.random()}&_session=hero-fallback-${fallbackTimestamp}-${cycleNumber}`;
               const fallbackResponse = await fetch(fallbackCacheBustingUrl, {
                 method: 'GET'
                 // No custom headers to avoid CORS issues
               });
-              
+
               if (fallbackResponse.ok) {
                 newMedia = await fallbackResponse.json();
                 console.log(`✅ Got ${newMedia.length} recommendations from fallback ${fallbackName} endpoint`);
@@ -636,7 +636,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
               continue;
             }
           }
-          
+
           if (newMedia.length === 0) {
             newMedia = [];
           }
@@ -684,7 +684,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
 
         // Use only real media items - no fake ID generation to prevent 404 errors
         const validMedia = initialFeaturedMedia.filter(item => item && item.id && typeof item.id === 'number');
-        
+
         if (validMedia.length === 0) {
           console.warn('⚠️ No valid media items found, keeping current featured media');
           return;
@@ -717,7 +717,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
             acc[genre].push(media);
             return acc;
           }, {} as Record<string, Media[]>);
-          
+
           shuffledMedia = Object.values(genreGroups)
             .flat()
             .sort(() => Math.sin(randomSeed * 4 + Math.random()) - 0.5);
@@ -729,12 +729,12 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
         }
 
         // Ensure we get different content by filtering out current items first
-        const availableMedia = shuffledMedia.filter(item => 
+        const availableMedia = shuffledMedia.filter(item =>
           !featuredMedia.some(current => current.id === item.id)
         );
 
         // If not enough different items, use all shuffled media
-        const newFeaturedMedia = availableMedia.length >= 5 
+        const newFeaturedMedia = availableMedia.length >= 5
           ? availableMedia.slice(0, 10)
           : shuffledMedia.slice(0, 10);
 
@@ -942,7 +942,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
 
     // Generate cache key for URL caching
     const cacheKey = `video_${media.id}_${fallback ? 'low' : 'high'}`;
-    
+
     // Check URL cache first for instant response
     if (urlCache.current.has(cacheKey)) {
       return urlCache.current.get(cacheKey);
@@ -950,10 +950,10 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
 
     const apiUrl = getApiUrl();
     // CRITICAL: NO cache-busting timestamps for L1 cache hits
-    const url = fallback 
+    const url = fallback
       ? `${apiUrl}/api/preview-clips/${media.id}?quality=low&format=mp4`
       : `${apiUrl}/api/preview-clips/${media.id}?quality=high&format=mp4&cache=true`;
-    
+
     // Cache the URL for instant future access
     urlCache.current.set(cacheKey, url);
     return url;
@@ -967,7 +967,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
 
     // Generate cache key for URL caching
     const cacheKey = `thumbnail_${media.id}`;
-    
+
     // Check URL cache first for instant response
     if (urlCache.current.has(cacheKey)) {
       return urlCache.current.get(cacheKey);
@@ -976,7 +976,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
     const apiUrl = getApiUrl();
     // CRITICAL: NO cache-busting parameters for maximum cache efficiency
     const url = `${apiUrl}/api/thumbnails/${media.id}`;
-    
+
     // Cache the URL for instant future access
     urlCache.current.set(cacheKey, url);
     return url;
@@ -1022,7 +1022,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
 
     // Generate cache key for background URL
     const cacheKey = `background_${media.id}`;
-    
+
     // Check URL cache first for instant response
     if (urlCache.current.has(cacheKey)) {
       return urlCache.current.get(cacheKey)!;
@@ -1031,7 +1031,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
     const apiUrl = getApiUrl();
     // CRITICAL: Use thumbnail endpoint for maximum reliability and caching
     const url = `${apiUrl}/api/thumbnails/${media.id}`;
-    
+
     // Cache the URL for instant future access
     urlCache.current.set(cacheKey, url);
     return url;
@@ -1097,9 +1097,9 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
 
         // NO automatic cycle reloading - just loop through existing slides
         console.log(`➡️ Moving to slide ${nextIndex + 1}/${featuredMedia.length}`);
-        
+
         // 24/7 PERFORMANCE MONITORING
-        monitor24x7Performance();
+        //monitor24x7Performance();
       }, 300); // Wait for fade out
     }
   };
@@ -1586,12 +1586,12 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
     refreshTimerRef.current = setInterval(() => {
       const newCycleCount = cycleCount + 1;
       setCycleCount(newCycleCount);
-      
+
       // Perform memory cleanup every few cycles
       if (newCycleCount % 3 === 0) {
         cleanupMemory();
       }
-      
+
       console.log(`🔄 Auto-refreshing recommendations (cycle ${newCycleCount}) using API endpoints`);
       fetchRecommendedMedia(newCycleCount);
     }, refreshInterval);
@@ -1649,7 +1649,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
     if (featuredMedia.length > 1) {
       // Skip preloading - rely on backend L1 cache for instant playback
       console.log('⚡ Skipping adjacent video preloading - using backend cache');
-      
+
       // Perform memory cleanup instead
       cleanupMemory();
     }
@@ -1952,10 +1952,10 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
   useEffect(() => {
     return () => {
       console.log('🧹 Performing comprehensive component cleanup...');
-      
+
       // Stop all video playback
       stopAllPlayback();
-      
+
       // Clean up all preloaded videos
       preloadRefs.current.forEach((video) => {
         try {
@@ -1967,7 +1967,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
         }
       });
       preloadRefs.current.clear();
-      
+
       // Clear all timers
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current);
@@ -1981,10 +1981,10 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
         clearInterval(refreshTimerRef.current);
         refreshTimerRef.current = null;
       }
-      
+
       // Clear caches
       urlCache.current.clear();
-      
+
       console.log('✅ Component cleanup completed');
     };
   }, []);
@@ -2007,7 +2007,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
   // Trigger click event after 5 seconds of component mount
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    
+
     const clickTimer = setTimeout(() => {
       // Programmatically trigger a click on the main container
       const heroContainer = document.querySelector('.relative.h-screen.overflow-hidden');
@@ -2167,7 +2167,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
                     // 30-second preview play with 24/7 optimization
                     if (video.currentTime >= 30) {
                       video.currentTime = 0; // Restart from beginning
-                      
+
                       // 24/7 OPTIMIZATION: Clear video buffer periodically
                       try {
                         // Force buffer cleanup every restart
@@ -2180,7 +2180,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
                         // Ignore buffer cleanup errors
                       }
                     }
-                    
+
                     // 24/7 MEMORY OPTIMIZATION: Trigger cleanup every 5 minutes of video time
                     if (Math.floor(video.currentTime) % 300 === 0 && video.currentTime > 0) {
                       cleanupMemory();
@@ -2575,12 +2575,12 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
               onClick={() => {
                 // Perform memory cleanup before refresh
                 cleanupMemory();
-                
+
                 // Force a random cycle count to ensure different content
                 const randomCycleBoost = Math.floor(Math.random() * 100) + Date.now() % 1000;
                 const newCycleCount = cycleCount + 1 + randomCycleBoost;
                 setCycleCount(newCycleCount);
-                
+
                 console.log(`🔄 Manual refresh triggered (cycle ${newCycleCount}, random boost: ${randomCycleBoost}) with memory cleanup`);
                 fetchRecommendedMedia(newCycleCount);
               }}
@@ -2588,10 +2588,10 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
               className="ml-3 p-2 rounded-full bg-white/10 hover:bg-white/20 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
               title="Refresh recommendations and clean memory"
             >
-              <svg 
-                className={`w-4 h-4 text-white ${isLoadingNewContent ? 'animate-spin' : ''}`} 
-                fill="none" 
-                stroke="currentColor" 
+              <svg
+                className={`w-4 h-4 text-white ${isLoadingNewContent ? 'animate-spin' : ''}`}
+                fill="none"
+                stroke="currentColor"
                 viewBox="0 0 24 24"
               >
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />

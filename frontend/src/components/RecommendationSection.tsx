@@ -9,6 +9,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import Image from 'next/image';
 import { cachedFetch } from '@/lib/apiCache';
 import { requestThrottler, assetLoader } from '@/lib/requestThrottler';
+import { useImageWithFallback } from '@/lib/imageUtils';
 
 // Add Netflix-style scrollbar hiding and overflow handling
 const netflixScrollStyles = `
@@ -365,6 +366,8 @@ const RecommendationSection: React.FC<RecommendationSectionProps> = ({
   const NetflixCard: React.FC<{ media: Media; index: number }> = ({ media, index }) => {
     const [isHovered, setIsHovered] = useState(false);
     const [imageLoaded, setImageLoaded] = useState(false);
+    const [imageError, setImageError] = useState(false);
+    const [fallbackError, setFallbackError] = useState(false);
     const [videoLoaded, setVideoLoaded] = useState(false);
     const [showVideo, setShowVideo] = useState(false);
     const [cardPosition, setCardPosition] = useState({ top: 0, left: 0, width: 0 });
@@ -372,6 +375,8 @@ const RecommendationSection: React.FC<RecommendationSectionProps> = ({
     const videoTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const videoRef = useRef<HTMLVideoElement>(null);
     const cardRef = useRef<HTMLDivElement>(null);
+    
+    const { primarySrc, fallbackSrc } = useImageWithFallback(media.id);
 
     const handleMouseEnter = () => {
       // Calculate card position for portal
@@ -413,10 +418,17 @@ const RecommendationSection: React.FC<RecommendationSectionProps> = ({
       }
     };
 
-    const getImageUrl = (media: Media) => {
-      const apiUrl = getApiUrl();
-      // Always use thumbnails for better compatibility in recommendations
-      return `${apiUrl}/api/thumbnails/${media.id}`;
+    const handleImageError = (event: React.SyntheticEvent<HTMLImageElement>) => {
+      const img = event.currentTarget;
+      
+      if (img.src === primarySrc && !imageError) {
+        // First error: poster failed, try thumbnail
+        setImageError(true);
+        img.src = fallbackSrc;
+      } else if (!fallbackError) {
+        // Second error: thumbnail also failed
+        setFallbackError(true);
+      }
     };
 
     const getPreviewVideoUrl = (media: Media) => {
@@ -480,21 +492,29 @@ const RecommendationSection: React.FC<RecommendationSectionProps> = ({
         >
           {/* Main Card */}
           <div className="relative w-full aspect-[2/3] bg-gray-900 rounded-lg overflow-hidden shadow-lg">
-            {/* Thumbnail Image with Fallback */}
+            {/* Poster/Thumbnail Image with Fallback */}
             <div className="relative w-full h-full">
-              <Image
-                src={getImageUrl(media)}
-                alt={media.title}
-                fill
-                className={`object-cover transition-opacity duration-300 ${imageLoaded ? (showVideo && videoLoaded ? 'opacity-0' : 'opacity-100') : 'opacity-0'
-                  }`}
-                onLoad={() => setImageLoaded(true)}
-                onError={() => {
-                  // If still fails, show placeholder
-                  setImageLoaded(false);
-                }}
-                sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
-              />
+              {!fallbackError ? (
+                <Image
+                  src={primarySrc}
+                  alt={media.title}
+                  fill
+                  className={`object-cover transition-opacity duration-300 ${imageLoaded ? (showVideo && videoLoaded ? 'opacity-0' : 'opacity-100') : 'opacity-0'
+                    }`}
+                  onLoad={() => setImageLoaded(true)}
+                  onError={handleImageError}
+                  sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+                />
+              ) : (
+                /* Fallback placeholder when both poster and thumbnail fail */
+                <div className="absolute inset-0 bg-gray-800 flex items-center justify-center">
+                  <div className="text-white text-center">
+                    <div className="text-3xl mb-2">🎬</div>
+                    <div className="text-sm font-medium line-clamp-2 px-2">{media.title}</div>
+                    <div className="text-xs text-gray-400 mt-1">No Image</div>
+                  </div>
+                </div>
+              )}
 
               {/* Preview Video - Only load when actually showing */}
               {showVideo && (
@@ -518,8 +538,8 @@ const RecommendationSection: React.FC<RecommendationSectionProps> = ({
                 </video>
               )}
 
-              {/* Loading placeholder or fallback */}
-              {!imageLoaded && (
+              {/* Loading placeholder */}
+              {!imageLoaded && !fallbackError && (
                 <div className="absolute inset-0 bg-gray-800 flex items-center justify-center">
                   <div className="text-white text-center">
                     <div className="text-3xl mb-2">🎬</div>

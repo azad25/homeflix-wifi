@@ -9,6 +9,7 @@ import { getApiUrl } from '@/lib/api';
 import { useAudio } from '@/contexts/EnhancedAudioContext';
 import { cleanMovieTitle } from '@/lib/titleUtils';
 import { useNavigate } from '@/hooks/useNavigate';
+import ImageWithFallback from '@/components/ImageWithFallback';
 
 interface NetflixMovieCardProps {
   media: Media;
@@ -39,19 +40,12 @@ const NetflixMovieCard: React.FC<NetflixMovieCardProps> = ({
   const [isInfoButtonLoading, setIsInfoButtonLoading] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [imageError, setImageError] = useState(false);
-  const [fallbackError, setFallbackError] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const { setCurrentAudioElement, muteAll } = useAudio();
   const hideTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const apiUrl = getApiUrl();
-  
-  const getThumbnailUrl = () => {
-    // Always prioritize thumbnails first for consistent display
-    return `${apiUrl}/api/thumbnails/${media.id}`;
-  };
 
 
   const getPreviewUrl = () => {
@@ -74,7 +68,7 @@ const NetflixMovieCard: React.FC<NetflixMovieCardProps> = ({
 
   const handleMouseEnter = () => {
     setIsHovered(true);
-    
+
     if (hideTimeoutRef.current) {
       clearTimeout(hideTimeoutRef.current);
     }
@@ -82,17 +76,17 @@ const NetflixMovieCard: React.FC<NetflixMovieCardProps> = ({
     // Netflix-like delay before showing preview
     hoverTimeoutRef.current = setTimeout(() => {
       setShowPreview(true);
-      
+
       // Start video preview
       if (videoRef.current && isHovered) {
         const video = videoRef.current;
-        
+
         const handleLoadedData = () => {
           setIsVideoLoaded(true);
           // Register as current audio source and mute others
           muteAll();
           setCurrentAudioElement(video);
-          
+
           // Try to play with sound first
           video.muted = false;
           video.volume = 0.3;
@@ -124,7 +118,7 @@ const NetflixMovieCard: React.FC<NetflixMovieCardProps> = ({
 
   const handleMouseLeave = () => {
     setIsHovered(false);
-    
+
     if (hoverTimeoutRef.current) {
       clearTimeout(hoverTimeoutRef.current);
     }
@@ -159,13 +153,7 @@ const NetflixMovieCard: React.FC<NetflixMovieCardProps> = ({
     navigate.push(`/movie/${media.id}`);
   };
 
-  const handleImageError = () => {
-    if (!imageError) {
-      setImageError(true);
-    } else if (!fallbackError) {
-      setFallbackError(true);
-    }
-  };
+
 
   const handleVideoLoad = () => {
     setIsVideoLoaded(true);
@@ -183,8 +171,8 @@ const NetflixMovieCard: React.FC<NetflixMovieCardProps> = ({
   };
 
   const getQualityBadge = () => {
-    const qualityText = media.quality ? 
-      (media.quality.includes('2160') || media.quality.toLowerCase().includes('4k') ? '4K' : 'HD') 
+    const qualityText = media.quality ?
+      (media.quality.includes('2160') || media.quality.toLowerCase().includes('4k') ? '4K' : 'HD')
       : "HD";
     return { text: qualityText, color: 'bg-blue-600' };
   };
@@ -211,7 +199,7 @@ const NetflixMovieCard: React.FC<NetflixMovieCardProps> = ({
       {/* Base Card */}
       <motion.div
         className={`relative ${sizeClasses[size]} bg-gray-900 rounded-lg overflow-hidden shadow-lg`}
-        animate={{ 
+        animate={{
           scale: isHovered ? 1.3 : 1,
           zIndex: isHovered ? 50 : 1,
           y: isHovered ? -20 : 0,
@@ -221,36 +209,25 @@ const NetflixMovieCard: React.FC<NetflixMovieCardProps> = ({
           transformOrigin: 'center center',
         }}
       >
-        {/* Thumbnail Image */}
-        {!fallbackError ? (
-          <Image
-            src={getThumbnailUrl()}
-            alt={cleanMovieTitle(media.title)}
-            fill
-            sizes="(max-width: 768px) 50vw, (max-width: 1200px) 33vw, 25vw"
-            className={`object-cover transition-opacity duration-300 ${
-              showPreview && isVideoLoaded ? 'opacity-0' : 'opacity-100'
+        {/* Poster/Thumbnail Image with Fallback */}
+        <ImageWithFallback
+          mediaId={media.id}
+          alt={cleanMovieTitle(media.title)}
+          fill
+          sizes="(max-width: 768px) 50vw, (max-width: 1200px) 33vw, 25vw"
+          className={`object-cover transition-opacity duration-300 ${showPreview && isVideoLoaded ? 'opacity-0' : 'opacity-100'
             }`}
-            loading={priority ? "eager" : "lazy"}
-            onError={handleImageError}
-          />
-        ) : (
-          <div className="w-full h-full bg-gradient-to-br from-gray-700 via-gray-800 to-gray-900 flex items-center justify-center">
-            <div className="text-white text-center p-2">
-              <div className="text-2xl mb-2">🎬</div>
-              <div className="text-xs font-medium line-clamp-2">{cleanMovieTitle(media.title)}</div>
-            </div>
-          </div>
-        )}
+          loading={priority ? "eager" : "lazy"}
+          priority={priority}
+        />
 
         {/* Preview Video */}
         {showPreview && (
           <video
             ref={videoRef}
             src={getPreviewUrl()}
-            className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-300 ${
-              isVideoLoaded ? 'opacity-100' : 'opacity-0'
-            }`}
+            className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-300 ${isVideoLoaded ? 'opacity-100' : 'opacity-0'
+              }`}
             muted={isMuted}
             loop
             playsInline
@@ -366,15 +343,15 @@ const NetflixMovieCard: React.FC<NetflixMovieCardProps> = ({
                 )}
                 Play
               </button>
-              
+
               <button className="bg-gray-700 text-white p-1.5 rounded-full hover:bg-gray-600 transition-colors duration-200 cursor-pointer">
                 <Plus className="w-3 h-3" />
               </button>
-              
+
               <button className="bg-gray-700 text-white p-1.5 rounded-full hover:bg-gray-600 transition-colors duration-200 cursor-pointer">
                 <ThumbsUp className="w-3 h-3" />
               </button>
-              
+
               <button
                 onClick={handleInfoClick}
                 className="bg-gray-700 text-white p-1.5 rounded-full hover:bg-gray-600 transition-colors duration-200 ml-auto cursor-pointer"

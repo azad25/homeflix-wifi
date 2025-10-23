@@ -90,6 +90,18 @@ func (a *TMDBServiceAdapter) CleanTitle(title string) string {
 	return a.service.CleanTitle(title)
 }
 
+func (a *TMDBServiceAdapter) DownloadPoster(title string, mediaID uint, posterDir string) (string, error) {
+	return a.service.DownloadPoster(title, mediaID, posterDir)
+}
+
+func (a *TMDBServiceAdapter) GetPosterURL(posterPath string, size string) string {
+	return a.service.GetPosterURL(posterPath, size)
+}
+
+func (a *TMDBServiceAdapter) TestConnection() error {
+	return a.service.TestConnection()
+}
+
 // MediaServiceAdapter adapts services.MediaService to interfaces.MediaServiceInterface
 type MediaServiceAdapter struct {
 	service *services.MediaService
@@ -278,8 +290,16 @@ func (a *PosterServiceAdapter) DownloadPoster(title string, mediaID uint) error 
 	return a.service.DownloadPoster(title, mediaID)
 }
 
+func (a *PosterServiceAdapter) DownloadPosterWithPath(title string, mediaID uint) (string, error) {
+	return a.service.DownloadPosterWithPath(title, mediaID)
+}
+
 func (a *PosterServiceAdapter) GetPosterPath(mediaID uint, title string) string {
 	return a.service.GetPosterPath(mediaID, title)
+}
+
+func (a *PosterServiceAdapter) SetTMDBService(tmdbService interfaces.TMDBServiceInterface) {
+	a.service.SetTMDBService(tmdbService)
 }
 
 // CeleryServiceAdapter adapts services.CeleryService to interfaces.CeleryServiceInterface

@@ -95,14 +95,14 @@ export default function MoviesPage() {
       setRecentMovies(movies.sort((a: Media, b: Media) => b.id - a.id).slice(0, 20));
       setPopularMovies(movies.sort((a: Media, b: Media) => (b.view_count ?? 0) - (a.view_count ?? 0)).slice(0, 20));
       
-      // Preload assets for better performance
+      // Preload assets for better performance (poster first, then thumbnail, then preview)
       const allMoviesForPreload = [
         ...featuredMoviesList,
         ...movies.slice(0, 20)
       ];
       
       if (allMoviesForPreload.length > 0) {
-        preloadAssets(allMoviesForPreload, ['thumbnail', 'preview']);
+        preloadAssets(allMoviesForPreload, ['poster', 'thumbnail', 'preview']);
       }
       
       setLoading(false);

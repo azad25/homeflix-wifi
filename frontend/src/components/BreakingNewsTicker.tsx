@@ -48,14 +48,7 @@ const BreakingNewsTicker: React.FC<BreakingNewsTickerProps> = ({
 
   return (
     <div className="absolute bottom-0 left-0 right-0 z-40 pointer-events-none">
-      <div className="flex items-stretch h-6 px-1" style={{ backgroundColor: '#1B1B1B' }}>
-        {/* Breaking News Label */}
-        {/* <div 
-          className="flex items-center justify-center px-4 text-white text-sm font-bold flex-shrink-0"
-          style={{ backgroundColor: '#7F1D1D' }}
-        >
-          BREAKING NEWS
-        </div> */}
+      <div className="flex items-stretch h-5 px-1" style={{ backgroundColor: '#1B1B1B' }}>
 
         {/* Scrolling News Text */}
         <div className="flex-1 overflow-hidden relative flex items-center">

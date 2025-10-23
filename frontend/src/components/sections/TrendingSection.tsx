@@ -3,7 +3,7 @@
 import React from 'react';
 import { motion } from 'framer-motion';
 import { Media } from '@/types/media';
-import EnhancedScrollXCarousel from '@/components/scrollx/EnhancedScrollXCarousel';
+import { EnhancedHorizontalRow } from '@/components/scrollx';
 import { Flame, Star, Calendar, Trophy } from 'lucide-react';
 
 interface TrendingSectionProps {
@@ -52,38 +52,14 @@ export const TrendingSection: React.FC<TrendingSectionProps> = ({
         </p>
       </motion.div>
 
-      <EnhancedScrollXCarousel
+      <EnhancedHorizontalRow
+        title=""
         media={media}
-        onMediaClick={onMediaClick}
-        variant="solid"
-        showMetadata={true}
-        customMetadata={(media, index) => (
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 text-xs text-gray-300">
-              <Star className="w-3 h-3 text-yellow-500" />
-              <span>{media.rating?.toFixed(1) || 'N/A'}</span>
-              {media.year && (
-                <>
-                  <span className="text-gray-500">•</span>
-                  <Calendar className="w-3 h-3" />
-                  <span>{media.year}</span>
-                </>
-              )}
-            </div>
-            {typeof index === 'number' && getRankBadge(index)}
-          </div>
-        )}
-        cardStyle={{
-          background: 'linear-gradient(135deg, rgba(0,0,0,0.9) 0%, rgba(20,20,20,0.95) 100%)',
-          border: '1px solid rgba(255,255,255,0.15)',
-        }}
-        hoverStyle={{
-          transform: 'scale(1.06) translateY(-10px)',
-          background: 'linear-gradient(135deg, rgba(255,69,0,0.3) 0%, rgba(139,0,0,0.8) 100%)',
-          border: '1px solid rgba(255,69,0,0.6)',
-          boxShadow: '0 20px 40px rgba(255,69,0,0.3)',
-        }}
-        showRankBadges={true}
+        onPlay={onMediaClick}
+        onInfo={onMediaClick}
+        size="medium"
+        variant="portrait"
+        priority={true}
       />
     </section>
   );

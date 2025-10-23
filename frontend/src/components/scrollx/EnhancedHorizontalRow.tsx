@@ -14,6 +14,7 @@ interface EnhancedHorizontalRowProps {
   onInfo: (media: Media) => void;
   priority?: boolean;
   size?: 'small' | 'medium' | 'large';
+  variant?: 'portrait' | 'landscape';
   showTitle?: boolean;
 }
 
@@ -24,6 +25,7 @@ const EnhancedHorizontalRow: React.FC<EnhancedHorizontalRowProps> = ({
   onInfo,
   priority = false,
   size = 'medium',
+  variant = 'portrait',
   showTitle = true
 }) => {
   const [scrollPosition, setScrollPosition] = useState(0);
@@ -184,6 +186,7 @@ const EnhancedHorizontalRow: React.FC<EnhancedHorizontalRowProps> = ({
                 priority={priority && index < 6}
                 delay={index * 50}
                 size={size}
+                variant={variant}
               />
             </div>
           ))}

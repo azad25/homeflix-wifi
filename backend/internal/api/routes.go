@@ -8,7 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamService *services.OptimizedStreamService, thumbnailService *services.ThumbnailService, userService *services.UserService, recommendationService *services.RecommendationService, playbackService *services.PlaybackService, geminiService *services.GeminiService, celeryService *services.CeleryService, alacService *services.ALACAudioService, tmdbService *services.TMDBService, mediaScanner *scanner.MediaScanner, watcherService *services.WatcherService, redisCache *services.RedisAssetCache, transcodeService *services.TranscodeService, newsService *services.NewsService) {
+func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamService *services.OptimizedStreamService, thumbnailService *services.ThumbnailService, userService *services.UserService, recommendationService *services.RecommendationService, playbackService *services.PlaybackService, geminiService *services.GeminiService, celeryService *services.CeleryService, alacService *services.ALACAudioService, tmdbService *services.TMDBService, mediaScanner *scanner.MediaScanner, watcherService *services.WatcherService, redisCache *services.RedisAssetCache, transcodeService *services.TranscodeService, newsService *services.NewsService, posterService *services.PosterService) {
 	api := r.Group("/api")
 	{
 		// Media routes
@@ -76,12 +76,12 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 			// Fallback to enhanced handlers when Redis is not available
 			api.GET("/thumbnails/:id", handlers.GetThumbnailEnhanced(mediaService, thumbnailService))
 			api.GET("/previews/:id", handlers.GetPreviewEnhanced(mediaService, thumbnailService))
-			api.GET("/posters/:id", handlers.GetPosterEnhanced(mediaService))
+			api.GET("/posters/:id", handlers.GetPosterWithAutoDownload(mediaService, posterService))
 
 			// Alternative asset serving endpoints (enhanced handlers)
 			api.GET("/assets/thumbnails/:id", handlers.GetThumbnailEnhanced(mediaService, thumbnailService))
 			api.GET("/assets/previews/:id", handlers.GetPreviewEnhanced(mediaService, thumbnailService))
-			api.GET("/assets/posters/:id", handlers.GetPosterEnhanced(mediaService))
+			api.GET("/assets/posters/:id", handlers.GetPosterWithAutoDownload(mediaService, posterService))
 		}
 
 		// Direct static file serving as fallback (for debugging)
@@ -91,6 +91,12 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 
 		// Thumbnail generation endpoint (always available)
 		api.POST("/thumbnails/:id", handlers.GenerateThumbnail(mediaService, thumbnailService))
+
+		// Poster download endpoints (TMDB integration)
+		api.POST("/posters/:id", handlers.DownloadPoster(mediaService, posterService))
+		api.POST("/admin/posters/generate/:id", handlers.GeneratePoster(mediaService, posterService))
+		api.POST("/admin/posters/batch", handlers.DownloadPosterBatch(mediaService, posterService))
+		api.POST("/admin/posters/regenerate-missing", handlers.RegeneratePostersForMissing(mediaService, posterService))
 
 		// Preview clip generation
 		api.POST("/admin/preview-clips/:id/generate", handlers.GeneratePreviewClip(mediaService, thumbnailService))

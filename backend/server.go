@@ -90,6 +90,9 @@ func main() {
 	tmdbServiceAdapter := adapters.NewTMDBServiceAdapter(tmdbService)
 	recommendationServiceAdapter := adapters.NewRecommendationServiceAdapter(recommendationService)
 
+	// Integrate TMDB service with poster service for TMDB poster downloads
+	posterServiceAdapter.SetTMDBService(tmdbServiceAdapter)
+
 	// Initialize media scanner with adapted services
 	mediaScanner := scanner.NewMediaScanner(cfg.MediaPath, mediaServiceAdapter, thumbnailServiceAdapter, posterServiceAdapter, geminiServiceAdapter, celeryServiceAdapter, alacServiceAdapter, tmdbServiceAdapter, recommendationServiceAdapter)
 
@@ -185,7 +188,7 @@ func main() {
 	newsService.Start()
 
 	// Initialize API routes
-	api.SetupRoutes(r, mediaService, streamService, thumbnailService, userService, recommendationService, playbackService, geminiService, celeryService, alacService, tmdbService, mediaScanner, watcherService, redisCache, transcodeService, newsService)
+	api.SetupRoutes(r, mediaService, streamService, thumbnailService, userService, recommendationService, playbackService, geminiService, celeryService, alacService, tmdbService, mediaScanner, watcherService, redisCache, transcodeService, newsService, posterService)
 
 	// Start server with optimizations
 	port := os.Getenv("PORT")

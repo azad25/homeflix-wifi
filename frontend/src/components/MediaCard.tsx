@@ -7,6 +7,7 @@ import LazyImage from './LazyImage';
 import { Play, Info, Plus, ThumbsUp, ChevronDown } from 'lucide-react';
 import { Media } from '../types/media';
 import { getApiUrl } from '../lib/api';
+import { useImageWithFallback } from '../lib/imageUtils';
 import QualityBadge from './QualityBadge';
 
 interface MediaCardProps {
@@ -24,6 +25,7 @@ const MediaCard: React.FC<MediaCardProps> = ({
 }) => {
   const [isHovered, setIsHovered] = useState(false);
   const [imageError, setImageError] = useState(false);
+  const [fallbackError, setFallbackError] = useState(false);
 
   const sizeClasses = {
     small: "w-48 h-28",
@@ -31,10 +33,7 @@ const MediaCard: React.FC<MediaCardProps> = ({
     large: "w-80 h-48"
   };
 
-  const getImageUrl = (media: Media) => {
-    // Always prioritize thumbnails first for consistent display
-    return `${getApiUrl()}/api/thumbnails/${media.id}`;
-  };
+  const { primarySrc, fallbackSrc } = useImageWithFallback(media.id);
 
   const formatDuration = (seconds: number) => {
     const hours = Math.floor(seconds / 3600);
@@ -52,16 +51,24 @@ const MediaCard: React.FC<MediaCardProps> = ({
     >
       {/* Thumbnail */}
       <div className="relative w-full h-full">
-        {!imageError ? (
+        {!fallbackError ? (
           <LazyImage
-            src={getImageUrl(media)}
+            src={primarySrc}
             alt={media.title}
             fill
             className="object-cover"
-            onError={() => setImageError(true)}
+            onError={() => {
+              if (!imageError) {
+                // First error: poster failed, try thumbnail
+                setImageError(true);
+              } else if (!fallbackError) {
+                // Second error: thumbnail also failed
+                setFallbackError(true);
+              }
+            }}
             loaderSize="medium"
             showLoader={true}
-            fallbackSrc={`${getApiUrl()}/api/thumbnails/${media.id}`}
+            fallbackSrc={fallbackSrc}
           />
         ) : (
           <div className="w-full h-full bg-gradient-to-br from-gray-800 to-gray-900 flex items-center justify-center">

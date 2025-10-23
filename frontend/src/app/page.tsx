@@ -147,7 +147,7 @@ export default function Home() {
         .slice(0, 20);
       setHorrorMovies(horrorMovies);
 
-      // Preload assets for better performance
+      // Preload assets for better performance (poster first, then thumbnail, then preview)
       const allContentForPreload = [
         ...featuredSelection,
         ...recentMovies.slice(0, 10),
@@ -156,7 +156,7 @@ export default function Home() {
       ];
 
       if (allContentForPreload.length > 0) {
-        preloadAssets(allContentForPreload, ['thumbnail', 'preview']);
+        preloadAssets(allContentForPreload, ['poster', 'thumbnail', 'preview']);
       }
 
       setLoading(false);

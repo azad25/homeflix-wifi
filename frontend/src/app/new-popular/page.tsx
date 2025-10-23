@@ -7,7 +7,7 @@ import { ScrollXHero } from '@/components/scrollx';
 import { NewContentSection } from '@/components/sections/NewContentSection';
 import { PopularContentSection } from '@/components/sections/PopularContentSection';
 import { TrendingSection } from '@/components/sections/TrendingSection';
-import { apiCall } from '@/lib/api';
+import { apiCall, preloadAssets } from '@/lib/api';
 import Navbar from '@/components/Navbar';
 import RedLoader from '@/components/RedLoader';
 import { useRouter } from 'next/navigation';
@@ -63,6 +63,18 @@ const NewPopularPage: React.FC = () => {
         setNewContent(sortedByDate.slice(0, 20));
         setPopularContent(sortedByViews.slice(0, 20));
         setTrendingContent(sortedByRating.slice(0, 20));
+
+        // Preload assets for better performance (poster first, then thumbnail, then preview)
+        const allContentForPreload = [
+          ...featured,
+          ...sortedByDate.slice(0, 10),
+          ...sortedByViews.slice(0, 10),
+          ...sortedByRating.slice(0, 10)
+        ];
+
+        if (allContentForPreload.length > 0) {
+          preloadAssets(allContentForPreload, ['poster', 'thumbnail', 'preview']);
+        }
 
       } catch (err) {
         console.error('Error fetching content:', err);

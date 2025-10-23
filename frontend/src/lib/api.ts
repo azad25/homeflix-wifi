@@ -26,6 +26,7 @@ export const API_ENDPOINTS = {
   series: '/api/series',
   stream: (id: number) => `/api/stream/${id}`,
   thumbnails: (id: number) => `/api/thumbnails/${id}`,
+  posters: (id: number) => `/api/posters/${id}`,
   previewClips: (id: number) => `/api/preview-clips/${id}`,
   subtitles: (id: number) => `/api/subtitles/${id}`,
   search: '/api/media/search',
@@ -41,10 +42,16 @@ export const API_ENDPOINTS = {
   }
 };
 
-// Enhanced asset URL builders with fallback support (thumbnails and previews only)
-export const getAssetUrl = (type: 'thumbnail' | 'preview', id: number, fallback = true) => {
+// Enhanced asset URL builders with fallback support (thumbnails, posters, and previews)
+export const getAssetUrl = (type: 'thumbnail' | 'poster' | 'preview', id: number, fallback = true) => {
   const baseUrl = getApiUrl();
-  const primaryUrl = `${baseUrl}/api/${type === 'preview' ? 'preview-clips' : `${type}s`}/${id}`;
+  let primaryUrl: string;
+  
+  if (type === 'preview') {
+    primaryUrl = `${baseUrl}/api/preview-clips/${id}`;
+  } else {
+    primaryUrl = `${baseUrl}/api/${type}s/${id}`;
+  }
   
   if (!fallback) {
     return primaryUrl;
@@ -52,16 +59,21 @@ export const getAssetUrl = (type: 'thumbnail' | 'preview', id: number, fallback 
   
   // Return array of URLs to try in order with cache busting
   const timestamp = Date.now();
-  return [
-    primaryUrl,
-    `${baseUrl}/api/assets/${type}s/${id}`,
-    `${baseUrl}/api/${type === 'preview' ? 'previews' : `${type}s`}/${id}`,
-    `${baseUrl}/api/${type}s/${id}?t=${timestamp}`, // Cache busting
-  ];
+  const urls = [primaryUrl];
+  
+  // Add alternative asset endpoints
+  if (type !== 'preview') {
+    urls.push(`${baseUrl}/api/assets/${type}s/${id}`);
+  }
+  
+  // Add cache busting version
+  urls.push(`${primaryUrl}?t=${timestamp}`);
+  
+  return urls;
 };
 
-// Netflix-like asset loading with preloading and caching (thumbnails and previews only)
-export const loadAssetWithFallback = async (type: 'thumbnail' | 'preview', id: number): Promise<string> => {
+// Netflix-like asset loading with preloading and caching (thumbnails, posters, and previews)
+export const loadAssetWithFallback = async (type: 'thumbnail' | 'poster' | 'preview', id: number): Promise<string> => {
   const urls = getAssetUrl(type, id, true) as string[];
   
   for (const url of urls) {
@@ -79,8 +91,8 @@ export const loadAssetWithFallback = async (type: 'thumbnail' | 'preview', id: n
   return urls[0];
 };
 
-// Preload assets for Netflix-like performance (thumbnails and previews only)
-export const preloadAssets = (mediaList: any[], types: ('thumbnail' | 'preview')[] = ['thumbnail']) => {
+// Preload assets for Netflix-like performance (thumbnails, posters, and previews)
+export const preloadAssets = (mediaList: any[], types: ('thumbnail' | 'poster' | 'preview')[] = ['poster', 'thumbnail']) => {
   const preloadPromises: Promise<void>[] = [];
   
   mediaList.slice(0, 20).forEach(media => { // Preload first 20 items

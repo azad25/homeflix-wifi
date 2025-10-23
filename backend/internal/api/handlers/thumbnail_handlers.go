@@ -803,19 +803,45 @@ func GenerateThumbnail(mediaService *services.MediaService, thumbnailService *se
 			return
 		}
 
-		media, err := mediaService.GetMediaByID(uint(id))
+		mediaID := uint(id)
+
+		media, err := mediaService.GetMediaByID(mediaID)
 		if err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Media not found"})
 			return
 		}
 
-		_, err = thumbnailService.GenerateThumbnail(media.FilePath, media.ID, media.Title)
+		// Generate thumbnail
+		log.Printf("🎨 Generating thumbnail for: %s (ID: %d)", media.Title, media.ID)
+		thumbnailPath, err := thumbnailService.GenerateThumbnail(media.FilePath, media.ID, media.Title)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			log.Printf("❌ Failed to generate thumbnail for %s: %v", media.Title, err)
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error":    "Failed to generate thumbnail",
+				"media_id": media.ID,
+				"title":    media.Title,
+				"details":  err.Error(),
+			})
 			return
 		}
 
-		c.JSON(http.StatusOK, gin.H{"message": "Thumbnail generated successfully"})
+		// Update media record with thumbnail path
+		if thumbnailPath != "" {
+			media.ThumbnailPath = thumbnailPath
+			if err := mediaService.UpdateMedia(media); err != nil {
+				log.Printf("⚠️ Failed to update media with thumbnail path: %v", err)
+			} else {
+				log.Printf("✅ Updated media %s with thumbnail path: %s", media.Title, thumbnailPath)
+			}
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"status":        "success",
+			"media_id":      media.ID,
+			"title":         media.Title,
+			"thumbnail_path": thumbnailPath,
+			"message":       "Thumbnail generated successfully",
+		})
 	}
 }
 
@@ -2072,10 +2098,118 @@ func GetPosterEnhanced(mediaService *services.MediaService) gin.HandlerFunc {
 		// Fast path resolution with optimized fallbacks
 		posterPath, err := servePosterFast(media)
 		if err != nil {
+			// Poster not found - return thumbnail fallback or 404
 			c.JSON(http.StatusNotFound, gin.H{
 				"error": "Poster not available",
 				"media_id": media.ID,
+				"message": "No poster or thumbnail found for this media",
 			})
+			return
+		}
+
+		// Cache the found path for future requests
+		assetCache.setCachedAssetPath(mediaID, "poster", posterPath)
+
+		// Set high-performance headers
+		c.Header("Cache-Control", "public, max-age=86400, immutable") // 24 hour cache
+		c.Header("Content-Type", "image/jpeg")
+		c.Header("X-Cache", "MISS")
+		c.Header("Accept-Ranges", "bytes")
+
+		c.File(posterPath)
+	}
+}
+
+// GetPosterWithAutoDownload serves posters with automatic TMDB download when missing
+func GetPosterWithAutoDownload(mediaService *services.MediaService, posterService *services.PosterService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id, err := strconv.ParseUint(c.Param("id"), 10, 32)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID"})
+			return
+		}
+
+		mediaID := uint(id)
+
+		// Check cache first for ultra-fast serving
+		if cachedPath, found := assetCache.getCachedAssetPath(mediaID, "poster"); found {
+			// Set high-performance headers
+			c.Header("Cache-Control", "public, max-age=86400, immutable") // 24 hour cache
+			c.Header("Content-Type", "image/jpeg")
+			c.Header("X-Cache", "HIT")
+			c.Header("Accept-Ranges", "bytes")
+			
+			c.File(cachedPath)
+			return
+		}
+
+		// Cache miss - get media and find poster
+		media, err := mediaService.GetMediaByID(mediaID)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Media not found"})
+			return
+		}
+
+		// ENHANCED CACHE INVALIDATION: Force complete cache refresh for posters
+		assetCache.mutex.Lock()
+		delete(assetCache.notFoundCache, mediaID)
+		delete(assetCache.posterCache, mediaID)
+		assetCache.mutex.Unlock()
+		
+		// IMMEDIATE FILESYSTEM SCAN: Check all possible poster locations
+		if refreshedPath := posterService.GetPosterPath(media.ID, media.Title); refreshedPath != "" {
+			log.Printf("🎯 INSTANT SERVE: Found poster after cache refresh: %s", refreshedPath)
+			// Update database and cache immediately
+			media.PosterPath = refreshedPath
+			mediaService.UpdateMedia(media)
+			assetCache.setCachedAssetPath(mediaID, "poster", refreshedPath)
+			
+			// ZERO-LATENCY HEADERS: Instant serving with aggressive caching
+			c.Header("Cache-Control", "public, max-age=86400, immutable")
+			c.Header("Content-Type", "image/jpeg")
+			c.Header("Accept-Ranges", "bytes")
+			c.Header("X-Cache", "INSTANT-HIT")
+			c.Header("X-Asset-Source", "cache-refresh")
+			c.File(refreshedPath)
+			return
+		}
+
+		// Fast path resolution with optimized fallbacks
+		posterPath, err := servePosterWithAutoDownload(media, posterService)
+		if err != nil {
+			// ZERO-LATENCY 404 HANDLING: Return immediately, download async
+			log.Printf("⚡ INSTANT 404 RESPONSE: Triggering async poster download for media %d", mediaID)
+			
+			// INSTANT RESPONSE: Don't block frontend
+			c.Header("Cache-Control", "no-cache, no-store, must-revalidate")
+			c.Header("X-Cache", "DOWNLOADING-ASYNC")
+			c.Header("X-Generation-Status", "background")
+			c.Header("X-Retry-After", "5") // Suggest 5-second retry for posters
+			c.JSON(http.StatusNotFound, gin.H{
+				"error": "Poster downloading",
+				"media_id": media.ID,
+				"status": "async_download",
+				"message": "Poster will be available shortly",
+				"retry_in_seconds": 5,
+			})
+			
+			// Trigger async download (non-blocking)
+			go func() {
+				log.Printf("🚀 Starting automatic poster download for media %d: %s", media.ID, media.Title)
+				
+				if downloadedPath, err := posterService.DownloadPosterWithPath(media.Title, media.ID); err == nil && downloadedPath != "" {
+					// Update database with new path
+					media.PosterPath = downloadedPath
+					if updateErr := mediaService.UpdateMedia(media); updateErr != nil {
+						log.Printf("⚠️ Failed to update media poster path: %v", updateErr)
+					}
+					// Add to cache for future requests
+					assetCache.setCachedAssetPath(mediaID, "poster", downloadedPath)
+					log.Printf("✅ Automatic poster download completed: %s", downloadedPath)
+				} else {
+					log.Printf("❌ Automatic poster download failed for %s: %v", media.Title, err)
+				}
+			}()
 			return
 		}
 
@@ -2173,7 +2307,7 @@ func servePreviewFast(media *models.Media, thumbnailService *services.ThumbnailS
 	return "", fmt.Errorf("no preview found for media %d", media.ID)
 }
 
-// servePosterFast provides optimized poster serving with minimal filesystem calls
+// servePosterFast provides optimized poster serving with thumbnail fallback
 func servePosterFast(media *models.Media) (string, error) {
 	// Priority 1: Database path (most likely to be correct)
 	if media.PosterPath != "" {
@@ -2188,24 +2322,33 @@ func servePosterFast(media *models.Media) (string, error) {
 		}
 	}
 
-	// Priority 2: Most common patterns
+	// Priority 2: Check for TMDB downloaded posters
 	cleanTitle := strings.ReplaceAll(strings.ReplaceAll(media.Title, " ", "_"), ":", "")
-	fastPaths := []string{
-		fmt.Sprintf("./backend/posters/poster_%s.jpg", cleanTitle),
-		fmt.Sprintf("./backend/posters/poster_%d.jpg", media.ID),
+	posterPaths := []string{
+		// Root folder first (preferred location)
 		fmt.Sprintf("./posters/poster_%s.jpg", cleanTitle),
 		fmt.Sprintf("./posters/poster_%d.jpg", media.ID),
+		fmt.Sprintf("./posters/poster_%d_%s.jpg", media.ID, cleanTitle),
+		// Backend folder as fallback
+		fmt.Sprintf("./backend/posters/poster_%s.jpg", cleanTitle),
+		fmt.Sprintf("./backend/posters/poster_%d.jpg", media.ID),
+		fmt.Sprintf("./backend/posters/poster_%d_%s.jpg", media.ID, cleanTitle),
 	}
 
-	for _, path := range fastPaths {
+	for _, path := range posterPaths {
 		if _, err := os.Stat(path); err == nil {
 			return path, nil
 		}
 	}
 
-	// Priority 3: Fallback to thumbnail if no poster found
+	// Priority 3: Fallback to thumbnail as poster (CRITICAL FEATURE)
+	// This is what you requested - use thumbnails as poster fallback
+	log.Printf("📸 No poster found for %s, falling back to thumbnail", media.Title)
+	
+	// Try database thumbnail path first
 	if media.ThumbnailPath != "" {
 		if _, err := os.Stat(media.ThumbnailPath); err == nil {
+			log.Printf("✅ Using database thumbnail as poster: %s", media.ThumbnailPath)
 			return media.ThumbnailPath, nil
 		}
 	}
@@ -2213,11 +2356,68 @@ func servePosterFast(media *models.Media) (string, error) {
 	// Try common thumbnail locations as poster fallback
 	thumbnailPaths := []string{
 		fmt.Sprintf("./backend/thumbnails/thumb_%s.jpg", cleanTitle),
+		fmt.Sprintf("./thumbnails/thumb_%s.jpg", cleanTitle),
 		fmt.Sprintf("./backend/thumbnails/thumb_%d.jpg", media.ID),
+		fmt.Sprintf("./thumbnails/thumb_%d.jpg", media.ID),
+		fmt.Sprintf("./backend/thumbnails/thumb_%d_%s.jpg", media.ID, cleanTitle),
+		fmt.Sprintf("./thumbnails/thumb_%d_%s.jpg", media.ID, cleanTitle),
 	}
 
 	for _, path := range thumbnailPaths {
 		if _, err := os.Stat(path); err == nil {
+			log.Printf("✅ Using thumbnail as poster fallback: %s", path)
+			return path, nil
+		}
+	}
+
+	return "", fmt.Errorf("no poster or thumbnail found for media %d", media.ID)
+}
+
+// servePosterWithAutoDownload provides optimized poster serving with automatic TMDB download
+func servePosterWithAutoDownload(media *models.Media, posterService *services.PosterService) (string, error) {
+	// Priority 1: Database path (most likely to be correct)
+	if media.PosterPath != "" {
+		if _, err := os.Stat(media.PosterPath); err == nil {
+			return media.PosterPath, nil
+		}
+		if !strings.HasPrefix(media.PosterPath, "/") {
+			backendPath := fmt.Sprintf("./backend/%s", media.PosterPath)
+			if _, err := os.Stat(backendPath); err == nil {
+				return backendPath, nil
+			}
+		}
+	}
+
+	// Priority 2: Check for existing posters using poster service
+	if posterPath := posterService.GetPosterPath(media.ID, media.Title); posterPath != "" {
+		return posterPath, nil
+	}
+
+	// Priority 3: Fallback to thumbnail as poster (CRITICAL FEATURE)
+	log.Printf("📸 No poster found for %s, falling back to thumbnail", media.Title)
+	
+	// Try database thumbnail path first
+	if media.ThumbnailPath != "" {
+		if _, err := os.Stat(media.ThumbnailPath); err == nil {
+			log.Printf("✅ Using database thumbnail as poster: %s", media.ThumbnailPath)
+			return media.ThumbnailPath, nil
+		}
+	}
+
+	// Try common thumbnail locations as poster fallback
+	cleanTitle := strings.ReplaceAll(strings.ReplaceAll(media.Title, " ", "_"), ":", "")
+	thumbnailPaths := []string{
+		fmt.Sprintf("./backend/thumbnails/thumb_%s.jpg", cleanTitle),
+		fmt.Sprintf("./thumbnails/thumb_%s.jpg", cleanTitle),
+		fmt.Sprintf("./backend/thumbnails/thumb_%d.jpg", media.ID),
+		fmt.Sprintf("./thumbnails/thumb_%d.jpg", media.ID),
+		fmt.Sprintf("./backend/thumbnails/thumb_%d_%s.jpg", media.ID, cleanTitle),
+		fmt.Sprintf("./thumbnails/thumb_%d_%s.jpg", media.ID, cleanTitle),
+	}
+
+	for _, path := range thumbnailPaths {
+		if _, err := os.Stat(path); err == nil {
+			log.Printf("✅ Using thumbnail as poster fallback: %s", path)
 			return path, nil
 		}
 	}
@@ -2292,6 +2492,320 @@ func GetAssetCacheStats() gin.HandlerFunc {
 		assetCache.mutex.RUnlock()
 
 		c.JSON(http.StatusOK, stats)
+	}
+}
+
+// DownloadPoster manually downloads a poster for a media item using TMDB
+func DownloadPoster(mediaService *services.MediaService, posterService *services.PosterService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id, err := strconv.ParseUint(c.Param("id"), 10, 32)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID"})
+			return
+		}
+
+		mediaID := uint(id)
+
+		// Get media info
+		media, err := mediaService.GetMediaByID(mediaID)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Media not found"})
+			return
+		}
+
+		// Check if poster already exists
+		if existingPath := posterService.GetPosterPath(media.ID, media.Title); existingPath != "" {
+			log.Printf("✅ Poster already exists for %s: %s", media.Title, existingPath)
+			c.JSON(http.StatusOK, gin.H{
+				"status":      "success",
+				"media_id":    media.ID,
+				"title":       media.Title,
+				"poster_path": existingPath,
+				"message":     "Poster already exists",
+				"skipped":     true,
+			})
+			return
+		}
+
+		// Download poster using TMDB
+		log.Printf("🎨 Downloading poster for: %s (ID: %d)", media.Title, media.ID)
+		posterPath, err := posterService.DownloadPosterWithPath(media.Title, media.ID)
+		if err != nil {
+			log.Printf("❌ Failed to download poster for %s: %v", media.Title, err)
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error":    "Failed to download poster",
+				"media_id": media.ID,
+				"title":    media.Title,
+				"details":  err.Error(),
+			})
+			return
+		}
+
+		// Update media record with poster path
+		if posterPath != "" {
+			media.PosterPath = posterPath
+			if err := mediaService.UpdateMedia(media); err != nil {
+				log.Printf("⚠️ Failed to update media with poster path: %v", err)
+			} else {
+				log.Printf("✅ Updated media %s with poster path: %s", media.Title, posterPath)
+			}
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"status":      "success",
+			"media_id":    media.ID,
+			"title":       media.Title,
+			"poster_path": posterPath,
+			"message":     "Poster downloaded successfully from TMDB",
+		})
+	}
+}
+
+// GeneratePoster generates/downloads a poster for a media item (alias for DownloadPoster for consistency)
+func GeneratePoster(mediaService *services.MediaService, posterService *services.PosterService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id, err := strconv.ParseUint(c.Param("id"), 10, 32)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID"})
+			return
+		}
+
+		mediaID := uint(id)
+
+		// Get media info
+		media, err := mediaService.GetMediaByID(mediaID)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Media not found"})
+			return
+		}
+
+		// Force regeneration - remove existing poster first if it exists
+		if existingPath := posterService.GetPosterPath(media.ID, media.Title); existingPath != "" {
+			log.Printf("🔄 Regenerating existing poster for %s: %s", media.Title, existingPath)
+		}
+
+		// Download/generate poster using TMDB
+		log.Printf("🎨 Generating poster for: %s (ID: %d)", media.Title, media.ID)
+		posterPath, err := posterService.DownloadPosterWithPath(media.Title, media.ID)
+		if err != nil {
+			log.Printf("❌ Failed to generate poster for %s: %v", media.Title, err)
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error":    "Failed to generate poster",
+				"media_id": media.ID,
+				"title":    media.Title,
+				"details":  err.Error(),
+			})
+			return
+		}
+
+		// Update media record with poster path
+		if posterPath != "" {
+			media.PosterPath = posterPath
+			if err := mediaService.UpdateMedia(media); err != nil {
+				log.Printf("⚠️ Failed to update media with poster path: %v", err)
+			} else {
+				log.Printf("✅ Updated media %s with poster path: %s", media.Title, posterPath)
+			}
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"status":      "success",
+			"media_id":    media.ID,
+			"title":       media.Title,
+			"poster_path": posterPath,
+			"message":     "Poster generated successfully from TMDB",
+		})
+	}
+}
+
+// DownloadPosterBatch downloads posters for multiple media items
+func DownloadPosterBatch(mediaService *services.MediaService, posterService *services.PosterService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var request struct {
+			MediaIDs []uint `json:"media_ids"`
+		}
+
+		if err := c.BindJSON(&request); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
+			return
+		}
+
+		if len(request.MediaIDs) == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "No media IDs provided"})
+			return
+		}
+
+		if len(request.MediaIDs) > 20 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Too many media IDs (max 20 to respect TMDB rate limits)"})
+			return
+		}
+
+		successful := 0
+		failed := 0
+		var errors []string
+		var results []map[string]interface{}
+
+		// Process each media ID
+		for _, mediaID := range request.MediaIDs {
+			media, err := mediaService.GetMediaByID(mediaID)
+			if err != nil {
+				failed++
+				errors = append(errors, fmt.Sprintf("Media %d: not found", mediaID))
+				continue
+			}
+
+			result := map[string]interface{}{
+				"media_id": mediaID,
+				"title":    media.Title,
+			}
+
+			// Check if poster already exists
+			if existingPath := posterService.GetPosterPath(media.ID, media.Title); existingPath != "" {
+				result["status"] = "skipped"
+				result["message"] = "Poster already exists"
+				result["poster_path"] = existingPath
+				results = append(results, result)
+				continue
+			}
+
+			// Download poster
+			if posterPath, err := posterService.DownloadPosterWithPath(media.Title, media.ID); err != nil {
+				failed++
+				result["status"] = "failed"
+				result["error"] = err.Error()
+				errors = append(errors, fmt.Sprintf("Media %d (%s): %v", mediaID, media.Title, err))
+			} else {
+				successful++
+				result["status"] = "success"
+				result["message"] = "Poster downloaded successfully"
+				
+				// Update database with poster path
+				if posterPath != "" {
+					result["poster_path"] = posterPath
+					media.PosterPath = posterPath
+					mediaService.UpdateMedia(media)
+				}
+			}
+
+			results = append(results, result)
+
+			// Add delay between downloads to respect TMDB rate limits
+			time.Sleep(1 * time.Second)
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"status":     "completed",
+			"total":      len(request.MediaIDs),
+			"successful": successful,
+			"failed":     failed,
+			"errors":     errors,
+			"results":    results,
+		})
+	}
+}
+
+// RegeneratePostersForMissing downloads posters for all media missing posters
+func RegeneratePostersForMissing(mediaService *services.MediaService, posterService *services.PosterService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// Get all media from database
+		allMedia, err := mediaService.GetAllMedia()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get media from database"})
+			return
+		}
+
+		// Filter media with missing posters
+		var mediaWithoutPosters []models.Media
+		for _, media := range allMedia {
+			// Check if file exists
+			if _, err := os.Stat(media.FilePath); err != nil {
+				continue
+			}
+
+			// Check if poster is missing
+			needsPoster := media.PosterPath == ""
+
+			// Also check if poster file actually exists on disk
+			if media.PosterPath != "" {
+				if _, err := os.Stat(media.PosterPath); os.IsNotExist(err) {
+					needsPoster = true
+				}
+			}
+
+			// Double-check using poster service
+			if !needsPoster {
+				if posterPath := posterService.GetPosterPath(media.ID, media.Title); posterPath == "" {
+					needsPoster = true
+				}
+			}
+
+			if needsPoster {
+				mediaWithoutPosters = append(mediaWithoutPosters, media)
+			}
+		}
+
+		if len(mediaWithoutPosters) == 0 {
+			c.JSON(http.StatusOK, gin.H{
+				"status":  "completed",
+				"message": "All media already have posters",
+				"total":   0,
+			})
+			return
+		}
+
+		log.Printf("🎨 Found %d media items needing posters", len(mediaWithoutPosters))
+
+		// Process in smaller batches to respect TMDB rate limits
+		batchSize := 5
+		successful := 0
+		failed := 0
+		var errors []string
+
+		for i := 0; i < len(mediaWithoutPosters); i += batchSize {
+			end := i + batchSize
+			if end > len(mediaWithoutPosters) {
+				end = len(mediaWithoutPosters)
+			}
+
+			batch := mediaWithoutPosters[i:end]
+			log.Printf("🎨 Processing poster batch %d-%d of %d", i+1, end, len(mediaWithoutPosters))
+
+			// Process batch sequentially to respect TMDB rate limits
+			for _, media := range batch {
+				if posterPath, err := posterService.DownloadPosterWithPath(media.Title, media.ID); err != nil {
+					failed++
+					errors = append(errors, fmt.Sprintf("Media %d (%s): %v", media.ID, media.Title, err))
+					log.Printf("❌ Failed to download poster for %s: %v", media.Title, err)
+				} else if posterPath != "" {
+					// Update media record
+					media.PosterPath = posterPath
+					if updateErr := mediaService.UpdateMedia(&media); updateErr != nil {
+						log.Printf("⚠️ Failed to update media record for %s: %v", media.Title, updateErr)
+					} else {
+						successful++
+						log.Printf("✅ Downloaded poster for: %s", media.Title)
+					}
+				}
+
+				// Delay between downloads to respect TMDB rate limits (40 requests per 10 seconds)
+				time.Sleep(300 * time.Millisecond) // 0.3 seconds between requests
+			}
+
+			// Longer pause between batches
+			if end < len(mediaWithoutPosters) {
+				log.Printf("⏸️ Batch completed, waiting 2 seconds before next batch...")
+				time.Sleep(2 * time.Second)
+			}
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"status":     "completed",
+			"total":      len(mediaWithoutPosters),
+			"successful": successful,
+			"failed":     failed,
+			"errors":     errors,
+			"message":    fmt.Sprintf("Poster download completed: %d successful, %d failed", successful, failed),
+		})
 	}
 }
 

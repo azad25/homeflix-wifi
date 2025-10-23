@@ -104,9 +104,9 @@ export default function BrowsePage() {
 
       setFeaturedMedia(featured);
 
-      // Preload assets for hero section
+      // Preload assets for hero section (poster first, then thumbnail, then preview)
       if (featured.length > 0) {
-        preloadAssets(featured, ['thumbnail', 'preview']);
+        preloadAssets(featured, ['poster', 'thumbnail', 'preview']);
       }
     } catch (error) {
       console.error("Error fetching featured media:", error);

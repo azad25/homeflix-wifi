@@ -3,7 +3,7 @@
 import React from 'react';
 import { motion } from 'framer-motion';
 import { Media } from '@/types/media';
-import EnhancedScrollXCarousel from '@/components/scrollx/EnhancedScrollXCarousel';
+import { EnhancedHorizontalRow } from '@/components/scrollx';
 import { TrendingUp, Eye, Star, Play } from 'lucide-react';
 
 interface PopularContentSectionProps {
@@ -41,37 +41,14 @@ export const PopularContentSection: React.FC<PopularContentSectionProps> = ({
         </p>
       </motion.div>
 
-      <EnhancedScrollXCarousel
+      <EnhancedHorizontalRow
+        title=""
         media={media}
-        onMediaClick={onMediaClick}
-        variant="gradient"
-        showMetadata={true}
-        customMetadata={(media) => (
-          <div className="flex items-center gap-2 text-xs text-gray-300">
-            <Eye className="w-3 h-3" />
-            <span>{formatViews(media.view_count || 0)} views</span>
-            {media.rating && (
-              <>
-                <span className="text-gray-500">•</span>
-                <Star className="w-3 h-3 text-yellow-500" />
-                <span>{media.rating.toFixed(1)}</span>
-              </>
-            )}
-          </div>
-        )}
-        cardStyle={{
-          background: 'linear-gradient(135deg, rgba(139,0,0,0.2) 0%, rgba(0,0,0,0.8) 100%)',
-          border: '1px solid rgba(220,38,38,0.3)',
-          backdropFilter: 'blur(8px)',
-        }}
-        hoverStyle={{
-          transform: 'scale(1.08) translateY(-12px)',
-          background: 'linear-gradient(135deg, rgba(220,38,38,0.8) 0%, rgba(139,0,0,0.9) 100%)',
-          border: '1px solid rgba(220,38,38,0.8)',
-          boxShadow: '0 25px 50px rgba(220,38,38,0.4)',
-        }}
-        showPlayButton={true}
-        playButtonIcon={<Play className="w-4 h-4" />}
+        onPlay={onMediaClick}
+        onInfo={onMediaClick}
+        size="medium"
+        variant="portrait"
+        priority={true}
       />
     </section>
   );

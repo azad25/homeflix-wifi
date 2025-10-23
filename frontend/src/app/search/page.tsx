@@ -142,9 +142,9 @@ export default function SearchPage() {
       setSearchResults(limitedResults);
       setHasSearched(true);
       
-      // Preload assets for better performance
+      // Preload assets for better performance (poster first, then thumbnail)
       if (results.length > 0) {
-        preloadAssets(results.slice(0, 12), ['thumbnail']);
+        preloadAssets(results.slice(0, 12), ['poster', 'thumbnail']);
       }
       
     } catch (error) {
