@@ -1,96 +1,186 @@
-# HomeFlix - Netflix Clone
+# HomeFlix - Personal Netflix Clone
 
-A full-featured Netflix clone built with Go backend and Next.js frontend, designed to stream your personal media collection from external drives.
+Transform your media collection into a professional streaming platform! HomeFlix is a full-featured Netflix clone that automatically organizes and streams your movies and TV shows with a beautiful, responsive interface.
 
-//add screenshots here
-![HomeFlix](/preview.png)
-![HomeFlix](/preview-2.png)
+![HomeFlix Preview](/preview.png)
+![HomeFlix Interface](/preview-2.png)
+![HomeFlix Interface](/preview-3.png)
+![HomeFlix Interface](/preview-4.png)
+![HomeFlix Interface](/preview-5.png)
+![HomeFlix Interface](/preview-6.png)
 
-## Features
 
-- 🎬 **Media Library Management**: Automatically scan and organize movies/series from external drives
-- 🎨 **Netflix-like UI**: Beautiful interface using ScrollXUI components with parallax effects
-- 🎥 **Video Streaming**: High-quality video streaming with HLS/DASH support
-- 🏷️ **Smart Categorization**: Automatic genre detection and categorization
-- 🔍 **Advanced Search**: Search by title, genre, actor, director, and more
-- 📱 **Responsive Design**: Works seamlessly on desktop, tablet, and mobile
-- 🎭 **Thumbnails & Trailers**: Auto-generated thumbnails and trailer previews
-- 📝 **Subtitles Support**: Multi-language subtitle support
-- 👤 **User Profiles**: Multiple user profiles with watchlists and viewing history
+## ✨ Key Features
 
-## Tech Stack
+### 🎬 **Smart Media Management**
+- **Automatic Scanning**: Detects and organizes movies/TV shows from your drives
+- **Intelligent Metadata**: Auto-fetches movie info, posters, and descriptions from TMDB
+- **Genre Classification**: Automatically categorizes content by genre
+- **Series Organization**: Groups TV episodes by seasons and series
 
-### Backend (Go)
-- **Gin** - HTTP web framework
-- **GORM** - ORM for database operations
-- **SQLite** - Lightweight database
-- **FFmpeg** - Video processing and thumbnail generation
-- **Gorilla WebSocket** - Real-time communication
+### 🎨 **Netflix-Style Interface**
+- **Hero Sections**: Dynamic featured content with trailers
+- **Smooth Carousels**: Browse content with Netflix-style scrolling
+- **Responsive Design**: Perfect on desktop, tablet, and mobile
+- **Dark Theme**: Beautiful dark interface optimized for viewing
 
-### Frontend (Next.js)
-- **Next.js 14** - React framework with App Router
-- **TypeScript** - Type-safe development
-- **Tailwind CSS** - Utility-first CSS framework
-- **ScrollXUI** - Modern component library
-- **Framer Motion** - Smooth animations
-- **Video.js** - HTML5 video player
+### 🎥 **Advanced Streaming**
+- **High-Quality Playback**: Supports 4K, 1080p, and adaptive streaming
+- **Multiple Formats**: Plays MP4, MKV, AVI, and more
+- **ALAC Audio**: High-quality lossless audio support
+- **Auto-Transcoding**: Converts incompatible formats on-the-fly
+- **Preview Clips**: Hover previews like Netflix
 
-## Project Structure
+### 🔍 **Discovery & Navigation**
+- **Advanced Search**: Find content by title, actor, director, genre
+- **Smart Recommendations**: AI-powered content suggestions
+- **Continue Watching**: Resume where you left off
+- **My List**: Personal watchlist management
+- **Recently Added**: See your newest content first
 
+### 📱 **Pages & Sections**
+- **Home**: Featured content and personalized recommendations
+- **Movies**: Browse your entire movie collection
+- **TV Shows**: Organized series with season/episode navigation
+- **My List**: Your personal watchlist
+- **Search**: Advanced search with filters
+- **Now Playing**: Live TV-style channel with previews
+- **New & Popular**: Latest additions and trending content
+
+### 🎭 **Media Assets**
+- **Auto Thumbnails**: Generated from video content
+- **Movie Posters**: Downloaded from TMDB database
+- **Preview Videos**: Short clips for quick browsing
+- **Subtitle Support**: Multi-language subtitle files
+
+### 📊 **Analytics & Tracking**
+- **Watch History**: Track viewing progress and history
+- **Playback Resume**: Continue from where you stopped
+- **View Statistics**: See your watching patterns
+- **Recommendation Engine**: Learns from your preferences
+
+## 🚀 Quick Installation
+
+### One-Command Setup
+```bash
+# Clone and setup everything
+git clone <repository-url>
+cd homeflix
+chmod +x setup.sh start.sh
+./setup.sh
+```
+
+### Manual Installation
+
+#### Prerequisites
+- **Go 1.21+** - [Download here](https://golang.org/dl/)
+- **Node.js 18+** - [Download here](https://nodejs.org/)
+- **FFmpeg** - For video processing
+- **Redis** - For caching (optional but recommended)
+
+#### System Dependencies
+```bash
+# Ubuntu/Debian
+sudo apt update
+sudo apt install golang-go nodejs npm ffmpeg redis-server
+
+# macOS (with Homebrew)
+brew install go node ffmpeg redis
+
+# Arch Linux
+sudo pacman -S go nodejs npm ffmpeg redis
+```
+
+#### Project Setup
+```bash
+# 1. Install backend dependencies
+cd backend
+go mod tidy
+
+# 2. Install frontend dependencies
+cd ../frontend
+npm install
+
+# 3. Create required directories
+mkdir -p thumbnails posters previews subtitles optimized
+```
+
+## 🎯 Getting Started
+
+### 1. Add Your Media
+Place your movies and TV shows in `/media/azad/Movies1` (or update the path in the configuration)
+
+### 2. Start HomeFlix
+```bash
+./start.sh
+```
+
+### 3. Access Your Platform
+- **Web Interface**: http://localhost:3008
+- **Network Access**: http://YOUR_IP:3008 (for other devices)
+- **API**: http://localhost:8252
+
+### 4. First-Time Setup
+1. The system will automatically scan your media directory
+2. Thumbnails and posters will be generated in the background
+3. Browse to http://localhost:3008 and enjoy!
+
+## 🔧 Configuration
+
+### Media Directory
+Update your media path in the startup script or environment variables:
+```bash
+export MEDIA_PATH="/path/to/your/media"
+```
+
+### Network Access
+HomeFlix automatically detects your local IP for network access. Other devices on your WiFi can access it using your computer's IP address.
+
+### Performance Optimization
+- **Redis**: Enable Redis for faster asset loading
+- **SSD Storage**: Store thumbnails/posters on SSD for better performance
+- **Hardware Acceleration**: FFmpeg can use GPU acceleration for transcoding
+
+## 📁 Directory Structure
 ```
 homeflix/
-├── backend/                 # Go backend
-│   ├── cmd/                # Application entry points
-│   ├── internal/           # Private application code
-│   ├── pkg/                # Public library code
-│   ├── api/                # API definitions
-│   └── migrations/         # Database migrations
-├── frontend/               # Next.js frontend
-│   ├── src/                # Source code
-│   ├── components/         # React components
-│   ├── pages/              # Next.js pages
-│   └── public/             # Static assets
-└── docker-compose.yml      # Development environment
+├── backend/           # Go API server
+├── frontend/          # Next.js web interface
+├── thumbnails/        # Auto-generated thumbnails
+├── posters/          # Movie/show posters
+├── previews/         # Preview video clips
+├── subtitles/        # Subtitle files
+└── optimized/        # Transcoded media files
 ```
 
-## Getting Started
+## 🌐 Network Features
+- **WiFi Streaming**: Access from any device on your network
+- **Mobile Responsive**: Full mobile and tablet support
+- **Chromecast Ready**: Cast to your TV (coming soon)
+- **Multi-Device Sync**: Continue watching across devices
 
-### Prerequisites
-- Go 1.21+
-- Node.js 18+
-- FFmpeg
-- External drive with media files
+## 🛠 Advanced Features
+- **Batch Processing**: Bulk thumbnail and poster generation
+- **Auto-Cleanup**: Removes orphaned files and invalid entries
+- **Health Monitoring**: System status and performance metrics
+- **Backup System**: Automatic database backups
 
-### Backend Setup
-```bash
-cd backend
-go mod init homeflix-backend
-go run cmd/server/main.go
+## 📱 Supported Formats
+- **Video**: MP4, MKV, AVI, MOV, WMV, FLV
+- **Audio**: AAC, MP3, FLAC, ALAC, DTS, AC3
+- **Subtitles**: SRT, VTT, ASS, SSA
 
-export REDIS_URL=redis://localhost:6380/0 && ./start-celery.sh
-```
+## 🔒 Security & Privacy
+- **Local Only**: Your media never leaves your network
+- **No External Dependencies**: Works completely offline
+- **Privacy First**: No tracking or data collection
 
-### Frontend Setup
-```bash
-cd frontend
-npm install
-npm run dev
-```
+## 📞 Support
+- Check the logs in `homeflix.log` for troubleshooting
+- Ensure all dependencies are installed correctly
+- Verify your media directory permissions
+- Make sure ports 3008 and 8252 are available
 
-## Configuration
+---
 
-1. **Media Path**: Configure your external drive path in `backend/config/config.yaml`
-2. **Database**: SQLite database will be created automatically
-3. **FFmpeg**: Ensure FFmpeg is installed for video processing
-
-## API Endpoints
-
-- `GET /api/movies` - List all movies
-- `GET /api/series` - List all TV series
-- `GET /api/search` - Search media content
-- `GET /api/stream/:id` - Stream video content
-- `GET /api/thumbnails/:id` - Get video thumbnails
-
-## License
-
-MIT License - see LICENSE file for details.
+**Enjoy your personal Netflix experience! 🍿**
