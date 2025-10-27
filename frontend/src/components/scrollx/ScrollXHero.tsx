@@ -1520,8 +1520,8 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
   useEffect(() => {
     if (!isAutoPlaying || featuredMedia.length <= 1 || isTransitioning) return;
 
-    // 24/7 OPTIMIZED SLIDE TIMING: Balanced for continuous operation
-    const slideDuration = hasVideoContent(currentMedia) && isVideoLoaded && isPlaying ? 15000 : 8000;
+    // Fixed 30-second slide duration for all slides
+    const slideDuration = 30000; // 30 seconds for all slides
 
     const interval = setInterval(() => {
       if (!isTransitioning) {
@@ -2093,6 +2093,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
                   }}
                   autoPlay={true}
                   muted={true}
+                  loop={true}
                   playsInline
                   preload="metadata"
                   controls={false}
@@ -2164,25 +2165,11 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
                   }}
                   onTimeUpdate={(e) => {
                     const video = e.currentTarget;
-                    // 30-second preview play with 24/7 optimization
-                    if (video.currentTime >= 30) {
-                      video.currentTime = 0; // Restart from beginning
-
-                      // 24/7 OPTIMIZATION: Clear video buffer periodically
-                      try {
-                        // Force buffer cleanup every restart
-                        const currentSrc = video.src;
-                        video.src = '';
-                        video.load();
-                        video.src = currentSrc;
-                        video.load();
-                      } catch (error) {
-                        // Ignore buffer cleanup errors
-                      }
-                    }
-
-                    // 24/7 MEMORY OPTIMIZATION: Trigger cleanup every 5 minutes of video time
-                    if (Math.floor(video.currentTime) % 300 === 0 && video.currentTime > 0) {
+                    // Let video loop naturally - no manual restart needed
+                    // The video element has loop=true so it will repeat automatically
+                    
+                    // 24/7 MEMORY OPTIMIZATION: Trigger cleanup every 2 minutes of video time (less frequent)
+                    if (Math.floor(video.currentTime) % 120 === 0 && video.currentTime > 0) {
                       cleanupMemory();
                     }
                   }}
@@ -2626,7 +2613,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
             initial={{ width: "0%" }}
             animate={{ width: "100%" }}
             transition={{
-              duration: isVideoLoaded && isPlaying ? 20 : 12,
+              duration: 30, // 30 seconds to match slide duration
               ease: "linear"
             }}
           />

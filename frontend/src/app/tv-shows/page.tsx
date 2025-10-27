@@ -46,6 +46,7 @@ export default function TVShowsPage() {
   const [selectedMedia, setSelectedMedia] = useState<Media | null>(null);
   const [isPlayerOpen, setIsPlayerOpen] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [refreshKey, setRefreshKey] = useState(0);
 
 
 
@@ -76,10 +77,23 @@ export default function TVShowsPage() {
     // Set up auto-refresh every 5 minutes for recommendations
     const interval = setInterval(() => {
       fetchData();
+      setRefreshKey(prev => prev + 1); // Force refresh of cached assets
     }, 5 * 60 * 1000); // 5 minutes in milliseconds
 
     return () => clearInterval(interval);
   }, []);
+
+  // Add manual refresh function for debugging
+  const forceRefresh = () => {
+    setLoading(true);
+    setRefreshKey(prev => prev + 1);
+    fetchData();
+  };
+
+  // Helper function to generate poster URL with cache busting
+  const getPosterUrl = (seriesId: number | string) => {
+    return `${getApiUrl()}/api/posters/${seriesId}?v=${refreshKey}`;
+  };
 
   const fetchData = async () => {
     try {
@@ -414,7 +428,7 @@ export default function TVShowsPage() {
       {featuredSeries.length > 0 ? (
         <ScrollXHero
           featuredMedia={featuredSeries.map(series => {
-            // Get first episode from first season for hero display
+            // Get first episode from first season for fallback
             const firstSeason = series.seasons.find(season => season.episodes.length > 0);
             const firstEpisode = firstSeason?.episodes[0];
 
@@ -423,8 +437,10 @@ export default function TVShowsPage() {
               title: series.title,
               description: series.description,
               rating: series.rating,
-              thumbnail_path: firstEpisode?.thumbnail_path || series.thumbnail_path,
+              // Prioritize poster, then episode thumbnail, then series thumbnail
+              thumbnail_path: series.poster_path || firstEpisode?.thumbnail_path || series.thumbnail_path,
               banner_path: series.banner_path,
+              poster_path: series.poster_path,
               type: 'series',
               series_id: series.id
             } as Media;
@@ -461,24 +477,23 @@ export default function TVShowsPage() {
                   <h2 className="text-3xl font-bold text-white mb-8">All TV Series</h2>
                   <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6">
                     {seriesList.map((series) => {
-                      // Get random season thumbnail for series
-                      const getRandomSeriesThumbnail = () => {
+                      // Get fallback thumbnail from first available episode
+                      const getFallbackThumbnail = () => {
                         if (series.seasons.length === 0) {
                           return null;
                         }
 
-                        // Get random season
-                        const randomSeason = series.seasons[Math.floor(Math.random() * series.seasons.length)];
-
-                        // Get random episode from that season
-                        if (randomSeason.episodes && randomSeason.episodes.length > 0) {
-                          return randomSeason.episodes[Math.floor(Math.random() * randomSeason.episodes.length)];
+                        // Get first season with episodes
+                        const firstSeasonWithEpisodes = series.seasons.find(season => season.episodes && season.episodes.length > 0);
+                        
+                        if (firstSeasonWithEpisodes && firstSeasonWithEpisodes.episodes.length > 0) {
+                          return firstSeasonWithEpisodes.episodes[0];
                         }
 
                         return null;
                       };
 
-                      const thumbnailEpisode = getRandomSeriesThumbnail();
+                      const fallbackEpisode = getFallbackThumbnail();
 
                       return (
                         <div key={series.id} className="group cursor-pointer">
@@ -486,9 +501,33 @@ export default function TVShowsPage() {
                             className="relative aspect-[2/3] bg-gray-800 rounded-lg overflow-hidden mb-3 group-hover:scale-105 transition-transform duration-300"
                             onClick={() => handleInfo(series)}
                           >
-                            {thumbnailEpisode ? (
+                            {/* Always try poster first with cache busting */}
+                            <img
+                              src={getPosterUrl(series.id)}
+                              alt={series.title}
+                              className="w-full h-full object-cover"
+                              loading="lazy"
+                              onError={(e) => {
+                                // Fallback to episode thumbnail if poster fails
+                                if (fallbackEpisode) {
+                                  (e.target as HTMLImageElement).src = `${getApiUrl()}/api/thumbnails/${fallbackEpisode?.id}`;
+                                } else if (series.thumbnail_path) {
+                                  (e.target as HTMLImageElement).src = `${getApiUrl()}/api/thumbnails/${series.id}`;
+                                } else {
+                                  // Show gradient fallback
+                                  const parent = (e.target as HTMLImageElement).parentElement!;
+                                  parent.innerHTML = `
+                                    <div class="w-full h-full bg-gradient-to-br from-red-600 to-red-800 flex items-center justify-center">
+                                      <span class="text-2xl font-bold text-white">${series.title.charAt(0)}</span>
+                                    </div>
+                                  `;
+                                }
+                              }}
+                            />
+                            {/* Remove the conditional poster_path check */}
+                            {false && fallbackEpisode ? (
                               <img
-                                src={`${getApiUrl()}/api/thumbnails/${thumbnailEpisode.id}`}
+                                src={`${getApiUrl()}/api/thumbnails/${fallbackEpisode?.id}`}
                                 alt={series.title}
                                 className="w-full h-full object-cover"
                                 loading="lazy"
@@ -634,31 +673,52 @@ export default function TVShowsPage() {
                   <h2 className="text-2xl font-bold text-white mb-6">Action & Adventure Series</h2>
                   <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
                     {actionSeries.map((series) => {
-                      // Get random season thumbnail for series
-                      const getRandomSeriesThumbnail = () => {
+                      // Get fallback thumbnail from first available episode
+                      const getFallbackThumbnail = () => {
                         if (series.seasons.length === 0) {
                           return null;
                         }
 
-                        // Get random season
-                        const randomSeason = series.seasons[Math.floor(Math.random() * series.seasons.length)];
-
-                        // Get random episode from that season
-                        if (randomSeason.episodes && randomSeason.episodes.length > 0) {
-                          return randomSeason.episodes[Math.floor(Math.random() * randomSeason.episodes.length)];
+                        // Get first season with episodes
+                        const firstSeasonWithEpisodes = series.seasons.find(season => season.episodes && season.episodes.length > 0);
+                        
+                        if (firstSeasonWithEpisodes && firstSeasonWithEpisodes.episodes.length > 0) {
+                          return firstSeasonWithEpisodes.episodes[0];
                         }
 
                         return null;
                       };
 
-                      const thumbnailEpisode = getRandomSeriesThumbnail();
+                      const fallbackEpisode = getFallbackThumbnail();
 
                       return (
                         <div key={series.id} className="group cursor-pointer" onClick={() => handleInfo(series)}>
                           <div className="relative aspect-[2/3] bg-gray-800 rounded-lg overflow-hidden mb-3 group-hover:scale-105 transition-transform duration-300">
-                            {thumbnailEpisode ? (
+                            <img
+                              src={getPosterUrl(series.id)}
+                              alt={series.title}
+                              className="w-full h-full object-cover"
+                              loading="lazy"
+                              onError={(e) => {
+                                // Fallback to episode thumbnail if poster fails
+                                if (fallbackEpisode) {
+                                  (e.target as HTMLImageElement).src = `${getApiUrl()}/api/thumbnails/${fallbackEpisode?.id}`;
+                                } else if (series.thumbnail_path) {
+                                  (e.target as HTMLImageElement).src = `${getApiUrl()}/api/thumbnails/${series.id}`;
+                                } else {
+                                  // Show gradient fallback
+                                  const parent = (e.target as HTMLImageElement).parentElement!;
+                                  parent.innerHTML = `
+                                    <div class="w-full h-full bg-gradient-to-br from-red-600 to-red-800 flex items-center justify-center">
+                                      <span class="text-2xl font-bold text-white">${series.title.charAt(0)}</span>
+                                    </div>
+                                  `;
+                                }
+                              }}
+                            />
+                            {false && fallbackEpisode ? (
                               <img
-                                src={`${getApiUrl()}/api/thumbnails/${thumbnailEpisode.id}`}
+                                src={`${getApiUrl()}/api/thumbnails/${fallbackEpisode?.id}`}
                                 alt={series.title}
                                 className="w-full h-full object-cover"
                                 loading="lazy"
@@ -696,31 +756,45 @@ export default function TVShowsPage() {
                   <h2 className="text-2xl font-bold text-white mb-6">Drama Series</h2>
                   <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
                     {dramaSeries.map((series) => {
-                      // Get random season thumbnail for series
-                      const getRandomSeriesThumbnail = () => {
+                      // Get fallback thumbnail from first available episode
+                      const getFallbackThumbnail = () => {
                         if (series.seasons.length === 0) {
                           return null;
                         }
 
-                        // Get random season
-                        const randomSeason = series.seasons[Math.floor(Math.random() * series.seasons.length)];
-
-                        // Get random episode from that season
-                        if (randomSeason.episodes && randomSeason.episodes.length > 0) {
-                          return randomSeason.episodes[Math.floor(Math.random() * randomSeason.episodes.length)];
+                        // Get first season with episodes
+                        const firstSeasonWithEpisodes = series.seasons.find(season => season.episodes && season.episodes.length > 0);
+                        
+                        if (firstSeasonWithEpisodes && firstSeasonWithEpisodes.episodes.length > 0) {
+                          return firstSeasonWithEpisodes.episodes[0];
                         }
 
                         return null;
                       };
 
-                      const thumbnailEpisode = getRandomSeriesThumbnail();
+                      const fallbackEpisode = getFallbackThumbnail();
 
                       return (
                         <div key={series.id} className="group cursor-pointer" onClick={() => handleInfo(series)}>
                           <div className="relative aspect-[2/3] bg-gray-800 rounded-lg overflow-hidden mb-3 group-hover:scale-105 transition-transform duration-300">
-                            {thumbnailEpisode ? (
+                            {series.poster_path ? (
                               <img
-                                src={`${getApiUrl()}/api/thumbnails/${thumbnailEpisode.id}`}
+                                src={getPosterUrl(series.id)}
+                                alt={series.title}
+                                className="w-full h-full object-cover"
+                                loading="lazy"
+                                onError={(e) => {
+                                  // Fallback to thumbnail if poster fails
+                                  if (fallbackEpisode) {
+                                    (e.target as HTMLImageElement).src = `${getApiUrl()}/api/thumbnails/${fallbackEpisode?.id}`;
+                                  } else if (series.thumbnail_path) {
+                                    (e.target as HTMLImageElement).src = `${getApiUrl()}/api/thumbnails/${series.id}`;
+                                  }
+                                }}
+                              />
+                            ) : fallbackEpisode ? (
+                              <img
+                                src={`${getApiUrl()}/api/thumbnails/${fallbackEpisode?.id}`}
                                 alt={series.title}
                                 className="w-full h-full object-cover"
                                 loading="lazy"
@@ -758,31 +832,45 @@ export default function TVShowsPage() {
                   <h2 className="text-2xl font-bold text-white mb-6">Comedy Series</h2>
                   <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
                     {comedySeries.map((series) => {
-                      // Get random season thumbnail for series
-                      const getRandomSeriesThumbnail = () => {
+                      // Get fallback thumbnail from first available episode
+                      const getFallbackThumbnail = () => {
                         if (series.seasons.length === 0) {
                           return null;
                         }
 
-                        // Get random season
-                        const randomSeason = series.seasons[Math.floor(Math.random() * series.seasons.length)];
-
-                        // Get random episode from that season
-                        if (randomSeason.episodes && randomSeason.episodes.length > 0) {
-                          return randomSeason.episodes[Math.floor(Math.random() * randomSeason.episodes.length)];
+                        // Get first season with episodes
+                        const firstSeasonWithEpisodes = series.seasons.find(season => season.episodes && season.episodes.length > 0);
+                        
+                        if (firstSeasonWithEpisodes && firstSeasonWithEpisodes.episodes.length > 0) {
+                          return firstSeasonWithEpisodes.episodes[0];
                         }
 
                         return null;
                       };
 
-                      const thumbnailEpisode = getRandomSeriesThumbnail();
+                      const fallbackEpisode = getFallbackThumbnail();
 
                       return (
                         <div key={series.id} className="group cursor-pointer" onClick={() => handleInfo(series)}>
                           <div className="relative aspect-[2/3] bg-gray-800 rounded-lg overflow-hidden mb-3 group-hover:scale-105 transition-transform duration-300">
-                            {thumbnailEpisode ? (
+                            {series.poster_path ? (
                               <img
-                                src={`${getApiUrl()}/api/thumbnails/${thumbnailEpisode.id}`}
+                                src={`${getApiUrl()}/api/posters/${series.id}`}
+                                alt={series.title}
+                                className="w-full h-full object-cover"
+                                loading="lazy"
+                                onError={(e) => {
+                                  // Fallback to thumbnail if poster fails
+                                  if (fallbackEpisode) {
+                                    (e.target as HTMLImageElement).src = `${getApiUrl()}/api/thumbnails/${fallbackEpisode?.id}`;
+                                  } else if (series.thumbnail_path) {
+                                    (e.target as HTMLImageElement).src = `${getApiUrl()}/api/thumbnails/${series.id}`;
+                                  }
+                                }}
+                              />
+                            ) : fallbackEpisode ? (
+                              <img
+                                src={`${getApiUrl()}/api/thumbnails/${fallbackEpisode?.id}`}
                                 alt={series.title}
                                 className="w-full h-full object-cover"
                                 loading="lazy"

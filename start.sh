@@ -40,17 +40,6 @@ mkdir -p optimized
 # Get local IP address for network access
 LOCAL_IP=$(hostname -I | awk '{print $1}')
 
-# Start backend
-echo "🚀 Starting Go backend..."
-cd backend
-go mod tidy
-go run server.go &
-BACKEND_PID=$!
-cd ..
-
-# Wait for backend to start
-sleep 5
-
 # Start frontend
 echo "🎨 Starting Next.js frontend in production mode..."
 cd frontend
@@ -58,6 +47,17 @@ cd frontend
 # npm run build
 npm run start &
 FRONTEND_PID=$!
+cd ..
+
+# Wait for backend to start
+sleep 5
+
+# Start backend
+echo "🚀 Starting Go backend..."
+cd backend
+go mod tidy
+go run server.go &
+BACKEND_PID=$!
 cd ..
 
 echo ""

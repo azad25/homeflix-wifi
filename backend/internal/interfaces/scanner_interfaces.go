@@ -99,6 +99,7 @@ type ThumbnailServiceInterface interface {
 type PosterServiceInterface interface {
 	DownloadPoster(title string, mediaID uint) error
 	DownloadPosterWithPath(title string, mediaID uint) (string, error)
+	DownloadTVPosterWithPath(title string, seriesID uint) (string, error)
 	GetPosterPath(mediaID uint, title string) string
 	SetTMDBService(tmdbService TMDBServiceInterface)
 }
@@ -129,6 +130,7 @@ type TMDBServiceInterface interface {
 	GenerateMediaMetadata(path, title string) (*MediaMetadata, error)
 	CleanTitle(title string) string
 	DownloadPoster(title string, mediaID uint, posterDir string) (string, error)
+	DownloadTVPoster(title string, seriesID uint, posterDir string) (string, error)
 	GetPosterURL(posterPath string, size string) string
 	TestConnection() error
 }

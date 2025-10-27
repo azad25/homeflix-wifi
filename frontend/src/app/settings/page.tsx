@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
-import { Settings, Users, Database, Upload, Download, Trash2, Video, ImageIcon, Folder, File, Play, Info, Edit3, RefreshCw, Save, X, Calendar, Star, Clock, Users as UsersIcon, Globe, Award, DollarSign, Eye, RotateCcw, Zap, AlertTriangle, Search, Server, Activity, HardDrive, Cpu, MemoryStick, Wifi, Monitor, BarChart3, TrendingUp, FileSearch, Layers, Cog, PlayCircle, PauseCircle, StopCircle, Timer } from 'lucide-react';
+import { Settings, Database, Upload, Trash2, Video, ImageIcon, Folder, File, Play, Info, Edit3, RefreshCw, Save, X, Star, Clock, Globe, Eye, Zap, Search, Server, Activity, HardDrive, Monitor, BarChart3, TrendingUp, FileSearch, Timer } from 'lucide-react';
 import Image from 'next/image';
 import Navbar from '@/components/Navbar';
 import { getApiUrl } from '@/lib/api';
@@ -24,6 +24,7 @@ interface EditableMedia extends Media {
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState('media');
   const [mediaList, setMediaList] = useState<Media[]>([]);
+  const [seriesList, setSeriesList] = useState<any[]>([]);
   const [selectedMedia, setSelectedMedia] = useState<EditableMedia | null>(null);
   const [mediaAssets, setMediaAssets] = useState<MediaAssets>({});
   const [loading, setLoading] = useState(true);
@@ -33,11 +34,9 @@ export default function SettingsPage() {
   const [actionLoading, setActionLoading] = useState<{ [key: string]: boolean }>({});
   const [scanStats, setScanStats] = useState<any>(null);
   const [systemStats, setSystemStats] = useState<any>(null);
-  const [watcherStatus, setWatcherStatus] = useState<any>(null);
-  const [queueStatus, setQueueStatus] = useState<any>(null);
   const [terminalOutput, setTerminalOutput] = useState<string[]>([]);
   const [isScanning, setIsScanning] = useState(false);
-  const [scanProgress, setScanProgress] = useState<any>(null);
+  const [searchQuery, setSearchQuery] = useState('');
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -65,8 +64,12 @@ export default function SettingsPage() {
   const fetchMediaList = async () => {
     try {
       const { apiCall, API_ENDPOINTS } = await import('@/lib/api');
-      const media = await apiCall(API_ENDPOINTS.media);
+      const [media, series] = await Promise.all([
+        apiCall(API_ENDPOINTS.media),
+        fetch(`${await import('@/lib/api').then(m => m.getApiUrl())}/api/series`).then(r => r.json()).catch(() => [])
+      ]);
       setMediaList(media);
+      setSeriesList(series);
       setLoading(false);
     } catch (error) {
       console.error('Error fetching media:', error);
@@ -74,14 +77,40 @@ export default function SettingsPage() {
     }
   };
 
-  // Transform media list into folder tree structure
+  // Transform media list into folder tree structure with search filtering
   const createFolderTreeData = () => {
+    // Filter movies based on search query
+    const filteredMovies = mediaList.filter(media => {
+      if (media.type !== 'movie') return false;
+      if (!searchQuery.trim()) return true;
+      const query = searchQuery.toLowerCase();
+      return (
+        media.title?.toLowerCase().includes(query) ||
+        media.description?.toLowerCase().includes(query) ||
+        media.genre_names?.some(genre => genre.toLowerCase().includes(query)) ||
+        media.year?.toString().includes(query) ||
+        media.country?.toLowerCase().includes(query) ||
+        media.language?.toLowerCase().includes(query)
+      );
+    });
+
+    // Filter TV series based on search query
+    const filteredSeries = seriesList.filter(series => {
+      if (!searchQuery.trim()) return true;
+      const query = searchQuery.toLowerCase();
+      return (
+        series.title?.toLowerCase().includes(query) ||
+        series.description?.toLowerCase().includes(query) ||
+        series.status?.toLowerCase().includes(query)
+      );
+    });
+
     const folders = {
       movies: {
         id: 'movies',
-        name: 'Movies',
+        name: `Movies (${filteredMovies.length})`,
         type: 'folder' as const,
-        children: mediaList.filter(m => m.type === 'movie').map(media => {
+        children: filteredMovies.map(media => {
           // Use edited title if this is the selected media being edited
           const displayTitle = (selectedMedia?.id === media.id && selectedMedia?.isEditing && editingMedia.title)
             ? editingMedia.title
@@ -91,7 +120,7 @@ export default function SettingsPage() {
             id: media.id.toString(),
             name: displayTitle,
             type: 'file' as const,
-            size: `${Math.floor((media.duration || 0) / 60)}min`,
+            size: `${Math.floor((media.duration || media.runtime || 0) / 60)}min`,
             modified: new Date().toLocaleDateString(),
             media: media
           };
@@ -99,21 +128,40 @@ export default function SettingsPage() {
       },
       tvShows: {
         id: 'tv-shows',
-        name: 'TV Shows',
+        name: `TV Shows (${filteredSeries.length})`,
         type: 'folder' as const,
-        children: mediaList.filter(m => m.type === 'tv').map(media => {
-          // Use edited title if this is the selected media being edited
-          const displayTitle = (selectedMedia?.id === media.id && selectedMedia?.isEditing && editingMedia.title)
-            ? editingMedia.title
-            : media.title;
-
+        children: filteredSeries.map(series => {
           return {
-            id: media.id.toString(),
-            name: displayTitle,
+            id: `series-${series.id}`,
+            name: series.title,
             type: 'file' as const,
-            size: `${media.view_count || 0} views`,
+            size: `${series.total_episodes || 0} episodes`,
             modified: new Date().toLocaleDateString(),
-            media: media
+            series: series,
+            // Convert series to media-like object for compatibility
+            media: {
+              id: series.id,
+              title: series.title,
+              description: series.description,
+              type: 'tv',
+              rating: series.rating,
+              year: series.release_date ? new Date(series.release_date).getFullYear() : undefined,
+              genre_names: series.genres?.map((g: any) => g.name) || [],
+              poster_path: series.poster_path,
+              backdrop_path: series.backdrop_path,
+              status: series.status,
+              total_seasons: series.total_seasons,
+              total_episodes: series.total_episodes,
+              // Add other fields that might be needed
+              country: '',
+              language: '',
+              quality: '',
+              certification: '',
+              runtime: undefined,
+              seasons: series.total_seasons,
+              episodes: series.total_episodes,
+              network: ''
+            }
           };
         })
       }
@@ -165,7 +213,14 @@ export default function SettingsPage() {
           quality: selectedMedia.quality || '',
           certification: selectedMedia.certification || '',
           runtime: selectedMedia.runtime || undefined,
-          genre_names: selectedMedia.genre_names || []
+          genre_names: selectedMedia.genre_names || [],
+          // TV-specific fields
+          ...(selectedMedia.type === 'tv' && {
+            seasons: (selectedMedia as any).seasons || undefined,
+            episodes: (selectedMedia as any).episodes || undefined,
+            status: (selectedMedia as any).status || '',
+            network: (selectedMedia as any).network || ''
+          })
         };
 
         setSelectedMedia(prev => prev ? { ...prev, isEditing: true } : null);
@@ -205,7 +260,13 @@ export default function SettingsPage() {
     addTerminalOutput(`💾 Saving changes for: ${currentTitle}`);
 
     try {
-      const response = await fetch(`${getApiUrl()}/api/admin/media/${selectedMedia.id}/metadata`, {
+      // Use different endpoints for movies vs TV series
+      const isSeriesUpdate = selectedMedia.type === 'tv';
+      const endpoint = isSeriesUpdate 
+        ? `${getApiUrl()}/api/series/${selectedMedia.id}/metadata`
+        : `${getApiUrl()}/api/admin/media/${selectedMedia.id}/metadata`;
+
+      const response = await fetch(endpoint, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -214,30 +275,38 @@ export default function SettingsPage() {
       });
 
       if (response.ok) {
-        const updatedMedia = await response.json();
+        const updatedData = await response.json();
 
         // Merge all the data properly
-        const finalMediaData = {
+        const finalData = {
           ...selectedMedia,
-          ...updatedMedia,
+          ...updatedData,
           ...editingMedia, // Ensure our edits take precedence
           isEditing: false
         };
 
         // Update selected media
-        setSelectedMedia(finalMediaData);
+        setSelectedMedia(finalData);
 
-        // Update the media list
-        setMediaList(prev => prev.map(m =>
-          m.id === selectedMedia.id
-            ? finalMediaData
-            : m
-        ));
+        // Update the appropriate list
+        if (isSeriesUpdate) {
+          setSeriesList(prev => prev.map(s =>
+            s.id === selectedMedia.id
+              ? { ...s, ...updatedData, ...editingMedia }
+              : s
+          ));
+        } else {
+          setMediaList(prev => prev.map(m =>
+            m.id === selectedMedia.id
+              ? finalData
+              : m
+          ));
+        }
 
         // Clear editing state
         setEditingMedia({});
 
-        addTerminalOutput(`✅ Media metadata updated successfully`);
+        addTerminalOutput(`✅ ${isSeriesUpdate ? 'Series' : 'Media'} metadata updated successfully`);
         addTerminalOutput(`📝 Updated fields: ${Object.keys(editingMedia).join(', ')}`);
 
       } else {
@@ -245,8 +314,8 @@ export default function SettingsPage() {
         addTerminalOutput(`❌ Failed to save changes: ${errorData.error || response.statusText}`);
       }
     } catch (error) {
-      addTerminalOutput(`❌ Error updating media: ${error}`);
-      console.error('Error updating media:', error);
+      addTerminalOutput(`❌ Error updating ${selectedMedia.type === 'tv' ? 'series' : 'media'}: ${error}`);
+      console.error('Error updating:', error);
     } finally {
       setActionLoading(prev => ({ ...prev, save: false }));
     }
@@ -254,6 +323,12 @@ export default function SettingsPage() {
 
   const handleRegenerateThumbnail = async () => {
     if (!selectedMedia) return;
+
+    // TV series don't have thumbnails in the same way as movies
+    if (selectedMedia.type === 'tv') {
+      addTerminalOutput(`⚠️ Thumbnail generation not available for TV series`);
+      return;
+    }
 
     setIsRegenerating(prev => ({ ...prev, thumbnail: true }));
     addTerminalOutput(`🖼️ Regenerating thumbnail for: ${selectedMedia.title}`);
@@ -287,6 +362,12 @@ export default function SettingsPage() {
 
   const handleRegeneratePreview = async () => {
     if (!selectedMedia) return;
+
+    // TV series don't have preview clips in the same way as movies
+    if (selectedMedia.type === 'tv') {
+      addTerminalOutput(`⚠️ Preview clip generation not available for TV series`);
+      return;
+    }
 
     setIsRegenerating(prev => ({ ...prev, preview: true }));
     addTerminalOutput(`🎬 Regenerating preview clip for: ${selectedMedia.title}`);
@@ -325,9 +406,28 @@ export default function SettingsPage() {
     addTerminalOutput(`🖼️ Generating poster for: ${selectedMedia.title}`);
 
     try {
-      const response = await fetch(`${getApiUrl()}/api/admin/posters/generate/${selectedMedia.id}`, {
-        method: 'POST',
-      });
+      let response;
+      
+      if (selectedMedia.type === 'tv') {
+        // For TV series, we need to create a special endpoint or handle it differently
+        // For now, let's try to use the same endpoint but with series data
+        response = await fetch(`${getApiUrl()}/api/admin/series/${selectedMedia.id}/poster`, {
+          method: 'POST',
+        });
+        
+        // If series-specific endpoint doesn't exist, fall back to media endpoint
+        if (!response.ok && response.status === 404) {
+          addTerminalOutput(`⚠️ Series poster endpoint not found, trying media endpoint...`);
+          response = await fetch(`${getApiUrl()}/api/admin/posters/generate/${selectedMedia.id}`, {
+            method: 'POST',
+          });
+        }
+      } else {
+        // For movies, use the existing endpoint
+        response = await fetch(`${getApiUrl()}/api/admin/posters/generate/${selectedMedia.id}`, {
+          method: 'POST',
+        });
+      }
 
       if (response.ok) {
         const result = await response.json();
@@ -335,13 +435,29 @@ export default function SettingsPage() {
         addTerminalOutput(`📁 Poster path: ${result.poster_path || 'N/A'}`);
 
         // Refresh the selected media to get updated poster path
-        const mediaResponse = await fetch(`${getApiUrl()}/api/media/${selectedMedia.id}`);
-        if (mediaResponse.ok) {
-          const updatedMedia = await mediaResponse.json();
-          setSelectedMedia(prev => prev ? { ...prev, ...updatedMedia } : null);
-          addTerminalOutput(`✅ Media info refreshed with new poster`);
+        let refreshResponse;
+        if (selectedMedia.type === 'tv') {
+          refreshResponse = await fetch(`${getApiUrl()}/api/series/${selectedMedia.id}`);
         } else {
-          addTerminalOutput(`⚠️ Could not refresh media info`);
+          refreshResponse = await fetch(`${getApiUrl()}/api/media/${selectedMedia.id}`);
+        }
+        
+        if (refreshResponse.ok) {
+          const updatedData = await refreshResponse.json();
+          if (selectedMedia.type === 'tv') {
+            // Convert series data back to media-like format
+            const updatedMedia = {
+              ...selectedMedia,
+              poster_path: updatedData.poster_path,
+              backdrop_path: updatedData.backdrop_path,
+            };
+            setSelectedMedia(updatedMedia);
+          } else {
+            setSelectedMedia(prev => prev ? { ...prev, ...updatedData } : null);
+          }
+          addTerminalOutput(`✅ ${selectedMedia.type === 'tv' ? 'Series' : 'Media'} info refreshed with new poster`);
+        } else {
+          addTerminalOutput(`⚠️ Could not refresh ${selectedMedia.type === 'tv' ? 'series' : 'media'} info`);
         }
       } else {
         const errorData = await response.json().catch(() => ({ error: response.statusText }));
@@ -371,46 +487,116 @@ export default function SettingsPage() {
         preserveFields: selectedMedia.isEditing ? Object.keys(editingMedia) : []
       };
 
-      // Try the main endpoint first with search parameters
-      let response = await fetch(`${getApiUrl()}/api/admin/media/${selectedMedia.id}/update-with-tmdb`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(requestBody),
-      });
+      let response: Response;
+      let updatedData: any;
 
-      // If that fails, try the alternative endpoint
-      if (!response.ok) {
-        addTerminalOutput(`⚠️ Primary TMDB endpoint failed, trying alternative...`);
-        response = await fetch(`${getApiUrl()}/api/admin/media/${selectedMedia.id}/fetch-tmdb`, {
+      if (selectedMedia.type === 'tv') {
+        // For TV series, use series-specific TMDB endpoints
+        addTerminalOutput(`🎬 Fetching TMDB data for TV series: ${searchTitle}`);
+        
+        // Try the main TMDB endpoint first
+        response = await fetch(`${getApiUrl()}/api/admin/series/${selectedMedia.id}/update-with-tmdb`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify(requestBody),
         });
-      }
 
-      if (response.ok) {
-        const updatedMedia = await response.json();
-
-        // Preserve manually edited fields
-        const finalMedia = { ...updatedMedia };
-        if (selectedMedia.isEditing && editingMedia) {
-          (Object.keys(editingMedia) as Array<keyof Media>).forEach(key => {
-            if (editingMedia[key] !== undefined && editingMedia[key] !== '') {
-              (finalMedia as any)[key] = editingMedia[key];
-            }
+        // If that fails, try the alternative endpoint
+        if (!response.ok) {
+          addTerminalOutput(`⚠️ Primary TMDB endpoint failed, trying alternative...`);
+          response = await fetch(`${getApiUrl()}/api/admin/series/${selectedMedia.id}/fetch-tmdb`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(requestBody),
           });
         }
 
-        setSelectedMedia({ ...finalMedia, isEditing: selectedMedia.isEditing });
-        setMediaList(prev => prev.map(m => m.id === updatedMedia.id ? finalMedia : m));
-        addTerminalOutput(`✅ TMDB data updated successfully`);
-        addTerminalOutput(`🔒 Preserved manual edits: ${Object.keys(editingMedia).join(', ')}`);
+        if (response.ok) {
+          updatedData = await response.json();
+          
+          // Preserve manually edited fields
+          const finalSeriesData = { ...updatedData };
+          if (selectedMedia.isEditing && editingMedia) {
+            (Object.keys(editingMedia) as Array<keyof Media>).forEach(key => {
+              if (editingMedia[key] !== undefined && editingMedia[key] !== '') {
+                (finalSeriesData as any)[key] = editingMedia[key];
+              }
+            });
+          }
+          
+          // Update series list
+          setSeriesList(prev => prev.map(s =>
+            s.id === selectedMedia.id
+              ? finalSeriesData
+              : s
+          ));
+
+          // Convert series data back to media-like format for selectedMedia
+          const finalMedia = {
+            ...selectedMedia,
+            ...finalSeriesData,
+            isEditing: selectedMedia.isEditing,
+            // Ensure media-like properties are maintained
+            type: 'tv'
+          };
+
+          setSelectedMedia(finalMedia);
+          addTerminalOutput(`✅ TV series TMDB data updated successfully`);
+          addTerminalOutput(`🔒 Preserved manual edits: ${Object.keys(editingMedia).join(', ')}`);
+        } else {
+          const errorData = await response.json().catch(() => ({ error: response.statusText }));
+          addTerminalOutput(`❌ TV series TMDB fetch failed: ${errorData.error || response.statusText}`);
+        }
       } else {
-        addTerminalOutput(`❌ TMDB fetch failed: ${response.statusText}`);
+        // For movies, use existing movie endpoints
+        addTerminalOutput(`🎬 Fetching TMDB data for movie: ${searchTitle}`);
+
+        // Try the main endpoint first with search parameters
+        response = await fetch(`${getApiUrl()}/api/admin/media/${selectedMedia.id}/update-with-tmdb`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(requestBody),
+        });
+
+        // If that fails, try the alternative endpoint
+        if (!response.ok) {
+          addTerminalOutput(`⚠️ Primary TMDB endpoint failed, trying alternative...`);
+          response = await fetch(`${getApiUrl()}/api/admin/media/${selectedMedia.id}/fetch-tmdb`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(requestBody),
+          });
+        }
+
+        if (response.ok) {
+          updatedData = await response.json();
+
+          // Preserve manually edited fields
+          const finalMedia = { ...updatedData };
+          if (selectedMedia.isEditing && editingMedia) {
+            (Object.keys(editingMedia) as Array<keyof Media>).forEach(key => {
+              if (editingMedia[key] !== undefined && editingMedia[key] !== '') {
+                (finalMedia as any)[key] = editingMedia[key];
+              }
+            });
+          }
+
+          setSelectedMedia({ ...finalMedia, isEditing: selectedMedia.isEditing });
+          setMediaList(prev => prev.map(m => m.id === updatedData.id ? finalMedia : m));
+          addTerminalOutput(`✅ Movie TMDB data updated successfully`);
+          addTerminalOutput(`🔒 Preserved manual edits: ${Object.keys(editingMedia).join(', ')}`);
+        } else {
+          const errorData = await response.json().catch(() => ({ error: response.statusText }));
+          addTerminalOutput(`❌ Movie TMDB fetch failed: ${errorData.error || response.statusText}`);
+        }
       }
     } catch (error) {
       addTerminalOutput(`❌ Error fetching TMDB data: ${error}`);
@@ -421,23 +607,44 @@ export default function SettingsPage() {
   };
 
   const handleDeleteMedia = async () => {
-    if (!selectedMedia || !confirm(`Are you sure you want to delete "${selectedMedia.title}"? This action cannot be undone.\n\nThis will permanently remove:\n- Media record from database\n- All associated metadata\n- Thumbnails and preview clips\n- Playback progress\n- Genre associations`)) return;
+    if (!selectedMedia) return;
+    
+    const itemType = selectedMedia.type === 'tv' ? 'TV series' : 'movie';
+    const confirmMessage = selectedMedia.type === 'tv' 
+      ? `Are you sure you want to delete the TV series "${selectedMedia.title}"? This action cannot be undone.\n\nThis will permanently remove:\n- Series record from database\n- All associated episodes and metadata\n- Posters and backdrops\n- Season and episode information\n- Genre associations`
+      : `Are you sure you want to delete "${selectedMedia.title}"? This action cannot be undone.\n\nThis will permanently remove:\n- Media record from database\n- All associated metadata\n- Thumbnails and preview clips\n- Playback progress\n- Genre associations`;
+    
+    if (!confirm(confirmMessage)) return;
 
     setActionLoading(prev => ({ ...prev, delete: true }));
-    addTerminalOutput(`🗑️ Attempting to delete media: ${selectedMedia.title}`);
+    addTerminalOutput(`🗑️ Attempting to delete ${itemType}: ${selectedMedia.title}`);
 
     try {
-      const response = await fetch(`${getApiUrl()}/api/media/${selectedMedia.id}`, {
-        method: 'DELETE',
-      });
+      let response;
+      
+      if (selectedMedia.type === 'tv') {
+        // Delete TV series
+        response = await fetch(`${getApiUrl()}/api/series/${selectedMedia.id}`, {
+          method: 'DELETE',
+        });
+      } else {
+        // Delete movie
+        response = await fetch(`${getApiUrl()}/api/media/${selectedMedia.id}`, {
+          method: 'DELETE',
+        });
+      }
 
       if (response.ok) {
         const result = await response.json();
-        addTerminalOutput(`✅ ${result.message}`);
-        addTerminalOutput(`📊 Deleted: ${result.deleted_media.title} (${result.deleted_media.type})`);
+        addTerminalOutput(`✅ ${result.message || `${itemType} deleted successfully`}`);
+        addTerminalOutput(`📊 Deleted: ${selectedMedia.title} (${selectedMedia.type})`);
 
         // Remove from local state
-        setMediaList(prev => prev.filter(m => m.id !== selectedMedia.id));
+        if (selectedMedia.type === 'tv') {
+          setSeriesList(prev => prev.filter(s => s.id !== selectedMedia.id));
+        } else {
+          setMediaList(prev => prev.filter(m => m.id !== selectedMedia.id));
+        }
         setSelectedMedia(null);
 
         // Refresh media list to ensure consistency
@@ -869,6 +1076,55 @@ export default function SettingsPage() {
                     <Folder className="w-6 h-6 mr-3 text-[#E50914]" />
                     Media Library
                   </h2>
+                  
+                  {/* Search Input */}
+                  <div className="mb-4">
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-white/50" />
+                      <input
+                        type="text"
+                        placeholder="Search media..."
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        className="w-full bg-black/50 border border-white/20 rounded-lg pl-10 pr-4 py-2 text-white placeholder-white/50 focus:border-[#E50914] focus:outline-none transition-colors"
+                      />
+                      {searchQuery && (
+                        <button
+                          onClick={() => setSearchQuery('')}
+                          className="absolute right-3 top-1/2 transform -translate-y-1/2 text-white/50 hover:text-white"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                    {searchQuery && (
+                      <p className="text-white/60 text-sm mt-2">
+                        Found {(() => {
+                          const query = searchQuery.toLowerCase();
+                          const movieCount = mediaList.filter(media => {
+                            if (media.type !== 'movie') return false;
+                            return (
+                              media.title?.toLowerCase().includes(query) ||
+                              media.description?.toLowerCase().includes(query) ||
+                              media.genre_names?.some(genre => genre.toLowerCase().includes(query)) ||
+                              media.year?.toString().includes(query) ||
+                              media.country?.toLowerCase().includes(query) ||
+                              media.language?.toLowerCase().includes(query)
+                            );
+                          }).length;
+                          const seriesCount = seriesList.filter(series => {
+                            return (
+                              series.title?.toLowerCase().includes(query) ||
+                              series.description?.toLowerCase().includes(query) ||
+                              series.status?.toLowerCase().includes(query)
+                            );
+                          }).length;
+                          return movieCount + seriesCount;
+                        })()} results
+                      </p>
+                    )}
+                  </div>
+
                   <div className="max-h-96 overflow-y-auto">
                     <FolderTree
                       data={createFolderTreeData()}
@@ -934,7 +1190,13 @@ export default function SettingsPage() {
 
                         <div className="flex space-x-2">
                           <MagneticButton
-                            onClick={() => navigate.push(`/movie/${selectedMedia.uuid || selectedMedia.id}`)}
+                            onClick={() => {
+                              if (selectedMedia.type === 'tv') {
+                                navigate.push(`/tv-series/${selectedMedia.uuid || selectedMedia.id}`);
+                              } else {
+                                navigate.push(`/movie/${selectedMedia.uuid || selectedMedia.id}`);
+                              }
+                            }}
                             className="bg-white/10 hover:bg-white/20 text-white p-3 rounded-full"
                           >
                             <Play className="w-5 h-5" />
@@ -965,31 +1227,35 @@ export default function SettingsPage() {
 
                       {/* Action Buttons Row */}
                       <div className="flex flex-wrap gap-3">
-                        <MagneticButton
-                          onClick={handleRegenerateThumbnail}
-                          disabled={isRegenerating.thumbnail}
-                          className="bg-blue-600/20 hover:bg-blue-600/40 text-blue-400 px-4 py-2 rounded-lg flex items-center space-x-2"
-                        >
-                          {isRegenerating.thumbnail ? (
-                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-400"></div>
-                          ) : (
-                            <ImageIcon className="w-4 h-4" />
-                          )}
-                          <span>Regenerate Thumbnail</span>
-                        </MagneticButton>
+                        {selectedMedia.type !== 'tv' && (
+                          <MagneticButton
+                            onClick={handleRegenerateThumbnail}
+                            disabled={isRegenerating.thumbnail}
+                            className="bg-blue-600/20 hover:bg-blue-600/40 text-blue-400 px-4 py-2 rounded-lg flex items-center space-x-2"
+                          >
+                            {isRegenerating.thumbnail ? (
+                              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-400"></div>
+                            ) : (
+                              <ImageIcon className="w-4 h-4" />
+                            )}
+                            <span>Regenerate Thumbnail</span>
+                          </MagneticButton>
+                        )}
 
-                        <MagneticButton
-                          onClick={handleRegeneratePreview}
-                          disabled={isRegenerating.preview}
-                          className="bg-purple-600/20 hover:bg-purple-600/40 text-purple-400 px-4 py-2 rounded-lg flex items-center space-x-2"
-                        >
-                          {isRegenerating.preview ? (
-                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-purple-400"></div>
-                          ) : (
-                            <Video className="w-4 h-4" />
-                          )}
-                          <span>Regenerate Preview</span>
-                        </MagneticButton>
+                        {selectedMedia.type !== 'tv' && (
+                          <MagneticButton
+                            onClick={handleRegeneratePreview}
+                            disabled={isRegenerating.preview}
+                            className="bg-purple-600/20 hover:bg-purple-600/40 text-purple-400 px-4 py-2 rounded-lg flex items-center space-x-2"
+                          >
+                            {isRegenerating.preview ? (
+                              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-purple-400"></div>
+                            ) : (
+                              <Video className="w-4 h-4" />
+                            )}
+                            <span>Regenerate Preview</span>
+                          </MagneticButton>
+                        )}
 
                         <MagneticButton
                           onClick={handleGeneratePoster}
@@ -1191,7 +1457,9 @@ export default function SettingsPage() {
                                 )}
                               </div>
                               <div>
-                                <label className="block text-sm font-medium text-white/70 mb-1">Runtime</label>
+                                <label className="block text-sm font-medium text-white/70 mb-1">
+                                  {selectedMedia.type === 'tv' ? 'Episode Runtime' : 'Runtime'}
+                                </label>
                                 {selectedMedia.isEditing ? (
                                   <input
                                     type="number"
@@ -1232,6 +1500,87 @@ export default function SettingsPage() {
                                 <p className="text-white bg-white/5 rounded-lg px-4 py-2">{selectedMedia.certification || 'Not Rated'}</p>
                               )}
                             </div>
+
+                            {/* TV Show Specific Fields */}
+                            {selectedMedia.type === 'tv' && (
+                              <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                  <label className="block text-sm font-medium text-white/70 mb-1">Seasons</label>
+                                  {selectedMedia.isEditing ? (
+                                    <input
+                                      type="number"
+                                      value={(editingMedia as any).seasons || ''}
+                                      onChange={(e) => handleInputChange('seasons', parseInt(e.target.value) || undefined)}
+                                      className="w-full bg-black/50 border border-white/20 rounded-lg px-4 py-2 text-white"
+                                      placeholder="Number of seasons"
+                                    />
+                                  ) : (
+                                    <p className="text-white bg-white/5 rounded-lg px-4 py-2">
+                                      {(selectedMedia as any).seasons || 'Unknown'}
+                                    </p>
+                                  )}
+                                </div>
+                                <div>
+                                  <label className="block text-sm font-medium text-white/70 mb-1">Episodes</label>
+                                  {selectedMedia.isEditing ? (
+                                    <input
+                                      type="number"
+                                      value={(editingMedia as any).episodes || ''}
+                                      onChange={(e) => handleInputChange('episodes', parseInt(e.target.value) || undefined)}
+                                      className="w-full bg-black/50 border border-white/20 rounded-lg px-4 py-2 text-white"
+                                      placeholder="Total episodes"
+                                    />
+                                  ) : (
+                                    <p className="text-white bg-white/5 rounded-lg px-4 py-2">
+                                      {(selectedMedia as any).episodes || 'Unknown'}
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Additional TV Show Fields */}
+                            {selectedMedia.type === 'tv' && (
+                              <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                  <label className="block text-sm font-medium text-white/70 mb-1">Status</label>
+                                  {selectedMedia.isEditing ? (
+                                    <select
+                                      value={(editingMedia as any).status || ''}
+                                      onChange={(e) => handleInputChange('status', e.target.value)}
+                                      className="w-full bg-black/50 border border-white/20 rounded-lg px-4 py-2 text-white"
+                                    >
+                                      <option value="">Select Status</option>
+                                      <option value="Returning Series">Returning Series</option>
+                                      <option value="Ended">Ended</option>
+                                      <option value="Canceled">Canceled</option>
+                                      <option value="In Production">In Production</option>
+                                      <option value="Planned">Planned</option>
+                                    </select>
+                                  ) : (
+                                    <p className="text-white bg-white/5 rounded-lg px-4 py-2">
+                                      {(selectedMedia as any).status || 'Unknown'}
+                                    </p>
+                                  )}
+                                </div>
+                                <div>
+                                  <label className="block text-sm font-medium text-white/70 mb-1">Network</label>
+                                  {selectedMedia.isEditing ? (
+                                    <input
+                                      type="text"
+                                      value={(editingMedia as any).network || ''}
+                                      onChange={(e) => handleInputChange('network', e.target.value)}
+                                      className="w-full bg-black/50 border border-white/20 rounded-lg px-4 py-2 text-white"
+                                      placeholder="Original network"
+                                    />
+                                  ) : (
+                                    <p className="text-white bg-white/5 rounded-lg px-4 py-2">
+                                      {(selectedMedia as any).network || 'Unknown'}
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+                            )}
 
                             {/* File Information */}
                             <div className="pt-4 border-t border-white/10">

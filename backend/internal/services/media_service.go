@@ -367,6 +367,77 @@ func (s *MediaService) GetSeriesByID(id uint) (*models.Series, error) {
 	return &series, err
 }
 
+// UpdateSeries updates a TV series with new metadata
+func (s *MediaService) UpdateSeries(id uint, updates map[string]interface{}) (*models.Series, error) {
+	var series models.Series
+	
+	// Use direct database access instead of DBManager transaction for now
+	// First get the existing series
+	if err := s.db.Preload("Genres").First(&series, id).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, fmt.Errorf("series with ID %d not found", id)
+		}
+		return nil, fmt.Errorf("failed to fetch series: %v", err)
+	}
+
+	// Start a transaction manually
+	tx := s.db.Begin()
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+		}
+	}()
+
+	// Update the series with provided fields
+	if err := tx.Model(&series).Updates(updates).Error; err != nil {
+		tx.Rollback()
+		return nil, fmt.Errorf("failed to update series: %v", err)
+	}
+
+	// Handle genre updates if provided
+	if genreNames, ok := updates["genre_names"].([]string); ok && len(genreNames) > 0 {
+		// Clear existing genres
+		if err := tx.Model(&series).Association("Genres").Clear(); err != nil {
+			tx.Rollback()
+			return nil, fmt.Errorf("failed to clear existing genres: %v", err)
+		}
+
+		// Add new genres
+		for _, genreName := range genreNames {
+			var genre models.Genre
+			if err := tx.Where("name = ?", genreName).First(&genre).Error; err != nil {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					// Create new genre if it doesn't exist
+					genre = models.Genre{Name: genreName}
+					if err := tx.Create(&genre).Error; err != nil {
+						tx.Rollback()
+						return nil, fmt.Errorf("failed to create genre %s: %v", genreName, err)
+					}
+				} else {
+					tx.Rollback()
+					return nil, fmt.Errorf("failed to find genre %s: %v", genreName, err)
+				}
+			}
+			if err := tx.Model(&series).Association("Genres").Append(&genre); err != nil {
+				tx.Rollback()
+				return nil, fmt.Errorf("failed to append genre %s: %v", genreName, err)
+			}
+		}
+	}
+
+	// Commit the transaction
+	if err := tx.Commit().Error; err != nil {
+		return nil, fmt.Errorf("failed to commit transaction: %v", err)
+	}
+
+	// Reload the series with updated data
+	if err := s.db.Preload("Genres").First(&series, id).Error; err != nil {
+		return nil, fmt.Errorf("failed to reload series: %v", err)
+	}
+
+	return &series, nil
+}
+
 func (s *MediaService) FindOrCreateSeries(title string) (*models.Series, error) {
 	var series models.Series
 	err := s.DBManager.WithTx(func(tx *gorm.DB) error {

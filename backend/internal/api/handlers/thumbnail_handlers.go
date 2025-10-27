@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -2618,6 +2619,167 @@ func GeneratePoster(mediaService *services.MediaService, posterService *services
 	}
 }
 
+// GetSeriesPoster serves posters for TV series with automatic download when missing
+func GetSeriesPoster(mediaService *services.MediaService, posterService *services.PosterService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id, err := strconv.ParseUint(c.Param("id"), 10, 32)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid series ID"})
+			return
+		}
+
+		seriesID := uint(id)
+
+		// Get series info
+		series, err := mediaService.GetSeriesByID(seriesID)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Series not found"})
+			return
+		}
+
+		// Check if series has a poster path
+		if series.PosterPath != "" {
+			// Try to serve the existing poster
+			if _, err := os.Stat(series.PosterPath); err == nil {
+				c.Header("Cache-Control", "public, max-age=86400, immutable")
+				c.Header("Content-Type", "image/jpeg")
+				c.File(series.PosterPath)
+				return
+			}
+			// Try with ./backend/ prefix for relative paths
+			if !strings.HasPrefix(series.PosterPath, "/") && !strings.HasPrefix(series.PosterPath, "./") {
+				resolvedPath := "./backend/" + series.PosterPath
+				if _, err := os.Stat(resolvedPath); err == nil {
+					c.Header("Cache-Control", "public, max-age=86400, immutable")
+					c.Header("Content-Type", "image/jpeg")
+					c.File(resolvedPath)
+					return
+				}
+			}
+		}
+
+		// Check common poster locations
+		posterPaths := []string{
+			fmt.Sprintf("./posters/poster_%s.jpg", cleanTitleForFilename(series.Title)),
+			fmt.Sprintf("./backend/posters/poster_%s.jpg", cleanTitleForFilename(series.Title)),
+			fmt.Sprintf("./posters/poster_%d.jpg", series.ID),
+			fmt.Sprintf("./backend/posters/poster_%d.jpg", series.ID),
+		}
+
+		for _, path := range posterPaths {
+			if _, err := os.Stat(path); err == nil {
+				c.Header("Cache-Control", "public, max-age=86400, immutable")
+				c.Header("Content-Type", "image/jpeg")
+				c.File(path)
+				return
+			}
+		}
+
+		// No poster found - return 404
+		c.JSON(http.StatusNotFound, gin.H{
+			"error": "Series poster not found",
+			"series_id": series.ID,
+			"title": series.Title,
+			"message": "Use POST /api/admin/series/:id/poster to generate a poster",
+		})
+	}
+}
+
+// cleanTitleForFilename creates a safe filename from a title
+func cleanTitleForFilename(title string) string {
+	// Remove or replace characters that are not safe for filenames
+	cleaned := strings.ReplaceAll(title, " ", "_")
+	cleaned = strings.ReplaceAll(cleaned, ":", "")
+	cleaned = strings.ReplaceAll(cleaned, "/", "_")
+	cleaned = strings.ReplaceAll(cleaned, "\\", "_")
+	cleaned = strings.ReplaceAll(cleaned, "?", "")
+	cleaned = strings.ReplaceAll(cleaned, "*", "")
+	cleaned = strings.ReplaceAll(cleaned, "<", "")
+	cleaned = strings.ReplaceAll(cleaned, ">", "")
+	cleaned = strings.ReplaceAll(cleaned, "|", "")
+	cleaned = strings.ReplaceAll(cleaned, "\"", "")
+	cleaned = strings.ReplaceAll(cleaned, "'", "")
+	cleaned = strings.ReplaceAll(cleaned, "(", "")
+	cleaned = strings.ReplaceAll(cleaned, ")", "")
+	
+	// Remove multiple underscores and trim
+	cleaned = regexp.MustCompile(`_+`).ReplaceAllString(cleaned, "_")
+	cleaned = strings.Trim(cleaned, "_")
+	
+	// Convert to lowercase for consistency
+	cleaned = strings.ToLower(cleaned)
+	
+	// Limit length to avoid filesystem issues
+	if len(cleaned) > 100 {
+		cleaned = cleaned[:100]
+	}
+	
+	// Ensure we have something if title was all special characters
+	if cleaned == "" {
+		cleaned = "untitled"
+	}
+	
+	return cleaned
+}
+
+// GenerateSeriesPoster generates/downloads a poster for a TV series
+func GenerateSeriesPoster(mediaService *services.MediaService, posterService *services.PosterService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id, err := strconv.ParseUint(c.Param("id"), 10, 32)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID"})
+			return
+		}
+
+		seriesID := uint(id)
+
+		// Get series info
+		series, err := mediaService.GetSeriesByID(seriesID)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Series not found"})
+			return
+		}
+
+		// Force regeneration - remove existing poster first if it exists
+		if existingPath := posterService.GetPosterPath(series.ID, series.Title); existingPath != "" {
+			log.Printf("🔄 Regenerating existing poster for series %s: %s", series.Title, existingPath)
+		}
+
+		// Download/generate poster using TMDB for TV series
+		log.Printf("🎨 Generating poster for TV series: %s (ID: %d)", series.Title, series.ID)
+		posterPath, err := posterService.DownloadTVPosterWithPath(series.Title, series.ID)
+		if err != nil {
+			log.Printf("❌ Failed to generate poster for series %s: %v", series.Title, err)
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error":     "Failed to generate poster",
+				"series_id": series.ID,
+				"title":     series.Title,
+				"details":   err.Error(),
+			})
+			return
+		}
+
+		// Update series with poster path
+		updates := map[string]interface{}{
+			"poster_path": posterPath,
+		}
+		
+		_, err = mediaService.UpdateSeries(series.ID, updates)
+		if err != nil {
+			log.Printf("⚠️ Failed to update series poster path in database: %v", err)
+		}
+
+		log.Printf("✅ Poster generated successfully for series %s: %s", series.Title, posterPath)
+		c.JSON(http.StatusOK, gin.H{
+			"status":      "success",
+			"series_id":   series.ID,
+			"title":       series.Title,
+			"poster_path": posterPath,
+			"message":     "Series poster generated successfully from TMDB",
+		})
+	}
+}
+
 // DownloadPosterBatch downloads posters for multiple media items
 func DownloadPosterBatch(mediaService *services.MediaService, posterService *services.PosterService) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -3040,34 +3202,7 @@ func generateUniqueFilename(mediaID uint, title string, season *int, episode *in
 	return fmt.Sprintf("%s_%d_%s%s", prefix, mediaID, cleanTitle, extension)
 }
 
-// cleanTitleForFilename cleans a title to be safe for use in filenames
-func cleanTitleForFilename(title string) string {
-	// Remove or replace characters that are not safe for filenames
-	cleaned := strings.ReplaceAll(title, " ", "_")
-	cleaned = strings.ReplaceAll(cleaned, ":", "")
-	cleaned = strings.ReplaceAll(cleaned, "/", "_")
-	cleaned = strings.ReplaceAll(cleaned, "\\", "_")
-	cleaned = strings.ReplaceAll(cleaned, "?", "")
-	cleaned = strings.ReplaceAll(cleaned, "*", "")
-	cleaned = strings.ReplaceAll(cleaned, "<", "")
-	cleaned = strings.ReplaceAll(cleaned, ">", "")
-	cleaned = strings.ReplaceAll(cleaned, "|", "")
-	cleaned = strings.ReplaceAll(cleaned, "\"", "")
-	cleaned = strings.ReplaceAll(cleaned, "'", "")
 
-	// Convert to lowercase for consistency
-	cleaned = strings.ToLower(cleaned)
-
-	// Remove multiple underscores
-	for strings.Contains(cleaned, "__") {
-		cleaned = strings.ReplaceAll(cleaned, "__", "_")
-	}
-
-	// Trim underscores from start and end
-	cleaned = strings.Trim(cleaned, "_")
-
-	return cleaned
-}
 
 // getOptimalPreviewTimestamp uses intelligent scene detection to find peak moments for preview generation
 // Combines multiple strategies: scene changes, audio peaks, and motion detection for best preview quality

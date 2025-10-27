@@ -19,6 +19,8 @@ import QualityBadge from '../../../components/QualityBadge';
 import { addToWishlist, removeFromWishlist, isInWishlist } from '@/lib/wishlist';
 import CastButton from '@/components/CastButton';
 import { useChromecast, CastMedia } from '@/hooks/useChromecast';
+import ImageWithFallback from '@/components/ImageWithFallback';
+
 import {
   NetflixHorizontalRow,
   ParallaxSection,
@@ -53,7 +55,7 @@ export default function MoviePage() {
   const [showTitleOverlay, setShowTitleOverlay] = useState(true); // Netflix-style title overlay
   const [isHoveringTitle, setIsHoveringTitle] = useState(false); // Hover state for title area
   const videoRef = useRef<HTMLVideoElement>(null);
-  
+
   // Chromecast integration
   const {
     castState,
@@ -91,13 +93,13 @@ export default function MoviePage() {
       const video = videoRef.current;
       if (video && media && !isPlayerOpen) {
         console.log('Attempting to force video play...');
-        
+
         // Set video properties
         video.muted = false;
         video.volume = 1.0;
         video.currentTime = 0;
         setIsMuted(false);
-        
+
         // Force play with multiple attempts
         const playAttempt = () => {
           video.play().then(() => {
@@ -115,7 +117,7 @@ export default function MoviePage() {
             });
           });
         };
-        
+
         // Try immediately and with delays
         playAttempt();
         setTimeout(playAttempt, 100);
@@ -128,14 +130,14 @@ export default function MoviePage() {
       forceVideoPlay();
       const timer1 = setTimeout(forceVideoPlay, 200);
       const timer2 = setTimeout(forceVideoPlay, 1000);
-      
+
       return () => {
         clearTimeout(timer1);
         clearTimeout(timer2);
       };
     }
   }, [media, loading, isPlayerOpen]);
-  
+
   // Additional trigger when video becomes loaded
   useEffect(() => {
     if (isVideoLoaded && !isVideoPlaying && !isPlayerOpen) {
@@ -345,7 +347,7 @@ export default function MoviePage() {
 
   const handlePlayerClose = () => {
     setIsPlayerOpen(false);
-    
+
     // Resume the background video when closing the player
     if (videoRef.current && isVideoLoaded) {
       setTimeout(() => {
@@ -386,10 +388,10 @@ export default function MoviePage() {
   // Start casting media when connected
   const handleStartCasting = () => {
     if (!media || !castState.isConnected) return;
-    
+
     const streamUrl = `${getApiUrl()}/api/stream/${media.id}?quality=4k&format=mp4`;
     const thumbnailUrl = `${getApiUrl()}/api/thumbnails/${media.id}`;
-    
+
     const castMedia: CastMedia = {
       contentId: streamUrl,
       contentType: 'video/mp4',
@@ -403,7 +405,7 @@ export default function MoviePage() {
         }]
       }
     };
-    
+
     loadCastMedia(castMedia);
     console.log('Started casting:', media.title);
   };
@@ -579,7 +581,7 @@ export default function MoviePage() {
               video.currentTime = 0;
               video.volume = 1.0;
               video.muted = false;
-              
+
               // Immediate play attempt
               const immediatePlay = () => {
                 video.play().then(() => {
@@ -598,7 +600,7 @@ export default function MoviePage() {
                   });
                 });
               };
-              
+
               // Try multiple times
               immediatePlay();
               setTimeout(immediatePlay, 50);
@@ -616,7 +618,7 @@ export default function MoviePage() {
             if (video) {
               video.muted = false;
               video.volume = 1.0;
-              
+
               const canPlayAttempt = () => {
                 video.play().then(() => {
                   console.log('Video playing from onCanPlay with sound');
@@ -634,7 +636,7 @@ export default function MoviePage() {
                   });
                 });
               };
-              
+
               canPlayAttempt();
               setTimeout(canPlayAttempt, 100);
             }
@@ -657,7 +659,7 @@ export default function MoviePage() {
             if (video) {
               video.muted = false;
               video.volume = 1.0;
-              
+
               const metadataPlay = () => {
                 video.play().then(() => {
                   console.log('Video auto-started from metadata with sound');
@@ -675,7 +677,7 @@ export default function MoviePage() {
                   });
                 });
               };
-              
+
               metadataPlay();
               setTimeout(metadataPlay, 50);
             }
@@ -880,9 +882,9 @@ export default function MoviePage() {
                         Casting to {castState.deviceName}
                       </p>
                       <p className="text-blue-400/80 text-sm">
-                        {castState.playerState === 'PLAYING' ? 'Playing' : 
-                         castState.playerState === 'PAUSED' ? 'Paused' : 
-                         castState.playerState === 'BUFFERING' ? 'Buffering' : 'Ready'}
+                        {castState.playerState === 'PLAYING' ? 'Playing' :
+                          castState.playerState === 'PAUSED' ? 'Paused' :
+                            castState.playerState === 'BUFFERING' ? 'Buffering' : 'Ready'}
                       </p>
                     </div>
                   </motion.div>
@@ -920,398 +922,355 @@ export default function MoviePage() {
             </div>
           </div>
         </div>
-
-
       </div>
 
       {/* Details Section - Bottom Left */}
       <div className="relative z-10 bg-black pt-16 pb-24">
         <div className="container mx-auto px-6 md:px-12 lg:px-16">
           <div className="flex justify-start">
-            <div className="w-full max-w-2xl">
+            <div className="w-full">
               {/* Media Info */}
               <div className="bg-gradient-to-r from-black/80 via-black/60 to-transparent p-8 rounded-2xl backdrop-blur-sm border border-white/10 shadow-2xl">
                 <h2 className="text-2xl font-bold text-white mb-8">About {cleanMovieTitle(media.title)}</h2>
-                <div className="space-y-8">
-                  <div className="grid grid-cols-1 gap-8">
-                    <div>
-                      <div className="flex items-center gap-3 mb-6">
-                        <Info className="w-6 h-6 text-red-500" />
-                        <h3 className="text-xl font-semibold text-white">Details</h3>
-                      </div>
-                      <div className="space-y-4 pl-9">
-                        <div className="flex">
-                          <span className="w-32 text-white/60">Type</span>
-                          <span className="text-white capitalize">{media.type}</span>
-                        </div>
-                        {media.genres && media.genres.length > 0 && (
-                          <div className="flex flex-col gap-3">
-                            <span className="text-white/60 font-medium">Genres</span>
-                            <div className="flex flex-wrap gap-2">
-                              {media.genres.map((genre, index) => (
-                                <span
-                                  key={index}
-                                  className="px-3 py-1.5 bg-gradient-to-r from-red-600/20 to-red-500/20 text-red-300 text-sm font-medium rounded-full border border-red-500/30 hover:from-red-600/30 hover:to-red-500/30 transition-all duration-200"
-                                >
-                                  {genre.name}
-                                </span>
-                              ))}
-                            </div>
+                {/* About Section with Poster Layout */}
+                <div className="flex flex-col lg:flex-row gap-8">
+                  {/* Left side - Text content */}
+                  <div className="flex-1">
+                    <div className="space-y-8">
+                      <div className="grid grid-cols-1 gap-8">
+                        <div>
+                          <div className="flex items-center gap-3 mb-6">
+                            <Info className="w-6 h-6 text-red-500" />
+                            <h3 className="text-xl font-semibold text-white">Details</h3>
                           </div>
-                        )}
-                        {media.duration && (
-                          <div className="flex">
-                            <span className="w-32 text-white/60 font-medium">Duration</span>
-                            <span className="text-white">{formatRuntime(Math.floor(media.duration / 60))}</span>
-                          </div>
-                        )}
-                        {media.director && (
-                          <div className="flex">
-                            <span className="w-32 text-white/60 font-medium">Director</span>
-                            <span className="text-white">{Array.isArray(media.director) ? media.director.join(', ') : media.director}</span>
-                          </div>
-                        )}
-                        {media.stars && media.stars.length > 0 && (
-                          <div className="flex flex-col gap-3">
-                            <span className="text-white/60 font-medium">Cast</span>
-                            <div className="flex flex-wrap gap-2">
-                              {media.stars.slice(0, 6).map((star: string, index: number) => (
-                                <span
-                                  key={index}
-                                  className="px-3 py-1.5 bg-gradient-to-r from-blue-600/20 to-blue-500/20 text-blue-300 text-sm font-medium rounded-full border border-blue-500/30 hover:from-blue-600/30 hover:to-blue-500/30 transition-all duration-200"
-                                >
-                                  {star.trim()}
-                                </span>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-                        {media.release_date && (
-                          <div className="flex">
-                            <span className="w-32 text-white/60 font-medium">Release Date</span>
-                            <span className="text-white">{formatDate(media.release_date)}</span>
-                          </div>
-                        )}
-                        {media.country && (
-                          <div className="flex">
-                            <span className="w-32 text-white/60 font-medium">Country</span>
-                            <span className="text-white">{media.country}</span>
-                          </div>
-                        )}
-                        {media.language && (
-                          <div className="flex">
-                            <span className="w-32 text-white/60 font-medium">Language</span>
-                            <span className="text-white">{media.language}</span>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Box Office & Financial Information */}
-                  {(media.box_office || media.budget || media.revenue) && (
-                    <div className="mt-8">
-                      <div className="flex items-center gap-2 mb-4">
-                        <Award className="w-5 h-5 text-green-500" />
-                        <h3 className="text-lg font-semibold text-white">Box Office & Financial</h3>
-                      </div>
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        {media.box_office && (
-                          <div className="bg-gradient-to-r from-green-500/10 to-green-600/10 p-4 rounded-lg border border-green-500/20">
-                            <div className="text-green-400 text-sm font-medium mb-1">Box Office</div>
-                            <div className="text-white text-xl font-bold">{media.box_office}</div>
-                          </div>
-                        )}
-                        {media.budget && media.budget > 0 && (
-                          <div className="bg-gradient-to-r from-blue-500/10 to-blue-600/10 p-4 rounded-lg border border-blue-500/20">
-                            <div className="text-blue-400 text-sm font-medium mb-1">Budget</div>
-                            <div className="text-white text-xl font-bold">
-                              {media.budget >= 1000000000
-                                ? `$${(media.budget / 1000000000).toFixed(1)}B`
-                                : media.budget >= 1000000
-                                  ? `$${(media.budget / 1000000).toFixed(1)}M`
-                                  : `$${media.budget.toLocaleString()}`
-                              }
-                            </div>
-                          </div>
-                        )}
-                        {media.revenue && media.revenue > 0 && (
-                          <div className="bg-gradient-to-r from-purple-500/10 to-purple-600/10 p-4 rounded-lg border border-purple-500/20">
-                            <div className="text-purple-400 text-sm font-medium mb-1">Revenue</div>
-                            <div className="text-white text-xl font-bold">
-                              {media.revenue >= 1000000000
-                                ? `$${(media.revenue / 1000000000).toFixed(1)}B`
-                                : media.revenue >= 1000000
-                                  ? `$${(media.revenue / 1000000).toFixed(1)}M`
-                                  : `$${media.revenue.toLocaleString()}`
-                              }
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                      {/* Profit calculation if both budget and revenue are available */}
-                      {media.budget && media.revenue && media.budget > 0 && media.revenue > 0 && (
-                        <div className="mt-4">
-                          <div className="bg-gradient-to-r from-yellow-500/10 to-yellow-600/10 p-4 rounded-lg border border-yellow-500/20">
-                            <div className="text-yellow-400 text-sm font-medium mb-1">Profit</div>
-                            <div className="text-white text-xl font-bold">
-                              {(() => {
-                                const profit = media.revenue - media.budget;
-                                const isProfit = profit > 0;
-                                return (
-                                  <span className={isProfit ? 'text-green-400' : 'text-red-400'}>
-                                    {isProfit ? '+' : ''}
-                                    {profit >= 1000000000
-                                      ? `$${(profit / 1000000000).toFixed(1)}B`
-                                      : profit >= 1000000
-                                        ? `$${(profit / 1000000).toFixed(1)}M`
-                                        : `$${profit.toLocaleString()}`
-                                    }
-                                  </span>
-                                );
-                              })()}
-                            </div>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Cast & Crew Section */}
-                  {(media.cast || media.stars) && (
-                    <div className="mt-8">
-                      <div className="flex items-center gap-2 mb-4">
-                        <Users className="w-5 h-5 text-blue-500" />
-                        <h3 className="text-lg font-semibold text-white">Cast & Crew</h3>
-                      </div>
-                      <div className="space-y-3">
-                        {media.stars && media.stars.length > 0 && (
-                          <div>
-                            <div className="text-white/60 text-sm font-medium mb-2">Main Cast</div>
-                            <div className="flex flex-wrap gap-2">
-                              {media.stars.map((star, index) => (
-                                <span key={index} className="bg-white/10 px-3 py-1 rounded-full text-sm text-white">
-                                  {star}
-                                </span>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-                        {media.cast && media.cast.length > 0 && (
-                          <div>
-                            <div className="text-white/60 text-sm font-medium mb-2">Full Cast</div>
-                            <div className="text-white/80 text-sm leading-relaxed">
-                              {media.cast.slice(0, 10).join(', ')}
-                              {media.cast.length > 10 && '...'}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Additional Metadata */}
-                  {(media.imdb_id || media.homepage || media.collection) && (
-                    <div className="mt-8">
-                      <div className="flex items-center gap-2 mb-4">
-                        <Film className="w-5 h-5 text-red-500" />
-                        <h3 className="text-lg font-semibold text-white">Additional Information</h3>
-                      </div>
-                      <div className="space-y-2">
-                        {media.imdb_id && (
-                          <div className="flex">
-                            <span className="w-32 text-white/60">IMDB ID</span>
-                            <a
-                              href={`https://www.imdb.com/title/${media.imdb_id}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-yellow-400 hover:text-yellow-300 underline"
-                            >
-                              {media.imdb_id}
-                            </a>
-                          </div>
-                        )}
-                        {media.homepage && (
-                          <div className="flex">
-                            <span className="w-32 text-white/60">Official Site</span>
-                            <a
-                              href={media.homepage}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-blue-400 hover:text-blue-300 underline"
-                            >
-                              Visit Website
-                            </a>
-                          </div>
-                        )}
-                        {media.collection && (
-                          <div className="flex">
-                            <span className="w-32 text-white/60">Collection</span>
-                            <span className="text-white">{media.collection}</span>
-                          </div>
-                        )}
-                        {media.runtime && (
-                          <div className="flex">
-                            <span className="w-32 text-white/60">Runtime</span>
-                            <span className="text-white">{formatRuntime(media.runtime)}</span>
-                          </div>
-                        )}
-                        {media.vote_count && (
-                          <div className="flex">
-                            <span className="w-32 text-white/60">Votes</span>
-                            <span className="text-white">{media.vote_count.toLocaleString()}</span>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Additional Stats Section */}
-                  <div className="mt-8">
-                    <h3 className="text-lg font-semibold text-white mb-3">Statistics</h3>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                      {media.rating && (
-                        <div className="bg-gray-800/50 p-4 rounded-lg text-center">
-                          <div className="flex items-center justify-center gap-1 text-yellow-400 mb-1">
-                            <Star className="w-4 h-4" />
-                            <span className="text-xl font-bold">{media.rating}</span>
-                          </div>
-                          <span className="text-white/60 text-sm">Rating</span>
-                        </div>
-                      )}
-                      <div className="bg-gray-800/50 p-4 rounded-lg text-center">
-                        <div className="text-xl font-bold text-white mb-1">
-                          {(media.view_count || 0).toLocaleString()}
-                        </div>
-                        <span className="text-white/60 text-sm">Views</span>
-                      </div>
-                      <div className="bg-gray-800/50 p-4 rounded-lg text-center">
-                        <div className="text-xl font-bold text-white mb-1">
-                          {new Date().getFullYear()}
-                        </div>
-                        <span className="text-white/60 text-sm">Year</span>
-                      </div>
-                      {media.genres && media.genres.length > 0 && (
-                        <div className="bg-gray-800/50 p-4 rounded-lg text-center">
-                          <div className="text-xl font-bold text-white mb-1">
-                            {media.genres.length}
-                          </div>
-                          <span className="text-white/60 text-sm">Genres</span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Sidebar */}
-            <div className="hidden lg:block space-y-6 ml-6">
-              {media.genres && media.genres.length > 0 && (
-                <div>
-                  <h3 className="text-lg font-semibold text-white mb-2">Genres</h3>
-                  <div className="flex flex-wrap gap-2">
-                    {media.genres.map((genre) => (
-                      <span
-                        key={genre.id}
-                        className="px-3 py-1 bg-white/10 text-white/90 rounded-full text-sm"
-                      >
-                        {genre.name}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Cast & Crew Section */}
-              {(media.stars && media.stars.length > 0) || (media.director && media.director.length > 0) ? (
-                <div className="mb-12">
-                  <h2 className="text-2xl font-bold text-white mb-6">Cast & Crew</h2>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-
-                    {/* Director Section */}
-                    {media.director && media.director.length > 0 && (
-                      <div>
-                        <div className="flex items-center gap-2 mb-4">
-                          <Director className="w-5 h-5 text-red-500" />
-                          <h3 className="text-lg font-semibold text-white">
-                            Director{media.director.length > 1 ? 's' : ''}
-                          </h3>
-                        </div>
-                        <div className="space-y-3">
-                          {media.director.map((director, index) => (
-                            <div key={index} className="flex items-center gap-3 p-3 bg-gray-800/30 rounded-lg hover:bg-gray-800/50 transition-colors">
-                              <div className="w-12 h-12 bg-gray-700 rounded-full flex items-center justify-center">
-                                <Director className="w-6 h-6 text-gray-400" />
-                              </div>
-                              <div>
-                                <p className="text-white font-medium">{director}</p>
-                                <p className="text-white/60 text-sm">Director</p>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Cast Section */}
-                    {media.stars && media.stars.length > 0 && (
-                      <div>
-                        <div className="flex items-center gap-2 mb-4">
-                          <Cast className="w-5 h-5 text-red-500" />
-                          <h3 className="text-lg font-semibold text-white">Cast</h3>
-                        </div>
-                        <div className="space-y-3">
-                          {media.stars.slice(0, 6).map((actor, index) => (
-                            <div key={index} className="flex items-center gap-3 p-3 bg-gray-800/30 rounded-lg hover:bg-gray-800/50 transition-colors">
-                              <div className="w-12 h-12 bg-gray-700 rounded-full flex items-center justify-center">
-                                <User className="w-6 h-6 text-gray-400" />
-                              </div>
-                              <div>
-                                <p className="text-white font-medium">{actor}</p>
-                                <p className="text-white/60 text-sm">Actor</p>
-                              </div>
-                            </div>
-                          ))}
-                          {media.stars.length > 6 && (
-                            <div className="text-center">
-                              <button
-                                onClick={() => setShowMoreInfo(!showMoreInfo)}
-                                className="text-red-400 hover:text-red-300 text-sm font-medium flex items-center gap-1 mx-auto"
-                              >
-                                {showMoreInfo ? (
-                                  <>
-                                    Show Less <ChevronUp className="w-4 h-4" />
-                                  </>
-                                ) : (
-                                  <>
-                                    Show {media.stars.length - 6} More <ChevronDown className="w-4 h-4" />
-                                  </>
-                                )}
-                              </button>
-                              {showMoreInfo && (
-                                <div className="mt-3 space-y-3">
-                                  {media.stars.slice(6).map((actor, index) => (
-                                    <div key={index + 6} className="flex items-center gap-3 p-3 bg-gray-800/30 rounded-lg hover:bg-gray-800/50 transition-colors">
-                                      <div className="w-12 h-12 bg-gray-700 rounded-full flex items-center justify-center">
-                                        <User className="w-6 h-6 text-gray-400" />
-                                      </div>
-                                      <div>
-                                        <p className="text-white font-medium">{actor}</p>
-                                        <p className="text-white/60 text-sm">Actor</p>
-                                      </div>
-                                    </div>
+                          <div className="space-y-4 pl-9">
+                            {media.genres && media.genres.length > 0 && (
+                              <div className="flex flex-col gap-3">
+                                <span className="text-white/60 font-medium">Genres</span>
+                                <div className="flex flex-wrap gap-2">
+                                  {media.genres.map((genre, index) => (
+                                    <span
+                                      key={index}
+                                      className="px-3 py-1.5 bg-gradient-to-r from-red-600/20 to-red-500/20 text-red-300 text-sm font-medium rounded-full border border-red-500/30 hover:from-red-600/30 hover:to-red-500/30 transition-all duration-200"
+                                    >
+                                      {genre.name}
+                                    </span>
                                   ))}
                                 </div>
-                              )}
+                              </div>
+                            )}
+                            {media.duration && (
+                              <div className="flex">
+                                <span className="w-32 text-white/60 font-medium">Duration</span>
+                                <span className="text-white">{formatRuntime(Math.floor(media.duration / 60))}</span>
+                              </div>
+                            )}
+                            {media.director && (
+                              <div className="flex">
+                                <span className="w-32 text-white/60 font-medium">Director</span>
+                                <span className="text-white">{Array.isArray(media.director) ? media.director.join(', ') : media.director}</span>
+                              </div>
+                            )}
+                            {media.stars && media.stars.length > 0 && (
+                              <div className="flex flex-col gap-3">
+                                <span className="text-white/60 font-medium">Cast</span>
+                                <div className="flex flex-wrap gap-2">
+                                  {media.stars.slice(0, 6).map((star: string, index: number) => (
+                                    <span
+                                      key={index}
+                                      className="px-3 py-1.5 bg-gradient-to-r from-blue-600/20 to-blue-500/20 text-blue-300 text-sm font-medium rounded-full border border-blue-500/30 hover:from-blue-600/30 hover:to-blue-500/30 transition-all duration-200"
+                                    >
+                                      {star.trim()}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                            {media.year && (
+                              <div className="flex">
+                                <span className="w-32 text-white/60 font-medium">Release</span>
+                                <span className="text-white">{media.year}</span>
+                              </div>
+                            )}
+                            {media.country && (
+                              <div className="flex">
+                                <span className="w-32 text-white/60 font-medium">Country</span>
+                                <span className="text-white">{media.country}</span>
+                              </div>
+                            )}
+                            {media.language && (
+                              <div className="flex">
+                                <span className="w-32 text-white/60 font-medium">Language</span>
+                                <span className="text-white">{media.language}</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Box Office & Financial Information */}
+                      {(media.box_office || media.budget || media.revenue) && (
+                        <div className="mt-8">
+                          <div className="flex items-center gap-2 mb-4">
+                            <Award className="w-5 h-5 text-green-500" />
+                            <h3 className="text-lg font-semibold text-white">Box Office & Financial</h3>
+                          </div>
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            {media.box_office && (
+                              <div className="bg-gradient-to-r from-green-500/10 to-green-600/10 p-4 rounded-lg border border-green-500/20">
+                                <div className="text-green-400 text-sm font-medium mb-1">Box Office</div>
+                                <div className="text-white text-xl font-bold">{media.box_office}</div>
+                              </div>
+                            )}
+                            {media.budget && media.budget > 0 && (
+                              <div className="bg-gradient-to-r from-blue-500/10 to-blue-600/10 p-4 rounded-lg border border-blue-500/20">
+                                <div className="text-blue-400 text-sm font-medium mb-1">Budget</div>
+                                <div className="text-white text-xl font-bold">
+                                  {media.budget >= 1000000000
+                                    ? `$${(media.budget / 1000000000).toFixed(1)}B`
+                                    : media.budget >= 1000000
+                                      ? `$${(media.budget / 1000000).toFixed(1)}M`
+                                      : `$${media.budget.toLocaleString()}`
+                                  }
+                                </div>
+                              </div>
+                            )}
+                            {media.revenue && media.revenue > 0 && (
+                              <div className="bg-gradient-to-r from-purple-500/10 to-purple-600/10 p-4 rounded-lg border border-purple-500/20">
+                                <div className="text-purple-400 text-sm font-medium mb-1">Revenue</div>
+                                <div className="text-white text-xl font-bold">
+                                  {media.revenue >= 1000000000
+                                    ? `$${(media.revenue / 1000000000).toFixed(1)}B`
+                                    : media.revenue >= 1000000
+                                      ? `$${(media.revenue / 1000000).toFixed(1)}M`
+                                      : `$${media.revenue.toLocaleString()}`
+                                  }
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                      {/* Additional Metadata */}
+                      {(media.imdb_id || media.homepage || media.collection) && (
+                        <div className="mt-8">
+                          <div className="flex items-center gap-2 mb-4">
+                            <Film className="w-5 h-5 text-red-500" />
+                            <h3 className="text-lg font-semibold text-white">Additional Information</h3>
+                          </div>
+                          <div className="space-y-2">
+                            {media.imdb_id && (
+                              <div className="flex">
+                                <span className="w-32 text-white/60">IMDB ID</span>
+                                <a
+                                  href={`https://www.imdb.com/title/${media.imdb_id}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-yellow-400 hover:text-yellow-300 underline"
+                                >
+                                  {media.imdb_id}
+                                </a>
+                              </div>
+                            )}
+                            {media.homepage && (
+                              <div className="flex">
+                                <span className="w-32 text-white/60">Official Site</span>
+                                <a
+                                  href={media.homepage}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-blue-400 hover:text-blue-300 underline"
+                                >
+                                  Visit Website
+                                </a>
+                              </div>
+                            )}
+                            {media.collection && (
+                              <div className="flex">
+                                <span className="w-32 text-white/60">Collection</span>
+                                <span className="text-white">{media.collection}</span>
+                              </div>
+                            )}
+                            {media.runtime && (
+                              <div className="flex">
+                                <span className="w-32 text-white/60">Runtime</span>
+                                <span className="text-white">{formatRuntime(media.runtime)}</span>
+                              </div>
+                            )}
+                            {media.vote_count && (
+                              <div className="flex">
+                                <span className="w-32 text-white/60">Votes</span>
+                                <span className="text-white">{media.vote_count.toLocaleString()}</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Additional Stats Section */}
+                      <div className="mt-8">
+                        <h3 className="text-lg font-semibold text-white mb-3">Statistics</h3>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                          {media.rating && (
+                            <div className="bg-gray-800/50 p-4 rounded-lg text-center">
+                              <div className="flex items-center justify-center gap-1 text-yellow-400 mb-1">
+                                <Star className="w-4 h-4" />
+                                <span className="text-xl font-bold">{media.rating.toFixed(1)}</span>
+                              </div>
+                              <span className="text-white/60 text-sm">Rating</span>
+                            </div>
+                          )}
+                          <div className="bg-gray-800/50 p-4 rounded-lg text-center">
+                            <div className="text-xl font-bold text-white mb-1">
+                              {(media.view_count || 0).toLocaleString()}
+                            </div>
+                            <span className="text-white/60 text-sm">Views</span>
+                          </div>
+                          <div className="bg-gray-800/50 p-4 rounded-lg text-center">
+                            <div className="text-xl font-bold text-white mb-1">
+                              {media.year}
+                            </div>
+                            <span className="text-white/60 text-sm">Year</span>
+                          </div>
+                          {media.genres && media.genres.length > 0 && (
+                            <div className="bg-gray-800/50 p-4 rounded-lg text-center">
+                              <div className="text-xl font-bold text-white mb-1">
+                                {media.genres.length}
+                              </div>
+                              <span className="text-white/60 text-sm">Genres</span>
                             </div>
                           )}
                         </div>
                       </div>
-                    )}
+                    </div>
+                  </div>
+
+                  {/* Sidebar */}
+                  <div className="hidden lg:block space-y-6 ml-6">
+                    {/* Cast & Crew Section */}
+                    {(media.stars && media.stars.length > 0) || (media.director && media.director.length > 0) ? (
+                      <div className="mb-12">
+                        <h2 className="text-2xl font-bold text-white mb-6">Cast & Crew</h2>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+
+                          {/* Director Section */}
+                          {media.director && media.director.length > 0 && (
+                            <div>
+                              <div className="flex items-center gap-2 mb-4">
+                                <Director className="w-5 h-5 text-red-500" />
+                                <h3 className="text-lg font-semibold text-white">
+                                  Director{media.director.length > 1 ? 's' : ''}
+                                </h3>
+                              </div>
+                              <div className="space-y-3">
+                                {media.director.map((director, index) => (
+                                  <div key={index} className="flex items-center gap-3 p-3 bg-gray-800/30 rounded-lg hover:bg-gray-800/50 transition-colors">
+                                    <div className="w-12 h-12 bg-gray-700 rounded-full flex items-center justify-center">
+                                      <Director className="w-6 h-6 text-gray-400" />
+                                    </div>
+                                    <div>
+                                      <p className="text-white font-medium">{director}</p>
+                                      <p className="text-white/60 text-sm">Director</p>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Cast Section */}
+                          {media.stars && media.stars.length > 0 && (
+                            <div>
+                              <div className="flex items-center gap-2 mb-4">
+                                <Cast className="w-5 h-5 text-red-500" />
+                                <h3 className="text-lg font-semibold text-white">Cast</h3>
+                              </div>
+                              <div className="space-y-3">
+                                {media.stars.slice(0, 6).map((actor, index) => (
+                                  <div key={index} className="flex items-center gap-3 p-3 bg-gray-800/30 rounded-lg hover:bg-gray-800/50 transition-colors">
+                                    <div className="w-12 h-12 bg-gray-700 rounded-full flex items-center justify-center">
+                                      <User className="w-6 h-6 text-gray-400" />
+                                    </div>
+                                    <div>
+                                      <p className="text-white font-medium">{actor}</p>
+                                      <p className="text-white/60 text-sm">Actor</p>
+                                    </div>
+                                  </div>
+                                ))}
+                                {media.stars.length > 6 && (
+                                  <div className="text-center">
+                                    <button
+                                      onClick={() => setShowMoreInfo(!showMoreInfo)}
+                                      className="text-red-400 hover:text-red-300 text-sm font-medium flex items-center gap-1 mx-auto"
+                                    >
+                                      {showMoreInfo ? (
+                                        <>
+                                          Show Less <ChevronUp className="w-4 h-4" />
+                                        </>
+                                      ) : (
+                                        <>
+                                          Show {media.stars.length - 6} More <ChevronDown className="w-4 h-4" />
+                                        </>
+                                      )}
+                                    </button>
+                                    {showMoreInfo && (
+                                      <div className="mt-3 space-y-3">
+                                        {media.stars.slice(6).map((actor, index) => (
+                                          <div key={index + 6} className="flex items-center gap-3 p-3 bg-gray-800/30 rounded-lg hover:bg-gray-800/50 transition-colors">
+                                            <div className="w-12 h-12 bg-gray-700 rounded-full flex items-center justify-center">
+                                              <User className="w-6 h-6 text-gray-400" />
+                                            </div>
+                                            <div>
+                                              <p className="text-white font-medium">{actor}</p>
+                                              <p className="text-white/60 text-sm">Actor</p>
+                                            </div>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+
+                  {/* Right side - Movie Poster */}
+                  <div className="lg:w-64 flex-shrink-0">
+                    <div className="sticky top-8">
+                      <div className="relative w-full h-80 lg:h-96 rounded-xl overflow-hidden shadow-2xl border border-white/10">
+                        <ImageWithFallback
+                          mediaId={media.id}
+                          alt={cleanMovieTitle(media.title)}
+                          fill={true}
+                          sizes="(max-width: 1024px) 100vw, 256px"
+                          className="object-cover transition-transform duration-300 hover:scale-105"
+                          loading="eager"
+                        />
+
+                        {/* Overlay with movie info */}
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 hover:opacity-100 transition-opacity duration-300">
+                          <div className="absolute bottom-0 left-0 right-0 p-4">
+                            <h3 className="text-white font-bold text-sm mb-1">{cleanMovieTitle(media.title)}</h3>
+                            {media.year && (
+                              <p className="text-white/80 text-xs mb-1">{media.year}</p>
+                            )}
+                            {media.rating && (
+                              <div className="flex items-center gap-1">
+                                <Star className="w-3 h-3 text-yellow-400 fill-current" />
+                                <span className="text-white text-xs font-medium">{media.rating.toFixed(1)}</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 </div>
-              ) : null}
+              </div>
             </div>
           </div>
         </div>

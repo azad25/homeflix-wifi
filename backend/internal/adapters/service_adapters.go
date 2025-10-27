@@ -94,6 +94,10 @@ func (a *TMDBServiceAdapter) DownloadPoster(title string, mediaID uint, posterDi
 	return a.service.DownloadPoster(title, mediaID, posterDir)
 }
 
+func (a *TMDBServiceAdapter) DownloadTVPoster(title string, seriesID uint, posterDir string) (string, error) {
+	return a.service.DownloadTVPoster(title, seriesID, posterDir)
+}
+
 func (a *TMDBServiceAdapter) GetPosterURL(posterPath string, size string) string {
 	return a.service.GetPosterURL(posterPath, size)
 }
@@ -292,6 +296,10 @@ func (a *PosterServiceAdapter) DownloadPoster(title string, mediaID uint) error 
 
 func (a *PosterServiceAdapter) DownloadPosterWithPath(title string, mediaID uint) (string, error) {
 	return a.service.DownloadPosterWithPath(title, mediaID)
+}
+
+func (a *PosterServiceAdapter) DownloadTVPosterWithPath(title string, seriesID uint) (string, error) {
+	return a.service.DownloadTVPosterWithPath(title, seriesID)
 }
 
 func (a *PosterServiceAdapter) GetPosterPath(mediaID uint, title string) string {

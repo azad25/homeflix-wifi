@@ -23,8 +23,10 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		// Hierarchical TV series routes
 		api.GET("/series", handlers.GetAllSeries(mediaService))
 		api.GET("/series/:id", handlers.GetSeriesByID(mediaService))
+		api.PUT("/series/:id/metadata", handlers.UpdateSeriesMetadata(mediaService))
 		api.GET("/series/:id/seasons", handlers.GetSeasonsBySeriesID(mediaService))
 		api.GET("/series/:id/seasons/:season/episodes", handlers.GetEpisodesBySeriesAndSeason(mediaService))
+		api.GET("/series/:id/poster", handlers.GetSeriesPoster(mediaService, posterService))
 
 		// Genre endpoints
 		api.GET("/genres", handlers.GetAllGenres(mediaService))
@@ -95,6 +97,7 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		// Poster download endpoints (TMDB integration)
 		api.POST("/posters/:id", handlers.DownloadPoster(mediaService, posterService))
 		api.POST("/admin/posters/generate/:id", handlers.GeneratePoster(mediaService, posterService))
+		api.POST("/admin/series/:id/poster", handlers.GenerateSeriesPoster(mediaService, posterService))
 		api.POST("/admin/posters/batch", handlers.DownloadPosterBatch(mediaService, posterService))
 		api.POST("/admin/posters/regenerate-missing", handlers.RegeneratePostersForMissing(mediaService, posterService))
 
@@ -180,6 +183,7 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		// TMDB metadata endpoints
 		api.POST("/admin/media/:id/generate-metadata", handlers.GenerateMediaMetadata(mediaService, tmdbService))
 		api.POST("/admin/media/:id/update-with-tmdb", handlers.UpdateMediaWithTMDB(mediaService, tmdbService))
+		api.POST("/admin/series/:id/update-with-tmdb", handlers.UpdateSeriesWithTMDB(mediaService, tmdbService))
 		api.POST("/admin/generate-recommendations", handlers.GenerateRecommendations(geminiService))
 
 		// Main recommendations endpoint (handles category-based routing)
@@ -225,6 +229,7 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 
 		// TMDB auto-update endpoint (alternative endpoint)
 		api.POST("/admin/media/:id/fetch-tmdb", handlers.UpdateMediaWithTMDB(mediaService, tmdbService))
+		api.POST("/admin/series/:id/fetch-tmdb", handlers.UpdateSeriesWithTMDB(mediaService, tmdbService))
 
 		// Media scanner endpoints
 		api.POST("/admin/scan/full", scannerHandlers.StartFullScan)

@@ -10,6 +10,7 @@ import Image from 'next/image';
 import { cachedFetch } from '@/lib/apiCache';
 import { requestThrottler, assetLoader } from '@/lib/requestThrottler';
 import { useImageWithFallback } from '@/lib/imageUtils';
+import { cleanMovieTitle } from '@/lib/titleUtils';
 
 // Add Netflix-style scrollbar hiding and overflow handling
 const netflixScrollStyles = `
@@ -543,7 +544,7 @@ const RecommendationSection: React.FC<RecommendationSectionProps> = ({
                 <div className="absolute inset-0 bg-gray-800 flex items-center justify-center">
                   <div className="text-white text-center">
                     <div className="text-3xl mb-2">🎬</div>
-                    <div className="text-sm font-medium line-clamp-2 px-2">{media.title}</div>
+                    <div className="text-sm font-medium line-clamp-2 px-2">{cleanMovieTitle(media.title)}</div>
                     <div className="text-xs text-gray-400 mt-1">Loading...</div>
                   </div>
                 </div>
@@ -578,13 +579,13 @@ const RecommendationSection: React.FC<RecommendationSectionProps> = ({
               <div className="absolute bottom-0 left-0 right-0 p-4 z-10">
                 {/* Title */}
                 <h3 className="text-white font-bold text-sm line-clamp-2 mb-2 drop-shadow-lg">
-                  {media.title}
+                  {cleanMovieTitle(media.title)}
                 </h3>
 
                 {/* Year and Rating Row */}
                 <div className="flex items-center justify-between mb-3">
                   <span className="text-gray-300 text-sm font-medium drop-shadow">
-                    {new Date().getFullYear()}
+                    {media.year}
                   </span>
                   {media.rating && (
                     <div className="flex items-center gap-1 bg-black/50 px-2 py-1 rounded-md">

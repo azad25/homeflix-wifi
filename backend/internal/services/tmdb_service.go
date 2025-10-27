@@ -32,6 +32,26 @@ type TMDBSearchResponse struct {
 	Results []TMDBMovie `json:"results"`
 }
 
+type TMDBTVSearchResponse struct {
+	Results []TMDBTV `json:"results"`
+}
+
+type TMDBTV struct {
+	ID               int     `json:"id"`
+	Name             string  `json:"name"`
+	OriginalName     string  `json:"original_name"`
+	Overview         string  `json:"overview"`
+	FirstAirDate     string  `json:"first_air_date"`
+	PosterPath       string  `json:"poster_path"`
+	BackdropPath     string  `json:"backdrop_path"`
+	GenreIDs         []int   `json:"genre_ids"`
+	VoteAverage      float64 `json:"vote_average"`
+	VoteCount        int     `json:"vote_count"`
+	Popularity       float64 `json:"popularity"`
+	Adult            bool    `json:"adult"`
+	OriginalLanguage string  `json:"original_language"`
+}
+
 type TMDBMovie struct {
 	ID               int     `json:"id"`
 	Title            string  `json:"title"`
@@ -152,6 +172,22 @@ func (t *TMDBService) SearchMovie(title string, year int) (*TMDBMovie, error) {
 	return t.searchMovieWithParams(title, 0)
 }
 
+func (t *TMDBService) SearchTV(title string, year int) (*TMDBTV, error) {
+	if t.apiKey == "" {
+		return nil, fmt.Errorf("TMDB API key not configured")
+	}
+
+	// Try search with year first if year is provided
+	if year > 0 {
+		if tv, err := t.searchTVWithParams(title, year); err == nil && tv != nil {
+			return tv, nil
+		}
+	}
+
+	// Fallback: search without year constraint
+	return t.searchTVWithParams(title, 0)
+}
+
 func (t *TMDBService) searchMovieWithParams(title string, year int) (*TMDBMovie, error) {
 	searchURL := fmt.Sprintf("%s/search/movie", t.baseURL)
 	params := url.Values{}
@@ -179,6 +215,45 @@ func (t *TMDBService) searchMovieWithParams(title string, year int) (*TMDBMovie,
 	}
 
 	var searchResp TMDBSearchResponse
+	if err := json.NewDecoder(resp.Body).Decode(&searchResp); err != nil {
+		return nil, err
+	}
+
+	if len(searchResp.Results) == 0 {
+		return nil, fmt.Errorf("no results found for: %s", title)
+	}
+
+	// Return the first result (most relevant)
+	return &searchResp.Results[0], nil
+}
+
+func (t *TMDBService) searchTVWithParams(title string, year int) (*TMDBTV, error) {
+	searchURL := fmt.Sprintf("%s/search/tv", t.baseURL)
+	params := url.Values{}
+	params.Add("query", title)
+	if year > 0 {
+		params.Add("first_air_date_year", strconv.Itoa(year))
+	}
+
+	req, err := http.NewRequest("GET", searchURL+"?"+params.Encode(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Authorization", "Bearer "+t.apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := t.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("TMDB API error: %d", resp.StatusCode)
+	}
+
+	var searchResp TMDBTVSearchResponse
 	if err := json.NewDecoder(resp.Body).Decode(&searchResp); err != nil {
 		return nil, err
 	}
@@ -254,7 +329,8 @@ func (t *TMDBService) GenerateMediaMetadataWithOptions(filePath, title string, o
 	
 	// Extract year from title if present
 	year := t.extractYear(originalTitle)
-	cleanTitle := t.cleanTitle(originalTitle)
+	// cleanTitle := t.cleanTitle(originalTitle)
+	cleanTitle := originalTitle
 	
 	// For TMDB search, always remove year from title for better matching
 	// The year will be used as a separate search parameter
@@ -446,7 +522,8 @@ func (t *TMDBService) DownloadPoster(title string, mediaID uint, posterDir strin
 
 	// Extract year from title for better search accuracy
 	year := t.extractYear(title)
-	cleanTitle := t.CleanTitle(title)
+	//cleanTitle := t.CleanTitle(title)
+	cleanTitle := title
 	searchTitle := t.RemoveYearFromTitle(cleanTitle)
 
 	log.Printf("🔍 TMDB: Search params - Title: '%s', Year: %d", searchTitle, year)
@@ -501,6 +578,74 @@ func (t *TMDBService) DownloadPoster(title string, mediaID uint, posterDir strin
 	}
 
 	log.Printf("✅ TMDB: Poster saved to backend folder: %s", backendPosterPath)
+	return backendPosterPath, nil
+}
+
+// DownloadTVPoster downloads a poster from TMDB for the given TV series title and saves it locally
+func (t *TMDBService) DownloadTVPoster(title string, seriesID uint, posterDir string) (string, error) {
+	if t.apiKey == "" {
+		return "", fmt.Errorf("TMDB API key not configured")
+	}
+
+	log.Printf("🎨 TMDB: Searching for TV series poster for '%s'", title)
+
+	// Extract year from title for better search accuracy
+	year := t.extractYear(title)
+	cleanTitle := title
+	searchTitle := t.RemoveYearFromTitle(cleanTitle)
+
+	log.Printf("🔍 TMDB: TV Search params - Title: '%s', Year: %d", searchTitle, year)
+
+	// Search for the TV series
+	tv, err := t.SearchTV(searchTitle, year)
+	if err != nil {
+		// Try fallback search without year
+		tv, err = t.SearchTV(searchTitle, 0)
+		if err != nil {
+			return "", fmt.Errorf("TV series not found in TMDB: %v", err)
+		}
+	}
+
+	log.Printf("✅ TMDB: Found TV series - ID: %d, Name: '%s', Poster: '%s'", 
+		tv.ID, tv.Name, tv.PosterPath)
+
+	// Check if TV series has a poster
+	if tv.PosterPath == "" {
+		return "", fmt.Errorf("no poster available for TV series: %s", tv.Name)
+	}
+
+	// Create poster directories if they don't exist
+	if err := os.MkdirAll(posterDir, 0755); err != nil {
+		return "", fmt.Errorf("failed to create poster directory: %v", err)
+	}
+	if err := os.MkdirAll("./posters", 0755); err != nil {
+		return "", fmt.Errorf("failed to create root poster directory: %v", err)
+	}
+
+	// Generate filename using cleaned title
+	cleanTitleForFile := t.cleanTitleForFilename(cleanTitle)
+	filename := fmt.Sprintf("poster_%s.jpg", cleanTitleForFile)
+	
+	// Try root folder first (preferred location)
+	rootPosterPath := filepath.Join("./posters", filename)
+	backendPosterPath := filepath.Join(posterDir, filename)
+
+	// Construct full poster URL (using w500 for good quality)
+	posterURL := "https://image.tmdb.org/t/p/w500" + tv.PosterPath
+	log.Printf("📥 TMDB: Downloading TV poster from: %s", posterURL)
+
+	// Try to save to root folder first
+	if err := t.savePosterToFile(posterURL, rootPosterPath); err == nil {
+		log.Printf("✅ TMDB: TV poster saved to root folder: %s", rootPosterPath)
+		return rootPosterPath, nil
+	}
+
+	// Fallback to backend folder
+	if err := t.savePosterToFile(posterURL, backendPosterPath); err != nil {
+		return "", fmt.Errorf("failed to save TV poster to any location: %v", err)
+	}
+
+	log.Printf("✅ TMDB: TV poster saved to backend folder: %s", backendPosterPath)
 	return backendPosterPath, nil
 }
 

@@ -117,14 +117,22 @@ type Series struct {
 	
 	Title       string    `json:"title" gorm:"not null"`
 	Description string    `json:"description"`
+	Tagline     string    `json:"tagline"`
 	ReleaseDate time.Time `json:"release_date"`
+	Year        int       `json:"year"`
 	Rating      float32   `json:"rating"`
 	Status      string    `json:"status"` // "ongoing", "completed", "cancelled"
+	Country     string    `json:"country"`
+	Language    string    `json:"language"`
+	Network     string    `json:"network"` // Original network/channel
+	Quality     string    `json:"quality"` // HD, 4K, etc.
+	Certification string  `json:"certification"` // TV-G, TV-PG, TV-14, TV-MA, etc.
 	
 	// Relationships
 	Episodes []Media  `json:"episodes" gorm:"foreignKey:SeriesID"`
 	Seasons  []Season `json:"seasons" gorm:"foreignKey:SeriesID"`
 	Genres   []Genre  `json:"genres" gorm:"many2many:series_genres;"`
+	GenreNames []string `json:"genre_names" gorm:"serializer:json"` // For JSON compatibility
 	
 	// Metadata
 	TotalSeasons int    `json:"total_seasons"`

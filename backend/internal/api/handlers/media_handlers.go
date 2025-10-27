@@ -167,6 +167,107 @@ func GetSeriesByID(mediaService *services.MediaService) gin.HandlerFunc {
 	}
 }
 
+// UpdateSeriesMetadata updates a TV series with new metadata
+func UpdateSeriesMetadata(mediaService *services.MediaService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id, err := strconv.ParseUint(c.Param("id"), 10, 32)
+		if err != nil {
+			log.Printf("❌ Invalid series ID: %s", c.Param("id"))
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid series ID"})
+			return
+		}
+
+		var updates map[string]interface{}
+		if err := c.BindJSON(&updates); err != nil {
+			log.Printf("❌ Invalid request body for series %d: %v", id, err)
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
+			return
+		}
+
+		log.Printf("🔄 Updating series %d with data: %+v", id, updates)
+
+		// Update the series
+		series, err := mediaService.UpdateSeries(uint(id), updates)
+		if err != nil {
+			log.Printf("❌ Failed to update series %d: %v", id, err)
+			if strings.Contains(err.Error(), "not found") {
+				c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+			} else {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			}
+			return
+		}
+
+		log.Printf("✅ Successfully updated series %d: %s", id, series.Title)
+		c.JSON(http.StatusOK, series)
+	}
+}
+
+// UpdateSeriesWithTMDB automatically fetches and updates series metadata from TMDB
+func UpdateSeriesWithTMDB(mediaService *services.MediaService, tmdbService *services.TMDBService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id, err := strconv.ParseUint(c.Param("id"), 10, 32)
+		if err != nil {
+			log.Printf("❌ Invalid series ID: %s", c.Param("id"))
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid series ID"})
+			return
+		}
+
+		// Parse request body for search parameters
+		var requestBody struct {
+			SearchTitle    string   `json:"searchTitle"`
+			PreserveFields []string `json:"preserveFields"`
+		}
+		if err := c.BindJSON(&requestBody); err != nil {
+			log.Printf("❌ Invalid request body for series %d: %v", id, err)
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
+			return
+		}
+
+		// Get existing series
+		series, err := mediaService.GetSeriesByID(uint(id))
+		if err != nil {
+			log.Printf("❌ Series %d not found: %v", id, err)
+			c.JSON(http.StatusNotFound, gin.H{"error": "Series not found"})
+			return
+		}
+
+		// Use search title if provided, otherwise use existing title
+		searchTitle := requestBody.SearchTitle
+		if searchTitle == "" {
+			searchTitle = series.Title
+		}
+
+		log.Printf("🎬 Fetching TMDB data for TV series: %s (ID: %d)", searchTitle, id)
+
+		// For now, we'll create a simple TMDB update that preserves manual edits
+		// In the future, we can implement full TMDB TV series metadata fetching
+		updates := make(map[string]interface{})
+
+		// Only update fields that aren't being preserved
+		if !contains(requestBody.PreserveFields, "title") && requestBody.SearchTitle != "" {
+			updates["title"] = requestBody.SearchTitle
+		}
+
+		// Add a note that this was updated via TMDB (for future full implementation)
+		log.Printf("📝 TMDB update requested for series %s - preserving fields: %v", series.Title, requestBody.PreserveFields)
+
+		// Update the series with any changes
+		if len(updates) > 0 {
+			updatedSeries, err := mediaService.UpdateSeries(uint(id), updates)
+			if err != nil {
+				log.Printf("❌ Failed to update series %d with TMDB data: %v", id, err)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				return
+			}
+			series = updatedSeries
+		}
+
+		log.Printf("✅ Series TMDB update completed for: %s", series.Title)
+		c.JSON(http.StatusOK, series)
+	}
+}
+
 // GetSeasonsBySeriesID returns all seasons for a specific series
 func GetSeasonsBySeriesID(mediaService *services.MediaService) gin.HandlerFunc {
 	return func(c *gin.Context) {

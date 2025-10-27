@@ -88,6 +88,32 @@ func (s *PosterService) DownloadPosterWithPath(title string, mediaID uint) (stri
 	return posterPath, nil
 }
 
+// DownloadTVPosterWithPath downloads and saves a poster for a TV series using TMDB and returns the path
+func (s *PosterService) DownloadTVPosterWithPath(title string, seriesID uint) (string, error) {
+	log.Printf("🎨 Downloading HD TV series poster for: %s (ID: %d)", title, seriesID)
+
+	// Check if poster already exists
+	if existingPath := s.GetPosterPath(seriesID, title); existingPath != "" {
+		log.Printf("✅ TV series poster already exists for %s: %s", title, existingPath)
+		return existingPath, nil
+	}
+
+	// Use TMDB service for TV series poster download
+	if s.tmdbService == nil {
+		return "", fmt.Errorf("TMDB service not available for TV poster download")
+	}
+
+	log.Printf("🔍 Using TMDB service for TV series poster download: %s", title)
+	posterPath, err := s.tmdbService.DownloadTVPoster(title, seriesID, s.posterDir)
+	if err != nil {
+		log.Printf("❌ TMDB TV poster download failed for %s: %v", title, err)
+		return "", fmt.Errorf("failed to download TMDB TV poster for %s: %v", title, err)
+	}
+
+	log.Printf("✅ Successfully downloaded TMDB TV poster for %s: %s", title, posterPath)
+	return posterPath, nil
+}
+
 // downloadPosterFromTMDB downloads poster using TMDB service
 func (s *PosterService) downloadPosterFromTMDB(title string, mediaID uint) error {
 	log.Printf("🎬 Fetching TMDB poster for: %s", title)
