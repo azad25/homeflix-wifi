@@ -90,6 +90,10 @@ func (a *TMDBServiceAdapter) CleanTitle(title string) string {
 	return a.service.CleanTitle(title)
 }
 
+func (a *TMDBServiceAdapter) RemoveYearFromTitle(title string) string {
+	return a.service.RemoveYearFromTitle(title)
+}
+
 func (a *TMDBServiceAdapter) DownloadPoster(title string, mediaID uint, posterDir string) (string, error) {
 	return a.service.DownloadPoster(title, mediaID, posterDir)
 }

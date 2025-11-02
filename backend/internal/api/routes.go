@@ -15,10 +15,18 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		api.GET("/media", handlers.GetAllMedia(mediaService))
 		api.GET("/media/movies", handlers.GetMovies(mediaService))
 		api.GET("/media/tv-shows", handlers.GetTVShows(mediaService))
-		api.GET("/media/:id", handlers.GetMediaByID(mediaService))
-		api.DELETE("/media/:id", handlers.DeleteMedia(mediaService))
 		api.GET("/media/genre/:genre", handlers.GetMediaByGenre(mediaService))
 		api.GET("/media/search", handlers.SearchMedia(mediaService))
+		
+		// Enhanced subtitle and audio track endpoints (must be before /media/:id)
+		api.GET("/media/:id/subtitles", handlers.GetSubtitleTracks(mediaService))
+		api.GET("/media/:id/audio", handlers.GetAudioTracks(mediaService))
+		api.GET("/media/:id/subtitles/:trackId/file", handlers.GetSubtitleFile(mediaService))
+		api.GET("/media/:id/alac-audio", handlers.StreamALACAudio(streamService, mediaService))
+		
+		// General media routes (must be after specific sub-routes)
+		api.GET("/media/:id", handlers.GetMediaByID(mediaService))
+		api.DELETE("/media/:id", handlers.DeleteMedia(mediaService))
 
 		// Hierarchical TV series routes
 		api.GET("/series", handlers.GetAllSeries(mediaService))
@@ -60,8 +68,7 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		// Transcode status endpoint
 		api.GET("/admin/transcode/status", handlers.GetTranscodeStatus(transcodeService))
 
-		// Additional ALAC Audio endpoints (optional)
-		api.GET("/media/:id/alac-audio", handlers.StreamALACAudio(streamService, mediaService))
+		// Additional ALAC Audio endpoints (moved above)
 
 		// Asset serving endpoints - Redis-cached for instant loading with enhanced fallback
 		if redisAssetHandlers != nil {
@@ -137,10 +144,14 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		api.GET("/subtitles/:id", handlers.GetSubtitles(mediaService))
 		api.GET("/subtitles/:id/file", handlers.ServeSubtitleFile(mediaService))
 		
-		// Enhanced subtitle and audio track endpoints
-		api.GET("/media/:id/subtitles", handlers.GetSubtitleTracks(mediaService))
-		api.GET("/media/:id/audio", handlers.GetAudioTracks(mediaService))
-		api.GET("/media/:id/subtitles/:trackId/file", handlers.GetSubtitleFile(mediaService))
+		// Enhanced subtitle and audio track endpoints (moved above)
+		
+		// Subtitle management endpoints
+		api.POST("/admin/media/:id/upload-subtitle", handlers.UploadSubtitle(mediaService))
+		api.DELETE("/admin/media/:id/subtitles/:trackId", handlers.DeleteSubtitle(mediaService))
+		api.POST("/admin/scan/subtitles", scannerHandlers.ScanSubtitles)
+		api.GET("/admin/subtitles/unmatched", handlers.GetUnmatchedSubtitles(mediaService))
+		api.GET("/admin/subtitles/test/:id", handlers.TestSubtitles(mediaService))
 
 		// ALAC Audio endpoints
 		api.GET("/audio/alac/:id", handlers.GetALACAudio(alacService))

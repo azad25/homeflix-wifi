@@ -224,3 +224,17 @@ func SetBatchSize(scanner *scanner.MediaScanner) gin.HandlerFunc {
 		})
 	}
 }
+
+// ScanSubtitles scans the media storage for subtitle files and matches them to media
+func (h *ScannerHandlers) ScanSubtitles(c *gin.Context) {
+	result, err := h.scanner.ScanSubtitles()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Failed to scan subtitles",
+			"details": err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, result)
+}

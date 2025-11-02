@@ -730,6 +730,483 @@ func (s *MediaScanner) RegeneratePreviewClipsForMissingOnly() error {
 	return nil
 }
 
+// ScanSubtitles scans the media storage for subtitle files and matches them to media
+func (s *MediaScanner) ScanSubtitles() (*SubtitleScanResult, error) {
+	log.Printf("📝 Starting subtitle scan for media storage...")
+	
+	result := &SubtitleScanResult{
+		TotalSubtitles:     0,
+		MatchedSubtitles:   0,
+		UnmatchedSubtitles: 0,
+		ProcessedFiles:     []string{},
+		Errors:            []string{},
+	}
+
+	// Get all media from database for matching
+	allMedia, err := s.getAllMediaFromDatabase()
+	if err != nil {
+		return result, fmt.Errorf("failed to retrieve media from database: %v", err)
+	}
+
+	log.Printf("📚 Retrieved %d media items from database for subtitle matching", len(allMedia))
+
+	// Create a map for faster media lookup
+	mediaMap := make(map[string]models.Media)
+	for _, media := range allMedia {
+		// Use directory path as key for matching
+		dir := filepath.Dir(media.FilePath)
+		baseName := strings.TrimSuffix(filepath.Base(media.FilePath), filepath.Ext(media.FilePath))
+		key := filepath.Join(dir, baseName)
+		mediaMap[key] = media
+		
+		// Also add cleaned title variants for better matching
+		if s.GetTMDBService() != nil {
+			cleanedTitle := s.GetTMDBService().CleanTitle(media.Title)
+			if cleanedTitle != "" && cleanedTitle != media.Title {
+				cleanedKey := filepath.Join(dir, cleanedTitle)
+				mediaMap[cleanedKey] = media
+			}
+		}
+	}
+
+	log.Printf("🗂️ Created media map with %d entries for subtitle matching", len(mediaMap))
+
+	// Walk through media directory to find subtitle files
+	err = filepath.Walk(s.GetMediaPath(), func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("Error accessing %s: %v", path, err))
+			return nil
+		}
+
+		if info.IsDir() {
+			return nil
+		}
+
+		// Check if it's a subtitle file
+		if !s.isSubtitleFile(path) {
+			return nil
+		}
+
+		result.TotalSubtitles++
+		result.ProcessedFiles = append(result.ProcessedFiles, path)
+
+		// Try to match subtitle to media
+		matchedMedia := s.findMediaForSubtitle(path, mediaMap)
+		if matchedMedia != nil {
+			// Process the subtitle file
+			err := s.processSubtitleForMedia(path, *matchedMedia)
+			if err != nil {
+				result.Errors = append(result.Errors, fmt.Sprintf("Failed to process subtitle %s: %v", path, err))
+			} else {
+				result.MatchedSubtitles++
+				log.Printf("✅ Matched subtitle %s to media: %s", filepath.Base(path), matchedMedia.Title)
+			}
+		} else {
+			result.UnmatchedSubtitles++
+			log.Printf("⚠️ No matching media found for subtitle: %s", filepath.Base(path))
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return result, fmt.Errorf("error walking media directory: %v", err)
+	}
+
+	log.Printf("📝 Subtitle scan completed: %d total, %d matched, %d unmatched", 
+		result.TotalSubtitles, result.MatchedSubtitles, result.UnmatchedSubtitles)
+
+	return result, nil
+}
+
+// SubtitleScanResult holds the results of a subtitle scan
+type SubtitleScanResult struct {
+	TotalSubtitles     int      `json:"totalSubtitles"`
+	MatchedSubtitles   int      `json:"matchedSubtitles"`
+	UnmatchedSubtitles int      `json:"unmatchedSubtitles"`
+	ProcessedFiles     []string `json:"processedFiles"`
+	Errors            []string `json:"errors"`
+}
+
+// findMediaForSubtitle finds the matching media for a subtitle file using advanced TMDB title cleaning
+func (s *MediaScanner) findMediaForSubtitle(subtitlePath string, mediaMap map[string]models.Media) *models.Media {
+	dir := filepath.Dir(subtitlePath)
+	subtitleName := filepath.Base(subtitlePath)
+	subtitleBase := strings.TrimSuffix(subtitleName, filepath.Ext(subtitleName))
+
+	// Remove language suffix from subtitle name (e.g., "movie.en.srt" -> "movie")
+	subtitleBase = s.removeLanguageSuffix(subtitleBase)
+
+	log.Printf("🔍 Matching subtitle: %s (cleaned: %s)", subtitleName, subtitleBase)
+
+	// Use TMDB service for advanced title cleaning if available
+	var cleanedSubtitleTitle string
+	if s.GetTMDBService() != nil {
+		cleanedSubtitleTitle = s.GetTMDBService().CleanTitle(subtitleBase)
+		// Also remove year for better matching
+		cleanedSubtitleTitle = s.GetTMDBService().RemoveYearFromTitle(cleanedSubtitleTitle)
+	} else {
+		cleanedSubtitleTitle = s.cleanTitle(subtitleBase)
+	}
+
+	log.Printf("🧹 TMDB cleaned subtitle title: '%s'", cleanedSubtitleTitle)
+
+	// Strategy 1: Look for exact match in same directory
+	exactKey := filepath.Join(dir, subtitleBase)
+	if media, exists := mediaMap[exactKey]; exists {
+		log.Printf("✅ Found exact path match for subtitle: %s", media.Title)
+		return &media
+	}
+
+	// Strategy 2: Advanced title matching using TMDB cleaning
+	bestMatch := s.findBestTitleMatch(cleanedSubtitleTitle, dir, mediaMap)
+	if bestMatch != nil {
+		log.Printf("✅ Found TMDB title match: %s -> %s", cleanedSubtitleTitle, bestMatch.Title)
+		return bestMatch
+	}
+
+	// Strategy 3: Fallback to original matching logic for same directory
+	for _, media := range mediaMap {
+		mediaDir := filepath.Dir(media.FilePath)
+		mediaBase := strings.TrimSuffix(filepath.Base(media.FilePath), filepath.Ext(media.FilePath))
+
+		// Check if in same directory
+		if mediaDir == dir {
+			// Check for partial name match
+			if s.isSubtitleMatch(subtitleBase, mediaBase) {
+				log.Printf("✅ Found directory match: %s -> %s", subtitleBase, media.Title)
+				return &media
+			}
+		}
+	}
+
+	// Strategy 4: Look for matches in parent/child directories
+	for _, media := range mediaMap {
+		mediaDir := filepath.Dir(media.FilePath)
+		mediaBase := strings.TrimSuffix(filepath.Base(media.FilePath), filepath.Ext(media.FilePath))
+
+		// Check if directories are related (parent/child)
+		if s.areDirectoriesRelated(dir, mediaDir) {
+			if s.isSubtitleMatch(subtitleBase, mediaBase) {
+				log.Printf("✅ Found related directory match: %s -> %s", subtitleBase, media.Title)
+				return &media
+			}
+		}
+	}
+
+	log.Printf("❌ No match found for subtitle: %s", subtitleName)
+	return nil
+}
+
+// removeLanguageSuffix removes language codes from subtitle filenames
+func (s *MediaScanner) removeLanguageSuffix(filename string) string {
+	// Common language patterns to remove (both middle and end positions)
+	langPatterns := []string{
+		// End patterns
+		`\.en$`, `\.eng$`, `\.english$`,
+		`\.es$`, `\.spa$`, `\.spanish$`,
+		`\.fr$`, `\.fre$`, `\.french$`,
+		`\.de$`, `\.ger$`, `\.german$`,
+		`\.it$`, `\.ita$`, `\.italian$`,
+		`\.pt$`, `\.por$`, `\.portuguese$`,
+		`\.ru$`, `\.rus$`, `\.russian$`,
+		`\.ja$`, `\.jpn$`, `\.japanese$`,
+		`\.ko$`, `\.kor$`, `\.korean$`,
+		`\.zh$`, `\.chi$`, `\.chinese$`,
+		`\.ar$`, `\.ara$`, `\.arabic$`,
+		// Middle patterns (between dots)
+		`\.en\.`, `\.eng\.`, `\.english\.`,
+		`\.es\.`, `\.spa\.`, `\.spanish\.`,
+		`\.fr\.`, `\.fre\.`, `\.french\.`,
+		`\.de\.`, `\.ger\.`, `\.german\.`,
+		`\.it\.`, `\.ita\.`, `\.italian\.`,
+		`\.pt\.`, `\.por\.`, `\.portuguese\.`,
+		`\.ru\.`, `\.rus\.`, `\.russian\.`,
+		`\.ja\.`, `\.jpn\.`, `\.japanese\.`,
+		`\.ko\.`, `\.kor\.`, `\.korean\.`,
+		`\.zh\.`, `\.chi\.`, `\.chinese\.`,
+		`\.ar\.`, `\.ara\.`, `\.arabic\.`,
+		// Common subtitle type indicators
+		`\.cc$`, `\.sdh$`, `\.hi$`, `\.forced$`, `\.full$`,
+		`\.cc\.`, `\.sdh\.`, `\.hi\.`, `\.forced\.`, `\.full\.`,
+	}
+
+	original := filename
+	for _, pattern := range langPatterns {
+		re := regexp.MustCompile(`(?i)` + pattern) // Case insensitive
+		filename = re.ReplaceAllString(filename, "")
+	}
+
+	// Clean up any double dots that might result from removal
+	filename = regexp.MustCompile(`\.+`).ReplaceAllString(filename, ".")
+	filename = strings.Trim(filename, ".")
+
+	log.Printf("🔤 Language suffix removal: '%s' -> '%s'", original, filename)
+	return filename
+}
+
+// isSubtitleMatch checks if a subtitle name matches a media name
+func (s *MediaScanner) isSubtitleMatch(subtitleBase, mediaBase string) bool {
+	// Normalize names for comparison
+	subNorm := strings.ToLower(strings.ReplaceAll(subtitleBase, "_", " "))
+	mediaNorm := strings.ToLower(strings.ReplaceAll(mediaBase, "_", " "))
+
+	// Remove common video quality indicators from media name
+	qualityPatterns := []string{
+		"1080p", "720p", "480p", "4k", "2160p",
+		"bluray", "bdrip", "webrip", "web-dl", "hdtv",
+		"x264", "x265", "h264", "h265", "hevc",
+		"aac", "ac3", "dts", "mp3",
+	}
+
+	for _, pattern := range qualityPatterns {
+		mediaNorm = strings.ReplaceAll(mediaNorm, pattern, "")
+		subNorm = strings.ReplaceAll(subNorm, pattern, "")
+	}
+
+	// Clean up extra spaces
+	mediaNorm = regexp.MustCompile(`\s+`).ReplaceAllString(strings.TrimSpace(mediaNorm), " ")
+	subNorm = regexp.MustCompile(`\s+`).ReplaceAllString(strings.TrimSpace(subNorm), " ")
+
+	// Check for exact match
+	if subNorm == mediaNorm {
+		return true
+	}
+
+	// Check if subtitle name is contained in media name or vice versa
+	if len(subNorm) > 3 && strings.Contains(mediaNorm, subNorm) {
+		return true
+	}
+	if len(mediaNorm) > 3 && strings.Contains(subNorm, mediaNorm) {
+		return true
+	}
+
+	// Check for word-based similarity
+	subWords := strings.Fields(subNorm)
+	mediaWords := strings.Fields(mediaNorm)
+
+	if len(subWords) > 0 && len(mediaWords) > 0 {
+		// Check if first significant word matches
+		if len(subWords[0]) > 3 && len(mediaWords[0]) > 3 {
+			return strings.Contains(subWords[0], mediaWords[0]) || strings.Contains(mediaWords[0], subWords[0])
+		}
+	}
+
+	return false
+}
+
+// findBestTitleMatch finds the best matching media using TMDB title cleaning
+func (s *MediaScanner) findBestTitleMatch(cleanedSubtitleTitle, subtitleDir string, mediaMap map[string]models.Media) *models.Media {
+	if cleanedSubtitleTitle == "" || len(cleanedSubtitleTitle) < 3 {
+		return nil
+	}
+
+	var bestMatch *models.Media
+	var bestScore float64 = 0
+	
+	// Normalize subtitle title for comparison
+	normalizedSubTitle := strings.ToLower(strings.TrimSpace(cleanedSubtitleTitle))
+
+	for _, media := range mediaMap {
+		// Clean the media title using TMDB service
+		var cleanedMediaTitle string
+		if s.GetTMDBService() != nil {
+			cleanedMediaTitle = s.GetTMDBService().CleanTitle(media.Title)
+			cleanedMediaTitle = s.GetTMDBService().RemoveYearFromTitle(cleanedMediaTitle)
+		} else {
+			cleanedMediaTitle = s.cleanTitle(media.Title)
+		}
+
+		if cleanedMediaTitle == "" || len(cleanedMediaTitle) < 3 {
+			continue
+		}
+
+		normalizedMediaTitle := strings.ToLower(strings.TrimSpace(cleanedMediaTitle))
+		
+		// Calculate similarity score
+		score := s.calculateTitleSimilarity(normalizedSubTitle, normalizedMediaTitle)
+		
+		// Boost score if in same directory
+		mediaDir := filepath.Dir(media.FilePath)
+		if mediaDir == subtitleDir {
+			score += 0.3 // 30% boost for same directory
+		} else if s.areDirectoriesRelated(subtitleDir, mediaDir) {
+			score += 0.1 // 10% boost for related directories
+		}
+
+		// Update best match if this score is better
+		if score > bestScore && score >= 0.7 { // Minimum 70% similarity required
+			bestScore = score
+			bestMatch = &media
+		}
+
+		log.Printf("🎯 Title similarity: '%s' vs '%s' = %.2f", normalizedSubTitle, normalizedMediaTitle, score)
+	}
+
+	if bestMatch != nil {
+		log.Printf("🏆 Best match found with score %.2f: %s", bestScore, bestMatch.Title)
+	}
+
+	return bestMatch
+}
+
+// calculateTitleSimilarity calculates similarity between two normalized titles
+func (s *MediaScanner) calculateTitleSimilarity(title1, title2 string) float64 {
+	if title1 == title2 {
+		return 1.0 // Perfect match
+	}
+
+	// Check for substring matches
+	if strings.Contains(title1, title2) || strings.Contains(title2, title1) {
+		shorter := title1
+		longer := title2
+		if len(title2) < len(title1) {
+			shorter = title2
+			longer = title1
+		}
+		return float64(len(shorter)) / float64(len(longer))
+	}
+
+	// Word-based similarity
+	words1 := strings.Fields(title1)
+	words2 := strings.Fields(title2)
+
+	if len(words1) == 0 || len(words2) == 0 {
+		return 0
+	}
+
+	// Count matching words
+	matchingWords := 0
+	totalWords := len(words1)
+
+	for _, word1 := range words1 {
+		if len(word1) < 3 { // Skip very short words
+			continue
+		}
+		for _, word2 := range words2 {
+			if len(word2) < 3 {
+				continue
+			}
+			// Check for exact match or substring match for longer words
+			if word1 == word2 || (len(word1) > 4 && strings.Contains(word1, word2)) || (len(word2) > 4 && strings.Contains(word2, word1)) {
+				matchingWords++
+				break
+			}
+		}
+	}
+
+	if totalWords == 0 {
+		return 0
+	}
+
+	return float64(matchingWords) / float64(totalWords)
+}
+
+// areDirectoriesRelated checks if two directories are parent/child related
+func (s *MediaScanner) areDirectoriesRelated(dir1, dir2 string) bool {
+	// Normalize paths
+	dir1 = filepath.Clean(dir1)
+	dir2 = filepath.Clean(dir2)
+
+	// Check if one is parent of the other
+	return strings.HasPrefix(dir1, dir2) || strings.HasPrefix(dir2, dir1)
+}
+
+// processSubtitleForMedia processes a subtitle file for a specific media
+func (s *MediaScanner) processSubtitleForMedia(subtitlePath string, media models.Media) error {
+	// Extract language from filename
+	language := s.extractLanguageFromSubtitle(subtitlePath)
+	
+	// Get subtitle format
+	format := strings.TrimPrefix(filepath.Ext(subtitlePath), ".")
+
+	// Check if this subtitle track already exists
+	existingTracks, err := s.GetMediaService().GetSubtitleTracks(media.ID)
+	if err != nil {
+		log.Printf("⚠️ Failed to get existing subtitle tracks: %v", err)
+	}
+
+	// Check for duplicates
+	for _, track := range existingTracks {
+		if track.TrackType == "external" && track.FilePath == subtitlePath {
+			log.Printf("⚠️ Subtitle track already exists: %s", subtitlePath)
+			return nil
+		}
+	}
+
+	// Create subtitle track entry
+	subtitleTrack := &models.SubtitleTrack{
+		MediaID:     media.ID,
+		StreamIndex: -1, // External subtitles don't have stream index
+		Language:    language,
+		Title:       fmt.Sprintf("%s (External)", language),
+		CodecName:   format,
+		FilePath:    subtitlePath,
+		Format:      format,
+		TrackType:   "external",
+		IsDefault:   false,
+		IsForced:    false,
+		IsHearing:   strings.Contains(strings.ToLower(subtitlePath), "cc") || strings.Contains(strings.ToLower(subtitlePath), "sdh"),
+	}
+
+	err = s.GetMediaService().CreateSubtitleTrack(subtitleTrack)
+	if err != nil {
+		return fmt.Errorf("failed to create subtitle track: %v", err)
+	}
+
+	// Also create legacy subtitle entry for backward compatibility
+	subtitle := &models.Subtitle{
+		MediaID:  media.ID,
+		Language: language,
+		FilePath: subtitlePath,
+		Format:   format,
+	}
+
+	err = s.GetMediaService().CreateSubtitle(subtitle)
+	if err != nil {
+		log.Printf("⚠️ Failed to create legacy subtitle entry: %v", err)
+		// Don't return error as the main subtitle track was created successfully
+	}
+
+	return nil
+}
+
+// ProcessSubtitleFile processes a single subtitle file (implements SubtitleProcessor interface)
+func (s *MediaScanner) ProcessSubtitleFile(path string, info os.FileInfo) error {
+	log.Printf("📝 Processing subtitle file: %s", filepath.Base(path))
+	
+	// Get all media from database for matching
+	allMedia, err := s.getAllMediaFromDatabase()
+	if err != nil {
+		return fmt.Errorf("failed to retrieve media from database: %v", err)
+	}
+
+	// Create a map for faster media lookup
+	mediaMap := make(map[string]models.Media)
+	for _, media := range allMedia {
+		// Use directory path as key for matching
+		dir := filepath.Dir(media.FilePath)
+		baseName := strings.TrimSuffix(filepath.Base(media.FilePath), filepath.Ext(media.FilePath))
+		key := filepath.Join(dir, baseName)
+		mediaMap[key] = media
+	}
+
+	// Try to match subtitle to media
+	matchedMedia := s.findMediaForSubtitle(path, mediaMap)
+	if matchedMedia != nil {
+		// Process the subtitle file
+		err := s.processSubtitleForMedia(path, *matchedMedia)
+		if err != nil {
+			return fmt.Errorf("failed to process subtitle %s: %v", path, err)
+		}
+		log.Printf("✅ Successfully matched and processed subtitle %s for media: %s", filepath.Base(path), matchedMedia.Title)
+		return nil
+	}
+
+	log.Printf("⚠️ No matching media found for subtitle: %s", filepath.Base(path))
+	return nil
+}
+
 func (s *MediaScanner) ScanMediaLibrary() error {
 	// Use the new batch-optimized scanning by default
 	return s.BatchScanMediaLibrary()
@@ -2901,39 +3378,7 @@ func (s *MediaScanner) normalizeTitleForComparison(title string) string {
 	return normalized
 }
 
-// calculateTitleSimilarity calculates similarity between two titles (0.0 to 1.0)
-func (s *MediaScanner) calculateTitleSimilarity(title1, title2 string) float64 {
-	if title1 == title2 {
-		return 1.0
-	}
 
-	// Simple word-based similarity
-	words1 := strings.Fields(title1)
-	words2 := strings.Fields(title2)
-
-	if len(words1) == 0 || len(words2) == 0 {
-		return 0.0
-	}
-
-	// Count common words
-	commonWords := 0
-	for _, word1 := range words1 {
-		for _, word2 := range words2 {
-			if word1 == word2 && len(word1) > 2 { // Only count meaningful words
-				commonWords++
-				break // Only add each word once
-			}
-		}
-	}
-
-	// Calculate similarity as ratio of common words to total unique words
-	totalWords := len(words1) + len(words2) - commonWords
-	if totalWords == 0 {
-		return 1.0
-	}
-
-	return float64(commonWords*2) / float64(totalWords)
-}
 
 // findMediaByTitle searches for media by title
 func (s *MediaScanner) findMediaByTitle(title string) (*models.Media, error) {

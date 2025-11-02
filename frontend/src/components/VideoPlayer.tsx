@@ -120,12 +120,10 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
       const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
       if (audioContext.state === 'suspended') {
         await audioContext.resume();
-        console.log('✅ Chrome audio context activated');
         return true;
       }
       return true;
     } catch (error) {
-      console.warn('⚠️ Audio context activation failed:', error);
       return false;
     }
   }, []);
@@ -325,14 +323,55 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
     const loadTracks = async () => {
       try {
         // Load subtitle tracks (both internal and external)
-        console.log('🎬 Loading subtitle tracks for media:', media.id);
         const subtitleResponse = await fetch(`${getApiUrl()}/api/media/${media.id}/subtitles`);
         if (subtitleResponse.ok) {
           const subtitleTracks = await subtitleResponse.json();
-          console.log('🎬 Received subtitle tracks:', subtitleTracks);
 
           if (subtitleTracks && subtitleTracks.length > 0) {
-            const subs = subtitleTracks.map((track: any) => ({
+            // Filter out invalid subtitle tracks
+            const validTracks = subtitleTracks.filter((track: any) => {
+              // Skip tracks with invalid or empty languages
+              if (!track.language || track.language.trim() === '') return false;
+
+              // Skip tracks with generic/invalid codec names that aren't actual subtitles
+              const invalidCodecs = ['hdmv_pgs_subtitle', 'dvd_subtitle', 'dvb_subtitle'];
+              if (track.codec_name && invalidCodecs.includes(track.codec_name.toLowerCase())) {
+                // Only keep PGS subtitles if they have a proper language (not 'unknown')
+                if (track.codec_name === 'hdmv_pgs_subtitle' &&
+                  (!track.language || track.language.toLowerCase() === 'unknown')) {
+                  return false;
+                }
+              }
+
+              // Skip tracks with 'unknown' language unless they're external (uploaded)
+              if (track.language.toLowerCase() === 'unknown' && track.track_type !== 'external') {
+                return false;
+              }
+
+              // Skip duplicate tracks (same language and type)
+              const duplicates = subtitleTracks.filter((t: any) =>
+                t.language === track.language &&
+                t.track_type === track.track_type &&
+                t.id !== track.id
+              );
+
+              // If there are duplicates, only keep the first one or the one with a file path
+              if (duplicates.length > 0) {
+                const hasFilePath = track.file_path && track.file_path.trim() !== '';
+                const isFirstOfType = !subtitleTracks.find((t: any) =>
+                  t.language === track.language &&
+                  t.track_type === track.track_type &&
+                  t.id < track.id
+                );
+
+                // Keep if it has a file path or is the first of its type
+                return hasFilePath || isFirstOfType;
+              }
+
+              return true;
+            });
+
+            const subs = validTracks.map((track: any) => ({
               id: track.id,
               language: track.language,
               title: track.title || track.language,
@@ -343,37 +382,25 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
               url: `${getApiUrl()}/api/media/${media.id}/subtitles/${track.id}/file`
             }));
 
-            console.log('🎬 Processed subtitle tracks:', subs);
             setAvailableSubtitles(subs);
-
-            // Log subtitle detection summary
-            const internal = subs.filter((s: any) => s.trackType === 'internal');
-            const external = subs.filter((s: any) => s.trackType === 'external');
-            console.log(`🎬 Subtitle Detection Summary:
-              - Total tracks: ${subs.length}
-              - Internal tracks: ${internal.length} (${internal.map((s: any) => s.language).join(', ')})
-              - External tracks: ${external.length} (${external.map((s: any) => s.language).join(', ')})
-              - Languages: ${[...new Set(subs.map((s: any) => s.language))].join(', ')}
-              - Default tracks: ${subs.filter((s: any) => s.isDefault).length}
-              - Forced tracks: ${subs.filter((s: any) => s.isForced).length}`);
 
             // Set default subtitle track (prefer default, then forced, then first available)
             const defaultTrack = subs.find((sub: any) => sub.isDefault) ||
               subs.find((sub: any) => sub.isForced) ||
               subs[0];
             if (defaultTrack) {
-              console.log('🎬 Setting default subtitle track:', defaultTrack);
               setCurrentSubtitleTrack(defaultTrack.id);
               setCurrentSubtitle(defaultTrack.url);
+              // Enable subtitles by default when tracks are available
+              setSubtitlesEnabled(true);
+              // Load the subtitle file immediately
+              loadExternalSubtitle(defaultTrack.url);
             }
           } else {
-            console.log('🎬 No subtitle tracks found');
             setAvailableSubtitles([]);
             setCurrentSubtitle(null);
             setCurrentSubtitleTrack(null);
           }
-        } else {
-          console.warn('🎬 Failed to load subtitle tracks:', subtitleResponse.status);
         }
 
         // Load audio tracks
@@ -389,7 +416,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
           }
         }
       } catch (error) {
-        console.error('Failed to load tracks:', error);
         setAvailableSubtitles([]);
         setCurrentSubtitle(null);
         setCurrentSubtitleTrack(null);
@@ -404,7 +430,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
   // Load subtitle file and parse it (works for both internal and external)
   const loadExternalSubtitle = useCallback(async (url: string) => {
     try {
-      console.log('🎬 Loading subtitle from:', url);
       const response = await fetch(url);
 
       if (!response.ok) {
@@ -412,7 +437,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
       }
 
       const subtitleText = await response.text();
-      console.log('🎬 Loaded subtitle text length:', subtitleText.length);
 
       // Detect subtitle format and parse accordingly
       let cues: Array<{ start: number, end: number, text: string }> = [];
@@ -423,57 +447,112 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
         cues = parseSRT(subtitleText);
       }
 
-      console.log('🎬 Parsed', cues.length, 'subtitle cues');
-
       // Create custom subtitle overlay instead of using video text tracks
       const video = videoRef.current;
       if (video && cues.length > 0) {
-        // Store cues for manual subtitle display
+        // Store cues globally for subtitle display
+        (window as any).currentSubtitleCues = cues;
+        
+        // Enhanced subtitle display function with better timing accuracy
         const updateSubtitleText = () => {
-          const currentTime = video.currentTime;
-          const activeCue = cues.find(cue => currentTime >= cue.start && currentTime <= cue.end);
-
-          if (activeCue && subtitlesEnabled) {
-            setCurrentSubtitleText(activeCue.text || '');
-          } else {
+          if (!subtitlesEnabled || !cues.length) {
             setCurrentSubtitleText('');
+            return;
+          }
+          
+          const currentTime = video.currentTime;
+          
+          // Find active cue with more precise timing
+          const activeCue = cues.find(cue => 
+            currentTime >= (cue.start - 0.1) && currentTime <= (cue.end + 0.1)
+          );
+
+          if (activeCue) {
+            if (activeCue.text !== (window as any).lastSubtitleText) {
+              setCurrentSubtitleText(activeCue.text);
+              (window as any).lastSubtitleText = activeCue.text;
+            }
+          } else {
+            if ((window as any).lastSubtitleText) {
+              setCurrentSubtitleText('');
+              (window as any).lastSubtitleText = '';
+            }
           }
         };
 
-        // Update subtitles on time update
-        video.addEventListener('timeupdate', updateSubtitleText);
-
-        console.log('🎬 Subtitle track created with', cues.length, 'cues (using custom overlay)');
+        // Update subtitles on multiple events for better accuracy
+        const events = ['timeupdate', 'seeked', 'seeking', 'play', 'pause'];
+        events.forEach(event => {
+          video.addEventListener(event, updateSubtitleText);
+        });
+        
+        // Initial subtitle check
+        updateSubtitleText();
+        
+        // Cleanup function to remove event listeners
+        const cleanup = () => {
+          events.forEach(event => {
+            video.removeEventListener(event, updateSubtitleText);
+          });
+        };
+        
+        // Store cleanup function for later use
+        (video as any).subtitleCleanup = cleanup;
       }
     } catch (error) {
-      console.error('🎬 Failed to load subtitle:', error);
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       setCurrentSubtitleText(`Error loading subtitles: ${errorMessage}`);
       setTimeout(() => setCurrentSubtitleText(''), 3000);
     }
   }, [subtitlesEnabled]);
 
-  // Simple SRT parser
+  // Enhanced SRT parser with better error handling
   const parseSRT = (srtText: string) => {
     const cues = [];
-    const blocks = srtText.trim().split('\n\n');
+    
+    // Normalize line endings and clean up the text
+    const normalizedText = srtText
+      .replace(/\r\n/g, '\n')
+      .replace(/\r/g, '\n')
+      .trim();
+    
+    // Split by double newlines to get subtitle blocks
+    const blocks = normalizedText.split(/\n\s*\n/);
 
-    for (const block of blocks) {
-      const lines = block.split('\n');
-      if (lines.length >= 3) {
-        const timeMatch = lines[1].match(/(\d{2}):(\d{2}):(\d{2}),(\d{3}) --> (\d{2}):(\d{2}):(\d{2}),(\d{3})/);
+    for (let blockIndex = 0; blockIndex < blocks.length; blockIndex++) {
+      const block = blocks[blockIndex].trim();
+      if (!block) continue;
+      
+      const lines = block.split('\n').map(line => line.trim()).filter(line => line);
+      
+      if (lines.length < 2) continue;
+      
+      // Find the timestamp line (could be line 1 or 2 depending on numbering)
+      let timeLineIndex = -1;
+      let timeMatch = null;
+      
+      for (let i = 0; i < Math.min(lines.length, 3); i++) {
+        timeMatch = lines[i].match(/(\d{1,2}):(\d{2}):(\d{2})[,.](\d{3})\s*-->\s*(\d{1,2}):(\d{2}):(\d{2})[,.](\d{3})/);
         if (timeMatch) {
-          const startTime = parseInt(timeMatch[1]) * 3600 + parseInt(timeMatch[2]) * 60 + parseInt(timeMatch[3]) + parseInt(timeMatch[4]) / 1000;
-          const endTime = parseInt(timeMatch[5]) * 3600 + parseInt(timeMatch[6]) * 60 + parseInt(timeMatch[7]) + parseInt(timeMatch[8]) / 1000;
-          const text = lines.slice(2).join('\n').replace(/<[^>]*>/g, ''); // Remove HTML tags
-
-          if (text.trim()) {
-            cues.push({ start: startTime, end: endTime, text: text.trim() });
-          }
+          timeLineIndex = i;
+          break;
+        }
+      }
+      
+      if (timeMatch && timeLineIndex !== -1) {
+        const startTime = parseInt(timeMatch[1]) * 3600 + parseInt(timeMatch[2]) * 60 + parseInt(timeMatch[3]) + parseInt(timeMatch[4]) / 1000;
+        const endTime = parseInt(timeMatch[5]) * 3600 + parseInt(timeMatch[6]) * 60 + parseInt(timeMatch[7]) + parseInt(timeMatch[8]) / 1000;
+        
+        // Get text lines after the timestamp
+        const textLines = lines.slice(timeLineIndex + 1);
+        const text = textLines.join('\n').replace(/<[^>]*>/g, '').trim(); // Remove HTML tags
+        
+        if (text && startTime < endTime) {
+          cues.push({ start: startTime, end: endTime, text });
         }
       }
     }
-
+    
     return cues;
   };
 
@@ -520,7 +599,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
 
   // Handle subtitle track changes
   const handleSubtitleTrackChange = useCallback((trackId: number | null) => {
-    console.log('🎬 Subtitle track change requested:', trackId);
     setCurrentSubtitleTrack(trackId);
 
     // Always clear current subtitle text first
@@ -528,6 +606,12 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
 
     const video = videoRef.current;
     if (video) {
+      // Clean up previous subtitle event listeners
+      if ((video as any).subtitleCleanup) {
+        (video as any).subtitleCleanup();
+        (video as any).subtitleCleanup = null;
+      }
+      
       // Hide ALL text tracks to prevent double subtitles
       for (let i = 0; i < video.textTracks.length; i++) {
         video.textTracks[i].mode = 'hidden';
@@ -536,31 +620,28 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
       // Remove all track elements from DOM
       const existingTrackElements = video.querySelectorAll('track');
       existingTrackElements.forEach(track => track.remove());
+      
+      // Clear global subtitle state
+      (window as any).currentSubtitleCues = [];
+      (window as any).lastSubtitleText = '';
     }
 
     if (trackId === null) {
       // Turn off subtitles
-      console.log('🎬 Turning off subtitles');
       setSubtitlesEnabled(false);
       setCurrentSubtitle(null);
     } else {
       // Find the selected track
       const selectedTrack = availableSubtitles.find((sub: any) => sub.id === trackId);
-      console.log('🎬 Selected track:', selectedTrack);
 
       if (selectedTrack) {
         setSubtitlesEnabled(true);
 
         // Use unified subtitle loading for both internal and external
         if (selectedTrack.url) {
-          console.log(`🎬 Loading ${selectedTrack.trackType} subtitle:`, selectedTrack.url);
           setCurrentSubtitle(selectedTrack.url);
           loadExternalSubtitle(selectedTrack.url);
-        } else {
-          console.warn('🎬 No URL available for subtitle track:', selectedTrack);
         }
-      } else {
-        console.warn('🎬 Selected track not found:', trackId);
       }
     }
   }, [availableSubtitles, loadExternalSubtitle]);
@@ -571,7 +652,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
 
     // Note: Audio track switching would require server-side support
     // For now, we just update the state
-    console.log('Audio track changed to:', trackId);
   }, []);
 
   // Handle playback rate changes
@@ -790,18 +870,13 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
         const video = videoRef.current;
         if (video && !video.paused) {
           video.pause();
-          console.log('✅ Paused local video due to cast connection');
         }
       }
 
       // YouTube-like behavior: Show cast status in UI
+      // YouTube-like behavior: Show cast status in UI
       if (castState.playerState) {
-        console.log('🎬 Cast status:', {
-          playerState: castState.playerState,
-          currentTime: castState.currentTime,
-          duration: castState.duration,
-          deviceName: castState.deviceName
-        });
+        // Cast status available
       }
 
     } else if (wasConnected) {
@@ -815,12 +890,9 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
 
         // Resume playback if it was playing on cast device
         if (castState.playerState === 'PLAYING') {
-          video.play().catch(console.error);
-          console.log('✅ Resumed local video after cast disconnection');
+          video.play().catch(() => {});
         }
       }
-
-      console.log('🎬 Cast disconnected, resumed local playback');
     }
   }, [castState, isCasting]);
 
@@ -843,12 +915,10 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
       // Use most basic stream URL for maximum compatibility with BRAVIA TV
       const streamUrl = `${getApiUrl()}/api/stream/${media.id}`;
       const thumbnailUrl = `${getApiUrl()}/api/thumbnails/${media.id}`;
-      
-      console.log('🎬 Testing stream URL accessibility:', streamUrl);
 
       // Try different content types for better BRAVIA compatibility
       const contentType = media.file_path?.toLowerCase().endsWith('.mkv') ? 'video/x-matroska' : 'video/mp4';
-      
+
       const castMedia: CastMedia = {
         contentId: streamUrl,
         contentType: contentType,
@@ -866,27 +936,17 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
           }]
         }
       };
-      
-      console.log('🎬 Using content type:', contentType, 'for file:', media.file_path);
-
-      console.log('🎬 Loading media to cast device:', castMedia);
-      console.log('🎬 Current playback time:', currentPlaybackTime, 'Was playing:', wasPlaying);
 
       // Test stream URL accessibility before casting
       fetch(streamUrl, { method: 'HEAD' })
         .then(response => {
-          console.log('🎬 Stream URL test:', response.status, response.headers.get('content-type'));
           if (response.ok) {
-            console.log('✅ Stream URL is accessible, proceeding with cast');
             // Load media without start time first (better compatibility)
             loadCastMedia(castMedia);
             setIsCasting(true);
-          } else {
-            console.error('❌ Stream URL not accessible:', response.status);
           }
         })
         .catch(error => {
-          console.error('❌ Stream URL test failed:', error);
           // Try casting anyway
           loadCastMedia(castMedia);
           setIsCasting(true);
@@ -895,20 +955,17 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
       // Pause local video immediately when casting starts
       if (video && !video.paused) {
         video.pause();
-        console.log('✅ Paused local video for casting');
       }
 
       // YouTube-like behavior: Wait for media to load, then play and seek
       setTimeout(() => {
         if (castState.isConnected) {
-          console.log('🎬 Attempting to start cast playback...');
           playCast();
-          
+
           // Seek to position after playback starts
           if (currentPlaybackTime > 10) {
             setTimeout(() => {
               if (castState.isConnected) {
-                console.log('🎬 Seeking to position:', currentPlaybackTime);
                 seekCast(currentPlaybackTime);
               }
             }, 2000);
@@ -1048,12 +1105,9 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
   const togglePlay = useCallback(async () => {
     try {
       if (isCasting && castState.isConnected) {
-        console.log('🎬 Cast toggle play - Current state:', castState.playerState, 'isPlaying:', isPlaying);
         if (isPlaying) {
-          console.log('🎬 Pausing cast...');
           pauseCast();
         } else {
-          console.log('🎬 Playing cast...');
           playCast();
         }
         return;
@@ -1075,20 +1129,38 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
           const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
           if (audioContext.state === 'suspended') {
             await audioContext.resume();
-            console.log('✅ Chrome audio context resumed on play');
           }
         } catch (error) {
-          console.warn('⚠️ Audio context resume failed:', error);
+          // Audio context resume failed
         }
 
         // Resume playback with audio enabled
         video.play().catch(() => {
-          console.warn('⚠️ Failed to resume video');
+          // Failed to resume video
         });
+        
+        // Show controls briefly when starting playback, then hide after delay
+        setShowControls(true);
+        if (controlsTimeoutRef.current) {
+          clearTimeout(controlsTimeoutRef.current);
+        }
+        controlsTimeoutRef.current = setTimeout(() => {
+          setShowControls(false);
+          const container = containerRef.current;
+          if (container) {
+            container.style.cursor = 'none';
+          }
+        }, 3000);
       } else {
         // Save progress before pausing
         await saveCurrentProgress();
         video.pause();
+        // Always show controls when paused
+        setShowControls(true);
+        const container = containerRef.current;
+        if (container) {
+          container.style.cursor = 'default';
+        }
       }
     } catch (error) {
       // Prevent error from causing page reload
@@ -1153,8 +1225,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
       newTime = Math.min(newTime, targetDuration);
     }
 
-    console.log(`⏩ Seeking forward ${seconds}s to ${newTime}s`);
-
     // INSTANT SEEKING: Set buffering state briefly for UI feedback
     setIsBuffering(true);
 
@@ -1170,7 +1240,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
         }, 200); // Reasonable timeout for network latency
       });
     } catch (error) {
-      console.error(`❌ Seek forward error: ${error}`);
       setIsBuffering(false);
     }
   };
@@ -1192,8 +1261,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
     // Always allow backward seeking, just ensure we don't go below 0
     const newTime = Math.max(video.currentTime - seconds, 0);
 
-    console.log(`⏪ Seeking backward ${seconds}s to ${newTime}s`);
-
     // INSTANT SEEKING: Set buffering state briefly for UI feedback
     setIsBuffering(true);
 
@@ -1209,7 +1276,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
         }, 200); // Reasonable timeout for network latency
       });
     } catch (error) {
-      console.error(`❌ Seek backward error: ${error}`);
       setIsBuffering(false);
     }
   };
@@ -1308,12 +1374,10 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
       else {
         // Use a reasonable estimate based on current time or default
         targetDuration = Math.max(video.currentTime * 3, 3600); // 3x current time or 1 hour minimum
-        console.log(`⚠️ No duration available, using estimated duration: ${targetDuration}s`);
       }
     }
 
     const newTime = Math.max(0, Math.min(percentage * targetDuration, targetDuration));
-    console.log(`🎯 Seeking to ${newTime}s (${(percentage * 100).toFixed(1)}% of ${targetDuration}s)`);
 
     // ULTRA-FAST SEEKING: Optimized for sub-millisecond backend response
     setIsBuffering(true);
@@ -1326,9 +1390,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
           try {
             video.currentTime = newTime;
             setCurrentTime(newTime);
-            console.log(`✅ Seek completed to ${newTime}s`);
           } catch (seekError) {
-            console.warn(`⚠️ Seek failed: ${seekError}`);
+            // Seek failed
           }
 
           // Listen for seek completion with ultra-fast timeout
@@ -1351,7 +1414,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
           }, 500); // Increased slightly to allow for network latency
         });
       } catch (error) {
-        console.error(`❌ Seek error: ${error}`);
         setIsBuffering(false);
       }
     };
@@ -1395,7 +1457,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
           // Allow dragging with estimated duration for all files
           else {
             currentDuration = Math.max(video.currentTime * 3, 3600); // 3x current time or 1 hour minimum
-            console.log(`⚠️ Using estimated duration for dragging: ${currentDuration}s`);
           }
         } else {
           return;
@@ -1477,20 +1538,41 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
     }
   }, [isOpen, activateAudioContext, volume]);
 
-  // Handle mouse movement to show/hide controls
+  // Handle mouse movement to show/hide controls and cursor
   useEffect(() => {
     const handleMouseMove = () => {
       setShowControls(true);
+      
+      // Show cursor
+      const container = containerRef.current;
+      if (container) {
+        container.style.cursor = 'default';
+      }
 
       if (controlsTimeoutRef.current) {
         clearTimeout(controlsTimeoutRef.current);
       }
 
       controlsTimeoutRef.current = setTimeout(() => {
-        if (isPlaying) {
+        if (isPlaying && !isDragging) {
           setShowControls(false);
+          // Hide cursor when controls hide
+          if (container) {
+            container.style.cursor = 'none';
+          }
         }
       }, 3000);
+    };
+
+    const handleMouseLeave = () => {
+      // Immediately hide controls and cursor when mouse leaves the video area
+      if (isPlaying && !isDragging) {
+        setShowControls(false);
+        const container = containerRef.current;
+        if (container) {
+          container.style.cursor = 'none';
+        }
+      }
     };
 
     const container = containerRef.current;
@@ -1498,22 +1580,32 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
     // Use document for fullscreen mode, container for normal mode
     const targetElement = document.fullscreenElement ? document : container;
 
-    if (targetElement) {
+    if (targetElement && container) {
       targetElement.addEventListener('mousemove', handleMouseMove);
+      container.addEventListener('mouseleave', handleMouseLeave);
 
       // Also handle touch events for mobile
       if (isMobile) {
         targetElement.addEventListener('touchstart', handleMouseMove);
       }
 
+      // Show controls and cursor initially
+      setShowControls(true);
+      container.style.cursor = 'default';
+
       return () => {
         targetElement.removeEventListener('mousemove', handleMouseMove);
+        container.removeEventListener('mouseleave', handleMouseLeave);
         if (isMobile) {
           targetElement.removeEventListener('touchstart', handleMouseMove);
         }
+        // Reset cursor when component unmounts
+        if (container) {
+          container.style.cursor = 'default';
+        }
       };
     }
-  }, [isPlaying, isMobile]);
+  }, [isPlaying, isMobile, isDragging]);
 
   const handleClose = useCallback(async () => {
     const video = videoRef.current;
@@ -1574,12 +1666,11 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
 
       // Handle load errors
       track.addEventListener('error', (e) => {
-        console.error('Failed to load subtitle track:', e);
         setCurrentSubtitleText('');
       });
 
     } catch (error) {
-      console.error('Failed to load subtitle track:', error);
+      // Failed to load subtitle track
     }
   };
 
@@ -1592,7 +1683,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
       const trackToUse = currentSubtitleTrack || (availableSubtitles.length > 0 ? availableSubtitles[0].id : null);
       if (trackToUse) {
         handleSubtitleTrackChange(trackToUse);
-        console.log('🎬 Enabled subtitles, using track:', trackToUse);
       }
     } else {
       // Disable all subtitles
@@ -1604,7 +1694,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
         }
       }
       setCurrentSubtitleText('');
-      console.log('🎬 Disabled all subtitles');
     }
   };
 
@@ -1708,6 +1797,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
           exit={{ opacity: 0 }}
           className="fixed inset-0 z-50 bg-black"
           ref={containerRef}
+          style={{ cursor: showControls ? 'default' : 'none' }}
         >
           {/* Click overlay for play/pause functionality - only covers video area, not controls */}
           <div
@@ -1736,27 +1826,24 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                   if (video.paused) {
                     // Resume playback with audio enabled
                     await video.play();
-                    console.log('✅ Chrome audio: Video resumed with sound enabled');
                   } else {
                     // Save progress before pausing
                     await saveCurrentProgress();
                     video.pause();
                   }
                 } catch (error) {
-                  console.warn('⚠️ Chrome audio: Play failed on video click:', error);
                   // Try to enable audio context manually
                   try {
                     const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
                     if (audioContext.state === 'suspended') {
                       await audioContext.resume();
-                      console.log('✅ Chrome audio: Audio context resumed');
                     }
                     // Retry play
                     if (video.paused) {
                       await video.play();
                     }
                   } catch (contextError) {
-                    console.warn('⚠️ Chrome audio: Audio context fix failed:', contextError);
+                    // Audio context fix failed
                   }
                 }
               }
@@ -1779,8 +1866,19 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                 video.muted = false;
                 video.volume = volume > 0 ? volume : 1.0;
                 setIsMuted(false);
-                console.log('✅ Chrome audio enabled on play');
               }
+
+              // Start the auto-hide timer for controls when video starts playing
+              if (controlsTimeoutRef.current) {
+                clearTimeout(controlsTimeoutRef.current);
+              }
+              controlsTimeoutRef.current = setTimeout(() => {
+                setShowControls(false);
+                const container = containerRef.current;
+                if (container) {
+                  container.style.cursor = 'none';
+                }
+              }, 3000);
             }}
             autoPlay
             controls={false}
@@ -1791,6 +1889,18 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
 
               // Save progress immediately when pausing
               await saveCurrentProgress();
+
+              // Always show controls and cursor when paused
+              setShowControls(true);
+              const container = containerRef.current;
+              if (container) {
+                container.style.cursor = 'default';
+              }
+              
+              // Clear any pending hide timeout
+              if (controlsTimeoutRef.current) {
+                clearTimeout(controlsTimeoutRef.current);
+              }
             }}
             //onend
             onEnded={async () => {
@@ -1930,10 +2040,9 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                       const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
                       if (audioContext.state === 'suspended') {
                         await audioContext.resume();
-                        console.log('✅ Chrome audio context activated for autoplay');
                       }
                     } catch (error) {
-                      console.warn('⚠️ Audio context activation failed for autoplay:', error);
+                      // Audio context activation failed for autoplay
                     }
 
                     // Ensure audio is enabled
@@ -1942,7 +2051,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
 
                     // Play with audio
                     video.play().catch(error => {
-                      console.warn('Ultra-instant autoplay failed:', error);
+                      // Ultra-instant autoplay failed
                     });
                   };
 
@@ -2073,10 +2182,9 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                     const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
                     if (audioContext.state === 'suspended') {
                       await audioContext.resume();
-                      console.log('✅ Chrome audio context activated on load');
                     }
                   } catch (error) {
-                    console.warn('⚠️ Audio context activation failed:', error);
+                    // Audio context activation failed
                   }
                 };
 
@@ -2095,7 +2203,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                   video.volume = volume > 0 ? volume : 1.0;
 
                   video.play().catch(error => {
-                    console.warn('⚠️ Auto-play failed:', error);
+                    // Auto-play failed
                   });
                 }
               }
@@ -2125,7 +2233,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                 }
 
                 if (isMutedUnexpectedly || hasZeroVolume || hasNoAudio) {
-                  console.warn('⚠️ Audio issue detected - attempting to fix');
                   setAudioIssueDetected(true);
 
                   // Try to fix audio issues
@@ -2196,7 +2303,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
               if (video && video.muted && !isMuted) {
                 // Prevent Chrome from auto-muting
                 video.muted = false;
-                console.log('✅ Prevented Chrome auto-mute');
               }
             }}
             // ULTRA-INSTANT LAN STREAMING ATTRIBUTES - Sub-millisecond response
@@ -2358,6 +2464,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
               </motion.div>
             )}
           </AnimatePresence>
+
+
 
           {/* Single Subtitle Overlay - Always show when subtitles are enabled */}
           <AnimatePresence>

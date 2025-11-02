@@ -262,7 +262,7 @@ export default function SettingsPage() {
     try {
       // Use different endpoints for movies vs TV series
       const isSeriesUpdate = selectedMedia.type === 'tv';
-      const endpoint = isSeriesUpdate 
+      const endpoint = isSeriesUpdate
         ? `${getApiUrl()}/api/series/${selectedMedia.id}/metadata`
         : `${getApiUrl()}/api/admin/media/${selectedMedia.id}/metadata`;
 
@@ -407,14 +407,14 @@ export default function SettingsPage() {
 
     try {
       let response;
-      
+
       if (selectedMedia.type === 'tv') {
         // For TV series, we need to create a special endpoint or handle it differently
         // For now, let's try to use the same endpoint but with series data
         response = await fetch(`${getApiUrl()}/api/admin/series/${selectedMedia.id}/poster`, {
           method: 'POST',
         });
-        
+
         // If series-specific endpoint doesn't exist, fall back to media endpoint
         if (!response.ok && response.status === 404) {
           addTerminalOutput(`⚠️ Series poster endpoint not found, trying media endpoint...`);
@@ -441,7 +441,7 @@ export default function SettingsPage() {
         } else {
           refreshResponse = await fetch(`${getApiUrl()}/api/media/${selectedMedia.id}`);
         }
-        
+
         if (refreshResponse.ok) {
           const updatedData = await refreshResponse.json();
           if (selectedMedia.type === 'tv') {
@@ -493,7 +493,7 @@ export default function SettingsPage() {
       if (selectedMedia.type === 'tv') {
         // For TV series, use series-specific TMDB endpoints
         addTerminalOutput(`🎬 Fetching TMDB data for TV series: ${searchTitle}`);
-        
+
         // Try the main TMDB endpoint first
         response = await fetch(`${getApiUrl()}/api/admin/series/${selectedMedia.id}/update-with-tmdb`, {
           method: 'POST',
@@ -517,7 +517,7 @@ export default function SettingsPage() {
 
         if (response.ok) {
           updatedData = await response.json();
-          
+
           // Preserve manually edited fields
           const finalSeriesData = { ...updatedData };
           if (selectedMedia.isEditing && editingMedia) {
@@ -527,7 +527,7 @@ export default function SettingsPage() {
               }
             });
           }
-          
+
           // Update series list
           setSeriesList(prev => prev.map(s =>
             s.id === selectedMedia.id
@@ -608,12 +608,12 @@ export default function SettingsPage() {
 
   const handleDeleteMedia = async () => {
     if (!selectedMedia) return;
-    
+
     const itemType = selectedMedia.type === 'tv' ? 'TV series' : 'movie';
-    const confirmMessage = selectedMedia.type === 'tv' 
+    const confirmMessage = selectedMedia.type === 'tv'
       ? `Are you sure you want to delete the TV series "${selectedMedia.title}"? This action cannot be undone.\n\nThis will permanently remove:\n- Series record from database\n- All associated episodes and metadata\n- Posters and backdrops\n- Season and episode information\n- Genre associations`
       : `Are you sure you want to delete "${selectedMedia.title}"? This action cannot be undone.\n\nThis will permanently remove:\n- Media record from database\n- All associated metadata\n- Thumbnails and preview clips\n- Playback progress\n- Genre associations`;
-    
+
     if (!confirm(confirmMessage)) return;
 
     setActionLoading(prev => ({ ...prev, delete: true }));
@@ -621,7 +621,7 @@ export default function SettingsPage() {
 
     try {
       let response;
-      
+
       if (selectedMedia.type === 'tv') {
         // Delete TV series
         response = await fetch(`${getApiUrl()}/api/series/${selectedMedia.id}`, {
@@ -847,6 +847,201 @@ export default function SettingsPage() {
     }
   };
 
+  const handleSubtitleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!selectedMedia || !e.target.files) return;
+
+    setUploading(true);
+    const files = Array.from(e.target.files);
+
+    addTerminalOutput(`📝 Uploading ${files.length} subtitle file(s) for: ${selectedMedia.title}`);
+
+    try {
+      for (const file of files) {
+        const formData = new FormData();
+        formData.append('subtitle', file);
+        formData.append('language', extractLanguageFromFilename(file.name));
+
+        const response = await fetch(`${getApiUrl()}/api/admin/media/${selectedMedia.id}/upload-subtitle`, {
+          method: 'POST',
+          body: formData,
+        });
+
+        if (response.ok) {
+          const result = await response.json();
+          addTerminalOutput(`✅ Uploaded subtitle: ${file.name} → ${result.language} (Track ID: ${result.trackId})`);
+        } else {
+          const errorText = await response.text();
+          let errorData;
+          try {
+            errorData = JSON.parse(errorText);
+          } catch {
+            errorData = { error: errorText || response.statusText };
+          }
+          addTerminalOutput(`❌ Failed to upload ${file.name}: ${errorData.error || response.statusText} (Status: ${response.status})`);
+          console.error('Upload error:', response.status, errorData);
+        }
+      }
+
+      addTerminalOutput(`✅ Subtitle upload completed for ${selectedMedia.title}`);
+
+      // Refresh media data to show new subtitles
+      const mediaResponse = await fetch(`${getApiUrl()}/api/media/${selectedMedia.id}`);
+      if (mediaResponse.ok) {
+        const updatedMedia = await mediaResponse.json();
+        setSelectedMedia(prev => prev ? { ...prev, ...updatedMedia } : null);
+      }
+
+    } catch (error) {
+      addTerminalOutput(`❌ Error uploading subtitles: ${error}`);
+      console.error('Error uploading subtitles:', error);
+    } finally {
+      setUploading(false);
+      // Clear the input
+      e.target.value = '';
+    }
+  };
+
+  const handleScanSubtitles = async () => {
+    setActionLoading(prev => ({ ...prev, scanSubtitles: true }));
+    addTerminalOutput('🔍 Starting subtitle scan for media storage...');
+
+    try {
+      const response = await fetch(`${getApiUrl()}/api/admin/scan/subtitles`, {
+        method: 'POST'
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        addTerminalOutput(`✅ Subtitle scan completed successfully`);
+        addTerminalOutput(`📊 Found ${result.totalSubtitles || 0} subtitle files`);
+        addTerminalOutput(`📝 Matched ${result.matchedSubtitles || 0} subtitles to media`);
+        addTerminalOutput(`⚠️ Unmatched ${result.unmatchedSubtitles || 0} subtitle files`);
+
+        // Refresh media list to show updated subtitle info
+        await fetchMediaList();
+
+        // If a media is selected, refresh its data
+        if (selectedMedia) {
+          const mediaResponse = await fetch(`${getApiUrl()}/api/media/${selectedMedia.id}`);
+          if (mediaResponse.ok) {
+            const updatedMedia = await mediaResponse.json();
+            setSelectedMedia(prev => prev ? { ...prev, ...updatedMedia } : null);
+          }
+        }
+      } else {
+        const errorData = await response.json().catch(() => ({ error: response.statusText }));
+        addTerminalOutput(`❌ Subtitle scan failed: ${errorData.error || response.statusText}`);
+      }
+    } catch (error) {
+      addTerminalOutput(`❌ Error during subtitle scan: ${error}`);
+      console.error('Error scanning subtitles:', error);
+    } finally {
+      setActionLoading(prev => ({ ...prev, scanSubtitles: false }));
+    }
+  };
+
+  const handleTestSubtitles = async () => {
+    if (!selectedMedia) return;
+
+    setActionLoading(prev => ({ ...prev, testSubtitles: true }));
+    addTerminalOutput(`🧪 Testing subtitle system for: ${selectedMedia.title}`);
+
+    try {
+      const response = await fetch(`${getApiUrl()}/api/admin/subtitles/test/${selectedMedia.id}`);
+
+      if (response.ok) {
+        const result = await response.json();
+        addTerminalOutput(`✅ Subtitle test completed for: ${result.media_title}`);
+        addTerminalOutput(`📊 Found ${result.track_count} subtitle tracks`);
+        
+        if (result.tracks && result.tracks.length > 0) {
+          result.tracks.forEach((track: any) => {
+            const status = track.exists ? (track.readable ? '✅' : '⚠️') : '❌';
+            addTerminalOutput(`   ${status} ${track.language} (${track.track_type}) - ${track.exists ? `${track.size} bytes` : 'missing'}`);
+          });
+        } else {
+          addTerminalOutput(`⚠️ No subtitle tracks found for this media`);
+        }
+
+        // Test the subtitle endpoint that's causing 500 errors
+        if (result.tracks && result.tracks.length > 0) {
+          const firstTrack = result.tracks[0];
+          addTerminalOutput(`🔍 Testing subtitle file endpoint for track ${firstTrack.id}...`);
+          
+          const testResponse = await fetch(`${getApiUrl()}/api/media/${selectedMedia.id}/subtitles/${firstTrack.id}/file`);
+          if (testResponse.ok) {
+            addTerminalOutput(`✅ Subtitle file endpoint working (${testResponse.status})`);
+          } else {
+            addTerminalOutput(`❌ Subtitle file endpoint failed (${testResponse.status}): ${testResponse.statusText}`);
+          }
+        }
+      } else {
+        const errorData = await response.json().catch(() => ({ error: response.statusText }));
+        addTerminalOutput(`❌ Subtitle test failed: ${errorData.error || response.statusText}`);
+      }
+    } catch (error) {
+      addTerminalOutput(`❌ Error during subtitle test: ${error}`);
+      console.error('Error testing subtitles:', error);
+    } finally {
+      setActionLoading(prev => ({ ...prev, testSubtitles: false }));
+    }
+  };
+
+  // Helper function to extract language from filename
+  const extractLanguageFromFilename = (filename: string): string => {
+    const langPatterns: { [key: string]: string } = {
+      'en': 'English',
+      'eng': 'English',
+      'english': 'English',
+      'es': 'Spanish',
+      'spa': 'Spanish',
+      'spanish': 'Spanish',
+      'fr': 'French',
+      'fre': 'French',
+      'french': 'French',
+      'de': 'German',
+      'ger': 'German',
+      'german': 'German',
+      'it': 'Italian',
+      'ita': 'Italian',
+      'italian': 'Italian',
+      'pt': 'Portuguese',
+      'por': 'Portuguese',
+      'portuguese': 'Portuguese',
+      'ru': 'Russian',
+      'rus': 'Russian',
+      'russian': 'Russian',
+      'ja': 'Japanese',
+      'jpn': 'Japanese',
+      'japanese': 'Japanese',
+      'ko': 'Korean',
+      'kor': 'Korean',
+      'korean': 'Korean',
+      'zh': 'Chinese',
+      'chi': 'Chinese',
+      'chinese': 'Chinese',
+      'ar': 'Arabic',
+      'ara': 'Arabic',
+      'arabic': 'Arabic'
+    };
+
+    const lowerFilename = filename.toLowerCase();
+
+    // Try to find language patterns in filename
+    for (const [code, language] of Object.entries(langPatterns)) {
+      if (lowerFilename.includes(`.${code}.`) ||
+        lowerFilename.includes(`_${code}_`) ||
+        lowerFilename.includes(`-${code}-`) ||
+        lowerFilename.includes(`${code}.srt`) ||
+        lowerFilename.includes(`${code}.vtt`) ||
+        lowerFilename.includes(`${code}.ass`)) {
+        return language;
+      }
+    }
+
+    return 'Unknown';
+  };
+
   const handleDeleteAsset = async (type: 'banner' | 'thumbnail' | 'trailer') => {
     if (!selectedMedia) return;
 
@@ -868,6 +1063,91 @@ export default function SettingsPage() {
     } catch (error) {
       console.error('Error deleting asset:', error);
     }
+  };
+
+  // SubtitleList component to show existing subtitles
+  const SubtitleList = ({ mediaId, onSubtitleDeleted }: { mediaId: number, onSubtitleDeleted: () => void }) => {
+    const [subtitles, setSubtitles] = useState<any[]>([]);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+      const loadSubtitles = async () => {
+        try {
+          const response = await fetch(`${getApiUrl()}/api/media/${mediaId}/subtitles`);
+          if (response.ok) {
+            const data = await response.json();
+            setSubtitles(data || []);
+          }
+        } catch (error) {
+          console.error('Failed to load subtitles:', error);
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      loadSubtitles();
+    }, [mediaId]);
+
+    const handleDeleteSubtitle = async (trackId: number) => {
+      if (!confirm('Are you sure you want to delete this subtitle?')) return;
+
+      try {
+        const response = await fetch(`${getApiUrl()}/api/admin/media/${mediaId}/subtitles/${trackId}`, {
+          method: 'DELETE'
+        });
+
+        if (response.ok) {
+          setSubtitles(prev => prev.filter(sub => sub.id !== trackId));
+          addTerminalOutput(`✅ Deleted subtitle track: ${trackId}`);
+          onSubtitleDeleted();
+        } else {
+          const errorData = await response.json().catch(() => ({ error: response.statusText }));
+          addTerminalOutput(`❌ Failed to delete subtitle: ${errorData.error || response.statusText}`);
+        }
+      } catch (error) {
+        addTerminalOutput(`❌ Error deleting subtitle: ${error}`);
+      }
+    };
+
+    if (loading) {
+      return (
+        <div className="mt-4">
+          <h5 className="text-white/80 text-sm font-medium mb-2">Available Subtitles:</h5>
+          <div className="text-white/60 text-sm">Loading subtitles...</div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="mt-4">
+        <h5 className="text-white/80 text-sm font-medium mb-2">Available Subtitles ({subtitles.length}):</h5>
+        <div className="space-y-2 max-h-32 overflow-y-auto">
+          {subtitles.length === 0 ? (
+            <div className="text-white/60 text-sm">No subtitles found</div>
+          ) : (
+            subtitles.map((subtitle) => (
+              <div key={subtitle.id} className="flex items-center justify-between bg-white/5 rounded p-2">
+                <div className="flex-1">
+                  <div className="text-white text-sm font-medium">{subtitle.language}</div>
+                  <div className="text-white/60 text-xs">
+                    {subtitle.track_type} • {subtitle.codec_name}
+                    {subtitle.is_default && ' • Default'}
+                    {subtitle.is_forced && ' • Forced'}
+                  </div>
+                </div>
+                <button
+                  onClick={() => handleDeleteSubtitle(subtitle.id)}
+                  className="text-red-400 hover:text-red-300 p-1"
+                  title="Delete subtitle"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    );
   };
 
   const NetflixFileUploadSection = ({
@@ -1076,7 +1356,7 @@ export default function SettingsPage() {
                     <Folder className="w-6 h-6 mr-3 text-[#E50914]" />
                     Media Library
                   </h2>
-                  
+
                   {/* Search Input */}
                   <div className="mb-4">
                     <div className="relative">
@@ -1669,6 +1949,83 @@ export default function SettingsPage() {
                           onDelete={handleDeleteAsset}
                           uploading={uploading}
                         />
+
+                        {/* Subtitle Upload Section */}
+                        <div className="bg-white/5 backdrop-blur-sm rounded-lg p-6 border border-white/10">
+                          <h4 className="text-white font-semibold mb-4 flex items-center">
+                            <FileSearch className="w-5 h-5 mr-2 text-[#E50914]" />
+                            Subtitles
+                          </h4>
+
+                          <div className="space-y-4">
+                            {/* Upload Subtitle */}
+                            <div className="border-2 border-dashed border-white/20 rounded-lg p-6 text-center hover:border-[#E50914]/50 transition-colors duration-300">
+                              <div className="text-white/40 mb-4">
+                                <FileSearch className="w-8 h-8 mx-auto" />
+                              </div>
+                              <p className="text-white/60 text-sm mb-4">Upload subtitle files (.srt, .vtt, .ass, .ssa, .sub, .sbv)</p>
+                              <label htmlFor="subtitle-upload" className="cursor-pointer inline-block">
+                                <div className="bg-[#E50914] hover:bg-[#E50914]/80 text-white px-4 py-2 rounded-lg inline-flex items-center gap-2 transition-colors duration-300 hover:scale-105">
+                                  <Upload className="w-4 h-4" />
+                                  {uploading ? 'Uploading...' : 'Upload Subtitles'}
+                                </div>
+                              </label>
+                              <input
+                                id="subtitle-upload"
+                                type="file"
+                                accept=".srt,.vtt,.ass,.ssa,.sub,.sbv"
+                                multiple
+                                className="hidden"
+                                onChange={handleSubtitleUpload}
+                                disabled={uploading}
+                              />
+                            </div>
+
+                            {/* Scan for Subtitles */}
+                            <MagneticButton
+                              onClick={handleScanSubtitles}
+                              disabled={actionLoading.scanSubtitles}
+                              className="w-full bg-blue-600/20 hover:bg-blue-600/40 text-blue-400 py-2 px-4 rounded-lg flex items-center justify-center space-x-2"
+                            >
+                              {actionLoading.scanSubtitles ? (
+                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-400"></div>
+                              ) : (
+                                <Search className="w-4 h-4" />
+                              )}
+                              <span>Scan Storage for Subtitles</span>
+                            </MagneticButton>
+
+                            {/* Test Subtitles Button */}
+                            {selectedMedia && (
+                              <MagneticButton
+                                onClick={handleTestSubtitles}
+                                disabled={actionLoading.testSubtitles}
+                                className="w-full bg-purple-600/20 hover:bg-purple-600/40 text-purple-400 py-2 px-4 rounded-lg flex items-center justify-center space-x-2"
+                              >
+                                {actionLoading.testSubtitles ? (
+                                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-purple-400"></div>
+                                ) : (
+                                  <Info className="w-4 h-4" />
+                                )}
+                                <span>Test Subtitle System</span>
+                              </MagneticButton>
+                            )}
+
+                            {/* Show existing subtitles */}
+                            {selectedMedia && (
+                              <SubtitleList
+                                mediaId={selectedMedia.id}
+                                onSubtitleDeleted={() => {
+                                  // Refresh media data when subtitle is deleted
+                                  fetchMediaList();
+                                  if (selectedMedia) {
+                                    handleMediaSelect(selectedMedia);
+                                  }
+                                }}
+                              />
+                            )}
+                          </div>
+                        </div>
                       </div>
 
                       {uploading && (

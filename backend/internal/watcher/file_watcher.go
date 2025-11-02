@@ -4,6 +4,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -14,6 +15,11 @@ import (
 // MediaProcessor defines the interface for processing media files
 type MediaProcessor interface {
 	ProcessSingleFile(path string, info os.FileInfo) error
+}
+
+// SubtitleProcessor defines the interface for processing subtitle files
+type SubtitleProcessor interface {
+	ProcessSubtitleFile(path string, info os.FileInfo) error
 }
 
 type FileWatcher struct {
@@ -218,17 +224,25 @@ func (fw *FileWatcher) processFile(path string) {
 		return
 	}
 
-	// Check if it's a media file
+	// Check file type
 	ext := strings.ToLower(filepath.Ext(path))
 	videoExts := map[string]bool{
 		".mp4": true, ".mkv": true, ".avi": true, ".mov": true,
 		".wmv": true, ".flv": true, ".webm": true, ".m4v": true,
 		".mpg": true, ".mpeg": true, ".3gp": true, ".ogv": true,
 	}
+	
+	subtitleExts := map[string]bool{
+		".srt": true, ".vtt": true, ".ass": true,
+		".ssa": true, ".sub": true, ".idx": true,
+	}
 
 	if videoExts[ext] {
 		log.Printf("🎬 New video file detected: %s", path)
 		go fw.processNewVideoFile(path, info)
+	} else if subtitleExts[ext] {
+		log.Printf("📝 New subtitle file detected: %s", path)
+		go fw.processNewSubtitleFile(path, info)
 	}
 }
 
@@ -246,9 +260,16 @@ func (fw *FileWatcher) scanNewDirectory(dirPath string) {
 				".mp4": true, ".mkv": true, ".avi": true, ".mov": true,
 				".wmv": true, ".flv": true, ".webm": true, ".m4v": true,
 			}
+			
+			subtitleExts := map[string]bool{
+				".srt": true, ".vtt": true, ".ass": true,
+				".ssa": true, ".sub": true, ".idx": true,
+			}
 
 			if videoExts[ext] {
 				fw.processNewVideoFile(path, info)
+			} else if subtitleExts[ext] {
+				fw.processNewSubtitleFile(path, info)
 			}
 		}
 
@@ -268,7 +289,120 @@ func (fw *FileWatcher) processNewVideoFile(path string, info os.FileInfo) {
 		log.Printf("❌ Failed to process new video file %s: %v", path, err)
 	} else {
 		log.Printf("✅ Successfully processed new video file: %s", path)
+		
+		// After processing video file, scan for related subtitles
+		go fw.scanForRelatedSubtitles(path)
 	}
+}
+
+func (fw *FileWatcher) processNewSubtitleFile(path string, info os.FileInfo) {
+	log.Printf("📝 Processing new subtitle file: %s", path)
+	
+	// For subtitle files, we need to find the corresponding video file
+	// and trigger subtitle scanning for that media
+	if subtitleProcessor, ok := fw.processor.(SubtitleProcessor); ok {
+		if err := subtitleProcessor.ProcessSubtitleFile(path, info); err != nil {
+			log.Printf("❌ Failed to process new subtitle file %s: %v", path, err)
+		} else {
+			log.Printf("✅ Successfully processed new subtitle file: %s", path)
+		}
+	} else {
+		log.Printf("⚠️ Processor doesn't support subtitle processing for: %s", path)
+	}
+}
+
+func (fw *FileWatcher) scanForRelatedSubtitles(videoPath string) {
+	log.Printf("🔍 Scanning for subtitles related to: %s", videoPath)
+	
+	dir := filepath.Dir(videoPath)
+	baseName := strings.TrimSuffix(filepath.Base(videoPath), filepath.Ext(videoPath))
+	
+	// Look for subtitle files in the same directory
+	files, err := os.ReadDir(dir)
+	if err != nil {
+		log.Printf("❌ Failed to read directory %s: %v", dir, err)
+		return
+	}
+	
+	subtitleExts := map[string]bool{
+		".srt": true, ".vtt": true, ".ass": true,
+		".ssa": true, ".sub": true, ".idx": true,
+	}
+	
+	for _, file := range files {
+		if file.IsDir() {
+			continue
+		}
+		
+		fileName := file.Name()
+		fileExt := strings.ToLower(filepath.Ext(fileName))
+		
+		if !subtitleExts[fileExt] {
+			continue
+		}
+		
+		// Check if subtitle filename matches video filename
+		subtitleBase := strings.TrimSuffix(fileName, fileExt)
+		if fw.isSubtitleRelated(baseName, subtitleBase) {
+			subtitlePath := filepath.Join(dir, fileName)
+			log.Printf("📝 Found related subtitle: %s", subtitlePath)
+			
+			if info, err := file.Info(); err == nil {
+				fw.processNewSubtitleFile(subtitlePath, info)
+			}
+		}
+	}
+}
+
+func (fw *FileWatcher) isSubtitleRelated(videoBase, subtitleBase string) bool {
+	// Remove language suffixes from subtitle name
+	cleanSubtitle := fw.removeLanguageSuffix(subtitleBase)
+	
+	// Normalize names for comparison
+	videoNorm := strings.ToLower(strings.ReplaceAll(videoBase, "_", " "))
+	subNorm := strings.ToLower(strings.ReplaceAll(cleanSubtitle, "_", " "))
+	
+	// Check for exact match
+	if videoNorm == subNorm {
+		return true
+	}
+	
+	// Check if subtitle name starts with video name
+	if strings.HasPrefix(subNorm, videoNorm) {
+		return true
+	}
+	
+	// Check if video name starts with subtitle name (for cases where subtitle has shorter name)
+	if len(subNorm) > 3 && strings.HasPrefix(videoNorm, subNorm) {
+		return true
+	}
+	
+	return false
+}
+
+func (fw *FileWatcher) removeLanguageSuffix(filename string) string {
+	// Common language patterns to remove
+	langPatterns := []string{
+		`\.en$`, `\.eng$`, `\.english$`,
+		`\.es$`, `\.spa$`, `\.spanish$`,
+		`\.fr$`, `\.fre$`, `\.french$`,
+		`\.de$`, `\.ger$`, `\.german$`,
+		`\.it$`, `\.ita$`, `\.italian$`,
+		`\.pt$`, `\.por$`, `\.portuguese$`,
+		`\.ru$`, `\.rus$`, `\.russian$`,
+		`\.ja$`, `\.jpn$`, `\.japanese$`,
+		`\.ko$`, `\.kor$`, `\.korean$`,
+		`\.zh$`, `\.chi$`, `\.chinese$`,
+		`\.ar$`, `\.ara$`, `\.arabic$`,
+	}
+
+	for _, pattern := range langPatterns {
+		if matched, _ := regexp.MatchString(pattern, filename); matched {
+			filename = regexp.MustCompile(pattern).ReplaceAllString(filename, "")
+		}
+	}
+
+	return filename
 }
 
 // SetDebounceDelay configures the debounce delay

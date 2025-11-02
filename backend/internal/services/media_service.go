@@ -992,6 +992,17 @@ func (s *MediaService) UpdateSubtitleTrackPath(trackID uint, newPath string) err
 	})
 }
 
+// DeleteSubtitleTrack deletes a subtitle track by ID
+func (s *MediaService) DeleteSubtitleTrack(trackID uint) error {
+	return s.DBManager.WithTx(func(tx *gorm.DB) error {
+		// First delete any associated legacy subtitle entries
+		tx.Where("id = ?", trackID).Delete(&models.Subtitle{})
+		
+		// Then delete the subtitle track
+		return tx.Where("id = ?", trackID).Delete(&models.SubtitleTrack{}).Error
+	})
+}
+
 // GetMediaByRating returns media sorted by rating (highest first)
 func (s *MediaService) GetMediaByRating(limit int) ([]models.Media, error) {
 	var media []models.Media
