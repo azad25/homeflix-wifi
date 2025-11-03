@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"homeflix-backend/internal/models"
@@ -1136,6 +1137,141 @@ func ExtractMediaTracks(mediaService *services.MediaService, scanner interface{}
 		}
 
 		c.JSON(http.StatusOK, results)
+	}
+}
+
+// GetCastImages returns cast and crew images for a media item using TMDB
+func GetCastImages(mediaService *services.MediaService, tmdbService *services.TMDBService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id, err := strconv.ParseUint(c.Param("id"), 10, 32)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID"})
+			return
+		}
+
+		// Get the media item to extract title and year
+		media, err := mediaService.GetMediaByID(uint(id))
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Media not found"})
+			return
+		}
+
+		// Clean the title for TMDB search
+		cleanTitle := tmdbService.CleanTitle(media.Title)
+		searchTitle := tmdbService.RemoveYearFromTitle(cleanTitle)
+		
+		log.Printf("🎭 Fetching cast images for: '%s' (original: '%s')", searchTitle, media.Title)
+
+		// Try to get cast images from TMDB
+		castMembers, crewMembers, err := tmdbService.GetCastImages(searchTitle, media.Year)
+		if err != nil {
+			// If that fails, try with the original title
+			log.Printf("⚠️ First attempt failed, trying with original title: %v", err)
+			castMembers, crewMembers, err = tmdbService.GetCastImages(media.Title, media.Year)
+			if err != nil {
+				log.Printf("❌ Failed to get cast images: %v", err)
+				c.JSON(http.StatusNotFound, gin.H{
+					"error": "Cast images not found",
+					"cast":  []interface{}{},
+					"crew":  []interface{}{},
+				})
+				return
+			}
+		}
+
+		log.Printf("✅ Found %d cast members and %d crew members with images", 
+			len(castMembers), len(crewMembers))
+
+		c.JSON(http.StatusOK, gin.H{
+			"cast": castMembers,
+			"crew": crewMembers,
+		})
+	}
+}
+
+// Cache for upcoming movies (in-memory cache with 24-hour expiration)
+var (
+	upcomingMoviesCache     *services.UpcomingMoviesResponse
+	upcomingMoviesCacheTime time.Time
+)
+
+// GetUpcomingMovies returns trending, now-playing, and upcoming movies from TMDB with 24-hour caching
+func GetUpcomingMovies(tmdbService *services.TMDBService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// Check if cache is valid (less than 24 hours old)
+		if upcomingMoviesCache != nil && time.Since(upcomingMoviesCacheTime) < 24*time.Hour {
+			log.Printf("📦 Serving upcoming movies from cache (cached %v ago)", time.Since(upcomingMoviesCacheTime))
+			c.JSON(http.StatusOK, upcomingMoviesCache)
+			return
+		}
+
+		log.Printf("🔄 Cache expired or empty, fetching fresh upcoming movies from TMDB...")
+
+		// Fetch fresh data from TMDB
+		upcomingMovies, err := tmdbService.GetUpcomingMovies()
+		if err != nil {
+			log.Printf("❌ Failed to fetch upcoming movies: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error": "Failed to fetch upcoming movies",
+				"details": err.Error(),
+			})
+			return
+		}
+
+		// Update cache
+		upcomingMoviesCache = upcomingMovies
+		upcomingMoviesCacheTime = time.Now()
+
+		log.Printf("✅ Successfully fetched and cached upcoming movies")
+		c.JSON(http.StatusOK, upcomingMovies)
+	}
+}
+
+// Cache for individual TMDB movie details (in-memory cache with 6-hour expiration)
+var (
+	tmdbMovieDetailsCache     = make(map[string]*services.TMDBMovieDetailsWithExtras)
+	tmdbMovieDetailsCacheTime = make(map[string]time.Time)
+)
+
+// GetTMDBMovieDetails returns detailed information about a TMDB movie including videos and credits
+func GetTMDBMovieDetails(tmdbService *services.TMDBService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		movieIDStr := c.Param("id")
+		movieID, err := strconv.Atoi(movieIDStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid movie ID"})
+			return
+		}
+
+		// Check if cache is valid (less than 6 hours old)
+		cacheKey := movieIDStr
+		if cachedMovie, exists := tmdbMovieDetailsCache[cacheKey]; exists {
+			if time.Since(tmdbMovieDetailsCacheTime[cacheKey]) < 6*time.Hour {
+				log.Printf("📦 Serving TMDB movie details from cache for ID %d", movieID)
+				c.JSON(http.StatusOK, cachedMovie)
+				return
+			}
+		}
+
+		log.Printf("🔄 Fetching fresh TMDB movie details for ID %d", movieID)
+
+		// Fetch detailed movie information with videos and credits
+		movieDetails, err := tmdbService.GetMovieDetailsWithExtras(movieID)
+		if err != nil {
+			log.Printf("❌ Failed to fetch TMDB movie details for ID %d: %v", movieID, err)
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error": "Failed to fetch movie details",
+				"details": err.Error(),
+			})
+			return
+		}
+
+		// Update cache
+		tmdbMovieDetailsCache[cacheKey] = movieDetails
+		tmdbMovieDetailsCacheTime[cacheKey] = time.Now()
+
+		log.Printf("✅ Successfully fetched and cached TMDB movie details for '%s'", movieDetails.Title)
+		c.JSON(http.StatusOK, movieDetails)
 	}
 }
 

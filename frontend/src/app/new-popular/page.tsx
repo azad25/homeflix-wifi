@@ -10,6 +10,7 @@ import { TrendingSection } from '@/components/sections/TrendingSection';
 import { apiCall, preloadAssets } from '@/lib/api';
 import Navbar from '@/components/Navbar';
 import RedLoader from '@/components/RedLoader';
+import UpcomingMovies from '@/components/UpcomingMovies';
 import { useRouter } from 'next/navigation';
 import { useNavigate } from '@/hooks/useNavigate';
 
@@ -159,6 +160,27 @@ const NewPopularPage: React.FC = () => {
           <TrendingSection 
             media={trendingContent}
             onMediaClick={handlePlay}
+          />
+
+          {/* TMDB Now Playing in Theaters */}
+          <UpcomingMovies 
+            showSection="now_playing"
+            maxItems={15}
+            className="px-4 md:px-8"
+          />
+
+          {/* TMDB Coming Soon */}
+          <UpcomingMovies 
+            showSection="upcoming"
+            maxItems={12}
+            className="px-4 md:px-8"
+          />
+
+          {/* TMDB Trending Weekly */}
+          <UpcomingMovies 
+            showSection="trending_weekly"
+            maxItems={10}
+            className="px-4 md:px-8"
           />
         </motion.div>
       </div>

@@ -195,6 +195,7 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		api.POST("/admin/media/:id/generate-metadata", handlers.GenerateMediaMetadata(mediaService, tmdbService))
 		api.POST("/admin/media/:id/update-with-tmdb", handlers.UpdateMediaWithTMDB(mediaService, tmdbService))
 		api.POST("/admin/series/:id/update-with-tmdb", handlers.UpdateSeriesWithTMDB(mediaService, tmdbService))
+		api.GET("/media/:id/cast-images", handlers.GetCastImages(mediaService, tmdbService))
 		api.POST("/admin/generate-recommendations", handlers.GenerateRecommendations(geminiService))
 
 		// Main recommendations endpoint (handles category-based routing)
@@ -272,5 +273,11 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		api.GET("/news/breaking", newsHandlers.GetBreakingNews())
 		api.GET("/news/ticker", newsHandlers.GetNewsForTicker())
 		api.GET("/news/health", newsHandlers.GetNewsHealth())
+
+		// TMDB upcoming movies endpoint (cached for 24 hours)
+		api.GET("/upcoming-movies", handlers.GetUpcomingMovies(tmdbService))
+		
+		// TMDB movie details endpoint (cached for 6 hours)
+		api.GET("/tmdb-movie/:id", handlers.GetTMDBMovieDetails(tmdbService))
 	}
 }

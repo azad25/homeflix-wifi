@@ -122,17 +122,36 @@ type TMDBCredits struct {
 }
 
 type TMDBCast struct {
-	ID        int    `json:"id"`
-	Name      string `json:"name"`
-	Character string `json:"character"`
-	Order     int    `json:"order"`
+	ID          int    `json:"id"`
+	Name        string `json:"name"`
+	Character   string `json:"character"`
+	Order       int    `json:"order"`
+	ProfilePath string `json:"profile_path"`
 }
 
 type TMDBCrew struct {
-	ID         int    `json:"id"`
-	Name       string `json:"name"`
-	Job        string `json:"job"`
-	Department string `json:"department"`
+	ID          int    `json:"id"`
+	Name        string `json:"name"`
+	Job         string `json:"job"`
+	Department  string `json:"department"`
+	ProfilePath string `json:"profile_path"`
+}
+
+// CastMember represents a cast member with image URL
+type CastMember struct {
+	ID        int    `json:"id"`
+	Name      string `json:"name"`
+	Character string `json:"character"`
+	ImageURL  string `json:"image_url"`
+	Order     int    `json:"order"`
+}
+
+// CrewMember represents a crew member with image URL
+type CrewMember struct {
+	ID        int    `json:"id"`
+	Name      string `json:"name"`
+	Job       string `json:"job"`
+	ImageURL  string `json:"image_url"`
 }
 
 func NewTMDBService() *TMDBService {
@@ -1363,6 +1382,421 @@ func (t *TMDBService) detectQuality(filePath string) string {
 	
 	// Default fallback
 	return "HD"
+}
+
+// GetCastImages fetches cast images for a movie by searching TMDB
+func (t *TMDBService) GetCastImages(title string, year int) ([]CastMember, []CrewMember, error) {
+	if t.apiKey == "" {
+		return nil, nil, fmt.Errorf("TMDB API key not configured")
+	}
+
+	// Search for the movie first
+	movie, err := t.SearchMovie(title, year)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to find movie: %w", err)
+	}
+
+	// Get detailed movie information with credits
+	details, err := t.GetMovieDetails(movie.ID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get movie details: %w", err)
+	}
+
+	// Process cast members
+	var castMembers []CastMember
+	for _, cast := range details.Credits.Cast {
+		imageURL := ""
+		if cast.ProfilePath != "" {
+			imageURL = "https://image.tmdb.org/t/p/w185" + cast.ProfilePath
+		}
+		
+		castMembers = append(castMembers, CastMember{
+			ID:        cast.ID,
+			Name:      cast.Name,
+			Character: cast.Character,
+			ImageURL:  imageURL,
+			Order:     cast.Order,
+		})
+		
+		// Limit to top 20 cast members to avoid too much data
+		if len(castMembers) >= 20 {
+			break
+		}
+	}
+
+	// Process crew members (directors, writers, producers)
+	var crewMembers []CrewMember
+	directorJobs := map[string]bool{"Director": true}
+	writerJobs := map[string]bool{"Writer": true, "Screenplay": true, "Story": true}
+	producerJobs := map[string]bool{"Producer": true, "Executive Producer": true}
+	
+	for _, crew := range details.Credits.Crew {
+		// Only include key crew roles
+		if directorJobs[crew.Job] || writerJobs[crew.Job] || producerJobs[crew.Job] {
+			imageURL := ""
+			if crew.ProfilePath != "" {
+				imageURL = "https://image.tmdb.org/t/p/w185" + crew.ProfilePath
+			}
+			
+			crewMembers = append(crewMembers, CrewMember{
+				ID:       crew.ID,
+				Name:     crew.Name,
+				Job:      crew.Job,
+				ImageURL: imageURL,
+			})
+		}
+	}
+
+	log.Printf("✅ TMDB: Found %d cast members and %d crew members for '%s'", 
+		len(castMembers), len(crewMembers), title)
+
+	return castMembers, crewMembers, nil
+}
+
+// GetCastImagesByTMDBID fetches cast images using a known TMDB movie ID
+func (t *TMDBService) GetCastImagesByTMDBID(tmdbID int) ([]CastMember, []CrewMember, error) {
+	if t.apiKey == "" {
+		return nil, nil, fmt.Errorf("TMDB API key not configured")
+	}
+
+	// Get detailed movie information with credits
+	details, err := t.GetMovieDetails(tmdbID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get movie details: %w", err)
+	}
+
+	// Process cast members
+	var castMembers []CastMember
+	for _, cast := range details.Credits.Cast {
+		imageURL := ""
+		if cast.ProfilePath != "" {
+			imageURL = "https://image.tmdb.org/t/p/w185" + cast.ProfilePath
+		}
+		
+		castMembers = append(castMembers, CastMember{
+			ID:        cast.ID,
+			Name:      cast.Name,
+			Character: cast.Character,
+			ImageURL:  imageURL,
+			Order:     cast.Order,
+		})
+		
+		// Limit to top 20 cast members
+		if len(castMembers) >= 20 {
+			break
+		}
+	}
+
+	// Process crew members
+	var crewMembers []CrewMember
+	directorJobs := map[string]bool{"Director": true}
+	writerJobs := map[string]bool{"Writer": true, "Screenplay": true, "Story": true}
+	producerJobs := map[string]bool{"Producer": true, "Executive Producer": true}
+	
+	for _, crew := range details.Credits.Crew {
+		if directorJobs[crew.Job] || writerJobs[crew.Job] || producerJobs[crew.Job] {
+			imageURL := ""
+			if crew.ProfilePath != "" {
+				imageURL = "https://image.tmdb.org/t/p/w185" + crew.ProfilePath
+			}
+			
+			crewMembers = append(crewMembers, CrewMember{
+				ID:       crew.ID,
+				Name:     crew.Name,
+				Job:      crew.Job,
+				ImageURL: imageURL,
+			})
+		}
+	}
+
+	return castMembers, crewMembers, nil
+}
+
+// GetPersonImage gets a person's image URL by their name (for fallback searches)
+func (t *TMDBService) GetPersonImage(personName string) (string, error) {
+	if t.apiKey == "" {
+		return "", fmt.Errorf("TMDB API key not configured")
+	}
+
+	// Search for the person
+	searchURL := fmt.Sprintf("%s/search/person", t.baseURL)
+	params := url.Values{}
+	params.Add("query", personName)
+
+	req, err := http.NewRequest("GET", searchURL+"?"+params.Encode(), nil)
+	if err != nil {
+		return "", err
+	}
+
+	req.Header.Set("Authorization", "Bearer "+t.apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := t.httpClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("TMDB API error: %d", resp.StatusCode)
+	}
+
+	var searchResp struct {
+		Results []struct {
+			ID          int    `json:"id"`
+			Name        string `json:"name"`
+			ProfilePath string `json:"profile_path"`
+		} `json:"results"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&searchResp); err != nil {
+		return "", err
+	}
+
+	if len(searchResp.Results) == 0 {
+		return "", fmt.Errorf("person not found: %s", personName)
+	}
+
+	// Return the first result's image
+	if searchResp.Results[0].ProfilePath != "" {
+		return "https://image.tmdb.org/t/p/w185" + searchResp.Results[0].ProfilePath, nil
+	}
+
+	return "", fmt.Errorf("no image available for: %s", personName)
+}
+
+// UpcomingMoviesResponse represents the combined response for upcoming movies
+type UpcomingMoviesResponse struct {
+	TrendingDaily   []TMDBMovie `json:"trending_daily"`
+	TrendingWeekly  []TMDBMovie `json:"trending_weekly"`
+	NowPlaying      []TMDBMovie `json:"now_playing"`
+	Upcoming        []TMDBMovie `json:"upcoming"`
+	CachedAt        time.Time   `json:"cached_at"`
+}
+
+// GetUpcomingMovies fetches trending, now-playing, and upcoming movies from TMDB
+func (t *TMDBService) GetUpcomingMovies() (*UpcomingMoviesResponse, error) {
+	if t.apiKey == "" {
+		return nil, fmt.Errorf("TMDB API key not configured")
+	}
+
+	log.Printf("🎬 Fetching upcoming movies from TMDB...")
+
+	// Fetch trending movies (daily)
+	trendingDaily, err := t.fetchTrendingMovies("day")
+	if err != nil {
+		log.Printf("⚠️ Failed to fetch daily trending movies: %v", err)
+		trendingDaily = []TMDBMovie{} // Continue with empty slice
+	}
+
+	// Fetch trending movies (weekly)
+	trendingWeekly, err := t.fetchTrendingMovies("week")
+	if err != nil {
+		log.Printf("⚠️ Failed to fetch weekly trending movies: %v", err)
+		trendingWeekly = []TMDBMovie{} // Continue with empty slice
+	}
+
+	// Fetch now playing movies
+	nowPlaying, err := t.fetchNowPlayingMovies()
+	if err != nil {
+		log.Printf("⚠️ Failed to fetch now playing movies: %v", err)
+		nowPlaying = []TMDBMovie{} // Continue with empty slice
+	}
+
+	// Fetch upcoming movies
+	upcoming, err := t.fetchUpcomingMovies()
+	if err != nil {
+		log.Printf("⚠️ Failed to fetch upcoming movies: %v", err)
+		upcoming = []TMDBMovie{} // Continue with empty slice
+	}
+
+	response := &UpcomingMoviesResponse{
+		TrendingDaily:  trendingDaily,
+		TrendingWeekly: trendingWeekly,
+		NowPlaying:     nowPlaying,
+		Upcoming:       upcoming,
+		CachedAt:       time.Now(),
+	}
+
+	log.Printf("✅ Successfully fetched upcoming movies: %d trending daily, %d trending weekly, %d now playing, %d upcoming",
+		len(trendingDaily), len(trendingWeekly), len(nowPlaying), len(upcoming))
+
+	return response, nil
+}
+
+// fetchTrendingMovies fetches trending movies for a given time window
+func (t *TMDBService) fetchTrendingMovies(timeWindow string) ([]TMDBMovie, error) {
+	requestURL := fmt.Sprintf("%s/trending/movie/%s", t.baseURL, timeWindow)
+	params := url.Values{}
+	params.Add("page", "1")
+
+	req, err := http.NewRequest("GET", requestURL+"?"+params.Encode(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Authorization", "Bearer "+t.apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := t.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("TMDB API error: %d", resp.StatusCode)
+	}
+
+	var searchResp TMDBSearchResponse
+	if err := json.NewDecoder(resp.Body).Decode(&searchResp); err != nil {
+		return nil, err
+	}
+
+	// Limit to 20 results
+	if len(searchResp.Results) > 20 {
+		searchResp.Results = searchResp.Results[:20]
+	}
+
+	return searchResp.Results, nil
+}
+
+// fetchNowPlayingMovies fetches movies currently playing in theaters
+func (t *TMDBService) fetchNowPlayingMovies() ([]TMDBMovie, error) {
+	requestURL := fmt.Sprintf("%s/movie/now_playing", t.baseURL)
+	params := url.Values{}
+	params.Add("language", "en-US")
+	params.Add("page", "1")
+
+	req, err := http.NewRequest("GET", requestURL+"?"+params.Encode(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Authorization", "Bearer "+t.apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := t.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("TMDB API error: %d", resp.StatusCode)
+	}
+
+	var searchResp TMDBSearchResponse
+	if err := json.NewDecoder(resp.Body).Decode(&searchResp); err != nil {
+		return nil, err
+	}
+
+	// Limit to 20 results
+	if len(searchResp.Results) > 20 {
+		searchResp.Results = searchResp.Results[:20]
+	}
+
+	return searchResp.Results, nil
+}
+
+// fetchUpcomingMovies fetches upcoming movies
+func (t *TMDBService) fetchUpcomingMovies() ([]TMDBMovie, error) {
+	requestURL := fmt.Sprintf("%s/movie/upcoming", t.baseURL)
+	params := url.Values{}
+	params.Add("language", "en-US")
+	params.Add("page", "1")
+
+	req, err := http.NewRequest("GET", requestURL+"?"+params.Encode(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Authorization", "Bearer "+t.apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := t.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("TMDB API error: %d", resp.StatusCode)
+	}
+
+	var searchResp TMDBSearchResponse
+	if err := json.NewDecoder(resp.Body).Decode(&searchResp); err != nil {
+		return nil, err
+	}
+
+	// Limit to 20 results
+	if len(searchResp.Results) > 20 {
+		searchResp.Results = searchResp.Results[:20]
+	}
+
+	return searchResp.Results, nil
+}
+
+// TMDBMovieDetailsWithExtras represents detailed movie information with videos and credits
+type TMDBMovieDetailsWithExtras struct {
+	TMDBMovieDetails
+	Videos TMDBVideos `json:"videos"`
+}
+
+// TMDBVideos represents the videos response from TMDB
+type TMDBVideos struct {
+	Results []TMDBVideo `json:"results"`
+}
+
+// TMDBVideo represents a single video (trailer, teaser, etc.)
+type TMDBVideo struct {
+	ID          string `json:"id"`
+	Key         string `json:"key"`
+	Name        string `json:"name"`
+	Site        string `json:"site"`
+	Type        string `json:"type"`
+	Official    bool   `json:"official"`
+	PublishedAt string `json:"published_at"`
+	Size        int    `json:"size"`
+}
+
+// GetMovieDetailsWithExtras fetches detailed movie information including videos and credits
+func (t *TMDBService) GetMovieDetailsWithExtras(movieID int) (*TMDBMovieDetailsWithExtras, error) {
+	if t.apiKey == "" {
+		return nil, fmt.Errorf("TMDB API key not configured")
+	}
+
+	detailsURL := fmt.Sprintf("%s/movie/%d", t.baseURL, movieID)
+	params := url.Values{}
+	params.Add("append_to_response", "credits,videos")
+
+	req, err := http.NewRequest("GET", detailsURL+"?"+params.Encode(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Authorization", "Bearer "+t.apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := t.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("TMDB API error: %d", resp.StatusCode)
+	}
+
+	var details TMDBMovieDetailsWithExtras
+	if err := json.NewDecoder(resp.Body).Decode(&details); err != nil {
+		return nil, err
+	}
+
+	log.Printf("✅ TMDB: Fetched movie details for '%s' with %d videos and %d cast members", 
+		details.Title, len(details.Videos.Results), len(details.Credits.Cast))
+
+	return &details, nil
 }
 
 // contains checks if a slice contains a string

@@ -20,6 +20,7 @@ import { addToWishlist, removeFromWishlist, isInWishlist } from '@/lib/wishlist'
 import CastButton from '@/components/CastButton';
 import { useChromecast, CastMedia } from '@/hooks/useChromecast';
 import ImageWithFallback from '@/components/ImageWithFallback';
+import CastSection from '@/components/CastSection';
 
 import {
   NetflixHorizontalRow,
@@ -1147,95 +1148,14 @@ export default function MoviePage() {
 
                   {/* Sidebar */}
                   <div className="hidden lg:block space-y-6 ml-6">
-                    {/* Cast & Crew Section */}
-                    {(media.stars && media.stars.length > 0) || (media.director && media.director.length > 0) ? (
-                      <div className="mb-12">
-                        <h2 className="text-2xl font-bold text-white mb-6">Cast & Crew</h2>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-
-                          {/* Director Section */}
-                          {media.director && media.director.length > 0 && (
-                            <div>
-                              <div className="flex items-center gap-2 mb-4">
-                                <Director className="w-5 h-5 text-red-500" />
-                                <h3 className="text-lg font-semibold text-white">
-                                  Director{media.director.length > 1 ? 's' : ''}
-                                </h3>
-                              </div>
-                              <div className="space-y-3">
-                                {media.director.map((director, index) => (
-                                  <div key={index} className="flex items-center gap-3 p-3 bg-gray-800/30 rounded-lg hover:bg-gray-800/50 transition-colors">
-                                    <div className="w-12 h-12 bg-gray-700 rounded-full flex items-center justify-center">
-                                      <Director className="w-6 h-6 text-gray-400" />
-                                    </div>
-                                    <div>
-                                      <p className="text-white font-medium">{director}</p>
-                                      <p className="text-white/60 text-sm">Director</p>
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-
-                          {/* Cast Section */}
-                          {media.stars && media.stars.length > 0 && (
-                            <div>
-                              <div className="flex items-center gap-2 mb-4">
-                                <Cast className="w-5 h-5 text-red-500" />
-                                <h3 className="text-lg font-semibold text-white">Cast</h3>
-                              </div>
-                              <div className="space-y-3">
-                                {media.stars.slice(0, 6).map((actor, index) => (
-                                  <div key={index} className="flex items-center gap-3 p-3 bg-gray-800/30 rounded-lg hover:bg-gray-800/50 transition-colors">
-                                    <div className="w-12 h-12 bg-gray-700 rounded-full flex items-center justify-center">
-                                      <User className="w-6 h-6 text-gray-400" />
-                                    </div>
-                                    <div>
-                                      <p className="text-white font-medium">{actor}</p>
-                                      <p className="text-white/60 text-sm">Actor</p>
-                                    </div>
-                                  </div>
-                                ))}
-                                {media.stars.length > 6 && (
-                                  <div className="text-center">
-                                    <button
-                                      onClick={() => setShowMoreInfo(!showMoreInfo)}
-                                      className="text-red-400 hover:text-red-300 text-sm font-medium flex items-center gap-1 mx-auto"
-                                    >
-                                      {showMoreInfo ? (
-                                        <>
-                                          Show Less <ChevronUp className="w-4 h-4" />
-                                        </>
-                                      ) : (
-                                        <>
-                                          Show {media.stars.length - 6} More <ChevronDown className="w-4 h-4" />
-                                        </>
-                                      )}
-                                    </button>
-                                    {showMoreInfo && (
-                                      <div className="mt-3 space-y-3">
-                                        {media.stars.slice(6).map((actor, index) => (
-                                          <div key={index + 6} className="flex items-center gap-3 p-3 bg-gray-800/30 rounded-lg hover:bg-gray-800/50 transition-colors">
-                                            <div className="w-12 h-12 bg-gray-700 rounded-full flex items-center justify-center">
-                                              <User className="w-6 h-6 text-gray-400" />
-                                            </div>
-                                            <div>
-                                              <p className="text-white font-medium">{actor}</p>
-                                              <p className="text-white/60 text-sm">Actor</p>
-                                            </div>
-                                          </div>
-                                        ))}
-                                      </div>
-                                    )}
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    ) : null}
+                    {/* Cast & Crew Section with Images */}
+                    {((media.stars && media.stars.length > 0) || (media.director && media.director.length > 0)) && (
+                      <CastSection 
+                        media={media}
+                        showMoreInfo={showMoreInfo}
+                        setShowMoreInfo={setShowMoreInfo}
+                      />
+                    )}
                   </div>
 
                   {/* Right side - Movie Poster */}

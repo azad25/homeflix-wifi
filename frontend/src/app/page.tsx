@@ -11,6 +11,7 @@ import { Media } from '@/types/media';
 import { ScrollXHero, EnhancedHorizontalRow } from '@/components/scrollx';
 import RecentlyWatched from '@/components/RecentlyWatched';
 import ContinueWatching from '@/components/ContinueWatching';
+import UpcomingMovies from '@/components/UpcomingMovies';
 
 export default function Home() {
   const navigate = useNavigate();
@@ -312,6 +313,13 @@ export default function Home() {
               onInfo={handleInfo}
             />
 
+            {/* TMDB Upcoming Movies - Now Playing in Theaters */}
+            <UpcomingMovies 
+              showSection="now_playing"
+              maxItems={15}
+              className="px-4 md:px-8"
+            />
+
             {/* Trending Now */}
             {trendingNow.length > 0 && (
               <EnhancedHorizontalRow
@@ -400,6 +408,27 @@ export default function Home() {
                 size="medium"
               />
             )}
+
+            {/* TMDB Coming Soon */}
+            <UpcomingMovies 
+              showSection="upcoming"
+              maxItems={12}
+              className="px-4 md:px-8"
+            />
+
+            {/* TMDB Trending This Week */}
+            <UpcomingMovies 
+              showSection="trending_weekly"
+              maxItems={10}
+              className="px-4 md:px-8"
+            />
+
+            {/* TMDB Trending Daily - Bottom Section */}
+            <UpcomingMovies 
+              showSection="trending_daily"
+              maxItems={15}
+              className="px-4 md:px-8"
+            />
           </div>
         )}
       </div>

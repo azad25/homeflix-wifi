@@ -26,8 +26,13 @@ const nextConfig = {
         port: '8252',
         pathname: '/api/**',
       },
+      {
+        protocol: 'https',
+        hostname: 'image.tmdb.org',
+        pathname: '/t/p/**',
+      },
     ],
-    domains: ['localhost', '172.20.0.1'],
+    domains: ['localhost', '172.20.0.1', 'image.tmdb.org'],
   },
   async rewrites() {
     return [

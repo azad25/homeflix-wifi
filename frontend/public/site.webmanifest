@@ -1,0 +1,20 @@
+{
+  "name": "HomeFlix",
+  "short_name": "HomeFlix",
+  "description": "Your personal Netflix-style streaming platform",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    },
+    {
+      "src": "/favicon-simple.svg", 
+      "sizes": "16x16",
+      "type": "image/svg+xml"
+    }
+  ],
+  "theme_color": "#dc2626",
+  "background_color": "#000000",
+  "display": "standalone"
+}
