@@ -789,7 +789,7 @@ func getSubtitleContentType(format string) string {
 	}
 }
 
-// extractInternalSubtitle extracts internal subtitle track using ffmpeg
+// extractInternalSubtitle extracts internal subtitle track using ffmpeg with enhanced timing precision
 func extractInternalSubtitle(videoPath string, streamIndex int) ([]byte, error) {
 	log.Printf("🎬 Extracting internal subtitle: stream %d from %s", streamIndex, filepath.Base(videoPath))
 	
@@ -850,13 +850,16 @@ func extractInternalSubtitle(videoPath string, streamIndex int) ([]byte, error) 
 	
 	log.Printf("🎬 Using actual stream index %d for subtitle stream %d", actualStreamIndex, streamIndex)
 	
-	// Extract subtitle using the correct stream index
+	// Extract subtitle using the correct stream index with enhanced timing precision
 	cmd := exec.Command("ffmpeg",
 		"-v", "error", // Reduce verbosity but show errors
 		"-i", videoPath,
 		"-map", fmt.Sprintf("0:%d", actualStreamIndex), // Use absolute stream index
 		"-c:s", "srt", // Convert to SRT format for web compatibility
 		"-f", "srt",
+		"-avoid_negative_ts", "make_zero", // Ensure no negative timestamps
+		"-copyts", // Copy timestamps precisely
+		"-start_at_zero", // Start at zero for consistency
 		"-")
 
 	output, err := cmd.Output()
@@ -870,8 +873,11 @@ func extractInternalSubtitle(videoPath string, streamIndex int) ([]byte, error) 
 		return nil, fmt.Errorf("extracted subtitle is empty")
 	}
 
-	log.Printf("✅ Successfully extracted internal subtitle: %d bytes", len(output))
-	return output, nil
+	// Post-process the SRT to ensure proper timing format
+	processedOutput := postProcessSRTTiming(output)
+
+	log.Printf("✅ Successfully extracted internal subtitle: %d bytes", len(processedOutput))
+	return processedOutput, nil
 }
 
 // extractInternalSubtitleAlternative tries alternative extraction methods
@@ -928,7 +934,43 @@ func extractInternalSubtitleAlternative(videoPath string, streamIndex int) ([]by
 	return nil, fmt.Errorf("all subtitle extraction methods failed for stream %d", streamIndex)
 }
 
-// convertWebVTTToSRT converts WebVTT format to SRT format
+// postProcessSRTTiming ensures proper SRT timing format and fixes common issues
+func postProcessSRTTiming(srtData []byte) []byte {
+	content := string(srtData)
+	lines := strings.Split(content, "\n")
+	var processedLines []string
+	
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		
+		// Fix timestamp format issues
+		if strings.Contains(line, "-->") {
+			// Ensure proper SRT timestamp format: HH:MM:SS,mmm --> HH:MM:SS,mmm
+			timestampRegex := regexp.MustCompile(`(\d{1,2}):(\d{2}):(\d{2})[.,](\d{3})\s*-->\s*(\d{1,2}):(\d{2}):(\d{2})[.,](\d{3})`)
+			if timestampRegex.MatchString(line) {
+				// Replace dots with commas and ensure proper formatting
+				line = timestampRegex.ReplaceAllStringFunc(line, func(match string) string {
+					parts := timestampRegex.FindStringSubmatch(match)
+					if len(parts) == 9 {
+						// Ensure hours are zero-padded
+						startHour := fmt.Sprintf("%02s", parts[1])
+						endHour := fmt.Sprintf("%02s", parts[5])
+						return fmt.Sprintf("%s:%s:%s,%s --> %s:%s:%s,%s",
+							startHour, parts[2], parts[3], parts[4],
+							endHour, parts[6], parts[7], parts[8])
+					}
+					return match
+				})
+			}
+		}
+		
+		processedLines = append(processedLines, line)
+	}
+	
+	return []byte(strings.Join(processedLines, "\n"))
+}
+
+// convertWebVTTToSRT converts WebVTT format to SRT format with enhanced timing precision
 func convertWebVTTToSRT(vttContent string) string {
 	lines := strings.Split(vttContent, "\n")
 	var srtLines []string
@@ -948,11 +990,29 @@ func convertWebVTTToSRT(vttContent string) string {
 			srtLines = append(srtLines, fmt.Sprintf("%d", counter))
 			counter++
 			
-			// Convert WebVTT timestamp format to SRT format
+			// Convert WebVTT timestamp format to SRT format with proper formatting
 			// WebVTT: 00:00:01.000 --> 00:00:04.000
 			// SRT:    00:00:01,000 --> 00:00:04,000
-			srtTimestamp := strings.ReplaceAll(line, ".", ",")
-			srtLines = append(srtLines, srtTimestamp)
+			timestampRegex := regexp.MustCompile(`(\d{1,2}):(\d{2}):(\d{2})[.,](\d{3})\s*-->\s*(\d{1,2}):(\d{2}):(\d{2})[.,](\d{3})`)
+			if timestampRegex.MatchString(line) {
+				srtTimestamp := timestampRegex.ReplaceAllStringFunc(line, func(match string) string {
+					parts := timestampRegex.FindStringSubmatch(match)
+					if len(parts) == 9 {
+						// Ensure proper SRT format with zero-padded hours
+						startHour := fmt.Sprintf("%02s", parts[1])
+						endHour := fmt.Sprintf("%02s", parts[5])
+						return fmt.Sprintf("%s:%s:%s,%s --> %s:%s:%s,%s",
+							startHour, parts[2], parts[3], parts[4],
+							endHour, parts[6], parts[7], parts[8])
+					}
+					return strings.ReplaceAll(match, ".", ",")
+				})
+				srtLines = append(srtLines, srtTimestamp)
+			} else {
+				// Fallback: simple dot to comma replacement
+				srtTimestamp := strings.ReplaceAll(line, ".", ",")
+				srtLines = append(srtLines, srtTimestamp)
+			}
 			
 			// Collect subtitle text until next timestamp or end
 			i++
@@ -966,7 +1026,12 @@ func convertWebVTTToSRT(vttContent string) string {
 					i-- // Back up one line
 					break
 				}
-				textLines = append(textLines, textLine)
+				// Clean up WebVTT styling and notes
+				if !strings.HasPrefix(textLine, "NOTE") && 
+				   !strings.Contains(textLine, "align:") && 
+				   !strings.Contains(textLine, "position:") {
+					textLines = append(textLines, textLine)
+				}
 				i++
 			}
 			

@@ -185,11 +185,9 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
         await playPromise;
         setCanAutoplayWithAudio(true); // Start optimistic - assume audio works
         video.pause();
-        console.log('✅ Autoplay capabilities detected - audio enabled');
       }
     } catch (error) {
       setCanAutoplayWithAudio(false);
-      console.log('⚠️ Autoplay blocked - will use muted playback');
     }
   };
 
@@ -250,8 +248,6 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
     const cleanupInterval = opts.memoryCleanupInterval || 120000;
     if (now - lastCleanupTime.current < cleanupInterval) return;
 
-    console.log(`🧹 24/7 Memory cleanup starting (${browserOptimizations.name})...`);
-
     // BROWSER-SPECIFIC URL CACHE CLEANUP
     const maxCacheSize = opts.conservativeMode ? 20 : 30;
     const keepSize = opts.conservativeMode ? 10 : 15;
@@ -302,14 +298,12 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
     if (opts.forceGC && typeof window !== 'undefined' && 'gc' in window) {
       try {
         (window as any).gc();
-        console.log('🗑️ Forced garbage collection (Chrome)');
       } catch (e) {
         // Ignore if not available
       }
     }
 
     lastCleanupTime.current = now;
-    console.log(`✅ 24/7 Memory cleanup completed (${browserOptimizations.name})`);
   }, [currentMedia, browserOptimizations]);
 
   // Update performance monitoring to use cleanupMemory
@@ -348,7 +342,6 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
 
   // Enhanced frontend recommendation system with latest movies and priority genre focus
   const generateFrontendRecommendations = (availableMedia: Media[], currentFeatured: Media[]): Media[] => {
-    console.log(`🔄 Generating frontend recommendations from ${availableMedia.length} available items (cycle ${cycleCount})...`);
 
     // Apply content filtering
     let filteredMedia = availableMedia;
@@ -559,14 +552,12 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
       recommendations.push(...shuffleArray(fillContent).slice(0, slotsRemaining));
     }
 
-    console.log(`✅ Generated ${recommendations.length} frontend recommendations using algorithm ${algorithm + 1} (${priorityGenreContent.length} priority genres, ${latestContent.length} latest, ${latestMovies.length} latest movies, ${latestPriorityMovies.length} latest priority movies)`);
     return shuffleArray(recommendations).slice(0, 10);
   };
 
   // Enhanced recommendation system with guaranteed unique content every load
   const fetchRecommendedMedia = async (cycleNumber: number = 0) => {
     setIsLoadingNewContent(true);
-    console.log(`🎬 Fetching ALWAYS DIFFERENT recommendations (cycle ${cycleNumber})...`);
 
     try {
       // ALWAYS try backend recommendations first for guaranteed uniqueness
@@ -595,7 +586,6 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
         const currentEndpoint = recommendationEndpoints[endpointIndex];
         const endpointName = currentEndpoint.split('/').pop()?.split('?')[0] || 'unknown';
 
-        console.log(`🎯 Fetching from ${endpointName} recommendations endpoint (cycle ${cycleNumber}, random offset: ${randomOffset})`);
 
         // Call the specific recommendation endpoint with session and cache-busting in URL only
         const cacheBustingUrl = `${currentEndpoint}&_t=${timestamp}&_r=${randomOffset}&_session=hero-${timestamp}-${cycleNumber}-${randomOffset}`;
@@ -606,9 +596,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
 
         if (response.ok) {
           newMedia = await response.json();
-          console.log(`✅ Got ${newMedia.length} unique ${endpointName} recommendations from backend`);
         } else {
-          console.warn(`⚠️ ${endpointName} recommendations API failed with status: ${response.status}`);
 
           // Try randomized fallback endpoints if primary fails
           const shuffledEndpoints = [...recommendationEndpoints].sort(() => Math.random() - 0.5);
@@ -618,7 +606,6 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
             try {
               const fallbackName = fallbackEndpoint.split('/').pop()?.split('?')[0] || 'fallback';
               const fallbackTimestamp = Date.now();
-              console.log(`🔄 Trying randomized fallback endpoint: ${fallbackName}`);
 
               const fallbackCacheBustingUrl = `${fallbackEndpoint}&_t=${fallbackTimestamp}&_r=${Math.random()}&_session=hero-fallback-${fallbackTimestamp}-${cycleNumber}`;
               const fallbackResponse = await fetch(fallbackCacheBustingUrl, {
@@ -628,11 +615,9 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
 
               if (fallbackResponse.ok) {
                 newMedia = await fallbackResponse.json();
-                console.log(`✅ Got ${newMedia.length} recommendations from fallback ${fallbackName} endpoint`);
                 break;
               }
             } catch (fallbackError) {
-              console.warn('❌ Fallback endpoint failed:', fallbackError);
               continue;
             }
           }
@@ -666,7 +651,6 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
           // Add additional randomization based on time and cycle
           const timeBasedShuffle = shuffleArray(newMedia);
           setFeaturedMedia(timeBasedShuffle.slice(0, 10));
-          console.log(`✅ Using ${timeBasedShuffle.length} unique ${endpointName} recommendations`);
 
           // Preload assets for instant display
           const { preloadAssets } = await import('@/lib/api');
@@ -675,18 +659,15 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
           return;
         }
       } catch (error) {
-        console.warn('❌ Backend recommendations failed:', error);
       }
 
       // Enhanced frontend fallback with proper media handling (no fake IDs)
       if (initialFeaturedMedia.length > 0) {
-        console.log(`🎲 Using frontend algorithm for cycle ${cycleNumber} with ${initialFeaturedMedia.length} valid media items`);
 
         // Use only real media items - no fake ID generation to prevent 404 errors
         const validMedia = initialFeaturedMedia.filter(item => item && item.id && typeof item.id === 'number');
 
         if (validMedia.length === 0) {
-          console.warn('⚠️ No valid media items found, keeping current featured media');
           return;
         }
 
@@ -696,7 +677,6 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
         const algorithmIndex = (cycleNumber + Math.floor(randomSeed / 1000)) % 5; // Increased to 5 algorithms
         let shuffledMedia: Media[] = [];
 
-        console.log(`🎲 Using frontend algorithm ${algorithmIndex + 1} with random seed: ${randomSeed}`);
 
         if (algorithmIndex === 0) {
           // Algorithm 1: Random shuffle with timestamp-based seed
@@ -745,14 +725,11 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
         }
 
         setFeaturedMedia(newFeaturedMedia.slice(0, 10));
-        console.log(`✅ Updated with ${newFeaturedMedia.length} valid media items using algorithm ${algorithmIndex + 1}`);
       } else if (allAvailableMedia.length > 0) {
         // Fallback to cached media with cycle-based shuffling
         const cycleBasedRecs = generateFrontendRecommendations(allAvailableMedia, featuredMedia);
         setFeaturedMedia(cycleBasedRecs);
-        console.log(`✅ Updated with ${cycleBasedRecs.length} cycle-based cached recommendations`);
       } else {
-        console.log(`🔄 Creating time-based randomized content...`);
         // Create completely new shuffled content with time-based seed
         const timeShuffled = shuffleArray([...initialFeaturedMedia, ...initialFeaturedMedia]);
         setFeaturedMedia(timeShuffled.slice(0, 10));
@@ -909,7 +886,6 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
       END OF COMMENTED API CALLS */
 
     } catch (error) {
-      console.error('❌ Critical error in frontend recommendations:', error);
       // Keep existing content if error occurs
     } finally {
       setIsLoadingNewContent(false);
@@ -989,7 +965,6 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
   const hasVideoContent = (media: Media) => {
     // Validate media ID before checking content
     if (!media?.id || typeof media.id !== 'number' || media.id <= 0) {
-      console.warn('Invalid media ID for video content check:', media?.id);
       return false;
     }
     // Check if we have a media ID and either a preview clip path or file path
@@ -1045,7 +1020,6 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
       try {
         videoRef.current.pause();
       } catch (error) {
-        console.warn('Chrome pause error (safe to ignore):', error);
       }
     }
     // Stop main video
@@ -1066,7 +1040,6 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
         video.src = '';
         video.load();
       } catch (error) {
-        console.warn('Chrome video cleanup error (safe to ignore):', error);
       }
     });
 
@@ -1096,7 +1069,6 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
         setIsTransitioning(false);
 
         // NO automatic cycle reloading - just loop through existing slides
-        console.log(`➡️ Moving to slide ${nextIndex + 1}/${featuredMedia.length}`);
 
         // 24/7 PERFORMANCE MONITORING
         //monitor24x7Performance();
@@ -1129,14 +1101,12 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
     if (!media?.id) return;
 
     // Skip preloading to reduce server requests - rely on instant L1 cache
-    console.log(`⚡ Skipping video preload for ${media.title} - relying on instant backend cache`);
     return null;
   }, []);
 
   // Simplified - no preloading, direct video element usage
   const getPreloadedVideo = useCallback((media: Media) => {
     // Skip preloading - create video element on-demand for instant playback
-    console.log(`⚡ Creating video element on-demand for ${media.title}`);
     return null;
   }, []);
 
@@ -1146,17 +1116,14 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
 
     try {
       const currentMediaId = currentMediaRef.current?.id?.toString();
-      console.log(`🎬 Attempting to play video for media ${currentMediaId}`);
 
       // Basic validation - less strict to allow playback
       if (!currentMediaId) {
-        console.warn(`🚫 No current media ID available`);
         return false;
       }
 
       // Prevent Chrome race conditions by ensuring video is not in conflicting state
       if (!video.paused) {
-        console.log(`⏸️ Video already playing, avoiding race condition`);
         return true;
       }
 
@@ -1167,7 +1134,6 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
       video.muted = true;
       video.volume = 0;
 
-      console.log(`🎵 Starting muted video for browser compatibility - slide ${currentMediaId}`);
 
       // Chrome-safe play with proper promise handling
       try {
@@ -1187,24 +1153,19 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
               if (currentMediaRef.current?.id?.toString() === currentMediaId && !video.paused) {
                 video.muted = false;
                 video.volume = spatialAudioEnabled ? 0.7 : 0.5;
-                console.log(`🔊 Instantly unmuted video for slide ${currentMediaId}`);
               }
             }
 
-            console.log(`✅ Video playing successfully for slide ${currentMediaId}`);
             return true;
           } else {
-            console.warn(`⚠️ Video was paused during play attempt`);
             return false;
           }
         }
       } catch (playError) {
-        console.error(`❌ Chrome play() interrupted:`, playError);
         // Don't throw, just return false to allow fallback
         return false;
       }
     } catch (error) {
-      console.error(`❌ Video play failed for media ${currentMediaRef.current?.id}:`, error);
 
       // Fallback: ensure muted playback
       try {
@@ -1214,11 +1175,9 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
         if (fallbackPromise !== undefined) {
           await fallbackPromise;
           setIsPlaying(true);
-          console.log(`🔇 Fallback muted playback successful for media ${currentMediaRef.current?.id}`);
           return true;
         }
       } catch (fallbackError) {
-        console.error(`❌ Fallback muted playback also failed:`, fallbackError);
       }
     }
 
@@ -1330,7 +1289,6 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
   const refreshContent = () => {
     const newCycleCount = cycleCount + 1;
     setCycleCount(newCycleCount);
-    console.log(`🔄 Manual refresh triggered, generating cycle ${newCycleCount} from frontend shuffle...`);
     fetchRecommendedMedia(newCycleCount);
     setCurrentIndex(0); // Reset to first slide
   };
@@ -1390,7 +1348,6 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
       }
 
     } catch (error) {
-      console.warn('Error during slide change:', error);
     } finally {
       setIsTransitioning(false);
       setIsLoadingNewContent(false);
@@ -1426,7 +1383,6 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
       currentMediaRef.current = initialFeaturedMedia[0];
 
       // NO cycle count changes - use static initialization to prevent multiple cycles
-      console.log(`🎯 Immediate display: Using ${initialFeaturedMedia.length} initial media items`);
 
       // Mark as initialized immediately to show content
       setHasInitializedContent(true);
@@ -1472,10 +1428,8 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
         currentMediaRef.current?.id === currentMedia.id &&
         video.src.includes(currentMedia.id.toString())) {
 
-        console.log(`🎵 Playing audio for slide ${currentMedia.id}: ${currentMedia.title}`);
         playVideoWithAudio(video, shouldPlayWithAudio);
       } else {
-        console.log(`⏸️ Skipping play - media mismatch. Current: ${currentMedia.id}, Ref: ${currentMediaRef.current?.id}`);
       }
     };
 
@@ -1513,7 +1467,6 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
     cleanupMemory();
 
     // Skip preloading - rely on backend L1 cache for instant playback
-    console.log('⚡ Skipping video preloading - using backend cache for instant playback');
   }, [currentIndex, featuredMedia, cleanupMemory]);
 
   // Smart auto-slide functionality with fresh content loading
@@ -1529,7 +1482,6 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
         const nextIndex = (currentIndex + 1) % featuredMedia.length;
         if (nextIndex === 0 && currentIndex === featuredMedia.length - 1) {
           // At the end of cycle - fetch fresh content and restart
-          console.log('🔄 End of cycle reached, fetching fresh content...');
 
           // Pause auto-playing temporarily while loading new content
           setIsAutoPlaying(false);
@@ -1544,10 +1496,8 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
             setTimeout(() => {
               setCurrentIndex(0); // Start from first slide of new content
               setIsAutoPlaying(true); // Resume auto-playing
-              console.log('✅ Fresh content loaded, restarting auto-play');
             }, 1000);
           }).catch((error) => {
-            console.error('❌ Failed to fetch fresh content:', error);
             // Fallback: just restart the current cycle
             setCurrentIndex(0);
             setIsAutoPlaying(true);
@@ -1565,7 +1515,6 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
   // Enhanced recommendation cycling system with API endpoint rotation and memory management
   useEffect(() => {
     if (!enableRecommendations) {
-      console.log('🔒 Recommendations disabled');
       return;
     }
 
@@ -1575,7 +1524,6 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
       refreshTimerRef.current = null;
     }
 
-    console.log('🔄 Starting recommendation cycling system with API endpoints');
 
     // Initial fetch on mount
     if (featuredMedia.length === 0 || !hasInitializedContent) {
@@ -1592,7 +1540,6 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
         cleanupMemory();
       }
 
-      console.log(`🔄 Auto-refreshing recommendations (cycle ${newCycleCount}) using API endpoints`);
       fetchRecommendedMedia(newCycleCount);
     }, refreshInterval);
 
@@ -1600,7 +1547,6 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
       if (refreshTimerRef.current) {
         clearInterval(refreshTimerRef.current);
         refreshTimerRef.current = null;
-        console.log('🛑 Cleared recommendation refresh timer');
       }
     };
 
@@ -1617,7 +1563,6 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
       setIsTransitioning(false);
       setCurrentIndex(0); // Reset to first slide only when loading new content
       setIsLoadingNewContent(false); // Clear the loading flag
-      console.log('🔄 Reset video states for new content');
     }
   }, [featuredMedia.length, isLoadingNewContent]); // Reduced dependencies
 
@@ -1648,7 +1593,6 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
   useEffect(() => {
     if (featuredMedia.length > 1) {
       // Skip preloading - rely on backend L1 cache for instant playback
-      console.log('⚡ Skipping adjacent video preloading - using backend cache');
 
       // Perform memory cleanup instead
       cleanupMemory();
@@ -1666,11 +1610,9 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
       setVideoLoaded(false);
       setBackgroundLoaded(false);
 
-      console.log(`🖼️ Showing thumbnail first for media ${currentMedia.id}`);
 
       const videoUrl = getVideoUrl(currentMedia);
       if (!videoUrl) {
-        console.log(`❌ No video URL available for media ${currentMedia.id}`);
         return;
       }
 
@@ -1687,7 +1629,6 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
         // Start loading video immediately but show thumbnail first
         video.preload = 'metadata';
         video.load();
-        console.log(`🎥 Started loading video for media ${currentMedia.id}`);
       }
     }
   }, [currentMedia]);
@@ -1708,7 +1649,6 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
       video.loop = true;
 
       const handleCanPlayThrough = () => {
-        console.log(`✅ Video ready to play for media ${currentMedia.id}`);
         setIsVideoLoaded(true);
         setVideoLoaded(true);
 
@@ -1720,7 +1660,6 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
       const handleCanPlay = () => {
         // Also try to play on canplay event for faster loading
         if (!isVideoLoaded) {
-          console.log(`🎬 Video can play for media ${currentMedia.id}`);
           setIsVideoLoaded(true);
           setVideoLoaded(true);
 
@@ -1730,12 +1669,10 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
       };
 
       const handleError = (e: Event) => {
-        console.warn('Video loading error for media', currentMedia.id, ':', e);
 
         // Try fallback URL
         const fallbackUrl = getVideoUrl(currentMedia, true);
         if (fallbackUrl && fallbackUrl !== video.src) {
-          console.log('Trying fallback URL:', fallbackUrl);
           video.src = fallbackUrl;
           video.load();
           return;
@@ -1748,7 +1685,6 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
       };
 
       const handleLoadStart = () => {
-        console.log(`⏳ Video loading started for media ${currentMedia.id}`);
         setVideoLoaded(false);
         setIsPlaying(false);
       };
@@ -1798,7 +1734,6 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
     const handleUserInteraction = () => {
       if (!userHasInteracted) {
         setUserHasInteracted(true);
-        console.log('🖱️ User interaction detected - enabling audio for Safari');
 
         // Immediately try to enable audio on current video for Safari
         if (videoRef.current && !videoRef.current.paused) {
@@ -1808,7 +1743,6 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
           if (shouldPlayWithAudio) {
             video.muted = false;
             video.volume = spatialAudioEnabled ? 0.7 : 0.5;
-            console.log('🔊 Enabled audio after user interaction');
           }
         }
 
@@ -1951,7 +1885,6 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
   // Enhanced component cleanup with comprehensive timer and memory management
   useEffect(() => {
     return () => {
-      console.log('🧹 Performing comprehensive component cleanup...');
 
       // Stop all video playback
       stopAllPlayback();
@@ -1985,7 +1918,6 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
       // Clear caches
       urlCache.current.clear();
 
-      console.log('✅ Component cleanup completed');
     };
   }, []);
 
@@ -2113,9 +2045,8 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
                         if (!isPlaying && video.paused) {
                           video.play().catch((error) => {
                             if (error.name === 'AbortError') {
-                              console.log('🚫 Chrome play() interrupted by pause() - ignoring');
                             } else {
-                              console.log('🍎 Autoplay blocked - waiting for user interaction');
+                              return;
                             }
                           });
                         }
@@ -2134,14 +2065,12 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
                     }
                   }}
                   onError={(e) => {
-                    console.warn('Video element error for media', currentMedia.id, ':', e);
 
                     // Try fallback URL
                     if (videoRef.current) {
                       const video = videoRef.current;
                       const fallbackUrl = getVideoUrl(currentMedia, true);
                       if (fallbackUrl && fallbackUrl !== video.src) {
-                        console.log('Trying fallback URL:', fallbackUrl);
                         video.src = fallbackUrl;
                         video.load();
                         return;
@@ -2569,7 +2498,6 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
                 const newCycleCount = cycleCount + 1 + randomCycleBoost;
                 setCycleCount(newCycleCount);
 
-                console.log(`🔄 Manual refresh triggered (cycle ${newCycleCount}, random boost: ${randomCycleBoost}) with memory cleanup`);
                 fetchRecommendedMedia(newCycleCount);
               }}
               disabled={isLoadingNewContent}

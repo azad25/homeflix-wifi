@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { ArrowLeft, Play, Plus, Check, Share, Download, Info, Star, Clock, Calendar, Globe, Users, Award, Film, Tv, User, Mic, ChevronDown, ChevronUp, Volume2, VolumeX, Users as Cast, User as Director } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -36,10 +36,95 @@ import RecommendationSection from '@/components/RecommendationSection';
 import DynamicTitle from '@/components/DynamicTitle';
 import { useNavigate } from "@/hooks/useNavigate";
 
+// Custom hook to manage background video lifecycle
+const useBackgroundVideo = (videoRef: React.RefObject<HTMLVideoElement | null>, isPlayerOpen: boolean) => {
+  const [isVideoPlaying, setIsVideoPlaying] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
+
+  // Function to stop video completely
+  const stopVideo = useCallback(() => {
+    const video = videoRef.current;
+    if (video) {
+      video.pause();
+      video.muted = true;
+      video.currentTime = 0;
+      video.volume = 0;
+      setIsVideoPlaying(false);
+      setIsMuted(true);
+    }
+  }, [videoRef]);
+
+  // Function to pause video
+  const pauseVideo = useCallback(() => {
+    const video = videoRef.current;
+    if (video) {
+      video.pause();
+      video.muted = true;
+      setIsVideoPlaying(false);
+      setIsMuted(true);
+    }
+  }, [videoRef]);
+
+  // Main effect to handle player open/close state
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    if (isPlayerOpen) {
+      // Player opened - stop background video completely
+      video.pause();
+      video.muted = true;
+      video.volume = 0;
+      video.currentTime = 0;
+      setIsVideoPlaying(false);
+      setIsMuted(true);
+      
+      // Remove video source to completely stop loading
+      if (video.src) {
+        video.dataset.originalSrc = video.src;
+        video.src = '';
+        video.load();
+      }
+    }
+  }, [isPlayerOpen]);
+
+  // Global cleanup listeners
+  useEffect(() => {
+    const handleBeforeUnload = () => stopVideo();
+    const handleVisibilityChange = () => {
+      if (document.hidden) pauseVideo();
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    window.addEventListener('unload', handleBeforeUnload);
+    window.addEventListener('pagehide', handleBeforeUnload);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      stopVideo();
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      window.removeEventListener('unload', handleBeforeUnload);
+      window.removeEventListener('pagehide', handleBeforeUnload);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [stopVideo, pauseVideo]);
+
+  return {
+    isVideoPlaying,
+    setIsVideoPlaying,
+    isMuted,
+    setIsMuted,
+    stopVideo,
+    pauseVideo
+  };
+};
+
 export default function MoviePage() {
   const params = useParams();
   const router = useRouter();
   const navigate = useNavigate();
+
+
   const [media, setMedia] = useState<Media | null>(null);
   const [isPlayerOpen, setIsPlayerOpen] = useState(false);
   const [isInMyList, setIsInMyList] = useState(false);
@@ -50,12 +135,59 @@ export default function MoviePage() {
   const [lastWatched, setLastWatched] = useState<string | null>(null);
   const [showMoreInfo, setShowMoreInfo] = useState(false);
   const [isVideoLoaded, setIsVideoLoaded] = useState(false);
-  const [isVideoPlaying, setIsVideoPlaying] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [isMuted, setIsMuted] = useState(false); // Start with audio enabled
   const [showTitleOverlay, setShowTitleOverlay] = useState(true); // Netflix-style title overlay
   const [isHoveringTitle, setIsHoveringTitle] = useState(false); // Hover state for title area
   const videoRef = useRef<HTMLVideoElement>(null);
+
+  // Use custom hook for background video management
+  const {
+    isVideoPlaying,
+    setIsVideoPlaying,
+    isMuted,
+    setIsMuted,
+    stopVideo,
+    pauseVideo
+  } = useBackgroundVideo(videoRef, isPlayerOpen);
+
+  // Override navigate functions to stop video
+  const safeNavigate = {
+    push: (url: string) => {
+      stopVideo();
+      navigate.push(url);
+    },
+    back: () => {
+      stopVideo();
+      navigate.back();
+    },
+    replace: (url: string) => {
+      stopVideo();
+      navigate.replace(url);
+    }
+  };
+
+  // Intersection Observer to stop video when component is not visible
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (!entry.isIntersecting && !isPlayerOpen) {
+            stopVideo();
+          }
+        });
+      },
+      { threshold: 0.1 }
+    );
+
+    observer.observe(video);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [stopVideo, isPlayerOpen]);
 
   // Chromecast integration
   const {
@@ -73,27 +205,98 @@ export default function MoviePage() {
     }
   }, [params.id]);
 
-  // Effect to handle background video when player opens/closes
+  // Immediate background video control when player opens/closes
   useEffect(() => {
     const video = videoRef.current;
-    if (video) {
-      if (isPlayerOpen) {
-        // Pause and mute background video when player opens
-        video.pause();
-        video.muted = true;
-        setIsVideoPlaying(false);
-        setIsMuted(true);
-        console.log('Background video paused and muted due to player opening');
-      }
+    if (!video) return;
+
+    if (isPlayerOpen) {
+      // Player opened - immediately stop background video
+      video.pause();
+      video.muted = true;
+      video.volume = 0;
+      video.currentTime = 0;
+      setIsVideoPlaying(false);
+      setIsMuted(true);
+      
+      // Also hide the video element
+      video.style.display = 'none';
+      video.style.visibility = 'hidden';
+    } else {
+      // Player closed - show video element again
+      video.style.display = 'block';
+      video.style.visibility = 'visible';
     }
   }, [isPlayerOpen]);
+
+  // Global video play event listener to catch any video that starts playing
+  useEffect(() => {
+    const handleGlobalVideoPlay = (event: Event) => {
+      const playingVideo = event.target as HTMLVideoElement;
+      const backgroundVideo = videoRef.current;
+      
+      // If any video starts playing and it's not our background video, stop the background video
+      if (backgroundVideo && playingVideo !== backgroundVideo) {
+        backgroundVideo.pause();
+        backgroundVideo.muted = true;
+        backgroundVideo.volume = 0;
+        setIsVideoPlaying(false);
+        setIsMuted(true);
+      }
+    };
+
+    const handleGlobalVideoLoadStart = (event: Event) => {
+      const loadingVideo = event.target as HTMLVideoElement;
+      const backgroundVideo = videoRef.current;
+      
+      // If any video starts loading and player is open, stop background video
+      if (backgroundVideo && loadingVideo !== backgroundVideo && isPlayerOpen) {
+        backgroundVideo.pause();
+        backgroundVideo.muted = true;
+        backgroundVideo.volume = 0;
+        setIsVideoPlaying(false);
+        setIsMuted(true);
+      }
+    };
+
+    // Listen for all video events in the document
+    document.addEventListener('play', handleGlobalVideoPlay, true);
+    document.addEventListener('loadstart', handleGlobalVideoLoadStart, true);
+    document.addEventListener('canplay', handleGlobalVideoPlay, true);
+    
+    return () => {
+      document.removeEventListener('play', handleGlobalVideoPlay, true);
+      document.removeEventListener('loadstart', handleGlobalVideoLoadStart, true);
+      document.removeEventListener('canplay', handleGlobalVideoPlay, true);
+    };
+  }, [isPlayerOpen]);
+
+  // Aggressive background video control - check every 100ms when player is open
+  useEffect(() => {
+    if (!isPlayerOpen) return;
+
+    const interval = setInterval(() => {
+      const video = videoRef.current;
+      if (video && !video.paused) {
+        video.pause();
+        video.muted = true;
+        video.volume = 0;
+        setIsVideoPlaying(false);
+        setIsMuted(true);
+      }
+    }, 100);
+
+    return () => clearInterval(interval);
+  }, [isPlayerOpen]);
+
+
 
   // Aggressive auto-play with multiple triggers
   useEffect(() => {
     const forceVideoPlay = () => {
       const video = videoRef.current;
       if (video && media && !isPlayerOpen) {
-        console.log('Attempting to force video play...');
+
 
         // Set video properties
         video.muted = false;
@@ -104,17 +307,13 @@ export default function MoviePage() {
         // Force play with multiple attempts
         const playAttempt = () => {
           video.play().then(() => {
-            console.log('Background video started playing with sound');
             setIsVideoPlaying(true);
           }).catch((error) => {
-            console.log('Play with sound failed, trying muted:', error);
             video.muted = true;
             setIsMuted(true);
             video.play().then(() => {
-              console.log('Background video started playing (muted)');
               setIsVideoPlaying(true);
             }).catch(() => {
-              console.log('All play attempts failed');
             });
           });
         };
@@ -144,18 +343,17 @@ export default function MoviePage() {
     if (isVideoLoaded && !isVideoPlaying && !isPlayerOpen) {
       const video = videoRef.current;
       if (video) {
-        console.log('Video loaded, forcing play...');
+
         video.muted = false;
         video.volume = 1.0;
         video.play().then(() => {
-          console.log('Video started after load detection');
           setIsVideoPlaying(true);
           setIsMuted(false);
         }).catch(() => {
           video.muted = true;
           setIsMuted(true);
           video.play().catch(() => {
-            console.log('Failed to start video after load');
+
           });
         });
       }
@@ -184,7 +382,7 @@ export default function MoviePage() {
     setHasWatchedBefore(true);
     setLastWatched(progressData.lastWatched);
 
-    console.log(`Saved playback progress for media ${mediaId}: ${Math.round(progressData.percentage)}%`);
+
   };
 
   const getPlaybackProgressFromCookie = (mediaId: string) => {
@@ -198,7 +396,7 @@ export default function MoviePage() {
         const progressData = JSON.parse(progressCookie.split('=')[1]);
         return progressData;
       } catch (error) {
-        console.error('Error parsing playback progress cookie:', error);
+
         return null;
       }
     }
@@ -215,7 +413,7 @@ export default function MoviePage() {
     setHasWatchedBefore(false);
     setLastWatched(null);
 
-    console.log(`Cleared playback progress for media ${mediaId}`);
+
   };
 
   // Netflix-style title overlay animation
@@ -237,7 +435,7 @@ export default function MoviePage() {
       const data = await response.json();
       setMedia(data);
     } catch (error) {
-      console.error('Error fetching media:', error);
+
     } finally {
       setLoading(false);
     }
@@ -267,10 +465,10 @@ export default function MoviePage() {
 
       if (success) {
         setIsInMyList(!isInMyList);
-        console.log(`${isInMyList ? 'Removed from' : 'Added to'} wishlist: ${media?.title}`);
+
       }
     } catch (error) {
-      console.error('Error updating wishlist:', error);
+
     }
   };
 
@@ -293,12 +491,12 @@ export default function MoviePage() {
           setPlaybackDuration(data.duration);
           setHasWatchedBefore(true);
           setLastWatched(data.last_watched || new Date().toISOString());
-          console.log(`Loaded playback progress from API: ${Math.round((data.position / data.duration) * 100)}%`);
+
           return;
         }
       }
     } catch (error) {
-      console.log('Failed to load progress from API, trying local storage:', error);
+
     }
 
     // Fallback to cookie system
@@ -308,7 +506,7 @@ export default function MoviePage() {
       setPlaybackDuration(cookieProgress.duration);
       setHasWatchedBefore(true);
       setLastWatched(cookieProgress.lastWatched);
-      console.log(`Loaded playback progress from cookie: ${Math.round(cookieProgress.percentage)}%`);
+
       return;
     }
 
@@ -320,61 +518,75 @@ export default function MoviePage() {
         setPlaybackProgress(savedProgress);
         setLastWatched(timestamp);
         setHasWatchedBefore(savedProgress > 0);
-        console.log('Loaded playback progress from localStorage (legacy)');
       } catch (error) {
-        console.error('Error parsing localStorage progress:', error);
       }
     }
   };
 
   const handlePlay = () => {
-    // Pause the background video when opening the player
-    if (videoRef.current) {
-      videoRef.current.pause();
-      videoRef.current.muted = true;
+    // Immediately stop background video when opening player
+    const video = videoRef.current;
+    if (video) {
+      video.pause();
+      video.muted = true;
+      video.volume = 0;
+      video.currentTime = 0;
       setIsVideoPlaying(false);
-      console.log('Background video paused and muted for player');
+      setIsMuted(true);
     }
     setIsPlayerOpen(true);
   };
 
   const handlePlayFromBeginning = () => {
-    // Clear progress and start from beginning
+    // Immediately stop background video when opening player
+    const video = videoRef.current;
+    if (video) {
+      video.pause();
+      video.muted = true;
+      video.volume = 0;
+      video.currentTime = 0;
+      setIsVideoPlaying(false);
+      setIsMuted(true);
+    }
     if (params.id) {
       clearPlaybackProgress(params.id as string);
     }
-    handlePlay();
+    setIsPlayerOpen(true);
   };
 
   const handlePlayerClose = () => {
     setIsPlayerOpen(false);
 
-    // Resume the background video when closing the player
-    if (videoRef.current && isVideoLoaded) {
-      setTimeout(() => {
-        const video = videoRef.current;
-        if (video && !isPlayerOpen) {
-          // Resume with sound when player closes
-          video.muted = false;
-          video.volume = 1.0;
-          setIsMuted(false);
-          video.play().then(() => {
-            console.log('Background video resumed with sound after player close');
-            setIsVideoPlaying(true);
-          }).catch((error) => {
-            console.log('Failed to resume background video with sound:', error);
-            // Try muted fallback
-            if (video) {
-              video.muted = true;
-              setIsMuted(true);
-              video.play().catch(() => {
-                console.log('Background video resume failed completely');
-              });
-            }
-          });
+    // Resume background video when player closes
+    setTimeout(() => {
+      const video = videoRef.current;
+      if (video && isVideoLoaded && media && params.id) {
+        // Restore the video source if it was removed
+        if (video.dataset.originalSrc && !video.src) {
+          video.src = video.dataset.originalSrc;
+          video.load();
+          delete video.dataset.originalSrc;
         }
-      }, 500); // Small delay to ensure player is fully closed
-    }
+
+        // Resume with sound when player closes
+        video.muted = false;
+        video.volume = 1.0;
+        setIsMuted(false);
+        
+        video.play().then(() => {
+          setIsVideoPlaying(true);
+        }).catch((error) => {
+          // Try muted fallback if unmuted play fails
+          video.muted = true;
+          setIsMuted(true);
+          video.play().then(() => {
+            setIsVideoPlaying(true);
+          }).catch(() => {
+            // Silent fail if both attempts fail
+          });
+        });
+      }
+    }, 300); // Reduced delay for faster resume
   };
 
   // Handle cast button click
@@ -408,7 +620,7 @@ export default function MoviePage() {
     };
 
     loadCastMedia(castMedia);
-    console.log('Started casting:', media.title);
+
   };
 
   // Auto-start casting when connected and cast button is clicked
@@ -437,9 +649,7 @@ export default function MoviePage() {
           progress: (currentTime / duration) * 100
         })
       });
-      console.log(`Saved playback progress to API: ${Math.round((currentTime / duration) * 100)}%`);
     } catch (error) {
-      console.log('Failed to save progress to API, using local storage:', error);
     }
 
     // Save to cookie-based system as fallback
@@ -519,7 +729,7 @@ export default function MoviePage() {
         <h1 className="text-4xl font-bold text-white mb-4">Media Not Found</h1>
         <p className="text-xl text-white/80 mb-8">The requested media could not be found.</p>
         <button
-          onClick={() => navigate.back()}
+          onClick={() => safeNavigate.back()}
           className="bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-lg transition-colors"
         >
           Go Back
@@ -571,10 +781,13 @@ export default function MoviePage() {
             left: 0,
             width: '100%',
             height: '100%',
-            objectFit: 'cover'
+            objectFit: 'cover',
+            // Hide video completely when player is open
+            display: isPlayerOpen ? 'none' : 'block',
+            visibility: isPlayerOpen ? 'hidden' : 'visible'
           }}
+
           onLoadedData={() => {
-            console.log('Media info preview video loaded successfully');
             setIsVideoLoaded(true);
             if (videoRef.current) {
               const video = videoRef.current;
@@ -586,18 +799,14 @@ export default function MoviePage() {
               // Immediate play attempt
               const immediatePlay = () => {
                 video.play().then(() => {
-                  console.log('Background video started playing with sound (onLoadedData)');
                   setIsVideoPlaying(true);
                   setIsMuted(false);
                 }).catch((error) => {
-                  console.log('onLoadedData play failed, trying muted:', error);
                   video.muted = true;
                   setIsMuted(true);
                   video.play().then(() => {
-                    console.log('Background video started playing (muted fallback)');
                     setIsVideoPlaying(true);
                   }).catch(() => {
-                    console.log('onLoadedData muted play also failed');
                   });
                 });
               };
@@ -609,12 +818,10 @@ export default function MoviePage() {
             }
           }}
           onError={(e) => {
-            console.log('Preview video error occurred:', e);
             setIsVideoLoaded(false);
             setIsVideoPlaying(false);
           }}
           onCanPlay={() => {
-            console.log('Preview video can play');
             const video = videoRef.current;
             if (video) {
               video.muted = false;
@@ -622,18 +829,14 @@ export default function MoviePage() {
 
               const canPlayAttempt = () => {
                 video.play().then(() => {
-                  console.log('Video playing from onCanPlay with sound');
                   setIsVideoPlaying(true);
                   setIsMuted(false);
                 }).catch(() => {
-                  console.log('onCanPlay play with sound failed, trying muted');
                   video.muted = true;
                   setIsMuted(true);
                   video.play().then(() => {
-                    console.log('Video playing from onCanPlay (muted)');
                     setIsVideoPlaying(true);
                   }).catch(() => {
-                    console.log('onCanPlay play failed completely');
                   });
                 });
               };
@@ -643,19 +846,15 @@ export default function MoviePage() {
             }
           }}
           onPlay={() => {
-            console.log('Preview video started playing');
             setIsVideoPlaying(true);
             setIsMuted(false);
           }}
           onPause={() => {
-            console.log('Preview video paused');
             setIsVideoPlaying(false);
           }}
           onLoadStart={() => {
-            console.log('Preview video load started');
           }}
           onLoadedMetadata={() => {
-            console.log('Preview video metadata loaded');
             const video = videoRef.current;
             if (video) {
               video.muted = false;
@@ -663,18 +862,14 @@ export default function MoviePage() {
 
               const metadataPlay = () => {
                 video.play().then(() => {
-                  console.log('Video auto-started from metadata with sound');
                   setIsVideoPlaying(true);
                   setIsMuted(false);
                 }).catch(() => {
-                  console.log('Metadata play with sound failed, trying muted');
                   video.muted = true;
                   setIsMuted(true);
                   video.play().then(() => {
-                    console.log('Video auto-started from metadata (muted)');
                     setIsVideoPlaying(true);
                   }).catch(() => {
-                    console.log('Metadata play failed completely');
                   });
                 });
               };
@@ -739,26 +934,7 @@ export default function MoviePage() {
                   <GenreTitle media={media} className="mb-4" />
                 </motion.div>
 
-                {/* Tagline with hover reveal */}
-                {media.tagline && (
-                  <motion.div
-                    initial={{ opacity: 0, y: 30, scale: 0.8 }}
-                    animate={{
-                      opacity: (!showTitleOverlay || isHoveringTitle) ? 1 : 0,
-                      y: (!showTitleOverlay || isHoveringTitle) ? 0 : 30,
-                      scale: (!showTitleOverlay || isHoveringTitle) ? 1 : 0.8
-                    }}
-                    transition={{
-                      duration: 0.6,
-                      delay: 0.1,
-                      ease: [0.25, 0.46, 0.45, 0.94]
-                    }}
-                  >
-                    <p className="text-xl md:text-2xl text-white/90 italic mb-6 drop-shadow-lg">
-                      &ldquo;{media.description && `${media.description.substring(0, 200)}` || "Watch and Enjoy Homeflix"}&rdquo;
-                    </p>
-                  </motion.div>
-                )}
+
 
                 {/* Metadata with hover reveal and scaling */}
                 <motion.div
@@ -901,7 +1077,7 @@ export default function MoviePage() {
                   }}
                   transition={{
                     duration: 0.6,
-                    delay: 0.4,
+                    delay: 0.2,
                     ease: [0.25, 0.46, 0.45, 0.94]
                   }}
                 >
@@ -909,14 +1085,6 @@ export default function MoviePage() {
                     {media.description ? `${media.description}` : (
                       "Experience the ultimate entertainment with this amazing content. Watch now and immerse yourself in a world of endless possibilities."
                     )}
-                    {/* {media.description && media.description.length > 200 && (
-                      <button
-                        onClick={() => setShowFullDescription(!showFullDescription)}
-                        className="text-red-400 hover:text-red-300 ml-2 font-medium"
-                      >
-                        {showFullDescription ? 'Show less' : 'Read more'}
-                      </button>
-                    )} */}
                   </p>
                 </motion.div>
               </div>
@@ -1206,7 +1374,7 @@ export default function MoviePage() {
               setMedia(m);
               setIsPlayerOpen(true);
             }}
-            onInfo={(m: Media) => navigate.push(`/movie/${m.id}`)}
+            onInfo={(m: Media) => safeNavigate.push(`/movie/${m.id}`)}
           />
         </div>
       </div>
@@ -1219,9 +1387,20 @@ export default function MoviePage() {
           onClose={handlePlayerClose}
           startTime={hasWatchedBefore && playbackProgress > 0 ? playbackProgress : 0}
           onPlayNext={(nextMedia) => {
-            console.log('Playing next episode:', nextMedia.title);
             // For movies, this would typically not be used, but we'll handle it gracefully
             window.location.href = `/movie/${nextMedia.id}`;
+          }}
+          onVideoPlay={() => {
+            // Immediately stop background video when main video starts playing
+            const video = videoRef.current;
+            if (video) {
+              video.pause();
+              video.muted = true;
+              video.volume = 0;
+              video.currentTime = 0;
+              setIsVideoPlaying(false);
+              setIsMuted(true);
+            }
           }}
         />
       )}

@@ -39,9 +39,10 @@ interface VideoPlayerProps {
   onClose: () => void;
   startTime?: number;
   onPlayNext?: (nextMedia: Media) => void;
+  onVideoPlay?: () => void;
 }
 
-const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, startTime = 0, onPlayNext }) => {
+const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, startTime = 0, onPlayNext, onVideoPlay }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -343,9 +344,13 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                 }
               }
 
-              // Skip tracks with 'unknown' language unless they're external (uploaded)
-              if (track.language.toLowerCase() === 'unknown' && track.track_type !== 'external') {
-                return false;
+              // Allow external tracks with 'unknown' language (uploaded subtitles)
+              if (track.language.toLowerCase() === 'unknown') {
+                if (track.track_type === 'external') {
+                  return true; // Always keep external unknown tracks
+                } else {
+                  return false; // Skip internal unknown tracks
+                }
               }
 
               // Skip duplicate tracks (same language and type)
@@ -370,6 +375,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
 
               return true;
             });
+
 
             const subs = validTracks.map((track: any) => ({
               id: track.id,
@@ -450,21 +456,28 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
       // Create custom subtitle overlay instead of using video text tracks
       const video = videoRef.current;
       if (video && cues.length > 0) {
+        // Clean up any existing subtitle handlers first
+        if ((video as any).subtitleCleanup) {
+          (video as any).subtitleCleanup();
+        }
+
         // Store cues globally for subtitle display
         (window as any).currentSubtitleCues = cues;
-        
+        (window as any).lastSubtitleText = '';
+
         // Enhanced subtitle display function with better timing accuracy
         const updateSubtitleText = () => {
           if (!subtitlesEnabled || !cues.length) {
             setCurrentSubtitleText('');
+            (window as any).lastSubtitleText = '';
             return;
           }
-          
+
           const currentTime = video.currentTime;
-          
-          // Find active cue with more precise timing
-          const activeCue = cues.find(cue => 
-            currentTime >= (cue.start - 0.1) && currentTime <= (cue.end + 0.1)
+
+          // Find active cue with precise timing (no buffer for better accuracy)
+          const activeCue = cues.find(cue =>
+            currentTime >= cue.start && currentTime <= cue.end
           );
 
           if (activeCue) {
@@ -473,29 +486,77 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
               (window as any).lastSubtitleText = activeCue.text;
             }
           } else {
-            if ((window as any).lastSubtitleText) {
+            if ((window as any).lastSubtitleText !== '') {
               setCurrentSubtitleText('');
               (window as any).lastSubtitleText = '';
             }
           }
         };
 
-        // Update subtitles on multiple events for better accuracy
-        const events = ['timeupdate', 'seeked', 'seeking', 'play', 'pause'];
-        events.forEach(event => {
-          video.addEventListener(event, updateSubtitleText);
-        });
-        
+        // Use high-frequency timeupdate for better subtitle timing
+        let subtitleUpdateInterval: NodeJS.Timeout;
+
+        const startSubtitleUpdates = () => {
+          // Clear any existing interval
+          if (subtitleUpdateInterval) {
+            clearInterval(subtitleUpdateInterval);
+          }
+
+          // Update subtitles every 100ms for smooth display
+          subtitleUpdateInterval = setInterval(() => {
+            updateSubtitleText();
+          }, 100);
+        };
+
+        const stopSubtitleUpdates = () => {
+          if (subtitleUpdateInterval) {
+            clearInterval(subtitleUpdateInterval);
+          }
+        };
+
+        // Start updates when video plays, stop when paused
+        const handlePlay = () => {
+          startSubtitleUpdates();
+          updateSubtitleText(); // Immediate update
+        };
+
+        const handlePause = () => {
+          stopSubtitleUpdates();
+          updateSubtitleText(); // Final update
+        };
+
+        const handleSeeked = () => {
+          updateSubtitleText(); // Immediate update after seek
+          if (!video.paused) {
+            startSubtitleUpdates();
+          }
+        };
+
+        // Add event listeners
+        video.addEventListener('play', handlePlay);
+        video.addEventListener('pause', handlePause);
+        video.addEventListener('seeked', handleSeeked);
+        video.addEventListener('timeupdate', updateSubtitleText); // Fallback
+
         // Initial subtitle check
         updateSubtitleText();
-        
-        // Cleanup function to remove event listeners
+
+        // Start updates if video is already playing
+        if (!video.paused) {
+          startSubtitleUpdates();
+        }
+
+        // Enhanced cleanup function
         const cleanup = () => {
-          events.forEach(event => {
-            video.removeEventListener(event, updateSubtitleText);
-          });
+          stopSubtitleUpdates();
+          video.removeEventListener('play', handlePlay);
+          video.removeEventListener('pause', handlePause);
+          video.removeEventListener('seeked', handleSeeked);
+          video.removeEventListener('timeupdate', updateSubtitleText);
+          (window as any).currentSubtitleCues = [];
+          (window as any).lastSubtitleText = '';
         };
-        
+
         // Store cleanup function for later use
         (video as any).subtitleCleanup = cleanup;
       }
@@ -504,33 +565,33 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
       setCurrentSubtitleText(`Error loading subtitles: ${errorMessage}`);
       setTimeout(() => setCurrentSubtitleText(''), 3000);
     }
-  }, [subtitlesEnabled]);
+  }, []);
 
-  // Enhanced SRT parser with better error handling
+  // Enhanced SRT parser with better error handling and precise timing
   const parseSRT = (srtText: string) => {
     const cues = [];
-    
+
     // Normalize line endings and clean up the text
     const normalizedText = srtText
       .replace(/\r\n/g, '\n')
       .replace(/\r/g, '\n')
       .trim();
-    
+
     // Split by double newlines to get subtitle blocks
     const blocks = normalizedText.split(/\n\s*\n/);
 
     for (let blockIndex = 0; blockIndex < blocks.length; blockIndex++) {
       const block = blocks[blockIndex].trim();
       if (!block) continue;
-      
+
       const lines = block.split('\n').map(line => line.trim()).filter(line => line);
-      
+
       if (lines.length < 2) continue;
-      
+
       // Find the timestamp line (could be line 1 or 2 depending on numbering)
       let timeLineIndex = -1;
       let timeMatch = null;
-      
+
       for (let i = 0; i < Math.min(lines.length, 3); i++) {
         timeMatch = lines[i].match(/(\d{1,2}):(\d{2}):(\d{2})[,.](\d{3})\s*-->\s*(\d{1,2}):(\d{2}):(\d{2})[,.](\d{3})/);
         if (timeMatch) {
@@ -538,31 +599,48 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
           break;
         }
       }
-      
+
       if (timeMatch && timeLineIndex !== -1) {
-        const startTime = parseInt(timeMatch[1]) * 3600 + parseInt(timeMatch[2]) * 60 + parseInt(timeMatch[3]) + parseInt(timeMatch[4]) / 1000;
-        const endTime = parseInt(timeMatch[5]) * 3600 + parseInt(timeMatch[6]) * 60 + parseInt(timeMatch[7]) + parseInt(timeMatch[8]) / 1000;
-        
+        // Parse with higher precision for milliseconds
+        const startTime = parseInt(timeMatch[1]) * 3600 +
+          parseInt(timeMatch[2]) * 60 +
+          parseInt(timeMatch[3]) +
+          parseInt(timeMatch[4]) / 1000;
+        const endTime = parseInt(timeMatch[5]) * 3600 +
+          parseInt(timeMatch[6]) * 60 +
+          parseInt(timeMatch[7]) +
+          parseInt(timeMatch[8]) / 1000;
+
         // Get text lines after the timestamp
         const textLines = lines.slice(timeLineIndex + 1);
-        const text = textLines.join('\n').replace(/<[^>]*>/g, '').trim(); // Remove HTML tags
-        
-        if (text && startTime < endTime) {
-          cues.push({ start: startTime, end: endTime, text });
+        const text = textLines.join('\n')
+          .replace(/<[^>]*>/g, '') // Remove HTML tags
+          .replace(/\{[^}]*\}/g, '') // Remove ASS/SSA tags
+          .trim();
+
+        if (text && startTime < endTime && endTime - startTime < 30) { // Sanity check: max 30 seconds per subtitle
+          cues.push({
+            start: Math.round(startTime * 1000) / 1000, // Round to 3 decimal places
+            end: Math.round(endTime * 1000) / 1000,
+            text
+          });
         }
       }
     }
-    
+
+    // Sort cues by start time to ensure proper order
+    cues.sort((a, b) => a.start - b.start);
+
     return cues;
   };
 
-  // WebVTT parser
+  // Enhanced WebVTT parser with better precision
   const parseVTT = (vttText: string) => {
     const cues = [];
     const lines = vttText.split('\n');
     let i = 0;
 
-    // Skip header
+    // Skip header and metadata
     while (i < lines.length && !lines[i].includes('-->')) {
       i++;
     }
@@ -571,22 +649,42 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
       const line = lines[i].trim();
 
       if (line.includes('-->')) {
-        const timeMatch = line.match(/(\d{2}):(\d{2}):(\d{2})[.,](\d{3}) --> (\d{2}):(\d{2}):(\d{2})[.,](\d{3})/);
+        // Enhanced regex to handle various WebVTT timestamp formats
+        const timeMatch = line.match(/(\d{1,2}):(\d{2}):(\d{2})[.,](\d{3})\s*-->\s*(\d{1,2}):(\d{2}):(\d{2})[.,](\d{3})/);
         if (timeMatch) {
-          const startTime = parseInt(timeMatch[1]) * 3600 + parseInt(timeMatch[2]) * 60 + parseInt(timeMatch[3]) + parseInt(timeMatch[4]) / 1000;
-          const endTime = parseInt(timeMatch[5]) * 3600 + parseInt(timeMatch[6]) * 60 + parseInt(timeMatch[7]) + parseInt(timeMatch[8]) / 1000;
+          // Parse with higher precision
+          const startTime = parseInt(timeMatch[1]) * 3600 +
+            parseInt(timeMatch[2]) * 60 +
+            parseInt(timeMatch[3]) +
+            parseInt(timeMatch[4]) / 1000;
+          const endTime = parseInt(timeMatch[5]) * 3600 +
+            parseInt(timeMatch[6]) * 60 +
+            parseInt(timeMatch[7]) +
+            parseInt(timeMatch[8]) / 1000;
 
           // Collect text lines until empty line or next timestamp
           i++;
           const textLines = [];
           while (i < lines.length && lines[i].trim() && !lines[i].includes('-->')) {
-            textLines.push(lines[i].trim());
+            const textLine = lines[i].trim();
+            // Skip WebVTT cue settings and notes
+            if (!textLine.startsWith('NOTE') && !textLine.includes('align:') && !textLine.includes('position:')) {
+              textLines.push(textLine);
+            }
             i++;
           }
 
-          const text = textLines.join('\n').replace(/<[^>]*>/g, ''); // Remove HTML tags
-          if (text.trim()) {
-            cues.push({ start: startTime, end: endTime, text: text.trim() });
+          const text = textLines.join('\n')
+            .replace(/<[^>]*>/g, '') // Remove HTML tags
+            .replace(/\{[^}]*\}/g, '') // Remove WebVTT styling
+            .trim();
+
+          if (text && startTime < endTime && endTime - startTime < 30) { // Sanity check
+            cues.push({
+              start: Math.round(startTime * 1000) / 1000, // Round to 3 decimal places
+              end: Math.round(endTime * 1000) / 1000,
+              text
+            });
           }
         }
       } else {
@@ -594,10 +692,13 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
       }
     }
 
+    // Sort cues by start time to ensure proper order
+    cues.sort((a, b) => a.start - b.start);
+
     return cues;
   };
 
-  // Handle subtitle track changes
+  // Handle subtitle track changes with improved cleanup
   const handleSubtitleTrackChange = useCallback((trackId: number | null) => {
     setCurrentSubtitleTrack(trackId);
 
@@ -606,12 +707,12 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
 
     const video = videoRef.current;
     if (video) {
-      // Clean up previous subtitle event listeners
+      // Clean up previous subtitle event listeners and intervals
       if ((video as any).subtitleCleanup) {
         (video as any).subtitleCleanup();
         (video as any).subtitleCleanup = null;
       }
-      
+
       // Hide ALL text tracks to prevent double subtitles
       for (let i = 0; i < video.textTracks.length; i++) {
         video.textTracks[i].mode = 'hidden';
@@ -620,8 +721,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
       // Remove all track elements from DOM
       const existingTrackElements = video.querySelectorAll('track');
       existingTrackElements.forEach(track => track.remove());
-      
-      // Clear global subtitle state
+
+      // Clear global subtitle state completely
       (window as any).currentSubtitleCues = [];
       (window as any).lastSubtitleText = '';
     }
@@ -640,7 +741,10 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
         // Use unified subtitle loading for both internal and external
         if (selectedTrack.url) {
           setCurrentSubtitle(selectedTrack.url);
-          loadExternalSubtitle(selectedTrack.url);
+          // Add small delay to ensure cleanup is complete
+          setTimeout(() => {
+            loadExternalSubtitle(selectedTrack.url);
+          }, 100);
         }
       }
     }
@@ -890,7 +994,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
 
         // Resume playback if it was playing on cast device
         if (castState.playerState === 'PLAYING') {
-          video.play().catch(() => {});
+          video.play().catch(() => { });
         }
       }
     }
@@ -1138,7 +1242,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
         video.play().catch(() => {
           // Failed to resume video
         });
-        
+
         // Show controls briefly when starting playback, then hide after delay
         setShowControls(true);
         if (controlsTimeoutRef.current) {
@@ -1542,7 +1646,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
   useEffect(() => {
     const handleMouseMove = () => {
       setShowControls(true);
-      
+
       // Show cursor
       const container = containerRef.current;
       if (container) {
@@ -1779,13 +1883,22 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
         clearInterval(progressInterval);
       }
 
-      // Save progress when component unmounts (video player closes)
+      // Clean up subtitle handlers and intervals
       const video = videoRef.current;
+      if (video && (video as any).subtitleCleanup) {
+        (video as any).subtitleCleanup();
+      }
+
+      // Clear global subtitle state
+      (window as any).currentSubtitleCues = [];
+      (window as any).lastSubtitleText = '';
+
+      // Save progress when component unmounts (video player closes)
       if (video && video.currentTime > 30) {
         saveCurrentProgress().catch(() => { });
       }
     };
-  }, [isOpen]);
+  }, [isOpen, saveCurrentProgress]);
 
   // ...
   return (
@@ -1856,6 +1969,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
             className="w-full h-full object-contain bg-black"
             onPlay={async () => {
               setIsPlaying(true);
+              // Notify parent that video is playing
+              onVideoPlay?.();
               // Don't immediately hide pause screen, let it fade out naturally
               setIsBuffering(false); // Clear any buffering state
 
@@ -1896,7 +2011,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
               if (container) {
                 container.style.cursor = 'default';
               }
-              
+
               // Clear any pending hide timeout
               if (controlsTimeoutRef.current) {
                 clearTimeout(controlsTimeoutRef.current);
@@ -2464,8 +2579,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
               </motion.div>
             )}
           </AnimatePresence>
-
-
 
           {/* Single Subtitle Overlay - Always show when subtitles are enabled */}
           <AnimatePresence>
