@@ -2167,7 +2167,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
                     const video = e.currentTarget;
                     // Let video loop naturally - no manual restart needed
                     // The video element has loop=true so it will repeat automatically
-                    
+
                     // 24/7 MEMORY OPTIMIZATION: Trigger cleanup every 2 minutes of video time (less frequent)
                     if (Math.floor(video.currentTime) % 120 === 0 && video.currentTime > 0) {
                       cleanupMemory();
@@ -2407,7 +2407,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.8, delay: 0.3 }}
               >
-                {currentMedia.description ? `${currentMedia.description.substring(0, 200)}` : "Experience premium entertainment with stunning visuals and immersive storytelling."}
+                {currentMedia.description ? `${currentMedia.description}` : "Experience premium entertainment with stunning visuals and immersive storytelling."}
               </motion.p>
             </ScrollReveal>
 
@@ -2423,7 +2423,8 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
                   onClick={() => {
                     setIsPlayButtonLoading(true);
                     setTimeout(() => {
-                      onPlay(currentMedia);
+                      // onPlay(currentMedia);
+                      onInfo(currentMedia);
                       setIsPlayButtonLoading(false);
                     }, 300);
                   }}

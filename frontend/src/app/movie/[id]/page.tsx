@@ -904,18 +904,18 @@ export default function MoviePage() {
                     ease: [0.25, 0.46, 0.45, 0.94]
                   }}
                 >
-                  <p className="text-white/90 mb-4 text-lg leading-relaxed">
-                    {media.description ? `${media.description.substring(0, 200)}` : (
+                  <p className="text-white/90 mb-2 text-lg leading-relaxed">
+                    {media.description ? `${media.description}` : (
                       "Experience the ultimate entertainment with this amazing content. Watch now and immerse yourself in a world of endless possibilities."
                     )}
-                    {media.description && media.description.length > 200 && (
+                    {/* {media.description && media.description.length > 200 && (
                       <button
                         onClick={() => setShowFullDescription(!showFullDescription)}
                         className="text-red-400 hover:text-red-300 ml-2 font-medium"
                       >
                         {showFullDescription ? 'Show less' : 'Read more'}
                       </button>
-                    )}
+                    )} */}
                   </p>
                 </motion.div>
               </div>

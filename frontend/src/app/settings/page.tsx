@@ -953,7 +953,7 @@ export default function SettingsPage() {
         const result = await response.json();
         addTerminalOutput(`✅ Subtitle test completed for: ${result.media_title}`);
         addTerminalOutput(`📊 Found ${result.track_count} subtitle tracks`);
-        
+
         if (result.tracks && result.tracks.length > 0) {
           result.tracks.forEach((track: any) => {
             const status = track.exists ? (track.readable ? '✅' : '⚠️') : '❌';
@@ -967,7 +967,7 @@ export default function SettingsPage() {
         if (result.tracks && result.tracks.length > 0) {
           const firstTrack = result.tracks[0];
           addTerminalOutput(`🔍 Testing subtitle file endpoint for track ${firstTrack.id}...`);
-          
+
           const testResponse = await fetch(`${getApiUrl()}/api/media/${selectedMedia.id}/subtitles/${firstTrack.id}/file`);
           if (testResponse.ok) {
             addTerminalOutput(`✅ Subtitle file endpoint working (${testResponse.status})`);
@@ -1584,6 +1584,19 @@ export default function SettingsPage() {
                         >
                           <BarChart3 className="w-4 h-4" />
                           <span>Refresh Stats</span>
+                        </MagneticButton>
+
+                        <MagneticButton
+                          onClick={handleDeleteMedia}
+                          disabled={actionLoading.delete}
+                          className="bg-red-600/20 hover:bg-red-600/40 text-red-400 px-4 py-2 rounded-lg flex items-center space-x-2 border border-red-600/30"
+                        >
+                          {actionLoading.delete ? (
+                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-red-400"></div>
+                          ) : (
+                            <Trash2 className="w-4 h-4" />
+                          )}
+                          <span>Delete {selectedMedia.type === 'tv' ? 'Series' : 'Movie'}</span>
                         </MagneticButton>
                       </div>
                     </GlassCard>

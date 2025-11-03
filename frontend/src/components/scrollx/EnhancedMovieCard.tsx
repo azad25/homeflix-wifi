@@ -140,7 +140,12 @@ const EnhancedMovieCard: React.FC<EnhancedMovieCardProps> = ({
     e.stopPropagation();
     setIsLoading(true);
     setTimeout(() => {
-      onPlay(media);
+      if (media.type === 'episode' || media.type === 'tv' || media.type === 'series') {
+        const seriesId = media.series_id || media.id;
+        navigate.push(`/tv-series/${seriesId}`);
+      } else {
+        navigate.push(`/movie/${media.id}`);
+      }
       setIsLoading(false);
     }, 300);
   };

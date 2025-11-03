@@ -31,6 +31,25 @@ const ScrollXCarousel: React.FC<ScrollXCarouselProps> = ({
   const [canScrollRight, setCanScrollRight] = useState(true);
   const [isHovered, setIsHovered] = useState(false);
   const [isCardHovered, setIsCardHovered] = useState(false);
+  const [audioContextResumed, setAudioContextResumed] = useState(false);
+
+  // Resume audio context on first user interaction
+  const resumeAudioContext = async () => {
+    if (audioContextResumed) return;
+    
+    try {
+      if (typeof window !== 'undefined' && 'AudioContext' in window) {
+        const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+        if (audioContext.state === 'suspended') {
+          await audioContext.resume();
+          setAudioContextResumed(true);
+          console.log('Audio context resumed');
+        }
+      }
+    } catch (error) {
+      console.warn('Failed to resume audio context:', error);
+    }
+  };
 
   const { scrollYProgress } = useScroll({
     target: containerRef,
@@ -80,8 +99,12 @@ const ScrollXCarousel: React.FC<ScrollXCarouselProps> = ({
       ref={containerRef}
       style={{ y, opacity }}
       className="relative mb-16"
-      onMouseEnter={() => setIsHovered(true)}
+      onMouseEnter={() => {
+        setIsHovered(true);
+        resumeAudioContext();
+      }}
       onMouseLeave={() => setIsHovered(false)}
+      onClick={resumeAudioContext}
     >
       <ScrollReveal direction="left" delay={0.1}>
         <h2 className="text-2xl md:text-3xl font-bold text-white mb-6 px-4 md:px-12 bg-gradient-to-r from-white to-gray-300 bg-clip-text text-transparent">
@@ -186,6 +209,130 @@ const ScrollXMediaCard: React.FC<ScrollXMediaCardProps> = ({
   const [imageError, setImageError] = useState(false);
   const [isPlayLoading, setIsPlayLoading] = useState(false);
   const [isInfoLoading, setIsInfoLoading] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [hasTriedAutoplay, setHasTriedAutoplay] = useState(false);
+  const [isInView, setIsInView] = useState(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const cardRef = useRef<HTMLDivElement>(null);
+
+  // Auto-play audio when card comes into view
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        setIsInView(entry.isIntersecting);
+        if (entry.isIntersecting && !hasTriedAutoplay && priority) {
+          // Try to auto-play for priority items (first few cards)
+          tryAutoPlay();
+        }
+      },
+      { threshold: 0.5 }
+    );
+
+    if (cardRef.current) {
+      observer.observe(cardRef.current);
+    }
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [hasTriedAutoplay, priority]);
+
+  // Auto-play on hover for non-priority items
+  useEffect(() => {
+    if (isHovered && !hasTriedAutoplay && !priority) {
+      tryAutoPlay();
+    }
+  }, [isHovered, hasTriedAutoplay, priority]);
+
+  const tryAutoPlay = async () => {
+    if (hasTriedAutoplay || audioRef.current) return;
+    
+    setHasTriedAutoplay(true);
+    
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
+      const mediaUrl = `${apiUrl}/api/stream/${media.id}`;
+      
+      // Strategy 1: Try direct audio play
+      const audio = new Audio(mediaUrl);
+      audio.volume = 1.0;
+      audio.preload = 'auto';
+      audio.crossOrigin = 'anonymous';
+      audio.muted = false;
+      audio.defaultMuted = false;
+      
+      // Force audio context resume (helps with Chrome autoplay policy)
+      if (typeof window !== 'undefined' && 'AudioContext' in window) {
+        const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+        if (audioContext.state === 'suspended') {
+          try {
+            await audioContext.resume();
+          } catch (e) {
+            console.warn('AudioContext resume failed:', e);
+          }
+        }
+      }
+      
+      audioRef.current = audio;
+      
+      // Add event listeners
+      audio.addEventListener('play', () => setIsPlaying(true));
+      audio.addEventListener('pause', () => setIsPlaying(false));
+      audio.addEventListener('ended', () => setIsPlaying(false));
+      audio.addEventListener('error', () => {
+        console.warn('Audio failed to load for:', media.title);
+        setIsPlaying(false);
+      });
+      
+      // Strategy 2: Start muted then unmute (more likely to work)
+      audio.muted = true;
+      await audio.play();
+      
+      // Immediately unmute for full volume
+      setTimeout(() => {
+        if (audioRef.current) {
+          audioRef.current.muted = false;
+          audioRef.current.volume = 1.0;
+        }
+      }, 100);
+      
+      // Auto-stop after 3 seconds to preview
+      setTimeout(() => {
+        if (audioRef.current && isPlaying) {
+          audioRef.current.pause();
+          setIsPlaying(false);
+        }
+      }, 3000);
+      
+    } catch (error) {
+      console.warn('Auto-play failed for:', media.title, error);
+      
+      // Strategy 3: Fallback - preload for instant play on user interaction
+      try {
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
+        const mediaUrl = `${apiUrl}/api/stream/${media.id}`;
+        const audio = new Audio(mediaUrl);
+        audio.preload = 'auto';
+        audio.volume = 1.0;
+        audioRef.current = audio;
+      } catch (preloadError) {
+        console.warn('Preload also failed:', preloadError);
+      }
+      
+      setIsPlaying(false);
+    }
+  };
+
+  // Cleanup audio on unmount
+  useEffect(() => {
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current = null;
+      }
+      setIsPlaying(false);
+    };
+  }, []);
 
   const getThumbnailUrl = () => {
     const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
@@ -195,7 +342,68 @@ const ScrollXMediaCard: React.FC<ScrollXMediaCardProps> = ({
   const handlePlay = async () => {
     setIsPlayLoading(true);
     try {
-      await onPlay(media);
+      // If audio is already loaded and playing, just navigate to player
+      if (audioRef.current && isPlaying) {
+        audioRef.current.pause();
+        setIsPlaying(false);
+        onPlay(media);
+        return;
+      }
+
+      // If audio exists but not playing, try to play it
+      if (audioRef.current) {
+        try {
+          await audioRef.current.play();
+          setTimeout(() => {
+            if (audioRef.current) {
+              audioRef.current.pause();
+              setIsPlaying(false);
+            }
+            onPlay(media);
+          }, 2000);
+          return;
+        } catch (error) {
+          console.warn('Failed to play existing audio:', error);
+        }
+      }
+
+      // Create new audio element
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
+      const mediaUrl = `${apiUrl}/api/stream/${media.id}`;
+      
+      const audio = new Audio(mediaUrl);
+      audio.volume = 1.0;
+      audio.preload = 'auto';
+      audio.crossOrigin = 'anonymous';
+      audio.muted = false;
+      audio.defaultMuted = false;
+      audioRef.current = audio;
+      
+      // Add event listeners
+      audio.addEventListener('play', () => setIsPlaying(true));
+      audio.addEventListener('pause', () => setIsPlaying(false));
+      audio.addEventListener('ended', () => setIsPlaying(false));
+      
+      try {
+        await audio.play();
+        
+        // Brief preview then navigate to full player
+        setTimeout(() => {
+          if (audioRef.current) {
+            audioRef.current.pause();
+            setIsPlaying(false);
+          }
+          onPlay(media);
+        }, 2000);
+        
+      } catch (error) {
+        console.warn('Playback failed, navigating to info:', error);
+        await onInfo(media);
+      }
+      
+    } catch (error) {
+      console.error('Error in handlePlay:', error);
+      await onInfo(media);
     } finally {
       setTimeout(() => setIsPlayLoading(false), 1000);
     }
@@ -218,6 +426,7 @@ const ScrollXMediaCard: React.FC<ScrollXMediaCardProps> = ({
 
   return (
     <motion.div
+      ref={cardRef}
       className="relative group cursor-pointer"
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
@@ -252,6 +461,31 @@ const ScrollXMediaCard: React.FC<ScrollXMediaCardProps> = ({
           {/* Gradient overlay */}
           <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
           
+          {/* Audio playing indicator */}
+          {isPlaying && (
+            <motion.div
+              className="absolute top-3 right-3 bg-green-500/90 backdrop-blur-sm text-white px-2 py-1 rounded-full text-xs font-bold flex items-center gap-1"
+              initial={{ opacity: 0, scale: 0.8 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.8 }}
+            >
+              <div className="w-2 h-2 bg-white rounded-full animate-pulse"></div>
+              AUTO-PLAYING
+            </motion.div>
+          )}
+          
+          {/* In view indicator for priority items */}
+          {isInView && priority && !isPlaying && hasTriedAutoplay && (
+            <motion.div
+              className="absolute top-3 left-3 bg-blue-500/90 backdrop-blur-sm text-white px-2 py-1 rounded-full text-xs font-bold"
+              initial={{ opacity: 0, scale: 0.8 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.8 }}
+            >
+              PRIORITY
+            </motion.div>
+          )}
+          
           {/* Hover overlay */}
           <motion.div
             className="absolute inset-0 bg-black/40 flex items-center justify-center"
@@ -262,7 +496,11 @@ const ScrollXMediaCard: React.FC<ScrollXMediaCardProps> = ({
             <MagneticButton
               onClick={handlePlay}
               disabled={isPlayLoading}
-              className={`bg-white/20 backdrop-blur-sm text-white p-4 rounded-full hover:bg-white/30 transition-all duration-200 cursor-pointer ${
+              className={`backdrop-blur-sm text-white p-4 rounded-full transition-all duration-200 cursor-pointer ${
+                isPlaying 
+                  ? 'bg-green-500/30 border-2 border-green-400' 
+                  : 'bg-white/20 hover:bg-white/30'
+              } ${
                 isPlayLoading ? 'opacity-75 cursor-wait' : 'hover:cursor-pointer'
               }`}
             >
@@ -272,6 +510,14 @@ const ScrollXMediaCard: React.FC<ScrollXMediaCardProps> = ({
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"/>
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
                   </svg>
+                </div>
+              ) : isPlaying ? (
+                <div className="w-6 h-6 flex items-center justify-center">
+                  <div className="flex gap-1">
+                    <div className="w-1 h-4 bg-white animate-pulse"></div>
+                    <div className="w-1 h-4 bg-white animate-pulse" style={{ animationDelay: '0.1s' }}></div>
+                    <div className="w-1 h-4 bg-white animate-pulse" style={{ animationDelay: '0.2s' }}></div>
+                  </div>
                 </div>
               ) : (
                 <svg className="w-6 h-6 fill-current" viewBox="0 0 24 24">

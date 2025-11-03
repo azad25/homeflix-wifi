@@ -67,45 +67,85 @@ const RecommendationSection: React.FC<RecommendationSectionProps> = ({
   // Throttled API fetching functions
   const throttledFetchRecommendations = useCallback(
     requestThrottler.throttle(async () => {
+      // Prevent duplicate calls if already loading
+      if (loading) {
+        console.log('⏳ Recommendations already loading, skipping duplicate call');
+        return;
+      }
+
       try {
+        console.log('🔄 Fetching recommendations for media:', currentMedia.id);
         const apiUrl = getApiUrl();
-        
-        // Use single mixed recommendations endpoint instead of multiple parallel calls
-        const mixedData = await cachedFetch(`${apiUrl}/api/recommendations/mixed?limit=60`);
-        
-        if (mixedData && Array.isArray(mixedData) && mixedData.length > 0) {
-          const filteredData = mixedData.filter(m => m.id !== currentMedia.id);
-          
-          // Distribute mixed data across different categories to reduce API calls
-          const shuffled = shuffleArray([...filteredData]);
-          
-          setPersonalizedRecommendations(shuffled.slice(0, 20));
-          setSimilarRecommendations(shuffled.slice(20, 40));
-          setTrendingRecommendations(shuffled.slice(40, 60));
-          setMixedRecommendations(shuffled.slice(0, 20));
-          
-          console.log(`✅ Fetched ${filteredData.length} mixed recommendations`);
+
+        // Try to fetch from API, but always have fallback ready
+        let apiSuccess = false;
+
+        try {
+          // Try mixed recommendations first
+          const mixedData = await cachedFetch(`${apiUrl}/api/recommendations/mixed?limit=60`);
+
+          if (mixedData && Array.isArray(mixedData) && mixedData.length > 0) {
+            const filteredData = mixedData.filter(m => m.id !== currentMedia.id);
+
+            if (filteredData.length > 0) {
+              const shuffled = shuffleArray([...filteredData]);
+
+              setPersonalizedRecommendations(shuffled.slice(0, 20));
+              setSimilarRecommendations(shuffled.slice(20, 40));
+              setTrendingRecommendations(shuffled.slice(40, 60));
+              setMixedRecommendations(shuffled.slice(0, 20));
+
+              console.log(`✅ Fetched ${filteredData.length} mixed recommendations`);
+              apiSuccess = true;
+            }
+          }
+        } catch (mixedError) {
+          console.log('Mixed recommendations API failed, trying fallback:', mixedError);
         }
-        
-        // Fetch continue watching separately (smaller, more targeted request)
-        const continueWatchingData = await cachedFetch(`${apiUrl}/api/recommendations/continue-watching`);
-        if (continueWatchingData && Array.isArray(continueWatchingData)) {
-          setContinueWatching(continueWatchingData.filter(m => m.id !== currentMedia.id));
+
+        // If mixed API failed, try basic media endpoint
+        if (!apiSuccess) {
+          try {
+            const basicData = await cachedFetch(`${apiUrl}/api/media?limit=40`);
+            if (basicData && Array.isArray(basicData) && basicData.length > 0) {
+              const filteredData = basicData.filter(m => m.id !== currentMedia.id);
+              const shuffled = shuffleArray([...filteredData]);
+
+              setPersonalizedRecommendations(shuffled.slice(0, 15));
+              setSimilarRecommendations(shuffled.slice(15, 30));
+              setMixedRecommendations(shuffled.slice(0, 20));
+
+              console.log(`✅ Used basic media as recommendations: ${filteredData.length} items`);
+              apiSuccess = true;
+            }
+          } catch (basicError) {
+            console.log('Basic media API also failed:', basicError);
+          }
         }
-        
+
+        // Try continue watching separately (optional)
+        try {
+          const continueWatchingData = await cachedFetch(`${apiUrl}/api/recommendations/continue-watching`);
+          if (continueWatchingData && Array.isArray(continueWatchingData)) {
+            setContinueWatching(continueWatchingData.filter(m => m.id !== currentMedia.id));
+          }
+        } catch (continueError) {
+          console.log('Continue watching API failed:', continueError);
+        }
+
       } catch (error) {
         console.error('Error fetching recommendations:', error);
         // Fallback to frontend recommendations if API fails
         if (allAvailableMedia.length > 0) {
           const topRatedFallback = generateFrontendRecommendations(allAvailableMedia, currentMedia, 'top-rated', 20);
           const youMightLikeFallback = generateFrontendRecommendations(allAvailableMedia, currentMedia, 'you-might-like', 20);
-          
+
           setTopRatedRecommendations(topRatedFallback);
           setMixedRecommendations(youMightLikeFallback);
         }
       }
-    }, 'recommendations', 2000), // 2 second throttle
-    [currentMedia.id, allAvailableMedia]
+    }, 'recommendations', 3000), // Increased throttle to 3 seconds
+    [currentMedia.id, loading] // Added loading to dependencies
   );
 
   const throttledInitializeMediaCache = useCallback(
@@ -125,40 +165,100 @@ const RecommendationSection: React.FC<RecommendationSectionProps> = ({
   );
 
   useEffect(() => {
+    let isMounted = true;
+
     const initializeAndFetch = async () => {
+      if (!isMounted) return;
+
       setLoading(true);
-      await throttledInitializeMediaCache();
-      await throttledFetchRecommendations();
-      setLoading(false);
+      console.log('🔄 Starting recommendations load for media:', currentMedia.id);
+
+      try {
+        // Initialize media cache and fetch recommendations in a single operation
+        const apiUrl = getApiUrl();
+
+        // Initialize media cache first (for fallback)
+        try {
+          const mediaData = await cachedFetch(`${apiUrl}/api/media?limit=100`);
+          if (mediaData && Array.isArray(mediaData) && isMounted) {
+            setAllAvailableMedia(mediaData);
+            console.log(`✅ Cached ${mediaData.length} media items for fallback`);
+          }
+        } catch (cacheError) {
+          console.warn('⚠️ Failed to initialize media cache:', cacheError);
+        }
+
+        // Fetch recommendations (single call, no throttling needed here)
+        if (isMounted) {
+          try {
+            const mixedData = await cachedFetch(`${apiUrl}/api/recommendations/mixed?limit=60`);
+
+            if (mixedData && Array.isArray(mixedData) && mixedData.length > 0 && isMounted) {
+              const filteredData = mixedData.filter(m => m.id !== currentMedia.id);
+
+              if (filteredData.length > 0) {
+                const shuffled = shuffleArray([...filteredData]);
+
+                setPersonalizedRecommendations(shuffled.slice(0, 20));
+                setSimilarRecommendations(shuffled.slice(20, 40));
+                setTrendingRecommendations(shuffled.slice(40, 60));
+                setMixedRecommendations(shuffled.slice(0, 20));
+
+                console.log(`✅ Loaded ${filteredData.length} recommendations successfully`);
+              }
+            } else {
+              throw new Error('No recommendations data received');
+            }
+          } catch (apiError) {
+            console.log('API recommendations failed, using fallback:', apiError);
+            // Use fallback recommendations from cached media
+            if (allAvailableMedia.length > 0 && isMounted) {
+              const fallbackRecommendations = generateFrontendRecommendations(allAvailableMedia, currentMedia, 'you-might-like', 20);
+              setMixedRecommendations(fallbackRecommendations);
+              setPersonalizedRecommendations(fallbackRecommendations.slice(0, 10));
+              setSimilarRecommendations(fallbackRecommendations.slice(10, 20));
+              console.log('✅ Used fallback recommendations');
+            }
+          }
+        }
+
+      } catch (error) {
+        console.error('Error in recommendation initialization:', error);
+      } finally {
+        if (isMounted) {
+          setLoading(false);
+        }
+      }
     };
 
     initializeAndFetch();
 
-    // Reduced frequency: refresh every 10 minutes instead of 3 minutes
-    const interval = setInterval(() => {
-      setRefreshCount(prev => prev + 1);
-      throttledFetchRecommendations();
-    }, 10 * 60 * 1000); // 10 minutes
+    return () => {
+      isMounted = false;
+    };
+  }, [currentMedia.id]); // Only re-run when media changes
 
-    return () => clearInterval(interval);
-  }, [currentMedia.id, throttledFetchRecommendations, throttledInitializeMediaCache]);
-
-  // Additional effect to trigger frontend shuffling every 6 minutes (reduced frequency)
+  // Periodic refresh - only shuffle existing data to avoid API calls
   useEffect(() => {
-    if (refreshCount > 0 && allAvailableMedia.length > 0) {
-      // Every 2 refreshes (20 minutes), force frontend recommendations for variety
-      if (refreshCount % 2 === 0) {
-        console.log('🔄 Periodic frontend shuffle triggered...');
+    if (loading || allAvailableMedia.length === 0) return;
+
+    // Only shuffle existing data every 20 minutes (no API calls)
+    const interval = setInterval(() => {
+      console.log('🔄 Periodic shuffle of existing recommendations...');
+
+      if (allAvailableMedia.length > 0) {
         const newTopRated = generateFrontendRecommendations(allAvailableMedia, currentMedia, 'top-rated', 20);
         const newYouMightLike = generateFrontendRecommendations(allAvailableMedia, currentMedia, 'you-might-like', 20);
         const newLatestMovies = generateLatestMoviesRecommendations(allAvailableMedia, 20);
 
         setTopRatedRecommendations(newTopRated);
-        setMixedRecommendations(newYouMightLike);
+        setMixedRecommendations(prev => prev.length > 0 ? shuffleArray([...prev]) : newYouMightLike);
         setLatestMoviesRecommendations(newLatestMovies);
       }
-    }
-  }, [refreshCount, allAvailableMedia, currentMedia]);
+    }, 20 * 60 * 1000); // 20 minutes - only shuffle, no API calls
+
+    return () => clearInterval(interval);
+  }, [loading, allAvailableMedia.length, currentMedia.id]);
 
   // Shuffle array utility function
   const shuffleArray = <T,>(array: T[]): T[] => {
@@ -168,6 +268,37 @@ const RecommendationSection: React.FC<RecommendationSectionProps> = ({
       [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
     }
     return shuffled;
+  };
+
+  // Generate fallback recommendations when API fails
+  const generateFallbackRecommendations = (): Media[] => {
+    console.log('🔄 Generating fallback recommendations...');
+
+    // Create some mock recommendations based on current media
+    const fallbackItems: Media[] = [];
+
+    // Generate some basic recommendations
+    for (let i = 1; i <= 20; i++) {
+      if (i === currentMedia.id) continue; // Skip current media
+
+      fallbackItems.push({
+        id: currentMedia.id + i,
+        title: `Recommended ${currentMedia.type === 'movie' ? 'Movie' : 'Show'} ${i}`,
+        type: currentMedia.type || 'movie',
+        year: (currentMedia.year || 2023) - Math.floor(Math.random() * 5),
+        rating: 7.0 + Math.random() * 2,
+        genres: currentMedia.genres || [{ id: 1, name: 'Drama' }],
+        description: `A great ${currentMedia.type || 'movie'} you might enjoy based on your interest in ${currentMedia.title}`,
+        duration: 7200 + Math.random() * 3600, // 2-3 hours
+        view_count: Math.floor(Math.random() * 10000),
+        file_path: '',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      });
+    }
+
+    console.log(`✅ Generated ${fallbackItems.length} fallback recommendations`);
+    return fallbackItems;
   };
 
   // Check if API response is duplicate
@@ -196,16 +327,16 @@ const RecommendationSection: React.FC<RecommendationSectionProps> = ({
 
     // Priority genres: sci-fi, action, drama, thriller
     const priorityGenres = ['sci-fi', 'science fiction', 'action', 'drama', 'thriller', 'adventure', 'mystery', 'crime'];
-    
+
     // Latest and newly added content (highest IDs = most recent)
     const latestContent = filteredMedia
       .sort((a, b) => b.id - a.id)
       .slice(0, Math.floor(filteredMedia.length * 0.4)); // Top 40% newest
 
     // Priority genre content with latest preference
-    const priorityGenreContent = filteredMedia.filter(m => 
-      m.genres?.some(genre => 
-        priorityGenres.some(priority => 
+    const priorityGenreContent = filteredMedia.filter(m =>
+      m.genres?.some(genre =>
+        priorityGenres.some(priority =>
           genre.name.toLowerCase().includes(priority.toLowerCase())
         )
       )
@@ -230,7 +361,7 @@ const RecommendationSection: React.FC<RecommendationSectionProps> = ({
         .slice(0, Math.floor(limit * 0.3)); // 30% latest high-rated
 
       const generalHighRated = filteredMedia
-        .filter(m => (m.rating || 0) >= 7.5 && 
+        .filter(m => (m.rating || 0) >= 7.5 &&
           !highRatedPriorityGenres.some(r => r.id === m.id) &&
           !latestHighRated.some(r => r.id === m.id))
         .sort((a, b) => (b.rating || 0) - (a.rating || 0))
@@ -257,7 +388,7 @@ const RecommendationSection: React.FC<RecommendationSectionProps> = ({
           .slice(0, Math.floor(limit * 0.25));
       } else {
         // For TV shows, get latest same genre content
-        contextualLatest = currentMediaItem.genres ? 
+        contextualLatest = currentMediaItem.genres ?
           latestContent.filter(m =>
             m.genres?.some(g => currentMediaItem.genres!.some(cg => cg.name === g.name)) &&
             !latestPriorityGenres.some(r => r.id === m.id)
@@ -266,7 +397,7 @@ const RecommendationSection: React.FC<RecommendationSectionProps> = ({
 
       // 3. Popular latest content (20%)
       const popularLatest = latestContent
-        .filter(m => 
+        .filter(m =>
           !latestPriorityGenres.some(r => r.id === m.id) &&
           !contextualLatest.some(r => r.id === m.id)
         )
@@ -275,7 +406,7 @@ const RecommendationSection: React.FC<RecommendationSectionProps> = ({
 
       // 4. Same type latest content (20%)
       const sameTypeLatest = filteredMedia
-        .filter(m => 
+        .filter(m =>
           m.type === currentMediaItem.type &&
           !latestPriorityGenres.some(r => r.id === m.id) &&
           !contextualLatest.some(r => r.id === m.id) &&
@@ -296,11 +427,11 @@ const RecommendationSection: React.FC<RecommendationSectionProps> = ({
     const remaining = filteredMedia.filter(m =>
       !recommendations.some(r => r.id === m.id)
     );
-    
+
     // Prioritize remaining priority genre content first
-    const remainingPriorityGenres = remaining.filter(m => 
-      m.genres?.some(genre => 
-        priorityGenres.some(priority => 
+    const remainingPriorityGenres = remaining.filter(m =>
+      m.genres?.some(genre =>
+        priorityGenres.some(priority =>
           genre.name.toLowerCase().includes(priority.toLowerCase())
         )
       )
@@ -333,16 +464,16 @@ const RecommendationSection: React.FC<RecommendationSectionProps> = ({
 
     // Priority genres for movies
     const priorityGenres = ['sci-fi', 'science fiction', 'action', 'drama', 'thriller', 'adventure', 'mystery', 'crime', 'horror', 'fantasy'];
-    
+
     // Filter to movies only and sort by latest (highest ID = most recent)
     const allMovies = availableMedia
       .filter(m => m.type === 'movie')
       .sort((a, b) => b.id - a.id);
 
     // Latest movies with priority genres
-    const latestPriorityMovies = allMovies.filter(m => 
-      m.genres?.some(genre => 
-        priorityGenres.some(priority => 
+    const latestPriorityMovies = allMovies.filter(m =>
+      m.genres?.some(genre =>
+        priorityGenres.some(priority =>
           genre.name.toLowerCase().includes(priority.toLowerCase())
         )
       )
@@ -376,7 +507,7 @@ const RecommendationSection: React.FC<RecommendationSectionProps> = ({
     const videoTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const videoRef = useRef<HTMLVideoElement>(null);
     const cardRef = useRef<HTMLDivElement>(null);
-    
+
     const { primarySrc, fallbackSrc } = useImageWithFallback(media.id);
 
     const handleMouseEnter = () => {
@@ -421,7 +552,7 @@ const RecommendationSection: React.FC<RecommendationSectionProps> = ({
 
     const handleImageError = (event: React.SyntheticEvent<HTMLImageElement>) => {
       const img = event.currentTarget;
-      
+
       if (img.src === primarySrc && !imageError) {
         // First error: poster failed, try thumbnail
         setImageError(true);
