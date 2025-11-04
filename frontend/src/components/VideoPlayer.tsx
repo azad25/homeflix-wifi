@@ -319,120 +319,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
     }
   }, [media.id, isOpen, getStreamUrl, volume]);
 
-  // Load subtitles and audio tracks
-  useEffect(() => {
-    const loadTracks = async () => {
-      try {
-        // Load subtitle tracks (both internal and external)
-        const subtitleResponse = await fetch(`${getApiUrl()}/api/media/${media.id}/subtitles`);
-        if (subtitleResponse.ok) {
-          const subtitleTracks = await subtitleResponse.json();
-
-          if (subtitleTracks && subtitleTracks.length > 0) {
-            // Filter out invalid subtitle tracks
-            const validTracks = subtitleTracks.filter((track: any) => {
-              // Skip tracks with invalid or empty languages
-              if (!track.language || track.language.trim() === '') return false;
-
-              // Skip tracks with generic/invalid codec names that aren't actual subtitles
-              const invalidCodecs = ['hdmv_pgs_subtitle', 'dvd_subtitle', 'dvb_subtitle'];
-              if (track.codec_name && invalidCodecs.includes(track.codec_name.toLowerCase())) {
-                // Only keep PGS subtitles if they have a proper language (not 'unknown')
-                if (track.codec_name === 'hdmv_pgs_subtitle' &&
-                  (!track.language || track.language.toLowerCase() === 'unknown')) {
-                  return false;
-                }
-              }
-
-              // Allow external tracks with 'unknown' language (uploaded subtitles)
-              if (track.language.toLowerCase() === 'unknown') {
-                if (track.track_type === 'external') {
-                  return true; // Always keep external unknown tracks
-                } else {
-                  return false; // Skip internal unknown tracks
-                }
-              }
-
-              // Skip duplicate tracks (same language and type)
-              const duplicates = subtitleTracks.filter((t: any) =>
-                t.language === track.language &&
-                t.track_type === track.track_type &&
-                t.id !== track.id
-              );
-
-              // If there are duplicates, only keep the first one or the one with a file path
-              if (duplicates.length > 0) {
-                const hasFilePath = track.file_path && track.file_path.trim() !== '';
-                const isFirstOfType = !subtitleTracks.find((t: any) =>
-                  t.language === track.language &&
-                  t.track_type === track.track_type &&
-                  t.id < track.id
-                );
-
-                // Keep if it has a file path or is the first of its type
-                return hasFilePath || isFirstOfType;
-              }
-
-              return true;
-            });
-
-
-            const subs = validTracks.map((track: any) => ({
-              id: track.id,
-              language: track.language,
-              title: track.title || track.language,
-              trackType: track.track_type || 'external',
-              streamIndex: track.stream_index,
-              isDefault: track.is_default || false,
-              isForced: track.is_forced || false,
-              url: `${getApiUrl()}/api/media/${media.id}/subtitles/${track.id}/file`
-            }));
-
-            setAvailableSubtitles(subs);
-
-            // Set default subtitle track (prefer default, then forced, then first available)
-            const defaultTrack = subs.find((sub: any) => sub.isDefault) ||
-              subs.find((sub: any) => sub.isForced) ||
-              subs[0];
-            if (defaultTrack) {
-              setCurrentSubtitleTrack(defaultTrack.id);
-              setCurrentSubtitle(defaultTrack.url);
-              // Enable subtitles by default when tracks are available
-              setSubtitlesEnabled(true);
-              // Load the subtitle file immediately
-              loadExternalSubtitle(defaultTrack.url);
-            }
-          } else {
-            setAvailableSubtitles([]);
-            setCurrentSubtitle(null);
-            setCurrentSubtitleTrack(null);
-          }
-        }
-
-        // Load audio tracks
-        const audioResponse = await fetch(`${getApiUrl()}/api/media/${media.id}/audio`);
-        if (audioResponse.ok) {
-          const audioTracks = await audioResponse.json();
-          if (audioTracks && audioTracks.length > 0) {
-            // Set default audio track (prefer default or first available)
-            const defaultTrack = audioTracks.find((track: any) => track.is_default) || audioTracks[0];
-            if (defaultTrack) {
-              setCurrentAudioTrack(defaultTrack.id);
-            }
-          }
-        }
-      } catch (error) {
-        setAvailableSubtitles([]);
-        setCurrentSubtitle(null);
-        setCurrentSubtitleTrack(null);
-      }
-    };
-
-    if (isOpen && media.id) {
-      loadTracks();
-    }
-  }, [media.id, isOpen]);
-
   // Load subtitle file and parse it (works for both internal and external)
   const loadExternalSubtitle = useCallback(async (url: string) => {
     try {
@@ -461,13 +347,30 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
           (video as any).subtitleCleanup();
         }
 
+        // Chrome-specific: Force disable all native text tracks
+        for (let i = 0; i < video.textTracks.length; i++) {
+          const track = video.textTracks[i];
+          track.mode = 'disabled';
+          // Chrome-specific properties
+          if ('oncuechange' in track) {
+            track.oncuechange = null;
+          }
+        }
+
+        // Remove all track elements from DOM for Chrome compatibility
+        const trackElements = video.querySelectorAll('track');
+        trackElements.forEach(track => {
+          track.remove();
+        });
+
         // Store cues globally for subtitle display
         (window as any).currentSubtitleCues = cues;
         (window as any).lastSubtitleText = '';
 
-        // Enhanced subtitle display function with better timing accuracy
+        // Enhanced subtitle display function with Chrome-specific fixes
         const updateSubtitleText = () => {
-          if (!subtitlesEnabled || !cues.length) {
+          // Always check for subtitles if we have cues loaded
+          if (!cues.length) {
             setCurrentSubtitleText('');
             (window as any).lastSubtitleText = '';
             return;
@@ -482,35 +385,56 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
 
           if (activeCue) {
             if (activeCue.text !== (window as any).lastSubtitleText) {
-              setCurrentSubtitleText(activeCue.text);
-              (window as any).lastSubtitleText = activeCue.text;
+              // Chrome-specific: Force update with requestAnimationFrame
+              requestAnimationFrame(() => {
+                setCurrentSubtitleText(activeCue.text);
+                (window as any).lastSubtitleText = activeCue.text;
+              });
             }
           } else {
             if ((window as any).lastSubtitleText !== '') {
-              setCurrentSubtitleText('');
-              (window as any).lastSubtitleText = '';
+              requestAnimationFrame(() => {
+                setCurrentSubtitleText('');
+                (window as any).lastSubtitleText = '';
+              });
             }
           }
         };
 
         // Use high-frequency timeupdate for better subtitle timing
         let subtitleUpdateInterval: NodeJS.Timeout;
+        let animationFrameId: number;
 
         const startSubtitleUpdates = () => {
           // Clear any existing interval
           if (subtitleUpdateInterval) {
             clearInterval(subtitleUpdateInterval);
           }
+          if (animationFrameId) {
+            cancelAnimationFrame(animationFrameId);
+          }
 
-          // Update subtitles every 100ms for smooth display
+          // Chrome-specific: Use both interval and requestAnimationFrame for reliability
           subtitleUpdateInterval = setInterval(() => {
             updateSubtitleText();
           }, 100);
+
+          // Additional Chrome fix: Use requestAnimationFrame for smoother updates
+          const animationUpdate = () => {
+            updateSubtitleText();
+            if (!video.paused) {
+              animationFrameId = requestAnimationFrame(animationUpdate);
+            }
+          };
+          animationFrameId = requestAnimationFrame(animationUpdate);
         };
 
         const stopSubtitleUpdates = () => {
           if (subtitleUpdateInterval) {
             clearInterval(subtitleUpdateInterval);
+          }
+          if (animationFrameId) {
+            cancelAnimationFrame(animationFrameId);
           }
         };
 
@@ -532,19 +456,39 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
           }
         };
 
+        // Chrome-specific: Use both timeupdate and additional events
+        const handleTimeUpdate = () => {
+          updateSubtitleText();
+        };
+
         // Add event listeners
         video.addEventListener('play', handlePlay);
         video.addEventListener('pause', handlePause);
         video.addEventListener('seeked', handleSeeked);
-        video.addEventListener('timeupdate', updateSubtitleText); // Fallback
+        video.addEventListener('timeupdate', handleTimeUpdate);
 
-        // Initial subtitle check
-        updateSubtitleText();
+        // Chrome-specific additional events
+        video.addEventListener('loadeddata', updateSubtitleText);
+        video.addEventListener('canplay', updateSubtitleText);
+
+        // Initial subtitle check with delay for Chrome
+        setTimeout(() => {
+          updateSubtitleText();
+        }, 100);
 
         // Start updates if video is already playing
         if (!video.paused) {
           startSubtitleUpdates();
         }
+
+        // Force immediate subtitle check for the first few seconds
+        const forceSubtitleCheck = setInterval(() => {
+          updateSubtitleText();
+        }, 500);
+
+        setTimeout(() => {
+          clearInterval(forceSubtitleCheck);
+        }, 5000); // Check every 500ms for the first 5 seconds
 
         // Enhanced cleanup function
         const cleanup = () => {
@@ -552,7 +496,9 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
           video.removeEventListener('play', handlePlay);
           video.removeEventListener('pause', handlePause);
           video.removeEventListener('seeked', handleSeeked);
-          video.removeEventListener('timeupdate', updateSubtitleText);
+          video.removeEventListener('timeupdate', handleTimeUpdate);
+          video.removeEventListener('loadeddata', updateSubtitleText);
+          video.removeEventListener('canplay', updateSubtitleText);
           (window as any).currentSubtitleCues = [];
           (window as any).lastSubtitleText = '';
         };
@@ -698,6 +644,143 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
     return cues;
   };
 
+  // Load subtitles and audio tracks
+  useEffect(() => {
+    const loadTracks = async () => {
+      try {
+        // Load subtitle tracks (both internal and external)
+        const subtitleResponse = await fetch(`${getApiUrl()}/api/media/${media.id}/subtitles`);
+        if (subtitleResponse.ok) {
+          const subtitleTracks = await subtitleResponse.json();
+
+          if (subtitleTracks && subtitleTracks.length > 0) {
+            // Filter out invalid subtitle tracks
+            const validTracks = subtitleTracks.filter((track: any) => {
+              // Skip tracks with invalid or empty languages
+              if (!track.language || track.language.trim() === '') return false;
+
+              // Skip tracks with generic/invalid codec names that aren't actual subtitles
+              const invalidCodecs = ['hdmv_pgs_subtitle', 'dvd_subtitle', 'dvb_subtitle'];
+              if (track.codec_name && invalidCodecs.includes(track.codec_name.toLowerCase())) {
+                // Only keep PGS subtitles if they have a proper language (not 'unknown')
+                if (track.codec_name === 'hdmv_pgs_subtitle' &&
+                  (!track.language || track.language.toLowerCase() === 'unknown')) {
+                  return false;
+                }
+              }
+
+              // Allow external tracks with 'unknown' language (uploaded subtitles)
+              if (track.language.toLowerCase() === 'unknown') {
+                if (track.track_type === 'external') {
+                  return true; // Always keep external unknown tracks
+                } else {
+                  return false; // Skip internal unknown tracks
+                }
+              }
+
+              // Skip duplicate tracks (same language and type)
+              const duplicates = subtitleTracks.filter((t: any) =>
+                t.language === track.language &&
+                t.track_type === track.track_type &&
+                t.id !== track.id
+              );
+
+              // If there are duplicates, only keep the first one or the one with a file path
+              if (duplicates.length > 0) {
+                const hasFilePath = track.file_path && track.file_path.trim() !== '';
+                const isFirstOfType = !subtitleTracks.find((t: any) =>
+                  t.language === track.language &&
+                  t.track_type === track.track_type &&
+                  t.id < track.id
+                );
+
+                // Keep if it has a file path or is the first of its type
+                return hasFilePath || isFirstOfType;
+              }
+
+              return true;
+            });
+
+
+            const subs = validTracks.map((track: any) => ({
+              id: track.id,
+              language: track.language,
+              title: track.title || track.language,
+              trackType: track.track_type || 'external',
+              streamIndex: track.stream_index,
+              isDefault: track.is_default || false,
+              isForced: track.is_forced || false,
+              url: `${getApiUrl()}/api/media/${media.id}/subtitles/${track.id}/file`
+            }));
+
+            setAvailableSubtitles(subs);
+
+            // Set default subtitle track (prefer default, then forced, then first available)
+            const defaultTrack = subs.find((sub: any) => sub.isDefault) ||
+              subs.find((sub: any) => sub.isForced) ||
+              subs[0];
+            if (defaultTrack) {
+              setCurrentSubtitleTrack(defaultTrack.id);
+              setCurrentSubtitle(defaultTrack.url);
+              // Enable subtitles by default when tracks are available
+              setSubtitlesEnabled(true);
+              // Store the default track for later loading when video is ready
+              (window as any).pendingSubtitleTrack = defaultTrack;
+            }
+          } else {
+            setAvailableSubtitles([]);
+            setCurrentSubtitle(null);
+            setCurrentSubtitleTrack(null);
+          }
+        }
+
+        // Load audio tracks
+        const audioResponse = await fetch(`${getApiUrl()}/api/media/${media.id}/audio`);
+        if (audioResponse.ok) {
+          const audioTracks = await audioResponse.json();
+          if (audioTracks && audioTracks.length > 0) {
+            // Set default audio track (prefer default or first available)
+            const defaultTrack = audioTracks.find((track: any) => track.is_default) || audioTracks[0];
+            if (defaultTrack) {
+              setCurrentAudioTrack(defaultTrack.id);
+            }
+          }
+        }
+      } catch (error) {
+        setAvailableSubtitles([]);
+        setCurrentSubtitle(null);
+        setCurrentSubtitleTrack(null);
+      }
+    };
+
+    if (isOpen && media.id) {
+      loadTracks();
+    }
+  }, [media.id, isOpen]);
+
+  // Force subtitle loading when subtitles are enabled
+  useEffect(() => {
+    if (subtitlesEnabled && currentSubtitle && !currentSubtitleText) {
+      // Force reload subtitles if they're enabled but not showing
+      setTimeout(() => {
+        loadExternalSubtitle(currentSubtitle);
+      }, 500);
+    }
+  }, [subtitlesEnabled, currentSubtitle, currentSubtitleText, loadExternalSubtitle]);
+
+  // Additional effect to ensure subtitles load when video is ready
+  useEffect(() => {
+    if (isOpen && subtitlesEnabled && currentSubtitle && videoRef.current && !isLoading) {
+      const video = videoRef.current;
+      if (video.readyState >= 2 && !(window as any).currentSubtitleCues?.length) {
+        console.log('Loading subtitles when video is ready - readyState:', video.readyState);
+        setTimeout(() => {
+          loadExternalSubtitle(currentSubtitle);
+        }, 200);
+      }
+    }
+  }, [isOpen, subtitlesEnabled, currentSubtitle, isLoading, loadExternalSubtitle]);
+
   // Handle subtitle track changes with improved cleanup
   const handleSubtitleTrackChange = useCallback((trackId: number | null) => {
     setCurrentSubtitleTrack(trackId);
@@ -713,14 +796,39 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
         (video as any).subtitleCleanup = null;
       }
 
-      // Hide ALL text tracks to prevent double subtitles
+      // Chrome-specific: Force disable ALL text tracks
       for (let i = 0; i < video.textTracks.length; i++) {
-        video.textTracks[i].mode = 'hidden';
+        const track = video.textTracks[i];
+        track.mode = 'disabled'; // Use 'disabled' instead of 'hidden' for Chrome
+        // Chrome-specific cleanup
+        if ('oncuechange' in track) {
+          track.oncuechange = null;
+        }
+        // Force remove cues if possible
+        try {
+          while (track.cues && track.cues.length > 0) {
+            track.removeCue(track.cues[0]);
+          }
+        } catch (e) {
+          // Ignore errors when removing cues
+        }
       }
 
       // Remove all track elements from DOM
       const existingTrackElements = video.querySelectorAll('track');
-      existingTrackElements.forEach(track => track.remove());
+      existingTrackElements.forEach(track => {
+        track.remove();
+      });
+
+      // Chrome-specific: Force clear any cached text tracks
+      try {
+        // Clear textTracks array if possible
+        if (video.textTracks && 'clear' in video.textTracks) {
+          (video.textTracks as any).clear();
+        }
+      } catch (e) {
+        // Ignore if not supported
+      }
 
       // Clear global subtitle state completely
       (window as any).currentSubtitleCues = [];
@@ -741,10 +849,10 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
         // Use unified subtitle loading for both internal and external
         if (selectedTrack.url) {
           setCurrentSubtitle(selectedTrack.url);
-          // Add small delay to ensure cleanup is complete
+          // Chrome-specific: Add longer delay to ensure cleanup is complete
           setTimeout(() => {
             loadExternalSubtitle(selectedTrack.url);
-          }, 100);
+          }, 200);
         }
       }
     }
@@ -1789,15 +1897,31 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
         handleSubtitleTrackChange(trackToUse);
       }
     } else {
-      // Disable all subtitles
+      // Disable all subtitles - Chrome-specific cleanup
       const video = videoRef.current;
       if (video) {
+        // Chrome-specific: Force disable instead of hide
         const tracks = video.textTracks;
         for (let i = 0; i < tracks.length; i++) {
-          tracks[i].mode = 'hidden';
+          tracks[i].mode = 'disabled';
+          if ('oncuechange' in tracks[i]) {
+            tracks[i].oncuechange = null;
+          }
+        }
+
+        // Clean up subtitle handlers
+        if ((video as any).subtitleCleanup) {
+          (video as any).subtitleCleanup();
+          (video as any).subtitleCleanup = null;
         }
       }
-      setCurrentSubtitleText('');
+
+      // Force clear subtitle text with Chrome-specific update
+      requestAnimationFrame(() => {
+        setCurrentSubtitleText('');
+        (window as any).lastSubtitleText = '';
+        (window as any).currentSubtitleCues = [];
+      });
     }
   };
 
@@ -1983,6 +2107,13 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                 setIsMuted(false);
               }
 
+              // Load subtitles when video starts playing if they haven't been loaded yet
+              if (subtitlesEnabled && currentSubtitle && !currentSubtitleText && !(window as any).currentSubtitleCues?.length) {
+                setTimeout(() => {
+                  loadExternalSubtitle(currentSubtitle);
+                }, 100);
+              }
+
               // Start the auto-hide timer for controls when video starts playing
               if (controlsTimeoutRef.current) {
                 clearTimeout(controlsTimeoutRef.current);
@@ -2147,6 +2278,15 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                   // Browser doesn't support these properties - continue anyway
                 }
 
+                // Load pending subtitles when video is ready
+                if ((window as any).pendingSubtitleTrack) {
+                  const pendingTrack = (window as any).pendingSubtitleTrack;
+                  setTimeout(() => {
+                    loadExternalSubtitle(pendingTrack.url);
+                    (window as any).pendingSubtitleTrack = null;
+                  }, 200);
+                }
+
                 // INSTANT auto-play for new episodes with zero delay and audio enabled
                 if (!hasInitiallyLoaded && video.currentTime === 0) {
                   // Activate audio context before playing
@@ -2179,7 +2319,18 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
               const video = videoRef.current;
               if (!video) return;
 
+              // Chrome-specific: Force disable all native text tracks immediately
+              for (let i = 0; i < video.textTracks.length; i++) {
+                const track = video.textTracks[i];
+                track.mode = 'disabled';
+                if ('oncuechange' in track) {
+                  track.oncuechange = null;
+                }
+              }
 
+              // Remove any track elements that might interfere
+              const trackElements = video.querySelectorAll('track');
+              trackElements.forEach(track => track.remove());
 
               // Enhanced duration detection for MKV and other formats
               let videoDuration = video.duration;
@@ -2278,6 +2429,13 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                   }
                 }
                 setHasInitiallyLoaded(true); // Mark as initially loaded
+              }
+
+              // Ensure subtitles are loaded after metadata is ready
+              if (subtitlesEnabled && currentSubtitle && !(window as any).currentSubtitleCues?.length) {
+                setTimeout(() => {
+                  loadExternalSubtitle(currentSubtitle);
+                }, 300);
               }
             }}
             onLoadedData={() => {
@@ -2420,6 +2578,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                 video.muted = false;
               }
             }}
+
             // ULTRA-INSTANT LAN STREAMING ATTRIBUTES - Sub-millisecond response
             style={{
               // Hint to browser about expected video size for instant rendering
@@ -2472,24 +2631,39 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
 
           {/* Subtitle Styling and Volume Slider */}
           <style jsx>{`
-            /* Hide native video subtitle tracks to prevent double subtitles */
+            /* Chrome-specific subtitle fixes */
             video::cue {
               display: none !important;
+              visibility: hidden !important;
+              opacity: 0 !important;
             }
             
             video::-webkit-media-text-track-display {
               display: none !important;
+              visibility: hidden !important;
             }
             
             video::-webkit-media-text-track-container {
               display: none !important;
+              visibility: hidden !important;
             }
 
             video::-webkit-media-text-track-background {
               display: none !important;
+              visibility: hidden !important;
             }
 
             video::cue-region {
+              display: none !important;
+              visibility: hidden !important;
+            }
+
+            /* Force hide all text tracks in Chrome */
+            video::-webkit-media-text-track-region {
+              display: none !important;
+            }
+
+            video::-webkit-media-text-track-region-container {
               display: none !important;
             }
 
@@ -2580,30 +2754,62 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
             )}
           </AnimatePresence>
 
-          {/* Single Subtitle Overlay - Always show when subtitles are enabled */}
+          {/* Debug subtitle status */}
+          {/* {availableSubtitles.length > 0 && (
+            <div className="absolute top-4 left-4 z-50 bg-black/80 text-white p-2 rounded text-xs">
+              Subtitles: {subtitlesEnabled ? 'ON' : 'OFF'} |
+              Track: {currentSubtitleTrack} |
+              Text: {currentSubtitleText ? 'YES' : 'NO'} |
+              Available: {availableSubtitles.length}
+            </div>
+          )} */}
+
+          {/* Single Subtitle Overlay - Chrome-compatible with forced rendering */}
           <AnimatePresence>
-            {subtitlesEnabled && currentSubtitleText && (
+            {currentSubtitleText && (
               <motion.div
+                key={`subtitle-${currentSubtitleText.substring(0, 20)}`} // Force re-render for Chrome
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                className={`absolute left-1/2 transform -translate-x-1/2 z-30 pointer-events-none ${subtitleStyle.position === 'top' ? 'top-20' :
-                  subtitleStyle.position === 'center' ? 'top-1/2 -translate-y-1/2' :
-                    'bottom-20'
+                transition={{ duration: 0.1 }} // Faster transition for Chrome
+                className={`absolute z-30 pointer-events-none ${subtitleStyle.position === 'top'
+                    ? 'top-20 left-1/2 -translate-x-1/2'
+                    : subtitleStyle.position === 'center'
+                      ? 'top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2'
+                      : 'bottom-10 left-1/2 -translate-x-1/2'
                   }`}
+                style={{
+                  // Chrome-specific rendering hints
+                  willChange: 'opacity, transform',
+                  backfaceVisibility: 'hidden',
+                  // Remove conflicting transform - let Tailwind handle it
+                }}
               >
                 <div
-                  className="text-center px-4 py-2 rounded-lg max-w-4xl"
+                  className="text-center px-4 py-2 rounded-lg max-w-4xl mx-auto"
                   style={{
                     fontSize: `${subtitleStyle.fontSize}px`,
                     fontFamily: subtitleStyle.fontFamily,
                     color: subtitleStyle.color,
-                    backgroundColor: subtitleStyle.backgroundColor === 'transparent' ? 'transparent' :
-                      `${subtitleStyle.backgroundColor}${Math.round(subtitleStyle.backgroundOpacity * 255).toString(16).padStart(2, '0')}`,
+                    backgroundColor: subtitleStyle.backgroundColor === 'transparent'
+                      ? 'transparent'
+                      : `${subtitleStyle.backgroundColor}${Math.round(subtitleStyle.backgroundOpacity * 255).toString(16).padStart(2, '0')}`,
                     textShadow: subtitleStyle.textShadow ? '2px 2px 4px rgba(0, 0, 0, 0.9)' : 'none',
                     WebkitTextStroke: subtitleStyle.textStroke ? '1px black' : 'none',
                     lineHeight: '1.4',
-                    whiteSpace: 'pre-line'
+                    whiteSpace: 'pre-line',
+                    // Chrome-specific rendering optimizations
+                    WebkitFontSmoothing: 'antialiased',
+                    MozOsxFontSmoothing: 'grayscale',
+                    textRendering: 'optimizeLegibility',
+                    // Force layer creation for better performance
+                    willChange: 'contents',
+                    contain: 'layout style paint',
+                    // Ensure proper centering
+                    display: 'block',
+                    width: 'max-content',
+                    maxWidth: '90vw',
                   }}
                   dangerouslySetInnerHTML={{ __html: currentSubtitleText.replace(/\n/g, '<br>') }}
                 />
