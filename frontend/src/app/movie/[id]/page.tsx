@@ -40,6 +40,7 @@ import { useNavigate } from "@/hooks/useNavigate";
 const useBackgroundVideo = (videoRef: React.RefObject<HTMLVideoElement | null>, isPlayerOpen: boolean) => {
   const [isVideoPlaying, setIsVideoPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
+  const isMountedRef = useRef(true);
 
   // Function to stop video completely
   const stopVideo = useCallback(() => {
@@ -59,10 +60,6 @@ const useBackgroundVideo = (videoRef: React.RefObject<HTMLVideoElement | null>, 
       video.src = '';
       video.load();
 
-      // Update state
-      setIsVideoPlaying(false);
-      setIsMuted(true);
-
       // Force garbage collection of video element
       try {
         video.removeAttribute('src');
@@ -79,9 +76,33 @@ const useBackgroundVideo = (videoRef: React.RefObject<HTMLVideoElement | null>, 
     if (video) {
       video.pause();
       video.muted = true;
-      setIsVideoPlaying(false);
-      setIsMuted(true);
     }
+  }, []);
+
+  // Safe state updater that checks if component is still mounted
+  const safeSetIsVideoPlaying = useCallback((playing: boolean) => {
+    // Use requestAnimationFrame to defer state update and avoid insertion effect conflicts
+    requestAnimationFrame(() => {
+      if (isMountedRef.current) {
+        setIsVideoPlaying(playing);
+      }
+    });
+  }, []);
+
+  const safeSetIsMuted = useCallback((muted: boolean) => {
+    // Use requestAnimationFrame to defer state update and avoid insertion effect conflicts
+    requestAnimationFrame(() => {
+      if (isMountedRef.current) {
+        setIsMuted(muted);
+      }
+    });
+  }, []);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+    };
   }, []);
 
   // Main effect to handle player open/close state
@@ -95,8 +116,8 @@ const useBackgroundVideo = (videoRef: React.RefObject<HTMLVideoElement | null>, 
       video.muted = true;
       video.volume = 0;
       video.currentTime = 0;
-      setIsVideoPlaying(false);
-      setIsMuted(true);
+      safeSetIsVideoPlaying(false);
+      safeSetIsMuted(true);
 
       // Remove video source to completely stop loading
       if (video.src) {
@@ -105,7 +126,7 @@ const useBackgroundVideo = (videoRef: React.RefObject<HTMLVideoElement | null>, 
         video.load();
       }
     }
-  }, [isPlayerOpen]);
+  }, [isPlayerOpen, safeSetIsVideoPlaying, safeSetIsMuted]);
 
   // Global cleanup listeners
   useEffect(() => {
@@ -132,11 +153,7 @@ const useBackgroundVideo = (videoRef: React.RefObject<HTMLVideoElement | null>, 
       stopVideo();
     };
 
-    // Listen for window focus/blur events
-    const handleWindowBlur = () => {
-      stopVideo();
-    };
-
+    // Don't listen to focus/blur events to avoid conflicts with address bar clicks
     const handleWindowFocus = () => {
       // Don't auto-resume video on focus to prevent unwanted audio
     };
@@ -146,8 +163,7 @@ const useBackgroundVideo = (videoRef: React.RefObject<HTMLVideoElement | null>, 
     window.addEventListener('pagehide', handleBeforeUnload);
     window.addEventListener('popstate', handlePopState);
     window.addEventListener('hashchange', handleHashChange);
-    window.addEventListener('blur', handleWindowBlur);
-    window.addEventListener('focus', handleWindowFocus);
+    // Removed blur/focus listeners to prevent address bar conflicts
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
     // Next.js specific route change detection
@@ -171,8 +187,7 @@ const useBackgroundVideo = (videoRef: React.RefObject<HTMLVideoElement | null>, 
       window.removeEventListener('pagehide', handleBeforeUnload);
       window.removeEventListener('popstate', handlePopState);
       window.removeEventListener('hashchange', handleHashChange);
-      window.removeEventListener('blur', handleWindowBlur);
-      window.removeEventListener('focus', handleWindowFocus);
+      // Removed blur/focus listeners cleanup
       document.removeEventListener('visibilitychange', handleVisibilityChange);
 
       // Restore original methods
@@ -183,9 +198,9 @@ const useBackgroundVideo = (videoRef: React.RefObject<HTMLVideoElement | null>, 
 
   return {
     isVideoPlaying,
-    setIsVideoPlaying,
+    setIsVideoPlaying: safeSetIsVideoPlaying,
     isMuted,
-    setIsMuted,
+    setIsMuted: safeSetIsMuted,
     stopVideo,
     pauseVideo
   };
