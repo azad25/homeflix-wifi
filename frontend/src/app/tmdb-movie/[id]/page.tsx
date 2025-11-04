@@ -2,11 +2,31 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { motion } from 'framer-motion';
-import { ArrowLeft, Play, Pause, Volume2, VolumeX, Star, Calendar, Clock, Users } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { 
+  ArrowLeft, 
+  Play, 
+  Pause, 
+  Volume2, 
+  VolumeX, 
+  Star, 
+  Calendar, 
+  Clock, 
+  Users, 
+  Award,
+  Globe,
+  DollarSign,
+  Film,
+  Maximize,
+  ExternalLink,
+  Heart,
+  Share2,
+  Download
+} from 'lucide-react';
 import { getApiUrl } from '@/lib/api';
 import Navbar from '@/components/Navbar';
 import RedLoader from '@/components/RedLoader';
+import UpcomingMovies from '@/components/UpcomingMovies';
 
 interface TMDBMovieDetails {
   id: number;
@@ -64,13 +84,17 @@ const TMDBMoviePage: React.FC = () => {
   const params = useParams();
   const router = useRouter();
   const videoRef = useRef<HTMLIFrameElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   
   const [movieDetails, setMovieDetails] = useState<TMDBMovieDetails | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(true);
-  const [isMuted, setIsMuted] = useState(false);
+  const [isMuted, setIsMuted] = useState(true);
   const [trailerKey, setTrailerKey] = useState<string | null>(null);
+  const [showFullCast, setShowFullCast] = useState(false);
+  const [isVideoLoaded, setIsVideoLoaded] = useState(false);
+  const [showControls, setShowControls] = useState(true);
 
   const movieId = params.id as string;
 
@@ -79,6 +103,15 @@ const TMDBMoviePage: React.FC = () => {
       fetchMovieDetails();
     }
   }, [movieId]);
+
+  // Auto-hide controls after 3 seconds
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setShowControls(false);
+    }, 3000);
+
+    return () => clearTimeout(timer);
+  }, [showControls]);
 
   const fetchMovieDetails = async () => {
     try {
@@ -107,22 +140,18 @@ const TMDBMoviePage: React.FC = () => {
   };
 
   const findBestTrailer = (videos: any[]) => {
-    // Priority: Official trailers > Trailers > Teasers > Clips
     const trailers = videos.filter(v => v.site === 'YouTube');
     
-    // First try official trailers
+    // Priority: Official trailers > Trailers > Teasers > Clips
     let trailer = trailers.find(v => v.official && v.type === 'Trailer');
     if (trailer) return trailer;
     
-    // Then any trailer
     trailer = trailers.find(v => v.type === 'Trailer');
     if (trailer) return trailer;
     
-    // Then teaser
     trailer = trailers.find(v => v.type === 'Teaser');
     if (trailer) return trailer;
     
-    // Finally any video
     return trailers[0] || null;
   };
 
@@ -131,7 +160,7 @@ const TMDBMoviePage: React.FC = () => {
     return `https://image.tmdb.org/t/p/${size}${posterPath}`;
   };
 
-  const getBackdropUrl = (backdropPath: string, size: string = 'w1280') => {
+  const getBackdropUrl = (backdropPath: string, size: string = 'original') => {
     if (!backdropPath) return '/placeholder-backdrop.jpg';
     return `https://image.tmdb.org/t/p/${size}${backdropPath}`;
   };
@@ -172,14 +201,13 @@ const TMDBMoviePage: React.FC = () => {
     if (videoRef.current) {
       const iframe = videoRef.current;
       if (isPlaying) {
-        // Pause video by sending postMessage to YouTube iframe
         iframe.contentWindow?.postMessage('{"event":"command","func":"pauseVideo","args":""}', '*');
       } else {
-        // Play video
         iframe.contentWindow?.postMessage('{"event":"command","func":"playVideo","args":""}', '*');
       }
       setIsPlaying(!isPlaying);
     }
+    setShowControls(true);
   };
 
   const toggleMute = () => {
@@ -192,6 +220,11 @@ const TMDBMoviePage: React.FC = () => {
       }
       setIsMuted(!isMuted);
     }
+    setShowControls(true);
+  };
+
+  const handleMouseMove = () => {
+    setShowControls(true);
   };
 
   if (loading) {
@@ -223,193 +256,269 @@ const TMDBMoviePage: React.FC = () => {
   const writers = movieDetails.credits?.crew?.filter(person => 
     person.job === 'Writer' || person.job === 'Screenplay' || person.job === 'Story'
   ) || [];
+  const mainCast = movieDetails.credits?.cast?.slice(0, showFullCast ? undefined : 8) || [];
 
   return (
     <div className="min-h-screen bg-black text-white">
       <Navbar />
       
-      {/* Hero Section with Trailer */}
-      <div className="relative h-screen overflow-hidden">
+      {/* Hero Section with HD Trailer */}
+      <div 
+        className="relative h-screen overflow-hidden"
+        onMouseMove={handleMouseMove}
+        ref={containerRef}
+      >
         {/* Background Image Fallback */}
         <div 
           className="absolute inset-0 bg-cover bg-center"
           style={{
-            backgroundImage: `url(${getBackdropUrl(movieDetails.backdrop_path, 'w1920')})`,
+            backgroundImage: `url(${getBackdropUrl(movieDetails.backdrop_path)})`,
           }}
         >
-          <div className="absolute inset-0 bg-black/40" />
+          <div className="absolute inset-0 bg-gradient-to-r from-black/70 via-black/30 to-black/20" />
         </div>
 
-        {/* Trailer Video */}
+        {/* HD Trailer Video */}
         {trailerKey && (
           <div className="absolute inset-0">
             <iframe
               ref={videoRef}
-              src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=0&controls=0&showinfo=0&rel=0&iv_load_policy=3&modestbranding=1&enablejsapi=1&origin=${window.location.origin}`}
-              className="w-full h-full object-cover"
+              src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=1&controls=0&showinfo=0&rel=0&iv_load_policy=3&modestbranding=1&enablejsapi=1&origin=${typeof window !== 'undefined' ? window.location.origin : ''}&vq=hd1080&hd=1&quality=hd1080`}
+              className="w-full h-full"
               allow="autoplay; encrypted-media"
               allowFullScreen
-              style={{ pointerEvents: 'none' }}
+              style={{ 
+                pointerEvents: 'none',
+                border: 'none',
+                outline: 'none'
+              }}
+              onLoad={() => setIsVideoLoaded(true)}
             />
-            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
+            <div className="absolute inset-0 bg-gradient-to-r from-black/60 via-transparent to-transparent pointer-events-none" />
+            <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-black/80 to-transparent pointer-events-none" />
           </div>
         )}
 
-        {/* Back Button */}
-        <button
-          onClick={() => router.back()}
-          className="absolute top-24 left-8 z-50 flex items-center gap-2 px-4 py-2 bg-black/50 backdrop-blur-sm rounded-full text-white hover:bg-black/70 transition-colors"
-        >
-          <ArrowLeft className="w-5 h-5" />
-          <span>Back</span>
-        </button>
-
-        {/* Video Controls */}
-        {trailerKey && (
-          <div className="absolute top-24 right-8 z-50 flex gap-2">
-            <button
-              onClick={togglePlayPause}
-              className="p-3 bg-black/50 backdrop-blur-sm rounded-full text-white hover:bg-black/70 transition-colors"
-            >
-              {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
-            </button>
-            <button
-              onClick={toggleMute}
-              className="p-3 bg-black/50 backdrop-blur-sm rounded-full text-white hover:bg-black/70 transition-colors"
-            >
-              {isMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
-            </button>
-          </div>
-        )}
-
-        {/* Movie Info Overlay */}
-        <div className="absolute bottom-0 left-0 right-0 p-8 bg-gradient-to-t from-black via-black/80 to-transparent">
-          <div className="max-w-4xl">
+        {/* Navigation and Controls */}
+        <AnimatePresence>
+          {showControls && (
             <motion.div
-              initial={{ opacity: 0, y: 50 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.8 }}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 pointer-events-none"
             >
-              <h1 className="text-5xl md:text-6xl font-bold mb-4">
-                {movieDetails.title}
-              </h1>
-              
-              {movieDetails.tagline && (
-                <p className="text-xl text-gray-300 mb-4 italic">
-                  "{movieDetails.tagline}"
-                </p>
-              )}
+              {/* Back Button */}
+              <button
+                onClick={() => router.back()}
+                className="absolute top-24 left-8 z-50 flex items-center gap-2 px-4 py-2 bg-black/70 backdrop-blur-sm rounded-full text-white hover:bg-black/90 transition-all duration-300 pointer-events-auto"
+              >
+                <ArrowLeft className="w-5 h-5" />
+                <span>Back</span>
+              </button>
 
-              <div className="flex flex-wrap items-center gap-6 mb-6 text-lg">
-                <div className="flex items-center gap-2">
-                  <Star className="w-5 h-5 text-yellow-400 fill-current" />
-                  <span>{movieDetails.vote_average.toFixed(1)}</span>
-                  <span className="text-gray-400">({movieDetails.vote_count.toLocaleString()} votes)</span>
-                </div>
-                
-                <div className="flex items-center gap-2">
-                  <Calendar className="w-5 h-5 text-blue-400" />
-                  <span>{new Date(movieDetails.release_date).getFullYear()}</span>
-                </div>
-                
-                <div className="flex items-center gap-2">
-                  <Clock className="w-5 h-5 text-green-400" />
-                  <span>{formatRuntime(movieDetails.runtime)}</span>
-                </div>
-              </div>
-
-              <div className="flex flex-wrap gap-2 mb-6">
-                {movieDetails.genres?.map((genre) => (
-                  <span
-                    key={genre.id}
-                    className="px-3 py-1 bg-red-600/20 border border-red-600/30 rounded-full text-sm"
+              {/* Video Controls */}
+              {trailerKey && (
+                <div className="absolute top-24 right-8 z-50 flex gap-3 pointer-events-auto">
+                  <button
+                    onClick={togglePlayPause}
+                    className="p-3 bg-black/70 backdrop-blur-sm rounded-full text-white hover:bg-black/90 transition-all duration-300 hover:scale-110"
                   >
-                    {genre.name}
-                  </span>
-                ))}
+                    {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
+                  </button>
+                  <button
+                    onClick={toggleMute}
+                    className="p-3 bg-black/70 backdrop-blur-sm rounded-full text-white hover:bg-black/90 transition-all duration-300 hover:scale-110"
+                  >
+                    {isMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
+                  </button>
+                </div>
+              )}
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Movie Info Overlay - Bottom Left */}
+        <div className="absolute bottom-0 left-0 w-1/2 h-2/3 p-8">
+          <div className="max-w-2xl h-full flex items-end">
+            <motion.div
+              initial={{ opacity: 0, x: -50 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ duration: 0.8, delay: 0.2 }}
+              className="flex gap-6 items-end"
+            >
+              {/* Movie Poster - Smaller */}
+              <div className="flex-shrink-0">
+                <motion.img
+                  src={getPosterUrl(movieDetails.poster_path, 'w300')}
+                  alt={movieDetails.title}
+                  className="w-48 h-72 rounded-lg shadow-2xl object-cover"
+                  onError={(e) => {
+                    const target = e.target as HTMLImageElement;
+                    target.src = '/placeholder-poster.jpg';
+                  }}
+                  initial={{ scale: 0.8, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  transition={{ duration: 0.6, delay: 0.4 }}
+                />
               </div>
 
-              <p className="text-lg text-gray-300 max-w-3xl leading-relaxed">
-                {movieDetails.overview}
-              </p>
+              {/* Movie Details - Compact */}
+              <div className="flex-1 space-y-4 pb-4">
+                <div>
+                  <h1 className="text-3xl md:text-4xl font-bold mb-2 bg-gradient-to-r from-white to-gray-300 bg-clip-text text-transparent">
+                    {movieDetails.title}
+                  </h1>
+                  
+                  {movieDetails.tagline && (
+                    <p className="text-lg text-red-400 mb-3 italic font-medium">
+                      "{movieDetails.tagline}"
+                    </p>
+                  )}
+                </div>
+
+                {/* Stats Row - Compact */}
+                <div className="flex flex-wrap items-center gap-3 text-sm">
+                  <div className="flex items-center gap-1 bg-yellow-500/20 px-2 py-1 rounded-full">
+                    <Star className="w-4 h-4 text-yellow-400 fill-current" />
+                    <span className="font-semibold">{movieDetails.vote_average.toFixed(1)}</span>
+                  </div>
+                  
+                  <div className="flex items-center gap-1 bg-blue-500/20 px-2 py-1 rounded-full">
+                    <Calendar className="w-4 h-4 text-blue-400" />
+                    <span>{new Date(movieDetails.release_date).getFullYear()}</span>
+                  </div>
+                  
+                  <div className="flex items-center gap-1 bg-green-500/20 px-2 py-1 rounded-full">
+                    <Clock className="w-4 h-4 text-green-400" />
+                    <span>{formatRuntime(movieDetails.runtime)}</span>
+                  </div>
+                </div>
+
+                {/* Genres - Compact */}
+                <div className="flex flex-wrap gap-1">
+                  {movieDetails.genres?.slice(0, 3).map((genre) => (
+                    <span
+                      key={genre.id}
+                      className="px-2 py-1 bg-red-600/30 border border-red-500/50 rounded-full text-xs font-medium"
+                    >
+                      {genre.name}
+                    </span>
+                  ))}
+                </div>
+
+                {/* Overview - Truncated */}
+                <p className="text-sm text-gray-300 leading-relaxed line-clamp-3">
+                  {movieDetails.overview}
+                </p>
+
+                {/* Action Buttons - Compact */}
+                <div className="flex flex-wrap gap-2 pt-2">
+                  <button className="flex items-center gap-1 px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg text-sm font-semibold transition-all duration-300 hover:scale-105">
+                    <Heart className="w-4 h-4" />
+                    Watchlist
+                  </button>
+                  <button className="flex items-center gap-1 px-4 py-2 bg-gray-800/80 hover:bg-gray-700 rounded-lg text-sm font-semibold transition-all duration-300 hover:scale-105">
+                    <Share2 className="w-4 h-4" />
+                    Share
+                  </button>
+                </div>
+              </div>
             </motion.div>
           </div>
         </div>
       </div>
 
-      {/* Detailed Information */}
-      <div className="px-8 py-12 max-w-7xl mx-auto">
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-12">
-          {/* Poster and Basic Info */}
-          <div className="lg:col-span-1">
-            <div className="sticky top-8">
-              <img
-                src={getPosterUrl(movieDetails.poster_path, 'w500')}
-                alt={movieDetails.title}
-                className="w-full rounded-lg shadow-2xl mb-6"
-                onError={(e) => {
-                  const target = e.target as HTMLImageElement;
-                  target.src = '/placeholder-poster.jpg';
-                }}
-              />
-              
-              <div className="space-y-4 text-sm">
-                <div>
-                  <h3 className="font-semibold text-gray-300 mb-1">Status</h3>
-                  <p>{movieDetails.status}</p>
-                </div>
-                
-                <div>
-                  <h3 className="font-semibold text-gray-300 mb-1">Release Date</h3>
-                  <p>{formatDate(movieDetails.release_date)}</p>
-                </div>
-                
-                <div>
-                  <h3 className="font-semibold text-gray-300 mb-1">Runtime</h3>
-                  <p>{formatRuntime(movieDetails.runtime)}</p>
-                </div>
-                
-                {movieDetails.budget > 0 && (
-                  <div>
-                    <h3 className="font-semibold text-gray-300 mb-1">Budget</h3>
-                    <p>{formatCurrency(movieDetails.budget)}</p>
-                  </div>
-                )}
-                
-                {movieDetails.revenue > 0 && (
-                  <div>
-                    <h3 className="font-semibold text-gray-300 mb-1">Revenue</h3>
-                    <p>{formatCurrency(movieDetails.revenue)}</p>
-                  </div>
+      {/* Detailed Information Section */}
+      <div className="px-8 py-16 bg-gradient-to-b from-black to-gray-900">
+        <div className="max-w-7xl mx-auto space-y-16">
+          
+          {/* Cast Section - Enhanced Design */}
+          {movieDetails.credits?.cast && movieDetails.credits.cast.length > 0 && (
+            <motion.section
+              initial={{ opacity: 0, y: 50 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.6 }}
+              viewport={{ once: true }}
+            >
+              <div className="flex items-center justify-between mb-8">
+                <h2 className="text-3xl font-bold flex items-center gap-3">
+                  <Users className="w-8 h-8 text-red-500" />
+                  Cast
+                </h2>
+                {movieDetails.credits.cast.length > 8 && (
+                  <button
+                    onClick={() => setShowFullCast(!showFullCast)}
+                    className="px-4 py-2 bg-red-600/20 border border-red-500/50 rounded-lg hover:bg-red-600/30 transition-colors"
+                  >
+                    {showFullCast ? 'Show Less' : `Show All ${movieDetails.credits.cast.length}`}
+                  </button>
                 )}
               </div>
-            </div>
-          </div>
+              
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-6">
+                {mainCast.map((actor) => (
+                  <motion.div
+                    key={actor.id}
+                    className="group bg-gray-800/50 rounded-xl overflow-hidden hover:bg-gray-700/50 transition-all duration-300 hover:scale-105"
+                    whileHover={{ y: -5 }}
+                  >
+                    <div className="aspect-[3/4] relative overflow-hidden">
+                      <img
+                        src={getProfileUrl(actor.profile_path, 'w300')}
+                        alt={actor.name}
+                        className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
+                        onError={(e) => {
+                          const target = e.target as HTMLImageElement;
+                          target.src = '/placeholder-avatar.jpg';
+                        }}
+                      />
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+                    </div>
+                    <div className="p-4">
+                      <h3 className="font-semibold text-white mb-1 group-hover:text-red-400 transition-colors">
+                        {actor.name}
+                      </h3>
+                      <p className="text-sm text-gray-400 line-clamp-2">
+                        {actor.character}
+                      </p>
+                    </div>
+                  </motion.div>
+                ))}
+              </div>
+            </motion.section>
+          )}
 
-          {/* Cast and Crew */}
-          <div className="lg:col-span-2 space-y-8">
+          {/* Crew Section */}
+          <motion.section
+            initial={{ opacity: 0, y: 50 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6 }}
+            viewport={{ once: true }}
+            className="grid grid-cols-1 lg:grid-cols-2 gap-12"
+          >
             {/* Directors */}
             {directors.length > 0 && (
               <div>
-                <h2 className="text-2xl font-bold mb-4 flex items-center gap-2">
-                  <Users className="w-6 h-6 text-red-500" />
+                <h3 className="text-2xl font-bold mb-6 flex items-center gap-2">
+                  <Film className="w-6 h-6 text-red-500" />
                   Director{directors.length > 1 ? 's' : ''}
-                </h2>
-                <div className="flex flex-wrap gap-4">
+                </h3>
+                <div className="space-y-4">
                   {directors.map((director) => (
-                    <div key={director.id} className="flex items-center gap-3 bg-gray-800/50 rounded-lg p-3">
+                    <div key={director.id} className="flex items-center gap-4 bg-gray-800/30 rounded-lg p-4 hover:bg-gray-700/30 transition-colors">
                       <img
                         src={getProfileUrl(director.profile_path)}
                         alt={director.name}
-                        className="w-12 h-12 rounded-full object-cover"
+                        className="w-16 h-16 rounded-full object-cover"
                         onError={(e) => {
                           const target = e.target as HTMLImageElement;
                           target.src = '/placeholder-avatar.jpg';
                         }}
                       />
                       <div>
-                        <p className="font-semibold">{director.name}</p>
-                        <p className="text-sm text-gray-400">{director.job}</p>
+                        <p className="font-semibold text-lg">{director.name}</p>
+                        <p className="text-gray-400">{director.job}</p>
                       </div>
                     </div>
                   ))}
@@ -420,53 +529,121 @@ const TMDBMoviePage: React.FC = () => {
             {/* Writers */}
             {writers.length > 0 && (
               <div>
-                <h2 className="text-2xl font-bold mb-4">Writers</h2>
-                <div className="flex flex-wrap gap-4">
-                  {writers.slice(0, 6).map((writer) => (
-                    <div key={`${writer.id}-${writer.job}`} className="flex items-center gap-3 bg-gray-800/50 rounded-lg p-3">
+                <h3 className="text-2xl font-bold mb-6">Writers</h3>
+                <div className="space-y-4">
+                  {writers.slice(0, 4).map((writer) => (
+                    <div key={`${writer.id}-${writer.job}`} className="flex items-center gap-4 bg-gray-800/30 rounded-lg p-4 hover:bg-gray-700/30 transition-colors">
                       <img
                         src={getProfileUrl(writer.profile_path)}
                         alt={writer.name}
-                        className="w-12 h-12 rounded-full object-cover"
+                        className="w-16 h-16 rounded-full object-cover"
                         onError={(e) => {
                           const target = e.target as HTMLImageElement;
                           target.src = '/placeholder-avatar.jpg';
                         }}
                       />
                       <div>
-                        <p className="font-semibold">{writer.name}</p>
-                        <p className="text-sm text-gray-400">{writer.job}</p>
+                        <p className="font-semibold text-lg">{writer.name}</p>
+                        <p className="text-gray-400">{writer.job}</p>
                       </div>
                     </div>
                   ))}
                 </div>
               </div>
             )}
+          </motion.section>
 
-            {/* Cast */}
-            {movieDetails.credits?.cast && movieDetails.credits.cast.length > 0 && (
-              <div>
-                <h2 className="text-2xl font-bold mb-4">Cast</h2>
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                  {movieDetails.credits.cast.slice(0, 12).map((actor) => (
-                    <div key={actor.id} className="bg-gray-800/50 rounded-lg p-4 text-center">
-                      <img
-                        src={getProfileUrl(actor.profile_path)}
-                        alt={actor.name}
-                        className="w-20 h-20 rounded-full object-cover mx-auto mb-3"
-                        onError={(e) => {
-                          const target = e.target as HTMLImageElement;
-                          target.src = '/placeholder-avatar.jpg';
-                        }}
-                      />
-                      <p className="font-semibold text-sm mb-1">{actor.name}</p>
-                      <p className="text-xs text-gray-400">{actor.character}</p>
+          {/* Movie Details Grid */}
+          <motion.section
+            initial={{ opacity: 0, y: 50 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6 }}
+            viewport={{ once: true }}
+            className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8"
+          >
+            <div className="bg-gray-800/30 rounded-xl p-6">
+              <h3 className="text-xl font-bold mb-4 flex items-center gap-2">
+                <Calendar className="w-6 h-6 text-blue-400" />
+                Release Info
+              </h3>
+              <div className="space-y-3">
+                <div>
+                  <span className="text-gray-400">Status:</span>
+                  <span className="ml-2 font-semibold">{movieDetails.status}</span>
+                </div>
+                <div>
+                  <span className="text-gray-400">Release Date:</span>
+                  <span className="ml-2 font-semibold">{formatDate(movieDetails.release_date)}</span>
+                </div>
+                <div>
+                  <span className="text-gray-400">Runtime:</span>
+                  <span className="ml-2 font-semibold">{formatRuntime(movieDetails.runtime)}</span>
+                </div>
+              </div>
+            </div>
+
+            {(movieDetails.budget > 0 || movieDetails.revenue > 0) && (
+              <div className="bg-gray-800/30 rounded-xl p-6">
+                <h3 className="text-xl font-bold mb-4 flex items-center gap-2">
+                  <DollarSign className="w-6 h-6 text-green-400" />
+                  Box Office
+                </h3>
+                <div className="space-y-3">
+                  {movieDetails.budget > 0 && (
+                    <div>
+                      <span className="text-gray-400">Budget:</span>
+                      <span className="ml-2 font-semibold">{formatCurrency(movieDetails.budget)}</span>
                     </div>
-                  ))}
+                  )}
+                  {movieDetails.revenue > 0 && (
+                    <div>
+                      <span className="text-gray-400">Revenue:</span>
+                      <span className="ml-2 font-semibold">{formatCurrency(movieDetails.revenue)}</span>
+                    </div>
+                  )}
+                  {movieDetails.budget > 0 && movieDetails.revenue > 0 && (
+                    <div>
+                      <span className="text-gray-400">Profit:</span>
+                      <span className="ml-2 font-semibold text-green-400">
+                        {formatCurrency(movieDetails.revenue - movieDetails.budget)}
+                      </span>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
-          </div>
+
+            <div className="bg-gray-800/30 rounded-xl p-6">
+              <h3 className="text-xl font-bold mb-4 flex items-center gap-2">
+                <Globe className="w-6 h-6 text-purple-400" />
+                Languages
+              </h3>
+              <div className="space-y-2">
+                {movieDetails.spoken_languages?.slice(0, 3).map((lang) => (
+                  <div key={lang.iso_639_1} className="text-gray-300">
+                    {lang.name}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </motion.section>
+        </div>
+      </div>
+
+      {/* Related Movies Section */}
+      <div className="bg-gray-900 py-16">
+        <div className="max-w-7xl mx-auto px-8">
+          <UpcomingMovies 
+            showSection="trending_daily" 
+            maxItems={12}
+            title="More Movies You Might Like"
+            className="mb-8"
+          />
+          <UpcomingMovies 
+            showSection="now_playing" 
+            maxItems={12}
+            title="Now Playing in Theaters"
+          />
         </div>
       </div>
     </div>

@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, usePathname } from "next/navigation";
 import { ArrowLeft, Play, Plus, Check, Share, Download, Info, Star, Clock, Calendar, Globe, Users, Award, Film, Tv, User, Mic, ChevronDown, ChevronUp, Volume2, VolumeX, Users as Cast, User as Director } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import Image from 'next/image';
@@ -45,14 +45,33 @@ const useBackgroundVideo = (videoRef: React.RefObject<HTMLVideoElement | null>, 
   const stopVideo = useCallback(() => {
     const video = videoRef.current;
     if (video) {
+      // Immediately pause and mute
       video.pause();
       video.muted = true;
       video.currentTime = 0;
       video.volume = 0;
+
+      // Remove all sources to completely stop loading
+      const sources = video.querySelectorAll('source');
+      sources.forEach(source => source.remove());
+
+      // Clear src and load to stop any ongoing requests
+      video.src = '';
+      video.load();
+
+      // Update state
       setIsVideoPlaying(false);
       setIsMuted(true);
+
+      // Force garbage collection of video element
+      try {
+        video.removeAttribute('src');
+        video.removeAttribute('currentSrc');
+      } catch (e) {
+        // Silent fail
+      }
     }
-  }, [videoRef]);
+  }, []);
 
   // Function to pause video
   const pauseVideo = useCallback(() => {
@@ -63,7 +82,7 @@ const useBackgroundVideo = (videoRef: React.RefObject<HTMLVideoElement | null>, 
       setIsVideoPlaying(false);
       setIsMuted(true);
     }
-  }, [videoRef]);
+  }, []);
 
   // Main effect to handle player open/close state
   useEffect(() => {
@@ -78,7 +97,7 @@ const useBackgroundVideo = (videoRef: React.RefObject<HTMLVideoElement | null>, 
       video.currentTime = 0;
       setIsVideoPlaying(false);
       setIsMuted(true);
-      
+
       // Remove video source to completely stop loading
       if (video.src) {
         video.dataset.originalSrc = video.src;
@@ -92,20 +111,73 @@ const useBackgroundVideo = (videoRef: React.RefObject<HTMLVideoElement | null>, 
   useEffect(() => {
     const handleBeforeUnload = () => stopVideo();
     const handleVisibilityChange = () => {
-      if (document.hidden) pauseVideo();
+      if (document.hidden) {
+        // More aggressive cleanup when page becomes hidden
+        stopVideo();
+      }
+    };
+
+    // Navigation cleanup - listen for Next.js route changes
+    const handleRouteChange = () => {
+      stopVideo();
+    };
+
+    // Listen for popstate (back/forward navigation)
+    const handlePopState = () => {
+      stopVideo();
+    };
+
+    // Listen for hash changes
+    const handleHashChange = () => {
+      stopVideo();
+    };
+
+    // Listen for window focus/blur events
+    const handleWindowBlur = () => {
+      stopVideo();
+    };
+
+    const handleWindowFocus = () => {
+      // Don't auto-resume video on focus to prevent unwanted audio
     };
 
     window.addEventListener('beforeunload', handleBeforeUnload);
     window.addEventListener('unload', handleBeforeUnload);
     window.addEventListener('pagehide', handleBeforeUnload);
+    window.addEventListener('popstate', handlePopState);
+    window.addEventListener('hashchange', handleHashChange);
+    window.addEventListener('blur', handleWindowBlur);
+    window.addEventListener('focus', handleWindowFocus);
     document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    // Next.js specific route change detection
+    const originalPushState = window.history.pushState;
+    const originalReplaceState = window.history.replaceState;
+
+    window.history.pushState = function (...args) {
+      handleRouteChange();
+      return originalPushState.apply(this, args);
+    };
+
+    window.history.replaceState = function (...args) {
+      handleRouteChange();
+      return originalReplaceState.apply(this, args);
+    };
 
     return () => {
       stopVideo();
       window.removeEventListener('beforeunload', handleBeforeUnload);
       window.removeEventListener('unload', handleBeforeUnload);
       window.removeEventListener('pagehide', handleBeforeUnload);
+      window.removeEventListener('popstate', handlePopState);
+      window.removeEventListener('hashchange', handleHashChange);
+      window.removeEventListener('blur', handleWindowBlur);
+      window.removeEventListener('focus', handleWindowFocus);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
+
+      // Restore original methods
+      window.history.pushState = originalPushState;
+      window.history.replaceState = originalReplaceState;
     };
   }, [stopVideo, pauseVideo]);
 
@@ -123,7 +195,11 @@ export default function MoviePage() {
   const params = useParams();
   const router = useRouter();
   const navigate = useNavigate();
+  const pathname = usePathname();
 
+  // Refs and state declarations first
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const isMountedRef = useRef(true);
 
   const [media, setMedia] = useState<Media | null>(null);
   const [isPlayerOpen, setIsPlayerOpen] = useState(false);
@@ -138,7 +214,25 @@ export default function MoviePage() {
   const [loading, setLoading] = useState(true);
   const [showTitleOverlay, setShowTitleOverlay] = useState(true); // Netflix-style title overlay
   const [isHoveringTitle, setIsHoveringTitle] = useState(false); // Hover state for title area
-  const videoRef = useRef<HTMLVideoElement>(null);
+
+  // Component mount/unmount tracking
+  useEffect(() => {
+    isMountedRef.current = true;
+
+    return () => {
+      isMountedRef.current = false;
+      // Ensure video is stopped when component unmounts
+      const video = videoRef.current;
+      if (video) {
+        video.pause();
+        video.muted = true;
+        video.currentTime = 0;
+        video.volume = 0;
+        video.src = '';
+        video.load();
+      }
+    };
+  }, []);
 
   // Use custom hook for background video management
   const {
@@ -150,19 +244,36 @@ export default function MoviePage() {
     pauseVideo
   } = useBackgroundVideo(videoRef, isPlayerOpen);
 
+  // Pathname change detection for App Router (after stopVideo is available)
+  useEffect(() => {
+    // This will trigger when pathname changes, indicating navigation
+    return () => {
+      if (isMountedRef.current) {
+        stopVideo();
+      }
+    };
+  }, [pathname, stopVideo]);
+
   // Override navigate functions to stop video
   const safeNavigate = {
     push: (url: string) => {
       stopVideo();
-      navigate.push(url);
+      // Add a small delay to ensure video is stopped before navigation
+      setTimeout(() => {
+        navigate.push(url);
+      }, 50);
     },
     back: () => {
       stopVideo();
-      navigate.back();
+      setTimeout(() => {
+        navigate.back();
+      }, 50);
     },
     replace: (url: string) => {
       stopVideo();
-      navigate.replace(url);
+      setTimeout(() => {
+        navigate.replace(url);
+      }, 50);
     }
   };
 
@@ -186,6 +297,8 @@ export default function MoviePage() {
 
     return () => {
       observer.disconnect();
+      // Ensure video is stopped when observer is cleaned up
+      stopVideo();
     };
   }, [stopVideo, isPlayerOpen]);
 
@@ -196,6 +309,14 @@ export default function MoviePage() {
     disconnect: disconnectFromCast,
     loadMedia: loadCastMedia,
   } = useChromecast();
+
+  // Simplified cleanup without MutationObserver to avoid interfering with clicks
+  useEffect(() => {
+    return () => {
+      // Simple cleanup on unmount
+      stopVideo();
+    };
+  }, [stopVideo]);
 
   useEffect(() => {
     if (params.id) {
@@ -218,7 +339,7 @@ export default function MoviePage() {
       video.currentTime = 0;
       setIsVideoPlaying(false);
       setIsMuted(true);
-      
+
       // Also hide the video element
       video.style.display = 'none';
       video.style.visibility = 'hidden';
@@ -234,7 +355,7 @@ export default function MoviePage() {
     const handleGlobalVideoPlay = (event: Event) => {
       const playingVideo = event.target as HTMLVideoElement;
       const backgroundVideo = videoRef.current;
-      
+
       // If any video starts playing and it's not our background video, stop the background video
       if (backgroundVideo && playingVideo !== backgroundVideo) {
         backgroundVideo.pause();
@@ -248,7 +369,7 @@ export default function MoviePage() {
     const handleGlobalVideoLoadStart = (event: Event) => {
       const loadingVideo = event.target as HTMLVideoElement;
       const backgroundVideo = videoRef.current;
-      
+
       // If any video starts loading and player is open, stop background video
       if (backgroundVideo && loadingVideo !== backgroundVideo && isPlayerOpen) {
         backgroundVideo.pause();
@@ -263,7 +384,7 @@ export default function MoviePage() {
     document.addEventListener('play', handleGlobalVideoPlay, true);
     document.addEventListener('loadstart', handleGlobalVideoLoadStart, true);
     document.addEventListener('canplay', handleGlobalVideoPlay, true);
-    
+
     return () => {
       document.removeEventListener('play', handleGlobalVideoPlay, true);
       document.removeEventListener('loadstart', handleGlobalVideoLoadStart, true);
@@ -428,6 +549,21 @@ export default function MoviePage() {
     }
   }, [loading, media]);
 
+  // Force show buttons after initial load to ensure they're always clickable
+  const [forceShowButtons, setForceShowButtons] = useState(false);
+
+  useEffect(() => {
+    // Force show buttons after 3 seconds regardless of overlay state
+    const timer = setTimeout(() => {
+      setForceShowButtons(true);
+    }, 3000);
+
+    return () => clearTimeout(timer);
+  }, []);
+
+  const shouldShowButtons = !loading && media && (forceShowButtons || !showTitleOverlay || isHoveringTitle);
+  const shouldShowMetadata = !loading && media && (forceShowButtons || !showTitleOverlay || isHoveringTitle);
+
   const fetchMedia = async () => {
     try {
       const apiUrl = getApiUrl();
@@ -572,7 +708,7 @@ export default function MoviePage() {
         video.muted = false;
         video.volume = 1.0;
         setIsMuted(false);
-        
+
         video.play().then(() => {
           setIsVideoPlaying(true);
         }).catch((error) => {
@@ -741,12 +877,12 @@ export default function MoviePage() {
   const renderMediaContent = (media: Media) => (
     <div className="min-h-screen bg-gradient-to-b from-red-900/20 via-black to-black text-white">
       <Navbar />
-      <GradientBackground variant="cosmic" animate={true} className="fixed inset-0 -z-10" />
+      <GradientBackground variant="cosmic" animate={true} className="fixed inset-0 -z-10 pointer-events-none" />
 
       {/* Hero Section */}
       <div className="relative h-screen overflow-hidden">
         {/* Background Image with Lazy Loading */}
-        <div className="absolute inset-0" style={{ zIndex: 1 }}>
+        <div className="absolute inset-0 pointer-events-none" style={{ zIndex: 1 }}>
           <LazyImage
             src={getBackgroundImageUrl(media)}
             alt={media.title}
@@ -760,10 +896,28 @@ export default function MoviePage() {
           />
         </div>
 
+        {/* Poster Background Overlay (TMDB Style) - Shows when video not playing */}
+        <div
+          className={`absolute inset-0 pointer-events-none transition-opacity duration-1000 ${!isVideoLoaded || !isVideoPlaying ? 'opacity-100' : 'opacity-0'
+            }`}
+          style={{ zIndex: 2 }}
+        >
+          <ImageWithFallback
+            mediaId={media.id}
+            alt={media.title}
+            fill={true}
+            sizes="100vw"
+            className="object-cover"
+            loading="eager"
+          />
+          {/* Gradient overlay for better text readability */}
+          <div className="absolute inset-0 bg-gradient-to-r from-black/70 via-black/30 to-black/20" />
+        </div>
+
         {/* Background Video - Load preview/trailer, not full media file */}
         <video
           ref={videoRef}
-          className="absolute inset-0 w-full h-full object-cover opacity-100"
+          className="absolute inset-0 w-full h-full object-cover opacity-100 pointer-events-none"
           autoPlay={true}
           muted={false}
           loop={true}
@@ -820,6 +974,14 @@ export default function MoviePage() {
           onError={(e) => {
             setIsVideoLoaded(false);
             setIsVideoPlaying(false);
+            // Stop video completely on error
+            const video = videoRef.current;
+            if (video) {
+              video.pause();
+              video.muted = true;
+              video.volume = 0;
+              video.currentTime = 0;
+            }
           }}
           onCanPlay={() => {
             const video = videoRef.current;
@@ -886,215 +1048,134 @@ export default function MoviePage() {
           Your browser does not support the video tag.
         </video>
 
-        {/* Static overlay background that stays in place */}
-        <motion.div
-          className="absolute inset-0 bg-gradient-to-b from-black/80 via-black/60 to-black/40 z-15"
-          initial={{ opacity: 1 }}
-          animate={{
-            opacity: showTitleOverlay ? 1 : 0.3
-          }}
-          transition={{
-            duration: 1.2,
-            ease: [0.25, 0.46, 0.45, 0.94]
-          }}
-        />
-
-        {/* Overlay Gradient */}
-        <div className="absolute inset-0 bg-gradient-to-t from-black via-black/80 to-transparent z-10" />
+        {/* Minimal overlay for text readability only */}
+        <div className="absolute bottom-0 left-0 right-0 h-1/2 bg-gradient-to-t from-black/80 to-transparent z-[10] pointer-events-none" />
 
         {/* Navigation */}
-        <div className="absolute top-0 left-0 right-0 z-20 p-6 flex justify-between items-center">
+        <div className="absolute top-0 left-0 right-0 z-[20] p-6 flex justify-between items-center pointer-events-auto">
 
         </div>
 
-        {/* Hero Content - Bottom Left */}
-        <div className="absolute bottom-0 left-0 z-20 p-6 md:p-8 lg:p-12">
-          <div
-            className="flex flex-col justify-end"
-            onMouseEnter={() => setIsHoveringTitle(true)}
-            onMouseLeave={() => setIsHoveringTitle(false)}
+        {/* Hero Content - Bottom Left with Poster (TMDB Style) */}
+        <div className="absolute bottom-0 left-0 z-[20] p-8 pointer-events-auto w-2/3">
+          <motion.div
+            initial={{ opacity: 0, x: -50 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.8, delay: 0.2 }}
+            className="flex gap-6 items-end"
           >
-            <ParticleField count={30} className="absolute inset-0 opacity-20" />
+            {/* Movie Poster */}
+            <motion.div
+              initial={{ scale: 0.8, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              transition={{ duration: 0.6, delay: 0.4 }}
+              className="flex-shrink-0"
+            >
+              <div className="relative w-48 h-72 rounded-lg overflow-hidden shadow-2xl border border-white/10">
+                <ImageWithFallback
+                  mediaId={media.id}
+                  alt={cleanMovieTitle(media.title)}
+                  fill={true}
+                  sizes="192px"
+                  className="object-cover"
+                  loading="eager"
+                />
+              </div>
+            </motion.div>
 
-            <div className="relative z-10 max-w-2xl">
-              <div className="w-full">
-                {/* Title that appears immediately */}
-                <motion.div
-                  initial={{ opacity: 0, y: 50 }}
-                  animate={{
-                    opacity: 1,
-                    y: 0
-                  }}
-                  transition={{
-                    duration: 0.8,
-                    delay: 0.2
-                  }}
-                  className="mb-6"
-                >
-                  <GenreTitle media={media} className="mb-4" />
-                </motion.div>
+            {/* Movie Details */}
+            <div className="flex-1 space-y-4 pb-4">
+              <div>
+                <h1 className="text-3xl md:text-4xl font-bold mb-2 bg-gradient-to-r from-white to-gray-300 bg-clip-text text-transparent">
+                  {media.title}
+                </h1>
 
+                {media.tagline && (
+                  <p className="text-lg text-red-400 mb-3 italic font-medium">
+                    "{media.tagline}"
+                  </p>
+                )}
+              </div>
 
-
-                {/* Metadata with hover reveal and scaling */}
-                <motion.div
-                  initial={{ opacity: 0, y: 30, scale: 0.8 }}
-                  animate={{
-                    opacity: (!showTitleOverlay || isHoveringTitle) ? 1 : 0,
-                    y: (!showTitleOverlay || isHoveringTitle) ? 0 : 30,
-                    scale: (!showTitleOverlay || isHoveringTitle) ? 1 : 0.8
-                  }}
-                  transition={{
-                    duration: 0.6,
-                    delay: 0.2,
-                    ease: [0.25, 0.46, 0.45, 0.94]
-                  }}
-                  className="flex items-center gap-4 text-white/90 mb-6 flex-wrap"
-                >
-                  {media.rating && (
-                    <span className="flex items-center gap-1 text-green-400 font-semibold">
-                      <Star className="w-4 h-4" />
-                      {media.rating.toFixed(1)}
-                    </span>
-                  )}
-                  <span className="flex items-center gap-1">
-                    <Calendar className="w-4 h-4" />
-                    {media.year || (media.release_date && new Date(media.release_date).getFullYear()) || new Date().getFullYear()}
-                  </span>
-                  {media.duration && (
-                    <span className="flex items-center gap-1">
-                      <Clock className="w-4 h-4" />
-                      {formatRuntime(Math.floor(media.duration / 60))}
-                    </span>
-                  )}
-                  {media.quality && (
-                    <span className="px-2 py-1 bg-blue-600 text-white text-sm font-semibold rounded">
-                      {media.quality.includes('2160') || media.quality.toLowerCase().includes('4k') ? '4K' : 'HD'}
-                    </span>
-                  )}
-                </motion.div>
-
-                {/* Action buttons with hover reveal and scaling */}
-                <motion.div
-                  initial={{ opacity: 0, y: 30, scale: 0.8 }}
-                  animate={{
-                    opacity: (!showTitleOverlay || isHoveringTitle) ? 1 : 0,
-                    y: (!showTitleOverlay || isHoveringTitle) ? 0 : 30,
-                    scale: (!showTitleOverlay || isHoveringTitle) ? 1 : 0.8
-                  }}
-                  transition={{
-                    duration: 0.6,
-                    delay: 0.3,
-                    ease: [0.25, 0.46, 0.45, 0.94]
-                  }}
-                  className="flex flex-wrap gap-4 mb-8"
-                >
-                  {/* Play/Resume Button */}
-                  <div className="relative">
-                    <MagneticButton
-                      onClick={handlePlay}
-                      className="bg-red-600 hover:bg-red-700 text-white px-8 py-3 rounded-lg text-lg font-semibold flex items-center gap-2 relative overflow-hidden"
-                    >
-                      <Play className="w-5 h-5" />
-                      {hasWatchedBefore && playbackProgress > 0 ? 'Resume' : 'Play'}
-                    </MagneticButton>
-
-                    {/* Progress bar overlay on top */}
-                    {hasWatchedBefore && playbackProgress > 0 && playbackDuration > 0 && (
-                      <motion.div
-                        className="absolute top-0 left-0 h-1 bg-red-400 rounded-t-lg"
-                        initial={{ width: 0 }}
-                        animate={{
-                          width: `${Math.min((playbackProgress / playbackDuration) * 100, 100)}%`
-                        }}
-                        transition={{ duration: 1, ease: "easeOut" }}
-                      />
-                    )}
+              {/* Stats Row - Compact */}
+              <div className="flex flex-wrap items-center gap-3 text-sm">
+                {media.rating && (
+                  <div className="flex items-center gap-1 bg-yellow-500/20 px-2 py-1 rounded-full">
+                    <Star className="w-4 h-4 text-yellow-400 fill-current" />
+                    <span className="font-semibold">{media.rating.toFixed(1)}</span>
                   </div>
-
-                  {/* Play from Beginning Button - Only show if has progress */}
-                  {hasWatchedBefore && playbackProgress > 0 && (
-                    <MagneticButton
-                      onClick={handlePlayFromBeginning}
-                      className="bg-white/10 hover:bg-white/20 text-white px-6 py-3 rounded-lg text-lg font-semibold flex items-center gap-2 border border-white/20"
-                    >
-                      <Play className="w-5 h-5" />
-                      Play from Beginning
-                    </MagneticButton>
-                  )}
-
-                  <MagneticButton
-                    onClick={toggleMyList}
-                    className="bg-white/10 hover:bg-white/20 text-white p-3 rounded-full"
-                  >
-                    {isInMyList ? <Check className="w-5 h-5" /> : <Plus className="w-5 h-5" />}
-                  </MagneticButton>
-
-                  <MagneticButton className="bg-white/10 hover:bg-white/20 text-white p-3 rounded-full">
-                    <Share className="w-5 h-5" />
-                  </MagneticButton>
-
-                  {/* Cast Button */}
-                  <CastButton
-                    isAvailable={castState.isAvailable}
-                    isConnected={castState.isConnected}
-                    isConnecting={castState.isConnecting}
-                    deviceName={castState.deviceName}
-                    onClick={handleCastClick}
-                    className="bg-white/10 hover:bg-white/20 text-white p-3 rounded-full transition-all duration-200 hover:bg-blue-500/20 hover:border-blue-500/50"
-                  />
-                </motion.div>
-
-                {/* Cast Status Indicator */}
-                {castState.isConnected && (
-                  <motion.div
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: 20 }}
-                    className="flex items-center gap-3 mb-6 p-4 bg-blue-500/20 border border-blue-500/30 rounded-lg backdrop-blur-sm"
-                  >
-                    <Tv className="w-5 h-5 text-blue-400" />
-                    <div>
-                      <p className="text-blue-300 font-medium">
-                        Casting to {castState.deviceName}
-                      </p>
-                      <p className="text-blue-400/80 text-sm">
-                        {castState.playerState === 'PLAYING' ? 'Playing' :
-                          castState.playerState === 'PAUSED' ? 'Paused' :
-                            castState.playerState === 'BUFFERING' ? 'Buffering' : 'Ready'}
-                      </p>
-                    </div>
-                  </motion.div>
                 )}
 
-                {/* Description with hover reveal and scaling */}
-                <motion.div
-                  initial={{ opacity: 0, y: 30, scale: 0.8 }}
-                  animate={{
-                    opacity: (!showTitleOverlay || isHoveringTitle) ? 1 : 0,
-                    y: (!showTitleOverlay || isHoveringTitle) ? 0 : 30,
-                    scale: (!showTitleOverlay || isHoveringTitle) ? 1 : 0.8
-                  }}
-                  transition={{
-                    duration: 0.6,
-                    delay: 0.2,
-                    ease: [0.25, 0.46, 0.45, 0.94]
-                  }}
+                <div className="flex items-center gap-1 bg-blue-500/20 px-2 py-1 rounded-full">
+                  <Calendar className="w-4 h-4 text-blue-400" />
+                  <span>{media.year || (media.release_date && new Date(media.release_date).getFullYear()) || new Date().getFullYear()}</span>
+                </div>
+
+                {media.duration && (
+                  <div className="flex items-center gap-1 bg-green-500/20 px-2 py-1 rounded-full">
+                    <Clock className="w-4 h-4 text-green-400" />
+                    <span>{formatRuntime(Math.floor(media.duration / 60))}</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Genres - Compact */}
+              <div className="flex flex-wrap gap-1">
+                {media.genres?.slice(0, 3).map((genre, index) => (
+                  <span
+                    key={index}
+                    className="px-2 py-1 bg-red-600/30 border border-red-500/50 rounded-full text-xs font-medium"
+                  >
+                    {genre.name}
+                  </span>
+                ))}
+              </div>
+
+              {/* Overview - Truncated */}
+              <p className="text-sm text-gray-300 leading-relaxed line-clamp-3">
+                {media.description || "Experience the ultimate entertainment with this amazing content. Watch now and immerse yourself in a world of endless possibilities."}
+              </p>
+
+              {/* Action Buttons - Compact */}
+              <div className="flex flex-wrap gap-2 pt-2">
+                <button
+                  onClick={handlePlay}
+                  className="flex items-center gap-1 px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg text-sm font-semibold transition-all duration-300 hover:scale-105"
                 >
-                  <p className="text-white/90 mb-2 text-lg leading-relaxed">
-                    {media.description ? `${media.description}` : (
-                      "Experience the ultimate entertainment with this amazing content. Watch now and immerse yourself in a world of endless possibilities."
-                    )}
-                  </p>
-                </motion.div>
+                  <Play className="w-4 h-4" />
+                  {hasWatchedBefore && playbackProgress > 0 ? 'Resume' : 'Play'}
+                </button>
+
+                {hasWatchedBefore && playbackProgress > 0 && (
+                  <button
+                    onClick={handlePlayFromBeginning}
+                    className="flex items-center gap-1 px-4 py-2 bg-gray-800/80 hover:bg-gray-700 rounded-lg text-sm font-semibold transition-all duration-300 hover:scale-105"
+                  >
+                    <Play className="w-4 h-4" />
+                    From Beginning
+                  </button>
+                )}
+
+                <button
+                  onClick={toggleMyList}
+                  className="flex items-center gap-1 px-4 py-2 bg-gray-800/80 hover:bg-gray-700 rounded-lg text-sm font-semibold transition-all duration-300 hover:scale-105"
+                >
+                  {isInMyList ? <Check className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
+                  Watchlist
+                </button>
+
+                <button className="flex items-center gap-1 px-4 py-2 bg-gray-800/80 hover:bg-gray-700 rounded-lg text-sm font-semibold transition-all duration-300 hover:scale-105">
+                  <Share className="w-4 h-4" />
+                  Share
+                </button>
               </div>
             </div>
-          </div>
+          </motion.div>
         </div>
       </div>
 
       {/* Details Section - Bottom Left */}
-      <div className="relative z-10 bg-black pt-16 pb-24">
+      <div className="relative z-[10] bg-black pt-16 pb-24">
         <div className="container mx-auto px-6 md:px-12 lg:px-16">
           <div className="flex justify-start">
             <div className="w-full">
@@ -1318,7 +1399,7 @@ export default function MoviePage() {
                   <div className="hidden lg:block space-y-6 ml-6">
                     {/* Cast & Crew Section with Images */}
                     {((media.stars && media.stars.length > 0) || (media.director && media.director.length > 0)) && (
-                      <CastSection 
+                      <CastSection
                         media={media}
                         showMoreInfo={showMoreInfo}
                         setShowMoreInfo={setShowMoreInfo}
@@ -1362,7 +1443,7 @@ export default function MoviePage() {
             </div>
           </div>
         </div>
-      </div>
+      </div >
 
       {/* Recommendations */}
       {/* Enhanced Recommendations Section */}
@@ -1380,30 +1461,32 @@ export default function MoviePage() {
       </div>
 
       {/* Video Player Modal */}
-      {media && (
-        <VideoPlayer
-          media={media}
-          isOpen={isPlayerOpen}
-          onClose={handlePlayerClose}
-          startTime={hasWatchedBefore && playbackProgress > 0 ? playbackProgress : 0}
-          onPlayNext={(nextMedia) => {
-            // For movies, this would typically not be used, but we'll handle it gracefully
-            window.location.href = `/movie/${nextMedia.id}`;
-          }}
-          onVideoPlay={() => {
-            // Immediately stop background video when main video starts playing
-            const video = videoRef.current;
-            if (video) {
-              video.pause();
-              video.muted = true;
-              video.volume = 0;
-              video.currentTime = 0;
-              setIsVideoPlaying(false);
-              setIsMuted(true);
-            }
-          }}
-        />
-      )}
+      {
+        media && (
+          <VideoPlayer
+            media={media}
+            isOpen={isPlayerOpen}
+            onClose={handlePlayerClose}
+            startTime={hasWatchedBefore && playbackProgress > 0 ? playbackProgress : 0}
+            onPlayNext={(nextMedia) => {
+              // For movies, this would typically not be used, but we'll handle it gracefully
+              window.location.href = `/movie/${nextMedia.id}`;
+            }}
+            onVideoPlay={() => {
+              // Immediately stop background video when main video starts playing
+              const video = videoRef.current;
+              if (video) {
+                video.pause();
+                video.muted = true;
+                video.volume = 0;
+                video.currentTime = 0;
+                setIsVideoPlaying(false);
+                setIsMuted(true);
+              }
+            }}
+          />
+        )
+      }
     </div>
   );
 

@@ -74,9 +74,9 @@ export const useChromecast = () => {
     isMuted: false,
   });
 
-  // Chrome detection
-  const isChrome = /Chrome/.test(navigator.userAgent) && /Google Inc/.test(navigator.vendor);
-  const isChromium = /Chromium/.test(navigator.userAgent);
+  // Chrome detection - check if we're in browser environment first
+  const isChrome = typeof navigator !== 'undefined' && /Chrome/.test(navigator.userAgent) && /Google Inc/.test(navigator.vendor);
+  const isChromium = typeof navigator !== 'undefined' && /Chromium/.test(navigator.userAgent);
 
   const sessionRef = useRef<any>(null);
   const mediaRef = useRef<any>(null);
@@ -96,7 +96,7 @@ export const useChromecast = () => {
       if (!window.chrome?.cast?.isAvailable) {
         console.log('Google Cast SDK not available');
         console.log('Current protocol:', window.location.protocol);
-        console.log('User agent:', navigator.userAgent);
+        console.log('User agent:', typeof navigator !== 'undefined' ? navigator.userAgent : 'SSR');
         console.log('Is Chrome:', isChrome);
         console.log('Is Chromium:', isChromium);
         console.log('Is secure context:', window.isSecureContext);
