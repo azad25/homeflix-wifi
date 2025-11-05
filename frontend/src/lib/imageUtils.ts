@@ -36,11 +36,14 @@ export const getPrimaryImageWithFallback = (mediaId: number | string) => {
 /**
  * Custom hook for handling image loading with poster-to-thumbnail fallback
  */
-export const useImageWithFallback = (mediaId: number | string) => {
+export const useImageWithFallback = (mediaId: number | string, posterUrl?: string | null) => {
   const { primary, fallback } = getPrimaryImageWithFallback(mediaId);
   
+  // If posterUrl is provided (for TMDB movies), use it as primary
+  const primarySrc = posterUrl || primary;
+  
   return {
-    primarySrc: primary,
+    primarySrc,
     fallbackSrc: fallback
   };
 };

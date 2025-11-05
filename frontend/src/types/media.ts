@@ -34,6 +34,7 @@ export interface Media {
   // Additional metadata
   status?: string;
   imdb_id?: string;
+  tmdb_id?: number; // For TMDB movies
   homepage?: string;
   collection?: string;
   awards?: string[];
@@ -58,6 +59,8 @@ export interface Media {
   preview_clip_path?: string;
   banner_path?: string;
   trailer_path?: string;
+  poster_path?: string;
+  poster_url?: string | null; // For TMDB movies
 
   // Series info
   series_id?: number;

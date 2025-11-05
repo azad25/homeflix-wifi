@@ -1799,6 +1799,223 @@ func (t *TMDBService) GetMovieDetailsWithExtras(movieID int) (*TMDBMovieDetailsW
 	return &details, nil
 }
 
+// TMDBSearchResult represents a unified search result for both movies and TV shows
+type TMDBSearchResult struct {
+	ID           int     `json:"id"`
+	Title        string  `json:"title"`        // For movies, this will be the title; for TV shows, this will be the name
+	OriginalTitle string `json:"original_title"`
+	Overview     string  `json:"overview"`
+	ReleaseDate  string  `json:"release_date"` // For movies: release_date, for TV: first_air_date
+	PosterPath   string  `json:"poster_path"`
+	BackdropPath string  `json:"backdrop_path"`
+	VoteAverage  float64 `json:"vote_average"`
+	VoteCount    int     `json:"vote_count"`
+	Popularity   float64 `json:"popularity"`
+	MediaType    string  `json:"media_type"`   // "movie" or "tv"
+	Adult        bool    `json:"adult"`
+	GenreIDs     []int   `json:"genre_ids"`
+}
+
+// TMDBMultiSearchResponse represents the response from TMDB's multi search endpoint
+type TMDBMultiSearchResponse struct {
+	Page         int                `json:"page"`
+	Results      []TMDBSearchResult `json:"results"`
+	TotalPages   int                `json:"total_pages"`
+	TotalResults int                `json:"total_results"`
+}
+
+// SearchMulti searches for both movies and TV shows using TMDB's multi search endpoint
+func (t *TMDBService) SearchMulti(query string, page int) (*TMDBMultiSearchResponse, error) {
+	if t.apiKey == "" {
+		return nil, fmt.Errorf("TMDB API key not configured")
+	}
+
+	if query == "" {
+		return nil, fmt.Errorf("search query cannot be empty")
+	}
+
+	if page < 1 {
+		page = 1
+	}
+
+	searchURL := fmt.Sprintf("%s/search/multi", t.baseURL)
+	params := url.Values{}
+	params.Add("query", query)
+	params.Add("page", strconv.Itoa(page))
+	params.Add("include_adult", "false")
+
+	req, err := http.NewRequest("GET", searchURL+"?"+params.Encode(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Authorization", "Bearer "+t.apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := t.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("TMDB API error: %d", resp.StatusCode)
+	}
+
+	var searchResp TMDBMultiSearchResponse
+	if err := json.NewDecoder(resp.Body).Decode(&searchResp); err != nil {
+		return nil, err
+	}
+
+	// Process results to normalize the data structure
+	for i := range searchResp.Results {
+		result := &searchResp.Results[i]
+		
+		// Handle different response structures for movies vs TV shows
+		var rawResult map[string]interface{}
+		
+		// Re-decode to get the raw data for processing
+		respBytes, _ := json.Marshal(result)
+		json.Unmarshal(respBytes, &rawResult)
+		
+		if mediaType, exists := rawResult["media_type"].(string); exists {
+			result.MediaType = mediaType
+			
+			if mediaType == "tv" {
+				// For TV shows, use 'name' as title and 'first_air_date' as release_date
+				if name, exists := rawResult["name"].(string); exists {
+					result.Title = name
+				}
+				if originalName, exists := rawResult["original_name"].(string); exists {
+					result.OriginalTitle = originalName
+				}
+				if firstAirDate, exists := rawResult["first_air_date"].(string); exists {
+					result.ReleaseDate = firstAirDate
+				}
+			} else if mediaType == "movie" {
+				// For movies, the structure is already correct
+				if title, exists := rawResult["title"].(string); exists {
+					result.Title = title
+				}
+				if originalTitle, exists := rawResult["original_title"].(string); exists {
+					result.OriginalTitle = originalTitle
+				}
+				if releaseDate, exists := rawResult["release_date"].(string); exists {
+					result.ReleaseDate = releaseDate
+				}
+			}
+		}
+	}
+
+	// Filter out person results (we only want movies and TV shows)
+	var filteredResults []TMDBSearchResult
+	for _, result := range searchResp.Results {
+		if result.MediaType == "movie" || result.MediaType == "tv" {
+			filteredResults = append(filteredResults, result)
+		}
+	}
+	searchResp.Results = filteredResults
+
+	log.Printf("🔍 TMDB Multi Search for '%s': Found %d results (%d movies/TV shows)", 
+		query, len(searchResp.Results), len(filteredResults))
+
+	return &searchResp, nil
+}
+
+// SearchMoviesOnly searches only for movies
+func (t *TMDBService) SearchMoviesOnly(query string, page int) (*TMDBSearchResponse, error) {
+	if t.apiKey == "" {
+		return nil, fmt.Errorf("TMDB API key not configured")
+	}
+
+	if query == "" {
+		return nil, fmt.Errorf("search query cannot be empty")
+	}
+
+	if page < 1 {
+		page = 1
+	}
+
+	searchURL := fmt.Sprintf("%s/search/movie", t.baseURL)
+	params := url.Values{}
+	params.Add("query", query)
+	params.Add("page", strconv.Itoa(page))
+	params.Add("include_adult", "false")
+
+	req, err := http.NewRequest("GET", searchURL+"?"+params.Encode(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Authorization", "Bearer "+t.apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := t.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("TMDB API error: %d", resp.StatusCode)
+	}
+
+	var searchResp TMDBSearchResponse
+	if err := json.NewDecoder(resp.Body).Decode(&searchResp); err != nil {
+		return nil, err
+	}
+
+	log.Printf("🎬 TMDB Movie Search for '%s': Found %d results", query, len(searchResp.Results))
+	return &searchResp, nil
+}
+
+// SearchTVOnly searches only for TV shows
+func (t *TMDBService) SearchTVOnly(query string, page int) (*TMDBTVSearchResponse, error) {
+	if t.apiKey == "" {
+		return nil, fmt.Errorf("TMDB API key not configured")
+	}
+
+	if query == "" {
+		return nil, fmt.Errorf("search query cannot be empty")
+	}
+
+	if page < 1 {
+		page = 1
+	}
+
+	searchURL := fmt.Sprintf("%s/search/tv", t.baseURL)
+	params := url.Values{}
+	params.Add("query", query)
+	params.Add("page", strconv.Itoa(page))
+	params.Add("include_adult", "false")
+
+	req, err := http.NewRequest("GET", searchURL+"?"+params.Encode(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Authorization", "Bearer "+t.apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := t.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("TMDB API error: %d", resp.StatusCode)
+	}
+
+	var searchResp TMDBTVSearchResponse
+	if err := json.NewDecoder(resp.Body).Decode(&searchResp); err != nil {
+		return nil, err
+	}
+
+	log.Printf("📺 TMDB TV Search for '%s': Found %d results", query, len(searchResp.Results))
+	return &searchResp, nil
+}
+
 // contains checks if a slice contains a string
 func contains(slice []string, item string) bool {
 	for _, s := range slice {

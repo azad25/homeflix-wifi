@@ -83,12 +83,24 @@ export default function MyListPage() {
   };
 
   const handlePlay = (media: Media) => {
-    setSelectedMedia(media);
-    setIsPlayerOpen(true);
+    // Check if this is a TMDB movie (ID starts with 9 and has tmdb_id)
+    if (media.tmdb_id && media.id.toString().startsWith('9')) {
+      // TMDB movies don't have video files, redirect to info page
+      handleInfo(media);
+    } else {
+      // Local media can be played
+      setSelectedMedia(media);
+      setIsPlayerOpen(true);
+    }
   };
 
   const handleInfo = (media: Media) => {
-    navigate.push(`/movie/${media.id}`);
+    // Check if this is a TMDB movie (ID starts with 9 and has tmdb_id)
+    if (media.tmdb_id && media.id.toString().startsWith('9')) {
+      navigate.push(`/tmdb-movie/${media.tmdb_id}`);
+    } else {
+      navigate.push(`/movie/${media.id}`);
+    }
   };
 
   const handleRemoveFromList = async (mediaId: number) => {

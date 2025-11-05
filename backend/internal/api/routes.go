@@ -279,5 +279,9 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		
 		// TMDB movie details endpoint (cached for 6 hours)
 		api.GET("/tmdb-movie/:id", handlers.GetTMDBMovieDetails(tmdbService))
+		
+		// TMDB search endpoints
+		api.GET("/tmdb/search", handlers.SearchTMDB(tmdbService))
+		api.GET("/tmdb/suggestions", handlers.SearchTMDBSuggestions(tmdbService))
 	}
 }

@@ -1340,3 +1340,105 @@ func GetTMDBMovieDetails(tmdbService *services.TMDBService) gin.HandlerFunc {
 	}
 }
 
+// SearchTMDB searches TMDB for movies and TV shows
+func SearchTMDB(tmdbService *services.TMDBService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		query := c.Query("q")
+		if query == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Search query is required"})
+			return
+		}
+
+		// Get page parameter (default to 1)
+		page := 1
+		if pageStr := c.Query("page"); pageStr != "" {
+			if p, err := strconv.Atoi(pageStr); err == nil && p > 0 {
+				page = p
+			}
+		}
+
+		// Get type parameter (default to "multi" for both movies and TV)
+		searchType := c.DefaultQuery("type", "multi")
+
+		log.Printf("🔍 TMDB Search: query='%s', type='%s', page=%d", query, searchType, page)
+
+		switch searchType {
+		case "movie":
+			results, err := tmdbService.SearchMoviesOnly(query, page)
+			if err != nil {
+				log.Printf("❌ TMDB movie search failed: %v", err)
+				c.JSON(http.StatusInternalServerError, gin.H{
+					"error": "Failed to search movies",
+					"details": err.Error(),
+				})
+				return
+			}
+			c.JSON(http.StatusOK, results)
+
+		case "tv":
+			results, err := tmdbService.SearchTVOnly(query, page)
+			if err != nil {
+				log.Printf("❌ TMDB TV search failed: %v", err)
+				c.JSON(http.StatusInternalServerError, gin.H{
+					"error": "Failed to search TV shows",
+					"details": err.Error(),
+				})
+				return
+			}
+			c.JSON(http.StatusOK, results)
+
+		default: // "multi" or any other value
+			results, err := tmdbService.SearchMulti(query, page)
+			if err != nil {
+				log.Printf("❌ TMDB multi search failed: %v", err)
+				c.JSON(http.StatusInternalServerError, gin.H{
+					"error": "Failed to search TMDB",
+					"details": err.Error(),
+				})
+				return
+			}
+			c.JSON(http.StatusOK, results)
+		}
+
+		log.Printf("✅ TMDB search completed for query: '%s'", query)
+	}
+}
+
+// SearchTMDBSuggestions provides quick search suggestions (limited results for autocomplete)
+func SearchTMDBSuggestions(tmdbService *services.TMDBService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		query := c.Query("q")
+		if query == "" {
+			c.JSON(http.StatusOK, gin.H{
+				"results": []interface{}{},
+				"total_results": 0,
+			})
+			return
+		}
+
+		// For suggestions, we only need the first page and limit results
+		results, err := tmdbService.SearchMulti(query, 1)
+		if err != nil {
+			log.Printf("❌ TMDB suggestions search failed: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error": "Failed to get suggestions",
+				"details": err.Error(),
+			})
+			return
+		}
+
+		// Limit to top 5 results for suggestions
+		limitedResults := results.Results
+		if len(limitedResults) > 5 {
+			limitedResults = limitedResults[:5]
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"results": limitedResults,
+			"total_results": len(limitedResults),
+		})
+
+		log.Printf("✅ TMDB suggestions completed for query: '%s' (%d results)", query, len(limitedResults))
+	}
+}
+

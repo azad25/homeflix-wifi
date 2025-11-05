@@ -37,7 +37,7 @@ const NetflixMediaCard: React.FC<NetflixMediaCardProps> = ({
   const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const previewTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   
-  const { primarySrc, fallbackSrc } = useImageWithFallback(media.id);
+  const { primarySrc, fallbackSrc } = useImageWithFallback(media.id, media.poster_url);
 
   // Load assets on mount
   useEffect(() => {

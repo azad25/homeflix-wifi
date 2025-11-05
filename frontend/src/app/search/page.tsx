@@ -2,26 +2,41 @@
 
 import React, { useState, useEffect } from "react";
 import { Search, Filter, X } from 'lucide-react';
-import { useRouter } from 'next/navigation';
-import { Media } from "../../types/media";
-import VideoPlayer from "../../components/VideoPlayer";
 import Navbar from "../../components/Navbar";
 import RedLoader from "../../components/RedLoader";
-import { getApiUrl, smartSearch, preloadAssets } from "../../lib/api";
-import NetflixMediaCard from "../../components/NetflixMediaCard";
+import { getApiUrl } from "../../lib/api";
 import { 
-  NetflixHorizontalRow, 
-  ParallaxSection, 
-  GradientBackground, 
   ScrollReveal, 
   MagneticButton,
   FloatingElement
 } from '@/components/scrollx';
 import { useNavigate } from "@/hooks/useNavigate";
 
+interface TMDBSearchResult {
+  id: number;
+  title: string;
+  original_title: string;
+  overview: string;
+  release_date: string;
+  poster_path: string;
+  backdrop_path: string;
+  vote_average: number;
+  vote_count: number;
+  popularity: number;
+  media_type: "movie" | "tv";
+  adult: boolean;
+  genre_ids: number[];
+}
+
+interface TMDBSearchResponse {
+  page: number;
+  results: TMDBSearchResult[];
+  total_pages: number;
+  total_results: number;
+}
+
 interface SearchFilters {
   type: string;
-  genre: string;
   rating: string;
   year: string;
   sortBy: string;
@@ -30,31 +45,28 @@ interface SearchFilters {
 export default function SearchPage() {
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState("");
-  const [searchResults, setSearchResults] = useState<Media[]>([]);
-  const [allGenres, setAllGenres] = useState<string[]>([]);
+  const [searchResults, setSearchResults] = useState<TMDBSearchResult[]>([]);
   const [filters, setFilters] = useState<SearchFilters>({
-    type: "all",
-    genre: "all",
+    type: "multi",
     rating: "all",
     year: "all",
-    sortBy: "relevance"
+    sortBy: "popularity"
   });
-  const [selectedMedia, setSelectedMedia] = useState<Media | null>(null);
-  const [isPlayerOpen, setIsPlayerOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalResults, setTotalResults] = useState(0);
 
   useEffect(() => {
-    fetchGenres();
-    
     // Check for search query in URL
     const urlParams = new URLSearchParams(window.location.search);
     const queryParam = urlParams.get('q');
     if (queryParam) {
       setSearchQuery(queryParam);
       setHasSearched(true);
-      performSearch();
+      performSearch(queryParam, 1);
     }
   }, []);
 
@@ -62,130 +74,126 @@ export default function SearchPage() {
     if (searchQuery.trim() || hasSearched) {
       // Debounce search to avoid too many API calls
       const timeoutId = setTimeout(() => {
-        performSearch();
+        performSearch(searchQuery, 1);
       }, 300);
       
       return () => clearTimeout(timeoutId);
     }
   }, [searchQuery, filters]);
 
-  const fetchGenres = async () => {
+  const performSearch = async (query: string, page: number = 1) => {
+    if (!query.trim()) {
+      setSearchResults([]);
+      setHasSearched(false);
+      return;
+    }
+
+    setLoading(true);
     try {
       const apiUrl = getApiUrl();
       
-      const response = await fetch(`${apiUrl}/api/media`);
-      const allMedia = await response.json();
-      
-      const genres = new Set<string>();
-      allMedia.forEach((media: Media) => {
-        (media.genres || []).forEach(genre => genres.add(genre.name));
+      // Build search URL with filters
+      const params = new URLSearchParams({
+        q: query.trim(),
+        page: page.toString(),
+        type: filters.type
       });
-      
-      setAllGenres(Array.from(genres).sort());
-    } catch (error) {
-      console.error("Error fetching genres:", error);
-    }
-  };
 
-  const performSearch = async () => {
-    setLoading(true);
-    try {
-      let results: Media[] = [];
+      const response = await fetch(`${apiUrl}/api/tmdb/search?${params}`);
       
-      if (searchQuery.trim()) {
-        // Use enhanced smart search
-        results = await smartSearch(searchQuery);
-        console.log(`🔍 Smart search returned ${results.length} results for "${searchQuery}"`);
-      } else {
-        // Get all media if no search query
-        const apiUrl = getApiUrl();
-        const response = await fetch(`${apiUrl}/api/media`);
-        results = await response.json();
+      if (!response.ok) {
+        throw new Error(`Search failed: ${response.statusText}`);
       }
       
-      // Apply filters
-      if (filters.type !== 'all') {
-        results = results.filter(media => media.type === filters.type);
-      }
+      const data: TMDBSearchResponse = await response.json();
+      let results = data.results || [];
       
-      if (filters.genre !== 'all') {
-        results = results.filter(media => 
-          (media.genres || []).some((genre: any) => genre.name === filters.genre)
-        );
-      }
-      
+      // Apply client-side filters
       if (filters.rating !== 'all') {
         const minRating = parseFloat(filters.rating);
-        results = results.filter(media => (media.rating || 0) >= minRating);
+        results = results.filter(item => item.vote_average >= minRating);
       }
       
-      // Sort results (smart search already provides relevance-based ordering)
-      if (filters.sortBy !== 'relevance' || !searchQuery.trim()) {
-        switch (filters.sortBy) {
-          case 'title':
-            results.sort((a, b) => a.title.localeCompare(b.title));
-            break;
-          case 'rating':
-            results.sort((a, b) => (b.rating || 0) - (a.rating || 0));
-            break;
-          case 'year':
-            results.sort((a, b) => b.id - a.id);
-            break;
-          case 'popular':
-            results.sort((a, b) => (b.view_count || 0) - (a.view_count || 0));
-            break;
-        }
+      if (filters.year !== 'all') {
+        const targetYear = parseInt(filters.year);
+        results = results.filter(item => {
+          const year = new Date(item.release_date).getFullYear();
+          return year === targetYear;
+        });
       }
       
-      // Limit results to maximum 10 items
-      const limitedResults = results.slice(0, 10);
-      setSearchResults(limitedResults);
+      // Sort results
+      switch (filters.sortBy) {
+        case 'title':
+          results.sort((a, b) => a.title.localeCompare(b.title));
+          break;
+        case 'rating':
+          results.sort((a, b) => b.vote_average - a.vote_average);
+          break;
+        case 'year':
+          results.sort((a, b) => {
+            const yearA = new Date(a.release_date).getFullYear();
+            const yearB = new Date(b.release_date).getFullYear();
+            return yearB - yearA;
+          });
+          break;
+        case 'popularity':
+        default:
+          results.sort((a, b) => b.popularity - a.popularity);
+          break;
+      }
+      
+      setSearchResults(results);
+      setCurrentPage(data.page);
+      setTotalPages(data.total_pages);
+      setTotalResults(data.total_results);
       setHasSearched(true);
       
-      // Preload assets for better performance (poster first, then thumbnail)
-      if (results.length > 0) {
-        preloadAssets(results.slice(0, 12), ['poster', 'thumbnail']);
-      }
+      console.log(`🔍 TMDB search returned ${results.length} results for "${query}"`);
       
     } catch (error) {
-      console.error("Error performing search:", error);
+      console.error("Error performing TMDB search:", error);
       setSearchResults([]);
+      setTotalResults(0);
     } finally {
       setLoading(false);
     }
   };
 
-  const handlePlay = (media: Media) => {
-    setSelectedMedia(media);
-    setIsPlayerOpen(true);
-  };
-
-  const handleInfo = (media: Media) => {
-    navigate.push(`/movie/${media.id}`);
+  const handleResultClick = (result: TMDBSearchResult) => {
+    // Navigate to TMDB movie/TV page
+    navigate.push(`/tmdb-movie/${result.id}`);
   };
 
   const handleSearch = (query: string) => {
     setSearchQuery(query);
-    setHasSearched(true);
+    setCurrentPage(1);
+    performSearch(query, 1);
   };
 
   const clearFilters = () => {
     setFilters({
-      type: "all",
-      genre: "all",
+      type: "multi",
       rating: "all",
       year: "all",
-      sortBy: "relevance"
+      sortBy: "popularity"
     });
   };
 
-  const formatDuration = (seconds: number) => {
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
+  const getPosterUrl = (posterPath: string) => {
+    if (!posterPath) {
+      return 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjQ1MCIgdmlld0JveD0iMCAwIDMwMCA0NTAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIzMDAiIGhlaWdodD0iNDUwIiBmaWxsPSIjMzc0MTUxIi8+CjxwYXRoIGQ9Ik0xNTAgMjAwQzE4Ny4yNzkgMjAwIDIxOCAxNjkuMjc5IDIxOCAxMzJDMjE4IDk0LjcyMDggMTg3LjI3OSA2NCAxNTAgNjRDMTEyLjcyMSA2NCA4MiA5NC43MjA4IDgyIDEzMkM4MiAxNjkuMjc5IDExMi43MjEgMjAwIDE1MCAyMDBaIiBmaWxsPSIjNkI3Mjg4Ii8+CjxwYXRoIGQ9Ik04MiAyNzZDODIgMjM4LjY4IDExMi42OCAyMDggMTUwIDIwOEgxNTBDMTg3LjMyIDIwOCAyMTggMjM4LjY4IDIxOCAyNzZWMzUwSDgyVjI3NloiIGZpbGw9IiM2QjcyODgiLz4KPHN2Zz4K';
+    }
+    return `https://image.tmdb.org/t/p/w500${posterPath}`;
   };
 
-  const activeFiltersCount = Object.values(filters).filter(value => value !== "all" && value !== "relevance").length;
+  const formatDate = (dateString: string) => {
+    if (!dateString) return '';
+    const year = new Date(dateString).getFullYear();
+    return year ? year.toString() : '';
+  };
+
+  const activeFiltersCount = Object.values(filters).filter(value => value !== "multi" && value !== "all" && value !== "popularity").length;
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-red-900/20 via-black to-black text-white">
@@ -260,24 +268,9 @@ export default function SearchPage() {
                             onChange={(e) => setFilters(prev => ({ ...prev, type: e.target.value }))}
                             className="w-full bg-black/50 backdrop-blur-md border border-white/20 text-white px-4 py-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
                           >
-                            <option value="all">All Types</option>
-                            <option value="movie">Movies</option>
-                            <option value="episode">TV Shows</option>
-                          </select>
-                        </div>
-
-                        {/* Genre Filter */}
-                        <div>
-                          <label className="block text-sm font-medium text-gray-300 mb-3">Genre</label>
-                          <select
-                            value={filters.genre}
-                            onChange={(e) => setFilters(prev => ({ ...prev, genre: e.target.value }))}
-                            className="w-full bg-black/50 backdrop-blur-md border border-white/20 text-white px-4 py-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
-                          >
-                            <option value="all">All Genres</option>
-                            {allGenres.map(genre => (
-                              <option key={genre} value={genre}>{genre}</option>
-                            ))}
+                            <option value="multi">All Types</option>
+                            <option value="movie">Movies Only</option>
+                            <option value="tv">TV Shows Only</option>
                           </select>
                         </div>
 
@@ -310,6 +303,8 @@ export default function SearchPage() {
                             <option value="2022">2022</option>
                             <option value="2021">2021</option>
                             <option value="2020">2020</option>
+                            <option value="2019">2019</option>
+                            <option value="2018">2018</option>
                           </select>
                         </div>
 
@@ -321,11 +316,10 @@ export default function SearchPage() {
                             onChange={(e) => setFilters(prev => ({ ...prev, sortBy: e.target.value }))}
                             className="w-full bg-black/50 backdrop-blur-md border border-white/20 text-white px-4 py-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
                           >
-                            <option value="relevance">Relevance</option>
+                            <option value="popularity">Most Popular</option>
                             <option value="title">Title A-Z</option>
                             <option value="rating">Highest Rated</option>
                             <option value="year">Newest First</option>
-                            <option value="popular">Most Popular</option>
                           </select>
                         </div>
                       </div>
@@ -352,24 +346,9 @@ export default function SearchPage() {
                         onChange={(e) => setFilters(prev => ({ ...prev, type: e.target.value }))}
                         className="w-full bg-black/50 backdrop-blur-md border border-white/20 text-white px-4 py-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
                       >
-                        <option value="all">All Types</option>
-                        <option value="movie">Movies</option>
-                        <option value="episode">TV Shows</option>
-                      </select>
-                    </div>
-
-                    {/* Genre Filter */}
-                    <div>
-                      <label className="block text-sm font-medium text-gray-300 mb-3">Genre</label>
-                      <select
-                        value={filters.genre}
-                        onChange={(e) => setFilters(prev => ({ ...prev, genre: e.target.value }))}
-                        className="w-full bg-black/50 backdrop-blur-md border border-white/20 text-white px-4 py-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
-                      >
-                        <option value="all">All Genres</option>
-                        {allGenres.map(genre => (
-                          <option key={genre} value={genre}>{genre}</option>
-                        ))}
+                        <option value="multi">All Types</option>
+                        <option value="movie">Movies Only</option>
+                        <option value="tv">TV Shows Only</option>
                       </select>
                     </div>
 
@@ -396,11 +375,10 @@ export default function SearchPage() {
                         onChange={(e) => setFilters(prev => ({ ...prev, sortBy: e.target.value }))}
                         className="w-full bg-black/50 backdrop-blur-md border border-white/20 text-white px-4 py-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
                       >
-                        <option value="relevance">Relevance</option>
+                        <option value="popularity">Most Popular</option>
                         <option value="title">Title A-Z</option>
                         <option value="rating">Highest Rated</option>
                         <option value="year">Newest First</option>
-                        <option value="popular">Most Popular</option>
                       </select>
                     </div>
                     
@@ -429,23 +407,81 @@ export default function SearchPage() {
                   {/* Results Header */}
                   <div className="mb-6">
                     <p className="text-gray-300 text-lg">
-                      {searchResults.length} result{searchResults.length !== 1 ? 's' : ''} 
+                      {totalResults} result{totalResults !== 1 ? 's' : ''} 
                       {searchQuery && ` for "${searchQuery}"`}
+                      {totalResults > 0 && ` (showing ${searchResults.length})`}
                     </p>
                   </div>
 
-                  {/* Results Display - Compact Grid (Max 10 items) */}
+                  {/* Results Display - TMDB Cards */}
                   {searchResults.length > 0 ? (
-                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-                      {searchResults.map((media, index) => (
-                        <div key={media.id} className="group">
-                          <NetflixMediaCard
-                            media={media}
-                            onPlay={handlePlay}
-                            onInfo={handleInfo}
-                            priority={index < 12 ? 'high' : 'normal'}
-                            showPreviewOnHover={false}
-                          />
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6">
+                      {searchResults.map((result) => (
+                        <div key={`${result.media_type}-${result.id}`} className="group">
+                          <div 
+                            onClick={() => handleResultClick(result)}
+                            className="bg-gray-800/50 rounded-lg overflow-hidden hover:bg-gray-700/50 transition-all duration-300 cursor-pointer hover:scale-105 hover:shadow-2xl"
+                          >
+                            {/* Poster */}
+                            <div className="aspect-[2/3] relative overflow-hidden">
+                              <img
+                                src={getPosterUrl(result.poster_path)}
+                                alt={result.title}
+                                className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500 bg-gray-800"
+                                onError={(e) => {
+                                  const target = e.target as HTMLImageElement;
+                                  target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjQ1MCIgdmlld0JveD0iMCAwIDMwMCA0NTAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIzMDAiIGhlaWdodD0iNDUwIiBmaWxsPSIjMzc0MTUxIi8+CjxwYXRoIGQ9Ik0xNTAgMjAwQzE4Ny4yNzkgMjAwIDIxOCAxNjkuMjc5IDIxOCAxMzJDMjE4IDk0LjcyMDggMTg3LjI3OSA2NCAxNTAgNjRDMTEyLjcyMSA2NCA4MiA5NC43MjA4IDgyIDEzMkM4MiAxNjkuMjc5IDExMi43MjEgMjAwIDE1MCAyMDBaIiBmaWxsPSIjNkI3Mjg4Ii8+CjxwYXRoIGQ9Ik04MiAyNzZDODIgMjM4LjY4IDExMi42OCAyMDggMTUwIDIwOEgxNTBDMTg3LjMyIDIwOCAyMTggMjM4LjY4IDIxOCAyNzZWMzUwSDgyVjI3NloiIGZpbGw9IiM2QjcyODgiLz4KPHN2Zz4K';
+                                }}
+                              />
+                              
+                              {/* Media Type Badge */}
+                              <div className="absolute top-2 left-2">
+                                <span className={`px-2 py-1 rounded-full text-xs font-semibold ${
+                                  result.media_type === 'movie' 
+                                    ? 'bg-blue-600 text-white' 
+                                    : 'bg-green-600 text-white'
+                                }`}>
+                                  {result.media_type === 'movie' ? 'Movie' : 'TV'}
+                                </span>
+                              </div>
+
+                              {/* Rating Badge */}
+                              {result.vote_average > 0 && (
+                                <div className="absolute top-2 right-2">
+                                  <span className="bg-black/70 text-yellow-400 px-2 py-1 rounded-full text-xs font-semibold">
+                                    ★ {result.vote_average.toFixed(1)}
+                                  </span>
+                                </div>
+                              )}
+
+                              {/* Hover Overlay */}
+                              <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                                <div className="absolute bottom-4 left-4 right-4">
+                                  <button className="w-full bg-red-600 hover:bg-red-700 text-white py-2 px-4 rounded-lg font-semibold transition-colors">
+                                    View Details
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Info */}
+                            <div className="p-4">
+                              <h3 className="font-semibold text-white mb-2 line-clamp-2 group-hover:text-red-400 transition-colors">
+                                {result.title}
+                              </h3>
+                              
+                              <div className="flex items-center justify-between text-sm text-gray-400 mb-2">
+                                <span>{formatDate(result.release_date)}</span>
+                                <span className="capitalize">{result.media_type}</span>
+                              </div>
+
+                              {result.overview && (
+                                <p className="text-gray-400 text-sm line-clamp-3">
+                                  {result.overview}
+                                </p>
+                              )}
+                            </div>
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -486,20 +522,7 @@ export default function SearchPage() {
         </div>
       </div>
 
-      {/* Video Player Modal */}
-      {selectedMedia && (
-        <VideoPlayer
-          media={selectedMedia}
-          isOpen={isPlayerOpen}
-          onClose={() => setIsPlayerOpen(false)}
-          startTime={0}
-          onPlayNext={(nextMedia) => {
-            console.log('Playing next episode:', nextMedia.title);
-            setSelectedMedia(nextMedia);
-            // Keep player open and switch to next episode
-          }}
-        />
-      )}
+
     </div>
   );
 }

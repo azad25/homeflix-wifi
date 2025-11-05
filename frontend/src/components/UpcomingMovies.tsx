@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
-import { Star, Calendar, TrendingUp, Clock } from "lucide-react";
+import React, { useState, useEffect, useRef } from "react";
+import { Star, Calendar, TrendingUp, Clock, ChevronLeft, ChevronRight } from "lucide-react";
 import { useRouter } from 'next/navigation';
 import { getApiUrl } from '@/lib/api';
 
@@ -43,9 +43,12 @@ const UpcomingMovies: React.FC<UpcomingMoviesProps> = ({
   title
 }) => {
   const router = useRouter();
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [upcomingData, setUpcomingData] = useState<UpcomingMoviesData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
 
   useEffect(() => {
     fetchUpcomingMovies();
@@ -100,6 +103,43 @@ const UpcomingMovies: React.FC<UpcomingMoviesProps> = ({
   const handleMovieClick = (movie: TMDBMovie) => {
     router.push(`/tmdb-movie/${movie.id}`);
   };
+
+  const updateScrollButtons = () => {
+    if (scrollContainerRef.current) {
+      const { scrollLeft, scrollWidth, clientWidth } = scrollContainerRef.current;
+      setCanScrollLeft(scrollLeft > 0);
+      setCanScrollRight(scrollLeft < scrollWidth - clientWidth - 1);
+    }
+  };
+
+  const scrollLeft = () => {
+    if (scrollContainerRef.current) {
+      const scrollAmount = 200; // Width of one movie card plus gap
+      scrollContainerRef.current.scrollBy({
+        left: -scrollAmount,
+        behavior: 'smooth'
+      });
+    }
+  };
+
+  const scrollRight = () => {
+    if (scrollContainerRef.current) {
+      const scrollAmount = 200; // Width of one movie card plus gap
+      scrollContainerRef.current.scrollBy({
+        left: scrollAmount,
+        behavior: 'smooth'
+      });
+    }
+  };
+
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (container) {
+      updateScrollButtons();
+      container.addEventListener('scroll', updateScrollButtons);
+      return () => container.removeEventListener('scroll', updateScrollButtons);
+    }
+  }, [upcomingData]);
 
   const getMoviesToShow = (): { movies: TMDBMovie[], sectionTitle: string, icon: React.ReactNode } => {
     if (!upcomingData) return { movies: [], sectionTitle: '', icon: null };
@@ -203,8 +243,34 @@ const UpcomingMovies: React.FC<UpcomingMoviesProps> = ({
       </div>
 
       {/* Movies Carousel */}
-      <div className="relative">
-        <div className="flex gap-4 overflow-x-auto scrollbar-hide pb-4" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+      <div className="relative group">
+        {/* Left Arrow */}
+        {canScrollLeft && (
+          <button
+            onClick={scrollLeft}
+            className="absolute left-0 top-1/2 -translate-y-1/2 z-10 bg-black/70 hover:bg-black/90 text-white p-2 rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-300"
+            aria-label="Scroll left"
+          >
+            <ChevronLeft className="w-5 h-5" />
+          </button>
+        )}
+
+        {/* Right Arrow */}
+        {canScrollRight && (
+          <button
+            onClick={scrollRight}
+            className="absolute right-0 top-1/2 -translate-y-1/2 z-10 bg-black/70 hover:bg-black/90 text-white p-2 rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-300"
+            aria-label="Scroll right"
+          >
+            <ChevronRight className="w-5 h-5" />
+          </button>
+        )}
+
+        <div 
+          ref={scrollContainerRef}
+          className="flex gap-4 overflow-x-auto scrollbar-hide pb-4" 
+          style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+        >
           {movies.map((movie) => (
             <div
               key={movie.id}
