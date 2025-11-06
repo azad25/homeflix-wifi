@@ -8,6 +8,7 @@ Transform your media collection into a professional streaming platform! HomeFlix
 ![HomeFlix Interface](/preview-5.png)
 ![TMDB Search Feature](/preview_10.png)
 ![TMDB Movie Details](/preview_11.png)
+![Recently watched](/preview_15.png)
 ![TMDB TV Shows](/preview_12.png)
 ![Advanced Search](/preview_13.png)
 ![Movie Discovery](/preview_14.png)
