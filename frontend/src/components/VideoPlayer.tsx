@@ -38,11 +38,20 @@ interface VideoPlayerProps {
   isOpen: boolean;
   onClose: () => void;
   startTime?: number;
+  forceStartFromBeginning?: boolean;
   onPlayNext?: (nextMedia: Media) => void;
   onVideoPlay?: () => void;
+  onProgress?: (currentTime: number, duration: number) => void;
 }
 
-const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, startTime = 0, onPlayNext, onVideoPlay }) => {
+const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, startTime = 0, forceStartFromBeginning = false, onPlayNext, onVideoPlay, onProgress }) => {
+  // console.log('🎬 VideoPlayer: Initialized with props:', {
+  //   mediaId: media.id,
+  //   isOpen,
+  //   startTime,
+  //   forceStartFromBeginning
+  // });
+
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -128,6 +137,352 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
       return false;
     }
   }, []);
+
+  // Centralized subtitle state reset function
+  const resetSubtitleState = useCallback(() => {
+    const video = videoRef.current;
+
+    // Clear current subtitle display state immediately
+    setCurrentSubtitleText('');
+    // Don't clear availableSubtitles - keep the list of available tracks
+    // Don't clear currentSubtitle and currentSubtitleTrack - keep the selected track
+    // Don't disable subtitlesEnabled - keep user preference
+
+    // Clean up video subtitle handlers
+    if (video && (video as any).subtitleCleanup) {
+      (video as any).subtitleCleanup();
+      (video as any).subtitleCleanup = null;
+    }
+
+    // Clear global subtitle state
+    (window as any).currentSubtitleCues = [];
+    (window as any).lastSubtitleText = '';
+    (window as any).pendingSubtitleTrack = null;
+
+    // Force disable all native text tracks
+    if (video) {
+      for (let i = 0; i < video.textTracks.length; i++) {
+        const track = video.textTracks[i];
+        track.mode = 'disabled';
+        if ('oncuechange' in track) {
+          track.oncuechange = null;
+        }
+      }
+
+      // Remove track elements
+      const trackElements = video.querySelectorAll('track');
+      trackElements.forEach(track => track.remove());
+    }
+  }, []);
+
+  // Clear only subtitle display text (for force start from beginning)
+  const clearSubtitleDisplay = useCallback(() => {
+    // Only clear the displayed text, keep all subtitle system intact
+    setCurrentSubtitleText('');
+    (window as any).lastSubtitleText = '';
+    // Don't mess with cues - let the subtitle system handle timing naturally
+  }, []);
+
+  // Centralized subtitle update function - call this whenever video position changes
+  const updateSubtitlesForCurrentTime = useCallback((currentTime?: number) => {
+    const video = videoRef.current;
+    if (!video || !subtitlesEnabled) {
+      if ((window as any).lastSubtitleText !== '') {
+        setCurrentSubtitleText('');
+        (window as any).lastSubtitleText = '';
+      }
+      return;
+    }
+
+    // Check if the loaded subtitles belong to the current media
+    if ((window as any).currentSubtitleMediaId !== media.id) {
+      // Subtitles are for a different media, clear them
+      if ((window as any).lastSubtitleText !== '') {
+        setCurrentSubtitleText('');
+        (window as any).lastSubtitleText = '';
+      }
+      return;
+    }
+
+    const videoTime = currentTime !== undefined ? currentTime : video.currentTime;
+    const cues = (window as any).currentSubtitleCues;
+
+    if (!cues || !Array.isArray(cues) || cues.length === 0) {
+      if ((window as any).lastSubtitleText !== '') {
+        setCurrentSubtitleText('');
+        (window as any).lastSubtitleText = '';
+      }
+      return;
+    }
+
+    // Find active cue with precise timing
+    const activeCue = cues.find((cue: any) =>
+      videoTime >= cue.start && videoTime <= cue.end
+    );
+
+    if (activeCue && activeCue.text) {
+      if (activeCue.text !== (window as any).lastSubtitleText) {
+        setCurrentSubtitleText(activeCue.text);
+        (window as any).lastSubtitleText = activeCue.text;
+      }
+    } else {
+      if ((window as any).lastSubtitleText !== '') {
+        setCurrentSubtitleText('');
+        (window as any).lastSubtitleText = '';
+      }
+    }
+  }, [subtitlesEnabled, currentSubtitle, media.id]);
+
+  // Complete subtitle cleanup for media changes
+  const completeSubtitleReset = useCallback(() => {
+    const video = videoRef.current;
+
+    // Clear all subtitle-related states completely
+    setCurrentSubtitleText('');
+    setAvailableSubtitles([]);
+    setCurrentSubtitle(null);
+    setCurrentSubtitleTrack(null);
+    setSubtitlesEnabled(false);
+
+    // Clean up video subtitle handlers
+    if (video && (video as any).subtitleCleanup) {
+      (video as any).subtitleCleanup();
+      (video as any).subtitleCleanup = null;
+    }
+
+    // Clear ALL global subtitle state
+    (window as any).currentSubtitleCues = [];
+    (window as any).lastSubtitleText = '';
+    (window as any).currentlyLoadingSubtitle = null;
+    (window as any).pendingSubtitleTrack = null;
+    (window as any).currentSubtitleMediaId = null; // Track which media the subtitles belong to
+
+    // Force disable all native text tracks
+    if (video) {
+      for (let i = 0; i < video.textTracks.length; i++) {
+        const track = video.textTracks[i];
+        track.mode = 'disabled';
+        if ('oncuechange' in track) {
+          track.oncuechange = null;
+        }
+      }
+
+      // Remove all track elements from DOM
+      const trackElements = video.querySelectorAll('track');
+      trackElements.forEach(track => track.remove());
+    }
+  }, []);
+
+  // Debounced subtitle loader to prevent multiple simultaneous loads
+  const loadExternalSubtitle = useCallback(async (url: string, mediaId?: number) => {
+    // Create a unique key for this media and subtitle URL
+    const loadingKey = `${mediaId || media.id}-${url}`;
+    
+    // Prevent loading if we're already loading this specific combination
+    if ((window as any).currentlyLoadingSubtitle === loadingKey) {
+      return;
+    }
+
+    // Clear any previous loading state
+    (window as any).currentlyLoadingSubtitle = loadingKey;
+
+    try {
+      const response = await fetch(url);
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const subtitleText = await response.text();
+
+      // Detect subtitle format and parse accordingly
+      let cues: Array<{ start: number, end: number, text: string }> = [];
+
+      if (url.toLowerCase().includes('.vtt') || subtitleText.includes('WEBVTT')) {
+        cues = parseVTT(subtitleText);
+      } else {
+        cues = parseSRT(subtitleText);
+      }
+
+      // Create custom subtitle overlay instead of using video text tracks
+      const video = videoRef.current;
+      if (video && cues.length > 0) {
+        // Clean up any existing subtitle handlers first
+        if ((video as any).subtitleCleanup) {
+          (video as any).subtitleCleanup();
+        }
+
+        // Chrome-specific: Force disable all native text tracks
+        for (let i = 0; i < video.textTracks.length; i++) {
+          const track = video.textTracks[i];
+          track.mode = 'disabled';
+          // Chrome-specific properties
+          if ('oncuechange' in track) {
+            track.oncuechange = null;
+          }
+        }
+
+        // Remove all track elements from DOM for Chrome compatibility
+        const trackElements = video.querySelectorAll('track');
+        trackElements.forEach(track => {
+          track.remove();
+        });
+
+        // Store cues globally for subtitle display with media ID tracking
+        (window as any).currentSubtitleCues = cues;
+        (window as any).lastSubtitleText = '';
+        (window as any).currentSubtitleMediaId = mediaId || media.id;
+
+        // Immediately update subtitles for current video position
+        setTimeout(() => {
+          updateSubtitleText();
+        }, 50);
+
+        // Enhanced subtitle display function with Chrome-specific fixes
+        const updateSubtitleText = () => {
+          // Always check for subtitles if we have cues loaded
+          if (!cues.length) {
+            setCurrentSubtitleText('');
+            (window as any).lastSubtitleText = '';
+            return;
+          }
+
+          const currentTime = video.currentTime;
+
+          // Remove forceStartFromBeginning check - it was interfering with normal subtitle display
+
+          // Find active cue with precise timing (no buffer for better accuracy)
+          const activeCue = cues.find(cue =>
+            currentTime >= cue.start && currentTime <= cue.end
+          );
+
+          if (activeCue) {
+            if (activeCue.text !== (window as any).lastSubtitleText) {
+              // Chrome-specific: Force update with requestAnimationFrame
+              requestAnimationFrame(() => {
+                setCurrentSubtitleText(activeCue.text);
+                (window as any).lastSubtitleText = activeCue.text;
+              });
+            }
+          } else {
+            if ((window as any).lastSubtitleText !== '') {
+              requestAnimationFrame(() => {
+                setCurrentSubtitleText('');
+                (window as any).lastSubtitleText = '';
+              });
+            }
+          }
+        };
+
+        // Use high-frequency timeupdate for better subtitle timing
+        let subtitleUpdateInterval: NodeJS.Timeout;
+        let animationFrameId: number;
+
+        const startSubtitleUpdates = () => {
+          // Clear any existing interval
+          if (subtitleUpdateInterval) {
+            clearInterval(subtitleUpdateInterval);
+          }
+          if (animationFrameId) {
+            cancelAnimationFrame(animationFrameId);
+          }
+
+          // Chrome-specific: Use both interval and requestAnimationFrame for reliability
+          subtitleUpdateInterval = setInterval(() => {
+            updateSubtitleText();
+          }, 100);
+
+          // Additional Chrome fix: Use requestAnimationFrame for smoother updates
+          const animationUpdate = () => {
+            updateSubtitleText();
+            if (!video.paused) {
+              animationFrameId = requestAnimationFrame(animationUpdate);
+            }
+          };
+          animationFrameId = requestAnimationFrame(animationUpdate);
+        };
+
+        const stopSubtitleUpdates = () => {
+          if (subtitleUpdateInterval) {
+            clearInterval(subtitleUpdateInterval);
+          }
+          if (animationFrameId) {
+            cancelAnimationFrame(animationFrameId);
+          }
+        };
+
+        // Start updates when video plays, stop when paused
+        const handlePlay = () => {
+          startSubtitleUpdates();
+          updateSubtitleText(); // Immediate update
+        };
+
+        const handlePause = () => {
+          stopSubtitleUpdates();
+          updateSubtitleText(); // Final update
+        };
+
+        const handleSeeked = () => {
+          updateSubtitleText(); // Immediate update after seek
+          if (!video.paused) {
+            startSubtitleUpdates();
+          }
+        };
+
+        // Add event listeners for subtitle-specific events
+        video.addEventListener('play', handlePlay);
+        video.addEventListener('pause', handlePause);
+        video.addEventListener('seeked', handleSeeked);
+
+        // Chrome-specific additional events
+        video.addEventListener('loadeddata', updateSubtitleText);
+        video.addEventListener('canplay', updateSubtitleText);
+
+        // Initial subtitle check with delay for Chrome
+        setTimeout(() => {
+          updateSubtitleText();
+        }, 100);
+
+        // Start updates if video is already playing
+        if (!video.paused) {
+          startSubtitleUpdates();
+        }
+
+        // Force immediate subtitle check for the first few seconds
+        const forceSubtitleCheck = setInterval(() => {
+          updateSubtitleText();
+        }, 500);
+
+        setTimeout(() => {
+          clearInterval(forceSubtitleCheck);
+        }, 5000); // Check every 500ms for the first 5 seconds
+
+        // Enhanced cleanup function
+        const cleanup = () => {
+          stopSubtitleUpdates();
+          video.removeEventListener('play', handlePlay);
+          video.removeEventListener('pause', handlePause);
+          video.removeEventListener('seeked', handleSeeked);
+          video.removeEventListener('loadeddata', updateSubtitleText);
+          video.removeEventListener('canplay', updateSubtitleText);
+          (window as any).currentSubtitleCues = [];
+          (window as any).lastSubtitleText = '';
+        };
+
+        // Store cleanup function for later use
+        (video as any).subtitleCleanup = cleanup;
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      setCurrentSubtitleText(`Error loading subtitles: ${errorMessage}`);
+      setTimeout(() => setCurrentSubtitleText(''), 3000);
+    } finally {
+      // Clear loading flag only if it matches our current loading key
+      if ((window as any).currentlyLoadingSubtitle === loadingKey) {
+        (window as any).currentlyLoadingSubtitle = null;
+      }
+    }
+  }, [forceStartFromBeginning, media.id]);
 
   const getStreamUrl = useCallback((mediaId: number, quality?: string, format?: string, seekTime?: number) => {
     const baseUrl = `${getApiUrl()}/api/stream/${mediaId}`;
@@ -240,14 +595,66 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
     };
   }, [isOpen]);
 
-  // Handle media changes (when switching episodes)
+  // Handle forceStartFromBeginning flag changes
+  useEffect(() => {
+    if (forceStartFromBeginning && isOpen) {
+      const video = videoRef.current;
+      if (video) {
+
+        // Force reset to beginning
+        setCurrentTime(0);
+        setResumeTime(0);
+        setShowResumeNotification(false);
+
+        // CRITICAL: Only clear subtitle display, keep subtitle system intact
+        clearSubtitleDisplay();
+
+        // If video is already loaded, seek to beginning immediately
+        if (video.readyState >= 2) {
+          video.currentTime = 0;
+
+          // Force immediate subtitle update for time 0
+          setTimeout(() => {
+            // Clear subtitle text immediately
+            setCurrentSubtitleText('');
+            (window as any).lastSubtitleText = '';
+
+            // Force subtitle update for current time (should be 0)
+            if ((window as any).currentSubtitleCues && (window as any).currentSubtitleCues.length > 0) {
+              const cues = (window as any).currentSubtitleCues;
+              const activeCue = cues.find((cue: any) =>
+                video.currentTime >= cue.start && video.currentTime <= cue.end
+              );
+
+              if (activeCue) {
+                setCurrentSubtitleText(activeCue.text);
+                (window as any).lastSubtitleText = activeCue.text;
+              } else {
+                setCurrentSubtitleText('');
+                (window as any).lastSubtitleText = '';
+              }
+            }
+
+            // Subtitle reloading will be handled by existing subtitle loading effects
+          }, 50); // Reduced delay for faster response
+        }
+      }
+    }
+  }, [forceStartFromBeginning, isOpen, clearSubtitleDisplay]);
+
+  // Handle media changes (when switching episodes/movies)
   useEffect(() => {
     if (isOpen && media.id) {
       const video = videoRef.current;
       if (video) {
+        // IMMEDIATE SUBTITLE CLEANUP using complete reset for media changes
+        completeSubtitleReset();
 
+        // Clear any pending subtitle loading
+        (window as any).currentlyLoadingSubtitle = null;
+        (window as any).pendingSubtitleTrack = null;
 
-        // Reset all playback states for new episode
+        // Reset all playback states for new media
         setCurrentTime(0);
         setDuration(0);
         setIsPlaying(false);
@@ -255,15 +662,20 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
         setIsBuffering(true);
         setShowPauseScreen(false);
         setShowResumeNotification(false);
-        setResumeTime(0);
+        setResumeTime(forceStartFromBeginning ? 0 : 0);
         setHasInitiallyLoaded(false);
+
+        // If forcing start from beginning, only clear subtitle display
+        if (forceStartFromBeginning) {
+          clearSubtitleDisplay();
+        }
 
         // Load new video source
         const newVideoSrc = getStreamUrl(media.id, 'high', 'mp4');
         video.src = newVideoSrc;
         setVideoSrc(newVideoSrc);
 
-        // Load and auto-play the new episode
+        // Load and auto-play the new media
         video.load();
 
         // Auto-play after a short delay to ensure loading
@@ -281,7 +693,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
         }, 100);
       }
     }
-  }, [media.id, media.title, isOpen, getStreamUrl]);
+  }, [media.id, media.title, isOpen, getStreamUrl, forceStartFromBeginning, completeSubtitleReset, clearSubtitleDisplay]);
 
   // Initialize video source when player opens or media changes
   useEffect(() => {
@@ -319,199 +731,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
     }
   }, [media.id, isOpen, getStreamUrl, volume]);
 
-  // Load subtitle file and parse it (works for both internal and external)
-  const loadExternalSubtitle = useCallback(async (url: string) => {
-    try {
-      const response = await fetch(url);
 
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-
-      const subtitleText = await response.text();
-
-      // Detect subtitle format and parse accordingly
-      let cues: Array<{ start: number, end: number, text: string }> = [];
-
-      if (url.toLowerCase().includes('.vtt') || subtitleText.includes('WEBVTT')) {
-        cues = parseVTT(subtitleText);
-      } else {
-        cues = parseSRT(subtitleText);
-      }
-
-      // Create custom subtitle overlay instead of using video text tracks
-      const video = videoRef.current;
-      if (video && cues.length > 0) {
-        // Clean up any existing subtitle handlers first
-        if ((video as any).subtitleCleanup) {
-          (video as any).subtitleCleanup();
-        }
-
-        // Chrome-specific: Force disable all native text tracks
-        for (let i = 0; i < video.textTracks.length; i++) {
-          const track = video.textTracks[i];
-          track.mode = 'disabled';
-          // Chrome-specific properties
-          if ('oncuechange' in track) {
-            track.oncuechange = null;
-          }
-        }
-
-        // Remove all track elements from DOM for Chrome compatibility
-        const trackElements = video.querySelectorAll('track');
-        trackElements.forEach(track => {
-          track.remove();
-        });
-
-        // Store cues globally for subtitle display
-        (window as any).currentSubtitleCues = cues;
-        (window as any).lastSubtitleText = '';
-
-        // Enhanced subtitle display function with Chrome-specific fixes
-        const updateSubtitleText = () => {
-          // Always check for subtitles if we have cues loaded
-          if (!cues.length) {
-            setCurrentSubtitleText('');
-            (window as any).lastSubtitleText = '';
-            return;
-          }
-
-          const currentTime = video.currentTime;
-
-          // Find active cue with precise timing (no buffer for better accuracy)
-          const activeCue = cues.find(cue =>
-            currentTime >= cue.start && currentTime <= cue.end
-          );
-
-          if (activeCue) {
-            if (activeCue.text !== (window as any).lastSubtitleText) {
-              // Chrome-specific: Force update with requestAnimationFrame
-              requestAnimationFrame(() => {
-                setCurrentSubtitleText(activeCue.text);
-                (window as any).lastSubtitleText = activeCue.text;
-              });
-            }
-          } else {
-            if ((window as any).lastSubtitleText !== '') {
-              requestAnimationFrame(() => {
-                setCurrentSubtitleText('');
-                (window as any).lastSubtitleText = '';
-              });
-            }
-          }
-        };
-
-        // Use high-frequency timeupdate for better subtitle timing
-        let subtitleUpdateInterval: NodeJS.Timeout;
-        let animationFrameId: number;
-
-        const startSubtitleUpdates = () => {
-          // Clear any existing interval
-          if (subtitleUpdateInterval) {
-            clearInterval(subtitleUpdateInterval);
-          }
-          if (animationFrameId) {
-            cancelAnimationFrame(animationFrameId);
-          }
-
-          // Chrome-specific: Use both interval and requestAnimationFrame for reliability
-          subtitleUpdateInterval = setInterval(() => {
-            updateSubtitleText();
-          }, 100);
-
-          // Additional Chrome fix: Use requestAnimationFrame for smoother updates
-          const animationUpdate = () => {
-            updateSubtitleText();
-            if (!video.paused) {
-              animationFrameId = requestAnimationFrame(animationUpdate);
-            }
-          };
-          animationFrameId = requestAnimationFrame(animationUpdate);
-        };
-
-        const stopSubtitleUpdates = () => {
-          if (subtitleUpdateInterval) {
-            clearInterval(subtitleUpdateInterval);
-          }
-          if (animationFrameId) {
-            cancelAnimationFrame(animationFrameId);
-          }
-        };
-
-        // Start updates when video plays, stop when paused
-        const handlePlay = () => {
-          startSubtitleUpdates();
-          updateSubtitleText(); // Immediate update
-        };
-
-        const handlePause = () => {
-          stopSubtitleUpdates();
-          updateSubtitleText(); // Final update
-        };
-
-        const handleSeeked = () => {
-          updateSubtitleText(); // Immediate update after seek
-          if (!video.paused) {
-            startSubtitleUpdates();
-          }
-        };
-
-        // Chrome-specific: Use both timeupdate and additional events
-        const handleTimeUpdate = () => {
-          updateSubtitleText();
-        };
-
-        // Add event listeners
-        video.addEventListener('play', handlePlay);
-        video.addEventListener('pause', handlePause);
-        video.addEventListener('seeked', handleSeeked);
-        video.addEventListener('timeupdate', handleTimeUpdate);
-
-        // Chrome-specific additional events
-        video.addEventListener('loadeddata', updateSubtitleText);
-        video.addEventListener('canplay', updateSubtitleText);
-
-        // Initial subtitle check with delay for Chrome
-        setTimeout(() => {
-          updateSubtitleText();
-        }, 100);
-
-        // Start updates if video is already playing
-        if (!video.paused) {
-          startSubtitleUpdates();
-        }
-
-        // Force immediate subtitle check for the first few seconds
-        const forceSubtitleCheck = setInterval(() => {
-          updateSubtitleText();
-        }, 500);
-
-        setTimeout(() => {
-          clearInterval(forceSubtitleCheck);
-        }, 5000); // Check every 500ms for the first 5 seconds
-
-        // Enhanced cleanup function
-        const cleanup = () => {
-          stopSubtitleUpdates();
-          video.removeEventListener('play', handlePlay);
-          video.removeEventListener('pause', handlePause);
-          video.removeEventListener('seeked', handleSeeked);
-          video.removeEventListener('timeupdate', handleTimeUpdate);
-          video.removeEventListener('loadeddata', updateSubtitleText);
-          video.removeEventListener('canplay', updateSubtitleText);
-          (window as any).currentSubtitleCues = [];
-          (window as any).lastSubtitleText = '';
-        };
-
-        // Store cleanup function for later use
-        (video as any).subtitleCleanup = cleanup;
-      }
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      setCurrentSubtitleText(`Error loading subtitles: ${errorMessage}`);
-      setTimeout(() => setCurrentSubtitleText(''), 3000);
-    }
-  }, []);
 
   // Enhanced SRT parser with better error handling and precise timing
   const parseSRT = (srtText: string) => {
@@ -647,6 +867,11 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
   // Load subtitles and audio tracks
   useEffect(() => {
     const loadTracks = async () => {
+      // Clear any existing subtitle state before loading new tracks
+      setCurrentSubtitleText('');
+      (window as any).currentlyLoadingSubtitle = null;
+      (window as any).pendingSubtitleTrack = null;
+
       try {
         // Load subtitle tracks (both internal and external)
         const subtitleResponse = await fetch(`${getApiUrl()}/api/media/${media.id}/subtitles`);
@@ -701,7 +926,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
               return true;
             });
 
-
             const subs = validTracks.map((track: any) => ({
               id: track.id,
               language: track.language,
@@ -731,6 +955,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
             setAvailableSubtitles([]);
             setCurrentSubtitle(null);
             setCurrentSubtitleTrack(null);
+            setSubtitlesEnabled(false);
           }
         }
 
@@ -750,6 +975,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
         setAvailableSubtitles([]);
         setCurrentSubtitle(null);
         setCurrentSubtitleTrack(null);
+        setSubtitlesEnabled(false);
       }
     };
 
@@ -758,45 +984,105 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
     }
   }, [media.id, isOpen]);
 
-  // Force subtitle loading when subtitles are enabled
+  // Force subtitle loading when subtitles are enabled - with media ID check
   useEffect(() => {
-    if (subtitlesEnabled && currentSubtitle && !currentSubtitleText) {
-      // Force reload subtitles if they're enabled but not showing
-      setTimeout(() => {
-        loadExternalSubtitle(currentSubtitle);
-      }, 500);
-    }
-  }, [subtitlesEnabled, currentSubtitle, currentSubtitleText, loadExternalSubtitle]);
+    if (subtitlesEnabled && currentSubtitle && media.id) {
+      // Always try to load subtitles when enabled, regardless of current text
+      const timeoutId = setTimeout(() => {
+        // Double-check that we still have the same media and subtitle
+        if (subtitlesEnabled && currentSubtitle && media.id) {
+          loadExternalSubtitle(currentSubtitle, media.id);
+        }
+      }, 300);
 
-  // Additional effect to ensure subtitles load when video is ready
+      return () => clearTimeout(timeoutId);
+    }
+  }, [subtitlesEnabled, currentSubtitle, loadExternalSubtitle, media.id]);
+
+  // Additional effect to ensure subtitles load when video is ready - with media ID check
   useEffect(() => {
-    if (isOpen && subtitlesEnabled && currentSubtitle && videoRef.current && !isLoading) {
+    if (isOpen && subtitlesEnabled && currentSubtitle && videoRef.current && !isLoading && media.id) {
       const video = videoRef.current;
-      if (video.readyState >= 2 && !(window as any).currentSubtitleCues?.length) {
-        console.log('Loading subtitles when video is ready - readyState:', video.readyState);
-        setTimeout(() => {
-          loadExternalSubtitle(currentSubtitle);
+      if (video.readyState >= 2) {
+        // Always try to load subtitles when video is ready
+        const timeoutId = setTimeout(() => {
+          // Double-check states before loading
+          if (subtitlesEnabled && currentSubtitle && media.id) {
+            loadExternalSubtitle(currentSubtitle, media.id);
+          }
         }, 200);
+
+        return () => clearTimeout(timeoutId);
       }
     }
-  }, [isOpen, subtitlesEnabled, currentSubtitle, isLoading, loadExternalSubtitle]);
+  }, [isOpen, subtitlesEnabled, currentSubtitle, isLoading, loadExternalSubtitle, media.id]);
+
+  // Force subtitle reload when media changes and subtitles are enabled
+  useEffect(() => {
+    if (isOpen && media.id && subtitlesEnabled && currentSubtitle && !isLoading) {
+      const video = videoRef.current;
+      if (video && video.readyState >= 2) {
+        // Force reload subtitles for new media
+        const timeoutId = setTimeout(() => {
+          if (subtitlesEnabled && currentSubtitle && media.id) {
+            // Clear existing cues first
+            (window as any).currentSubtitleCues = [];
+            (window as any).lastSubtitleText = '';
+            (window as any).currentSubtitleMediaId = null;
+            setCurrentSubtitleText('');
+            
+            // Load new subtitles with media ID
+            loadExternalSubtitle(currentSubtitle, media.id);
+          }
+        }, 500); // Longer delay to ensure video is fully ready
+
+        return () => clearTimeout(timeoutId);
+      }
+    }
+  }, [media.id, subtitlesEnabled, currentSubtitle, isLoading, loadExternalSubtitle, isOpen]);
+
+  // Final safety net: Ensure subtitles are loaded when everything is ready
+  useEffect(() => {
+    if (isOpen && media.id && subtitlesEnabled && currentSubtitle && hasInitiallyLoaded && !isLoading) {
+      // Check if we have subtitles for the current media
+      const hasCorrectSubtitles = (window as any).currentSubtitleMediaId === media.id && 
+                                  (window as any).currentSubtitleCues?.length > 0;
+      
+      if (!hasCorrectSubtitles) {
+        const timeoutId = setTimeout(() => {
+          if (subtitlesEnabled && currentSubtitle && media.id) {
+            // Force load subtitles
+            loadExternalSubtitle(currentSubtitle, media.id);
+          }
+        }, 1000); // Give everything time to settle
+
+        return () => clearTimeout(timeoutId);
+      }
+    }
+  }, [isOpen, media.id, subtitlesEnabled, currentSubtitle, hasInitiallyLoaded, isLoading, loadExternalSubtitle]);
 
   // Handle subtitle track changes with improved cleanup
   const handleSubtitleTrackChange = useCallback((trackId: number | null) => {
     setCurrentSubtitleTrack(trackId);
 
-    // Always clear current subtitle text first
+    // IMMEDIATE cleanup - clear all subtitle states synchronously
     setCurrentSubtitleText('');
 
     const video = videoRef.current;
     if (video) {
-      // Clean up previous subtitle event listeners and intervals
+      // Clean up previous subtitle event listeners and intervals IMMEDIATELY
       if ((video as any).subtitleCleanup) {
         (video as any).subtitleCleanup();
         (video as any).subtitleCleanup = null;
       }
 
-      // Chrome-specific: Force disable ALL text tracks
+      // Force clear global state immediately
+      (window as any).currentSubtitleCues = [];
+      (window as any).lastSubtitleText = '';
+    }
+
+    // Chrome-specific: Force disable ALL text tracks
+    if (video) {
       for (let i = 0; i < video.textTracks.length; i++) {
         const track = video.textTracks[i];
         track.mode = 'disabled'; // Use 'disabled' instead of 'hidden' for Chrome
@@ -829,11 +1115,11 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
       } catch (e) {
         // Ignore if not supported
       }
-
-      // Clear global subtitle state completely
-      (window as any).currentSubtitleCues = [];
-      (window as any).lastSubtitleText = '';
     }
+
+    // Clear global subtitle state completely
+    (window as any).currentSubtitleCues = [];
+    (window as any).lastSubtitleText = '';
 
     if (trackId === null) {
       // Turn off subtitles
@@ -849,10 +1135,10 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
         // Use unified subtitle loading for both internal and external
         if (selectedTrack.url) {
           setCurrentSubtitle(selectedTrack.url);
-          // Chrome-specific: Add longer delay to ensure cleanup is complete
+          // Load subtitle immediately without race condition check
           setTimeout(() => {
             loadExternalSubtitle(selectedTrack.url);
-          }, 200);
+          }, 100);
         }
       }
     }
@@ -875,6 +1161,87 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
       video.playbackRate = rate;
     }
   }, []);
+
+
+
+  // Video event handlers
+  const handleVideoEvents = useCallback(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    const handleLoadedMetadata = () => {
+      setDuration(video.duration);
+      setIsLoading(false);
+    };
+
+    const handleTimeUpdate = () => {
+      if (!isDragging) {
+        setCurrentTime(video.currentTime);
+      }
+    };
+
+    const handlePlay = () => {
+      setIsPlaying(true);
+      setIsBuffering(false);
+    };
+
+    const handlePause = () => {
+      setIsPlaying(false);
+    };
+
+    const handleWaiting = () => {
+      setIsBuffering(true);
+    };
+
+    const handleCanPlay = () => {
+      setIsBuffering(false);
+    };
+
+    const handleVolumeChange = () => {
+      setVolume(video.volume);
+      setIsMuted(video.muted);
+    };
+
+    const handleEnded = () => {
+      setIsPlaying(false);
+      setShowNextEpisode(true);
+
+      if (nextEpisode && onPlayNext) {
+        setTimeout(() => {
+          onPlayNext(nextEpisode);
+        }, 5000);
+      }
+    };
+
+    // Add event listeners
+    video.addEventListener('loadedmetadata', handleLoadedMetadata);
+    video.addEventListener('timeupdate', handleTimeUpdate);
+    video.addEventListener('play', handlePlay);
+    video.addEventListener('pause', handlePause);
+    video.addEventListener('waiting', handleWaiting);
+    video.addEventListener('canplay', handleCanPlay);
+    video.addEventListener('volumechange', handleVolumeChange);
+    video.addEventListener('ended', handleEnded);
+
+    // Cleanup function
+    return () => {
+      video.removeEventListener('loadedmetadata', handleLoadedMetadata);
+      video.removeEventListener('timeupdate', handleTimeUpdate);
+      video.removeEventListener('play', handlePlay);
+      video.removeEventListener('pause', handlePause);
+      video.removeEventListener('waiting', handleWaiting);
+      video.removeEventListener('canplay', handleCanPlay);
+      video.removeEventListener('volumechange', handleVolumeChange);
+      video.removeEventListener('ended', handleEnded);
+    };
+  }, [isDragging, nextEpisode, onPlayNext]);
+
+  // Apply video event handlers
+  useEffect(() => {
+    if (videoRef.current) {
+      return handleVideoEvents();
+    }
+  }, [handleVideoEvents, videoSrc]);
 
 
 
@@ -1238,6 +1605,11 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
     try {
       await updatePlaybackProgress(media.id, video.currentTime, currentDuration);
 
+      // Call the onProgress callback if provided
+      if (onProgress) {
+        onProgress(video.currentTime, currentDuration);
+      }
+
     } catch (error) {
 
       // Prevent error from bubbling up and causing page reload
@@ -1302,6 +1674,15 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
       video.currentTime = resumeTime;
       setCurrentTime(resumeTime);
       setShowResumeNotification(false);
+
+      // Update subtitles for the resumed position with multiple attempts
+      updateSubtitlesForCurrentTime(resumeTime);
+      setTimeout(() => {
+        updateSubtitlesForCurrentTime(resumeTime);
+      }, 100);
+      setTimeout(() => {
+        updateSubtitlesForCurrentTime(resumeTime);
+      }, 300);
     }
   };
 
@@ -1311,6 +1692,15 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
       video.currentTime = 0;
       setCurrentTime(0);
       setShowResumeNotification(false);
+
+      // Update subtitles for the beginning position with multiple attempts
+      updateSubtitlesForCurrentTime(0);
+      setTimeout(() => {
+        updateSubtitlesForCurrentTime(0);
+      }, 100);
+      setTimeout(() => {
+        updateSubtitlesForCurrentTime(0);
+      }, 300);
     }
   };
 
@@ -1350,6 +1740,11 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
         video.play().catch(() => {
           // Failed to resume video
         });
+
+        // Update subtitles when resuming playback
+        setTimeout(() => {
+          updateSubtitlesForCurrentTime();
+        }, 100);
 
         // Show controls briefly when starting playback, then hide after delay
         setShowControls(true);
@@ -1446,6 +1841,14 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
         video.currentTime = newTime;
         setCurrentTime(newTime);
 
+        // Update subtitles for the new position
+        updateSubtitlesForCurrentTime(newTime);
+
+        // Additional subtitle update after a short delay for reliability
+        setTimeout(() => {
+          updateSubtitlesForCurrentTime(newTime);
+        }, 100);
+
         // Ultra-fast timeout for sub-millisecond backend response
         setTimeout(() => {
           setIsBuffering(false);
@@ -1481,6 +1884,14 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
       requestAnimationFrame(() => {
         video.currentTime = newTime;
         setCurrentTime(newTime);
+
+        // Update subtitles for the new position
+        updateSubtitlesForCurrentTime(newTime);
+
+        // Additional subtitle update after a short delay for reliability
+        setTimeout(() => {
+          updateSubtitlesForCurrentTime(newTime);
+        }, 100);
 
         // Ultra-fast timeout for sub-millisecond backend response
         setTimeout(() => {
@@ -1602,6 +2013,14 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
           try {
             video.currentTime = newTime;
             setCurrentTime(newTime);
+
+            // Update subtitles for the new position
+            updateSubtitlesForCurrentTime(newTime);
+
+            // Additional subtitle update after seek completes
+            setTimeout(() => {
+              updateSubtitlesForCurrentTime(newTime);
+            }, 100);
           } catch (seekError) {
             // Seek failed
           }
@@ -2108,10 +2527,34 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
               }
 
               // Load subtitles when video starts playing if they haven't been loaded yet
-              if (subtitlesEnabled && currentSubtitle && !currentSubtitleText && !(window as any).currentSubtitleCues?.length) {
-                setTimeout(() => {
-                  loadExternalSubtitle(currentSubtitle);
-                }, 100);
+              if (subtitlesEnabled && currentSubtitle && media.id) {
+                if (!(window as any).currentSubtitleCues?.length) {
+                  // Load subtitles if not already loaded
+                  setTimeout(() => {
+                    if (subtitlesEnabled && currentSubtitle && media.id) {
+                      loadExternalSubtitle(currentSubtitle);
+                    }
+                  }, 100);
+                } else {
+                  // Subtitles already loaded, update display for current position
+                  setTimeout(() => {
+                    const videoElement = videoRef.current;
+                    if (videoElement && (window as any).currentSubtitleCues?.length > 0) {
+                      const cues = (window as any).currentSubtitleCues;
+                      const currentTime = videoElement.currentTime;
+                      const activeCue = cues.find((cue: any) =>
+                        currentTime >= cue.start && currentTime <= cue.end
+                      );
+                      if (activeCue && activeCue.text) {
+                        setCurrentSubtitleText(activeCue.text);
+                        (window as any).lastSubtitleText = activeCue.text;
+                      } else {
+                        setCurrentSubtitleText('');
+                        (window as any).lastSubtitleText = '';
+                      }
+                    }
+                  }, 50);
+                }
               }
 
               // Start the auto-hide timer for controls when video starts playing
@@ -2278,16 +2721,18 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                   // Browser doesn't support these properties - continue anyway
                 }
 
-                // Load pending subtitles when video is ready
+                // Load pending subtitles when video is ready - with improved loading
                 if ((window as any).pendingSubtitleTrack) {
                   const pendingTrack = (window as any).pendingSubtitleTrack;
                   setTimeout(() => {
-                    loadExternalSubtitle(pendingTrack.url);
+                    if (subtitlesEnabled && pendingTrack.url && media.id) {
+                      loadExternalSubtitle(pendingTrack.url, media.id);
+                    }
                     (window as any).pendingSubtitleTrack = null;
-                  }, 200);
+                  }, 300); // Slightly longer delay for better reliability
                 }
 
-                // INSTANT auto-play for new episodes with zero delay and audio enabled
+                // INSTANT auto-play for new media with zero delay and audio enabled
                 if (!hasInitiallyLoaded && video.currentTime === 0) {
                   // Activate audio context before playing
                   const playWithAudio = async () => {
@@ -2403,25 +2848,55 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
               // Load saved progress or use provided start time - ONLY on initial load
               if (!hasInitiallyLoaded) {
                 try {
-                  const savedProgress = await getPlaybackProgress(media.id);
-                  const resumeTimeValue = startTime > 0 ? startTime : (savedProgress?.position || 0);
-
                   // Only auto-seek on initial load when video is at beginning
                   if (video.currentTime < 5) {
-                    if (startTime > 0) {
+                    if (forceStartFromBeginning) {
+                      // Force start from beginning - ignore saved progress
+                      video.currentTime = 0;
+                      setCurrentTime(0);
+                      setResumeTime(0);
+                    } else if (startTime > 0) {
                       // Use provided start time
                       video.currentTime = startTime;
                       setCurrentTime(startTime);
                       setResumeTime(startTime);
-                    } else if (resumeTimeValue > 30 && videoDuration > 60 && resumeTimeValue < videoDuration - 30) {
-                      // Auto-resume from saved position
-                      video.currentTime = resumeTimeValue;
-                      setCurrentTime(resumeTimeValue);
-                      setResumeTime(resumeTimeValue);
+                    } else {
+                      // Try to load saved progress
+                      const savedProgress = await getPlaybackProgress(media.id);
+                      const resumeTimeValue = savedProgress?.position || 0;
+
+                      if (resumeTimeValue > 30 && videoDuration > 60 && resumeTimeValue < videoDuration - 30) {
+                        // Auto-resume from saved position
+                        video.currentTime = resumeTimeValue;
+                        setCurrentTime(resumeTimeValue);
+                        setResumeTime(resumeTimeValue);
+
+                        // Update subtitles for the resumed position
+                        if (subtitlesEnabled && (window as any).currentSubtitleCues?.length > 0) {
+                          setTimeout(() => {
+                            const cues = (window as any).currentSubtitleCues;
+                            const activeCue = cues.find((cue: any) =>
+                              resumeTimeValue >= cue.start && resumeTimeValue <= cue.end
+                            );
+                            if (activeCue && activeCue.text) {
+                              setCurrentSubtitleText(activeCue.text);
+                              (window as any).lastSubtitleText = activeCue.text;
+                            } else {
+                              setCurrentSubtitleText('');
+                              (window as any).lastSubtitleText = '';
+                            }
+                          }, 200);
+                        }
+                      }
                     }
                   }
                 } catch (error) {
-                  if (startTime > 0 && video.currentTime < 5) {
+                  if (forceStartFromBeginning) {
+                    // Force start from beginning even on error
+                    video.currentTime = 0;
+                    setCurrentTime(0);
+                    setResumeTime(0);
+                  } else if (startTime > 0 && video.currentTime < 5) {
                     // Only seek to start time on initial load
                     video.currentTime = startTime;
                     setCurrentTime(startTime);
@@ -2432,10 +2907,13 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
               }
 
               // Ensure subtitles are loaded after metadata is ready
-              if (subtitlesEnabled && currentSubtitle && !(window as any).currentSubtitleCues?.length) {
+              if (subtitlesEnabled && currentSubtitle && !(window as any).currentSubtitleCues?.length && media.id) {
                 setTimeout(() => {
-                  loadExternalSubtitle(currentSubtitle);
-                }, 300);
+                  // Safety check before loading
+                  if (subtitlesEnabled && currentSubtitle && media.id) {
+                    loadExternalSubtitle(currentSubtitle);
+                  }
+                }, 200); // Reduced from 300ms
               }
             }}
             onLoadedData={() => {
@@ -2463,14 +2941,37 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
 
                 activateAudioContext();
 
-                // Only seek to resume time on initial load if video is at the beginning and we have a valid resume time
-                if (!hasInitiallyLoaded && resumeTime > 0 && video.currentTime < 5 && Math.abs(video.currentTime - resumeTime) > 5) {
-                  video.currentTime = resumeTime;
-                  setCurrentTime(resumeTime);
+                // Handle seeking based on flags
+                if (!hasInitiallyLoaded && video.currentTime < 5) {
+                  if (forceStartFromBeginning) {
+                    // Force start from beginning - set to 0
+                    video.currentTime = 0;
+                    setCurrentTime(0);
+
+                    // Clear subtitle text immediately when seeking to beginning
+                    setCurrentSubtitleText('');
+                    (window as any).lastSubtitleText = '';
+
+                    // Ensure subtitles are reloaded if they were enabled
+                    if (subtitlesEnabled && currentSubtitle) {
+                      setTimeout(() => {
+                        loadExternalSubtitle(currentSubtitle);
+                      }, 200);
+                    }
+                  } else if (resumeTime > 0 && Math.abs(video.currentTime - resumeTime) > 5) {
+                    // Only seek to resume time if we're not forcing start from beginning
+                    video.currentTime = resumeTime;
+                    setCurrentTime(resumeTime);
+                  }
                 }
 
                 // Auto-play for new episodes with audio enabled
-                if (!hasInitiallyLoaded && video.currentTime === 0 && video.paused) {
+                if (!hasInitiallyLoaded && video.paused) {
+                  // Ensure we're at the right position before playing
+                  if (forceStartFromBeginning) {
+                    video.currentTime = 0;
+                  }
+
                   // Ensure audio is enabled before playing
                   video.muted = false;
                   video.volume = volume > 0 ? volume : 1.0;
@@ -2479,6 +2980,11 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                     // Auto-play failed
                   });
                 }
+
+                // Update subtitles for current position after data loads
+                setTimeout(() => {
+                  updateSubtitlesForCurrentTime();
+                }, 100);
               }
             }}
             onTimeUpdate={() => {
@@ -2486,6 +2992,20 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
               if (!video || isCasting) return;
 
               setCurrentTime(video.currentTime);
+
+              // Update subtitles on every timeupdate for proper sync
+              updateSubtitlesForCurrentTime();
+
+              // Check if we need to load subtitles first
+              if (subtitlesEnabled && !((window as any).currentSubtitleCues && (window as any).currentSubtitleCues.length > 0) && currentSubtitle && media.id) {
+                // Trigger subtitle loading if not already loaded
+                if (!(window as any).currentlyLoadingSubtitle) {
+                  (window as any).currentlyLoadingSubtitle = currentSubtitle;
+                  loadExternalSubtitle(currentSubtitle);
+                }
+              }
+
+              // Removed forceStartFromBeginning subtitle clearing - it was preventing subtitles from showing
 
               // CHROME AUDIO ISSUE DETECTION
               // Check if video is playing but muted or has no audio tracks
@@ -2558,6 +3078,25 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
               const video = videoRef.current;
               if (video) {
                 setCurrentTime(video.currentTime);
+
+                // Enhanced subtitle sync after seeking
+
+                // Force subtitle update with multiple attempts for reliability
+                updateSubtitlesForCurrentTime(video.currentTime);
+
+                // Additional subtitle update after a short delay to handle timing issues
+                setTimeout(() => {
+                  updateSubtitlesForCurrentTime(video.currentTime);
+                }, 50);
+
+                // If subtitles are enabled but no cues loaded, try to reload them
+                if (subtitlesEnabled && currentSubtitle && !(window as any).currentSubtitleCues?.length) {
+                  setTimeout(() => {
+                    if (subtitlesEnabled && currentSubtitle) {
+                      loadExternalSubtitle(currentSubtitle);
+                    }
+                  }, 100);
+                }
               }
             }}
             onWaiting={() => {
@@ -2566,6 +3105,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
             onCanPlayThrough={() => {
               setIsBuffering(false);
               setIsLoading(false);
+              // Update subtitles when video is ready to play
+              updateSubtitlesForCurrentTime();
             }}
             preload="auto"
             muted={false}
@@ -2754,13 +3295,16 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
             )}
           </AnimatePresence>
 
-          {/* Debug subtitle status */}
+          {/* Debug subtitle status - ENABLED FOR DEBUGGING */}
           {/* {availableSubtitles.length > 0 && (
-            <div className="absolute top-4 left-4 z-50 bg-black/80 text-white p-2 rounded text-xs">
-              Subtitles: {subtitlesEnabled ? 'ON' : 'OFF'} |
-              Track: {currentSubtitleTrack} |
-              Text: {currentSubtitleText ? 'YES' : 'NO'} |
-              Available: {availableSubtitles.length}
+            <div className="absolute top-4 left-4 z-50 bg-black/80 text-white p-2 rounded text-xs font-mono">
+              <div>Subtitles: {subtitlesEnabled ? 'ON' : 'OFF'}</div>
+              <div>Track: {currentSubtitleTrack}</div>
+              <div>Text: {currentSubtitleText ? 'YES' : 'NO'}</div>
+              <div>Available: {availableSubtitles.length}</div>
+              <div>Cues: {(window as any).currentSubtitleCues?.length || 0}</div>
+              <div>Time: {currentTime.toFixed(2)}s</div>
+              <div>Current: {currentSubtitleText ? `"${currentSubtitleText.substring(0, 30)}..."` : 'none'}</div>
             </div>
           )} */}
 
@@ -2773,11 +3317,11 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
                 transition={{ duration: 0.1 }} // Faster transition for Chrome
-                className={`absolute z-30 pointer-events-none ${subtitleStyle.position === 'top'
-                    ? 'top-20 left-1/2 -translate-x-1/2'
-                    : subtitleStyle.position === 'center'
-                      ? 'top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2'
-                      : 'bottom-10 left-1/2 -translate-x-1/2'
+                className={`absolute z-10 pointer-events-none ${subtitleStyle.position === 'top'
+                  ? 'top-20 left-1/2 -translate-x-1/2'
+                  : subtitleStyle.position === 'center'
+                    ? 'top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2'
+                    : 'bottom-10 left-1/2 -translate-x-1/2'
                   }`}
                 style={{
                   // Chrome-specific rendering hints
@@ -2831,7 +3375,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                 <div className="absolute top-0 left-0 right-0 p-6 flex justify-between items-center pointer-events-auto">
                   <div>
                     <h1 className="text-white text-2xl font-bold">{media.title}</h1>
-                    <p className="text-white/70">{media.type} • {formatTime(duration)}</p>
                   </div>
 
                   <div className="flex items-center gap-4">
@@ -2912,7 +3455,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                 </div>
 
                 {/* Bottom Controls */}
-                <div className="absolute bottom-0 left-0 right-0 p-6 pointer-events-auto">
+                <div className="absolute bottom-0 left-0 right-0 p-10 pointer-events-auto z-50">
                   {/* Progress Bar */}
                   <div className="mb-4 group">
                     <div
@@ -3150,16 +3693,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                         className=""
                       />
 
-                      {/* Settings Button */}
-                      <button
-                        type="button"
-                        onClick={() => setShowSettings(true)}
-                        className="text-white hover:text-white/70 transition-colors"
-                        title="Settings"
-                      >
-                        <Settings className="w-6 h-6" />
-                      </button>
-
                       {/* Subtitles Button */}
                       {availableSubtitles.length > 0 && (
                         <button
@@ -3172,6 +3705,17 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                           <Subtitles className="w-6 h-6" />
                         </button>
                       )}
+
+                      {/* Settings Button */}
+                      <button
+                        type="button"
+                        onClick={() => setShowSettings(true)}
+                        className="text-white hover:text-white/70 transition-colors"
+                        title="Settings"
+                      >
+                        <Settings className="w-6 h-6" />
+                      </button>
+
 
                       <button
                         type="button"

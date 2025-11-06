@@ -127,8 +127,8 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
   };
 
   const handleSuggestionClick = (suggestion: TMDBSearchResult) => {
-    // Navigate directly to TMDB movie/TV page
-    navigate.push(`/tmdb-movie/${suggestion.id}`);
+    // Navigate directly to TMDB movie/TV page with media type
+    navigate.push(`/tmdb-movie/${suggestion.id}?type=${suggestion.media_type}`);
     setIsSearchOpen(false);
     setShowSuggestions(false);
     setSearchQuery("");

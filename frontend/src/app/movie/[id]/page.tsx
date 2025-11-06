@@ -42,11 +42,21 @@ const useBackgroundVideo = (videoRef: React.RefObject<HTMLVideoElement | null>, 
   const [isMuted, setIsMuted] = useState(false);
   const isMountedRef = useRef(true);
 
-  // Function to stop video completely
+  // Function to pause video (don't remove sources)
   const stopVideo = useCallback(() => {
     const video = videoRef.current;
     if (video) {
-      // Immediately pause and mute
+      video.pause();
+      video.muted = true;
+      video.currentTime = 0;
+      video.volume = 0;
+    }
+  }, []);
+
+  // Function to completely destroy video (for navigation/unmount)
+  const destroyVideo = useCallback(() => {
+    const video = videoRef.current;
+    if (video) {
       video.pause();
       video.muted = true;
       video.currentTime = 0;
@@ -105,52 +115,43 @@ const useBackgroundVideo = (videoRef: React.RefObject<HTMLVideoElement | null>, 
     };
   }, []);
 
-  // Main effect to handle player open/close state
+  // Main effect to handle player open state only
   useEffect(() => {
     const video = videoRef.current;
-    if (!video) return;
+    if (!video || !isPlayerOpen) return;
 
-    if (isPlayerOpen) {
-      // Player opened - stop background video completely
-      video.pause();
-      video.muted = true;
-      video.volume = 0;
-      video.currentTime = 0;
-      safeSetIsVideoPlaying(false);
-      safeSetIsMuted(true);
-
-      // Remove video source to completely stop loading
-      if (video.src) {
-        video.dataset.originalSrc = video.src;
-        video.src = '';
-        video.load();
-      }
-    }
+    // Player opened - stop background video
+    video.pause();
+    video.muted = true;
+    video.volume = 0;
+    video.currentTime = 0;
+    safeSetIsVideoPlaying(false);
+    safeSetIsMuted(true);
   }, [isPlayerOpen, safeSetIsVideoPlaying, safeSetIsMuted]);
 
   // Global cleanup listeners
   useEffect(() => {
-    const handleBeforeUnload = () => stopVideo();
+    const handleBeforeUnload = () => destroyVideo();
     const handleVisibilityChange = () => {
       if (document.hidden) {
         // More aggressive cleanup when page becomes hidden
-        stopVideo();
+        destroyVideo();
       }
     };
 
     // Navigation cleanup - listen for Next.js route changes
     const handleRouteChange = () => {
-      stopVideo();
+      destroyVideo();
     };
 
     // Listen for popstate (back/forward navigation)
     const handlePopState = () => {
-      stopVideo();
+      destroyVideo();
     };
 
     // Listen for hash changes
     const handleHashChange = () => {
-      stopVideo();
+      destroyVideo();
     };
 
     // Don't listen to focus/blur events to avoid conflicts with address bar clicks
@@ -181,7 +182,7 @@ const useBackgroundVideo = (videoRef: React.RefObject<HTMLVideoElement | null>, 
     };
 
     return () => {
-      stopVideo();
+      destroyVideo();
       window.removeEventListener('beforeunload', handleBeforeUnload);
       window.removeEventListener('unload', handleBeforeUnload);
       window.removeEventListener('pagehide', handleBeforeUnload);
@@ -194,7 +195,7 @@ const useBackgroundVideo = (videoRef: React.RefObject<HTMLVideoElement | null>, 
       window.history.pushState = originalPushState;
       window.history.replaceState = originalReplaceState;
     };
-  }, [stopVideo, pauseVideo]);
+  }, [destroyVideo, pauseVideo]);
 
   return {
     isVideoPlaying,
@@ -202,7 +203,8 @@ const useBackgroundVideo = (videoRef: React.RefObject<HTMLVideoElement | null>, 
     isMuted,
     setIsMuted: safeSetIsMuted,
     stopVideo,
-    pauseVideo
+    pauseVideo,
+    destroyVideo
   };
 };
 
@@ -229,6 +231,7 @@ export default function MoviePage() {
   const [loading, setLoading] = useState(true);
   const [showTitleOverlay, setShowTitleOverlay] = useState(true); // Netflix-style title overlay
   const [isHoveringTitle, setIsHoveringTitle] = useState(false); // Hover state for title area
+  const [forceStartFromBeginning, setForceStartFromBeginning] = useState(false); // Force start from beginning flag
 
   // Component mount/unmount tracking
   useEffect(() => {
@@ -256,36 +259,38 @@ export default function MoviePage() {
     isMuted,
     setIsMuted,
     stopVideo,
-    pauseVideo
+    pauseVideo,
+    destroyVideo
   } = useBackgroundVideo(videoRef, isPlayerOpen);
 
-  // Pathname change detection for App Router (after stopVideo is available)
+
+
+  // Pathname change detection for App Router
   useEffect(() => {
     // This will trigger when pathname changes, indicating navigation
     return () => {
       if (isMountedRef.current) {
-        stopVideo();
+        destroyVideo();
       }
     };
-  }, [pathname, stopVideo]);
+  }, [pathname, destroyVideo]);
 
-  // Override navigate functions to stop video
+  // Override navigate functions to destroy video
   const safeNavigate = {
     push: (url: string) => {
-      stopVideo();
-      // Add a small delay to ensure video is stopped before navigation
+      destroyVideo();
       setTimeout(() => {
         navigate.push(url);
       }, 50);
     },
     back: () => {
-      stopVideo();
+      destroyVideo();
       setTimeout(() => {
         navigate.back();
       }, 50);
     },
     replace: (url: string) => {
-      stopVideo();
+      destroyVideo();
       setTimeout(() => {
         navigate.replace(url);
       }, 50);
@@ -312,10 +317,9 @@ export default function MoviePage() {
 
     return () => {
       observer.disconnect();
-      // Ensure video is stopped when observer is cleaned up
-      stopVideo();
+      destroyVideo();
     };
-  }, [stopVideo, isPlayerOpen]);
+  }, [stopVideo, destroyVideo, isPlayerOpen]);
 
   // Chromecast integration
   const {
@@ -325,13 +329,12 @@ export default function MoviePage() {
     loadMedia: loadCastMedia,
   } = useChromecast();
 
-  // Simplified cleanup without MutationObserver to avoid interfering with clicks
+  // Cleanup on unmount
   useEffect(() => {
     return () => {
-      // Simple cleanup on unmount
-      stopVideo();
+      destroyVideo();
     };
-  }, [stopVideo]);
+  }, [destroyVideo]);
 
   useEffect(() => {
     if (params.id) {
@@ -341,27 +344,20 @@ export default function MoviePage() {
     }
   }, [params.id]);
 
-  // Immediate background video control when player opens/closes
+  // Background video control when player opens/closes
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
 
     if (isPlayerOpen) {
-      // Player opened - immediately stop background video
+      // Player opened - stop and hide background video
       video.pause();
       video.muted = true;
       video.volume = 0;
-      video.currentTime = 0;
       setIsVideoPlaying(false);
       setIsMuted(true);
-
-      // Also hide the video element
       video.style.display = 'none';
       video.style.visibility = 'hidden';
-    } else {
-      // Player closed - show video element again
-      video.style.display = 'block';
-      video.style.visibility = 'visible';
     }
   }, [isPlayerOpen]);
 
@@ -427,14 +423,15 @@ export default function MoviePage() {
 
 
 
+
+
   // Aggressive auto-play with multiple triggers
   useEffect(() => {
     const forceVideoPlay = () => {
       const video = videoRef.current;
       if (video && media && !isPlayerOpen) {
-
-
-        // Set video properties
+        // Set video properties including loop
+        video.loop = true;
         video.muted = false;
         video.volume = 1.0;
         video.currentTime = 0;
@@ -479,7 +476,7 @@ export default function MoviePage() {
     if (isVideoLoaded && !isVideoPlaying && !isPlayerOpen) {
       const video = videoRef.current;
       if (video) {
-
+        video.loop = true;
         video.muted = false;
         video.volume = 1.0;
         video.play().then(() => {
@@ -702,42 +699,42 @@ export default function MoviePage() {
     if (params.id) {
       clearPlaybackProgress(params.id as string);
     }
+    // Reset local playback state to ensure we start from beginning
+    setPlaybackProgress(0);
+    setPlaybackDuration(0);
+    setHasWatchedBefore(false);
+    setLastWatched(null);
+    setForceStartFromBeginning(true);
     setIsPlayerOpen(true);
   };
 
   const handlePlayerClose = () => {
     setIsPlayerOpen(false);
-
-    // Resume background video when player closes
+    setForceStartFromBeginning(false);
+    
+    // Resume background video with loop
     setTimeout(() => {
       const video = videoRef.current;
-      if (video && isVideoLoaded && media && params.id) {
-        // Restore the video source if it was removed
-        if (video.dataset.originalSrc && !video.src) {
-          video.src = video.dataset.originalSrc;
-          video.load();
-          delete video.dataset.originalSrc;
-        }
-
-        // Resume with sound when player closes
+      if (video && media) {
+        video.style.display = 'block';
+        video.style.visibility = 'visible';
+        video.currentTime = 0;
+        video.loop = true;
         video.muted = false;
         video.volume = 1.0;
         setIsMuted(false);
-
+        
         video.play().then(() => {
           setIsVideoPlaying(true);
-        }).catch((error) => {
-          // Try muted fallback if unmuted play fails
+        }).catch(() => {
           video.muted = true;
           setIsMuted(true);
           video.play().then(() => {
             setIsVideoPlaying(true);
-          }).catch(() => {
-            // Silent fail if both attempts fail
-          });
+          }).catch(() => {});
         });
       }
-    }, 300); // Reduced delay for faster resume
+    }, 100);
   };
 
   // Handle cast button click
@@ -953,7 +950,9 @@ export default function MoviePage() {
             objectFit: 'cover',
             // Hide video completely when player is open
             display: isPlayerOpen ? 'none' : 'block',
-            visibility: isPlayerOpen ? 'hidden' : 'visible'
+            visibility: isPlayerOpen ? 'hidden' : 'visible',
+            opacity: isPlayerOpen ? 0 : 1,
+            transition: 'opacity 0.3s ease-in-out'
           }}
 
           onLoadedData={() => {
@@ -964,6 +963,7 @@ export default function MoviePage() {
               video.currentTime = 0;
               video.volume = 1.0;
               video.muted = false;
+              video.loop = true;
 
               // Immediate play attempt
               const immediatePlay = () => {
@@ -1003,6 +1003,7 @@ export default function MoviePage() {
             if (video) {
               video.muted = false;
               video.volume = 1.0;
+              video.loop = true;
 
               const canPlayAttempt = () => {
                 video.play().then(() => {
@@ -1036,6 +1037,7 @@ export default function MoviePage() {
             if (video) {
               video.muted = false;
               video.volume = 1.0;
+              video.loop = true;
 
               const metadataPlay = () => {
                 video.play().then(() => {
@@ -1095,6 +1097,23 @@ export default function MoviePage() {
                   className="object-cover"
                   loading="eager"
                 />
+                
+                {/* Progress Bar - Similar to ContinueWatching component */}
+                {hasWatchedBefore && playbackProgress > 0 && playbackDuration > 0 && (
+                  <>
+                    {/* Progress indicator */}
+                    <div className="absolute bottom-2 left-2 right-2 bg-black/50 rounded-full h-1 z-10">
+                      <div
+                        className="bg-red-600 h-full rounded-full transition-all duration-300"
+                        style={{ width: `${Math.min(Math.max((playbackProgress / playbackDuration) * 100, 0), 100)}%` }}
+                      />
+                    </div>
+                    {/* Progress text */}
+                    <div className="absolute bottom-4 right-2 bg-black/70 text-white text-xs px-2 py-1 rounded z-10">
+                      {Math.round((playbackProgress / playbackDuration) * 100)}%
+                    </div>
+                  </>
+                )}
               </div>
             </motion.div>
 
@@ -1435,6 +1454,23 @@ export default function MoviePage() {
                           loading="eager"
                         />
 
+                        {/* Progress Bar - Similar to ContinueWatching component */}
+                        {hasWatchedBefore && playbackProgress > 0 && playbackDuration > 0 && (
+                          <>
+                            {/* Progress indicator */}
+                            <div className="absolute bottom-2 left-2 right-2 bg-black/50 rounded-full h-1 z-10">
+                              <div
+                                className="bg-red-600 h-full rounded-full transition-all duration-300"
+                                style={{ width: `${Math.min(Math.max((playbackProgress / playbackDuration) * 100, 0), 100)}%` }}
+                              />
+                            </div>
+                            {/* Progress text */}
+                            <div className="absolute bottom-4 right-2 bg-black/70 text-white text-xs px-2 py-1 rounded z-10">
+                              {Math.round((playbackProgress / playbackDuration) * 100)}%
+                            </div>
+                          </>
+                        )}
+
                         {/* Overlay with movie info */}
                         <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 hover:opacity-100 transition-opacity duration-300">
                           <div className="absolute bottom-0 left-0 right-0 p-4">
@@ -1477,12 +1513,21 @@ export default function MoviePage() {
 
       {/* Video Player Modal */}
       {
-        media && (
-          <VideoPlayer
-            media={media}
-            isOpen={isPlayerOpen}
-            onClose={handlePlayerClose}
-            startTime={hasWatchedBefore && playbackProgress > 0 ? playbackProgress : 0}
+        media && (() => {
+          const startTimeValue = hasWatchedBefore && playbackProgress > 0 ? playbackProgress : 0;
+          // console.log('🎬 Movie Page: VideoPlayer props:', {
+          //   startTime: startTimeValue,
+          //   forceStartFromBeginning,
+          //   hasWatchedBefore,
+          //   playbackProgress
+          // });
+          return (
+            <VideoPlayer
+              media={media}
+              isOpen={isPlayerOpen}
+              onClose={handlePlayerClose}
+              startTime={startTimeValue}
+              forceStartFromBeginning={forceStartFromBeginning}
             onPlayNext={(nextMedia) => {
               // For movies, this would typically not be used, but we'll handle it gracefully
               window.location.href = `/movie/${nextMedia.id}`;
@@ -1499,8 +1544,10 @@ export default function MoviePage() {
                 setIsMuted(true);
               }
             }}
+            onProgress={handlePlayerProgress}
           />
-        )
+        );
+        })()
       }
     </div>
   );

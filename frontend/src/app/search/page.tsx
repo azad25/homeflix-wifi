@@ -161,8 +161,8 @@ export default function SearchPage() {
   };
 
   const handleResultClick = (result: TMDBSearchResult) => {
-    // Navigate to TMDB movie/TV page
-    navigate.push(`/tmdb-movie/${result.id}`);
+    // Navigate to TMDB movie/TV page with media type
+    navigate.push(`/tmdb-movie/${result.id}?type=${result.media_type}`);
   };
 
   const handleSearch = (query: string) => {

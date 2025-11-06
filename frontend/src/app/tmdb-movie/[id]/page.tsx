@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   ArrowLeft,
@@ -21,9 +21,7 @@ import {
   ExternalLink,
   Plus,
   Check,
-  Share2,
-  Download
-} from 'lucide-react';
+  Share2} from 'lucide-react';
 import { getApiUrl } from '@/lib/api';
 import { addToWishlist, removeFromWishlist, isInWishlist } from '@/lib/wishlist';
 import Navbar from '@/components/Navbar';
@@ -82,13 +80,152 @@ interface TMDBMovieDetails {
   };
 }
 
+interface TMDBTVDetails {
+  id: number;
+  name: string;
+  original_name: string;
+  overview: string;
+  first_air_date: string;
+  last_air_date?: string;
+  poster_path: string;
+  backdrop_path: string;
+  vote_average: number;
+  vote_count: number;
+  popularity: number;
+  number_of_episodes: number;
+  number_of_seasons: number;
+  episode_run_time: number[];
+  genres: Array<{ id: number; name: string }>;
+  production_companies: Array<{ id: number; name: string; logo_path: string }>;
+  production_countries: Array<{ iso_3166_1: string; name: string }>;
+  spoken_languages: Array<{ iso_639_1: string; name: string }>;
+  tagline: string;
+  status: string;
+  adult: boolean;
+  homepage: string;
+  in_production: boolean;
+  type: string;
+  networks: Array<{ id: number; name: string; logo_path: string }>;
+  seasons: Array<{
+    id: number;
+    name: string;
+    overview: string;
+    poster_path: string;
+    season_number: number;
+    episode_count: number;
+    air_date: string;
+  }>;
+  videos: {
+    results: Array<{
+      id: string;
+      key: string;
+      name: string;
+      site: string;
+      type: string;
+      official: boolean;
+      published_at: string;
+    }>;
+  };
+  credits: {
+    cast: Array<{
+      id: number;
+      name: string;
+      character: string;
+      profile_path: string;
+      order: number;
+    }>;
+    crew: Array<{
+      id: number;
+      name: string;
+      job: string;
+      department: string;
+      profile_path: string;
+    }>;
+  };
+}
+
+interface TMDBMediaResponse {
+  media_type: 'movie' | 'tv';
+  data: TMDBMovieDetails | TMDBTVDetails;
+}
+
+// Unified interface for display
+interface UnifiedMediaDetails {
+  id: number;
+  title: string;
+  original_title: string;
+  overview: string;
+  release_date: string;
+  poster_path: string;
+  backdrop_path: string;
+  vote_average: number;
+  vote_count: number;
+  popularity: number;
+  genres: Array<{ id: number; name: string }>;
+  production_companies: Array<{ id: number; name: string; logo_path: string }>;
+  production_countries: Array<{ iso_3166_1: string; name: string }>;
+  spoken_languages: Array<{ iso_639_1: string; name: string }>;
+  tagline: string;
+  status: string;
+  adult: boolean;
+  homepage: string;
+  videos: {
+    results: Array<{
+      id: string;
+      key: string;
+      name: string;
+      site: string;
+      type: string;
+      official: boolean;
+      published_at: string;
+    }>;
+  };
+  credits: {
+    cast: Array<{
+      id: number;
+      name: string;
+      character: string;
+      profile_path: string;
+      order: number;
+    }>;
+    crew: Array<{
+      id: number;
+      name: string;
+      job: string;
+      department: string;
+      profile_path: string;
+    }>;
+  };
+  // Media type specific fields
+  media_type: 'movie' | 'tv';
+  runtime?: number; // Movies only
+  budget?: number; // Movies only
+  revenue?: number; // Movies only
+  imdb_id?: string; // Movies only
+  number_of_episodes?: number; // TV only
+  number_of_seasons?: number; // TV only
+  episode_run_time?: number[]; // TV only
+  in_production?: boolean; // TV only
+  networks?: Array<{ id: number; name: string; logo_path: string }>; // TV only
+  seasons?: Array<{
+    id: number;
+    name: string;
+    overview: string;
+    poster_path: string;
+    season_number: number;
+    episode_count: number;
+    air_date: string;
+  }>; // TV only
+}
+
 const TMDBMoviePage: React.FC = () => {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const videoRef = useRef<HTMLIFrameElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  const [movieDetails, setMovieDetails] = useState<TMDBMovieDetails | null>(null);
+  const [mediaDetails, setMediaDetails] = useState<UnifiedMediaDetails | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -141,17 +278,37 @@ const TMDBMoviePage: React.FC = () => {
     try {
       setLoading(true);
       const apiUrl = getApiUrl();
-      const response = await fetch(`${apiUrl}/api/tmdb-movie/${movieId}`);
+      const mediaType = searchParams.get('type');
+      const url = mediaType
+        ? `${apiUrl}/api/tmdb-movie/${movieId}?type=${mediaType}`
+        : `${apiUrl}/api/tmdb-movie/${movieId}`;
+      const response = await fetch(url);
 
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
 
-      const data = await response.json();
-      setMovieDetails(data);
+      const responseData = await response.json();
+
+      // Check if it's the new wrapped format or old direct format
+      let unifiedData: UnifiedMediaDetails;
+      if (responseData.media_type && responseData.data) {
+        // New wrapped format
+        unifiedData = convertToUnifiedFormat(responseData as TMDBMediaResponse);
+      } else {
+        // Old direct format - convert to unified format
+        unifiedData = {
+          ...responseData,
+          media_type: 'movie' as const,
+          title: responseData.title,
+          original_title: responseData.original_title,
+          release_date: responseData.release_date,
+        };
+      }
+      setMediaDetails(unifiedData);
 
       // Find the best trailer and auto-play it
-      const trailer = findBestTrailer(data.videos?.results || []);
+      const trailer = findBestTrailer(unifiedData.videos?.results || []);
       setTrailerKey(trailer?.key || null);
 
       // Auto-play trailer if available
@@ -161,10 +318,34 @@ const TMDBMoviePage: React.FC = () => {
 
       setError(null);
     } catch (err) {
-      console.error("Error fetching movie details:", err);
-      setError("Failed to load movie details");
+      console.error("Error fetching media details:", err);
+      setError("Failed to load media details");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const convertToUnifiedFormat = (response: TMDBMediaResponse): UnifiedMediaDetails => {
+    const { media_type, data } = response;
+
+    if (media_type === 'movie') {
+      const movieData = data as TMDBMovieDetails;
+      return {
+        ...movieData,
+        media_type: 'movie',
+        title: movieData.title,
+        original_title: movieData.original_title,
+        release_date: movieData.release_date,
+      };
+    } else {
+      const tvData = data as TMDBTVDetails;
+      return {
+        ...tvData,
+        media_type: 'tv',
+        title: tvData.name, // Map name to title
+        original_title: tvData.original_name, // Map original_name to original_title
+        release_date: tvData.first_air_date, // Map first_air_date to release_date
+      };
     }
   };
 
@@ -264,7 +445,7 @@ const TMDBMoviePage: React.FC = () => {
 
   const checkMyList = async () => {
     if (movieId) {
-      // For TMDB movies, we use the TMDB ID with a prefix to distinguish from local media
+      // For TMDB media, we use the TMDB ID with a prefix to distinguish from local media
       const tmdbWishlistId = parseInt(`9${movieId}`); // Prefix with 9 to avoid conflicts
       const inList = isInWishlist(tmdbWishlistId);
       setIsInMyList(inList);
@@ -273,26 +454,26 @@ const TMDBMoviePage: React.FC = () => {
 
   const toggleMyList = async () => {
     try {
-      if (!movieId || !movieDetails) return;
+      if (!movieId || !mediaDetails) return;
 
-      // For TMDB movies, we use the TMDB ID with a prefix to distinguish from local media
+      // For TMDB media, we use the TMDB ID with a prefix to distinguish from local media
       const tmdbWishlistId = parseInt(`9${movieId}`); // Prefix with 9 to avoid conflicts
       let success = false;
 
       if (isInMyList) {
         success = removeFromWishlist(tmdbWishlistId);
       } else {
-        // Create a wishlist entry with TMDB movie data
+        // Create a wishlist entry with TMDB media data
         success = addToWishlist(tmdbWishlistId, {
           id: tmdbWishlistId,
-          title: movieDetails.title,
-          year: new Date(movieDetails.release_date).getFullYear(),
-          rating: movieDetails.vote_average,
-          genres: movieDetails.genres?.map(g => ({ name: g.name })) || [],
-          tmdb_id: movieDetails.id,
-          poster_path: movieDetails.poster_path,
-          poster_url: movieDetails.poster_path ? `https://image.tmdb.org/t/p/w500${movieDetails.poster_path}` : null,
-          overview: movieDetails.overview
+          title: mediaDetails.title,
+          year: new Date(mediaDetails.release_date).getFullYear(),
+          rating: mediaDetails.vote_average,
+          genres: mediaDetails.genres?.map(g => ({ name: g.name })) || [],
+          tmdb_id: mediaDetails.id,
+          poster_path: mediaDetails.poster_path,
+          poster_url: mediaDetails.poster_path ? `https://image.tmdb.org/t/p/w500${mediaDetails.poster_path}` : null,
+          overview: mediaDetails.overview
         });
       }
 
@@ -312,7 +493,7 @@ const TMDBMoviePage: React.FC = () => {
     );
   }
 
-  if (error || !movieDetails) {
+  if (error || !mediaDetails) {
     return (
       <div className="min-h-screen bg-black flex items-center justify-center">
         <div className="text-center">
@@ -329,11 +510,56 @@ const TMDBMoviePage: React.FC = () => {
     );
   }
 
-  const directors = movieDetails.credits?.crew?.filter(person => person.job === 'Director') || [];
-  const writers = movieDetails.credits?.crew?.filter(person =>
+  const directors = mediaDetails?.credits?.crew?.filter(person => person.job === 'Director') || [];
+  const writers = mediaDetails?.credits?.crew?.filter(person =>
     person.job === 'Writer' || person.job === 'Screenplay' || person.job === 'Story'
   ) || [];
-  const mainCast = movieDetails.credits?.cast?.slice(0, showFullCast ? undefined : 8) || [];
+  const mainCast = mediaDetails?.credits?.cast?.slice(0, showFullCast ? undefined : 8) || [];
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-black text-white flex items-center justify-center">
+        <Navbar />
+        <RedLoader />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-black text-white flex items-center justify-center">
+        <Navbar />
+        <div className="text-center">
+          <h1 className="text-2xl font-bold mb-4">Error Loading Media</h1>
+          <p className="text-gray-400 mb-6">{error}</p>
+          <button
+            onClick={() => window.history.back()}
+            className="px-6 py-3 bg-red-600 hover:bg-red-700 rounded-lg font-semibold transition-colors"
+          >
+            Go Back
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!mediaDetails) {
+    return (
+      <div className="min-h-screen bg-black text-white flex items-center justify-center">
+        <Navbar />
+        <div className="text-center">
+          <h1 className="text-2xl font-bold mb-4">Media Not Found</h1>
+          <p className="text-gray-400 mb-6">The requested movie or TV series could not be found.</p>
+          <button
+            onClick={() => window.history.back()}
+            className="px-6 py-3 bg-red-600 hover:bg-red-700 rounded-lg font-semibold transition-colors"
+          >
+            Go Back
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-black text-white">
@@ -349,7 +575,7 @@ const TMDBMoviePage: React.FC = () => {
         <div
           className="absolute inset-0 bg-cover bg-center bg-no-repeat"
           style={{
-            backgroundImage: `url(${getBackdropUrl(movieDetails.backdrop_path, 'original')})`,
+            backgroundImage: `url(${getBackdropUrl(mediaDetails?.backdrop_path || '', 'original')})`,
           }}
         >
           {/* Enhanced gradient overlay for better text readability */}
@@ -377,6 +603,8 @@ const TMDBMoviePage: React.FC = () => {
             <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-black/80 to-transparent pointer-events-none" />
           </div>
         )}
+
+
 
 
 
@@ -436,8 +664,8 @@ const TMDBMoviePage: React.FC = () => {
             >
               <div className="relative w-48 h-72 rounded-lg overflow-hidden shadow-2xl border border-white/10">
                 <img
-                  src={getPosterUrl(movieDetails.poster_path, 'w500')}
-                  alt={movieDetails.title}
+                  src={getPosterUrl(mediaDetails?.poster_path || '', 'w500')}
+                  alt={mediaDetails?.title || ''}
                   className="w-full h-full object-cover"
                   onError={(e) => {
                     const target = e.target as HTMLImageElement;
@@ -451,41 +679,48 @@ const TMDBMoviePage: React.FC = () => {
             <div className="flex-1 space-y-4 pb-4">
               <div>
                 <h1 className="text-3xl md:text-4xl font-bold mb-2 bg-gradient-to-r from-white to-gray-300 bg-clip-text text-transparent">
-                  {movieDetails.title}
+                  {mediaDetails?.title}
                 </h1>
 
-                {movieDetails.tagline && (
+                {mediaDetails?.tagline && (
                   <p className="text-lg text-red-400 mb-3 italic font-medium">
-                    "{movieDetails.tagline}"
+                    "{mediaDetails.tagline}"
                   </p>
                 )}
               </div>
 
               {/* Stats Row - Compact */}
               <div className="flex flex-wrap items-center gap-3 text-sm">
-                {movieDetails.vote_average > 0 && (
+                {(mediaDetails?.vote_average || 0) > 0 && (
                   <div className="flex items-center gap-1 bg-yellow-500/20 px-2 py-1 rounded-full">
                     <Star className="w-4 h-4 text-yellow-400 fill-current" />
-                    <span className="font-semibold">{movieDetails.vote_average.toFixed(1)}</span>
+                    <span className="font-semibold">{mediaDetails.vote_average.toFixed(1)}</span>
                   </div>
                 )}
 
                 <div className="flex items-center gap-1 bg-blue-500/20 px-2 py-1 rounded-full">
                   <Calendar className="w-4 h-4 text-blue-400" />
-                  <span>{new Date(movieDetails.release_date).getFullYear()}</span>
+                  <span>{new Date(mediaDetails?.release_date || '').getFullYear()}</span>
                 </div>
 
-                {movieDetails.runtime > 0 && (
+                {mediaDetails?.media_type === 'movie' && mediaDetails?.runtime && mediaDetails.runtime > 0 && (
                   <div className="flex items-center gap-1 bg-green-500/20 px-2 py-1 rounded-full">
                     <Clock className="w-4 h-4 text-green-400" />
-                    <span>{formatRuntime(movieDetails.runtime)}</span>
+                    <span>{formatRuntime(mediaDetails.runtime)}</span>
+                  </div>
+                )}
+
+                {mediaDetails?.media_type === 'tv' && (
+                  <div className="flex items-center gap-1 bg-purple-500/20 px-2 py-1 rounded-full">
+                    <Film className="w-4 h-4 text-purple-400" />
+                    <span>{mediaDetails.number_of_seasons} Season{(mediaDetails.number_of_seasons || 0) > 1 ? 's' : ''}</span>
                   </div>
                 )}
               </div>
 
               {/* Genres - Compact */}
               <div className="flex flex-wrap gap-1">
-                {movieDetails.genres?.slice(0, 3).map((genre) => (
+                {mediaDetails?.genres?.slice(0, 3).map((genre) => (
                   <span
                     key={genre.id}
                     className="px-2 py-1 bg-red-600/30 border border-red-500/50 rounded-full text-xs font-medium"
@@ -497,7 +732,7 @@ const TMDBMoviePage: React.FC = () => {
 
               {/* Overview - Truncated */}
               <p className="text-sm text-gray-300 leading-relaxed line-clamp-3">
-                {movieDetails.overview || "Experience this amazing movie with stunning visuals and compelling storytelling."}
+                {mediaDetails?.overview || `Experience this amazing ${mediaDetails?.media_type === 'tv' ? 'TV series' : 'movie'} with stunning visuals and compelling storytelling.`}
               </p>
 
               {/* Action Buttons - Compact */}
@@ -513,9 +748,9 @@ const TMDBMoviePage: React.FC = () => {
                   <Share2 className="w-4 h-4" />
                   Share
                 </button>
-                {movieDetails.homepage && (
+                {mediaDetails?.homepage && (
                   <a
-                    href={movieDetails.homepage}
+                    href={mediaDetails.homepage}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="flex items-center gap-1 px-4 py-2 bg-gray-800/80 hover:bg-gray-700 rounded-lg text-sm font-semibold transition-all duration-300 hover:scale-105"
@@ -535,7 +770,7 @@ const TMDBMoviePage: React.FC = () => {
         <div className="max-w-7xl mx-auto space-y-16">
 
           {/* Cast Section - Enhanced Design */}
-          {movieDetails.credits?.cast && movieDetails.credits.cast.length > 0 && (
+          {mediaDetails?.credits?.cast && mediaDetails.credits.cast.length > 0 && (
             <motion.section
               initial={{ opacity: 0, y: 50 }}
               whileInView={{ opacity: 1, y: 0 }}
@@ -547,12 +782,12 @@ const TMDBMoviePage: React.FC = () => {
                   <Users className="w-8 h-8 text-red-500" />
                   Cast
                 </h2>
-                {movieDetails.credits.cast.length > 8 && (
+                {(mediaDetails?.credits?.cast?.length || 0) > 8 && (
                   <button
                     onClick={() => setShowFullCast(!showFullCast)}
                     className="px-4 py-2 bg-red-600/20 border border-red-500/50 rounded-lg hover:bg-red-600/30 transition-colors"
                   >
-                    {showFullCast ? 'Show Less' : `Show All ${movieDetails.credits.cast.length}`}
+                    {showFullCast ? 'Show Less' : `Show All ${mediaDetails.credits.cast.length}`}
                   </button>
                 )}
               </div>
@@ -670,46 +905,83 @@ const TMDBMoviePage: React.FC = () => {
               <div className="space-y-3">
                 <div>
                   <span className="text-gray-400">Status:</span>
-                  <span className="ml-2 font-semibold">{movieDetails.status}</span>
+                  <span className="ml-2 font-semibold">{mediaDetails?.status}</span>
                 </div>
                 <div>
                   <span className="text-gray-400">Release Date:</span>
-                  <span className="ml-2 font-semibold">{formatDate(movieDetails.release_date)}</span>
+                  <span className="ml-2 font-semibold">{formatDate(mediaDetails?.release_date || '')}</span>
                 </div>
-                <div>
-                  <span className="text-gray-400">Runtime:</span>
-                  <span className="ml-2 font-semibold">{formatRuntime(movieDetails.runtime)}</span>
-                </div>
+                {mediaDetails?.media_type === 'movie' && mediaDetails?.runtime && (
+                  <div>
+                    <span className="text-gray-400">Runtime:</span>
+                    <span className="ml-2 font-semibold">{formatRuntime(mediaDetails.runtime)}</span>
+                  </div>
+                )}
+                {mediaDetails?.media_type === 'tv' && (
+                  <>
+                    <div>
+                      <span className="text-gray-400">Seasons:</span>
+                      <span className="ml-2 font-semibold">{mediaDetails.number_of_seasons}</span>
+                    </div>
+                    <div>
+                      <span className="text-gray-400">Episodes:</span>
+                      <span className="ml-2 font-semibold">{mediaDetails.number_of_episodes}</span>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
 
-            {(movieDetails.budget > 0 || movieDetails.revenue > 0) && (
+            {mediaDetails?.media_type === 'movie' && ((mediaDetails?.budget || 0) > 0 || (mediaDetails?.revenue || 0) > 0) && (
               <div className="bg-gray-800/30 rounded-xl p-6">
                 <h3 className="text-xl font-bold mb-4 flex items-center gap-2">
                   <DollarSign className="w-6 h-6 text-green-400" />
                   Box Office
                 </h3>
                 <div className="space-y-3">
-                  {movieDetails.budget > 0 && (
+                  {(mediaDetails?.budget || 0) > 0 && (
                     <div>
                       <span className="text-gray-400">Budget:</span>
-                      <span className="ml-2 font-semibold">{formatCurrency(movieDetails.budget)}</span>
+                      <span className="ml-2 font-semibold">{formatCurrency(mediaDetails.budget!)}</span>
                     </div>
                   )}
-                  {movieDetails.revenue > 0 && (
+                  {(mediaDetails?.revenue || 0) > 0 && (
                     <div>
                       <span className="text-gray-400">Revenue:</span>
-                      <span className="ml-2 font-semibold">{formatCurrency(movieDetails.revenue)}</span>
+                      <span className="ml-2 font-semibold">{formatCurrency(mediaDetails.revenue!)}</span>
                     </div>
                   )}
-                  {movieDetails.budget > 0 && movieDetails.revenue > 0 && (
+                  {(mediaDetails?.budget || 0) > 0 && (mediaDetails?.revenue || 0) > 0 && (
                     <div>
                       <span className="text-gray-400">Profit:</span>
                       <span className="ml-2 font-semibold text-green-400">
-                        {formatCurrency(movieDetails.revenue - movieDetails.budget)}
+                        {formatCurrency(mediaDetails.revenue! - mediaDetails.budget!)}
                       </span>
                     </div>
                   )}
+                </div>
+              </div>
+            )}
+
+            {mediaDetails?.media_type === 'tv' && mediaDetails?.networks && mediaDetails.networks.length > 0 && (
+              <div className="bg-gray-800/30 rounded-xl p-6">
+                <h3 className="text-xl font-bold mb-4 flex items-center gap-2">
+                  <Film className="w-6 h-6 text-blue-400" />
+                  Networks
+                </h3>
+                <div className="space-y-3">
+                  {mediaDetails.networks.slice(0, 3).map((network) => (
+                    <div key={network.id} className="flex items-center gap-3">
+                      {network.logo_path && (
+                        <img
+                          src={`https://image.tmdb.org/t/p/w92${network.logo_path}`}
+                          alt={network.name}
+                          className="h-8 object-contain"
+                        />
+                      )}
+                      <span className="text-gray-300">{network.name}</span>
+                    </div>
+                  ))}
                 </div>
               </div>
             )}
@@ -720,7 +992,7 @@ const TMDBMoviePage: React.FC = () => {
                 Languages
               </h3>
               <div className="space-y-2">
-                {movieDetails.spoken_languages?.slice(0, 3).map((lang) => (
+                {mediaDetails?.spoken_languages?.slice(0, 3).map((lang) => (
                   <div key={lang.iso_639_1} className="text-gray-300">
                     {lang.name}
                   </div>

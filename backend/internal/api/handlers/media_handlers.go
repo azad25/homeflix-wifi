@@ -1260,85 +1260,7 @@ var (
 	upcomingMoviesCacheTime time.Time
 )
 
-// GetUpcomingMovies returns trending, now-playing, and upcoming movies from TMDB with 24-hour caching
-func GetUpcomingMovies(tmdbService *services.TMDBService) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		// Check if cache is valid (less than 24 hours old)
-		if upcomingMoviesCache != nil && time.Since(upcomingMoviesCacheTime) < 24*time.Hour {
-			log.Printf("📦 Serving upcoming movies from cache (cached %v ago)", time.Since(upcomingMoviesCacheTime))
-			c.JSON(http.StatusOK, upcomingMoviesCache)
-			return
-		}
 
-		log.Printf("🔄 Cache expired or empty, fetching fresh upcoming movies from TMDB...")
-
-		// Fetch fresh data from TMDB
-		upcomingMovies, err := tmdbService.GetUpcomingMovies()
-		if err != nil {
-			log.Printf("❌ Failed to fetch upcoming movies: %v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error": "Failed to fetch upcoming movies",
-				"details": err.Error(),
-			})
-			return
-		}
-
-		// Update cache
-		upcomingMoviesCache = upcomingMovies
-		upcomingMoviesCacheTime = time.Now()
-
-		log.Printf("✅ Successfully fetched and cached upcoming movies")
-		c.JSON(http.StatusOK, upcomingMovies)
-	}
-}
-
-// Cache for individual TMDB movie details (in-memory cache with 6-hour expiration)
-var (
-	tmdbMovieDetailsCache     = make(map[string]*services.TMDBMovieDetailsWithExtras)
-	tmdbMovieDetailsCacheTime = make(map[string]time.Time)
-)
-
-// GetTMDBMovieDetails returns detailed information about a TMDB movie including videos and credits
-func GetTMDBMovieDetails(tmdbService *services.TMDBService) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		movieIDStr := c.Param("id")
-		movieID, err := strconv.Atoi(movieIDStr)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid movie ID"})
-			return
-		}
-
-		// Check if cache is valid (less than 6 hours old)
-		cacheKey := movieIDStr
-		if cachedMovie, exists := tmdbMovieDetailsCache[cacheKey]; exists {
-			if time.Since(tmdbMovieDetailsCacheTime[cacheKey]) < 6*time.Hour {
-				log.Printf("📦 Serving TMDB movie details from cache for ID %d", movieID)
-				c.JSON(http.StatusOK, cachedMovie)
-				return
-			}
-		}
-
-		log.Printf("🔄 Fetching fresh TMDB movie details for ID %d", movieID)
-
-		// Fetch detailed movie information with videos and credits
-		movieDetails, err := tmdbService.GetMovieDetailsWithExtras(movieID)
-		if err != nil {
-			log.Printf("❌ Failed to fetch TMDB movie details for ID %d: %v", movieID, err)
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error": "Failed to fetch movie details",
-				"details": err.Error(),
-			})
-			return
-		}
-
-		// Update cache
-		tmdbMovieDetailsCache[cacheKey] = movieDetails
-		tmdbMovieDetailsCacheTime[cacheKey] = time.Now()
-
-		log.Printf("✅ Successfully fetched and cached TMDB movie details for '%s'", movieDetails.Title)
-		c.JSON(http.StatusOK, movieDetails)
-	}
-}
 
 // SearchTMDB searches TMDB for movies and TV shows
 func SearchTMDB(tmdbService *services.TMDBService) gin.HandlerFunc {
@@ -1439,6 +1361,111 @@ func SearchTMDBSuggestions(tmdbService *services.TMDBService) gin.HandlerFunc {
 		})
 
 		log.Printf("✅ TMDB suggestions completed for query: '%s' (%d results)", query, len(limitedResults))
+	}
+}
+
+// GetTMDBMovieDetails gets detailed information for a TMDB movie or TV series
+func GetTMDBMovieDetails(tmdbService *services.TMDBService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		idStr := c.Param("id")
+		id, err := strconv.Atoi(idStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": "Invalid movie/TV ID",
+			})
+			return
+		}
+
+		// Get media type from query parameter (default to trying both)
+		mediaType := c.Query("type")
+		
+		// If media type is specified, use it directly
+		if mediaType == "movie" {
+			movieDetails, err := tmdbService.GetMovieDetailsWithExtras(id)
+			if err != nil {
+				log.Printf("❌ TMDB movie details failed for ID %d: %v", id, err)
+				c.JSON(http.StatusNotFound, gin.H{
+					"error": "Movie not found",
+					"details": err.Error(),
+				})
+				return
+			}
+			c.JSON(http.StatusOK, gin.H{
+				"media_type": "movie",
+				"data": movieDetails,
+			})
+			log.Printf("✅ TMDB movie details retrieved for ID: %d", id)
+			return
+		}
+		
+		if mediaType == "tv" {
+			tvDetails, err := tmdbService.GetTVDetails(id)
+			if err != nil {
+				log.Printf("❌ TMDB TV details failed for ID %d: %v", id, err)
+				c.JSON(http.StatusNotFound, gin.H{
+					"error": "TV series not found",
+					"details": err.Error(),
+				})
+				return
+			}
+			c.JSON(http.StatusOK, gin.H{
+				"media_type": "tv",
+				"data": tvDetails,
+			})
+			log.Printf("✅ TMDB TV details retrieved for ID: %d", id)
+			return
+		}
+
+		// If no media type specified, try both (fallback for backward compatibility)
+		// First, try to get movie details
+		movieDetails, movieErr := tmdbService.GetMovieDetailsWithExtras(id)
+		if movieErr == nil {
+			// Successfully got movie details
+			c.JSON(http.StatusOK, gin.H{
+				"media_type": "movie",
+				"data": movieDetails,
+			})
+			log.Printf("✅ TMDB movie details retrieved for ID: %d", id)
+			return
+		}
+
+		// If movie failed, try TV series details
+		tvDetails, tvErr := tmdbService.GetTVDetails(id)
+		if tvErr == nil {
+			// Successfully got TV details
+			c.JSON(http.StatusOK, gin.H{
+				"media_type": "tv",
+				"data": tvDetails,
+			})
+			log.Printf("✅ TMDB TV details retrieved for ID: %d", id)
+			return
+		}
+
+		// Both failed
+		log.Printf("❌ TMDB details failed for ID %d - Movie error: %v, TV error: %v", id, movieErr, tvErr)
+		c.JSON(http.StatusNotFound, gin.H{
+			"error": "Movie or TV series not found",
+			"movie_error": movieErr.Error(),
+			"tv_error": tvErr.Error(),
+		})
+	}
+}
+
+// GetUpcomingMovies gets upcoming movies from TMDB
+func GetUpcomingMovies(tmdbService *services.TMDBService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		movies, err := tmdbService.GetUpcomingMovies()
+		if err != nil {
+			log.Printf("❌ Failed to get upcoming movies: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error": "Failed to get upcoming movies",
+				"details": err.Error(),
+			})
+			return
+		}
+
+		c.JSON(http.StatusOK, movies)
+		log.Printf("✅ Retrieved upcoming movies")
 	}
 }
 

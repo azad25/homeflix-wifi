@@ -89,6 +89,47 @@ type TMDBMovieDetails struct {
 	Awards              []string        `json:"awards,omitempty"`
 }
 
+type TMDBTVDetails struct {
+	TMDBTV
+	Tagline             string          `json:"tagline"`
+	NumberOfEpisodes    int             `json:"number_of_episodes"`
+	NumberOfSeasons     int             `json:"number_of_seasons"`
+	EpisodeRunTime      []int           `json:"episode_run_time"`
+	InProduction        bool            `json:"in_production"`
+	LastAirDate         string          `json:"last_air_date"`
+	Status              string          `json:"status"`
+	Type                string          `json:"type"`
+	Genres              []TMDBGenre     `json:"genres"`
+	ProductionCompanies []TMDBCompany   `json:"production_companies"`
+	ProductionCountries []TMDBCountry   `json:"production_countries"`
+	SpokenLanguages     []TMDBLanguage  `json:"spoken_languages"`
+	Credits             TMDBCredits     `json:"credits,omitempty"`
+	Videos              TMDBVideos      `json:"videos,omitempty"`
+	Homepage            string          `json:"homepage"`
+	Networks            []TMDBNetwork   `json:"networks"`
+	Seasons             []TMDBSeason    `json:"seasons"`
+	// Additional fields for enhanced metadata
+	Certification       string          `json:"certification,omitempty"`
+	Awards              []string        `json:"awards,omitempty"`
+}
+
+type TMDBNetwork struct {
+	ID           int    `json:"id"`
+	Name         string `json:"name"`
+	LogoPath     string `json:"logo_path"`
+	OriginCountry string `json:"origin_country"`
+}
+
+type TMDBSeason struct {
+	ID           int    `json:"id"`
+	Name         string `json:"name"`
+	Overview     string `json:"overview"`
+	PosterPath   string `json:"poster_path"`
+	SeasonNumber int    `json:"season_number"`
+	EpisodeCount int    `json:"episode_count"`
+	AirDate      string `json:"air_date"`
+}
+
 type TMDBCollection struct {
 	ID           int    `json:"id"`
 	Name         string `json:"name"`
@@ -313,6 +354,41 @@ func (t *TMDBService) GetMovieDetails(movieID int) (*TMDBMovieDetails, error) {
 	}
 
 	var details TMDBMovieDetails
+	if err := json.NewDecoder(resp.Body).Decode(&details); err != nil {
+		return nil, err
+	}
+
+	return &details, nil
+}
+
+func (t *TMDBService) GetTVDetails(tvID int) (*TMDBTVDetails, error) {
+	if t.apiKey == "" {
+		return nil, fmt.Errorf("TMDB API key not configured")
+	}
+
+	detailsURL := fmt.Sprintf("%s/tv/%d", t.baseURL, tvID)
+	params := url.Values{}
+	params.Add("append_to_response", "credits,videos")
+
+	req, err := http.NewRequest("GET", detailsURL+"?"+params.Encode(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Authorization", "Bearer "+t.apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := t.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("TMDB API error: %d", resp.StatusCode)
+	}
+
+	var details TMDBTVDetails
 	if err := json.NewDecoder(resp.Body).Decode(&details); err != nil {
 		return nil, err
 	}
@@ -1824,6 +1900,34 @@ type TMDBMultiSearchResponse struct {
 	TotalResults int                `json:"total_results"`
 }
 
+// TMDBRawSearchResult represents the raw response from TMDB API before normalization
+type TMDBRawSearchResult struct {
+	ID               int     `json:"id"`
+	Title            string  `json:"title,omitempty"`            // Movies only
+	Name             string  `json:"name,omitempty"`             // TV shows only
+	OriginalTitle    string  `json:"original_title,omitempty"`   // Movies only
+	OriginalName     string  `json:"original_name,omitempty"`    // TV shows only
+	Overview         string  `json:"overview"`
+	ReleaseDate      string  `json:"release_date,omitempty"`     // Movies only
+	FirstAirDate     string  `json:"first_air_date,omitempty"`   // TV shows only
+	PosterPath       string  `json:"poster_path"`
+	BackdropPath     string  `json:"backdrop_path"`
+	VoteAverage      float64 `json:"vote_average"`
+	VoteCount        int     `json:"vote_count"`
+	Popularity       float64 `json:"popularity"`
+	MediaType        string  `json:"media_type"`
+	Adult            bool    `json:"adult"`
+	GenreIDs         []int   `json:"genre_ids"`
+}
+
+// TMDBRawMultiSearchResponse represents the raw response from TMDB's multi search endpoint
+type TMDBRawMultiSearchResponse struct {
+	Page         int                     `json:"page"`
+	Results      []TMDBRawSearchResult   `json:"results"`
+	TotalPages   int                     `json:"total_pages"`
+	TotalResults int                     `json:"total_results"`
+}
+
 // SearchMulti searches for both movies and TV shows using TMDB's multi search endpoint
 func (t *TMDBService) SearchMulti(query string, page int) (*TMDBMultiSearchResponse, error) {
 	if t.apiKey == "" {
@@ -1862,64 +1966,60 @@ func (t *TMDBService) SearchMulti(query string, page int) (*TMDBMultiSearchRespo
 		return nil, fmt.Errorf("TMDB API error: %d", resp.StatusCode)
 	}
 
-	var searchResp TMDBMultiSearchResponse
-	if err := json.NewDecoder(resp.Body).Decode(&searchResp); err != nil {
+	var rawResp TMDBRawMultiSearchResponse
+	if err := json.NewDecoder(resp.Body).Decode(&rawResp); err != nil {
 		return nil, err
 	}
 
-	// Process results to normalize the data structure
-	for i := range searchResp.Results {
-		result := &searchResp.Results[i]
-		
-		// Handle different response structures for movies vs TV shows
-		var rawResult map[string]interface{}
-		
-		// Re-decode to get the raw data for processing
-		respBytes, _ := json.Marshal(result)
-		json.Unmarshal(respBytes, &rawResult)
-		
-		if mediaType, exists := rawResult["media_type"].(string); exists {
-			result.MediaType = mediaType
-			
-			if mediaType == "tv" {
-				// For TV shows, use 'name' as title and 'first_air_date' as release_date
-				if name, exists := rawResult["name"].(string); exists {
-					result.Title = name
-				}
-				if originalName, exists := rawResult["original_name"].(string); exists {
-					result.OriginalTitle = originalName
-				}
-				if firstAirDate, exists := rawResult["first_air_date"].(string); exists {
-					result.ReleaseDate = firstAirDate
-				}
-			} else if mediaType == "movie" {
-				// For movies, the structure is already correct
-				if title, exists := rawResult["title"].(string); exists {
-					result.Title = title
-				}
-				if originalTitle, exists := rawResult["original_title"].(string); exists {
-					result.OriginalTitle = originalTitle
-				}
-				if releaseDate, exists := rawResult["release_date"].(string); exists {
-					result.ReleaseDate = releaseDate
-				}
-			}
+	// Convert raw results to normalized results
+	var normalizedResults []TMDBSearchResult
+	for _, rawResult := range rawResp.Results {
+		// Skip person results (we only want movies and TV shows)
+		if rawResult.MediaType != "movie" && rawResult.MediaType != "tv" {
+			continue
 		}
+
+		normalized := TMDBSearchResult{
+			ID:           rawResult.ID,
+			Overview:     rawResult.Overview,
+			PosterPath:   rawResult.PosterPath,
+			BackdropPath: rawResult.BackdropPath,
+			VoteAverage:  rawResult.VoteAverage,
+			VoteCount:    rawResult.VoteCount,
+			Popularity:   rawResult.Popularity,
+			MediaType:    rawResult.MediaType,
+			Adult:        rawResult.Adult,
+			GenreIDs:     rawResult.GenreIDs,
+		}
+
+		// Normalize fields based on media type
+		if rawResult.MediaType == "tv" {
+			// For TV shows, use 'name' as title and 'first_air_date' as release_date
+			normalized.Title = rawResult.Name
+			normalized.OriginalTitle = rawResult.OriginalName
+			normalized.ReleaseDate = rawResult.FirstAirDate
+		} else if rawResult.MediaType == "movie" {
+			// For movies, use the movie-specific fields
+			normalized.Title = rawResult.Title
+			normalized.OriginalTitle = rawResult.OriginalTitle
+			normalized.ReleaseDate = rawResult.ReleaseDate
+		}
+
+		normalizedResults = append(normalizedResults, normalized)
 	}
 
-	// Filter out person results (we only want movies and TV shows)
-	var filteredResults []TMDBSearchResult
-	for _, result := range searchResp.Results {
-		if result.MediaType == "movie" || result.MediaType == "tv" {
-			filteredResults = append(filteredResults, result)
-		}
+	// Create the final response
+	searchResp := &TMDBMultiSearchResponse{
+		Page:         rawResp.Page,
+		Results:      normalizedResults,
+		TotalPages:   rawResp.TotalPages,
+		TotalResults: len(normalizedResults), // Use filtered count
 	}
-	searchResp.Results = filteredResults
 
 	log.Printf("🔍 TMDB Multi Search for '%s': Found %d results (%d movies/TV shows)", 
-		query, len(searchResp.Results), len(filteredResults))
+		query, len(normalizedResults), len(normalizedResults))
 
-	return &searchResp, nil
+	return searchResp, nil
 }
 
 // SearchMoviesOnly searches only for movies
