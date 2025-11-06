@@ -1,10 +1,13 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
-import { RotateCcw } from 'lucide-react';
+import { RotateCcw, Play, Info, Clock, Star } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { Media } from '@/types/media';
 import { getApiUrl } from '@/lib/api';
-import NetflixCard from './NetflixCard';
+import { cleanMovieTitle } from '@/lib/titleUtils';
+import { useNavigate } from '@/hooks/useNavigate';
+import ImageWithFallback from '@/components/ImageWithFallback';
 
 interface ContinueWatchingItem {
   id: number;
@@ -23,6 +26,230 @@ interface ContinueWatchingProps {
   onPlay: (media: Media, startTime?: number) => void;
   onInfo: (media: Media) => void;
 }
+
+interface ContinueWatchingCardProps {
+  item: ContinueWatchingItem;
+  onPlay: (media: Media, startTime?: number) => void;
+  onInfo: (media: Media) => void;
+  index: number;
+}
+
+const ContinueWatchingCard: React.FC<ContinueWatchingCardProps> = ({
+  item,
+  onPlay,
+  onInfo,
+  index
+}) => {
+  const navigate = useNavigate();
+  const [isHovered, setIsHovered] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+
+  const handlePlayClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setIsLoading(true);
+    setTimeout(() => {
+      onPlay(item.media, item.position);
+      setIsLoading(false);
+    }, 300);
+  };
+
+  const handleInfoClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (item.media.type === 'episode' || item.media.type === 'tv' || item.media.type === 'series') {
+      const seriesId = item.media.series_id || item.media.id;
+      navigate.push(`/tv-series/${seriesId}`);
+    } else {
+      navigate.push(`/movie/${item.media.id}`);
+    }
+  };
+
+  const handleCardClick = () => {
+    if (item.media.type === 'episode' || item.media.type === 'tv' || item.media.type === 'series') {
+      const seriesId = item.media.series_id || item.media.id;
+      navigate.push(`/tv-series/${seriesId}`);
+    } else {
+      navigate.push(`/movie/${item.media.id}`);
+    }
+  };
+
+  const formatDuration = (seconds: number) => {
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
+  };
+
+  const getYear = () => {
+    if (item.media.year) {
+      return item.media.year;
+    } else if (item.media.release_date) {
+      return new Date(item.media.release_date).getFullYear().toString();
+    }
+
+    if (item.media.file_path) {
+      const yearMatch = item.media.file_path.match(/\b(19|20)\d{2}\b/);
+      if (yearMatch) return yearMatch[0];
+    }
+
+    if (item.media.title) {
+      const yearMatch = item.media.title.match(/\b(19|20)\d{2}\b/);
+      if (yearMatch) return yearMatch[0];
+    }
+
+    return null;
+  };
+
+  const getQualityBadge = () => {
+    const qualityText = item.media.quality ?
+      (item.media.quality.includes('2160') || item.media.quality.toLowerCase().includes('4k') ? '4K' : 'HD')
+      : "HD";
+    return { text: qualityText, color: 'bg-blue-600' };
+  };
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.5, delay: index * 0.1 }}
+      className="relative group cursor-pointer flex-none w-72 md:w-80"
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+      onClick={handleCardClick}
+      style={{ zIndex: isHovered ? 50 : 1 }}
+    >
+      <motion.div
+        className="relative bg-gray-900 rounded-xl overflow-hidden shadow-xl"
+        animate={{
+          scale: isHovered ? 1.05 : 1,
+          y: isHovered ? -8 : 0,
+        }}
+        transition={{ duration: 0.3, ease: "easeOut" }}
+        style={{
+          transformOrigin: 'center center',
+          zIndex: isHovered ? 50 : 1,
+        }}
+      >
+        {/* Main Image Container */}
+        <div className="relative h-48 md:h-52 overflow-hidden">
+          <ImageWithFallback
+            mediaId={item.media.id}
+            alt={cleanMovieTitle(item.media.title)}
+            fill
+            sizes="(max-width: 768px) 50vw, 33vw"
+            className="object-cover transition-transform duration-300 group-hover:scale-105"
+            loading={index < 3 ? "eager" : "lazy"}
+            priority={index < 3}
+          />
+
+          {/* Quality Badge */}
+          <div className="absolute top-3 right-3 z-10">
+            <span className={`${getQualityBadge().color} text-white text-xs px-2 py-1 rounded-md font-bold shadow-lg`}>
+              {getQualityBadge().text}
+            </span>
+          </div>
+
+          {/* Next Episode Badge */}
+          {item.progress === 0 && item.media.type === 'episode' && (
+            <div className="absolute top-3 left-3 bg-green-600 text-white text-xs px-2 py-1 rounded-full font-semibold shadow-lg">
+              NEXT
+            </div>
+          )}
+
+          {/* Gradient Overlay */}
+          <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent" />
+
+          {/* Play Button Overlay */}
+          <AnimatePresence>
+            {isHovered && (
+              <motion.div
+                initial={{ opacity: 0, scale: 0.8 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.8 }}
+                className="absolute inset-0 flex items-center justify-center z-20 bg-black/30"
+              >
+                <button
+                  onClick={handlePlayClick}
+                  disabled={isLoading}
+                  className="bg-white/90 backdrop-blur-sm rounded-full p-4 hover:bg-white transition-all duration-200 shadow-xl"
+                >
+                  {isLoading ? (
+                    <div className="w-6 h-6 border-2 border-black border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <Play className="w-6 h-6 text-black fill-black" />
+                  )}
+                </button>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Progress Bar */}
+          <div className="absolute bottom-0 left-0 right-0 h-1 bg-black/50">
+            <motion.div
+              className="bg-red-600 h-full"
+              initial={{ width: 0 }}
+              animate={{ width: `${Math.min(Math.max(item.progress, 0), 100)}%` }}
+              transition={{ duration: 0.8, delay: index * 0.1 }}
+            />
+          </div>
+
+          {/* Content Overlay */}
+          <div className="absolute bottom-0 left-0 right-0 p-4 z-10">
+            {/* Title */}
+            <h3 className="text-white font-bold text-base line-clamp-2 mb-2 drop-shadow-lg">
+              {cleanMovieTitle(item.media.title)}
+            </h3>
+
+            {/* Progress Text */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-gray-300 text-sm">
+                <Clock className="w-4 h-4" />
+                <span>
+                  {item.progress === 0 && item.media.type === 'episode' ?
+                    'Next Episode' :
+                    `${Math.round(item.progress)}% watched`
+                  }
+                </span>
+              </div>
+              
+              {getYear() && (
+                <span className="text-gray-300 text-sm font-medium">
+                  {getYear()}
+                </span>
+              )}
+            </div>
+
+            {/* Rating */}
+            {item.media.rating && (
+              <div className="flex items-center gap-1 mt-2">
+                <Star className="w-3 h-3 text-yellow-400 fill-current" />
+                <span className="text-white text-sm font-medium">{item.media.rating.toFixed(1)}</span>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Action Buttons - Show on Hover */}
+        <AnimatePresence>
+          {isHovered && (
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 10 }}
+              className="absolute bottom-4 right-4 flex gap-2 z-30"
+            >
+              <button
+                onClick={handleInfoClick}
+                className="bg-gray-800/90 backdrop-blur-sm text-white p-2 rounded-full hover:bg-gray-700/90 transition-colors shadow-lg"
+                title="More Info"
+              >
+                <Info className="w-4 h-4" />
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </motion.div>
+    </motion.div>
+  );
+};
 
 export const ContinueWatching: React.FC<ContinueWatchingProps> = ({
   onPlay,
@@ -271,14 +498,20 @@ export const ContinueWatching: React.FC<ContinueWatchingProps> = ({
             Continue Watching
           </h2>
         </div>
-        <div className="flex gap-2 overflow-x-auto pb-4 px-4 md:px-0" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+        <div className="flex gap-4 overflow-x-auto pb-4 px-4 md:px-0" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
           <style jsx>{`
             div::-webkit-scrollbar {
               display: none;
             }
           `}</style>
           {[...Array(3)].map((_, i) => (
-            <div key={i} className="flex-none w-64 md:w-80 h-48 bg-gray-800/30 rounded-lg animate-pulse backdrop-blur-sm border border-gray-700/30" />
+            <motion.div
+              key={i}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5, delay: i * 0.1 }}
+              className="flex-none w-72 md:w-80 h-52 bg-gray-800/30 rounded-xl animate-pulse backdrop-blur-sm border border-gray-700/30"
+            />
           ))}
         </div>
       </div>
@@ -335,38 +568,13 @@ export const ContinueWatching: React.FC<ContinueWatchingProps> = ({
             }
           `}</style>
           {continueItems.map((item, index) => (
-            <div key={item.id} className="flex-none w-64 md:w-80 relative">
-              <div className="relative">
-                <NetflixCard
-                  media={item.media}
-                  onPlay={(media) => onPlay(media, item.position)}
-                  onInfo={onInfo}
-                  priority={index < 3}
-                  delay={index * 100}
-                />
-
-                {/* Next Episode Badge */}
-                {item.progress === 0 && item.media.type === 'episode' && (
-                  <div className="absolute top-2 left-2 bg-green-600 text-white text-xs px-2 py-1 rounded-full font-semibold">
-                    NEXT
-                  </div>
-                )}
-              </div>
-              {/* Progress indicator */}
-              <div className="absolute bottom-2 left-2 right-2 bg-black/50 rounded-full h-1">
-                <div
-                  className="bg-red-600 h-full rounded-full transition-all duration-300"
-                  style={{ width: `${Math.min(Math.max(item.progress, 0), 100)}%` }}
-                />
-              </div>
-              {/* Progress text or Next Episode indicator */}
-              <div className="absolute bottom-4 right-2 bg-black/70 text-white text-xs px-2 py-1 rounded">
-                {item.progress === 0 && item.media.type === 'episode' ?
-                  'Next Episode' :
-                  `${Math.round(item.progress)}%`
-                }
-              </div>
-            </div>
+            <ContinueWatchingCard
+              key={item.id}
+              item={item}
+              onPlay={onPlay}
+              onInfo={onInfo}
+              index={index}
+            />
           ))}
         </div>
       </div>

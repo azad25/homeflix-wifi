@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
+import { usePageTitle } from '@/hooks/usePageTitle';
 import { Settings, Database, Upload, Trash2, Video, ImageIcon, Folder, File, Play, Info, Edit3, RefreshCw, Save, X, Star, Clock, Globe, Eye, Zap, Search, Server, Activity, HardDrive, Monitor, BarChart3, TrendingUp, FileSearch, Timer } from 'lucide-react';
 import Image from 'next/image';
 import Navbar from '@/components/Navbar';
@@ -22,6 +23,7 @@ interface EditableMedia extends Media {
 }
 
 export default function SettingsPage() {
+  usePageTitle('Settings');
   const [activeTab, setActiveTab] = useState('media');
   const [mediaList, setMediaList] = useState<Media[]>([]);
   const [seriesList, setSeriesList] = useState<any[]>([]);

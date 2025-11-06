@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
+import { usePageTitle } from '@/hooks/usePageTitle';
 import { motion } from 'framer-motion';
 import { Media } from '@/types/media';
 import { ScrollXHero } from '@/components/scrollx';
@@ -15,6 +16,7 @@ import { useRouter } from 'next/navigation';
 import { useNavigate } from '@/hooks/useNavigate';
 
 const NewPopularPage: React.FC = () => {
+  usePageTitle('New & Popular');
   const router = useRouter();
   const navigate = useNavigate();
   const [featuredMedia, setFeaturedMedia] = useState<Media[]>([]);

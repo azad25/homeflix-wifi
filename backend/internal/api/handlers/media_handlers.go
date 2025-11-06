@@ -1469,3 +1469,202 @@ func GetUpcomingMovies(tmdbService *services.TMDBService) gin.HandlerFunc {
 	}
 }
 
+// GetRelatedMedia gets related movies or TV shows from TMDB
+func GetRelatedMedia(tmdbService *services.TMDBService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		idStr := c.Param("id")
+		id, err := strconv.Atoi(idStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": "Invalid media ID",
+			})
+			return
+		}
+
+		// Get media type from query parameter (required)
+		mediaType := c.Query("type")
+		if mediaType == "" {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": "Media type is required (movie or tv)",
+			})
+			return
+		}
+
+		if mediaType != "movie" && mediaType != "tv" {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": "Media type must be 'movie' or 'tv'",
+			})
+			return
+		}
+
+		// Get limit from query parameter (default to 20)
+		limit := 20
+		if limitStr := c.Query("limit"); limitStr != "" {
+			if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= 50 {
+				limit = l
+			}
+		}
+
+		log.Printf("🔍 TMDB Related Media: ID=%d, type=%s, limit=%d", id, mediaType, limit)
+
+		relatedMedia, err := tmdbService.GetRelatedMedia(id, mediaType, limit)
+		if err != nil {
+			log.Printf("❌ TMDB related media failed for ID %d (%s): %v", id, mediaType, err)
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error": "Failed to get related media",
+				"details": err.Error(),
+			})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"results": relatedMedia,
+			"total_results": len(relatedMedia),
+			"media_type": mediaType,
+			"media_id": id,
+		})
+
+		log.Printf("✅ TMDB related media retrieved: %d items for %s ID %d", len(relatedMedia), mediaType, id)
+	}
+}
+
+// GetSimilarMovies gets similar movies from TMDB
+func GetSimilarMovies(tmdbService *services.TMDBService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		idStr := c.Param("id")
+		id, err := strconv.Atoi(idStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": "Invalid movie ID",
+			})
+			return
+		}
+
+		// Get page parameter (default to 1)
+		page := 1
+		if pageStr := c.Query("page"); pageStr != "" {
+			if p, err := strconv.Atoi(pageStr); err == nil && p > 0 {
+				page = p
+			}
+		}
+
+		similar, err := tmdbService.GetSimilarMovies(id, page)
+		if err != nil {
+			log.Printf("❌ TMDB similar movies failed for ID %d: %v", id, err)
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error": "Failed to get similar movies",
+				"details": err.Error(),
+			})
+			return
+		}
+
+		c.JSON(http.StatusOK, similar)
+		log.Printf("✅ TMDB similar movies retrieved for ID: %d", id)
+	}
+}
+
+// GetRecommendedMovies gets recommended movies from TMDB
+func GetRecommendedMovies(tmdbService *services.TMDBService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		idStr := c.Param("id")
+		id, err := strconv.Atoi(idStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": "Invalid movie ID",
+			})
+			return
+		}
+
+		// Get page parameter (default to 1)
+		page := 1
+		if pageStr := c.Query("page"); pageStr != "" {
+			if p, err := strconv.Atoi(pageStr); err == nil && p > 0 {
+				page = p
+			}
+		}
+
+		recommended, err := tmdbService.GetRecommendedMovies(id, page)
+		if err != nil {
+			log.Printf("❌ TMDB recommended movies failed for ID %d: %v", id, err)
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error": "Failed to get recommended movies",
+				"details": err.Error(),
+			})
+			return
+		}
+
+		c.JSON(http.StatusOK, recommended)
+		log.Printf("✅ TMDB recommended movies retrieved for ID: %d", id)
+	}
+}
+
+// GetSimilarTVShows gets similar TV shows from TMDB
+func GetSimilarTVShows(tmdbService *services.TMDBService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		idStr := c.Param("id")
+		id, err := strconv.Atoi(idStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": "Invalid TV show ID",
+			})
+			return
+		}
+
+		// Get page parameter (default to 1)
+		page := 1
+		if pageStr := c.Query("page"); pageStr != "" {
+			if p, err := strconv.Atoi(pageStr); err == nil && p > 0 {
+				page = p
+			}
+		}
+
+		similar, err := tmdbService.GetSimilarTVShows(id, page)
+		if err != nil {
+			log.Printf("❌ TMDB similar TV shows failed for ID %d: %v", id, err)
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error": "Failed to get similar TV shows",
+				"details": err.Error(),
+			})
+			return
+		}
+
+		c.JSON(http.StatusOK, similar)
+		log.Printf("✅ TMDB similar TV shows retrieved for ID: %d", id)
+	}
+}
+
+// GetRecommendedTVShows gets recommended TV shows from TMDB
+func GetRecommendedTVShows(tmdbService *services.TMDBService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		idStr := c.Param("id")
+		id, err := strconv.Atoi(idStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": "Invalid TV show ID",
+			})
+			return
+		}
+
+		// Get page parameter (default to 1)
+		page := 1
+		if pageStr := c.Query("page"); pageStr != "" {
+			if p, err := strconv.Atoi(pageStr); err == nil && p > 0 {
+				page = p
+			}
+		}
+
+		recommended, err := tmdbService.GetRecommendedTVShows(id, page)
+		if err != nil {
+			log.Printf("❌ TMDB recommended TV shows failed for ID %d: %v", id, err)
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error": "Failed to get recommended TV shows",
+				"details": err.Error(),
+			})
+			return
+		}
+
+		c.JSON(http.StatusOK, recommended)
+		log.Printf("✅ TMDB recommended TV shows retrieved for ID: %d", id)
+	}
+}
+

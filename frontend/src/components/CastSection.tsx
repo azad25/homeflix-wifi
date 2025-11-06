@@ -128,7 +128,7 @@ const CastSection: React.FC<CastSectionProps> = ({
             <div className="space-y-3">
               {directors.map((director, index) => {
                 // Find matching crew member with image
-                const crewMember = castData.crew.find(c => 
+                const crewMember = castData?.crew?.find(c => 
                   c.name.toLowerCase() === director.toLowerCase() && 
                   c.job === 'Director'
                 );
@@ -153,7 +153,7 @@ const CastSection: React.FC<CastSectionProps> = ({
             <div className="space-y-3">
               {stars.slice(0, 6).map((actor, index) => {
                 // Find matching cast member with image
-                const castMember = castData.cast.find(c => 
+                const castMember = castData?.cast?.find(c => 
                   c.name.toLowerCase() === actor.toLowerCase()
                 );
                 
@@ -183,7 +183,7 @@ const CastSection: React.FC<CastSectionProps> = ({
                   {showMoreInfo && (
                     <div className="mt-3 space-y-3">
                       {stars.slice(6).map((actor, index) => {
-                        const castMember = castData.cast.find(c => 
+                        const castMember = castData?.cast?.find(c => 
                           c.name.toLowerCase() === actor.toLowerCase()
                         );
                         

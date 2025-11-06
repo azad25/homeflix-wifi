@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import { usePageTitle } from '@/hooks/usePageTitle';
 import { Play, Info, Star } from "lucide-react";
 import { useNavigate } from '@/hooks/useNavigate';
 import Navbar from "@/components/Navbar";
@@ -37,6 +38,7 @@ interface Season {
 }
 
 export default function TVShowsPage() {
+  usePageTitle('TV Shows');
   const navigate = useNavigate();
   const [featuredSeries, setFeaturedSeries] = useState<Series[]>([]);
   const [seriesList, setSeriesList] = useState<Series[]>([]);

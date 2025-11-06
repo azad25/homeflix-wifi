@@ -8,7 +8,10 @@ import NavigationLoader from "@/components/NavigationLoader";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "HomeFlix",
+  title: {
+    template: "%s | HomeFlix",
+    default: "HomeFlix - Your Personal Streaming Platform"
+  },
   description: "Your personal Netflix-style streaming platform",
   icons: {
     icon: [

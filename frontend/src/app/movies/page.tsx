@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import { usePageTitle } from '@/hooks/usePageTitle';
 import { Play, Info, Film } from 'lucide-react';
 import { useNavigate } from '@/hooks/useNavigate';
 import Navbar from "@/components/Navbar";
@@ -12,6 +13,7 @@ import { ScrollXHero, EnhancedHorizontalRow, ParallaxSection, GradientBackground
 import RecentlyWatched from '@/components/RecentlyWatched';
 
 export default function MoviesPage() {
+  usePageTitle('Movies');
   const navigate = useNavigate();
   const [featuredMovies, setFeaturedMovies] = useState<Media[]>([]);
   const [actionMovies, setActionMovies] = useState<Media[]>([]);

@@ -1227,12 +1227,8 @@ func (s *MediaScanner) EnsureCompleteSyncOnStartup() error {
 		return fmt.Errorf("startup sync validation failed: %v", err)
 	}
 	
-	// CRITICAL: Ensure all media have posters downloaded from TMDB on startup
-	progress.UpdateOperation("🎨 Checking and downloading missing posters from TMDB...")
-	if err := s.ensureAllPostersOnStartup(progress); err != nil {
-		log.Printf("⚠️ Warning: Poster download process had issues: %v", err)
-		// Don't fail startup for poster issues, just log warning
-	}
+	// Poster checking disabled for faster startup - file watcher will handle new media posters
+	progress.LogWithProgress("ℹ️ Poster checking disabled for faster startup - file watcher will handle new media posters")
 	
 	log.Printf("✅ Startup media sync validation completed successfully")
 	return nil
@@ -2314,7 +2310,7 @@ func (s *MediaScanner) processVideoFile(path string, info os.FileInfo) error {
 	}
 
 	// Check for existing assets using title-based naming with error handling
-	var thumbnailExists, previewExists, posterExists bool
+	var thumbnailExists, previewExists bool
 
 	func() {
 		defer func() {
@@ -2325,11 +2321,11 @@ func (s *MediaScanner) processVideoFile(path string, info os.FileInfo) error {
 
 		thumbnailExists = s.GetThumbnailService().ThumbnailExists(media.ID, media.Title)
 		previewExists = s.GetThumbnailService().PreviewExists(media.ID, media.Title)
-		posterExists = s.GetPosterService() != nil && s.GetPosterService().GetPosterPath(media.ID, media.Title) != ""
+		// Poster checking disabled for faster scanning
 	}()
 
 	// Determine asset generation needs based on flags
-	var needsThumbnail, needsPreview, needsPoster bool
+	var needsThumbnail, needsPreview bool
 	isNewMedia := media.ID == 0 // Check if this is a new media item
 
 	// CRITICAL FIX: Prevent duplicate asset generation for same media in short time window
@@ -2350,29 +2346,24 @@ func (s *MediaScanner) processVideoFile(path string, info os.FileInfo) error {
 	}
 
 	if needsAssetRegeneration && !recentlyProcessed {
-		// Force regeneration of all assets
+		// Force regeneration of thumbnails and previews only
 		needsThumbnail = true
 		needsPreview = true
-		// Only download posters for new media items, not existing ones
-		needsPoster = s.GetPosterService() != nil && isNewMedia
-		log.Printf("🔄 Forcing asset regeneration for: %s (poster download: %v)", media.Title, needsPoster)
+		log.Printf("🔄 Forcing asset regeneration for: %s (poster download disabled)", media.Title)
 	} else if recentlyProcessed {
 		// Skip asset generation if recently processed
 		needsThumbnail = false
 		needsPreview = false
-		needsPoster = false
 		log.Printf("⏭️ Skipping asset generation for %s - recently processed", media.Title)
 	} else {
-		// Generate assets only if missing
+		// Generate assets only if missing (posters disabled)
 		needsThumbnail = media.ThumbnailPath == "" && !thumbnailExists
 		needsPreview = (media.PreviewPath == "" || media.PreviewClipPath == "") && !previewExists
-		// Only download posters for new media items, not existing ones
-		needsPoster = media.PosterPath == "" && !posterExists && isNewMedia
 	}
 
 	// Debug logging for asset generation
-	log.Printf("🔍 Asset check for %s (ID: %d, isNew: %v): needsThumbnail=%v, needsPreview=%v (PreviewPath='%s', PreviewClipPath='%s'), needsPoster=%v",
-		media.Title, media.ID, isNewMedia, needsThumbnail, needsPreview, media.PreviewPath, media.PreviewClipPath, needsPoster)
+	log.Printf("🔍 Asset check for %s (ID: %d, isNew: %v): needsThumbnail=%v, needsPreview=%v (PreviewPath='%s', PreviewClipPath='%s'), poster download disabled",
+		media.Title, media.ID, isNewMedia, needsThumbnail, needsPreview, media.PreviewPath, media.PreviewClipPath)
 
 	// Generate assets using batch-aware resource management with fallbacks (non-blocking)
 	if needsThumbnail || needsPreview {
@@ -2400,42 +2391,8 @@ func (s *MediaScanner) processVideoFile(path string, info os.FileInfo) error {
 		}
 	}
 
-	if needsPoster && s.GetPosterService() != nil {
-		// Check resource limits before spawning goroutine
-		if s.canSpawnGoroutine() {
-			// Use goroutine for poster download to prevent blocking with throttling
-			go func() {
-				s.incrementGoroutines()
-				defer func() {
-					s.decrementGoroutines()
-					if r := recover(); r != nil {
-						log.Printf("🚨 Recovered from panic in poster download for %s: %v", media.Title, r)
-					}
-				}()
-
-				// Add delay to throttle poster downloads and prevent API rate limiting
-				if s.isSystemOverloaded() {
-					time.Sleep(8 * time.Second) // Longer delay if system is overloaded
-				} else {
-					time.Sleep(3 * time.Second)
-				}
-
-				posterPath, err := s.GetPosterService().DownloadPosterWithPath(media.Title, media.ID)
-				if err != nil {
-					log.Printf("Failed to download poster for %s: %v", media.Title, err)
-				} else if posterPath != "" {
-					media.PosterPath = posterPath
-					if updateErr := s.GetMediaService().UpdateMedia(media); updateErr != nil {
-						log.Printf("⚠️ Failed to update media with poster path: %v", updateErr)
-					} else {
-						log.Printf("✅ Updated media %s with poster: %s", media.Title, posterPath)
-					}
-				}
-			}()
-		} else {
-			log.Printf("⚠️ Skipping poster download for %s - resource limit reached", media.Title)
-		}
-	}
+	// Poster download disabled for faster scanning - file watcher will handle new media posters
+	log.Printf("ℹ️ Poster download disabled for %s", media.Title)
 
 	// Auto-extract optimized LOUD ALAC audio if service available (only for individual files)
 	// ALAC extraction is disabled during batch operations to prevent system overload
@@ -2445,6 +2402,58 @@ func (s *MediaScanner) processVideoFile(path string, info os.FileInfo) error {
 	}
 
 	log.Printf("Successfully processed media: %s (Type: %s, Size: %d bytes)", media.Title, media.Type, media.FileSize)
+	return nil
+}
+
+// processVideoFileWithPosterDownload processes a video file and downloads poster for new media
+func (s *MediaScanner) processVideoFileWithPosterDownload(path string, info os.FileInfo, isNewMedia bool) error {
+	// First process the video file normally
+	err := s.processVideoFile(path, info)
+	if err != nil {
+		return err
+	}
+	
+	// If this is new media and poster service is available, download poster
+	if isNewMedia && s.GetPosterService() != nil {
+		log.Printf("🎨 New media detected by file watcher, downloading poster for: %s", filepath.Base(path))
+		
+		// Get the media from database to get the ID and title
+		media, err := s.GetMediaService().GetMediaByPath(path)
+		if err != nil {
+			log.Printf("⚠️ Failed to get media from database for poster download: %v", err)
+			return nil // Don't fail the entire process for poster issues
+		}
+		
+		if media != nil {
+			// Download poster in a separate goroutine to avoid blocking
+			go func() {
+				defer func() {
+					if r := recover(); r != nil {
+						log.Printf("🚨 Recovered from panic in poster download for %s: %v", media.Title, r)
+					}
+				}()
+				
+				// Add a small delay to ensure the media is fully processed
+				time.Sleep(2 * time.Second)
+				
+				posterPath, err := s.GetPosterService().DownloadPosterWithPath(media.Title, media.ID)
+				if err != nil {
+					log.Printf("❌ Failed to download poster for new media %s: %v", media.Title, err)
+				} else if posterPath != "" {
+					// Update media with poster path
+					media.PosterPath = posterPath
+					if updateErr := s.GetMediaService().UpdateMedia(media); updateErr != nil {
+						log.Printf("⚠️ Failed to update media with poster path: %v", updateErr)
+					} else {
+						log.Printf("✅ Downloaded and saved poster for new media: %s", media.Title)
+					}
+				} else {
+					log.Printf("ℹ️ No poster found for new media: %s", media.Title)
+				}
+			}()
+		}
+	}
+	
 	return nil
 }
 
@@ -4563,12 +4572,34 @@ func (s *MediaScanner) needsMetadataUpdate(media *models.Media) bool {
 }
 
 // ProcessSingleFile processes a single media file (used by file watcher)
+// This method includes poster download for new media files
 func (s *MediaScanner) ProcessSingleFile(path string, info os.FileInfo) error {
-	log.Printf("🔍 Processing single file: %s", path)
+	log.Printf("🎬 File watcher processing single file: %s", filepath.Base(path))
 
 	// Check if it's a video file
 	if s.isVideoFile(path) {
-		return s.processVideoFileOptimized(path, info)
+		// Check if this media already exists in database
+		existingMedia, err := s.GetMediaService().GetMediaByPath(path)
+		if err != nil {
+			log.Printf("⚠️ Error checking existing media for %s: %v", path, err)
+		}
+		
+		isNewMedia := existingMedia == nil
+		
+		// Process the video file with poster download for new media
+		err = s.processVideoFileWithPosterDownload(path, info, isNewMedia)
+		if err != nil {
+			log.Printf("❌ Failed to process video file %s: %v", path, err)
+			return err
+		}
+		
+		if isNewMedia {
+			log.Printf("✅ Successfully processed new media file with poster download: %s", filepath.Base(path))
+		} else {
+			log.Printf("✅ Successfully updated existing media file: %s", filepath.Base(path))
+		}
+		
+		return nil
 	}
 
 	// Check if it's a subtitle file

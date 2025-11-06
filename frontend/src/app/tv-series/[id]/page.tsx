@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { usePageTitle } from '@/hooks/usePageTitle';
 import { ArrowLeft, Play, Plus, Check, Share, Download, Info, Star, Clock, Calendar, Globe, Users, Award, Film, Tv, User, Mic, ChevronDown, ChevronUp, Volume2, VolumeX, PlayCircle } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Media } from '@/types/media';
@@ -49,6 +50,9 @@ export default function TVSeriesPage() {
   const router = useRouter();
   const navigate = useNavigate();
   const [series, setSeries] = useState<Media | null>(null);
+  
+  // Update page title when series is loaded
+  usePageTitle(series?.title || 'TV Series');
   const [seasons, setSeasons] = useState<Season[]>([]);
   const [episodes, setEpisodes] = useState<Media[]>([]);
   const [selectedSeason, setSelectedSeason] = useState<number>(1);

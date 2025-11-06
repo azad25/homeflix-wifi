@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import { usePageTitle } from '@/hooks/usePageTitle';
 import { Search, Filter, X } from 'lucide-react';
 import Navbar from "../../components/Navbar";
 import RedLoader from "../../components/RedLoader";
@@ -43,6 +44,7 @@ interface SearchFilters {
 }
 
 export default function SearchPage() {
+  usePageTitle('Search');
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<TMDBSearchResult[]>([]);

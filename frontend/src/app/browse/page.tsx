@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from "react";
+import { usePageTitle } from '@/hooks/usePageTitle';
 import { Film, Search, X, Grid, List } from "lucide-react";
 import { useNavigate } from '@/hooks/useNavigate';
 import { Media } from "../../types/media";
@@ -23,6 +24,7 @@ interface Genre {
 }
 
 export default function BrowsePage() {
+  usePageTitle('Browse Collection');
   const navigate = useNavigate();
   const [allMedia, setAllMedia] = useState<Media[]>([]);
   const [filteredMedia, setFilteredMedia] = useState<Media[]>([]);
@@ -539,13 +541,13 @@ export default function BrowsePage() {
               )}
             </div>
 
-            {/* Recently Watched */}
+            {/* Recently Watched
             <div className="mb-6">
               <RecentlyWatched
                 onPlay={handlePlay}
                 onInfo={handleInfo}
               />
-            </div>
+            </div> */}
 
             {/* Content Grid - Responsive grid */}
             <div className="pb-20">

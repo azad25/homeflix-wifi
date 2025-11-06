@@ -1,11 +1,13 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
-import { Play, Clock, MoreHorizontal } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { Play, Clock, MoreHorizontal, Info, Star, RotateCcw } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { Media } from '@/types/media';
 import { getApiUrl } from '@/lib/api';
-import { ScrollXCarousel, GlassCard, MagneticButton } from '@/components/scrollx';
+import { cleanMovieTitle } from '@/lib/titleUtils';
+import { useNavigate } from '@/hooks/useNavigate';
+import ImageWithFallback from '@/components/ImageWithFallback';
 
 interface RecentlyWatchedItem {
   id: number;
@@ -22,6 +24,254 @@ interface RecentlyWatchedProps {
   onInfo: (media: Media) => void;
 }
 
+interface RecentlyWatchedCardProps {
+  item: RecentlyWatchedItem;
+  onPlay: (media: Media, startTime?: number) => void;
+  onInfo: (media: Media) => void;
+  index: number;
+}
+
+const RecentlyWatchedCard: React.FC<RecentlyWatchedCardProps> = ({
+  item,
+  onPlay,
+  onInfo,
+  index
+}) => {
+  const navigate = useNavigate();
+  const [isHovered, setIsHovered] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+
+  const handlePlayClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setIsLoading(true);
+    setTimeout(() => {
+      onPlay(item.media, item.progress_seconds);
+      setIsLoading(false);
+    }, 300);
+  };
+
+  const handleInfoClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (item.media.type === 'episode' || item.media.type === 'tv' || item.media.type === 'series') {
+      const seriesId = item.media.series_id || item.media.id;
+      navigate.push(`/tv-series/${seriesId}`);
+    } else {
+      navigate.push(`/movie/${item.media.id}`);
+    }
+  };
+
+  const handleCardClick = () => {
+    if (item.media.type === 'episode' || item.media.type === 'tv' || item.media.type === 'series') {
+      const seriesId = item.media.series_id || item.media.id;
+      navigate.push(`/tv-series/${seriesId}`);
+    } else {
+      navigate.push(`/movie/${item.media.id}`);
+    }
+  };
+
+  const formatProgress = (progressSeconds: number, durationSeconds: number) => {
+    const progressPercent = (progressSeconds / durationSeconds) * 100;
+    return Math.min(Math.max(progressPercent, 0), 100);
+  };
+
+  const formatTime = (seconds: number) => {
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+    
+    if (hours > 0) {
+      return `${hours}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    }
+    return `${minutes}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  const formatLastWatched = (dateString: string) => {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+    const diffDays = Math.floor(diffHours / 24);
+
+    if (diffHours < 1) return 'Just now';
+    if (diffHours < 24) return `${diffHours}h ago`;
+    if (diffDays < 7) return `${diffDays}d ago`;
+    return date.toLocaleDateString();
+  };
+
+  const getYear = () => {
+    if (item.media.year) {
+      return item.media.year;
+    } else if (item.media.release_date) {
+      return new Date(item.media.release_date).getFullYear().toString();
+    }
+
+    if (item.media.file_path) {
+      const yearMatch = item.media.file_path.match(/\b(19|20)\d{2}\b/);
+      if (yearMatch) return yearMatch[0];
+    }
+
+    if (item.media.title) {
+      const yearMatch = item.media.title.match(/\b(19|20)\d{2}\b/);
+      if (yearMatch) return yearMatch[0];
+    }
+
+    return null;
+  };
+
+  const getQualityBadge = () => {
+    const qualityText = item.media.quality ?
+      (item.media.quality.includes('2160') || item.media.quality.toLowerCase().includes('4k') ? '4K' : 'HD')
+      : "HD";
+    return { text: qualityText, color: 'bg-blue-600' };
+  };
+
+  const progressPercent = formatProgress(item.progress_seconds, item.duration_seconds);
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.5, delay: index * 0.1 }}
+      className="relative group cursor-pointer flex-none w-80 md:w-96"
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+      onClick={handleCardClick}
+      style={{ zIndex: isHovered ? 50 : 1 }}
+    >
+      <motion.div
+        className="relative bg-gray-900 rounded-xl overflow-hidden shadow-xl"
+        animate={{
+          scale: isHovered ? 1.03 : 1,
+          y: isHovered ? -8 : 0,
+        }}
+        transition={{ duration: 0.3, ease: "easeOut" }}
+        style={{
+          transformOrigin: 'center center',
+          zIndex: isHovered ? 50 : 1,
+        }}
+      >
+        {/* Main Image Container */}
+        <div className="relative aspect-video overflow-hidden">
+          <ImageWithFallback
+            mediaId={item.media.id}
+            alt={cleanMovieTitle(item.media.title)}
+            fill
+            sizes="(max-width: 768px) 50vw, 33vw"
+            className="object-cover transition-transform duration-300 group-hover:scale-105"
+            loading={index < 3 ? "eager" : "lazy"}
+            priority={index < 3}
+          />
+
+          {/* Quality Badge */}
+          <div className="absolute top-3 right-3 z-10">
+            <span className={`${getQualityBadge().color} text-white text-xs px-2 py-1 rounded-md font-bold shadow-lg`}>
+              {getQualityBadge().text}
+            </span>
+          </div>
+
+          {/* Time Remaining Badge */}
+          <div className="absolute top-3 left-3 bg-black/70 backdrop-blur-sm text-white text-xs px-2 py-1 rounded-md shadow-lg">
+            {formatTime(item.duration_seconds - item.progress_seconds)} left
+          </div>
+
+          {/* Gradient Overlay */}
+          <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent" />
+
+          {/* Play Button Overlay */}
+          <AnimatePresence>
+            {isHovered && (
+              <motion.div
+                initial={{ opacity: 0, scale: 0.8 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.8 }}
+                className="absolute inset-0 flex items-center justify-center z-20 bg-black/30"
+              >
+                <button
+                  onClick={handlePlayClick}
+                  disabled={isLoading}
+                  className="bg-white/90 backdrop-blur-sm rounded-full p-4 hover:bg-white transition-all duration-200 shadow-xl"
+                >
+                  {isLoading ? (
+                    <div className="w-6 h-6 border-2 border-black border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <Play className="w-6 h-6 text-black fill-black" />
+                  )}
+                </button>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Progress Bar */}
+          <div className="absolute bottom-0 left-0 right-0 h-1 bg-black/50">
+            <motion.div
+              className="bg-red-600 h-full"
+              initial={{ width: 0 }}
+              animate={{ width: `${progressPercent}%` }}
+              transition={{ duration: 0.8, delay: index * 0.1 }}
+            />
+          </div>
+
+          {/* Content Overlay */}
+          <div className="absolute bottom-0 left-0 right-0 p-4 z-10">
+            {/* Title */}
+            <h3 className="text-white font-bold text-lg line-clamp-2 mb-2 drop-shadow-lg">
+              {cleanMovieTitle(item.media.title)}
+            </h3>
+
+            {/* Progress and Time Info */}
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2 text-gray-300 text-sm">
+                <Clock className="w-4 h-4" />
+                <span>{formatLastWatched(item.last_watched_at)}</span>
+              </div>
+              
+              <span className="text-green-400 text-sm font-medium">
+                {Math.round(progressPercent)}% watched
+              </span>
+            </div>
+
+            {/* Year and Rating */}
+            <div className="flex items-center justify-between">
+              {getYear() && (
+                <span className="text-gray-300 text-sm font-medium">
+                  {getYear()}
+                </span>
+              )}
+              
+              {item.media.rating && (
+                <div className="flex items-center gap-1">
+                  <Star className="w-3 h-3 text-yellow-400 fill-current" />
+                  <span className="text-white text-sm font-medium">{item.media.rating.toFixed(1)}</span>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Action Buttons - Show on Hover */}
+        <AnimatePresence>
+          {isHovered && (
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 10 }}
+              className="absolute bottom-4 right-4 flex gap-2 z-30"
+            >
+              <button
+                onClick={handleInfoClick}
+                className="bg-gray-800/90 backdrop-blur-sm text-white p-2 rounded-full hover:bg-gray-700/90 transition-colors shadow-lg"
+                title="More Info"
+              >
+                <Info className="w-4 h-4" />
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </motion.div>
+    </motion.div>
+  );
+};
+
 export const RecentlyWatched: React.FC<RecentlyWatchedProps> = ({
   onPlay,
   onInfo
@@ -33,8 +283,12 @@ export const RecentlyWatched: React.FC<RecentlyWatchedProps> = ({
     fetchRecentlyWatched();
   }, []);
 
+  const [error, setError] = useState<string | null>(null);
+
   const fetchRecentlyWatched = async () => {
     try {
+      setLoading(true);
+      setError(null);
       const apiUrl = getApiUrl();
       const response = await fetch(`${apiUrl}/api/playback/recently-watched`, {
         headers: {
@@ -44,10 +298,27 @@ export const RecentlyWatched: React.FC<RecentlyWatchedProps> = ({
       
       if (response.ok) {
         const data = await response.json();
-        setRecentItems(data || []);
+        // Filter out invalid items and sort by last watched
+        const validItems = (data || [])
+          .filter((item: RecentlyWatchedItem) => {
+            return item.media && item.media.id && item.media.title;
+          })
+          .sort((a: RecentlyWatchedItem, b: RecentlyWatchedItem) => {
+            return new Date(b.last_watched_at).getTime() - new Date(a.last_watched_at).getTime();
+          })
+          .slice(0, 10); // Limit to 10 items
+
+        setRecentItems(validItems);
+        console.log(`✅ Loaded ${validItems.length} recently watched items`);
+      } else if (response.status === 404) {
+        setRecentItems([]);
+        console.log('📝 No recently watched data found');
+      } else {
+        throw new Error(`Failed to fetch recently watched items: ${response.status}`);
       }
     } catch (error) {
       console.error('Failed to fetch recently watched:', error);
+      setError('Failed to load recently watched items');
     } finally {
       setLoading(false);
     }
@@ -84,14 +355,50 @@ export const RecentlyWatched: React.FC<RecentlyWatchedProps> = ({
 
   if (loading) {
     return (
-      <div className="mb-16">
-        <h2 className="text-2xl md:text-3xl font-bold text-white mb-6 px-4 md:px-12">
-          Continue Watching
-        </h2>
-        <div className="flex gap-4 px-4 md:px-12">
-          {[...Array(5)].map((_, i) => (
-            <div key={i} className="w-80 h-48 bg-gray-800 rounded-lg animate-pulse" />
+      <div className="mb-12">
+        <div className="flex items-center justify-between mb-6 px-4 md:px-0">
+          <h2 className="text-white text-xl font-semibold">
+            Recently Watched
+          </h2>
+        </div>
+        <div className="flex gap-4 overflow-x-auto pb-4 px-4 md:px-0" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+          <style jsx>{`
+            div::-webkit-scrollbar {
+              display: none;
+            }
+          `}</style>
+          {[...Array(3)].map((_, i) => (
+            <motion.div
+              key={i}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5, delay: i * 0.1 }}
+              className="flex-none w-80 md:w-96 aspect-video bg-gray-800/30 rounded-xl animate-pulse backdrop-blur-sm border border-gray-700/30"
+            />
           ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="mb-12">
+        <div className="flex items-center justify-between mb-6 px-4 md:px-0">
+          <h2 className="text-white text-xl font-semibold">
+            Recently Watched
+          </h2>
+        </div>
+        <div className="px-4 md:px-0">
+          <div className="bg-red-900/20 border border-red-500/30 rounded-lg p-6 text-center">
+            <p className="text-red-400 mb-4">{error}</p>
+            <button
+              onClick={fetchRecentlyWatched}
+              className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg transition-colors"
+            >
+              Try Again
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -102,161 +409,42 @@ export const RecentlyWatched: React.FC<RecentlyWatchedProps> = ({
   }
 
   return (
-    <div className="mb-16">
-      <h2 className="text-2xl md:text-3xl font-bold text-white mb-6 px-4 md:px-12 bg-gradient-to-r from-white to-gray-300 bg-clip-text text-transparent">
-        Continue Watching
-      </h2>
-      
-      <div className="flex gap-4 overflow-x-auto scrollbar-hide px-4 md:px-12 pb-4">
-        {recentItems.map((item, index) => (
-          <motion.div
-            key={item.id}
-            initial={{ opacity: 0, x: 50 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ delay: index * 0.1 }}
-            className="flex-shrink-0 w-80"
-          >
+    <div className="mb-12">
+      <div className="flex items-center justify-between mb-6 px-4 md:px-0">
+        <h2 className="text-white text-xl font-semibold">
+          Recently Watched
+        </h2>
+        <button
+          onClick={fetchRecentlyWatched}
+          className="text-gray-400 hover:text-white transition-colors p-2 rounded-lg hover:bg-white/10"
+          title="Refresh"
+        >
+          <RotateCcw className="w-5 h-5" />
+        </button>
+      </div>
+
+      <div className="relative">
+        <div className="flex gap-4 overflow-x-auto pb-4 px-4 md:px-0" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+          <style jsx>{`
+            div::-webkit-scrollbar {
+              display: none;
+            }
+          `}</style>
+          {recentItems.map((item, index) => (
             <RecentlyWatchedCard
+              key={item.id}
               item={item}
               onPlay={onPlay}
               onInfo={onInfo}
-              formatProgress={formatProgress}
-              formatTime={formatTime}
-              formatLastWatched={formatLastWatched}
+              index={index}
             />
-          </motion.div>
-        ))}
+          ))}
+        </div>
       </div>
     </div>
   );
 };
 
-interface RecentlyWatchedCardProps {
-  item: RecentlyWatchedItem;
-  onPlay: (media: Media, startTime?: number) => void;
-  onInfo: (media: Media) => void;
-  formatProgress: (progress: number, duration: number) => number;
-  formatTime: (seconds: number) => string;
-  formatLastWatched: (dateString: string) => string;
-}
 
-const RecentlyWatchedCard: React.FC<RecentlyWatchedCardProps> = ({
-  item,
-  onPlay,
-  onInfo,
-  formatProgress,
-  formatTime,
-  formatLastWatched
-}) => {
-  const [isHovered, setIsHovered] = useState(false);
-  const [imageError, setImageError] = useState(false);
-
-  const getThumbnailUrl = () => {
-    const apiUrl = getApiUrl();
-    // Always prioritize thumbnails first for consistent display
-    return `${apiUrl}/api/thumbnails/${item.media.id}`;
-  };
-
-  const progressPercent = formatProgress(item.progress_seconds, item.duration_seconds);
-
-  return (
-    <motion.div
-      className="relative group cursor-pointer"
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
-      whileHover={{ scale: 1.02, y: -5 }}
-      transition={{ duration: 0.3, ease: "easeOut" }}
-    >
-      <GlassCard className="overflow-hidden bg-white/10 backdrop-blur-md border border-white/20">
-        {/* Thumbnail */}
-        <div className="relative aspect-video overflow-hidden">
-          {!imageError ? (
-            <motion.img
-              src={getThumbnailUrl()}
-              alt={item.media.title}
-              className="w-full h-full object-cover"
-              onError={() => setImageError(true)}
-              whileHover={{ scale: 1.05 }}
-              transition={{ duration: 0.3 }}
-            />
-          ) : (
-            <div className="w-full h-full bg-gradient-to-br from-gray-700 via-gray-800 to-gray-900 flex items-center justify-center">
-              <div className="text-white text-center">
-                <div className="text-3xl mb-2">🎬</div>
-                <div className="text-sm font-medium">{item.media.title}</div>
-              </div>
-            </div>
-          )}
-
-          {/* Progress Bar */}
-          <div className="absolute bottom-0 left-0 right-0 h-1 bg-black/50">
-            <motion.div
-              className="h-full bg-red-600"
-              initial={{ width: 0 }}
-              animate={{ width: `${progressPercent}%` }}
-              transition={{ duration: 0.5, ease: "easeOut" }}
-            />
-          </div>
-
-          {/* Hover Overlay */}
-          <motion.div
-            className="absolute inset-0 bg-black/40 flex items-center justify-center"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: isHovered ? 1 : 0 }}
-            transition={{ duration: 0.2 }}
-          >
-            <MagneticButton
-              onClick={() => onPlay(item.media, item.progress_seconds)}
-              className="bg-white/20 backdrop-blur-sm text-white p-4 rounded-full hover:bg-white/30 transition-all duration-200"
-            >
-              <Play className="w-6 h-6 fill-current" />
-            </MagneticButton>
-          </motion.div>
-
-          {/* Time Remaining Badge */}
-          <div className="absolute top-2 right-2 bg-black/70 backdrop-blur-sm text-white text-xs px-2 py-1 rounded">
-            {formatTime(item.duration_seconds - item.progress_seconds)} left
-          </div>
-        </div>
-
-        {/* Content */}
-        <div className="p-4">
-          <h3 className="text-white font-bold text-lg mb-2 line-clamp-1">
-            {item.media.title}
-          </h3>
-          
-          <div className="flex items-center justify-between text-sm text-gray-300 mb-3">
-            <div className="flex items-center gap-2">
-              <Clock className="w-4 h-4" />
-              <span>{formatLastWatched(item.last_watched_at)}</span>
-            </div>
-            <span className="text-green-400">
-              {Math.round(progressPercent)}% watched
-            </span>
-          </div>
-
-          {/* Action Buttons */}
-          <div className="flex gap-2">
-            <MagneticButton
-              onClick={() => onPlay(item.media, item.progress_seconds)}
-              className="flex-1 bg-white text-black px-4 py-2 rounded-lg font-bold hover:bg-gray-200 transition-colors duration-200 text-sm"
-            >
-              Resume
-            </MagneticButton>
-            <MagneticButton
-              onClick={() => onInfo(item.media)}
-              className="bg-gray-700/80 backdrop-blur-sm text-white px-4 py-2 rounded-lg hover:bg-gray-600 transition-colors duration-200 text-sm"
-            >
-              Info
-            </MagneticButton>
-            <MagneticButton className="bg-gray-700/80 backdrop-blur-sm text-white px-3 py-2 rounded-lg hover:bg-gray-600 transition-colors duration-200">
-              <MoreHorizontal className="w-4 h-4" />
-            </MagneticButton>
-          </div>
-        </div>
-      </GlassCard>
-    </motion.div>
-  );
-};
 
 export default RecentlyWatched;

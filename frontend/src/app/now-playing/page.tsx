@@ -1,11 +1,13 @@
 "use client";
 
 import React from "react";
+import { usePageTitle } from '@/hooks/usePageTitle';
 import { motion } from "framer-motion";
 import SimpleTVChannel from "@/components/SimpleTVChannel";
 import ErrorBoundary from "@/components/ErrorBoundary";
 
 export default function NowPlayingPage() {
+  usePageTitle('Now Playing');
   return (
     <ErrorBoundary>
       <div className="h-screen bg-black overflow-hidden">

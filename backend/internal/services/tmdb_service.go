@@ -2116,6 +2116,336 @@ func (t *TMDBService) SearchTVOnly(query string, page int) (*TMDBTVSearchRespons
 	return &searchResp, nil
 }
 
+// TMDBRelatedResponse represents the response for similar/recommended content
+type TMDBRelatedResponse struct {
+	Page         int         `json:"page"`
+	Results      []TMDBMovie `json:"results"`
+	TotalPages   int         `json:"total_pages"`
+	TotalResults int         `json:"total_results"`
+}
+
+// TMDBTVRelatedResponse represents the response for similar/recommended TV content
+type TMDBTVRelatedResponse struct {
+	Page         int       `json:"page"`
+	Results      []TMDBTV  `json:"results"`
+	TotalPages   int       `json:"total_pages"`
+	TotalResults int       `json:"total_results"`
+}
+
+// GetSimilarMovies fetches movies similar to the given movie ID
+func (t *TMDBService) GetSimilarMovies(movieID int, page int) (*TMDBRelatedResponse, error) {
+	if t.apiKey == "" {
+		return nil, fmt.Errorf("TMDB API key not configured")
+	}
+
+	if page < 1 {
+		page = 1
+	}
+
+	requestURL := fmt.Sprintf("%s/movie/%d/similar", t.baseURL, movieID)
+	params := url.Values{}
+	params.Add("page", strconv.Itoa(page))
+	params.Add("language", "en-US")
+
+	req, err := http.NewRequest("GET", requestURL+"?"+params.Encode(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Authorization", "Bearer "+t.apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := t.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("TMDB API error: %d", resp.StatusCode)
+	}
+
+	var relatedResp TMDBRelatedResponse
+	if err := json.NewDecoder(resp.Body).Decode(&relatedResp); err != nil {
+		return nil, err
+	}
+
+	log.Printf("✅ TMDB: Found %d similar movies for movie ID %d", len(relatedResp.Results), movieID)
+	return &relatedResp, nil
+}
+
+// GetRecommendedMovies fetches movies recommended based on the given movie ID
+func (t *TMDBService) GetRecommendedMovies(movieID int, page int) (*TMDBRelatedResponse, error) {
+	if t.apiKey == "" {
+		return nil, fmt.Errorf("TMDB API key not configured")
+	}
+
+	if page < 1 {
+		page = 1
+	}
+
+	requestURL := fmt.Sprintf("%s/movie/%d/recommendations", t.baseURL, movieID)
+	params := url.Values{}
+	params.Add("page", strconv.Itoa(page))
+	params.Add("language", "en-US")
+
+	req, err := http.NewRequest("GET", requestURL+"?"+params.Encode(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Authorization", "Bearer "+t.apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := t.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("TMDB API error: %d", resp.StatusCode)
+	}
+
+	var relatedResp TMDBRelatedResponse
+	if err := json.NewDecoder(resp.Body).Decode(&relatedResp); err != nil {
+		return nil, err
+	}
+
+	log.Printf("✅ TMDB: Found %d recommended movies for movie ID %d", len(relatedResp.Results), movieID)
+	return &relatedResp, nil
+}
+
+// GetSimilarTVShows fetches TV shows similar to the given TV show ID
+func (t *TMDBService) GetSimilarTVShows(tvID int, page int) (*TMDBTVRelatedResponse, error) {
+	if t.apiKey == "" {
+		return nil, fmt.Errorf("TMDB API key not configured")
+	}
+
+	if page < 1 {
+		page = 1
+	}
+
+	requestURL := fmt.Sprintf("%s/tv/%d/similar", t.baseURL, tvID)
+	params := url.Values{}
+	params.Add("page", strconv.Itoa(page))
+	params.Add("language", "en-US")
+
+	req, err := http.NewRequest("GET", requestURL+"?"+params.Encode(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Authorization", "Bearer "+t.apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := t.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("TMDB API error: %d", resp.StatusCode)
+	}
+
+	var relatedResp TMDBTVRelatedResponse
+	if err := json.NewDecoder(resp.Body).Decode(&relatedResp); err != nil {
+		return nil, err
+	}
+
+	log.Printf("✅ TMDB: Found %d similar TV shows for TV ID %d", len(relatedResp.Results), tvID)
+	return &relatedResp, nil
+}
+
+// GetRecommendedTVShows fetches TV shows recommended based on the given TV show ID
+func (t *TMDBService) GetRecommendedTVShows(tvID int, page int) (*TMDBTVRelatedResponse, error) {
+	if t.apiKey == "" {
+		return nil, fmt.Errorf("TMDB API key not configured")
+	}
+
+	if page < 1 {
+		page = 1
+	}
+
+	requestURL := fmt.Sprintf("%s/tv/%d/recommendations", t.baseURL, tvID)
+	params := url.Values{}
+	params.Add("page", strconv.Itoa(page))
+	params.Add("language", "en-US")
+
+	req, err := http.NewRequest("GET", requestURL+"?"+params.Encode(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Authorization", "Bearer "+t.apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := t.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("TMDB API error: %d", resp.StatusCode)
+	}
+
+	var relatedResp TMDBTVRelatedResponse
+	if err := json.NewDecoder(resp.Body).Decode(&relatedResp); err != nil {
+		return nil, err
+	}
+
+	log.Printf("✅ TMDB: Found %d recommended TV shows for TV ID %d", len(relatedResp.Results), tvID)
+	return &relatedResp, nil
+}
+
+// GetRelatedMedia fetches both similar and recommended content for movies or TV shows
+func (t *TMDBService) GetRelatedMedia(mediaID int, mediaType string, limit int) ([]TMDBSearchResult, error) {
+	if t.apiKey == "" {
+		return nil, fmt.Errorf("TMDB API key not configured")
+	}
+
+	if limit <= 0 {
+		limit = 20
+	}
+
+	var allResults []TMDBSearchResult
+	
+	if mediaType == "movie" {
+		// Get similar movies
+		similar, err := t.GetSimilarMovies(mediaID, 1)
+		if err == nil && similar != nil {
+			for _, movie := range similar.Results {
+				if len(allResults) >= limit {
+					break
+				}
+				result := TMDBSearchResult{
+					ID:           movie.ID,
+					Title:        movie.Title,
+					OriginalTitle: movie.OriginalTitle,
+					Overview:     movie.Overview,
+					ReleaseDate:  movie.ReleaseDate,
+					PosterPath:   movie.PosterPath,
+					BackdropPath: movie.BackdropPath,
+					VoteAverage:  movie.VoteAverage,
+					VoteCount:    movie.VoteCount,
+					Popularity:   movie.Popularity,
+					MediaType:    "movie",
+					Adult:        movie.Adult,
+					GenreIDs:     movie.GenreIDs,
+				}
+				allResults = append(allResults, result)
+			}
+		}
+
+		// Get recommended movies if we need more
+		if len(allResults) < limit {
+			recommended, err := t.GetRecommendedMovies(mediaID, 1)
+			if err == nil && recommended != nil {
+				for _, movie := range recommended.Results {
+					if len(allResults) >= limit {
+						break
+					}
+					// Check if already exists
+					exists := false
+					for _, existing := range allResults {
+						if existing.ID == movie.ID {
+							exists = true
+							break
+						}
+					}
+					if !exists {
+						result := TMDBSearchResult{
+							ID:           movie.ID,
+							Title:        movie.Title,
+							OriginalTitle: movie.OriginalTitle,
+							Overview:     movie.Overview,
+							ReleaseDate:  movie.ReleaseDate,
+							PosterPath:   movie.PosterPath,
+							BackdropPath: movie.BackdropPath,
+							VoteAverage:  movie.VoteAverage,
+							VoteCount:    movie.VoteCount,
+							Popularity:   movie.Popularity,
+							MediaType:    "movie",
+							Adult:        movie.Adult,
+							GenreIDs:     movie.GenreIDs,
+						}
+						allResults = append(allResults, result)
+					}
+				}
+			}
+		}
+	} else if mediaType == "tv" {
+		// Get similar TV shows
+		similar, err := t.GetSimilarTVShows(mediaID, 1)
+		if err == nil && similar != nil {
+			for _, tv := range similar.Results {
+				if len(allResults) >= limit {
+					break
+				}
+				result := TMDBSearchResult{
+					ID:           tv.ID,
+					Title:        tv.Name,
+					OriginalTitle: tv.OriginalName,
+					Overview:     tv.Overview,
+					ReleaseDate:  tv.FirstAirDate,
+					PosterPath:   tv.PosterPath,
+					BackdropPath: tv.BackdropPath,
+					VoteAverage:  tv.VoteAverage,
+					VoteCount:    tv.VoteCount,
+					Popularity:   tv.Popularity,
+					MediaType:    "tv",
+					Adult:        tv.Adult,
+					GenreIDs:     tv.GenreIDs,
+				}
+				allResults = append(allResults, result)
+			}
+		}
+
+		// Get recommended TV shows if we need more
+		if len(allResults) < limit {
+			recommended, err := t.GetRecommendedTVShows(mediaID, 1)
+			if err == nil && recommended != nil {
+				for _, tv := range recommended.Results {
+					if len(allResults) >= limit {
+						break
+					}
+					// Check if already exists
+					exists := false
+					for _, existing := range allResults {
+						if existing.ID == tv.ID {
+							exists = true
+							break
+						}
+					}
+					if !exists {
+						result := TMDBSearchResult{
+							ID:           tv.ID,
+							Title:        tv.Name,
+							OriginalTitle: tv.OriginalName,
+							Overview:     tv.Overview,
+							ReleaseDate:  tv.FirstAirDate,
+							PosterPath:   tv.PosterPath,
+							BackdropPath: tv.BackdropPath,
+							VoteAverage:  tv.VoteAverage,
+							VoteCount:    tv.VoteCount,
+							Popularity:   tv.Popularity,
+							MediaType:    "tv",
+							Adult:        tv.Adult,
+							GenreIDs:     tv.GenreIDs,
+						}
+						allResults = append(allResults, result)
+					}
+				}
+			}
+		}
+	}
+
+	log.Printf("✅ TMDB: Found %d related %s items for ID %d", len(allResults), mediaType, mediaID)
+	return allResults, nil
+}
+
 // contains checks if a slice contains a string
 func contains(slice []string, item string) bool {
 	for _, s := range slice {

@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import { usePageTitle } from '@/hooks/usePageTitle';
 import { Play, Info, Trash2, Heart, Film, Tv } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
@@ -18,6 +19,7 @@ import { useNavigate } from "@/hooks/useNavigate";
 
 
 export default function MyListPage() {
+  usePageTitle('My List');
   const router = useRouter();
   const navigate = useNavigate()
   const [watchlist, setWatchlist] = useState<Media[]>([]);

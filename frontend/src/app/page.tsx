@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import { usePageTitle } from '@/hooks/usePageTitle';
 import { Film, Tv, Star, Clock } from "lucide-react";
 import { useNavigate } from '@/hooks/useNavigate';
 import Navbar from "@/components/Navbar";
@@ -14,6 +15,7 @@ import ContinueWatching from '@/components/ContinueWatching';
 import UpcomingMovies from '@/components/UpcomingMovies';
 
 export default function Home() {
+  usePageTitle('Home');
   const navigate = useNavigate();
   const [featuredMedia, setFeaturedMedia] = useState<Media[]>([]);
   const [recentMovies, setRecentMovies] = useState<Media[]>([]);

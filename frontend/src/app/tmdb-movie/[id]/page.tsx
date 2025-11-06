@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
+import { usePageTitle } from '@/hooks/usePageTitle';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   ArrowLeft,
@@ -21,12 +22,165 @@ import {
   ExternalLink,
   Plus,
   Check,
-  Share2} from 'lucide-react';
+  Share2
+} from 'lucide-react';
 import { getApiUrl } from '@/lib/api';
 import { addToWishlist, removeFromWishlist, isInWishlist } from '@/lib/wishlist';
 import Navbar from '@/components/Navbar';
 import RedLoader from '@/components/RedLoader';
 import UpcomingMovies from '@/components/UpcomingMovies';
+
+// Related Media Component
+interface RelatedMediaProps {
+  mediaId: number;
+  mediaType: 'movie' | 'tv';
+  className?: string;
+}
+
+interface RelatedMediaItem {
+  id: number;
+  title: string;
+  original_title: string;
+  overview: string;
+  release_date: string;
+  poster_path: string;
+  backdrop_path: string;
+  vote_average: number;
+  vote_count: number;
+  popularity: number;
+  media_type: 'movie' | 'tv';
+  adult: boolean;
+  genre_ids: number[];
+}
+
+const RelatedMedia: React.FC<RelatedMediaProps> = ({ mediaId, mediaType, className = '' }) => {
+  const [relatedMedia, setRelatedMedia] = useState<RelatedMediaItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const router = useRouter();
+
+  useEffect(() => {
+    if (mediaId && mediaType) {
+      fetchRelatedMedia();
+    }
+  }, [mediaId, mediaType]);
+
+  const fetchRelatedMedia = async () => {
+    try {
+      setLoading(true);
+      const apiUrl = getApiUrl();
+      const response = await fetch(`${apiUrl}/api/tmdb/${mediaId}/related?type=${mediaType}&limit=12`);
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      setRelatedMedia(data.results || []);
+      setError(null);
+    } catch (err) {
+      console.error('Error fetching related media:', err);
+      setError('Failed to load related content');
+      setRelatedMedia([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const getPosterUrl = (posterPath: string, size: string = 'w300') => {
+    if (!posterPath) return '/placeholder-poster.jpg';
+    return `https://image.tmdb.org/t/p/${size}${posterPath}`;
+  };
+
+  const handleMediaClick = (media: RelatedMediaItem) => {
+    router.push(`/tmdb-movie/${media.id}?type=${media.media_type}`);
+  };
+
+  if (loading) {
+    return (
+      <div className={`${className}`}>
+        <div className="max-w-7xl mx-auto">
+          <h2 className="text-2xl font-bold text-white mb-6">
+            Related {mediaType === 'movie' ? 'Movies' : 'TV Shows'}
+          </h2>
+          <div className="flex items-center justify-center py-12">
+            <RedLoader />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (error || relatedMedia.length === 0) {
+    return null; // Don't show section if no related content
+  }
+
+  return (
+    <div className={`${className}`}>
+      <div className="max-w-7xl mx-auto">
+        <h2 className="text-2xl font-bold text-white mb-6 flex items-center gap-2">
+          <Film className="w-6 h-6 text-red-500" />
+          Related {mediaType === 'movie' ? 'Movies' : 'TV Shows'}
+        </h2>
+
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+          {relatedMedia.map((media) => (
+            <motion.div
+              key={media.id}
+              className="group cursor-pointer"
+              whileHover={{ scale: 1.05 }}
+              transition={{ duration: 0.2 }}
+              onClick={() => handleMediaClick(media)}
+            >
+              <div className="relative aspect-[2/3] rounded-lg overflow-hidden bg-gray-800 shadow-lg">
+                <img
+                  src={getPosterUrl(media.poster_path)}
+                  alt={media.title}
+                  className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
+                  onError={(e) => {
+                    const target = e.target as HTMLImageElement;
+                    target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjQ1MCIgdmlld0JveD0iMCAwIDMwMCA0NTAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIzMDAiIGhlaWdodD0iNDUwIiBmaWxsPSIjMzc0MTUxIi8+CjxwYXRoIGQ9Ik0xNTAgMjAwQzE4Ny4yNzkgMjAwIDIxOCAxNjkuMjc5IDIxOCAxMzJDMjE4IDk0LjcyMDggMTg3LjI3OSA2NCAxNTAgNjRDMTEyLjcyMSA2NCA4MiA5NC43MjA4IDgyIDEzMkM4MiAxNjkuMjc5IDExMi43MjEgMjAwIDE1MCAyMDBaIiBmaWxsPSIjNkI3Mjg4Ii8+CjxwYXRoIGQ9Ik04MiAyNzZDODIgMjM4LjY4IDExMi42OCAyMDggMTUwIDIwOEgxNTBDMTg3LjMyIDIwOCAyMTggMjM4LjY4IDIxOCAyNzZWMzUwSDgyVjI3NloiIGZpbGw9IiM2QjcyODgiLz4KPHN2Zz4K';
+                  }}
+                />
+
+                {/* Overlay with rating */}
+                <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+
+                {media.vote_average > 0 && (
+                  <div className="absolute top-2 right-2 bg-black/70 backdrop-blur-sm rounded-full px-2 py-1 flex items-center gap-1">
+                    <Star className="w-3 h-3 text-yellow-400 fill-current" />
+                    <span className="text-xs font-semibold text-white">
+                      {media.vote_average.toFixed(1)}
+                    </span>
+                  </div>
+                )}
+
+                {/* Play button overlay */}
+                <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                  <div className="bg-red-600/90 backdrop-blur-sm rounded-full p-3">
+                    <Play className="w-6 h-6 text-white fill-current" />
+                  </div>
+                </div>
+              </div>
+
+              {/* Title */}
+              <div className="mt-2 px-1">
+                <h3 className="text-sm font-medium text-white line-clamp-2 group-hover:text-red-400 transition-colors">
+                  {media.title}
+                </h3>
+                {media.release_date && (
+                  <p className="text-xs text-gray-400 mt-1">
+                    {new Date(media.release_date).getFullYear()}
+                  </p>
+                )}
+              </div>
+            </motion.div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+};
 
 interface TMDBMovieDetails {
   id: number;
@@ -375,9 +529,101 @@ const TMDBMoviePage: React.FC = () => {
     return `https://image.tmdb.org/t/p/${size}${backdropPath}`;
   };
 
-  const getProfileUrl = (profilePath: string, size: string = 'w185') => {
-    if (!profilePath) return '/placeholder-avatar.jpg';
+  const getProfileUrl = (profilePath: string | null | undefined, size: string = 'w185') => {
+    if (!profilePath || profilePath.trim() === '' || profilePath === 'null') {
+      return getPlaceholderAvatar();
+    }
     return `https://image.tmdb.org/t/p/${size}${profilePath}`;
+  };
+
+  const getPlaceholderAvatar = () => {
+    // Try SVG data URL first, fallback to a simple colored div approach
+    return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(`
+      <svg width="200" height="200" viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <rect width="200" height="200" fill="#374151" rx="100"/>
+        <circle cx="100" cy="80" r="30" fill="#6B7280"/>
+        <path d="M50 160C50 135.147 70.147 115 95 115H105C129.853 115 150 135.147 150 160V180H50V160Z" fill="#6B7280"/>
+      </svg>
+    `)}`;
+  };
+
+  // Alternative placeholder component for when SVG fails
+  const PlaceholderDiv: React.FC<{ className: string; alt: string }> = ({ className, alt }) => (
+    <div 
+      className={`${className} bg-gray-700 flex items-center justify-center`}
+      title={alt}
+      role="img"
+      aria-label={alt}
+    >
+      <div className="text-gray-400 text-center">
+        <div className="w-8 h-8 mx-auto mb-1 rounded-full bg-gray-600"></div>
+        <div className="text-xs">No Image</div>
+      </div>
+    </div>
+  );
+
+  const handleImageError = (e: React.SyntheticEvent<HTMLImageElement>) => {
+    const target = e.target as HTMLImageElement;
+    const placeholderSrc = getPlaceholderAvatar();
+    
+    // Prevent infinite loops and only set placeholder if not already set
+    if (target.src !== placeholderSrc && !target.src.includes('data:image/svg+xml')) {
+      console.log('Image failed to load, using placeholder:', target.src);
+      target.src = placeholderSrc;
+    }
+  };
+
+  // Custom ProfileImage component for better error handling
+  const ProfileImage: React.FC<{
+    profilePath: string | null | undefined;
+    alt: string;
+    className: string;
+    size?: string;
+  }> = ({ profilePath, alt, className, size = 'w300' }) => {
+    const [imgSrc, setImgSrc] = useState<string>(() => {
+      const url = getProfileUrl(profilePath, size);
+      console.log('ProfileImage initial URL:', url, 'for profile:', profilePath);
+      return url;
+    });
+    const [hasError, setHasError] = useState(false);
+    const [usePlaceholderDiv, setUsePlaceholderDiv] = useState(false);
+
+    const handleError = (e: React.SyntheticEvent<HTMLImageElement>) => {
+      console.log('ProfileImage error for:', profilePath, 'current src:', imgSrc);
+      if (!hasError) {
+        setHasError(true);
+        const placeholder = getPlaceholderAvatar();
+        console.log('Setting placeholder:', placeholder);
+        setImgSrc(placeholder);
+      } else if (imgSrc.includes('data:image/svg+xml')) {
+        // If even the SVG placeholder fails, use div fallback
+        console.log('SVG placeholder also failed, using div fallback');
+        setUsePlaceholderDiv(true);
+      }
+    };
+
+    // If no profile path, start with placeholder
+    useEffect(() => {
+      if (!profilePath || profilePath.trim() === '' || profilePath === 'null') {
+        setImgSrc(getPlaceholderAvatar());
+        setHasError(true);
+      }
+    }, [profilePath]);
+
+    // Use div fallback if both image and SVG failed
+    if (usePlaceholderDiv) {
+      return <PlaceholderDiv className={className} alt={alt} />;
+    }
+
+    return (
+      <img
+        src={imgSrc}
+        alt={alt}
+        className={className}
+        onError={handleError}
+        onLoad={() => console.log('ProfileImage loaded successfully:', imgSrc)}
+      />
+    );
   };
 
   const formatRuntime = (minutes: number) => {
@@ -800,14 +1046,11 @@ const TMDBMoviePage: React.FC = () => {
                     whileHover={{ y: -5 }}
                   >
                     <div className="aspect-[3/4] relative overflow-hidden">
-                      <img
-                        src={getProfileUrl(actor.profile_path, 'w300')}
+                      <ProfileImage
+                        profilePath={actor.profile_path}
                         alt={actor.name}
                         className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
-                        onError={(e) => {
-                          const target = e.target as HTMLImageElement;
-                          target.src = '/placeholder-avatar.jpg';
-                        }}
+                        size="w300"
                       />
                       <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
                     </div>
@@ -843,14 +1086,11 @@ const TMDBMoviePage: React.FC = () => {
                 <div className="space-y-4">
                   {directors.map((director) => (
                     <div key={director.id} className="flex items-center gap-4 bg-gray-800/30 rounded-lg p-4 hover:bg-gray-700/30 transition-colors">
-                      <img
-                        src={getProfileUrl(director.profile_path)}
+                      <ProfileImage
+                        profilePath={director.profile_path}
                         alt={director.name}
                         className="w-16 h-16 rounded-full object-cover"
-                        onError={(e) => {
-                          const target = e.target as HTMLImageElement;
-                          target.src = '/placeholder-avatar.jpg';
-                        }}
+                        size="w185"
                       />
                       <div>
                         <p className="font-semibold text-lg">{director.name}</p>
@@ -869,14 +1109,11 @@ const TMDBMoviePage: React.FC = () => {
                 <div className="space-y-4">
                   {writers.slice(0, 4).map((writer) => (
                     <div key={`${writer.id}-${writer.job}`} className="flex items-center gap-4 bg-gray-800/30 rounded-lg p-4 hover:bg-gray-700/30 transition-colors">
-                      <img
-                        src={getProfileUrl(writer.profile_path)}
+                      <ProfileImage
+                        profilePath={writer.profile_path}
                         alt={writer.name}
                         className="w-16 h-16 rounded-full object-cover"
-                        onError={(e) => {
-                          const target = e.target as HTMLImageElement;
-                          target.src = '/placeholder-avatar.jpg';
-                        }}
+                        size="w185"
                       />
                       <div>
                         <p className="font-semibold text-lg">{writer.name}</p>
@@ -1006,6 +1243,11 @@ const TMDBMoviePage: React.FC = () => {
       {/* Related Movies Section */}
       <div className="bg-gray-900 py-16">
         <div className="px-8">
+          <RelatedMedia
+            mediaId={parseInt(movieId)}
+            mediaType={mediaDetails?.media_type || 'movie'}
+            className="mb-8"
+          />
           <UpcomingMovies
             showSection="trending_daily"
             maxItems={12}

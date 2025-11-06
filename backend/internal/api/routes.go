@@ -283,5 +283,12 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		// TMDB search endpoints
 		api.GET("/tmdb/search", handlers.SearchTMDB(tmdbService))
 		api.GET("/tmdb/suggestions", handlers.SearchTMDBSuggestions(tmdbService))
+		
+		// TMDB related content endpoints
+		api.GET("/tmdb/:id/related", handlers.GetRelatedMedia(tmdbService))
+		api.GET("/tmdb/movie/:id/similar", handlers.GetSimilarMovies(tmdbService))
+		api.GET("/tmdb/movie/:id/recommendations", handlers.GetRecommendedMovies(tmdbService))
+		api.GET("/tmdb/tv/:id/similar", handlers.GetSimilarTVShows(tmdbService))
+		api.GET("/tmdb/tv/:id/recommendations", handlers.GetRecommendedTVShows(tmdbService))
 	}
 }
