@@ -1,13 +1,17 @@
-# HomeFlix - Personal Netflix Clone
+# HomeFlix - Streaming Platform
 
-Transform your media collection into a professional streaming platform! HomeFlix is a full-featured Netflix clone that automatically organizes and streams your movies and TV shows with a beautiful, responsive interface.
+Transform your media collection into a professional streaming platform! HomeFlix is a full-featured streaming platform that automatically organizes and streams your movies and TV shows with a beautiful, responsive interface. Search movies from directly TMDB and get updated on new movies or tv shows, trailers
 
-![HomeFlix Preview](/preview.png)
+![HomeFlix Interface](/preview_0.png)
 ![HomeFlix Interface](/preview-2.png)
-![HomeFlix Interface](/preview-3.png)
 ![HomeFlix Interface](/preview-4.png)
 ![HomeFlix Interface](/preview-5.png)
-![HomeFlix Interface](/preview-6.png)
+![TMDB Search Feature](/preview_10.png)
+![TMDB Movie Details](/preview_11.png)
+![Recently watched](/preview_15.png)
+![TMDB TV Shows](/preview_12.png)
+![Advanced Search](/preview_13.png)
+![Movie Discovery](/preview_14.png)
 
 
 ## ✨ Key Features
@@ -32,32 +36,55 @@ Transform your media collection into a professional streaming platform! HomeFlix
 - **Preview Clips**: Hover previews like Netflix
 
 ### 🔍 **Discovery & Navigation**
+- **TMDB Integration**: Search millions of movies and TV shows from The Movie Database
+- **Real-time Search**: Instant search suggestions with movie posters and details
 - **Advanced Search**: Find content by title, actor, director, genre
-- **Smart Recommendations**: AI-powered content suggestions
+- **Smart Recommendations**: AI-powered content suggestions based on TMDB data
 - **Continue Watching**: Resume where you left off
-- **My List**: Personal watchlist management
+- **My List**: Personal watchlist management with TMDB content
 - **Recently Added**: See your newest content first
+- **Trending Content**: Discover what's popular on TMDB
 
 ### 📱 **Pages & Sections**
 - **Home**: Featured content and personalized recommendations
-- **Movies**: Browse your entire movie collection
-- **TV Shows**: Organized series with season/episode navigation
-- **My List**: Your personal watchlist
-- **Search**: Advanced search with filters
+- **Movies**: Browse your entire movie collection + TMDB movie database
+- **TV Shows**: Organized series with season/episode navigation + TMDB TV shows
+- **My List**: Your personal watchlist with both local and TMDB content
+- **Search**: Advanced search with real-time TMDB suggestions and filters
 - **Now Playing**: Live TV-style channel with previews
-- **New & Popular**: Latest additions and trending content
+- **New & Popular**: Latest additions and trending content from TMDB
+- **TMDB Movie Pages**: Detailed movie/TV show pages with trailers, cast, and crew info
 
-### 🎭 **Media Assets**
+### 🎭 **Media Assets & TMDB Integration**
 - **Auto Thumbnails**: Generated from video content
-- **Movie Posters**: Downloaded from TMDB database
+- **Movie Posters**: Downloaded from TMDB database for both local and online content
+- **TMDB Trailers**: High-quality YouTube trailers embedded with auto-play
+- **Cast & Crew Info**: Complete filmography data from TMDB
 - **Preview Videos**: Short clips for quick browsing
 - **Subtitle Support**: Multi-language subtitle files
+- **Backdrop Images**: High-resolution backdrop images from TMDB
+- **Movie Metadata**: Comprehensive movie details including ratings, runtime, budget, and more
+
+### 🎬 **TMDB Movie Database Integration**
+- **Global Movie Search**: Access to millions of movies and TV shows from TMDB
+- **Real-time Search Suggestions**: Instant search with movie posters and details
+- **Detailed Movie Pages**: Complete movie information including:
+  - High-quality trailers with auto-play functionality
+  - Full cast and crew information with photos
+  - Movie ratings, runtime, budget, and box office data
+  - Production companies and countries
+  - Spoken languages and release dates
+  - Movie genres and tags
+- **TV Show Support**: Complete TV series information with seasons and episodes
+- **Trending Content**: Discover what's popular and trending
+- **My List Integration**: Add TMDB movies to your personal watchlist
+- **Netflix-style Interface**: Beautiful movie detail pages with video backgrounds
 
 ### 📊 **Analytics & Tracking**
 - **Watch History**: Track viewing progress and history
 - **Playback Resume**: Continue from where you stopped
 - **View Statistics**: See your watching patterns
-- **Recommendation Engine**: Learns from your preferences
+- **Recommendation Engine**: Learns from your preferences and TMDB data
 
 ## 🚀 Quick Installation
 
@@ -123,7 +150,33 @@ Place your movies and TV shows in `/media/azad/Movies1` (or update the path in t
 ### 4. First-Time Setup
 1. The system will automatically scan your media directory
 2. Thumbnails and posters will be generated in the background
-3. Browse to http://localhost:3008 and enjoy!
+3. TMDB integration provides instant access to millions of movies and TV shows
+4. Use the search bar to discover new content from The Movie Database
+5. Browse to http://localhost:3008 and enjoy!
+
+## � TMnDB Search & Discovery
+
+### Smart Search Bar
+HomeFlix features an intelligent search system that provides:
+- **Real-time Suggestions**: As you type, get instant movie and TV show suggestions
+- **Rich Previews**: See movie posters, ratings, and descriptions in search results
+- **Media Type Indicators**: Clear icons distinguish between movies and TV shows
+- **Direct Navigation**: Click any suggestion to go directly to the detailed movie page
+
+### Movie & TV Show Pages
+Each TMDB movie or TV show has a dedicated page featuring:
+- **Auto-playing Trailers**: High-quality YouTube trailers with sound controls
+- **Complete Cast Information**: Photos and character details for all actors
+- **Crew Details**: Directors, writers, and production team information
+- **Technical Details**: Runtime, budget, box office, release dates
+- **My List Integration**: Add movies to your personal watchlist
+- **Related Content**: Discover similar movies and trending content
+
+### Search Tips
+- Search for any movie or TV show title
+- Results include both popular and obscure content
+- Use the "See all results" option for comprehensive search results
+- Browse trending and popular content sections for discovery
 
 ## 🔧 Configuration
 
@@ -155,15 +208,20 @@ homeflix/
 
 ## 🌐 Network Features
 - **WiFi Streaming**: Access from any device on your network
-- **Mobile Responsive**: Full mobile and tablet support
+- **Mobile Responsive**: Full mobile and tablet support with TMDB search
 - **Chromecast Ready**: Cast to your TV (coming soon)
 - **Multi-Device Sync**: Continue watching across devices
+- **Cross-Platform Search**: TMDB search works seamlessly on all devices
+- **Offline Capability**: Local media works without internet, TMDB requir
 
 ## 🛠 Advanced Features
 - **Batch Processing**: Bulk thumbnail and poster generation
 - **Auto-Cleanup**: Removes orphaned files and invalid entries
 - **Health Monitoring**: System status and performance metrics
 - **Backup System**: Automatic database backups
+- **TMDB API Integration**: Seamless integration with The Movie Database
+- **Hybrid Content**: Mix local media with online TMDB content discovery
+- **Smart Caching**: Efficient caching of TMDB data for better performance
 
 ## 📱 Supported Formats
 - **Video**: MP4, MKV, AVI, MOV, WMV, FLV
@@ -171,9 +229,11 @@ homeflix/
 - **Subtitles**: SRT, VTT, ASS, SSA
 
 ## 🔒 Security & Privacy
-- **Local Only**: Your media never leaves your network
-- **No External Dependencies**: Works completely offline
-- **Privacy First**: No tracking or data collection
+- **Local Media Protection**: Your personal media never leaves your network
+- **TMDB Integration**: Uses official TMDB API for movie data (requires internet)
+- **Hybrid Approach**: Local media works offline, TMDB features require connection
+- **Privacy First**: No personal data tracking or collection
+- **Secure API Usage**: TMDB integration follows best security practices
 
 ## 📞 Support
 - Check the logs in `homeflix.log` for troubleshooting
