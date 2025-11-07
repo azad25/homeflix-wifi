@@ -27,7 +27,8 @@ import (
 )
 
 type MediaScanner struct {
-	mediaPath             string
+	mediaPath             string   // Primary media path (for backward compatibility)
+	mediaPaths            []string // All media paths to scan
 	mediaService          interfaces.MediaServiceInterface
 	thumbnailService      interfaces.ThumbnailServiceInterface
 	posterService         interfaces.PosterServiceInterface
@@ -111,6 +112,7 @@ type FileMetadata struct {
 func NewMediaScanner(mediaPath string, mediaService interfaces.MediaServiceInterface, thumbnailService interfaces.ThumbnailServiceInterface, posterService interfaces.PosterServiceInterface, geminiService interfaces.GeminiServiceInterface, celeryService interfaces.CeleryServiceInterface, alacService interfaces.ALACAudioServiceInterface, tmdbService interfaces.TMDBServiceInterface, recommendationService interfaces.RecommendationServiceInterface) *MediaScanner {
 	return &MediaScanner{
 		mediaPath:             mediaPath,
+		mediaPaths:            []string{mediaPath}, // Initialize with primary path
 		mediaService:          mediaService,
 		thumbnailService:      thumbnailService,
 		posterService:         posterService,
@@ -192,6 +194,44 @@ func (s *MediaScanner) isSystemOverloaded() bool {
 // Getter methods for scanner properties
 func (s *MediaScanner) GetMediaPath() string {
 	return s.mediaPath
+}
+
+// GetMediaPaths returns all configured media paths
+func (s *MediaScanner) GetMediaPaths() []string {
+	return s.mediaPaths
+}
+
+// SetMediaPaths updates the list of media paths to scan
+func (s *MediaScanner) SetMediaPaths(paths []string) {
+	s.mediaPaths = paths
+	// Keep the first path as primary for backward compatibility
+	if len(paths) > 0 {
+		s.mediaPath = paths[0]
+	}
+}
+
+// AddMediaPath adds a new media path to scan
+func (s *MediaScanner) AddMediaPath(path string) {
+	for _, existingPath := range s.mediaPaths {
+		if existingPath == path {
+			return // Path already exists
+		}
+	}
+	s.mediaPaths = append(s.mediaPaths, path)
+}
+
+// RemoveMediaPath removes a media path from scanning
+func (s *MediaScanner) RemoveMediaPath(path string) {
+	for i, existingPath := range s.mediaPaths {
+		if existingPath == path {
+			s.mediaPaths = append(s.mediaPaths[:i], s.mediaPaths[i+1:]...)
+			// Update primary path if needed
+			if path == s.mediaPath && len(s.mediaPaths) > 0 {
+				s.mediaPath = s.mediaPaths[0]
+			}
+			break
+		}
+	}
 }
 
 func (s *MediaScanner) GetMediaService() interfaces.MediaServiceInterface {
@@ -1358,25 +1398,28 @@ func (s *MediaScanner) discoverFiles() ([]FileInfo, error) {
 		}
 	}()
 
-	// Use sequential walking to prevent goroutine explosion
-	err := filepath.Walk(s.GetMediaPath(), func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			log.Printf("⚠️ Error accessing path %s: %v", path, err)
-			s.IncrementErrorFiles()
-			return nil // Continue scanning
-		}
-
-		if info.IsDir() {
-			// Skip hidden, system directories, and problematic paths
-			dirName := filepath.Base(path)
-			if strings.HasPrefix(dirName, ".") ||
-				dirName == "System Volume Information" ||
-				strings.Contains(path, "$RECYCLE.BIN") ||
-				strings.HasPrefix(dirName, "$") {
-				return filepath.SkipDir
+	// Use sequential walking to prevent goroutine explosion - scan all media paths
+	var walkErr error
+	for _, mediaPath := range s.GetMediaPaths() {
+		log.Printf("🔍 Scanning media path: %s", mediaPath)
+		err := filepath.Walk(mediaPath, func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				log.Printf("⚠️ Error accessing path %s: %v", path, err)
+				s.IncrementErrorFiles()
+				return nil // Continue scanning
 			}
-			return nil
-		}
+
+			if info.IsDir() {
+				// Skip hidden, system directories, and problematic paths
+				dirName := filepath.Base(path)
+				if strings.HasPrefix(dirName, ".") ||
+					dirName == "System Volume Information" ||
+					strings.Contains(path, "$RECYCLE.BIN") ||
+					strings.HasPrefix(dirName, "$") {
+					return filepath.SkipDir
+				}
+				return nil
+			}
 
 		// Skip files matching skip patterns
 		fileName := filepath.Base(path)
@@ -1417,13 +1460,19 @@ func (s *MediaScanner) discoverFiles() ([]FileInfo, error) {
 		}
 
 		return nil
-	})
+		})
+		
+		if err != nil {
+			log.Printf("⚠️ Error scanning media path %s: %v", mediaPath, err)
+			walkErr = err // Store the last error, but continue with other paths
+		}
+	}
 
 	// Close channel and wait for collector to finish
 	close(fileChan)
 	<-done
 
-	return files, err
+	return files, walkErr
 }
 
 // isVideoFileByExtension performs ultra-fast video detection by extension only

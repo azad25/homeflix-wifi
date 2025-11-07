@@ -22,7 +22,8 @@ import {
   ExternalLink,
   Plus,
   Check,
-  Share2
+  Share2,
+  Download
 } from 'lucide-react';
 import { getApiUrl } from '@/lib/api';
 import { addToWishlist, removeFromWishlist, isInWishlist } from '@/lib/wishlist';
@@ -389,6 +390,12 @@ const TMDBMoviePage: React.FC = () => {
   const [isVideoLoaded, setIsVideoLoaded] = useState(false);
   const [showControls, setShowControls] = useState(true);
   const [isInMyList, setIsInMyList] = useState(false);
+  const [downloadStatus, setDownloadStatus] = useState<{
+    isDownloading: boolean;
+    progress: number;
+    downloadId?: string;
+    status?: string;
+  }>({ isDownloading: false, progress: 0 });
 
   const movieId = params.id as string;
 
@@ -396,8 +403,22 @@ const TMDBMoviePage: React.FC = () => {
     if (movieId) {
       fetchMovieDetails();
       checkMyList();
+      checkDownloadStatus();
     }
   }, [movieId]);
+
+  // Poll for download status updates
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    if (downloadStatus.isDownloading) {
+      interval = setInterval(() => {
+        checkDownloadStatus();
+      }, 2000); // Check every 2 seconds
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [downloadStatus.isDownloading, movieId]);
 
   // Auto-hide controls after 3 seconds
   useEffect(() => {
@@ -731,6 +752,113 @@ const TMDBMoviePage: React.FC = () => {
     }
   };
 
+  const checkDownloadStatus = async () => {
+    try {
+      const apiUrl = getApiUrl();
+      const response = await fetch(`${apiUrl}/api/torrent/downloads`);
+      if (response.ok) {
+        const data = await response.json();
+        const downloads = data.downloads || [];
+        
+        // Check if this movie is being downloaded
+        const movieDownload = downloads.find((download: any) => 
+          download.tmdb_id === parseInt(movieId) && 
+          download.media_type === (mediaDetails?.media_type || 'movie')
+        );
+        
+        if (movieDownload) {
+          const isActivelyDownloading = movieDownload.status === 'downloading';
+          setDownloadStatus({
+            isDownloading: isActivelyDownloading,
+            progress: movieDownload.progress || 0,
+            downloadId: movieDownload.torrent_id || movieDownload.id,
+            status: movieDownload.status
+          });
+        } else {
+          setDownloadStatus({ isDownloading: false, progress: 0 });
+        }
+      }
+    } catch (error) {
+      console.error('Error checking download status:', error);
+      setDownloadStatus({ isDownloading: false, progress: 0 });
+    }
+  };
+
+  const handleDownload = async () => {
+    if (downloadStatus.isDownloading) {
+      // If already downloading, navigate to torrent dashboard to show progress
+      const params = new URLSearchParams({
+        tab: 'torrent'
+      });
+      router.push(`/settings?${params.toString()}`);
+      return;
+    }
+
+    // Always navigate to torrent dashboard for manual torrent selection
+    const mediaInfo = {
+      tmdb_id: mediaDetails?.id,
+      title: mediaDetails?.title,
+      year: new Date(mediaDetails?.release_date || '').getFullYear(),
+      media_type: mediaDetails?.media_type || 'movie'
+    };
+    
+    const params = new URLSearchParams({
+      tab: 'torrent',
+      media: JSON.stringify(mediaInfo)
+    });
+    
+    router.push(`/settings?${params.toString()}`);
+
+    // Commented out auto-download functionality - user should manually select torrents
+    /*
+    try {
+      // Search for torrents using the correct API endpoint
+      const apiUrl = getApiUrl();
+      const searchParams = new URLSearchParams({
+        title: mediaDetails?.title || '',
+        year: new Date(mediaDetails?.release_date || '').getFullYear().toString(),
+        type: mediaDetails?.media_type || 'movie'
+      });
+      
+      const response = await fetch(`${apiUrl}/api/torrent/search?${searchParams.toString()}`);
+      
+      if (response.ok) {
+        const data = await response.json();
+        const torrents = data.results || [];
+        
+        if (torrents.length > 0) {
+          // Auto-select the best torrent (first one, as they're sorted by quality/seeders)
+          const bestTorrent = torrents[0];
+          
+          const downloadResponse = await fetch(`${apiUrl}/api/torrent/download`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              magnet_uri: bestTorrent.magnet_uri,
+              title: mediaDetails?.title,
+              tmdb_id: parseInt(movieId),
+              media_type: mediaDetails?.media_type || 'movie',
+              quality: bestTorrent.quality || '1080p'
+            }),
+          });
+
+          if (downloadResponse.ok) {
+            // Start polling for progress
+            setDownloadStatus({ isDownloading: true, progress: 0 });
+            checkDownloadStatus();
+          } else {
+            throw new Error('Failed to start download');
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error with auto-download:', error);
+    }
+    */
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-black flex items-center justify-center">
@@ -983,6 +1111,45 @@ const TMDBMoviePage: React.FC = () => {
 
               {/* Action Buttons - Compact */}
               <div className="flex flex-wrap gap-2 pt-2">
+                <button
+                  onClick={handleDownload}
+                  className={`flex items-center gap-1 px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-300 hover:scale-105 ${
+                    downloadStatus.isDownloading
+                      ? 'bg-green-600/90 hover:bg-green-700'
+                      : downloadStatus.status === 'completed'
+                      ? 'bg-blue-600/90 hover:bg-blue-700'
+                      : 'bg-red-600/90 hover:bg-red-700'
+                  }`}
+                  disabled={downloadStatus.status === 'completed'}
+                >
+                  {downloadStatus.status === 'completed' ? (
+                    <>
+                      <Check className="w-4 h-4" />
+                      Downloaded
+                    </>
+                  ) : downloadStatus.isDownloading ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      {downloadStatus.progress > 0 ? `${downloadStatus.progress.toFixed(1)}%` : 'Starting...'}
+                    </>
+                  ) : (
+                    <>
+                      <Download className="w-4 h-4" />
+                      Download
+                    </>
+                  )}
+                </button>
+                
+                {/* Download Progress Bar */}
+                {downloadStatus.isDownloading && downloadStatus.progress > 0 && (
+                  <div className="w-full bg-gray-800/50 rounded-full h-2 mt-2">
+                    <div 
+                      className="bg-green-500 h-2 rounded-full transition-all duration-300"
+                      style={{ width: `${downloadStatus.progress}%` }}
+                    />
+                  </div>
+                )}
+                
                 <button
                   onClick={toggleMyList}
                   className="flex items-center gap-1 px-4 py-2 bg-gray-800/80 hover:bg-gray-700 rounded-lg text-sm font-semibold transition-all duration-300 hover:scale-105"

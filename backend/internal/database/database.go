@@ -2,6 +2,8 @@ package database
 
 import (
 	"database/sql"
+	"os"
+	"path/filepath"
 	"homeflix-backend/internal/models"
 	"log"
 	"time"
@@ -60,6 +62,9 @@ func Initialize(databaseURL string) (*gorm.DB, error) {
 		&models.WatchHistory{},
 		&models.RecentlyWatched{},
 		&models.MyList{},
+		&models.TorrentDownload{}, // Torrent downloads
+		&models.TorrentConfig{},   // Torrent configuration
+		&models.MediaPath{},       // Media paths configuration
 	)
 	if err != nil {
 		return nil, err
@@ -79,6 +84,9 @@ func Initialize(databaseURL string) (*gorm.DB, error) {
 
 	// Create default genres
 	createDefaultGenres(db)
+
+	// Initialize default media paths
+	initializeDefaultMediaPaths(db)
 
 	log.Println("Database initialized with SQLite performance optimizations")
 	return db, nil
@@ -129,6 +137,9 @@ func createOptimizedIndexes(db *gorm.DB) error {
 		"CREATE INDEX IF NOT EXISTS idx_subtitle_tracks_language ON subtitle_tracks(language)",
 		"CREATE INDEX IF NOT EXISTS idx_audio_tracks_media_id ON audio_tracks(media_id)",
 		"CREATE INDEX IF NOT EXISTS idx_audio_tracks_language ON audio_tracks(language)",
+		"CREATE INDEX IF NOT EXISTS idx_media_paths_path ON media_paths(path)",
+		"CREATE INDEX IF NOT EXISTS idx_media_paths_type ON media_paths(path_type)",
+		"CREATE INDEX IF NOT EXISTS idx_media_paths_active ON media_paths(is_active)",
 	}
 
 	for _, index := range indexes {
@@ -191,5 +202,45 @@ func createDefaultGenres(db *gorm.DB) {
 
 	for _, genre := range genres {
 		db.FirstOrCreate(&genre, models.Genre{Name: genre.Name})
+	}
+}
+
+// initializeDefaultMediaPaths creates default media paths if none exist
+func initializeDefaultMediaPaths(db *gorm.DB) {
+	var count int64
+	db.Model(&models.MediaPath{}).Count(&count)
+	
+	// Only create default paths if none exist
+	if count == 0 {
+		// Get home directory for torrent downloads
+		homeDir, _ := os.UserHomeDir()
+		torrentPath := filepath.Join(homeDir, "Downloads", "homeflix")
+		
+		defaultPaths := []models.MediaPath{
+			{
+				Path:        "/media/azad/Movies1",
+				Name:        "Primary Movies Directory",
+				Description: "Main HomeFlix media collection",
+				PathType:    "primary",
+				IsActive:    true,
+				Priority:    100,
+			},
+			{
+				Path:        torrentPath,
+				Name:        "Torrent Downloads",
+				Description: "Directory for torrent downloads - automatically scanned",
+				PathType:    "torrent",
+				IsActive:    true,
+				Priority:    50,
+			},
+		}
+
+		for _, mediaPath := range defaultPaths {
+			db.FirstOrCreate(&mediaPath, models.MediaPath{Path: mediaPath.Path})
+		}
+		
+		log.Println("✅ Default media paths initialized")
+		log.Printf("📁 Primary media path: /media/azad/Movies1")
+		log.Printf("📁 Torrent download path: %s", torrentPath)
 	}
 }

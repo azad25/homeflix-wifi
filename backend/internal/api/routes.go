@@ -2,13 +2,15 @@ package api
 
 import (
 	"homeflix-backend/internal/api/handlers"
+	torrentHandlers "homeflix-backend/internal/handlers"
 	"homeflix-backend/internal/scanner"
 	"homeflix-backend/internal/services"
+	"gorm.io/gorm"
 
 	"github.com/gin-gonic/gin"
 )
 
-func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamService *services.OptimizedStreamService, thumbnailService *services.ThumbnailService, userService *services.UserService, recommendationService *services.RecommendationService, playbackService *services.PlaybackService, geminiService *services.GeminiService, celeryService *services.CeleryService, alacService *services.ALACAudioService, tmdbService *services.TMDBService, mediaScanner *scanner.MediaScanner, watcherService *services.WatcherService, redisCache *services.RedisAssetCache, transcodeService *services.TranscodeService, newsService *services.NewsService, posterService *services.PosterService) {
+func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamService *services.OptimizedStreamService, thumbnailService *services.ThumbnailService, userService *services.UserService, recommendationService *services.RecommendationService, playbackService *services.PlaybackService, geminiService *services.GeminiService, celeryService *services.CeleryService, alacService *services.ALACAudioService, tmdbService *services.TMDBService, mediaScanner *scanner.MediaScanner, watcherService *services.WatcherService, redisCache *services.RedisAssetCache, transcodeService *services.TranscodeService, newsService *services.NewsService, posterService *services.PosterService, db *gorm.DB) {
 	api := r.Group("/api")
 	{
 		// Media routes
@@ -48,6 +50,8 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		scannerHandlers := handlers.NewScannerHandlers(mediaScanner)
 		watcherHandler := NewWatcherHandler(watcherService)
 		newsHandlers := handlers.NewNewsHandlers(newsService)
+		torrentHandler := torrentHandlers.NewTorrentHandler(db, mediaScanner)
+		mediaPathsHandler := torrentHandlers.NewMediaPathsHandler(db, mediaScanner)
 
 		// Initialize Redis asset handlers if Redis cache is available
 		var redisAssetHandlers *handlers.RedisAssetHandlers
@@ -290,5 +294,23 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		api.GET("/tmdb/movie/:id/recommendations", handlers.GetRecommendedMovies(tmdbService))
 		api.GET("/tmdb/tv/:id/similar", handlers.GetSimilarTVShows(tmdbService))
 		api.GET("/tmdb/tv/:id/recommendations", handlers.GetRecommendedTVShows(tmdbService))
+
+		// Torrent download endpoints
+		api.GET("/torrent/search", torrentHandler.SearchTorrents)
+		api.POST("/torrent/download", torrentHandler.StartDownload)
+		api.GET("/torrent/downloads", torrentHandler.GetDownloads)
+		api.GET("/torrent/downloads/:id", torrentHandler.GetDownload)
+		api.POST("/torrent/downloads/:id/pause", torrentHandler.PauseDownload)
+		api.POST("/torrent/downloads/:id/resume", torrentHandler.ResumeDownload)
+		api.DELETE("/torrent/downloads/:id", torrentHandler.RemoveDownload)
+		api.GET("/torrent/config", torrentHandler.GetConfig)
+		api.PUT("/torrent/config", torrentHandler.UpdateConfig)
+		api.POST("/torrent/test-connection", torrentHandler.TestConnection)
+
+		// Media paths management endpoints
+		api.GET("/admin/media-paths", mediaPathsHandler.GetMediaPaths)
+		api.POST("/admin/media-paths", mediaPathsHandler.AddMediaPath)
+		api.PUT("/admin/media-paths/:id", mediaPathsHandler.UpdateMediaPath)
+		api.DELETE("/admin/media-paths/:id", mediaPathsHandler.DeleteMediaPath)
 	}
 }

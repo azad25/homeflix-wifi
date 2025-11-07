@@ -1,0 +1,2 @@
+# Exclude Go files from main build
+*.go

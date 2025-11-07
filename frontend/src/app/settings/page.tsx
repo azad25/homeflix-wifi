@@ -1,8 +1,8 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
 import { usePageTitle } from '@/hooks/usePageTitle';
-import { Settings, Database, Upload, Trash2, Video, ImageIcon, Folder, File, Play, Info, Edit3, RefreshCw, Save, X, Star, Clock, Globe, Eye, Zap, Search, Server, Activity, HardDrive, Monitor, BarChart3, TrendingUp, FileSearch, Timer } from 'lucide-react';
+import { Settings, Database, Upload, Trash2, Video, ImageIcon, Folder, File, Play, Info, Edit3, RefreshCw, Save, X, Star, Clock, Globe, Eye, Zap, Search, Server, Activity, HardDrive, Monitor, BarChart3, TrendingUp, FileSearch, Timer, Download } from 'lucide-react';
 import Image from 'next/image';
 import Navbar from '@/components/Navbar';
 import { getApiUrl } from '@/lib/api';
@@ -11,6 +11,8 @@ import { FolderTree, GlassCard, ScrollReveal, MagneticButton } from '@/component
 import { motion } from 'framer-motion';
 import { useNavigate } from "@/hooks/useNavigate";
 import RedLoader from '@/components/RedLoader';
+import TorrentDashboard from '@/components/TorrentDashboard';
+import { useSearchParams } from 'next/navigation';
 interface MediaAssets {
   banner?: string;
   thumbnail?: string;
@@ -22,8 +24,9 @@ interface EditableMedia extends Media {
   uuid?: string;
 }
 
-export default function SettingsPage() {
+function SettingsContent() {
   usePageTitle('Settings');
+  const searchParams = useSearchParams();
   const [activeTab, setActiveTab] = useState('media');
   const [mediaList, setMediaList] = useState<Media[]>([]);
   const [seriesList, setSeriesList] = useState<any[]>([]);
@@ -39,17 +42,60 @@ export default function SettingsPage() {
   const [terminalOutput, setTerminalOutput] = useState<string[]>([]);
   const [isScanning, setIsScanning] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [torrentMediaInfo, setTorrentMediaInfo] = useState<any>(null);
+  const [activeDownloads, setActiveDownloads] = useState(0);
+  const [mediaPaths, setMediaPaths] = useState<any[]>([]);
+  const [newMediaPath, setNewMediaPath] = useState({
+    path: '',
+    name: '',
+    description: '',
+    path_type: 'external',
+    priority: 0
+  });
+  const [showAddPathForm, setShowAddPathForm] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
+    // Check URL parameters for tab and media info
+    const tab = searchParams.get('tab');
+    const mediaParam = searchParams.get('media');
+    
+    if (tab) {
+      setActiveTab(tab);
+    }
+    
+    if (mediaParam) {
+      try {
+        const mediaInfo = JSON.parse(mediaParam);
+        setTorrentMediaInfo(mediaInfo);
+      } catch (error) {
+        console.error('Error parsing media info:', error);
+      }
+    }
+    
     fetchMediaList();
+    fetchActiveDownloads(); // Check for active downloads
+    
+    if (activeTab === 'paths') {
+      fetchMediaPaths();
+    }
+    
     if (activeTab === 'analytics') {
       fetchSystemStats();
     }
     if (activeTab === 'scanning') {
       fetchScanStats();
     }
-  }, [activeTab]);
+  }, [activeTab, searchParams]);
+
+  // Poll for active downloads every 5 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      fetchActiveDownloads();
+    }, 5000);
+    
+    return () => clearInterval(interval);
+  }, []);
 
   // Initialize terminal with welcome message
   useEffect(() => {
@@ -76,6 +122,127 @@ export default function SettingsPage() {
     } catch (error) {
       console.error('Error fetching media:', error);
       setLoading(false);
+    }
+  };
+
+  const fetchActiveDownloads = async () => {
+    try {
+      const apiUrl = getApiUrl();
+      const response = await fetch(`${apiUrl}/api/torrent/downloads`);
+      if (response.ok) {
+        const data = await response.json();
+        const downloads = data.downloads || [];
+        
+        // Count active downloads (downloading status)
+        const activeCount = downloads.filter((download: any) => 
+          download.status === 'downloading'
+        ).length;
+        
+        setActiveDownloads(activeCount);
+      }
+    } catch (error) {
+      console.error('Error fetching active downloads:', error);
+      setActiveDownloads(0);
+    }
+  };
+
+  const fetchMediaPaths = async () => {
+    try {
+      const apiUrl = getApiUrl();
+      const response = await fetch(`${apiUrl}/api/admin/media-paths`);
+      if (response.ok) {
+        const data = await response.json();
+        setMediaPaths(data.media_paths || []);
+        addTerminalOutput(`📁 Loaded ${data.media_paths?.length || 0} media paths`);
+      }
+    } catch (error) {
+      console.error('Error fetching media paths:', error);
+      addTerminalOutput(`❌ Error fetching media paths: ${error}`);
+    }
+  };
+
+  const addMediaPath = async () => {
+    if (!newMediaPath.path || !newMediaPath.name) {
+      addTerminalOutput('❌ Path and name are required');
+      return;
+    }
+
+    try {
+      const apiUrl = getApiUrl();
+      const response = await fetch(`${apiUrl}/api/admin/media-paths`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(newMediaPath),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        addTerminalOutput(`✅ ${data.message}`);
+        setNewMediaPath({
+          path: '',
+          name: '',
+          description: '',
+          path_type: 'external',
+          priority: 0
+        });
+        setShowAddPathForm(false);
+        fetchMediaPaths(); // Refresh the list
+      } else {
+        const errorData = await response.json();
+        addTerminalOutput(`❌ Failed to add media path: ${errorData.error}`);
+      }
+    } catch (error) {
+      addTerminalOutput(`❌ Error adding media path: ${error}`);
+    }
+  };
+
+  const updateMediaPath = async (id: number, updates: any) => {
+    try {
+      const apiUrl = getApiUrl();
+      const response = await fetch(`${apiUrl}/api/admin/media-paths/${id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(updates),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        addTerminalOutput(`✅ ${data.message}`);
+        fetchMediaPaths(); // Refresh the list
+      } else {
+        const errorData = await response.json();
+        addTerminalOutput(`❌ Failed to update media path: ${errorData.error}`);
+      }
+    } catch (error) {
+      addTerminalOutput(`❌ Error updating media path: ${error}`);
+    }
+  };
+
+  const deleteMediaPath = async (id: number, name: string) => {
+    if (!confirm(`Are you sure you want to delete the media path "${name}"?`)) {
+      return;
+    }
+
+    try {
+      const apiUrl = getApiUrl();
+      const response = await fetch(`${apiUrl}/api/admin/media-paths/${id}`, {
+        method: 'DELETE',
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        addTerminalOutput(`✅ ${data.message}`);
+        fetchMediaPaths(); // Refresh the list
+      } else {
+        const errorData = await response.json();
+        addTerminalOutput(`❌ Failed to delete media path: ${errorData.error}`);
+      }
+    } catch (error) {
+      addTerminalOutput(`❌ Error deleting media path: ${error}`);
     }
   };
 
@@ -1336,6 +1503,31 @@ export default function SettingsPage() {
             Analytics
           </MagneticButton>
           <MagneticButton
+            onClick={() => setActiveTab('torrent')}
+            className={`px-6 py-3 rounded-lg font-semibold transition-all duration-300 relative ${activeTab === 'torrent'
+              ? 'bg-[#E50914] text-white shadow-lg shadow-red-500/25'
+              : 'bg-transparent text-white/70 hover:text-white hover:bg-white/10'
+              }`}
+          >
+            <Download className="w-4 h-4 mr-2" />
+            Torrents
+            {activeDownloads > 0 && (
+              <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center animate-pulse">
+                {activeDownloads}
+              </span>
+            )}
+          </MagneticButton>
+          <MagneticButton
+            onClick={() => setActiveTab('paths')}
+            className={`px-6 py-3 rounded-lg font-semibold transition-all duration-300 ${activeTab === 'paths'
+              ? 'bg-[#E50914] text-white shadow-lg shadow-red-500/25'
+              : 'bg-transparent text-white/70 hover:text-white hover:bg-white/10'
+              }`}
+          >
+            <Folder className="w-4 h-4 mr-2" />
+            Media Paths
+          </MagneticButton>
+          <MagneticButton
             onClick={() => setActiveTab('general')}
             className={`px-6 py-3 rounded-lg font-semibold transition-all duration-300 ${activeTab === 'general'
               ? 'bg-[#E50914] text-white shadow-lg shadow-red-500/25'
@@ -2463,6 +2655,200 @@ export default function SettingsPage() {
           </div>
         )}
 
+        {/* Torrent Downloads Tab */}
+        {activeTab === 'torrent' && (
+          <ScrollReveal>
+            <TorrentDashboard mediaInfo={torrentMediaInfo} />
+          </ScrollReveal>
+        )}
+
+        {/* Media Paths Management Tab */}
+        {activeTab === 'paths' && (
+          <ScrollReveal>
+            <GlassCard className="p-8">
+              <div className="flex items-center justify-between mb-8">
+                <div>
+                  <h2 className="text-3xl font-bold text-white mb-2">Media Paths Configuration</h2>
+                  <p className="text-white/70">Manage directories that HomeFlix scans for media files</p>
+                </div>
+                <MagneticButton
+                  onClick={() => setShowAddPathForm(!showAddPathForm)}
+                  className="bg-[#E50914] hover:bg-[#B8070F] text-white px-6 py-3 rounded-lg font-semibold transition-all duration-300 shadow-lg shadow-red-500/25"
+                >
+                  <Folder className="w-5 h-5 mr-2" />
+                  Add Media Path
+                </MagneticButton>
+              </div>
+
+              {/* Add New Path Form */}
+              {showAddPathForm && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  exit={{ opacity: 0, height: 0 }}
+                  className="mb-8 p-6 bg-black/30 rounded-lg border border-white/10"
+                >
+                  <h3 className="text-xl font-semibold text-white mb-4">Add New Media Path</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-white/70 text-sm font-medium mb-2">Path *</label>
+                      <input
+                        type="text"
+                        value={newMediaPath.path}
+                        onChange={(e) => setNewMediaPath({...newMediaPath, path: e.target.value})}
+                        placeholder="/path/to/media/directory"
+                        className="w-full px-4 py-3 bg-black/50 border border-white/20 rounded-lg text-white placeholder-white/50 focus:border-[#E50914] focus:outline-none transition-colors"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-white/70 text-sm font-medium mb-2">Name *</label>
+                      <input
+                        type="text"
+                        value={newMediaPath.name}
+                        onChange={(e) => setNewMediaPath({...newMediaPath, name: e.target.value})}
+                        placeholder="Friendly name for this path"
+                        className="w-full px-4 py-3 bg-black/50 border border-white/20 rounded-lg text-white placeholder-white/50 focus:border-[#E50914] focus:outline-none transition-colors"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-white/70 text-sm font-medium mb-2">Type</label>
+                      <select
+                        value={newMediaPath.path_type}
+                        onChange={(e) => setNewMediaPath({...newMediaPath, path_type: e.target.value})}
+                        className="w-full px-4 py-3 bg-black/50 border border-white/20 rounded-lg text-white focus:border-[#E50914] focus:outline-none transition-colors"
+                      >
+                        <option value="primary">Primary</option>
+                        <option value="torrent">Torrent Downloads</option>
+                        <option value="external">External Drive</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-white/70 text-sm font-medium mb-2">Priority</label>
+                      <input
+                        type="number"
+                        value={newMediaPath.priority}
+                        onChange={(e) => setNewMediaPath({...newMediaPath, priority: parseInt(e.target.value) || 0})}
+                        placeholder="0"
+                        className="w-full px-4 py-3 bg-black/50 border border-white/20 rounded-lg text-white placeholder-white/50 focus:border-[#E50914] focus:outline-none transition-colors"
+                      />
+                    </div>
+                    <div className="md:col-span-2">
+                      <label className="block text-white/70 text-sm font-medium mb-2">Description</label>
+                      <input
+                        type="text"
+                        value={newMediaPath.description}
+                        onChange={(e) => setNewMediaPath({...newMediaPath, description: e.target.value})}
+                        placeholder="Optional description"
+                        className="w-full px-4 py-3 bg-black/50 border border-white/20 rounded-lg text-white placeholder-white/50 focus:border-[#E50914] focus:outline-none transition-colors"
+                      />
+                    </div>
+                  </div>
+                  <div className="flex gap-4 mt-6">
+                    <MagneticButton
+                      onClick={addMediaPath}
+                      className="bg-[#E50914] hover:bg-[#B8070F] text-white px-6 py-3 rounded-lg font-semibold transition-all duration-300"
+                    >
+                      <Save className="w-4 h-4 mr-2" />
+                      Add Path
+                    </MagneticButton>
+                    <MagneticButton
+                      onClick={() => setShowAddPathForm(false)}
+                      className="bg-white/10 hover:bg-white/20 text-white px-6 py-3 rounded-lg font-semibold transition-all duration-300"
+                    >
+                      <X className="w-4 h-4 mr-2" />
+                      Cancel
+                    </MagneticButton>
+                  </div>
+                </motion.div>
+              )}
+
+              {/* Media Paths List */}
+              <div className="space-y-4">
+                {mediaPaths.length === 0 ? (
+                  <div className="text-center py-12">
+                    <Folder className="w-16 h-16 text-white/30 mx-auto mb-4" />
+                    <p className="text-white/50 text-lg">No media paths configured</p>
+                    <p className="text-white/30 text-sm">Add a media path to get started</p>
+                  </div>
+                ) : (
+                  mediaPaths.map((path: any) => (
+                    <motion.div
+                      key={path.id}
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="p-6 bg-black/30 rounded-lg border border-white/10 hover:border-white/20 transition-all duration-300"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-3 mb-2">
+                            <Folder className="w-5 h-5 text-[#E50914]" />
+                            <h3 className="text-lg font-semibold text-white">{path.name}</h3>
+                            <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                              path.path_type === 'primary' ? 'bg-blue-500/20 text-blue-400' :
+                              path.path_type === 'torrent' ? 'bg-green-500/20 text-green-400' :
+                              'bg-purple-500/20 text-purple-400'
+                            }`}>
+                              {path.path_type}
+                            </span>
+                            {path.priority > 0 && (
+                              <span className="px-2 py-1 bg-yellow-500/20 text-yellow-400 rounded-full text-xs font-medium">
+                                Priority: {path.priority}
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-white/70 font-mono text-sm mb-1">{path.path}</p>
+                          {path.description && (
+                            <p className="text-white/50 text-sm">{path.description}</p>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <MagneticButton
+                            onClick={() => updateMediaPath(path.id, { is_active: !path.is_active })}
+                            className={`px-4 py-2 rounded-lg font-medium transition-all duration-300 ${
+                              path.is_active 
+                                ? 'bg-green-500/20 text-green-400 hover:bg-green-500/30' 
+                                : 'bg-red-500/20 text-red-400 hover:bg-red-500/30'
+                            }`}
+                          >
+                            {path.is_active ? 'Active' : 'Inactive'}
+                          </MagneticButton>
+                          <MagneticButton
+                            onClick={() => deleteMediaPath(path.id, path.name)}
+                            className="bg-red-500/20 hover:bg-red-500/30 text-red-400 px-3 py-2 rounded-lg transition-all duration-300"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </MagneticButton>
+                        </div>
+                      </div>
+                    </motion.div>
+                  ))
+                )}
+              </div>
+
+              {/* Quick Actions */}
+              <div className="mt-8 p-6 bg-gradient-to-r from-[#E50914]/10 to-transparent rounded-lg border border-[#E50914]/20">
+                <h3 className="text-lg font-semibold text-white mb-4">Quick Actions</h3>
+                <div className="flex flex-wrap gap-4">
+                  <MagneticButton
+                    onClick={fetchMediaPaths}
+                    className="bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-lg font-medium transition-all duration-300"
+                  >
+                    <RefreshCw className="w-4 h-4 mr-2" />
+                    Refresh Paths
+                  </MagneticButton>
+                  <MagneticButton
+                    onClick={() => triggerScan('full')}
+                    className="bg-[#E50914]/20 hover:bg-[#E50914]/30 text-[#E50914] px-4 py-2 rounded-lg font-medium transition-all duration-300"
+                  >
+                    <Search className="w-4 h-4 mr-2" />
+                    Scan All Paths
+                  </MagneticButton>
+                </div>
+              </div>
+            </GlassCard>
+          </ScrollReveal>
+        )}
+
         {/* Netflix-style General Settings Tab */}
         {activeTab === 'general' && (
           <ScrollReveal>
@@ -2513,5 +2899,13 @@ export default function SettingsPage() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function SettingsPage() {
+  return (
+    <Suspense fallback={<RedLoader />}>
+      <SettingsContent />
+    </Suspense>
   );
 }

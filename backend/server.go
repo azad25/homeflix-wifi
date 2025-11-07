@@ -13,12 +13,14 @@ import (
 	"homeflix-backend/internal/api"
 	"homeflix-backend/internal/config"
 	"homeflix-backend/internal/database"
+	"homeflix-backend/internal/models"
 	"homeflix-backend/internal/scanner"
 	"homeflix-backend/internal/services"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
+	"gorm.io/gorm"
 )
 
 func main() {
@@ -95,6 +97,9 @@ func main() {
 
 	// Initialize media scanner with adapted services
 	mediaScanner := scanner.NewMediaScanner(cfg.MediaPath, mediaServiceAdapter, thumbnailServiceAdapter, posterServiceAdapter, geminiServiceAdapter, celeryServiceAdapter, alacServiceAdapter, tmdbServiceAdapter, recommendationServiceAdapter)
+
+	// Load media paths from database and configure scanner
+	loadMediaPathsFromDatabase(db, mediaScanner)
 
 	// Initialize watcher service for real-time file monitoring
 	watchPaths := []string{cfg.MediaPath}
@@ -188,7 +193,7 @@ func main() {
 	newsService.Start()
 
 	// Initialize API routes
-	api.SetupRoutes(r, mediaService, streamService, thumbnailService, userService, recommendationService, playbackService, geminiService, celeryService, alacService, tmdbService, mediaScanner, watcherService, redisCache, transcodeService, newsService, posterService)
+	api.SetupRoutes(r, mediaService, streamService, thumbnailService, userService, recommendationService, playbackService, geminiService, celeryService, alacService, tmdbService, mediaScanner, watcherService, redisCache, transcodeService, newsService, posterService, db)
 
 	// Start server with optimizations
 	port := os.Getenv("PORT")
@@ -212,4 +217,26 @@ func main() {
 	log.Printf("📊 Resource limits: ReadTimeout=30s, WriteTimeout=5m, IdleTimeout=2m")
 	
 	log.Fatal(srv.ListenAndServe())
+}
+// loadMediaPathsFromDatabase loads media paths from database and configures the scanner
+func loadMediaPathsFromDatabase(db *gorm.DB, mediaScanner *scanner.MediaScanner) {
+	var mediaPaths []models.MediaPath
+	if err := db.Where("is_active = ?", true).Order("priority DESC, created_at ASC").Find(&mediaPaths).Error; err != nil {
+		log.Printf("⚠️ Failed to load media paths from database: %v", err)
+		return
+	}
+
+	if len(mediaPaths) == 0 {
+		log.Printf("⚠️ No active media paths found in database")
+		return
+	}
+
+	var paths []string
+	for _, mp := range mediaPaths {
+		paths = append(paths, mp.Path)
+		log.Printf("📁 Loaded media path: %s (%s) - %s", mp.Path, mp.PathType, mp.Name)
+	}
+
+	mediaScanner.SetMediaPaths(paths)
+	log.Printf("✅ Media scanner configured with %d paths", len(paths))
 }

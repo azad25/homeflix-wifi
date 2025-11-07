@@ -256,6 +256,21 @@ type UserRating struct {
 	Review  string  `json:"review"`
 }
 
+// MediaPath represents a media directory that HomeFlix should scan
+type MediaPath struct {
+	ID          uint           `json:"id" gorm:"primarykey"`
+	CreatedAt   time.Time      `json:"created_at"`
+	UpdatedAt   time.Time      `json:"updated_at"`
+	DeletedAt   gorm.DeletedAt `json:"-" gorm:"index"`
+	
+	Path        string `json:"path" gorm:"unique;not null"`
+	Name        string `json:"name" gorm:"not null"`        // User-friendly name
+	Description string `json:"description"`                 // Optional description
+	PathType    string `json:"path_type" gorm:"not null"`   // "primary", "torrent", "external"
+	IsActive    bool   `json:"is_active" gorm:"default:true"` // Whether to scan this path
+	Priority    int    `json:"priority" gorm:"default:0"`   // Scan priority (higher = first)
+}
+
 // Recommendation represents AI-generated recommendations
 type Recommendation struct {
 	ID        uint           `json:"id" gorm:"primarykey"`
