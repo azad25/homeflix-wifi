@@ -45,25 +45,66 @@ type DownloadInfo struct {
 	SavePath    string    `json:"save_path"`
 }
 
-func NewTorrentClient(downloadDir string, mediaScanner MediaScannerInterface) (*TorrentClient, error) {
+func NewTorrentClient(downloadDir string, mediaScanner MediaScannerInterface, performanceConfig ...map[string]int) (*TorrentClient, error) {
 	// Ensure download directory exists
 	if err := os.MkdirAll(downloadDir, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create download directory: %v", err)
 	}
 
-	// Configure rain session
+	// Configure rain session for high-speed downloads
 	cfg := torrent.DefaultConfig
 	cfg.DataDir = downloadDir
 	cfg.Database = filepath.Join(downloadDir, "rain.db")
 	cfg.Host = "0.0.0.0"
-	cfg.PortBegin = 50007
-	cfg.PortEnd = 50017
-	cfg.MaxOpenFiles = 256
-	cfg.PeerConnectTimeout = 30 * time.Second
-	cfg.PeerHandshakeTimeout = 10 * time.Second
-	cfg.MaxPeerDial = 80
-	cfg.MaxPeerAccept = 20
-	cfg.ParallelMetadataDownloads = 2
+	
+	// Default high-performance settings
+	maxPeerConnections := 500
+	maxPeerAccepts := 200
+	portStart := 50000
+	portEnd := 50100
+	maxOpenFiles := 1024
+	
+	// Override with provided performance config if available
+	if len(performanceConfig) > 0 {
+		config := performanceConfig[0]
+		if val, ok := config["max_peer_connections"]; ok && val > 0 {
+			maxPeerConnections = val
+		}
+		if val, ok := config["max_peer_accepts"]; ok && val > 0 {
+			maxPeerAccepts = val
+		}
+		if val, ok := config["port_range_start"]; ok && val > 0 {
+			portStart = val
+		}
+		if val, ok := config["port_range_end"]; ok && val > 0 {
+			portEnd = val
+		}
+		if val, ok := config["max_open_files"]; ok && val > 0 {
+			maxOpenFiles = val
+		}
+	}
+	
+	// Apply performance settings
+	cfg.PortBegin = uint16(portStart)
+	cfg.PortEnd = uint16(portEnd)
+	cfg.MaxOpenFiles = uint64(maxOpenFiles)
+	
+	// Optimize connection timeouts for faster peer discovery
+	cfg.PeerConnectTimeout = 15 * time.Second
+	cfg.PeerHandshakeTimeout = 5 * time.Second
+	
+	// Apply peer connection limits for maximum speed
+	cfg.MaxPeerDial = maxPeerConnections
+	cfg.MaxPeerAccept = maxPeerAccepts
+	
+	// Increase parallel metadata downloads for faster torrent info retrieval
+	cfg.ParallelMetadataDownloads = 10
+	
+	// Additional optimizations for high-speed networks
+	// Focus on the settings that are actually available in Rain
+	
+	// Note: Rain doesn't have built-in seed ratio/time limits
+	// We'll handle seeding prevention by stopping torrents when complete
 
 	// Create the rain session
 	session, err := torrent.NewSession(cfg)
@@ -82,8 +123,19 @@ func NewTorrentClient(downloadDir string, mediaScanner MediaScannerInterface) (*
 	// Start monitoring goroutine
 	go tc.monitorDownloads()
 
-	log.Printf("✅ Rain torrent client initialized")
+	// Start cleanup goroutine for completed torrents
+	go tc.cleanupCompletedTorrents()
+
+	log.Printf("✅ Rain torrent client initialized with high-speed configuration")
 	log.Printf("📁 Download directory: %s", downloadDir)
+	log.Printf("🚀 Performance settings optimized for 60Mbps+ connections:")
+	log.Printf("   • Port range: %d-%d (%d ports available)", cfg.PortBegin, cfg.PortEnd, cfg.PortEnd-cfg.PortBegin+1)
+	log.Printf("   • Max peer connections: %d outgoing, %d incoming", cfg.MaxPeerDial, cfg.MaxPeerAccept)
+	log.Printf("   • Max open files: %d (for better I/O performance)", cfg.MaxOpenFiles)
+	log.Printf("   • Parallel metadata downloads: %d", cfg.ParallelMetadataDownloads)
+	log.Printf("   • Connection timeouts: %v connect, %v handshake", cfg.PeerConnectTimeout, cfg.PeerHandshakeTimeout)
+	log.Printf("🚫 Seeding prevention: Torrents will be stopped when downloads complete")
+	log.Printf("💡 Expected performance: Up to 7-8 MB/s on 60Mbps connections with good peers")
 	return tc, nil
 }
 
@@ -143,6 +195,60 @@ func (tc *TorrentClient) AddMagnet(magnetURI string) (*DownloadInfo, error) {
 	return downloadInfo, nil
 }
 
+// RestoreDownload restores a download from database record
+func (tc *TorrentClient) RestoreDownload(torrentID, name, magnetURI, status, savePath string, progress float64, size, downloaded int64, addedAt time.Time, completedAt *time.Time) error {
+	tc.mu.Lock()
+	defer tc.mu.Unlock()
+
+	log.Printf("🔄 Restoring torrent: %s (Status: %s, Progress: %.1f%%)", name, status, progress)
+
+	// Add torrent to session
+	t, err := tc.session.AddURI(magnetURI, nil)
+	if err != nil {
+		return fmt.Errorf("failed to restore magnet: %v", err)
+	}
+
+	// Create download info from database record
+	downloadInfo := &DownloadInfo{
+		ID:           torrentID,
+		Name:         name,
+		MagnetURI:    magnetURI,
+		Status:       status,
+		Progress:     progress,
+		Size:         size,
+		Downloaded:   downloaded,
+		AddedAt:      addedAt,
+		CompletedAt:  completedAt,
+		SavePath:     savePath,
+		Seeders:      0,
+		Peers:        0,
+		DownloadRate: 0,
+		UploadRate:   0,
+		ETA:          "Restoring...",
+	}
+
+	tc.downloads[torrentID] = downloadInfo
+	tc.torrents[torrentID] = t
+
+	// Start or keep paused based on status
+	if status == "downloading" {
+		err = t.Start()
+		if err != nil {
+			log.Printf("⚠️ Failed to start restored torrent: %v", err)
+			downloadInfo.Status = "error"
+		} else {
+			downloadInfo.ETA = "Resuming..."
+		}
+	} else if status == "paused" {
+		// Keep paused - don't start the torrent
+		downloadInfo.ETA = "Paused"
+		log.Printf("⏸️ Restored torrent in paused state: %s", name)
+	}
+
+	log.Printf("✅ Restored torrent: %s", name)
+	return nil
+}
+
 func (tc *TorrentClient) GetDownloads() []*DownloadInfo {
 	tc.mu.RLock()
 	defer tc.mu.RUnlock()
@@ -172,9 +278,25 @@ func (tc *TorrentClient) PauseDownload(id string) error {
 		return fmt.Errorf("download not found")
 	}
 
+	if download.Status == "completed" {
+		return fmt.Errorf("cannot pause completed download")
+	}
+
+	if download.Status == "paused" {
+		return fmt.Errorf("download is already paused")
+	}
+
 	torrent, exists := tc.torrents[id]
 	if !exists {
 		return fmt.Errorf("torrent not found")
+	}
+
+	// Get current stats before pausing to preserve progress
+	stats := torrent.Stats()
+	download.Downloaded = int64(stats.Bytes.Completed)
+	download.Size = int64(stats.Bytes.Total)
+	if download.Size > 0 {
+		download.Progress = float64(download.Downloaded) / float64(download.Size) * 100
 	}
 
 	// Stop downloading
@@ -183,8 +305,13 @@ func (tc *TorrentClient) PauseDownload(id string) error {
 		return fmt.Errorf("failed to pause torrent: %v", err)
 	}
 
+	// Set paused state
 	download.Status = "paused"
-	log.Printf("⏸️ Paused torrent: %s", download.Name)
+	download.DownloadRate = 0
+	download.UploadRate = 0
+	download.ETA = "Paused"
+	
+	log.Printf("⏸️ Paused torrent: %s (Progress: %.1f%%)", download.Name, download.Progress)
 	return nil
 }
 
@@ -201,6 +328,10 @@ func (tc *TorrentClient) ResumeDownload(id string) error {
 		return fmt.Errorf("download already completed")
 	}
 
+	if download.Status != "paused" {
+		return fmt.Errorf("download is not paused")
+	}
+
 	torrent, exists := tc.torrents[id]
 	if !exists {
 		return fmt.Errorf("torrent not found")
@@ -212,8 +343,11 @@ func (tc *TorrentClient) ResumeDownload(id string) error {
 		return fmt.Errorf("failed to resume torrent: %v", err)
 	}
 
+	// Set downloading state
 	download.Status = "downloading"
-	log.Printf("▶️ Resumed torrent: %s", download.Name)
+	download.ETA = "Resuming..."
+	
+	log.Printf("▶️ Resumed torrent: %s (From: %.1f%%)", download.Name, download.Progress)
 	return nil
 }
 
@@ -263,17 +397,9 @@ func (tc *TorrentClient) updateDownloadStats() {
 		if t, exists := tc.torrents[downloadID]; exists {
 			stats := t.Stats()
 			
-			// Debug logging to see what Rain is reporting
-			log.Printf("🔍 Torrent %s stats: Completed=%d, Total=%d, Name=%s", 
-				downloadID[:8], stats.Bytes.Completed, stats.Bytes.Total, stats.Name)
-			
-			// Update download info with real stats
+			// Always update basic stats
 			downloadInfo.Downloaded = int64(stats.Bytes.Completed)
 			downloadInfo.Size = int64(stats.Bytes.Total)
-			downloadInfo.DownloadRate = int64(stats.Speed.Download)
-			downloadInfo.UploadRate = int64(stats.Speed.Upload)
-			downloadInfo.Seeders = 0 // Rain doesn't expose seeder count directly
-			downloadInfo.Peers = stats.Peers.Total
 			
 			// Calculate progress - handle edge cases
 			if downloadInfo.Size > 0 {
@@ -285,21 +411,6 @@ func (tc *TorrentClient) updateDownloadStats() {
 			} else {
 				// If size is unknown, show 0% progress unless completed
 				downloadInfo.Progress = 0
-				if stats.Bytes.Completed > 0 && stats.Bytes.Total == 0 {
-					// Metadata might not be available yet
-					downloadInfo.ETA = "Getting torrent info..."
-				}
-			}
-			
-			// Update ETA
-			if downloadInfo.DownloadRate > 0 && downloadInfo.Size > downloadInfo.Downloaded && downloadInfo.Size > 0 {
-				remaining := downloadInfo.Size - downloadInfo.Downloaded
-				etaSeconds := remaining / downloadInfo.DownloadRate
-				downloadInfo.ETA = formatDuration(time.Duration(etaSeconds) * time.Second)
-			} else if downloadInfo.Size == 0 {
-				downloadInfo.ETA = "Getting torrent info..."
-			} else if downloadInfo.DownloadRate == 0 && downloadInfo.Progress < 100 {
-				downloadInfo.ETA = "Connecting to peers..."
 			}
 			
 			// Update name from torrent info if available
@@ -309,25 +420,68 @@ func (tc *TorrentClient) updateDownloadStats() {
 				log.Printf("📝 Updated torrent name: %s", stats.Name)
 			}
 			
-			// Check if completed - only if we have valid size info
-			if downloadInfo.Size > 0 && downloadInfo.Progress >= 99.9 {
-				downloadInfo.Status = "completed"
-				downloadInfo.Progress = 100
-				now := time.Now()
-				downloadInfo.CompletedAt = &now
-				downloadInfo.ETA = "Completed"
+			// Handle status-specific updates
+			if downloadInfo.Status == "paused" {
+				// For paused torrents, keep paused state and don't update rates/ETA
+				downloadInfo.DownloadRate = 0
+				downloadInfo.UploadRate = 0
+				downloadInfo.Seeders = 0
+				downloadInfo.Peers = 0
+				downloadInfo.ETA = "Paused"
 				
-				log.Printf("🎉 Torrent completed: %s", downloadInfo.Name)
+				// Debug logging for paused torrents
+				log.Printf("⏸️ Paused torrent %s: %.1f%% complete", 
+					downloadID[:8], downloadInfo.Progress)
+			} else {
+				// For active torrents, update all stats
+				downloadInfo.DownloadRate = int64(stats.Speed.Download)
+				downloadInfo.UploadRate = int64(stats.Speed.Upload)
+				downloadInfo.Seeders = 0 // Rain doesn't expose seeder count directly
+				downloadInfo.Peers = stats.Peers.Total
 				
-				// Trigger media scanner
-				go tc.triggerMediaScan(downloadInfo)
-			} else if downloadInfo.Size > 0 && downloadInfo.Progress > 0 {
-				// Valid download in progress
-				downloadInfo.Status = "downloading"
-			} else if downloadInfo.Size == 0 {
-				// Still getting metadata
-				downloadInfo.Status = "downloading"
-				downloadInfo.ETA = "Getting torrent info..."
+				// Update ETA for active downloads
+				if downloadInfo.DownloadRate > 0 && downloadInfo.Size > downloadInfo.Downloaded && downloadInfo.Size > 0 {
+					remaining := downloadInfo.Size - downloadInfo.Downloaded
+					etaSeconds := remaining / downloadInfo.DownloadRate
+					downloadInfo.ETA = formatDuration(time.Duration(etaSeconds) * time.Second)
+				} else if downloadInfo.Size == 0 {
+					downloadInfo.ETA = "Getting torrent info..."
+				} else if downloadInfo.DownloadRate == 0 && downloadInfo.Progress < 100 {
+					downloadInfo.ETA = "Connecting to peers..."
+				}
+				
+				// Check if completed - only if we have valid size info
+				if downloadInfo.Size > 0 && downloadInfo.Progress >= 99.9 {
+					downloadInfo.Status = "completed"
+					downloadInfo.Progress = 100
+					now := time.Now()
+					downloadInfo.CompletedAt = &now
+					downloadInfo.ETA = "Completed"
+					
+					log.Printf("🎉 Torrent completed: %s", downloadInfo.Name)
+					
+					// Stop the torrent to prevent seeding
+					if err := t.Stop(); err != nil {
+						log.Printf("⚠️ Failed to stop completed torrent: %v", err)
+					} else {
+						log.Printf("🛑 Stopped torrent to prevent seeding: %s", downloadInfo.Name)
+					}
+					
+					// Trigger media scanner
+					go tc.triggerMediaScan(downloadInfo)
+				} else if downloadInfo.Size > 0 && downloadInfo.Progress > 0 {
+					// Valid download in progress
+					downloadInfo.Status = "downloading"
+				} else if downloadInfo.Size == 0 {
+					// Still getting metadata
+					downloadInfo.Status = "downloading"
+					downloadInfo.ETA = "Getting torrent info..."
+				}
+				
+				// Debug logging for active torrents
+				log.Printf("🔍 Active torrent %s: %.1f%% complete, %s down, %s up", 
+					downloadID[:8], downloadInfo.Progress, 
+					formatSpeed(downloadInfo.DownloadRate), formatSpeed(downloadInfo.UploadRate))
 			}
 		}
 	}
@@ -347,12 +501,59 @@ func formatDuration(d time.Duration) string {
 	}
 }
 
+func formatSpeed(bytesPerSecond int64) string {
+	if bytesPerSecond == 0 {
+		return "0 B/s"
+	}
+	const unit = 1024
+	if bytesPerSecond < unit {
+		return fmt.Sprintf("%d B/s", bytesPerSecond)
+	}
+	div, exp := int64(unit), 0
+	for n := bytesPerSecond / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB/s", float64(bytesPerSecond)/float64(div), "KMGTPE"[exp])
+}
+
+// cleanupCompletedTorrents runs periodically to ensure completed torrents are stopped
+func (tc *TorrentClient) cleanupCompletedTorrents() {
+	ticker := time.NewTicker(30 * time.Second) // Check every 30 seconds
+	defer ticker.Stop()
+
+	for range ticker.C {
+		tc.mu.Lock()
+		for downloadID, downloadInfo := range tc.downloads {
+			if downloadInfo.Status == "completed" {
+				if t, exists := tc.torrents[downloadID]; exists {
+					// Check if torrent is still running and stop it
+					stats := t.Stats()
+					// Rain uses Status constants, let's just check if it's not stopped
+					statusStr := stats.Status.String()
+					if statusStr != "Stopped" && statusStr != "Stopping" {
+						if err := t.Stop(); err != nil {
+							log.Printf("⚠️ Failed to stop completed torrent %s: %v", downloadInfo.Name, err)
+						} else {
+							log.Printf("🛑 Stopped completed torrent to prevent seeding: %s (was %s)", downloadInfo.Name, statusStr)
+						}
+					}
+				}
+			}
+		}
+		tc.mu.Unlock()
+	}
+}
+
 func (tc *TorrentClient) Close() error {
 	tc.mu.Lock()
 	defer tc.mu.Unlock()
 
-	// Close all torrents
-	for id := range tc.torrents {
+	// Stop all torrents before closing
+	for id, t := range tc.torrents {
+		if err := t.Stop(); err != nil {
+			log.Printf("⚠️ Failed to stop torrent %s during shutdown: %v", id, err)
+		}
 		delete(tc.torrents, id)
 	}
 

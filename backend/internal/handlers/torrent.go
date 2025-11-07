@@ -35,22 +35,63 @@ func NewTorrentHandler(db *gorm.DB, mediaScanner MediaScannerInterface) *Torrent
 		// Create default config with proper torrent download path
 		homeDir, _ := os.UserHomeDir()
 		config = models.TorrentConfig{
-			DownloadPath:     filepath.Join(homeDir, "Downloads", "homeflix"),
-			MinSeeders:       10,
-			MaxDownloads:     5,
-			AutoDownload:     false,
-			PreferredQuality: "1080p",
-			EnabledSources:   "1337x,YTS,TPB,RARBG",
-			UseProxy:         false,
-			ProxyURL:         "",
+			DownloadPath:       filepath.Join(homeDir, "Downloads", "homeflix"),
+			MinSeeders:         10,
+			MaxDownloads:       5,
+			AutoDownload:       false,
+			PreferredQuality:   "1080p",
+			EnabledSources:     "1337x,YTS,TPB,RARBG",
+			UseProxy:           false,
+			ProxyURL:           "",
+			// High-performance defaults for fast downloads
+			MaxPeerConnections: 500,
+			MaxPeerAccepts:     200,
+			PortRangeStart:     50000,
+			PortRangeEnd:       50100,
+			MaxOpenFiles:       1024,
 		}
 		db.Create(&config)
 	}
 
-	// Initialize torrent client with its own download directory
-	client, err := torrent.NewTorrentClient(config.DownloadPath, mediaScanner)
+	// Initialize torrent client with performance configuration
+	performanceConfig := map[string]int{
+		"max_peer_connections": config.MaxPeerConnections,
+		"max_peer_accepts":     config.MaxPeerAccepts,
+		"port_range_start":     config.PortRangeStart,
+		"port_range_end":       config.PortRangeEnd,
+		"max_open_files":       config.MaxOpenFiles,
+	}
+	
+	client, err := torrent.NewTorrentClient(config.DownloadPath, mediaScanner, performanceConfig)
 	if err != nil {
 		panic(fmt.Sprintf("Failed to initialize torrent client: %v", err))
+	}
+
+	// Restore incomplete downloads from database
+	var incompleteDownloads []models.TorrentDownload
+	db.Where("status IN ?", []string{"downloading", "paused"}).Find(&incompleteDownloads)
+	
+	for _, dbDownload := range incompleteDownloads {
+		log.Printf("🔄 Restoring download: %s (Status: %s, Progress: %.1f%%)", 
+			dbDownload.Name, dbDownload.Status, dbDownload.Progress)
+		
+		// Restore the download to the client
+		if err := client.RestoreDownload(
+			dbDownload.TorrentID,
+			dbDownload.Name,
+			dbDownload.MagnetURI,
+			dbDownload.Status,
+			dbDownload.SavePath,
+			dbDownload.Progress,
+			dbDownload.Size,
+			dbDownload.Downloaded,
+			dbDownload.AddedAt,
+			dbDownload.CompletedAt,
+		); err != nil {
+			log.Printf("⚠️ Failed to restore download %s: %v", dbDownload.Name, err)
+			// Mark as error in database
+			db.Model(&dbDownload).Update("status", "error")
+		}
 	}
 
 	// Initialize searcher
@@ -155,8 +196,25 @@ func (h *TorrentHandler) StartDownload(c *gin.Context) {
 	c.JSON(http.StatusOK, downloadInfo)
 }
 
-// Get all downloads
+// Get all downloads with pagination and search
 func (h *TorrentHandler) GetDownloads(c *gin.Context) {
+	// Parse pagination parameters
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "10"))
+	
+	// Parse search parameters
+	searchQuery := c.Query("search")
+	statusFilter := c.Query("status")
+	
+	if page < 1 {
+		page = 1
+	}
+	if limit < 1 || limit > 100 {
+		limit = 10
+	}
+	
+	offset := (page - 1) * limit
+
 	// Get current stats from client first
 	clientDownloads := h.client.GetDownloads()
 	
@@ -179,9 +237,29 @@ func (h *TorrentHandler) GetDownloads(c *gin.Context) {
 			})
 	}
 
-	// Get updated downloads from database
+	// Build query with search conditions
+	query := h.db.Model(&models.TorrentDownload{})
+	
+	// Apply search filters
+	if searchQuery != "" {
+		query = query.Where("name ILIKE ? OR quality ILIKE ? OR media_type ILIKE ?", 
+			"%"+searchQuery+"%", "%"+searchQuery+"%", "%"+searchQuery+"%")
+	}
+	
+	if statusFilter != "" {
+		query = query.Where("status = ?", statusFilter)
+	}
+
+	// Get total count with filters
+	var totalCount int64
+	if err := query.Count(&totalCount).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to count downloads"})
+		return
+	}
+
+	// Get paginated downloads from database (ordered by most recent first)
 	var dbDownloads []models.TorrentDownload
-	if err := h.db.Find(&dbDownloads).Error; err != nil {
+	if err := query.Order("added_at DESC").Limit(limit).Offset(offset).Find(&dbDownloads).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch downloads"})
 		return
 	}
@@ -252,9 +330,19 @@ func (h *TorrentHandler) GetDownloads(c *gin.Context) {
 		apiDownloads = append(apiDownloads, apiDownload)
 	}
 
+	// Calculate pagination info
+	totalPages := int((totalCount + int64(limit) - 1) / int64(limit))
+	
 	c.JSON(http.StatusOK, gin.H{
 		"downloads": apiDownloads,
-		"count":     len(apiDownloads),
+		"pagination": gin.H{
+			"current_page": page,
+			"total_pages":  totalPages,
+			"total_count":  totalCount,
+			"limit":        limit,
+			"has_next":     page < totalPages,
+			"has_prev":     page > 1,
+		},
 	})
 }
 
@@ -280,10 +368,23 @@ func (h *TorrentHandler) PauseDownload(c *gin.Context) {
 		return
 	}
 
-	// Update database
-	h.db.Model(&models.TorrentDownload{}).
-		Where("torrent_id = ?", id).
-		Update("status", "paused")
+	// Get updated download info to save current progress
+	if download, exists := h.client.GetDownload(id); exists {
+		// Update database with current progress and paused status
+		h.db.Model(&models.TorrentDownload{}).
+			Where("torrent_id = ?", id).
+			Updates(map[string]interface{}{
+				"status":     "paused",
+				"progress":   download.Progress,
+				"downloaded": download.Downloaded,
+				"size":       download.Size,
+			})
+	} else {
+		// Fallback to just updating status
+		h.db.Model(&models.TorrentDownload{}).
+			Where("torrent_id = ?", id).
+			Update("status", "paused")
+	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Download paused"})
 }
@@ -297,10 +398,23 @@ func (h *TorrentHandler) ResumeDownload(c *gin.Context) {
 		return
 	}
 
-	// Update database
-	h.db.Model(&models.TorrentDownload{}).
-		Where("torrent_id = ?", id).
-		Update("status", "downloading")
+	// Get updated download info after resuming
+	if download, exists := h.client.GetDownload(id); exists {
+		// Update database with resumed status and current progress
+		h.db.Model(&models.TorrentDownload{}).
+			Where("torrent_id = ?", id).
+			Updates(map[string]interface{}{
+				"status":     "downloading",
+				"progress":   download.Progress,
+				"downloaded": download.Downloaded,
+				"size":       download.Size,
+			})
+	} else {
+		// Fallback to just updating status
+		h.db.Model(&models.TorrentDownload{}).
+			Where("torrent_id = ?", id).
+			Update("status", "downloading")
+	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Download resumed"})
 }

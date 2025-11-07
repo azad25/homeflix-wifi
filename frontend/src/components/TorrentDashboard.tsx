@@ -19,7 +19,9 @@ import {
   Filter,
   RefreshCw,
   X,
-  ExternalLink
+  ExternalLink,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
 import { getApiUrl } from '@/lib/api';
 
@@ -64,6 +66,12 @@ interface TorrentConfig {
   enabled_sources: string;
   use_proxy: boolean;
   proxy_url: string;
+  // Performance settings
+  max_peer_connections: number;
+  max_peer_accepts: number;
+  port_range_start: number;
+  port_range_end: number;
+  max_open_files: number;
 }
 
 interface MediaInfo {
@@ -87,6 +95,21 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [qualityFilter, setQualityFilter] = useState('');
+  
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+  const [hasNext, setHasNext] = useState(false);
+  const [hasPrev, setHasPrev] = useState(false);
+  const itemsPerPage = 10;
+
+  // Track operations in progress
+  const [operationsInProgress, setOperationsInProgress] = useState<Set<string>>(new Set());
+
+  // Downloads search state
+  const [downloadSearchQuery, setDownloadSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
 
   useEffect(() => {
     fetchConfig();
@@ -102,7 +125,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
     }
 
     // Set up polling for download updates
-    const interval = setInterval(fetchDownloads, 3000);
+    const interval = setInterval(() => fetchDownloads(currentPage), 3000);
     return () => clearInterval(interval);
   }, [mediaInfo]);
 
@@ -119,17 +142,29 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
     }
   };
 
-  const fetchDownloads = async () => {
+  const fetchDownloads = async (page: number = currentPage, search: string = downloadSearchQuery, status: string = statusFilter) => {
     try {
       const apiUrl = getApiUrl();
-      const response = await fetch(`${apiUrl}/api/torrent/downloads`);
+      const params = new URLSearchParams({
+        page: page.toString(),
+        limit: itemsPerPage.toString(),
+        ...(search && { search }),
+        ...(status && { status })
+      });
+      
+      const response = await fetch(`${apiUrl}/api/torrent/downloads?${params}`);
       if (response.ok) {
         const data = await response.json();
-        // Sort downloads by added_at in descending order (newest first)
-        const sortedDownloads = (data.downloads || []).sort((a: DownloadInfo, b: DownloadInfo) => {
-          return new Date(b.added_at).getTime() - new Date(a.added_at).getTime();
-        });
-        setDownloads(sortedDownloads);
+        setDownloads(data.downloads || []);
+        
+        // Update pagination state
+        if (data.pagination) {
+          setCurrentPage(data.pagination.current_page);
+          setTotalPages(data.pagination.total_pages);
+          setTotalCount(data.pagination.total_count);
+          setHasNext(data.pagination.has_next);
+          setHasPrev(data.pagination.has_prev);
+        }
       }
     } catch (err) {
       console.error('Failed to fetch downloads:', err);
@@ -168,6 +203,18 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
     }
   };
 
+  const searchDownloads = () => {
+    setCurrentPage(1);
+    fetchDownloads(1, downloadSearchQuery, statusFilter);
+  };
+
+  const clearDownloadSearch = () => {
+    setDownloadSearchQuery('');
+    setStatusFilter('');
+    setCurrentPage(1);
+    fetchDownloads(1, '', '');
+  };
+
   const startDownload = async (result: TorrentResult) => {
     setLoading(true);
     try {
@@ -186,7 +233,8 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
 
       if (response.ok) {
         setActiveTab('downloads');
-        fetchDownloads();
+        setCurrentPage(1);
+        fetchDownloads(1);
       } else {
         throw new Error('Failed to start download');
       }
@@ -198,22 +246,46 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
   };
 
   const pauseDownload = async (id: string) => {
+    setOperationsInProgress(prev => new Set(prev).add(id));
     try {
       const apiUrl = getApiUrl();
-      await fetch(`${apiUrl}/api/torrent/downloads/${id}/pause`, { method: 'POST' });
-      fetchDownloads();
+      const response = await fetch(`${apiUrl}/api/torrent/downloads/${id}/pause`, { method: 'POST' });
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+        throw new Error(errorData.error || 'Failed to pause download');
+      }
+      fetchDownloads(currentPage);
     } catch (err) {
       console.error('Failed to pause download:', err);
+      setError(err instanceof Error ? err.message : 'Failed to pause download');
+    } finally {
+      setOperationsInProgress(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(id);
+        return newSet;
+      });
     }
   };
 
   const resumeDownload = async (id: string) => {
+    setOperationsInProgress(prev => new Set(prev).add(id));
     try {
       const apiUrl = getApiUrl();
-      await fetch(`${apiUrl}/api/torrent/downloads/${id}/resume`, { method: 'POST' });
-      fetchDownloads();
+      const response = await fetch(`${apiUrl}/api/torrent/downloads/${id}/resume`, { method: 'POST' });
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+        throw new Error(errorData.error || 'Failed to resume download');
+      }
+      fetchDownloads(currentPage);
     } catch (err) {
       console.error('Failed to resume download:', err);
+      setError(err instanceof Error ? err.message : 'Failed to resume download');
+    } finally {
+      setOperationsInProgress(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(id);
+        return newSet;
+      });
     }
   };
 
@@ -255,14 +327,14 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
       }
       
       // Always refresh the downloads list, even if there was an error
-      fetchDownloads();
+      fetchDownloads(currentPage);
       
     } catch (err) {
       console.error('Failed to remove download:', err);
       alert(`❌ Failed to delete "${name}": ${err instanceof Error ? err.message : 'Unknown error'}`);
       
       // Still refresh the list in case the backend partially cleaned up
-      fetchDownloads();
+      fetchDownloads(currentPage);
     }
   };
 
@@ -355,6 +427,20 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
       case 'paused': return <Pause className="w-4 h-4" />;
       case 'error': return <AlertCircle className="w-4 h-4" />;
       default: return <Clock className="w-4 h-4" />;
+    }
+  };
+
+  const getStatusText = (status: string, eta: string) => {
+    switch (status) {
+      case 'completed': return 'Completed';
+      case 'downloading': 
+        if (eta === 'Resuming...' || eta === 'Connecting to peers...') {
+          return eta;
+        }
+        return 'Downloading';
+      case 'paused': return 'Paused';
+      case 'error': return 'Error';
+      default: return status;
     }
   };
 
@@ -530,7 +616,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
                     </div>
                     <div>
                       <h3 className="text-white font-medium line-clamp-1">{download.name}</h3>
-                      <p className="text-sm text-gray-400 capitalize">{download.status}</p>
+                      <p className="text-sm text-gray-400">{getStatusText(download.status, download.eta)}</p>
                     </div>
                   </div>
 
@@ -538,17 +624,29 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
                     {download.status === 'downloading' && (
                       <button
                         onClick={() => pauseDownload(download.id)}
-                        className="p-2 text-gray-400 hover:text-white hover:bg-gray-700 rounded-lg transition-colors"
+                        disabled={operationsInProgress.has(download.id)}
+                        className="p-2 text-gray-400 hover:text-white hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition-colors"
+                        title="Pause download"
                       >
-                        <Pause className="w-4 h-4" />
+                        {operationsInProgress.has(download.id) ? (
+                          <RefreshCw className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <Pause className="w-4 h-4" />
+                        )}
                       </button>
                     )}
                     {download.status === 'paused' && (
                       <button
                         onClick={() => resumeDownload(download.id)}
-                        className="p-2 text-gray-400 hover:text-white hover:bg-gray-700 rounded-lg transition-colors"
+                        disabled={operationsInProgress.has(download.id)}
+                        className="p-2 text-gray-400 hover:text-white hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition-colors"
+                        title="Resume download"
                       >
-                        <Play className="w-4 h-4" />
+                        {operationsInProgress.has(download.id) ? (
+                          <RefreshCw className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <Play className="w-4 h-4" />
+                        )}
                       </button>
                     )}
                     <button
@@ -601,6 +699,50 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
                 <Download className="w-12 h-12 mx-auto mb-4 opacity-50" />
                 <p>No active downloads</p>
                 <p className="text-sm mt-2">Search for torrents to start downloading</p>
+              </div>
+            )}
+
+            {/* Pagination Controls */}
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between mt-6 pt-4 border-t border-gray-700">
+                <div className="text-sm text-gray-400">
+                  Showing {((currentPage - 1) * itemsPerPage) + 1}-{Math.min(currentPage * itemsPerPage, totalCount)} of {totalCount} downloads
+                </div>
+                
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => {
+                      const newPage = currentPage - 1;
+                      setCurrentPage(newPage);
+                      fetchDownloads(newPage);
+                    }}
+                    disabled={!hasPrev}
+                    className="flex items-center gap-1 px-3 py-2 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:text-gray-500 disabled:cursor-not-allowed text-white rounded text-sm transition-colors"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                    Previous
+                  </button>
+                  
+                  <div className="flex items-center gap-1 px-3 py-2 bg-gray-800 text-gray-300 rounded text-sm">
+                    <span>Page</span>
+                    <span className="font-medium text-white">{currentPage}</span>
+                    <span>of</span>
+                    <span className="font-medium text-white">{totalPages}</span>
+                  </div>
+                  
+                  <button
+                    onClick={() => {
+                      const newPage = currentPage + 1;
+                      setCurrentPage(newPage);
+                      fetchDownloads(newPage);
+                    }}
+                    disabled={!hasNext}
+                    className="flex items-center gap-1 px-3 py-2 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:text-gray-500 disabled:cursor-not-allowed text-white rounded text-sm transition-colors"
+                  >
+                    Next
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
             )}
           </motion.div>
@@ -748,6 +890,107 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
                   <option value="720p">720p</option>
                   <option value="480p">480p</option>
                 </select>
+              </div>
+            </div>
+
+            {/* Performance Settings Section */}
+            <div className="col-span-full">
+              <h3 className="text-lg font-medium text-white mb-4 flex items-center gap-2">
+                <RefreshCw className="w-5 h-5 text-blue-400" />
+                Performance Settings (High-Speed Downloads)
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 p-4 bg-gray-800 rounded-lg">
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                    Max Peer Connections
+                  </label>
+                  <input
+                    type="number"
+                    min="50"
+                    max="1000"
+                    value={config.max_peer_connections}
+                    onChange={(e) => setConfig({ ...config, max_peer_connections: parseInt(e.target.value) || 500 })}
+                    className="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                  />
+                  <p className="text-xs text-gray-400 mt-1">Higher = faster downloads (500 recommended)</p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                    Max Incoming Connections
+                  </label>
+                  <input
+                    type="number"
+                    min="20"
+                    max="500"
+                    value={config.max_peer_accepts}
+                    onChange={(e) => setConfig({ ...config, max_peer_accepts: parseInt(e.target.value) || 200 })}
+                    className="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                  />
+                  <p className="text-xs text-gray-400 mt-1">Incoming peer connections (200 recommended)</p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                    Max Open Files
+                  </label>
+                  <input
+                    type="number"
+                    min="256"
+                    max="4096"
+                    value={config.max_open_files}
+                    onChange={(e) => setConfig({ ...config, max_open_files: parseInt(e.target.value) || 1024 })}
+                    className="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                  />
+                  <p className="text-xs text-gray-400 mt-1">File handles for I/O performance (1024 recommended)</p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                    Port Range Start
+                  </label>
+                  <input
+                    type="number"
+                    min="1024"
+                    max="65000"
+                    value={config.port_range_start}
+                    onChange={(e) => setConfig({ ...config, port_range_start: parseInt(e.target.value) || 50000 })}
+                    className="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                  />
+                  <p className="text-xs text-gray-400 mt-1">Starting port for torrent client</p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                    Port Range End
+                  </label>
+                  <input
+                    type="number"
+                    min="1025"
+                    max="65535"
+                    value={config.port_range_end}
+                    onChange={(e) => setConfig({ ...config, port_range_end: parseInt(e.target.value) || 50100 })}
+                    className="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                  />
+                  <p className="text-xs text-gray-400 mt-1">Ending port for torrent client</p>
+                </div>
+
+                <div className="flex items-center justify-center">
+                  <div className="text-center">
+                    <div className="text-2xl font-bold text-blue-400">
+                      {config.port_range_end - config.port_range_start + 1}
+                    </div>
+                    <div className="text-xs text-gray-400">Available Ports</div>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="mt-3 p-3 bg-blue-900/30 border border-blue-500/30 rounded-lg">
+                <p className="text-sm text-blue-200">
+                  <strong>💡 Performance Tip:</strong> These settings are optimized for high-speed connections (60Mbps+). 
+                  Higher peer connections = faster downloads but more CPU/memory usage. 
+                  Restart required after changing these settings.
+                </p>
               </div>
             </div>
 

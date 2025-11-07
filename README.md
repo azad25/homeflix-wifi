@@ -1,6 +1,10 @@
 # HomeFlix - Streaming Platform
 
-Transform your media collection into a professional streaming platform! HomeFlix is a full-featured streaming platform that automatically organizes and streams your movies and TV shows with a beautiful, responsive interface. Search movies from directly TMDB and get updated on new movies or tv shows, trailers
+Transform your media collection into a professional streaming platform! HomeFlix is a full-featured streaming platform that automatically organizes and streams your movies and TV shows with a beautiful, responsive interface. Search movies from directly TMDB and get updated on new movies or tv shows, trailers.
+
+## 🎉 **NEW in Version 2.0: Integrated Torrent Downloads!**
+
+**Download movies directly from TMDB pages with one click!** HomeFlix now includes a complete torrent download system with real-time progress tracking, automatic library integration, and professional UI.
 
 ![HomeFlix Interface](/preview_0.png)
 ![HomeFlix Interface](/preview-2.png)
@@ -13,6 +17,48 @@ Transform your media collection into a professional streaming platform! HomeFlix
 ![Advanced Search](/preview_13.png)
 ![Movie Discovery](/preview_14.png)
 
+---
+
+## 🚀 **Version 2.0 Changelog - Torrent Download System**
+## ** Download Media Directly on homeflix **
+![Movie Discovery](/preview_21.png)
+![Movie Discovery](/preview_22.png)
+### 🎬 **NEW: One-Click Movie Downloads**
+- **Direct TMDB Integration**: Download button on every movie page
+- **Automatic Search**: Finds best torrents from multiple sources
+- **Real-time Progress**: Live download progress with speed, ETA, and completion percentage
+- **Smart Quality Selection**: Automatically picks best quality based on seeders
+- **Seamless Integration**: Downloaded movies automatically appear in your library
+
+### 🔍 **NEW: Advanced Torrent Dashboard**
+- **Professional UI**: Netflix-style interface with dark theme
+- **Multi-Source Search**: Integrates with Jackett for 600+ torrent sites
+- **Quality Filtering**: Filter by 4K, 1080p, 720p, 480p
+- **Download Management**: Pause, resume, and delete downloads
+- **Progress Tracking**: Real-time statistics with seeders, peers, and transfer rates
+
+### ⚙️ **NEW: Torrent Configuration System**
+- **Jackett Integration**: Professional torrent indexer with Cloudflare bypass
+- **Flexible Setup**: Docker or native installation options
+- **Custom Download Paths**: Save to local drives or external storage
+- **Quality Preferences**: Set preferred resolution and minimum seeders
+- **Bandwidth Control**: Limit concurrent downloads and transfer rates
+
+### 🎯 **NEW: Smart Download Features**
+- **Automatic Library Scanning**: Downloaded content instantly available
+- **Duplicate Detection**: Prevents downloading existing movies
+- **Resume Support**: Continue interrupted downloads
+- **Error Handling**: Robust error recovery and user feedback
+- **Legal Compliance**: Built-in reminders for legal content only
+
+### 📱 **NEW: Enhanced User Experience**
+- **One-Click Workflow**: Movie page → Download button → Automatic download
+- **Visual Progress**: Progress bars and status indicators throughout UI
+- **Mobile Responsive**: Full torrent management on mobile devices
+- **Notification System**: Success/error messages and download completion alerts
+- **Settings Integration**: Torrent configuration in main settings panel
+
+---
 
 ## ✨ Key Features
 
@@ -21,6 +67,9 @@ Transform your media collection into a professional streaming platform! HomeFlix
 - **Intelligent Metadata**: Auto-fetches movie info, posters, and descriptions from TMDB
 - **Genre Classification**: Automatically categorizes content by genre
 - **Series Organization**: Groups TV episodes by seasons and series
+- **🆕 Torrent Downloads**: One-click downloads directly from TMDB movie pages
+- **🆕 Real-time Progress**: Live download tracking with speed and ETA
+- **🆕 Automatic Integration**: Downloaded content instantly appears in library
 
 ### 🎨 **Netflix-Style Interface**
 - **Hero Sections**: Dynamic featured content with trailers
@@ -44,6 +93,9 @@ Transform your media collection into a professional streaming platform! HomeFlix
 - **My List**: Personal watchlist management with TMDB content
 - **Recently Added**: See your newest content first
 - **Trending Content**: Discover what's popular on TMDB
+- **🆕 Torrent Search**: Multi-source torrent search with quality filtering
+- **🆕 Download Dashboard**: Professional torrent management interface
+- **🆕 Progress Tracking**: Real-time download monitoring and statistics
 
 ### 📱 **Pages & Sections**
 - **Home**: Featured content and personalized recommendations
@@ -54,6 +106,9 @@ Transform your media collection into a professional streaming platform! HomeFlix
 - **Now Playing**: Live TV-style channel with previews
 - **New & Popular**: Latest additions and trending content from TMDB
 - **TMDB Movie Pages**: Detailed movie/TV show pages with trailers, cast, and crew info
+- **🆕 Torrent Dashboard**: Complete download management with search, progress, and settings
+- **🆕 Download Progress**: Real-time tracking on movie pages and dedicated dashboard
+- **🆕 Settings Panel**: Torrent configuration with Jackett integration
 
 ### 🎭 **Media Assets & TMDB Integration**
 - **Auto Thumbnails**: Generated from video content
@@ -88,13 +143,16 @@ Transform your media collection into a professional streaming platform! HomeFlix
 
 ## 🚀 Quick Installation
 
-### One-Command Setup
+### One-Command Setup (Version 2.0)
 ```bash
-# Clone and setup everything
+# Clone and setup everything including torrent system
 git clone <repository-url>
 cd homeflix
-chmod +x setup.sh start.sh
+chmod +x setup.sh start.sh setup-jackett.sh
 ./setup.sh
+
+# Optional: Setup torrent downloads (recommended)
+./setup-jackett.sh
 ```
 
 ### Manual Installation
@@ -104,18 +162,20 @@ chmod +x setup.sh start.sh
 - **Node.js 18+** - [Download here](https://nodejs.org/)
 - **FFmpeg** - For video processing
 - **Redis** - For caching (optional but recommended)
+- **🆕 Docker** - For Jackett torrent indexer (optional but recommended)
+- **🆕 Jackett** - Torrent indexer for download functionality
 
 #### System Dependencies
 ```bash
 # Ubuntu/Debian
 sudo apt update
-sudo apt install golang-go nodejs npm ffmpeg redis-server
+sudo apt install golang-go nodejs npm ffmpeg redis-server docker.io docker-compose
 
 # macOS (with Homebrew)
-brew install go node ffmpeg redis
+brew install go node ffmpeg redis docker docker-compose
 
 # Arch Linux
-sudo pacman -S go nodejs npm ffmpeg redis
+sudo pacman -S go nodejs npm ffmpeg redis docker docker-compose
 ```
 
 #### Project Setup
@@ -154,7 +214,64 @@ Place your movies and TV shows in `/media/azad/Movies1` (or update the path in t
 4. Use the search bar to discover new content from The Movie Database
 5. Browse to http://localhost:3008 and enjoy!
 
-## � TMnDB Search & Discovery
+### 🆕 5. Setup Torrent Downloads (Optional)
+```bash
+# Quick setup with Docker (recommended)
+./setup-jackett.sh
+
+# Then configure in HomeFlix:
+# 1. Go to Settings → Torrents
+# 2. Enter Jackett URL: http://localhost:9117
+# 3. Get API key from Jackett dashboard
+# 4. Configure download preferences
+# 5. Start downloading movies with one click!
+```
+
+**See [Complete Torrent Setup Guide](documentation/COMPLETE_TORRENT_SETUP_GUIDE.md) for detailed instructions.**
+
+## 🎬 **NEW: Torrent Download System**
+
+### One-Click Downloads from Movie Pages
+HomeFlix 2.0 introduces seamless torrent downloads directly from TMDB movie pages:
+
+- **Red Download Button**: Appears on every movie page for instant downloads
+- **Automatic Search**: Finds best torrents from multiple sources automatically
+- **Smart Selection**: Picks highest quality with most seeders
+- **Real-time Progress**: Live updates with speed, ETA, and completion percentage
+- **Instant Integration**: Downloaded movies appear in your library immediately
+
+### Professional Torrent Dashboard
+Access via Settings → Torrents for complete download management:
+
+- **Search Tab**: Browse torrents from 600+ sites with quality filtering
+- **Downloads Tab**: Monitor active downloads with pause/resume/delete controls
+- **Settings Tab**: Configure Jackett, download paths, and quality preferences
+
+### Jackett Integration
+Powered by Jackett for reliable torrent searching:
+
+- **Multi-Source**: Searches 1337x, YTS, EZTV, TorrentGalaxy, and more
+- **Cloudflare Bypass**: Professional indexer handles site protection
+- **Quality Filtering**: Filter by 4K, 1080p, 720p, 480p
+- **Seeder Sorting**: Automatically picks torrents with most seeders
+
+### Download Management Features
+- **Progress Tracking**: Real-time speed, ETA, and completion status
+- **Queue Management**: Pause, resume, and delete downloads
+- **Automatic Cleanup**: Removes completed torrents and manages files
+- **Error Recovery**: Robust handling of network issues and failures
+- **Mobile Support**: Full torrent management on mobile devices
+
+### Setup Options
+1. **Demo Mode**: Works immediately with mock data for testing
+2. **Docker Setup**: One-command Jackett installation with `./setup-jackett.sh`
+3. **Native Setup**: Manual Jackett installation for advanced users
+
+**See [Complete Setup Guide](documentation/COMPLETE_TORRENT_SETUP_GUIDE.md) for detailed instructions.**
+
+---
+
+## 🔍 TMDB Search & Discovery
 
 ### Smart Search Bar
 HomeFlix features an intelligent search system that provides:
@@ -222,6 +339,11 @@ homeflix/
 - **TMDB API Integration**: Seamless integration with The Movie Database
 - **Hybrid Content**: Mix local media with online TMDB content discovery
 - **Smart Caching**: Efficient caching of TMDB data for better performance
+- **🆕 Torrent Management**: Complete download system with pause/resume/delete
+- **🆕 Multi-Source Search**: Jackett integration with 600+ torrent sites
+- **🆕 Quality Control**: Automatic quality selection and seeder filtering
+- **🆕 Progress Tracking**: Real-time download statistics and ETA
+- **🆕 Automatic Integration**: Downloaded content instantly available in library
 
 ## 📱 Supported Formats
 - **Video**: MP4, MKV, AVI, MOV, WMV, FLV
@@ -234,13 +356,25 @@ homeflix/
 - **Hybrid Approach**: Local media works offline, TMDB features require connection
 - **Privacy First**: No personal data tracking or collection
 - **Secure API Usage**: TMDB integration follows best security practices
+- **🆕 Torrent Privacy**: Optional VPN integration and proxy support
+- **🆕 Legal Compliance**: Built-in reminders for legal content only
+- **🆕 Local Processing**: All torrent management happens on your device
 
 ## 📞 Support
 - Check the logs in `homeflix.log` for troubleshooting
 - Ensure all dependencies are installed correctly
 - Verify your media directory permissions
 - Make sure ports 3008 and 8252 are available
+- **🆕 Torrent Issues**: See [Torrent Setup Guide](documentation/COMPLETE_TORRENT_SETUP_GUIDE.md) for troubleshooting
+
+## 📚 Documentation
+- **[Complete Torrent Setup Guide](documentation/COMPLETE_TORRENT_SETUP_GUIDE.md)** - Detailed torrent system setup
+- **[Jackett Integration Guide](documentation/JACKETT_INTEGRATION_GUIDE.md)** - Jackett configuration and indexers
+- **[Torrent Implementation Summary](documentation/TORRENT_IMPLEMENTATION_SUMMARY.md)** - Technical details and architecture
+- **[Media Paths System](documentation/MEDIA_PATHS_SYSTEM.md)** - File organization and paths
 
 ---
 
-**Enjoy your personal Netflix experience! 🍿**
+**Enjoy your personal Netflix experience with one-click downloads! 🍿🎬**
+
+*Version 2.0 brings professional torrent downloads directly to your HomeFlix experience - discover, download, and watch all in one place!*
