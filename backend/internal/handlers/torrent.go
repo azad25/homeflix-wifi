@@ -108,7 +108,6 @@ func NewTorrentHandler(db *gorm.DB, mediaScanner MediaScannerInterface) *Torrent
 func (h *TorrentHandler) SearchTorrents(c *gin.Context) {
 	mediaType := c.Query("type") // movie or tv
 	title := c.Query("title")
-	year := c.Query("year")
 	season := c.Query("season")
 	episode := c.Query("episode")
 	quality := c.Query("quality")
@@ -136,8 +135,9 @@ func (h *TorrentHandler) SearchTorrents(c *gin.Context) {
 		episodeNum, _ := strconv.Atoi(episode)
 		results, err = searcher.SearchTVShow(title, seasonNum, episodeNum, quality)
 	} else {
-		yearNum, _ := strconv.Atoi(year)
-		results, err = searcher.SearchMovie(title, yearNum, quality)
+		// For movies, don't use year to improve search results
+		// Many torrent sites have inconsistent year handling
+		results, err = searcher.SearchMovie(title, 0, quality)
 	}
 
 	if err != nil {
@@ -537,8 +537,8 @@ func (h *TorrentHandler) TestConnection(c *gin.Context) {
 	// Test the connection using the searcher
 	searcher := torrent.NewTorrentSearcher(config.JackettURL, config.JackettAPIKey, config.MinSeeders)
 	
-	// Try a simple test search
-	results, err := searcher.SearchMovie("test", 2023, "")
+	// Try a simple test search (without year for better compatibility)
+	results, err := searcher.SearchMovie("test", 0, "")
 	if err != nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{
 			"error": fmt.Sprintf("Jackett connection failed: %v", err),

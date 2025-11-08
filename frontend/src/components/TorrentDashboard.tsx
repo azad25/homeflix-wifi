@@ -77,7 +77,6 @@ interface TorrentConfig {
 interface MediaInfo {
   tmdb_id: number;
   title: string;
-  year: number;
   media_type: 'movie' | 'tv';
 }
 
@@ -117,9 +116,8 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
 
     // Auto-search if media info is provided
     if (mediaInfo) {
-      const query = mediaInfo.media_type === 'movie'
-        ? `${mediaInfo.title} ${mediaInfo.year}`
-        : mediaInfo.title;
+      // Use only title for both movies and TV series to improve search results
+      const query = mediaInfo.title;
       setSearchQuery(query);
       searchTorrents(query);
     }
@@ -183,7 +181,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
       const params = new URLSearchParams({
         title: searchTerm,
         type: mediaInfo?.media_type || 'movie',
-        ...(mediaInfo?.year && { year: mediaInfo.year.toString() }),
+        // Remove year parameter to improve TV series search results
         ...(qualityFilter && { quality: qualityFilter })
       });
 
@@ -225,7 +223,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
         body: JSON.stringify({
           magnet_uri: result.magnet_uri,
           tmdb_id: mediaInfo?.tmdb_id,
-          media_type: mediaInfo?.media_type,
+          media_type: mediaInfo?.media_type || 'movie',
           title: result.title,
           quality: result.quality
         })
@@ -455,8 +453,15 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
 
         {mediaInfo && (
           <div className="text-sm text-gray-400">
-            Searching for: <span className="text-white font-medium">{mediaInfo.title}</span>
-            {mediaInfo.year && <span> ({mediaInfo.year})</span>}
+            <div>
+              Searching for: <span className="text-white font-medium">{mediaInfo.title}</span>
+              <span className="ml-2 text-blue-400">({mediaInfo.media_type === 'tv' ? 'TV Series' : 'Movie'})</span>
+            </div>
+            <div className="text-xs mt-1 text-green-400">
+              ✨ {mediaInfo.media_type === 'tv' 
+                ? 'TV series search includes all seasons automatically for comprehensive results'
+                : 'Movie search optimized for better results (year removed)'}
+            </div>
           </div>
         )}
       </div>
@@ -510,10 +515,17 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search for movies or TV shows..."
+                  placeholder={mediaInfo?.media_type === 'tv' 
+                    ? "Search for TV series... (will search all seasons automatically)" 
+                    : "Search for movies or TV shows... (edit to customize search)"}
                   className="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-red-500"
                   onKeyPress={(e) => e.key === 'Enter' && searchTorrents()}
                 />
+                <p className="text-xs text-gray-400 mt-1">
+                  💡 Tip: {mediaInfo?.media_type === 'tv' 
+                    ? 'TV series searches now include all seasons automatically for better results'
+                    : 'You can manually edit the search term above for better results'}
+                </p>
               </div>
               <select
                 value={qualityFilter}
@@ -528,12 +540,26 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
               </select>
               <button
                 onClick={() => searchTorrents()}
-                disabled={searchLoading}
-                className="px-6 py-2 bg-red-600 hover:bg-red-700 disabled:bg-gray-600 text-white rounded-lg font-medium transition-colors flex items-center gap-2"
+                disabled={searchLoading || !searchQuery.trim()}
+                className="px-6 py-2 bg-red-600 hover:bg-red-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded-lg font-medium transition-colors flex items-center gap-2"
               >
                 {searchLoading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
                 Search
               </button>
+              
+              {searchQuery && (
+                <button
+                  onClick={() => {
+                    setSearchQuery('');
+                    setSearchResults([]);
+                    setError(null);
+                  }}
+                  className="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg font-medium transition-colors flex items-center gap-2"
+                >
+                  <X className="w-4 h-4" />
+                  Clear
+                </button>
+              )}
             </div>
 
             {/* Search Results */}
@@ -592,7 +618,28 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
                 <div className="text-center py-12 text-gray-400">
                   <Search className="w-12 h-12 mx-auto mb-4 opacity-50" />
                   <p>No torrents found for "{searchQuery}"</p>
-                  <p className="text-sm mt-2">Try adjusting your search terms or quality filter</p>
+                  <div className="text-sm mt-4 space-y-2">
+                    <p>💡 Try these search tips:</p>
+                    <ul className="text-left max-w-md mx-auto space-y-1">
+                      {mediaInfo?.media_type === 'tv' ? (
+                        <>
+                          <li>• Search automatically includes all seasons</li>
+                          <li>• Try just the series name without year</li>
+                          <li>• Use simpler search terms</li>
+                          <li>• Try different quality filters</li>
+                          <li>• Check if Jackett is configured in Settings</li>
+                        </>
+                      ) : (
+                        <>
+                          <li>• Remove year from movie titles</li>
+                          <li>• Use simpler search terms</li>
+                          <li>• Try different quality filters</li>
+                          <li>• For TV shows, try just the series name</li>
+                          <li>• Check if Jackett is configured in Settings</li>
+                        </>
+                      )}
+                    </ul>
+                  </div>
                 </div>
               )}
             </div>

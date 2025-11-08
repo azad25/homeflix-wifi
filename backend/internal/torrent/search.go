@@ -50,7 +50,11 @@ func NewTorrentSearcher(jackettURL, apiKey string, minSeeders int) *TorrentSearc
 }
 
 func (ts *TorrentSearcher) SearchMovie(title string, year int, quality string) ([]SearchResult, error) {
-	query := fmt.Sprintf("%s %d", title, year)
+	query := title
+	// Only add year if it's provided and valid
+	if year > 0 {
+		query = fmt.Sprintf("%s %d", title, year)
+	}
 	if quality != "" {
 		query += " " + quality
 	}
@@ -59,18 +63,67 @@ func (ts *TorrentSearcher) SearchMovie(title string, year int, quality string) (
 }
 
 func (ts *TorrentSearcher) SearchTVShow(title string, season, episode int, quality string) ([]SearchResult, error) {
-	var query string
-	if episode > 0 {
-		query = fmt.Sprintf("%s S%02dE%02d", title, season, episode)
+	var queries []string
+	
+	if episode > 0 && season > 0 {
+		// Search for specific episode
+		queries = append(queries, fmt.Sprintf("%s S%02dE%02d", title, season, episode))
+	} else if season > 0 {
+		// Search for specific season
+		queries = append(queries, fmt.Sprintf("%s Season %d", title, season))
+		queries = append(queries, fmt.Sprintf("%s S%02d", title, season))
 	} else {
-		query = fmt.Sprintf("%s Season %d", title, season)
+		// If no season/episode specified, search for multiple seasons to get better results
+		queries = append(queries, title) // Base title search
+		// Add common season searches to improve results
+		for i := 1; i <= 10; i++ {
+			queries = append(queries, fmt.Sprintf("%s Season %d", title, i))
+			queries = append(queries, fmt.Sprintf("%s S%02d", title, i))
+		}
+		// Also try complete series searches
+		queries = append(queries, fmt.Sprintf("%s Complete", title))
+		queries = append(queries, fmt.Sprintf("%s All Seasons", title))
 	}
 	
-	if quality != "" {
-		query += " " + quality
+	// Collect results from all queries
+	var allResults []SearchResult
+	seenMagnets := make(map[string]bool)
+	
+	for _, query := range queries {
+		if quality != "" {
+			query += " " + quality
+		}
+		
+		results, err := ts.search(query, "tv")
+		if err != nil {
+			continue // Skip failed queries, try others
+		}
+		
+		// Deduplicate results by magnet URI
+		for _, result := range results {
+			if !seenMagnets[result.MagnetURI] {
+				seenMagnets[result.MagnetURI] = true
+				allResults = append(allResults, result)
+			}
+		}
+		
+		// Limit total results to avoid too many
+		if len(allResults) >= 100 {
+			break
+		}
 	}
 	
-	return ts.search(query, "tv")
+	// Sort by seeders (highest first)
+	sort.Slice(allResults, func(i, j int) bool {
+		return allResults[i].Seeders > allResults[j].Seeders
+	})
+	
+	// Return top 50 results
+	if len(allResults) > 50 {
+		allResults = allResults[:50]
+	}
+	
+	return allResults, nil
 }
 
 func (ts *TorrentSearcher) search(query, category string) ([]SearchResult, error) {
@@ -90,7 +143,9 @@ func (ts *TorrentSearcher) searchJackett(query string) ([]SearchResult, error) {
 	params := url.Values{}
 	params.Set("apikey", ts.jackettAPIKey)
 	params.Set("Query", query)
-	params.Set("Category[]", "2000") // Movies category
+	// Search both movies (2000) and TV (5000) categories for better results
+	params.Add("Category[]", "2000") // Movies
+	params.Add("Category[]", "5000") // TV
 	params.Set("Limit", "100") // Increase result limit
 	
 	fullURL := fmt.Sprintf("%s?%s", u, params.Encode())

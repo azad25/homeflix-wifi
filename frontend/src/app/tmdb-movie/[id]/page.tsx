@@ -570,7 +570,7 @@ const TMDBMoviePage: React.FC = () => {
 
   // Alternative placeholder component for when SVG fails
   const PlaceholderDiv: React.FC<{ className: string; alt: string }> = ({ className, alt }) => (
-    <div 
+    <div
       className={`${className} bg-gray-700 flex items-center justify-center`}
       title={alt}
       role="img"
@@ -586,7 +586,7 @@ const TMDBMoviePage: React.FC = () => {
   const handleImageError = (e: React.SyntheticEvent<HTMLImageElement>) => {
     const target = e.target as HTMLImageElement;
     const placeholderSrc = getPlaceholderAvatar();
-    
+
     // Prevent infinite loops and only set placeholder if not already set
     if (target.src !== placeholderSrc && !target.src.includes('data:image/svg+xml')) {
       console.log('Image failed to load, using placeholder:', target.src);
@@ -759,13 +759,13 @@ const TMDBMoviePage: React.FC = () => {
       if (response.ok) {
         const data = await response.json();
         const downloads = data.downloads || [];
-        
+
         // Check if this movie is being downloaded
-        const movieDownload = downloads.find((download: any) => 
-          download.tmdb_id === parseInt(movieId) && 
+        const movieDownload = downloads.find((download: any) =>
+          download.tmdb_id === parseInt(movieId) &&
           download.media_type === (mediaDetails?.media_type || 'movie')
         );
-        
+
         if (movieDownload) {
           const isActivelyDownloading = movieDownload.status === 'downloading';
           setDownloadStatus({
@@ -798,15 +798,15 @@ const TMDBMoviePage: React.FC = () => {
     const mediaInfo = {
       tmdb_id: mediaDetails?.id,
       title: mediaDetails?.title,
-      year: new Date(mediaDetails?.release_date || '').getFullYear(),
+      // Remove year from search to improve TV series results
       media_type: mediaDetails?.media_type || 'movie'
     };
-    
+
     const params = new URLSearchParams({
       tab: 'torrent',
       media: JSON.stringify(mediaInfo)
     });
-    
+
     router.push(`/settings?${params.toString()}`);
 
     // Commented out auto-download functionality - user should manually select torrents
@@ -1113,13 +1113,12 @@ const TMDBMoviePage: React.FC = () => {
               <div className="flex flex-wrap gap-2 pt-2">
                 <button
                   onClick={handleDownload}
-                  className={`flex items-center gap-1 px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-300 hover:scale-105 ${
-                    downloadStatus.isDownloading
-                      ? 'bg-green-600/90 hover:bg-green-700'
-                      : downloadStatus.status === 'completed'
+                  className={`flex items-center gap-1 px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-300 hover:scale-105 ${downloadStatus.isDownloading
+                    ? 'bg-green-600/90 hover:bg-green-700'
+                    : downloadStatus.status === 'completed'
                       ? 'bg-blue-600/90 hover:bg-blue-700'
                       : 'bg-red-600/90 hover:bg-red-700'
-                  }`}
+                    }`}
                   disabled={downloadStatus.status === 'completed'}
                 >
                   {downloadStatus.status === 'completed' ? (
@@ -1139,17 +1138,17 @@ const TMDBMoviePage: React.FC = () => {
                     </>
                   )}
                 </button>
-                
+
                 {/* Download Progress Bar */}
                 {downloadStatus.isDownloading && downloadStatus.progress > 0 && (
                   <div className="w-full bg-gray-800/50 rounded-full h-2 mt-2">
-                    <div 
+                    <div
                       className="bg-green-500 h-2 rounded-full transition-all duration-300"
                       style={{ width: `${downloadStatus.progress}%` }}
                     />
                   </div>
                 )}
-                
+
                 <button
                   onClick={toggleMyList}
                   className="flex items-center gap-1 px-4 py-2 bg-gray-800/80 hover:bg-gray-700 rounded-lg text-sm font-semibold transition-all duration-300 hover:scale-105"
