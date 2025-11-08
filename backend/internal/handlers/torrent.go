@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"homeflix-backend/internal/models"
+	"homeflix-backend/internal/services"
 	"homeflix-backend/internal/torrent"
 
 	"github.com/gin-gonic/gin"
@@ -43,6 +44,19 @@ func NewTorrentHandler(db *gorm.DB, mediaScanner MediaScannerInterface) *Torrent
 			EnabledSources:     "1337x,YTS,TPB,RARBG",
 			UseProxy:           false,
 			ProxyURL:           "",
+			// Arr integration defaults
+			SonarrEnabled:      false,
+			SonarrURL:          "http://localhost:8989",
+			SonarrAPIKey:       "7b3e079669c74d6daad92059ac399d5c",
+			SonarrUsername:     "azad",
+			SonarrPassword:     "azad",
+			RadarrEnabled:      false,
+			RadarrURL:          "http://localhost:7878",
+			RadarrAPIKey:       "9242d5e4ad414d96ac58b44f1e018c13",
+			RadarrUsername:     "azad",
+			RadarrPassword:     "azad",
+			UseArrForSearch:    true,
+			ArrPriority:        "both",
 			// High-performance defaults for fast downloads
 			MaxPeerConnections: 500,
 			MaxPeerAccepts:     200,
@@ -94,8 +108,33 @@ func NewTorrentHandler(db *gorm.DB, mediaScanner MediaScannerInterface) *Torrent
 		}
 	}
 
-	// Initialize searcher
-	searcher := torrent.NewTorrentSearcher("", "", config.MinSeeders)
+	// Initialize Arr services
+	var sonarrService *services.SonarrService
+	var radarrService *services.RadarrService
+	
+	if config.SonarrEnabled {
+		sonarrService = services.NewSonarrService(
+			config.SonarrURL,
+			config.SonarrAPIKey,
+			config.SonarrUsername,
+			config.SonarrPassword,
+		)
+	}
+	
+	if config.RadarrEnabled {
+		radarrService = services.NewRadarrService(
+			config.RadarrURL,
+			config.RadarrAPIKey,
+			config.RadarrUsername,
+			config.RadarrPassword,
+		)
+	}
+
+	// Initialize searcher with Arr services
+	searcher := torrent.NewTorrentSearcherWithArr(
+		"", "", config.MinSeeders,
+		sonarrService, radarrService, config.UseArrForSearch,
+	)
 
 	return &TorrentHandler{
 		db:       db,
@@ -125,15 +164,49 @@ func (h *TorrentHandler) SearchTorrents(c *gin.Context) {
 		return
 	}
 
-	// Create searcher with current config
-	searcher := torrent.NewTorrentSearcher(config.JackettURL, config.JackettAPIKey, config.MinSeeders)
+	// Create Arr services with current config
+	var sonarrService *services.SonarrService
+	var radarrService *services.RadarrService
+	
+	if config.SonarrEnabled {
+		sonarrService = services.NewSonarrService(
+			config.SonarrURL,
+			config.SonarrAPIKey,
+			config.SonarrUsername,
+			config.SonarrPassword,
+		)
+	}
+	
+	if config.RadarrEnabled {
+		radarrService = services.NewRadarrService(
+			config.RadarrURL,
+			config.RadarrAPIKey,
+			config.RadarrUsername,
+			config.RadarrPassword,
+		)
+	}
+
+	// Create searcher with current config and Arr services
+	searcher := torrent.NewTorrentSearcherWithArr(
+		config.JackettURL, config.JackettAPIKey, config.MinSeeders,
+		sonarrService, radarrService, config.UseArrForSearch,
+	)
 
 	var results []torrent.SearchResult
 	var err error
 
 	if mediaType == "tv" {
-		seasonNum, _ := strconv.Atoi(season)
-		episodeNum, _ := strconv.Atoi(episode)
+		seasonNum := 0
+		episodeNum := 0
+		
+		// Parse season and episode if provided
+		if season != "" {
+			seasonNum, _ = strconv.Atoi(season)
+		}
+		if episode != "" {
+			episodeNum, _ = strconv.Atoi(episode)
+		}
+		
 		results, err = searcher.SearchTVShow(title, seasonNum, episodeNum, quality)
 	} else {
 		yearNum, _ := strconv.Atoi(year)
@@ -505,6 +578,20 @@ func (h *TorrentHandler) UpdateConfig(c *gin.Context) {
 	config.MaxDownloads = req.MaxDownloads
 	config.AutoDownload = req.AutoDownload
 	config.PreferredQuality = req.PreferredQuality
+	
+	// Update Arr integration fields
+	config.SonarrEnabled = req.SonarrEnabled
+	config.SonarrURL = req.SonarrURL
+	config.SonarrAPIKey = req.SonarrAPIKey
+	config.SonarrUsername = req.SonarrUsername
+	config.SonarrPassword = req.SonarrPassword
+	config.RadarrEnabled = req.RadarrEnabled
+	config.RadarrURL = req.RadarrURL
+	config.RadarrAPIKey = req.RadarrAPIKey
+	config.RadarrUsername = req.RadarrUsername
+	config.RadarrPassword = req.RadarrPassword
+	config.UseArrForSearch = req.UseArrForSearch
+	config.ArrPriority = req.ArrPriority
 
 	if err := h.db.Save(&config).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update config"})

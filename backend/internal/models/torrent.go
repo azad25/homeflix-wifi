@@ -37,6 +37,24 @@ type TorrentConfig struct {
 	UseProxy        bool   `json:"use_proxy" gorm:"default:false"`
 	ProxyURL        string `json:"proxy_url"`
 	
+	// Sonarr Integration
+	SonarrEnabled   bool   `json:"sonarr_enabled" gorm:"default:false"`
+	SonarrURL       string `json:"sonarr_url" gorm:"default:'http://localhost:8989'"`
+	SonarrAPIKey    string `json:"sonarr_api_key"`
+	SonarrUsername  string `json:"sonarr_username" gorm:"default:'azad'"`
+	SonarrPassword  string `json:"sonarr_password" gorm:"default:'azad'"`
+	
+	// Radarr Integration
+	RadarrEnabled   bool   `json:"radarr_enabled" gorm:"default:false"`
+	RadarrURL       string `json:"radarr_url" gorm:"default:'http://localhost:7878'"`
+	RadarrAPIKey    string `json:"radarr_api_key"`
+	RadarrUsername  string `json:"radarr_username" gorm:"default:'azad'"`
+	RadarrPassword  string `json:"radarr_password" gorm:"default:'azad'"`
+	
+	// Arr Search Settings
+	UseArrForSearch bool   `json:"use_arr_for_search" gorm:"default:true"`
+	ArrPriority     string `json:"arr_priority" gorm:"default:'both'"` // "sonarr", "radarr", "both"
+	
 	// Performance settings for high-speed downloads
 	MaxPeerConnections int `json:"max_peer_connections" gorm:"default:500"`  // Max peers to connect to
 	MaxPeerAccepts     int `json:"max_peer_accepts" gorm:"default:200"`      // Max incoming peer connections

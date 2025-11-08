@@ -7,18 +7,26 @@ import (
 	"net/url"
 	"sort"
 	"strings"
+	
+	"homeflix-backend/internal/services"
 )
 
 type SearchResult struct {
-	Title     string `json:"title"`
-	MagnetURI string `json:"magnet_uri"`
-	Seeders   int    `json:"seeders"`
-	Leechers  int    `json:"leechers"`
-	Size      string `json:"size"`
-	Quality   string `json:"quality"`
-	Source    string `json:"source"`
-	Category  string `json:"category"`
-	Verified  bool   `json:"verified"`
+	Title          string   `json:"title"`
+	MagnetURI      string   `json:"magnet_uri"`
+	Seeders        int      `json:"seeders"`
+	Leechers       int      `json:"leechers"`
+	Size           string   `json:"size"`
+	Quality        string   `json:"quality"`
+	Source         string   `json:"source"`
+	Category       string   `json:"category"`
+	Verified       bool     `json:"verified"`
+	// New fields for Arr integration
+	ReleaseGroup   string   `json:"release_group"`
+	Languages      []string `json:"languages"`
+	ArrScore       float64  `json:"arr_score"`    // Sonarr/Radarr quality score
+	IsPreferred    bool     `json:"is_preferred"` // Based on Arr preferences
+	SourceType     string   `json:"source_type"`  // "jackett", "sonarr", "radarr"
 }
 
 type JackettResult struct {
@@ -39,6 +47,10 @@ type TorrentSearcher struct {
 	jackettURL    string
 	jackettAPIKey string
 	minSeeders    int
+	// Arr services
+	sonarrService *services.SonarrService
+	radarrService *services.RadarrService
+	useArrSearch  bool
 }
 
 func NewTorrentSearcher(jackettURL, apiKey string, minSeeders int) *TorrentSearcher {
@@ -46,32 +58,100 @@ func NewTorrentSearcher(jackettURL, apiKey string, minSeeders int) *TorrentSearc
 		jackettURL:    jackettURL,
 		jackettAPIKey: apiKey,
 		minSeeders:    minSeeders,
+		useArrSearch:  false,
+	}
+}
+
+func NewTorrentSearcherWithArr(jackettURL, apiKey string, minSeeders int, sonarrService *services.SonarrService, radarrService *services.RadarrService, useArrSearch bool) *TorrentSearcher {
+	return &TorrentSearcher{
+		jackettURL:    jackettURL,
+		jackettAPIKey: apiKey,
+		minSeeders:    minSeeders,
+		sonarrService: sonarrService,
+		radarrService: radarrService,
+		useArrSearch:  useArrSearch,
 	}
 }
 
 func (ts *TorrentSearcher) SearchMovie(title string, year int, quality string) ([]SearchResult, error) {
-	query := fmt.Sprintf("%s %d", title, year)
+	var allResults []SearchResult
+	
+	// 1. Search via Jackett (existing)
+	var query string
+	if year > 0 {
+		query = fmt.Sprintf("%s %d", title, year)
+	} else {
+		query = title
+	}
+	
 	if quality != "" {
 		query += " " + quality
 	}
 	
-	return ts.search(query, "movie")
+	jackettResults, err := ts.search(query, "movie")
+	if err == nil {
+		// Mark Jackett results
+		for i := range jackettResults {
+			jackettResults[i].SourceType = "jackett"
+		}
+		allResults = append(allResults, jackettResults...)
+	}
+	
+	// 2. Search via Radarr (if enabled)
+	if ts.useArrSearch && ts.radarrService != nil {
+		radarrResults, err := ts.searchRadarr(title, year, quality)
+		if err == nil {
+			allResults = append(allResults, radarrResults...)
+		}
+	}
+	
+	// 3. Merge, deduplicate, and rank results
+	return ts.mergeAndRankResults(allResults), nil
 }
 
 func (ts *TorrentSearcher) SearchTVShow(title string, season, episode int, quality string) ([]SearchResult, error) {
+	var allResults []SearchResult
+	
+	// 1. Search via Jackett (existing)
 	var query string
+	
 	if episode > 0 {
+		// Search for specific episode
 		query = fmt.Sprintf("%s S%02dE%02d", title, season, episode)
+	} else if season > 0 {
+		// Search for specific season
+		query = fmt.Sprintf("%s S%02d", title, season)
 	} else {
-		query = fmt.Sprintf("%s Season %d", title, season)
+		// Search for entire series - just use title like movies
+		query = title
 	}
 	
 	if quality != "" {
 		query += " " + quality
 	}
 	
-	return ts.search(query, "tv")
+	jackettResults, err := ts.search(query, "tv")
+	if err == nil {
+		// Mark Jackett results
+		for i := range jackettResults {
+			jackettResults[i].SourceType = "jackett"
+		}
+		allResults = append(allResults, jackettResults...)
+	}
+	
+	// 2. Search via Sonarr (if enabled)
+	if ts.useArrSearch && ts.sonarrService != nil {
+		sonarrResults, err := ts.searchSonarr(title, 0, season, quality) // year=0 for TV shows
+		if err == nil {
+			allResults = append(allResults, sonarrResults...)
+		}
+	}
+	
+	// 3. Merge, deduplicate, and rank results
+	return ts.mergeAndRankResults(allResults), nil
 }
+
+
 
 func (ts *TorrentSearcher) search(query, category string) ([]SearchResult, error) {
 	// Use Jackett if configured, otherwise fallback to demo
@@ -275,4 +355,146 @@ func formatSize(bytes int64) string {
 	}
 	
 	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
+}
+
+// searchRadarr searches for movie releases via Radarr
+func (ts *TorrentSearcher) searchRadarr(title string, year int, quality string) ([]SearchResult, error) {
+	releases, err := ts.radarrService.SearchReleases(title, year)
+	if err != nil {
+		return nil, err
+	}
+	
+	var results []SearchResult
+	for _, release := range releases {
+		if release.MagnetUrl == "" {
+			continue
+		}
+		
+		// Apply minimum seeders filter
+		if release.Seeders < ts.minSeeders {
+			continue
+		}
+		
+		result := SearchResult{
+			Title:          release.Title,
+			MagnetURI:      release.MagnetUrl,
+			Seeders:        release.Seeders,
+			Leechers:       release.Leechers,
+			Size:           formatSize(release.Size),
+			Quality:        extractQualityFromTitle(release.Title),
+			Source:         release.Indexer,
+			Category:       "Movies",
+			Verified:       release.Seeders > 10,
+			ReleaseGroup:   release.ReleaseGroup,
+			Languages:      release.Languages,
+			ArrScore:       float64(release.QualityWeight + release.PreferredWordScore),
+			IsPreferred:    release.PreferredWordScore > 0,
+			SourceType:     "radarr",
+		}
+		results = append(results, result)
+	}
+	
+	return results, nil
+}
+
+// searchSonarr searches for TV show releases via Sonarr
+func (ts *TorrentSearcher) searchSonarr(title string, year, season int, quality string) ([]SearchResult, error) {
+	releases, err := ts.sonarrService.SearchReleases(title, year, season)
+	if err != nil {
+		return nil, err
+	}
+	
+	var results []SearchResult
+	for _, release := range releases {
+		if release.MagnetUrl == "" {
+			continue
+		}
+		
+		// Apply minimum seeders filter
+		if release.Seeders < ts.minSeeders {
+			continue
+		}
+		
+		result := SearchResult{
+			Title:          release.Title,
+			MagnetURI:      release.MagnetUrl,
+			Seeders:        release.Seeders,
+			Leechers:       release.Leechers,
+			Size:           formatSize(release.Size),
+			Quality:        extractQualityFromTitle(release.Title),
+			Source:         release.Indexer,
+			Category:       "TV Shows",
+			Verified:       release.Seeders > 10,
+			ReleaseGroup:   release.ReleaseGroup,
+			Languages:      release.Languages,
+			ArrScore:       float64(release.QualityWeight + release.PreferredWordScore),
+			IsPreferred:    release.PreferredWordScore > 0,
+			SourceType:     "sonarr",
+		}
+		results = append(results, result)
+	}
+	
+	return results, nil
+}
+
+// mergeAndRankResults combines results from different sources and ranks them
+func (ts *TorrentSearcher) mergeAndRankResults(results []SearchResult) []SearchResult {
+	// Deduplicate by magnet URI
+	seen := make(map[string]bool)
+	var unique []SearchResult
+	
+	for _, result := range results {
+		if !seen[result.MagnetURI] {
+			seen[result.MagnetURI] = true
+			unique = append(unique, result)
+		}
+	}
+	
+	// Sort by: 1. Arr score (if available), 2. Seeders, 3. Preferred status
+	sort.Slice(unique, func(i, j int) bool {
+		a, b := unique[i], unique[j]
+		
+		// Prioritize preferred releases
+		if a.IsPreferred != b.IsPreferred {
+			return a.IsPreferred
+		}
+		
+		// Then by Arr score (higher is better)
+		if a.ArrScore != b.ArrScore {
+			return a.ArrScore > b.ArrScore
+		}
+		
+		// Finally by seeders (higher is better)
+		return a.Seeders > b.Seeders
+	})
+	
+	return unique
+}
+
+// extractQualityFromTitle extracts quality from title (enhanced version)
+func extractQualityFromTitle(title string) string {
+	title = strings.ToUpper(title)
+	
+	qualities := []string{"2160P", "4K", "1080P", "720P", "480P", "360P"}
+	for _, quality := range qualities {
+		if strings.Contains(title, quality) {
+			return quality
+		}
+	}
+	
+	// Check for common quality indicators
+	if strings.Contains(title, "BLURAY") || strings.Contains(title, "BDR") {
+		return "BluRay"
+	}
+	if strings.Contains(title, "WEBRIP") || strings.Contains(title, "WEB-DL") {
+		return "WebRip"
+	}
+	if strings.Contains(title, "HDTV") {
+		return "HDTV"
+	}
+	if strings.Contains(title, "CAM") || strings.Contains(title, "TS") {
+		return "CAM"
+	}
+	
+	return "Unknown"
 }

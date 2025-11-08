@@ -35,6 +35,12 @@ interface TorrentResult {
   source: string;
   category: string;
   verified: boolean;
+  // New fields for Arr integration
+  release_group?: string;
+  languages?: string[];
+  arr_score?: number;
+  is_preferred?: boolean;
+  source_type?: string; // "jackett", "sonarr", "radarr"
 }
 
 interface DownloadInfo {
@@ -66,6 +72,21 @@ interface TorrentConfig {
   enabled_sources: string;
   use_proxy: boolean;
   proxy_url: string;
+  // Sonarr Integration
+  sonarr_enabled: boolean;
+  sonarr_url: string;
+  sonarr_api_key: string;
+  sonarr_username: string;
+  sonarr_password: string;
+  // Radarr Integration
+  radarr_enabled: boolean;
+  radarr_url: string;
+  radarr_api_key: string;
+  radarr_username: string;
+  radarr_password: string;
+  // Arr Search Settings
+  use_arr_for_search: boolean;
+  arr_priority: string;
   // Performance settings
   max_peer_connections: number;
   max_peer_accepts: number;
@@ -95,7 +116,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [qualityFilter, setQualityFilter] = useState('');
-  
+
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
@@ -117,9 +138,8 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
 
     // Auto-search if media info is provided
     if (mediaInfo) {
-      const query = mediaInfo.media_type === 'movie'
-        ? `${mediaInfo.title} ${mediaInfo.year}`
-        : mediaInfo.title;
+      // Use only the title for both movies and TV shows - user can manually add year if needed
+      const query = mediaInfo.title;
       setSearchQuery(query);
       searchTorrents(query);
     }
@@ -151,12 +171,12 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
         ...(search && { search }),
         ...(status && { status })
       });
-      
+
       const response = await fetch(`${apiUrl}/api/torrent/downloads?${params}`);
       if (response.ok) {
         const data = await response.json();
         setDownloads(data.downloads || []);
-        
+
         // Update pagination state
         if (data.pagination) {
           setCurrentPage(data.pagination.current_page);
@@ -182,10 +202,15 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
       const apiUrl = getApiUrl();
       const params = new URLSearchParams({
         title: searchTerm,
-        type: mediaInfo?.media_type || 'movie',
-        ...(mediaInfo?.year && { year: mediaInfo.year.toString() }),
-        ...(qualityFilter && { quality: qualityFilter })
+        type: mediaInfo?.media_type || 'movie'
       });
+
+      // Only add quality filter if specified
+      if (qualityFilter) {
+        params.set('quality', qualityFilter);
+      }
+
+      // Don't add season parameter - let TV shows search with just title like movies
 
       const response = await fetch(`${apiUrl}/api/torrent/search?${params}`);
 
@@ -305,7 +330,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
 
     try {
       const apiUrl = getApiUrl();
-      const response = await fetch(`${apiUrl}/api/torrent/downloads/${id}`, { 
+      const response = await fetch(`${apiUrl}/api/torrent/downloads/${id}`, {
         method: 'DELETE',
         headers: {
           'Content-Type': 'application/json'
@@ -317,7 +342,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
         alert(`✅ Successfully deleted "${name}" and all associated files`);
       } else {
         const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
-        
+
         // If it's a "not found" error, it means it was already deleted somehow
         if (response.status === 404 || errorData.error?.includes('not found')) {
           alert(`⚠️ "${name}" was already removed or not found. Cleaning up from list.`);
@@ -325,14 +350,14 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
           throw new Error(errorData.error || `Failed to delete download (${response.status})`);
         }
       }
-      
+
       // Always refresh the downloads list, even if there was an error
       fetchDownloads(currentPage);
-      
+
     } catch (err) {
       console.error('Failed to remove download:', err);
       alert(`❌ Failed to delete "${name}": ${err instanceof Error ? err.message : 'Unknown error'}`);
-      
+
       // Still refresh the list in case the backend partially cleaned up
       fetchDownloads(currentPage);
     }
@@ -372,7 +397,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
     try {
       // First save the current config so the backend can test it
       await updateConfig(config);
-      
+
       // Then test the connection via backend
       const apiUrl = getApiUrl();
       const response = await fetch(`${apiUrl}/api/torrent/test-connection`, {
@@ -384,9 +409,9 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
 
       if (response.ok && data.success) {
         alert(`✅ Jackett connection successful!\n` +
-              `URL: ${data.jackett_url}\n` +
-              `Test results: ${data.test_results} torrents found\n` +
-              `Status: ${data.message}`);
+          `URL: ${data.jackett_url}\n` +
+          `Test results: ${data.test_results} torrents found\n` +
+          `Status: ${data.message}`);
       } else {
         alert(`❌ Jackett connection failed:\n${data.error || 'Unknown error'}`);
       }
@@ -433,7 +458,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
   const getStatusText = (status: string, eta: string) => {
     switch (status) {
       case 'completed': return 'Completed';
-      case 'downloading': 
+      case 'downloading':
         if (eta === 'Resuming...' || eta === 'Connecting to peers...') {
           return eta;
         }
@@ -472,8 +497,8 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
             key={id}
             onClick={() => setActiveTab(id as any)}
             className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${activeTab === id
-                ? 'bg-red-600 text-white'
-                : 'text-gray-400 hover:text-white hover:bg-gray-700'
+              ? 'bg-red-600 text-white'
+              : 'text-gray-400 hover:text-white hover:bg-gray-700'
               }`}
           >
             <Icon className="w-4 h-4" />
@@ -553,7 +578,20 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
                         {result.verified && (
                           <span className="bg-green-600 text-white text-xs px-2 py-1 rounded-full">Verified</span>
                         )}
+                        {result.is_preferred && (
+                          <span className="bg-yellow-600 text-white text-xs px-2 py-1 rounded-full">⭐ Preferred</span>
+                        )}
                         <span className="bg-blue-600 text-white text-xs px-2 py-1 rounded-full">{result.quality}</span>
+                        {result.source_type && (
+                          <span className={`text-white text-xs px-2 py-1 rounded-full ${result.source_type === 'radarr' ? 'bg-purple-600' :
+                            result.source_type === 'sonarr' ? 'bg-indigo-600' :
+                              'bg-gray-600'
+                            }`}>
+                            {result.source_type === 'radarr' ? 'Radarr' :
+                              result.source_type === 'sonarr' ? 'Sonarr' :
+                                'Jackett'}
+                          </span>
+                        )}
                       </div>
 
                       <div className="flex items-center gap-4 text-sm text-gray-400">
@@ -708,7 +746,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
                 <div className="text-sm text-gray-400">
                   Showing {((currentPage - 1) * itemsPerPage) + 1}-{Math.min(currentPage * itemsPerPage, totalCount)} of {totalCount} downloads
                 </div>
-                
+
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => {
@@ -722,14 +760,14 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
                     <ChevronLeft className="w-4 h-4" />
                     Previous
                   </button>
-                  
+
                   <div className="flex items-center gap-1 px-3 py-2 bg-gray-800 text-gray-300 rounded text-sm">
                     <span>Page</span>
                     <span className="font-medium text-white">{currentPage}</span>
                     <span>of</span>
                     <span className="font-medium text-white">{totalPages}</span>
                   </div>
-                  
+
                   <button
                     onClick={() => {
                       const newPage = currentPage + 1;
@@ -756,6 +794,142 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
             exit={{ opacity: 0, y: -20 }}
             className="space-y-6"
           >
+            {/* Arr Integration Section */}
+            <div className="col-span-full mb-8">
+              <h3 className="text-lg font-medium text-white mb-4 flex items-center gap-2">
+                <Star className="w-5 h-5 text-yellow-400" />
+                Sonarr/Radarr Integration (Enhanced Search)
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 p-4 bg-gray-800 rounded-lg">
+                {/* Sonarr Configuration */}
+                <div className="space-y-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <input
+                      type="checkbox"
+                      id="sonarr_enabled"
+                      checked={config.sonarr_enabled || false}
+                      onChange={(e) => setConfig({ ...config, sonarr_enabled: e.target.checked })}
+                      className="w-4 h-4 text-red-600 bg-gray-800 border-gray-700 rounded focus:ring-red-500"
+                    />
+                    <label htmlFor="sonarr_enabled" className="text-sm font-medium text-white">
+                      Enable Sonarr (TV Shows)
+                    </label>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-300 mb-2">Sonarr URL</label>
+                    <input
+                      type="text"
+                      placeholder="http://localhost:8989"
+                      value={config.sonarr_url || ''}
+                      onChange={(e) => setConfig({ ...config, sonarr_url: e.target.value })}
+                      className="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:border-indigo-500"
+                      disabled={!config.sonarr_enabled}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-300 mb-2">Sonarr API Key</label>
+                    <input
+                      type="text"
+                      placeholder="7b3e079669c74d6daad92059ac399d5c"
+                      value={config.sonarr_api_key || ''}
+                      onChange={(e) => setConfig({ ...config, sonarr_api_key: e.target.value })}
+                      className="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:border-indigo-500"
+                      disabled={!config.sonarr_enabled}
+                    />
+                    <p className="text-xs text-gray-400 mt-1">Your Sonarr API key: 7b3e079669c74d6daad92059ac399d5c</p>
+                  </div>
+                </div>
+
+                {/* Radarr Configuration */}
+                <div className="space-y-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <input
+                      type="checkbox"
+                      id="radarr_enabled"
+                      checked={config.radarr_enabled || false}
+                      onChange={(e) => setConfig({ ...config, radarr_enabled: e.target.checked })}
+                      className="w-4 h-4 text-red-600 bg-gray-800 border-gray-700 rounded focus:ring-red-500"
+                    />
+                    <label htmlFor="radarr_enabled" className="text-sm font-medium text-white">
+                      Enable Radarr (Movies)
+                    </label>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-300 mb-2">Radarr URL</label>
+                    <input
+                      type="text"
+                      placeholder="http://localhost:7878"
+                      value={config.radarr_url || ''}
+                      onChange={(e) => setConfig({ ...config, radarr_url: e.target.value })}
+                      className="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:border-purple-500"
+                      disabled={!config.radarr_enabled}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-300 mb-2">Radarr API Key</label>
+                    <input
+                      type="text"
+                      placeholder="9242d5e4ad414d96ac58b44f1e018c13"
+                      value={config.radarr_api_key || ''}
+                      onChange={(e) => setConfig({ ...config, radarr_api_key: e.target.value })}
+                      className="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:border-purple-500"
+                      disabled={!config.radarr_enabled}
+                    />
+                    <p className="text-xs text-gray-400 mt-1">Your Radarr API key: 9242d5e4ad414d96ac58b44f1e018c13</p>
+                  </div>
+                </div>
+
+                {/* Quick Setup Button */}
+                <div className="col-span-full">
+                  <button
+                    onClick={() => {
+                      setConfig({
+                        ...config,
+                        sonarr_enabled: true,
+                        sonarr_url: 'http://localhost:8989',
+                        sonarr_api_key: '7b3e079669c74d6daad92059ac399d5c',
+                        radarr_enabled: true,
+                        radarr_url: 'http://localhost:7878',
+                        radarr_api_key: '9242d5e4ad414d96ac58b44f1e018c13',
+                        use_arr_for_search: true
+                      });
+                    }}
+                    className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium transition-colors flex items-center gap-2"
+                  >
+                    <Star className="w-4 h-4" />
+                    Quick Setup (Enable Both with Your API Keys)
+                  </button>
+                  <p className="text-xs text-gray-400 mt-2">
+                    This will automatically configure both Sonarr and Radarr with your provided API keys.
+                  </p>
+                </div>
+
+                {/* Arr Search Settings */}
+                <div className="col-span-full">
+                  <div className="flex items-center gap-3 mb-4">
+                    <input
+                      type="checkbox"
+                      id="use_arr_for_search"
+                      checked={config.use_arr_for_search || false}
+                      onChange={(e) => setConfig({ ...config, use_arr_for_search: e.target.checked })}
+                      className="w-4 h-4 text-red-600 bg-gray-800 border-gray-700 rounded focus:ring-red-500"
+                    />
+                    <label htmlFor="use_arr_for_search" className="text-sm font-medium text-white">
+                      Use Sonarr/Radarr for enhanced search results
+                    </label>
+                  </div>
+                  <p className="text-xs text-gray-400">
+                    When enabled, searches will include results from Sonarr/Radarr in addition to Jackett,
+                    providing more sources and better quality ranking.
+                  </p>
+                </div>
+              </div>
+            </div>
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {/* Jackett Configuration */}
               <div>
@@ -984,11 +1158,11 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
                   </div>
                 </div>
               </div>
-              
+
               <div className="mt-3 p-3 bg-blue-900/30 border border-blue-500/30 rounded-lg">
                 <p className="text-sm text-blue-200">
-                  <strong>💡 Performance Tip:</strong> These settings are optimized for high-speed connections (60Mbps+). 
-                  Higher peer connections = faster downloads but more CPU/memory usage. 
+                  <strong>💡 Performance Tip:</strong> These settings are optimized for high-speed connections (60Mbps+).
+                  Higher peer connections = faster downloads but more CPU/memory usage.
                   Restart required after changing these settings.
                 </p>
               </div>
@@ -1007,7 +1181,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
               </label>
             </div>
 
-            <div className="flex gap-4">
+            <div className="flex gap-4 flex-wrap">
               <button
                 onClick={testJackettConnection}
                 disabled={loading || !config?.jackett_url || !config?.jackett_api_key}
@@ -1018,8 +1192,68 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
                 ) : (
                   <ExternalLink className="w-4 h-4" />
                 )}
-                Test Connection
+                Test Jackett
               </button>
+
+              {config.sonarr_enabled && (
+                <button
+                  onClick={async () => {
+                    setLoading(true);
+                    try {
+                      const response = await fetch(`${config.sonarr_url}/api/v3/system/status?apikey=${config.sonarr_api_key}`);
+                      if (response.ok) {
+                        const data = await response.json();
+                        alert(`✅ Sonarr connection successful!\nVersion: ${data.version}\nStatus: ${data.appName} is running`);
+                      } else {
+                        alert('❌ Sonarr connection failed: Invalid response');
+                      }
+                    } catch (err) {
+                      alert('❌ Sonarr connection failed: Network error');
+                    } finally {
+                      setLoading(false);
+                    }
+                  }}
+                  disabled={loading || !config?.sonarr_url || !config?.sonarr_api_key}
+                  className="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded-lg font-medium transition-colors flex items-center gap-2"
+                >
+                  {loading ? (
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                  ) : (
+                    <ExternalLink className="w-4 h-4" />
+                  )}
+                  Test Sonarr
+                </button>
+              )}
+
+              {config.radarr_enabled && (
+                <button
+                  onClick={async () => {
+                    setLoading(true);
+                    try {
+                      const response = await fetch(`${config.radarr_url}/api/v3/system/status?apikey=${config.radarr_api_key}`);
+                      if (response.ok) {
+                        const data = await response.json();
+                        alert(`✅ Radarr connection successful!\nVersion: ${data.version}\nStatus: ${data.appName} is running`);
+                      } else {
+                        alert('❌ Radarr connection failed: Invalid response');
+                      }
+                    } catch (err) {
+                      alert('❌ Radarr connection failed: Network error');
+                    } finally {
+                      setLoading(false);
+                    }
+                  }}
+                  disabled={loading || !config?.radarr_url || !config?.radarr_api_key}
+                  className="px-6 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded-lg font-medium transition-colors flex items-center gap-2"
+                >
+                  {loading ? (
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                  ) : (
+                    <ExternalLink className="w-4 h-4" />
+                  )}
+                  Test Radarr
+                </button>
+              )}
 
               <button
                 onClick={() => updateConfig(config)}
