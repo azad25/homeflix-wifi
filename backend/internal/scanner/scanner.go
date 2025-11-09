@@ -2316,6 +2316,20 @@ func (s *MediaScanner) processVideoFile(path string, info os.FileInfo) error {
 							media.VoteCount = tmdbMetadata.VoteCount
 							media.Adult = tmdbMetadata.Adult
 
+							// Store TMDB backdrop, poster, and trailer URLs
+							if tmdbMetadata.BackdropURL != "" {
+								media.TMDBBackdropURL = tmdbMetadata.BackdropURL
+								log.Printf("🖼️ Set TMDB backdrop URL for %s: %s", media.Title, tmdbMetadata.BackdropURL)
+							}
+							if tmdbMetadata.PosterURL != "" {
+								// Store TMDB poster URL for reference (poster service handles actual downloads)
+								log.Printf("🎨 TMDB poster URL available for %s: %s", media.Title, tmdbMetadata.PosterURL)
+							}
+							if tmdbMetadata.TrailerURL != "" {
+								media.TMDBTrailerURL = tmdbMetadata.TrailerURL
+								log.Printf("🎬 Set TMDB trailer URL for %s: %s", media.Title, tmdbMetadata.TrailerURL)
+							}
+
 							// Update genres from TMDB if available
 							if len(tmdbMetadata.Genres) > 0 {
 								// Store genre names for JSON compatibility and API responses

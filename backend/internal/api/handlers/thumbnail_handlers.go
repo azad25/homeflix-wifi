@@ -846,6 +846,69 @@ func GenerateThumbnail(mediaService *services.MediaService, thumbnailService *se
 	}
 }
 
+// RegenerateThumbnail forces regeneration of thumbnail even if it exists
+func RegenerateThumbnail(mediaService *services.MediaService, thumbnailService *services.ThumbnailService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id, err := strconv.ParseUint(c.Param("id"), 10, 32)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID"})
+			return
+		}
+
+		mediaID := uint(id)
+
+		media, err := mediaService.GetMediaByID(mediaID)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Media not found"})
+			return
+		}
+
+		// Clear cache for this media to force regeneration
+		assetCache.mutex.Lock()
+		delete(assetCache.thumbnailCache, mediaID)
+		delete(assetCache.notFoundCache, mediaID)
+		assetCache.mutex.Unlock()
+
+		// Force regeneration using the new regeneration method with timestamped filename
+		log.Printf("🔄 Force regenerating thumbnail for: %s (ID: %d)", media.Title, media.ID)
+		thumbnailPath, err := thumbnailService.RegenerateThumbnailAsync(media.FilePath, media.ID, media.Title)
+		if err != nil {
+			log.Printf("❌ Failed to regenerate thumbnail for %s: %v", media.Title, err)
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error":    "Failed to regenerate thumbnail",
+				"media_id": media.ID,
+				"title":    media.Title,
+				"details":  err.Error(),
+			})
+			return
+		}
+
+		// Update media record with new thumbnail path
+		if thumbnailPath != "" {
+			media.ThumbnailPath = thumbnailPath
+			if err := mediaService.UpdateMedia(media); err != nil {
+				log.Printf("⚠️ Failed to update media with new thumbnail path: %v", err)
+			} else {
+				log.Printf("✅ Updated media %s with new thumbnail path: %s", media.Title, thumbnailPath)
+			}
+
+			// Update cache with new path
+			assetCache.mutex.Lock()
+			assetCache.thumbnailCache[mediaID] = thumbnailPath
+			assetCache.mutex.Unlock()
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"status":         "success",
+			"media_id":       media.ID,
+			"title":          media.Title,
+			"thumbnail_path": thumbnailPath,
+			"message":        "Thumbnail regenerated successfully",
+			"action":         "regenerated",
+		})
+	}
+}
+
 func GetPreview(mediaService *services.MediaService, thumbnailService *services.ThumbnailService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id, err := strconv.ParseUint(c.Param("id"), 10, 32)
@@ -1035,6 +1098,77 @@ func GenerateOptimizedPreviewClip(mediaService *services.MediaService, thumbnail
 			"total_size":    totalSize,
 			"qualities":     len(previewPaths),
 			"message":       "Optimized preview clips generated successfully",
+		})
+	}
+}
+
+// RegeneratePreviewClip forces regeneration of preview clip even if it exists
+func RegeneratePreviewClip(mediaService *services.MediaService, thumbnailService *services.ThumbnailService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id, err := strconv.ParseUint(c.Param("id"), 10, 32)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID"})
+			return
+		}
+
+		mediaID := uint(id)
+
+		media, err := mediaService.GetMediaByID(mediaID)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Media not found"})
+			return
+		}
+
+		// Clear cache for this media to force regeneration
+		assetCache.mutex.Lock()
+		delete(assetCache.previewCache, mediaID)
+		delete(assetCache.notFoundCache, mediaID)
+		assetCache.mutex.Unlock()
+
+		// Force regeneration using the new regeneration method with timestamped filename
+		log.Printf("🔄 Force regenerating preview clip for: %s (ID: %d)", media.Title, media.ID)
+		previewPath, err := thumbnailService.RegeneratePreviewClipAsync(media.FilePath, media.ID, media.Title)
+		if err != nil {
+			log.Printf("❌ Failed to regenerate preview clip for %s: %v", media.Title, err)
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error":    "Failed to regenerate preview clip",
+				"media_id": media.ID,
+				"title":    media.Title,
+				"details":  err.Error(),
+			})
+			return
+		}
+
+		// Update media record with new preview clip path
+		if previewPath != "" {
+			media.PreviewClipPath = previewPath
+			media.PreviewPath = previewPath
+			if err := mediaService.UpdateMedia(media); err != nil {
+				log.Printf("⚠️ Failed to update media with new preview path: %v", err)
+			} else {
+				log.Printf("✅ Updated media %s with new preview path: %s", media.Title, previewPath)
+			}
+
+			// Update cache with new path
+			assetCache.mutex.Lock()
+			assetCache.previewCache[mediaID] = previewPath
+			assetCache.mutex.Unlock()
+		}
+
+		// Get file size for response
+		var fileSize int64
+		if info, err := os.Stat(previewPath); err == nil {
+			fileSize = info.Size()
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"status":       "success",
+			"media_id":     media.ID,
+			"title":        media.Title,
+			"preview_path": previewPath,
+			"file_size":    fileSize,
+			"message":      "Preview clip regenerated successfully",
+			"action":       "regenerated",
 		})
 	}
 }

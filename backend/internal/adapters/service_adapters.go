@@ -38,6 +38,7 @@ func (a *GeminiServiceAdapter) GenerateMediaMetadata(path, title string) (*inter
 		Rating:      metadata.Rating,
 		PosterURL:   metadata.PosterURL,
 		BackdropURL: metadata.BackdropURL,
+		TrailerURL:  metadata.TrailerURL,
 		Runtime:     metadata.Runtime,
 		Budget:      metadata.Budget,
 		Revenue:     metadata.Revenue,
@@ -78,6 +79,7 @@ func (a *TMDBServiceAdapter) GenerateMediaMetadata(path, title string) (*interfa
 		Rating:      metadata.Rating,
 		PosterURL:   metadata.PosterURL,
 		BackdropURL: metadata.BackdropURL,
+		TrailerURL:  metadata.TrailerURL,
 		Runtime:     metadata.Runtime,
 		Budget:      metadata.Budget,
 		Revenue:     metadata.Revenue,
@@ -226,6 +228,14 @@ func (a *ThumbnailServiceAdapter) GenerateThumbnailAsync(path string, mediaID ui
 
 func (a *ThumbnailServiceAdapter) GeneratePreviewClipAsync(path string, mediaID uint, title string) (string, error) {
 	return a.service.GeneratePreviewClipAsync(path, mediaID, title)
+}
+
+func (a *ThumbnailServiceAdapter) RegenerateThumbnailAsync(path string, mediaID uint, title string) (string, error) {
+	return a.service.RegenerateThumbnailAsync(path, mediaID, title)
+}
+
+func (a *ThumbnailServiceAdapter) RegeneratePreviewClipAsync(path string, mediaID uint, title string) (string, error) {
+	return a.service.RegeneratePreviewClipAsync(path, mediaID, title)
 }
 
 func (a *ThumbnailServiceAdapter) GetThumbnailPath(mediaID uint, title string) string {

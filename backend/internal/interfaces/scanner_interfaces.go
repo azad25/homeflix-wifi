@@ -24,6 +24,7 @@ type MediaMetadata struct {
 	Rating      float64  `json:"rating"`
 	PosterURL   string   `json:"poster_url"`
 	BackdropURL string   `json:"backdrop_url"`
+	TrailerURL  string   `json:"trailer_url"`
 	Runtime     int      `json:"runtime"`
 	Budget      int64    `json:"budget"`
 	Revenue     int64    `json:"revenue"`
@@ -84,6 +85,8 @@ type ThumbnailServiceInterface interface {
 	GeneratePreviewClipWithEpisodeInfo(path string, mediaID uint, title string, season *int, episode *int) (string, error)
 	GenerateThumbnailAsync(path string, mediaID uint, title string) (string, error)
 	GeneratePreviewClipAsync(path string, mediaID uint, title string) (string, error)
+	RegenerateThumbnailAsync(path string, mediaID uint, title string) (string, error)
+	RegeneratePreviewClipAsync(path string, mediaID uint, title string) (string, error)
 	ThumbnailExists(mediaID uint, title string) bool
 	PreviewExists(mediaID uint, title string) bool
 	GetThumbnailPath(mediaID uint, title string) string

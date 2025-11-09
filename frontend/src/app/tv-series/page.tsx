@@ -36,10 +36,21 @@ export default function TVSeries() {
   const fetchData = async () => {
     try {
       const apiUrl = getApiUrl();
+      if (!apiUrl) {
+        throw new Error('API URL not available');
+      }
       
       // Fetch all media data
       const response = await fetch(`${apiUrl}/api/media`);
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
       const allMedia = await response.json();
+      
+      if (!Array.isArray(allMedia)) {
+        console.warn('Expected array of media, got:', typeof allMedia);
+        return;
+      }
 
       // Helper function to extract season number
       const extractSeasonNumber = (title: string): number | null => {
@@ -124,12 +135,17 @@ export default function TVSeries() {
       // Fallback to TV shows endpoint if recommendations don't have enough TV content
       if (highQualitySeries.length < 5) {
         try {
-          const tvShowsResponse = await fetch(`${getApiUrl()}/api/media/tv-shows?limit=20`);
-          if (tvShowsResponse.ok) {
-            const tvShowsData = await tvShowsResponse.json();
-            if (tvShowsData && Array.isArray(tvShowsData) && tvShowsData.length > 0) {
-              highQualitySeries = tvShowsData;
-              console.log('✅ Using TV shows endpoint for hero section');
+          const apiUrl = getApiUrl();
+          if (apiUrl) {
+            const tvShowsResponse = await fetch(`${apiUrl}/api/media/tv-shows?limit=20`);
+            if (tvShowsResponse.ok) {
+              const tvShowsData = await tvShowsResponse.json();
+              if (tvShowsData && Array.isArray(tvShowsData) && tvShowsData.length > 0) {
+                highQualitySeries = tvShowsData;
+                console.log('✅ Using TV shows endpoint for hero section');
+              }
+            } else {
+              console.warn(`TV shows endpoint returned ${tvShowsResponse.status}`);
             }
           }
         } catch (error) {
@@ -212,25 +228,45 @@ export default function TVSeries() {
       setTrendingSeries(trendingSeriesData);
       
       // Filter by genres if available
-      setComedySeries(addRandomSeasonThumbnails(
-        allSeries.filter((item: Media) => 
-          item.genres?.some(genre => genre.name.toLowerCase().includes('comedy'))
-        ).slice(0, 20)
-      ));
-      
-      setDramaSeries(addRandomSeasonThumbnails(
-        allSeries.filter((item: Media) => 
-          item.genres?.some(genre => genre.name.toLowerCase().includes('drama'))
-        ).slice(0, 20)
-      ));
+      try {
+        const comedySeriesData = allSeries.filter((item: Media) => 
+          Array.isArray(item.genres) && item.genres.some(genre => 
+            genre && typeof genre === 'object' && genre.name && 
+            genre.name.toLowerCase().includes('comedy')
+          )
+        ).slice(0, 20);
+        setComedySeries(addRandomSeasonThumbnails(comedySeriesData));
+        
+        const dramaSeriesData = allSeries.filter((item: Media) => 
+          Array.isArray(item.genres) && item.genres.some(genre => 
+            genre && typeof genre === 'object' && genre.name && 
+            genre.name.toLowerCase().includes('drama')
+          )
+        ).slice(0, 20);
+        setDramaSeries(addRandomSeasonThumbnails(dramaSeriesData));
+      } catch (error) {
+        console.error('Error filtering series by genre:', error);
+        setComedySeries([]);
+        setDramaSeries([]);
+      }
 
       // Preload assets for better performance
-      if (allSeries.length > 0) {
-        preloadAssets(allSeries.slice(0, 20), ['thumbnail', 'preview']);
+      try {
+        if (allSeries.length > 0) {
+          await preloadAssets(allSeries.slice(0, 20), ['thumbnail', 'preview']);
+        }
+      } catch (error) {
+        console.warn('Failed to preload assets:', error);
       }
 
     } catch (error) {
       console.error("Error fetching TV series data:", error);
+      // Set empty arrays to prevent UI crashes
+      setFeaturedSeries([]);
+      setPopularSeries([]);
+      setTrendingSeries([]);
+      setComedySeries([]);
+      setDramaSeries([]);
     } finally {
       setLoading(false);
     }

@@ -104,6 +104,10 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 
 		// Thumbnail generation endpoint (always available)
 		api.POST("/thumbnails/:id", handlers.GenerateThumbnail(mediaService, thumbnailService))
+		
+		// Force regeneration endpoints (for settings page)
+		api.POST("/admin/thumbnails/:id/regenerate", handlers.RegenerateThumbnail(mediaService, thumbnailService))
+		api.POST("/admin/preview-clips/:id/regenerate", handlers.RegeneratePreviewClip(mediaService, thumbnailService))
 
 		// Poster download endpoints (TMDB integration)
 		api.POST("/posters/:id", handlers.DownloadPoster(mediaService, posterService))
@@ -246,6 +250,9 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		// TMDB auto-update endpoint (alternative endpoint)
 		api.POST("/admin/media/:id/fetch-tmdb", handlers.UpdateMediaWithTMDB(mediaService, tmdbService))
 		api.POST("/admin/series/:id/fetch-tmdb", handlers.UpdateSeriesWithTMDB(mediaService, tmdbService))
+		
+		// Update local media with TMDB backdrop and trailer data
+		api.POST("/admin/update-tmdb-data", handlers.UpdateLocalMediaWithTMDB(mediaService, tmdbService))
 
 		// Media scanner endpoints
 		api.POST("/admin/scan/full", scannerHandlers.StartFullScan)

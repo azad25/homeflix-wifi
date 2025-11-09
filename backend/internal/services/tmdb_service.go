@@ -283,8 +283,14 @@ func (t *TMDBService) searchMovieWithParams(title string, year int) (*TMDBMovie,
 		return nil, fmt.Errorf("no results found for: %s", title)
 	}
 
-	// Return the first result (most relevant)
-	return &searchResp.Results[0], nil
+	// Validate and return the first result (most relevant)
+	result := &searchResp.Results[0]
+	if result.ID == 0 {
+		return nil, fmt.Errorf("invalid movie data received from TMDB search")
+	}
+	log.Printf("✅ TMDB: Found movie '%s' (ID: %d) with poster: '%s', backdrop: '%s'", 
+		result.Title, result.ID, result.PosterPath, result.BackdropPath)
+	return result, nil
 }
 
 func (t *TMDBService) searchTVWithParams(title string, year int) (*TMDBTV, error) {
@@ -458,11 +464,23 @@ func (t *TMDBService) GenerateMediaMetadataWithOptions(filePath, title string, o
 		}
 	}
 
-	// Get detailed information
-	details, err := t.GetMovieDetails(movie.ID)
+	// Get detailed information including videos for trailers
+	detailsWithExtras, err := t.GetMovieDetailsWithExtras(movie.ID)
 	if err != nil {
-		return nil, err
+		log.Printf("⚠️ Failed to get movie details with extras for '%s' (ID: %d): %v", movie.Title, movie.ID, err)
+		// Fallback to basic details without videos
+		basicDetails, basicErr := t.GetMovieDetails(movie.ID)
+		if basicErr != nil {
+			return nil, fmt.Errorf("failed to get movie details: %w", basicErr)
+		}
+		// Create a minimal detailsWithExtras structure
+		detailsWithExtras = &TMDBMovieDetailsWithExtras{
+			TMDBMovieDetails: *basicDetails,
+			Videos: TMDBVideos{Results: []TMDBVideo{}},
+		}
+		log.Printf("✅ Using basic movie details for '%s' without video data", basicDetails.Title)
 	}
+	details := &detailsWithExtras.TMDBMovieDetails
 
 	// Extract cast (stars) - top 5 for stars, more for full cast
 	var stars []string
@@ -521,14 +539,61 @@ func (t *TMDBService) GenerateMediaMetadataWithOptions(filePath, title string, o
 		}
 	}
 
-	// Build poster and backdrop URLs
-	posterURL := ""
-	backdropURL := ""
-	if details.PosterPath != "" {
-		posterURL = "https://image.tmdb.org/t/p/w500" + details.PosterPath
+	// Build poster and backdrop URLs with validation
+	posterURL := t.buildImageURL(details.PosterPath, "w500")
+	backdropURL := t.buildImageURL(details.BackdropPath, "w1280")
+	
+	if posterURL != "" {
+		log.Printf("🖼️ Poster URL for '%s': %s", details.Title, posterURL)
+	} else {
+		log.Printf("⚠️ No valid poster path available for '%s' (path: '%s')", details.Title, details.PosterPath)
 	}
-	if details.BackdropPath != "" {
-		backdropURL = "https://image.tmdb.org/t/p/w1280" + details.BackdropPath
+	
+	if backdropURL != "" {
+		log.Printf("🖼️ Backdrop URL for '%s': %s", details.Title, backdropURL)
+	} else {
+		log.Printf("⚠️ No valid backdrop path available for '%s' (path: '%s')", details.Title, details.BackdropPath)
+	}
+
+	// Extract trailer URL from videos with improved error handling
+	trailerURL := ""
+	if detailsWithExtras != nil && len(detailsWithExtras.Videos.Results) > 0 {
+		log.Printf("🎬 Processing %d videos for '%s'", len(detailsWithExtras.Videos.Results), details.Title)
+		
+		// Look for official trailers first, then any trailers
+		var foundTrailer *TMDBVideo
+		var fallbackTrailer *TMDBVideo
+		
+		for _, video := range detailsWithExtras.Videos.Results {
+			if video.Site == "YouTube" && video.Key != "" {
+				if video.Type == "Trailer" {
+					if video.Official {
+						// Official trailer is the best option
+						foundTrailer = &video
+						break
+					} else if fallbackTrailer == nil {
+						// Non-official trailer as fallback
+						fallbackTrailer = &video
+					}
+				} else if video.Type == "Teaser" && fallbackTrailer == nil {
+					// Teaser as last resort
+					fallbackTrailer = &video
+				}
+			}
+		}
+		
+		// Use the best trailer found
+		if foundTrailer != nil {
+			trailerURL = fmt.Sprintf("https://www.youtube.com/watch?v=%s", foundTrailer.Key)
+			log.Printf("🎬 Found official trailer for '%s': %s", details.Title, trailerURL)
+		} else if fallbackTrailer != nil {
+			trailerURL = fmt.Sprintf("https://www.youtube.com/watch?v=%s", fallbackTrailer.Key)
+			log.Printf("🎬 Found fallback trailer for '%s': %s", details.Title, trailerURL)
+		} else {
+			log.Printf("⚠️ No suitable YouTube trailer found for '%s'", details.Title)
+		}
+	} else {
+		log.Printf("⚠️ No video data available for '%s'", details.Title)
 	}
 
 	// Format box office information
@@ -581,6 +646,7 @@ func (t *TMDBService) GenerateMediaMetadataWithOptions(filePath, title string, o
 		Genres:      genres,
 		PosterURL:   posterURL,
 		BackdropURL: backdropURL,
+		TrailerURL:  trailerURL,
 		Runtime:     details.Runtime,
 		// Enhanced metadata
 		Budget:     details.Budget,
@@ -601,8 +667,16 @@ func (t *TMDBService) GenerateMediaMetadataWithOptions(filePath, title string, o
 	}
 
 	// Log enhanced metadata for debugging
-	log.Printf("TMDB metadata for %s: Budget=%s, Revenue=%s, Rating=%.1f, Runtime=%dm", 
+	log.Printf("✅ TMDB metadata for '%s': Budget=%s, Revenue=%s, Rating=%.1f, Runtime=%dm", 
 		details.Title, budgetFormatted, boxOffice, details.VoteAverage, details.Runtime)
+	log.Printf("🔗 URLs for '%s': Poster=%s, Backdrop=%s, Trailer=%s", 
+		details.Title, 
+		func() string { if posterURL != "" { return "✅" } else { return "❌" } }(),
+		func() string { if backdropURL != "" { return "✅" } else { return "❌" } }(),
+		func() string { if trailerURL != "" { return "✅" } else { return "❌" } }())
+
+	// Validate metadata before returning
+	t.validateMetadata(metadata, title)
 
 	return metadata, nil
 }
@@ -1848,29 +1922,54 @@ func (t *TMDBService) GetMovieDetailsWithExtras(movieID int) (*TMDBMovieDetailsW
 
 	req, err := http.NewRequest("GET", detailsURL+"?"+params.Encode(), nil)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
 	req.Header.Set("Authorization", "Bearer "+t.apiKey)
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := t.httpClient.Do(req)
-	if err != nil {
-		return nil, err
+	// Execute request with retry logic
+	var resp *http.Response
+	maxRetries := 3
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		resp, err = t.httpClient.Do(req)
+		if err == nil {
+			break
+		}
+		if attempt < maxRetries {
+			log.Printf("⚠️ TMDB API request failed (attempt %d/%d): %v, retrying...", attempt, maxRetries, err)
+			time.Sleep(time.Duration(attempt) * time.Second) // Progressive backoff
+			continue
+		}
+		return nil, fmt.Errorf("failed to execute request after %d attempts: %w", maxRetries, err)
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, fmt.Errorf("movie not found (ID: %d)", movieID)
+	} else if resp.StatusCode == http.StatusUnauthorized {
+		return nil, fmt.Errorf("TMDB API authentication failed - check API key")
+	} else if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("TMDB API error: %d", resp.StatusCode)
 	}
 
 	var details TMDBMovieDetailsWithExtras
 	if err := json.NewDecoder(resp.Body).Decode(&details); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
-	log.Printf("✅ TMDB: Fetched movie details for '%s' with %d videos and %d cast members", 
-		details.Title, len(details.Videos.Results), len(details.Credits.Cast))
+	// Validate that we got the essential data
+	if details.ID == 0 {
+		return nil, fmt.Errorf("invalid movie data received from TMDB")
+	}
+
+	// Initialize Videos.Results if nil to prevent nil pointer issues
+	if details.Videos.Results == nil {
+		details.Videos.Results = []TMDBVideo{}
+	}
+
+	log.Printf("✅ TMDB: Fetched movie details for '%s' (ID: %d) with %d videos and %d cast members", 
+		details.Title, details.ID, len(details.Videos.Results), len(details.Credits.Cast))
 
 	return &details, nil
 }
@@ -2454,4 +2553,47 @@ func contains(slice []string, item string) bool {
 		}
 	}
 	return false
+}
+
+// validateImagePath checks if an image path is valid and non-empty
+func (t *TMDBService) validateImagePath(path string) bool {
+	return path != "" && len(strings.TrimSpace(path)) > 0 && strings.HasPrefix(path, "/")
+}
+
+// buildImageURL safely constructs TMDB image URLs with validation
+func (t *TMDBService) buildImageURL(path, size string) string {
+	if !t.validateImagePath(path) {
+		return ""
+	}
+	if size == "" {
+		size = "w500" // default size
+	}
+	return "https://image.tmdb.org/t/p/" + size + path
+}
+
+// validateMetadata performs final validation on metadata before returning
+func (t *TMDBService) validateMetadata(metadata *interfaces.MediaMetadata, title string) {
+	issues := []string{}
+	
+	if metadata.PosterURL == "" {
+		issues = append(issues, "missing poster URL")
+	}
+	if metadata.BackdropURL == "" {
+		issues = append(issues, "missing backdrop URL")
+	}
+	if metadata.TrailerURL == "" {
+		issues = append(issues, "missing trailer URL")
+	}
+	if metadata.Title == "" {
+		issues = append(issues, "missing title")
+	}
+	if metadata.Year == 0 {
+		issues = append(issues, "missing year")
+	}
+	
+	if len(issues) > 0 {
+		log.Printf("⚠️ Metadata validation for '%s': %s", title, strings.Join(issues, ", "))
+	} else {
+		log.Printf("✅ Metadata validation passed for '%s'", title)
+	}
 }

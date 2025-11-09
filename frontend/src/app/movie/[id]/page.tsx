@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, useRouter, usePathname } from "next/navigation";
 import { usePageTitle } from '@/hooks/usePageTitle';
-import { ArrowLeft, Play, Plus, Check, Share, Download, Info, Star, Clock, Calendar, Globe, Users, Award, Film, Tv, User, Mic, ChevronDown, ChevronUp, Volume2, VolumeX, Users as Cast, User as Director } from "lucide-react";
+import { ArrowLeft, Play, Plus, Check, Share, Download, Info, Star, Clock, Calendar, Globe, Users, Award, Film, Tv, User, Mic, ChevronDown, ChevronUp, Volume2, VolumeX, Users as Cast, User as Director, X } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import Image from 'next/image';
 import { Media } from '@/types/media';
@@ -72,7 +72,17 @@ const LocalRelatedMedia: React.FC<LocalRelatedMediaProps> = ({ currentMedia, cla
   const fetchRelatedMedia = async () => {
     try {
       setLoading(true);
+      setError(null);
+
+      if (!currentMedia?.id) {
+        setRelatedMedia([]);
+        return;
+      }
+
       const apiUrl = getApiUrl();
+      if (!apiUrl) {
+        throw new Error('API URL not available');
+      }
 
       // Get all movies and filter for similar ones
       const response = await fetch(`${apiUrl}/api/media/movies`);
@@ -83,17 +93,35 @@ const LocalRelatedMedia: React.FC<LocalRelatedMediaProps> = ({ currentMedia, cla
 
       const allMovies = await response.json();
 
+      if (!Array.isArray(allMovies)) {
+        console.warn('Expected array of movies, got:', typeof allMovies);
+        setRelatedMedia([]);
+        return;
+      }
+
       // Filter out current movie and find similar ones
-      const otherMovies = allMovies.filter((movie: LocalMediaItem) => movie.id !== currentMedia.id);
+      const otherMovies = allMovies.filter((movie: LocalMediaItem) =>
+        movie && movie.id && movie.id !== currentMedia.id
+      );
 
       // Simple similarity algorithm based on genres, year, and rating
       const similarMovies = otherMovies
-        .map((movie: LocalMediaItem) => ({
-          ...movie,
-          similarity: calculateSimilarity(currentMedia, movie)
-        }))
-        .filter((movie: any) => movie.similarity > 0.1) // Only include movies with some similarity
-        .sort((a: any, b: any) => b.similarity - a.similarity) // Sort by similarity score
+        .map((movie: LocalMediaItem) => {
+          try {
+            return {
+              ...movie,
+              similarity: calculateSimilarity(currentMedia, movie)
+            };
+          } catch (error) {
+            console.error('Error calculating similarity for movie:', movie?.id, error);
+            return {
+              ...movie,
+              similarity: 0
+            };
+          }
+        })
+        .filter((movie: any) => movie && movie.similarity > 0.1) // Only include movies with some similarity
+        .sort((a: any, b: any) => (b.similarity || 0) - (a.similarity || 0)) // Sort by similarity score
         .slice(0, 12); // Limit to 12 movies
 
       setRelatedMedia(similarMovies);
@@ -111,48 +139,83 @@ const LocalRelatedMedia: React.FC<LocalRelatedMediaProps> = ({ currentMedia, cla
   const calculateSimilarity = (movie1: Media, movie2: LocalMediaItem): number => {
     let score = 0;
 
-    // Genre similarity (most important factor)
-    if (movie1.genres && movie2.genres) {
-      const genres1 = movie1.genres.map(g => typeof g === 'string' ? g : g.name).filter(Boolean);
-      const genres2 = movie2.genres.map(g => g.name).filter(Boolean);
+    try {
+      // Genre similarity (most important factor)
+      if (movie1?.genres && movie2?.genres && Array.isArray(movie1.genres) && Array.isArray(movie2.genres)) {
+        const genres1 = movie1.genres
+          .map(g => {
+            if (typeof g === 'string') return g;
+            if (g && typeof g === 'object' && 'name' in g) return g.name;
+            return null;
+          })
+          .filter(Boolean) as string[];
 
-      const commonGenres = genres1.filter(g => genres2.includes(g));
-      const genreSimilarity = commonGenres.length / Math.max(genres1.length, genres2.length, 1);
-      score += genreSimilarity * 0.6; // 60% weight for genres
+        const genres2 = movie2.genres
+          .map(g => g?.name)
+          .filter(Boolean) as string[];
+
+        if (genres1.length > 0 && genres2.length > 0) {
+          const commonGenres = genres1.filter(g => genres2.includes(g));
+          const genreSimilarity = commonGenres.length / Math.max(genres1.length, genres2.length, 1);
+          score += genreSimilarity * 0.6; // 60% weight for genres
+        }
+      }
+
+      // Year similarity (movies from similar time periods)
+      if (movie1?.year && movie2?.year && typeof movie1.year === 'number' && typeof movie2.year === 'number') {
+        const yearDiff = Math.abs(movie1.year - movie2.year);
+        const yearSimilarity = Math.max(0, 1 - yearDiff / 20); // Similar if within 20 years
+        score += yearSimilarity * 0.2; // 20% weight for year
+      }
+
+      // Rating similarity (movies with similar ratings)
+      if (movie1?.rating && movie2?.rating && typeof movie1.rating === 'number' && typeof movie2.rating === 'number') {
+        const ratingDiff = Math.abs(movie1.rating - movie2.rating);
+        const ratingSimilarity = Math.max(0, 1 - ratingDiff / 5); // Similar if within 5 rating points
+        score += ratingSimilarity * 0.2; // 20% weight for rating
+      }
+    } catch (error) {
+      console.error('Error calculating similarity:', error);
+      return 0;
     }
 
-    // Year similarity (movies from similar time periods)
-    if (movie1.year && movie2.year) {
-      const yearDiff = Math.abs(movie1.year - movie2.year);
-      const yearSimilarity = Math.max(0, 1 - yearDiff / 20); // Similar if within 20 years
-      score += yearSimilarity * 0.2; // 20% weight for year
-    }
-
-    // Rating similarity (movies with similar ratings)
-    if (movie1.rating && movie2.rating) {
-      const ratingDiff = Math.abs(movie1.rating - movie2.rating);
-      const ratingSimilarity = Math.max(0, 1 - ratingDiff / 5); // Similar if within 5 rating points
-      score += ratingSimilarity * 0.2; // 20% weight for rating
-    }
-
-    return score;
+    return Math.max(0, Math.min(1, score)); // Ensure score is between 0 and 1
   };
 
   const getPosterUrl = (movie: LocalMediaItem) => {
-    if (movie.poster_url) return movie.poster_url;
-    const apiUrl = getApiUrl();
-    return `${apiUrl}/api/posters/${movie.id}`;
+    try {
+      if (movie?.poster_url) return movie.poster_url;
+      const apiUrl = getApiUrl();
+      if (!apiUrl || !movie?.id) {
+        return 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjQ1MCIgdmlld0JveD0iMCAwIDMwMCA0NTAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIzMDAiIGhlaWdodD0iNDUwIiBmaWxsPSIjMzc0MTUxIi8+CjxwYXRoIGQ9Ik0xNTAgMjAwQzE4Ny4yNzkgMjAwIDIxOCAxNjkuMjc5IDIxOCAxMzJDMjE4IDk0LjcyMDggMTg3LjI3OSA2NCAxNTAgNjRDMTEyLjcyMSA2NCA4MiA5NC43MjA4IDgyIDEzMkM4MiAxNjkuMjc5IDExMi43MjEgMjAwIDE1MCAyMDBaIiBmaWxsPSIjNkI3Mjg4Ii8+CjxwYXRoIGQ9Ik04MiAyNzZDODIgMjM4LjY4IDExMi42OCAyMDggMTUwIDIwOEgxNTBDMTg3LjMyIDIwOCAyMTggMjM4LjY4IDIxOCAyNzZWMzUwSDgyVjI3NloiIGZpbGw9IiM2QjcyODgiLz4KPHN2Zz4K';
+      }
+      return `${apiUrl}/api/posters/${movie.id}`;
+    } catch (error) {
+      console.error('Error getting poster URL:', error);
+      return 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjQ1MCIgdmlld0JveD0iMCAwIDMwMCA0NTAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIzMDAiIGhlaWdodD0iNDUwIiBmaWxsPSIjMzc0MTUxIi8+CjxwYXRoIGQ9Ik0xNTAgMjAwQzE4Ny4yNzkgMjAwIDIxOCAxNjkuMjc5IDIxOCAxMzJDMjE4IDk0LjcyMDggMTg3LjI3OSA2NCAxNTAgNjRDMTEyLjcyMSA2NCA4MiA5NC43MjA4IDgyIDEzMkM4MiAxNjkuMjc5IDExMi43MjEgMjAwIDE1MCAyMDBaIiBmaWxsPSIjNkI3Mjg4Ii8+CjxwYXRoIGQ9Ik04MiAyNzZDODIgMjM4LjY4IDExMi42OCAyMDggMTUwIDIwOEgxNTBDMTg3LjMyIDIwOCAyMTggMjM4LjY4IDIxOCAyNzZWMzUwSDgyVjI3NloiIGZpbGw9IiM2QjcyODgiLz4KPHN2Zz4K';
+    }
   };
 
   const handleMediaClick = (movie: LocalMediaItem) => {
-    router.push(`/movie/${movie.id}`);
+    try {
+      if (movie?.id && router) {
+        router.push(`/movie/${movie.id}`);
+      }
+    } catch (error) {
+      console.error('Error navigating to movie:', error);
+    }
   };
 
   const formatRuntime = (minutes: number) => {
-    if (!minutes) return '';
-    const hours = Math.floor(minutes / 60);
-    const mins = minutes % 60;
-    return hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
+    try {
+      if (!minutes || typeof minutes !== 'number' || minutes <= 0) return '';
+      const hours = Math.floor(minutes / 60);
+      const mins = minutes % 60;
+      return hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
+    } catch (error) {
+      console.error('Error formatting runtime:', error);
+      return '';
+    }
   };
 
   if (loading) {
@@ -183,85 +246,92 @@ const LocalRelatedMedia: React.FC<LocalRelatedMediaProps> = ({ currentMedia, cla
         </h2>
 
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
-          {relatedMedia.map((movie) => (
-            <motion.div
-              key={movie.id}
-              className="group cursor-pointer"
-              whileHover={{ scale: 1.05 }}
-              transition={{ duration: 0.2 }}
-              onClick={() => handleMediaClick(movie)}
-            >
-              <div className="relative aspect-[2/3] rounded-lg overflow-hidden bg-gray-800 shadow-lg">
-                <img
-                  src={getPosterUrl(movie)}
-                  alt={movie.title}
-                  className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
-                  onError={(e) => {
-                    const target = e.target as HTMLImageElement;
-                    target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjQ1MCIgdmlld0JveD0iMCAwIDMwMCA0NTAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIzMDAiIGhlaWdodD0iNDUwIiBmaWxsPSIjMzc0MTUxIi8+CjxwYXRoIGQ9Ik0xNTAgMjAwQzE4Ny4yNzkgMjAwIDIxOCAxNjkuMjc5IDIxOCAxMzJDMjE4IDk0LjcyMDggMTg3LjI3OSA2NCAxNTAgNjRDMTEyLjcyMSA2NCA4MiA5NC43MjA4IDgyIDEzMkM4MiAxNjkuMjc5IDExMi43MjEgMjAwIDE1MCAyMDBaIiBmaWxsPSIjNkI3Mjg4Ii8+CjxwYXRoIGQ9Ik04MiAyNzZDODIgMjM4LjY4IDExMi42OCAyMDggMTUwIDIwOEgxNTBDMTg3LjMyIDIwOCAyMTggMjM4LjY4IDIxOCAyNzZWMzUwSDgyVjI3NloiIGZpbGw9IiM2QjcyODgiLz4KPHN2Zz4K';
-                  }}
-                />
+          {relatedMedia.map((movie) => {
+            if (!movie?.id) return null;
 
-                {/* Overlay with rating */}
-                <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+            return (
+              <motion.div
+                key={movie.id}
+                className="group cursor-pointer"
+                whileHover={{ scale: 1.05 }}
+                transition={{ duration: 0.2 }}
+                onClick={() => handleMediaClick(movie)}
+              >
+                <div className="relative aspect-[2/3] rounded-lg overflow-hidden bg-gray-800 shadow-lg">
+                  <img
+                    src={getPosterUrl(movie)}
+                    alt={movie.title || 'Movie poster'}
+                    className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
+                    onError={(e) => {
+                      const target = e.target as HTMLImageElement;
+                      target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjQ1MCIgdmlld0JveD0iMCAwIDMwMCA0NTAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIzMDAiIGhlaWdodD0iNDUwIiBmaWxsPSIjMzc0MTUxIi8+CjxwYXRoIGQ9Ik0xNTAgMjAwQzE4Ny4yNzkgMjAwIDIxOCAxNjkuMjc5IDIxOCAxMzJDMjE4IDk0LjcyMDggMTg3LjI3OSA2NCAxNTAgNjRDMTEyLjcyMSA2NCA4MiA5NC43MjA4IDgyIDEzMkM4MiAxNjkuMjc5IDExMi43MjEgMjAwIDE1MCAyMDBaIiBmaWxsPSIjNkI3Mjg4Ii8+CjxwYXRoIGQ9Ik04MiAyNzZDODIgMjM4LjY4IDExMi42OCAyMDggMTUwIDIwOEgxNTBDMTg3LjMyIDIwOCAyMTggMjM4LjY4IDIxOCAyNzZWMzUwSDgyVjI3NloiIGZpbGw9IiM2QjcyODgiLz4KPHN2Zz4K';
+                    }}
+                  />
 
-                {movie.rating > 0 && (
-                  <div className="absolute top-2 right-2 bg-black/70 backdrop-blur-sm rounded-full px-2 py-1 flex items-center gap-1">
-                    <Star className="w-3 h-3 text-yellow-400 fill-current" />
-                    <span className="text-xs font-semibold text-white">
-                      {movie.rating.toFixed(1)}
-                    </span>
-                  </div>
-                )}
+                  {/* Overlay with rating */}
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
 
-                {/* Quality badge */}
-                {movie.quality && (
-                  <div className="absolute top-2 left-2 bg-black/70 backdrop-blur-sm rounded px-1 py-0.5">
-                    <span className="text-xs font-bold text-white">
-                      {movie.quality.includes('2160') || movie.quality.toLowerCase().includes('4k') ? '4K' :
-                        movie.quality.includes('1080') || movie.quality.toLowerCase().includes('hd') ? 'HD' :
-                          movie.quality.includes('720') ? '720p' : 'HD'}
-                    </span>
-                  </div>
-                )}
+                  {movie.rating && movie.rating > 0 && (
+                    <div className="absolute top-2 right-2 bg-black/70 backdrop-blur-sm rounded-full px-2 py-1 flex items-center gap-1">
+                      <Star className="w-3 h-3 text-yellow-400 fill-current" />
+                      <span className="text-xs font-semibold text-white">
+                        {movie.rating.toFixed(1)}
+                      </span>
+                    </div>
+                  )}
 
-                {/* Play button overlay */}
-                <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-                  <div className="bg-red-600/90 backdrop-blur-sm rounded-full p-3">
-                    <Play className="w-6 h-6 text-white fill-current" />
+                  {/* Quality badge */}
+                  {movie.quality && (
+                    <div className="absolute top-2 left-2 bg-black/70 backdrop-blur-sm rounded px-1 py-0.5">
+                      <span className="text-xs font-bold text-white">
+                        {movie.quality.includes('2160') || movie.quality.toLowerCase().includes('4k') ? '4K' :
+                          movie.quality.includes('1080') || movie.quality.toLowerCase().includes('hd') ? 'HD' :
+                            movie.quality.includes('720') ? '720p' : 'HD'}
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Play button overlay */}
+                  <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                    <div className="bg-red-600/90 backdrop-blur-sm rounded-full p-3">
+                      <Play className="w-6 h-6 text-white fill-current" />
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              {/* Title and metadata */}
-              <div className="mt-2 px-1">
-                <h3 className="text-sm font-medium text-white line-clamp-2 group-hover:text-red-400 transition-colors">
-                  {movie.title}
-                </h3>
-                <div className="flex items-center gap-2 mt-1 text-xs text-gray-400">
-                  {movie.year && <span>{movie.year}</span>}
-                  {movie.duration && (
-                    <>
-                      <span>•</span>
-                      <span>{formatRuntime(Math.floor(movie.duration / 60))}</span>
-                    </>
+                {/* Title and metadata */}
+                <div className="mt-2 px-1">
+                  <h3 className="text-sm font-medium text-white line-clamp-2 group-hover:text-red-400 transition-colors">
+                    {movie.title || 'Unknown Title'}
+                  </h3>
+                  <div className="flex items-center gap-2 mt-1 text-xs text-gray-400">
+                    {movie.year && <span>{movie.year}</span>}
+                    {movie.duration && (
+                      <>
+                        <span>•</span>
+                        <span>{formatRuntime(Math.floor(movie.duration / 60))}</span>
+                      </>
+                    )}
+                  </div>
+                  {movie.genres && Array.isArray(movie.genres) && movie.genres.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-1">
+                      {movie.genres.slice(0, 2).map((genre, index) => {
+                        if (!genre?.name) return null;
+                        return (
+                          <span
+                            key={index}
+                            className="text-xs text-gray-500 bg-gray-800/50 px-1 py-0.5 rounded"
+                          >
+                            {genre.name}
+                          </span>
+                        );
+                      })}
+                    </div>
                   )}
                 </div>
-                {movie.genres && movie.genres.length > 0 && (
-                  <div className="flex flex-wrap gap-1 mt-1">
-                    {movie.genres.slice(0, 2).map((genre, index) => (
-                      <span
-                        key={index}
-                        className="text-xs text-gray-500 bg-gray-800/50 px-1 py-0.5 rounded"
-                      >
-                        {genre.name}
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </motion.div>
-          ))}
+              </motion.div>
+            );
+          })}
         </div>
       </div>
     </div>
@@ -467,6 +537,8 @@ export default function MoviePage() {
   const [showTitleOverlay, setShowTitleOverlay] = useState(true); // Netflix-style title overlay
   const [isHoveringTitle, setIsHoveringTitle] = useState(false); // Hover state for title area
   const [forceStartFromBeginning, setForceStartFromBeginning] = useState(false); // Force start from beginning flag
+  const [isShowingTrailer, setIsShowingTrailer] = useState(false); // Trailer mode state
+  const [trailerKey, setTrailerKey] = useState<string | null>(null); // YouTube trailer key
 
   // Component mount/unmount tracking
   useEffect(() => {
@@ -730,63 +802,80 @@ export default function MoviePage() {
 
   // Cookie-based playback progress management
   const savePlaybackProgress = (mediaId: string, currentTime: number, duration: number) => {
-    const progressData = {
-      currentTime,
-      duration,
-      percentage: (currentTime / duration) * 100,
-      timestamp: new Date().toISOString(),
-      lastWatched: new Date().toISOString()
-    };
+    try {
+      if (!mediaId || typeof currentTime !== 'number' || typeof duration !== 'number' || duration <= 0) {
+        console.error('Invalid parameters for saving playback progress');
+        return;
+      }
 
-    // Save to cookie with 30 days expiration
-    const expirationDate = new Date();
-    expirationDate.setDate(expirationDate.getDate() + 30);
+      const progressData = {
+        currentTime: Math.max(0, currentTime),
+        duration: Math.max(0, duration),
+        percentage: Math.min(100, Math.max(0, (currentTime / duration) * 100)),
+        timestamp: new Date().toISOString(),
+        lastWatched: new Date().toISOString()
+      };
 
-    document.cookie = `playback_${mediaId}=${JSON.stringify(progressData)}; expires=${expirationDate.toUTCString()}; path=/; SameSite=Lax`;
+      // Save to cookie with 30 days expiration
+      const expirationDate = new Date();
+      expirationDate.setDate(expirationDate.getDate() + 30);
 
-    // Update local state
-    setPlaybackProgress(currentTime);
-    setPlaybackDuration(duration);
-    setHasWatchedBefore(true);
-    setLastWatched(progressData.lastWatched);
+      const cookieValue = encodeURIComponent(JSON.stringify(progressData));
+      document.cookie = `playback_${mediaId}=${cookieValue}; expires=${expirationDate.toUTCString()}; path=/; SameSite=Lax`;
 
-
+      // Update local state
+      setPlaybackProgress(progressData.currentTime);
+      setPlaybackDuration(progressData.duration);
+      setHasWatchedBefore(true);
+      setLastWatched(progressData.lastWatched);
+    } catch (error) {
+      console.error('Error saving playback progress:', error);
+    }
   };
 
   const getPlaybackProgressFromCookie = (mediaId: string) => {
-    if (typeof document === 'undefined') return null;
+    if (typeof document === 'undefined' || !mediaId) return null;
 
-    const cookies = document.cookie?.split(';') || [];
-    const progressCookie = cookies.find(cookie =>
-      cookie?.trim().startsWith(`playback_${mediaId}=`)
-    );
+    try {
+      const cookies = document.cookie?.split(';') || [];
+      const progressCookie = cookies.find(cookie =>
+        cookie?.trim().startsWith(`playback_${mediaId}=`)
+      );
 
-    if (progressCookie) {
-      try {
+      if (progressCookie) {
         const cookieValue = progressCookie.split('=')[1];
         if (cookieValue) {
-          const progressData = JSON.parse(cookieValue);
-          return progressData;
+          const progressData = JSON.parse(decodeURIComponent(cookieValue));
+          // Validate the progress data structure
+          if (progressData && typeof progressData === 'object') {
+            return progressData;
+          }
         }
-      } catch (error) {
-        console.error('Error parsing playback progress cookie:', error);
-        return null;
       }
+    } catch (error) {
+      console.error('Error parsing playback progress cookie:', error);
     }
     return null;
   };
 
   const clearPlaybackProgress = (mediaId: string) => {
-    // Clear cookie by setting expiration to past date
-    document.cookie = `playback_${mediaId}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;`;
+    try {
+      if (!mediaId) {
+        console.error('No media ID provided for clearing progress');
+        return;
+      }
 
-    // Reset local state
-    setPlaybackProgress(0);
-    setPlaybackDuration(0);
-    setHasWatchedBefore(false);
-    setLastWatched(null);
+      // Clear cookie by setting expiration to past date
+      document.cookie = `playback_${mediaId}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;`;
 
-
+      // Reset local state
+      setPlaybackProgress(0);
+      setPlaybackDuration(0);
+      setHasWatchedBefore(false);
+      setLastWatched(null);
+    } catch (error) {
+      console.error('Error clearing playback progress:', error);
+    }
   };
 
   // Netflix-style title overlay animation
@@ -818,21 +907,42 @@ export default function MoviePage() {
 
   const fetchMedia = async () => {
     try {
+      if (!params?.id) {
+        console.error('No media ID provided');
+        setMedia(null);
+        return;
+      }
+
       const apiUrl = getApiUrl();
+      if (!apiUrl) {
+        throw new Error('API URL not available');
+      }
+
       const response = await fetch(`${apiUrl}/api/media/${params.id}`);
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
-      const data = await response.json();
 
-      // Ensure data has required properties with defaults
+      const data = await response.json();
+      if (!data) {
+        throw new Error('No data received from API');
+      }
+
+      // Ensure data has required properties with defaults and proper type checking
       const mediaData = {
         ...data,
-        genres: data.genres || [],
-        stars: data.stars || [],
+        id: data.id || params.id,
+        genres: Array.isArray(data.genres) ? data.genres : [],
+        stars: Array.isArray(data.stars) ? data.stars : [],
         title: data.title || 'Unknown Title',
-        description: data.description || '',
-        year: data.year || new Date().getFullYear()
+        description: data.description || data.overview || '',
+        year: data.year || (data.release_date ? new Date(data.release_date).getFullYear() : new Date().getFullYear()),
+        rating: typeof data.rating === 'number' ? data.rating : 0,
+        duration: typeof data.duration === 'number' ? data.duration : 0,
+        director: data.director || null,
+        country: data.country || null,
+        language: data.language || null,
+        quality: data.quality || null
       };
 
       setMedia(mediaData);
@@ -850,22 +960,34 @@ export default function MoviePage() {
     if (params?.id) {
       try {
         const mediaId = parseInt(params.id as string);
-        if (!isNaN(mediaId)) {
+        if (!isNaN(mediaId) && mediaId > 0) {
           const inList = isInWishlist(mediaId);
-          setIsInMyList(inList);
+          setIsInMyList(Boolean(inList));
+        } else {
+          setIsInMyList(false);
         }
       } catch (error) {
         console.error('Error checking wishlist:', error);
         setIsInMyList(false);
       }
+    } else {
+      setIsInMyList(false);
     }
   };
 
   const toggleMyList = async () => {
     try {
-      if (!params.id) return;
+      if (!params?.id) {
+        console.error('No media ID available for wishlist operation');
+        return;
+      }
 
       const mediaId = parseInt(params.id as string);
+      if (isNaN(mediaId) || mediaId <= 0) {
+        console.error('Invalid media ID for wishlist operation');
+        return;
+      }
+
       let success = false;
 
       if (isInMyList) {
@@ -876,33 +998,39 @@ export default function MoviePage() {
 
       if (success) {
         setIsInMyList(!isInMyList);
-
+      } else {
+        console.error('Failed to update wishlist');
       }
     } catch (error) {
-
+      console.error('Error toggling wishlist:', error);
     }
   };
 
   const loadPlaybackProgress = async () => {
-    if (!params?.id) return;
+    if (!params?.id) {
+      console.warn('No media ID available for loading playback progress');
+      return;
+    }
 
     try {
       // First try to load from backend API (same as ContinueWatching component)
       const apiUrl = getApiUrl();
-      const response = await fetch(`${apiUrl}/api/playback/progress/${params.id}`, {
-        headers: {
-          'X-User-ID': '1' // Default user for now
-        }
-      });
+      if (apiUrl) {
+        const response = await fetch(`${apiUrl}/api/playback/progress/${params.id}`, {
+          headers: {
+            'X-User-ID': '1' // Default user for now
+          }
+        });
 
-      if (response.ok) {
-        const data = await response.json();
-        if (data && data.position !== undefined && data.duration > 0) {
-          setPlaybackProgress(data.position);
-          setPlaybackDuration(data.duration);
-          setHasWatchedBefore(true);
-          setLastWatched(data.last_watched || new Date().toISOString());
-          return;
+        if (response.ok) {
+          const data = await response.json();
+          if (data && typeof data.position === 'number' && typeof data.duration === 'number' && data.duration > 0) {
+            setPlaybackProgress(Math.max(0, data.position));
+            setPlaybackDuration(Math.max(0, data.duration));
+            setHasWatchedBefore(true);
+            setLastWatched(data.last_watched || new Date().toISOString());
+            return;
+          }
         }
       }
     } catch (error) {
@@ -912,8 +1040,8 @@ export default function MoviePage() {
     // Fallback to cookie system
     try {
       const cookieProgress = getPlaybackProgressFromCookie(params.id as string);
-      if (cookieProgress && cookieProgress.currentTime !== undefined) {
-        setPlaybackProgress(cookieProgress.currentTime || 0);
+      if (cookieProgress && typeof cookieProgress.currentTime === 'number') {
+        (cookieProgress.currentTime || 0);
         setPlaybackDuration(cookieProgress.duration || 0);
         setHasWatchedBefore(true);
         setLastWatched(cookieProgress.lastWatched || new Date().toISOString());
@@ -982,27 +1110,17 @@ export default function MoviePage() {
     setIsPlayerOpen(false);
     setForceStartFromBeginning(false);
 
-    // Resume background video with loop
+    // Show backdrop image when player closes (don't auto-resume video)
     setTimeout(() => {
       const video = videoRef.current;
       if (video && media) {
         video.style.display = 'block';
         video.style.visibility = 'visible';
+        // Don't auto-play video when player closes, show backdrop instead
+        video.pause();
         video.currentTime = 0;
-        video.loop = true;
-        video.muted = false;
-        video.volume = 1.0;
-        setIsMuted(false);
-
-        video.play().then(() => {
-          setIsVideoPlaying(true);
-        }).catch(() => {
-          video.muted = true;
-          setIsMuted(true);
-          video.play().then(() => {
-            setIsVideoPlaying(true);
-          }).catch(() => { });
-        });
+        setIsVideoPlaying(false);
+        setIsMuted(true);
       }
     }, 100);
   };
@@ -1118,25 +1236,150 @@ export default function MoviePage() {
   };
 
   const getBackgroundImageUrl = (media: Media) => {
-    const apiUrl = getApiUrl();
-    if (media.banner_path) {
-      return `${apiUrl}/api/admin/assets/${media.banner_path.split('/').pop()}`;
+    try {
+      const apiUrl = getApiUrl();
+
+      // First try TMDB backdrop if available
+      if (media?.tmdb_backdrop_url && typeof media.tmdb_backdrop_url === 'string' && media.tmdb_backdrop_url.trim()) {
+        return media.tmdb_backdrop_url;
+      }
+
+      // Then try local banner
+      if (media?.banner_path && typeof media.banner_path === 'string' && media.banner_path.trim()) {
+        const fileName = media.banner_path.split('/').pop();
+        if (fileName && fileName.trim()) {
+          return `${apiUrl}/api/admin/assets/${fileName}`;
+        }
+      }
+
+      // Fallback to thumbnail
+      return `${apiUrl}/api/thumbnails/${media?.id || 'default'}`;
+    } catch (error) {
+      console.error('Error getting background image URL:', error);
+      const apiUrl = getApiUrl();
+      return `${apiUrl}/api/thumbnails/default`;
     }
-    return `${apiUrl}/api/thumbnails/${media.id}`;
+  };
+
+  const getBackdropImageUrl = (media: Media) => {
+    try {
+      const apiUrl = getApiUrl();
+
+      // First try TMDB backdrop if available (high priority for backdrop)
+      if (media?.tmdb_backdrop_url && typeof media.tmdb_backdrop_url === 'string' && media.tmdb_backdrop_url.trim()) {
+        return media.tmdb_backdrop_url;
+      }
+
+      // Then try local banner
+      if (media?.banner_path && typeof media.banner_path === 'string' && media.banner_path.trim()) {
+        const fileName = media.banner_path.split('/').pop();
+        if (fileName && fileName.trim()) {
+          return `${apiUrl}/api/admin/assets/${fileName}`;
+        }
+      }
+
+      // Fallback to thumbnail (not poster for backdrop)
+      return `${apiUrl}/api/thumbnails/${media?.id || 'default'}`;
+    } catch (error) {
+      console.error('Error getting backdrop image URL:', error);
+      const apiUrl = getApiUrl();
+      return `${apiUrl}/api/thumbnails/default`;
+    }
   };
 
   const getBackgroundVideoUrl = (media: Media) => {
-    const apiUrl = getApiUrl();
-    // First try trailer for background (lighter than full media file)
-    if (media.trailer_path) {
-      return `${apiUrl}/api/admin/assets/${media.trailer_path.split('/').pop()}`;
+    try {
+      const apiUrl = getApiUrl();
+
+      // Then try local trailer for background (lighter than full media file)
+      if (media?.trailer_path && typeof media.trailer_path === 'string' && media.trailer_path.trim()) {
+        const fileName = media.trailer_path.split('/').pop();
+        if (fileName && fileName.trim()) {
+          return `${apiUrl}/api/admin/assets/${fileName}`;
+        }
+      }
+
+      // Then try preview clips (optimized for background)
+      if (media?.preview_clip_path && typeof media.preview_clip_path === 'string' && media.preview_clip_path.trim()) {
+        const fileName = media.preview_clip_path.split('/').pop();
+        if (fileName && fileName.trim()) {
+          return `${apiUrl}/api/admin/assets/${fileName}`;
+        }
+      }
+
+      // Fallback to preview clips endpoint
+      return `${apiUrl}/api/preview-clips/${media?.id || 'default'}`;
+    } catch (error) {
+      console.error('Error getting background video URL:', error);
+      const apiUrl = getApiUrl();
+      return `${apiUrl}/api/preview-clips/default`;
     }
-    // Then try preview clips (optimized for background)
-    if (media.preview_clip_path) {
-      return `${apiUrl}/api/admin/assets/${media.preview_clip_path.split('/').pop()}`;
+  };
+
+  const extractYouTubeKey = (url: string): string | null => {
+    try {
+      if (!url || typeof url !== 'string' || !url.trim()) {
+        return null;
+      }
+
+      const match = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([^&\n?#]+)/);
+      return match && match[1] ? match[1] : null;
+    } catch (error) {
+      console.error('Error extracting YouTube key:', error);
+      return null;
     }
-    // Fallback to preview clips endpoint
-    return `${apiUrl}/api/preview-clips/${media.id}`;
+  };
+
+  const handleWatchTrailer = () => {
+    try {
+      if (!media?.tmdb_trailer_url || typeof media.tmdb_trailer_url !== 'string' || !media.tmdb_trailer_url.trim()) {
+        console.warn('No valid trailer URL available');
+        // Show user-friendly message
+        alert('Trailer not available for this movie');
+        return;
+      }
+
+      const key = extractYouTubeKey(media.tmdb_trailer_url);
+      if (key && typeof key === 'string' && key.trim()) {
+        setTrailerKey(key);
+        setIsShowingTrailer(true);
+        // Stop background video when showing trailer
+        stopVideo();
+      } else {
+        console.warn('Could not extract YouTube key from trailer URL:', media.tmdb_trailer_url);
+        // Show user-friendly message
+        alert('Invalid trailer URL format');
+      }
+    } catch (error) {
+      console.error('Error handling trailer:', error);
+      alert('Error loading trailer');
+    }
+  };
+
+  const handleCloseTrailer = () => {
+    setIsShowingTrailer(false);
+    setTrailerKey(null);
+    // Resume background video after closing trailer
+    setTimeout(() => {
+      const video = videoRef.current;
+      if (video && media && !isPlayerOpen) {
+        video.currentTime = 0;
+        video.loop = true;
+        video.muted = false;
+        video.volume = 1.0;
+        setIsMuted(false);
+
+        video.play().then(() => {
+          setIsVideoPlaying(true);
+        }).catch(() => {
+          video.muted = true;
+          setIsMuted(true);
+          video.play().then(() => {
+            setIsVideoPlaying(true);
+          }).catch(() => { });
+        });
+      }
+    }, 100);
   };
 
   if (loading) {
@@ -1168,34 +1411,21 @@ export default function MoviePage() {
 
       {/* Hero Section */}
       <div className="relative h-screen overflow-hidden">
-        {/* Background Image with Lazy Loading */}
-        <div className="absolute inset-0 pointer-events-none" style={{ zIndex: 1 }}>
-          <LazyImage
-            src={getBackgroundImageUrl(media)}
-            alt={media.title}
-            fill
-            className={`transition-opacity duration-1000 ${isVideoLoaded && isVideoPlaying ? 'opacity-0' : 'opacity-100'
-              }`}
-            priority
-            sizes="100vw"
-            loaderSize="large"
-            showLoader={true}
-          />
-        </div>
-
-        {/* Poster Background Overlay (TMDB Style) - Shows when video not playing */}
+        {/* Backdrop Background Image - Shows when video not playing */}
         <div
           className={`absolute inset-0 pointer-events-none transition-opacity duration-1000 ${!isVideoLoaded || !isVideoPlaying ? 'opacity-100' : 'opacity-0'
             }`}
           style={{ zIndex: 2 }}
         >
-          <ImageWithFallback
-            mediaId={media.id}
+          <LazyImage
+            src={getBackdropImageUrl(media)}
             alt={media.title}
-            fill={true}
-            sizes="100vw"
+            fill
             className="object-cover"
-            loading="eager"
+            priority
+            sizes="100vw"
+            loaderSize="large"
+            showLoader={true}
           />
           {/* Gradient overlay for better text readability */}
           <div className="absolute inset-0 bg-gradient-to-r from-black/70 via-black/30 to-black/20" />
@@ -1262,6 +1492,7 @@ export default function MoviePage() {
             }
           }}
           onError={(e) => {
+            console.warn('Background video failed to load, falling back to backdrop image');
             setIsVideoLoaded(false);
             setIsVideoPlaying(false);
             // Stop video completely on error
@@ -1271,6 +1502,13 @@ export default function MoviePage() {
               video.muted = true;
               video.volume = 0;
               video.currentTime = 0;
+              // Remove failed sources to prevent retry loops
+              const sources = video.querySelectorAll('source');
+              sources.forEach(source => {
+                if (source.src === e.currentTarget.currentSrc) {
+                  source.remove();
+                }
+              });
             }
           }}
           onCanPlay={() => {
@@ -1332,13 +1570,73 @@ export default function MoviePage() {
               setTimeout(metadataPlay, 50);
             }
           }}
+          onEnded={() => {
+            // Ensure video loops even if loop attribute fails
+            const video = videoRef.current;
+            if (video && !isPlayerOpen) {
+              video.currentTime = 0;
+              video.play().catch(() => {
+                console.warn('Failed to restart video loop');
+              });
+            }
+          }}
         >
           {/* Preview/trailer sources - not full media file */}
-          <source src={`${getBackgroundVideoUrl(media)}?audio=aac&quality=medium`} type="video/mp4" />
-          <source src={`${getBackgroundVideoUrl(media)}`} type="video/mp4" />
-          <source src={getAssetUrl('preview', media.id, false) as string} type="video/mp4" />
+          <source
+            src={`${getBackgroundVideoUrl(media)}?audio=aac&quality=medium`}
+            type="video/mp4"
+            onError={(e) => {
+              console.warn('Primary video source failed to load');
+              e.currentTarget.style.display = 'none';
+            }}
+          />
+          <source
+            src={`${getBackgroundVideoUrl(media)}`}
+            type="video/mp4"
+            onError={(e) => {
+              console.warn('Secondary video source failed to load');
+              e.currentTarget.style.display = 'none';
+            }}
+          />
+          <source
+            src={getAssetUrl('preview', media.id, false) as string}
+            type="video/mp4"
+            onError={(e) => {
+              console.warn('Fallback video source failed to load');
+              e.currentTarget.style.display = 'none';
+            }}
+          />
           Your browser does not support the video tag.
         </video>
+
+        {/* YouTube Trailer Overlay */}
+        {isShowingTrailer && trailerKey && (
+          <div className="absolute inset-0 z-[15] bg-black">
+            <iframe
+              src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=0&controls=0&showinfo=0&rel=0&iv_load_policy=3&modestbranding=1&loop=1&playlist=${trailerKey}&hd=1&vq=hd1080&origin=${typeof window !== 'undefined' ? window.location.origin : ''}`}
+              className="w-full h-full"
+              allow="autoplay; encrypted-media; fullscreen"
+              allowFullScreen
+              style={{
+                border: 'none',
+                outline: 'none'
+              }}
+            />
+
+            {/* Close Trailer Button */}
+            <button
+              onClick={handleCloseTrailer}
+              className="absolute top-6 right-6 z-[20] bg-black/70 hover:bg-black/90 text-white p-3 rounded-full transition-all duration-300 hover:scale-110"
+            >
+              <X className="w-6 h-6" />
+            </button>
+
+            {/* Trailer Label */}
+            <div className="absolute top-6 left-6 z-[20] bg-black/70 backdrop-blur-sm text-white px-4 py-2 rounded-lg">
+              <span className="text-sm font-semibold">Official Trailer</span>
+            </div>
+          </div>
+        )}
 
         {/* Minimal overlay for text readability only */}
         <div className="absolute bottom-0 left-0 right-0 h-1/2 bg-gradient-to-t from-black/80 to-transparent z-[10] pointer-events-none" />
@@ -1472,6 +1770,17 @@ export default function MoviePage() {
                   >
                     <Play className="w-4 h-4" />
                     From Beginning
+                  </button>
+                )}
+
+                {/* Watch Trailer Button - Only show if TMDB trailer is available */}
+                {media.tmdb_trailer_url && (
+                  <button
+                    onClick={handleWatchTrailer}
+                    className="flex items-center gap-1 px-4 py-2 bg-blue-600/80 hover:bg-blue-700 rounded-lg text-sm font-semibold transition-all duration-300 hover:scale-105"
+                  >
+                    <Play className="w-4 h-4" />
+                    Watch Trailer
                   </button>
                 )}
 

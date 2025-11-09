@@ -78,6 +78,11 @@ type Media struct {
 	BannerPath      string `json:"banner_path"`       // HD banner for hero section
 	TrailerPath     string `json:"trailer_path"`      // Trailer video file
 	
+	// TMDB Integration fields for local media
+	TMDBBackdropURL string `json:"tmdb_backdrop_url"` // TMDB backdrop image URL
+	TMDBTrailerURL  string `json:"tmdb_trailer_url"`  // TMDB trailer video URL
+	TMDBID          int    `json:"tmdb_id"`           // TMDB movie/TV ID for reference
+	
 	// Series info (for episodes)
 	SeriesID      *uint   `json:"series_id,omitempty"`
 	Series        *Series `json:"series,omitempty" gorm:"foreignKey:SeriesID"`

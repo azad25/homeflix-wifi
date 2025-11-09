@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, Suspense } from 'react';
 import { usePageTitle } from '@/hooks/usePageTitle';
-import { Settings, Database, Upload, Trash2, Video, ImageIcon, Folder, File, Play, Info, Edit3, RefreshCw, Save, X, Star, Clock, Globe, Eye, Zap, Search, Server, Activity, HardDrive, Monitor, BarChart3, TrendingUp, FileSearch, Timer, Download } from 'lucide-react';
+import { Settings, Database, Upload, Trash2, Video, ImageIcon, Folder, File, Play, Info, Edit3, RefreshCw, Save, X, Star, Clock, Globe, Eye, Zap, Search, Server, Activity, HardDrive, Monitor, BarChart3, TrendingUp, FileSearch, Timer, Download, Film } from 'lucide-react';
 import Image from 'next/image';
 import Navbar from '@/components/Navbar';
 import { getApiUrl } from '@/lib/api';
@@ -12,6 +12,7 @@ import { motion } from 'framer-motion';
 import { useNavigate } from "@/hooks/useNavigate";
 import RedLoader from '@/components/RedLoader';
 import TorrentDashboard from '@/components/TorrentDashboard';
+import TMDBSearchModal from '@/components/TMDBSearchModal';
 import { useSearchParams } from 'next/navigation';
 interface MediaAssets {
   banner?: string;
@@ -22,6 +23,22 @@ interface MediaAssets {
 interface EditableMedia extends Media {
   isEditing?: boolean;
   uuid?: string;
+}
+
+interface TMDBSearchResult {
+  id: number;
+  title: string;
+  original_title: string;
+  overview: string;
+  release_date: string;
+  poster_path: string;
+  backdrop_path: string;
+  vote_average: number;
+  vote_count: number;
+  popularity: number;
+  media_type: "movie" | "tv";
+  adult: boolean;
+  genre_ids: number[];
 }
 
 function SettingsContent() {
@@ -53,6 +70,8 @@ function SettingsContent() {
     priority: 0
   });
   const [showAddPathForm, setShowAddPathForm] = useState(false);
+  const [showCustomTMDBSearch, setShowCustomTMDBSearch] = useState(false);
+  const [customSearchTitle, setCustomSearchTitle] = useState('');
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -500,15 +519,18 @@ function SettingsContent() {
     }
 
     setIsRegenerating(prev => ({ ...prev, thumbnail: true }));
-    addTerminalOutput(`🖼️ Regenerating thumbnail for: ${selectedMedia.title}`);
+    addTerminalOutput(`🔄 Force regenerating thumbnail for: ${selectedMedia.title}`);
 
     try {
-      const response = await fetch(`${getApiUrl()}/api/thumbnails/${selectedMedia.id}`, {
+      const response = await fetch(`${getApiUrl()}/api/admin/thumbnails/${selectedMedia.id}/regenerate`, {
         method: 'POST',
       });
 
       if (response.ok) {
-        addTerminalOutput(`✅ Thumbnail generation started`);
+        const result = await response.json();
+        addTerminalOutput(`✅ Thumbnail regenerated successfully`);
+        addTerminalOutput(`📁 New thumbnail path: ${result.thumbnail_path || 'N/A'}`);
+        
         // Refresh the selected media to get updated thumbnail path
         const mediaResponse = await fetch(`${getApiUrl()}/api/media/${selectedMedia.id}`);
         if (mediaResponse.ok) {
@@ -519,7 +541,8 @@ function SettingsContent() {
           addTerminalOutput(`⚠️ Could not refresh media info`);
         }
       } else {
-        addTerminalOutput(`❌ Thumbnail generation failed: ${response.statusText}`);
+        const errorData = await response.json().catch(() => ({ error: response.statusText }));
+        addTerminalOutput(`❌ Thumbnail regeneration failed: ${errorData.error || response.statusText}`);
       }
     } catch (error) {
       addTerminalOutput(`❌ Error regenerating thumbnail: ${error}`);
@@ -539,15 +562,19 @@ function SettingsContent() {
     }
 
     setIsRegenerating(prev => ({ ...prev, preview: true }));
-    addTerminalOutput(`🎬 Regenerating preview clip for: ${selectedMedia.title}`);
+    addTerminalOutput(`🔄 Force regenerating preview clip for: ${selectedMedia.title}`);
 
     try {
-      const response = await fetch(`${getApiUrl()}/api/admin/preview-clips/${selectedMedia.id}/generate`, {
+      const response = await fetch(`${getApiUrl()}/api/admin/preview-clips/${selectedMedia.id}/regenerate`, {
         method: 'POST',
       });
 
       if (response.ok) {
-        addTerminalOutput(`✅ Preview clip generation started`);
+        const result = await response.json();
+        addTerminalOutput(`✅ Preview clip regenerated successfully`);
+        addTerminalOutput(`📁 New preview path: ${result.preview_path || 'N/A'}`);
+        addTerminalOutput(`📊 File size: ${result.file_size ? `${(result.file_size / (1024 * 1024)).toFixed(2)} MB` : 'N/A'}`);
+        
         // Refresh the selected media to get updated preview path
         const mediaResponse = await fetch(`${getApiUrl()}/api/media/${selectedMedia.id}`);
         if (mediaResponse.ok) {
@@ -558,7 +585,8 @@ function SettingsContent() {
           addTerminalOutput(`⚠️ Could not refresh media info`);
         }
       } else {
-        addTerminalOutput(`❌ Preview generation failed: ${response.statusText}`);
+        const errorData = await response.json().catch(() => ({ error: response.statusText }));
+        addTerminalOutput(`❌ Preview regeneration failed: ${errorData.error || response.statusText}`);
       }
     } catch (error) {
       addTerminalOutput(`❌ Error regenerating preview: ${error}`);
@@ -640,13 +668,55 @@ function SettingsContent() {
     }
   };
 
-  const handleFetchTMDBData = async () => {
+  const handleBulkTMDBUpdate = async () => {
+    setActionLoading(prev => ({ ...prev, bulkTmdb: true }));
+    addTerminalOutput(`🎬 Starting bulk TMDB update for all local media...`);
+
+    try {
+      const response = await fetch(`${getApiUrl()}/api/admin/update-tmdb-data`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        addTerminalOutput(`✅ Bulk TMDB update completed: ${data.updated} items updated out of ${data.total}`);
+        
+        if (data.errors && data.errors.length > 0) {
+          addTerminalOutput(`⚠️ Some items had errors:`);
+          data.errors.slice(0, 5).forEach((error: string) => {
+            addTerminalOutput(`   • ${error}`);
+          });
+          if (data.errors.length > 5) {
+            addTerminalOutput(`   • ... and ${data.errors.length - 5} more errors`);
+          }
+        }
+
+        // Refresh media list if we're in media tab
+        if (activeTab === 'media') {
+          await fetchMediaList();
+        }
+      } else {
+        const errorData = await response.json().catch(() => ({ error: response.statusText }));
+        addTerminalOutput(`❌ Bulk TMDB update failed: ${errorData.error || response.statusText}`);
+      }
+    } catch (error) {
+      addTerminalOutput(`❌ Error during bulk TMDB update: ${error}`);
+      console.error('Error during bulk TMDB update:', error);
+    } finally {
+      setActionLoading(prev => ({ ...prev, bulkTmdb: false }));
+    }
+  };
+
+  const handleFetchTMDBData = async (customTitle?: string) => {
     if (!selectedMedia) return;
 
     setActionLoading(prev => ({ ...prev, tmdb: true }));
 
-    // Use the edited title if available, otherwise use the current title
-    const searchTitle = editingMedia.title || selectedMedia.title;
+    // Use custom title if provided, otherwise use edited title or current title
+    const searchTitle = customTitle || editingMedia.title || selectedMedia.title;
     addTerminalOutput(`🎬 Fetching TMDB data for: ${searchTitle}`);
 
     try {
@@ -772,6 +842,188 @@ function SettingsContent() {
       console.error('Error fetching TMDB data:', error);
     } finally {
       setActionLoading(prev => ({ ...prev, tmdb: false }));
+      // Close the custom search modal if it was used
+      if (customTitle) {
+        setShowCustomTMDBSearch(false);
+        setCustomSearchTitle('');
+      }
+    }
+  };
+
+  const handleCustomTMDBSearch = () => {
+    if (!customSearchTitle.trim()) {
+      addTerminalOutput('❌ Please enter a search title');
+      return;
+    }
+    handleFetchTMDBData(customSearchTitle.trim());
+  };
+
+  const handleTMDBSelection = async (tmdbResult: TMDBSearchResult) => {
+    if (!selectedMedia) return;
+
+    setActionLoading(prev => ({ ...prev, tmdb: true }));
+    addTerminalOutput(`🎬 Updating with selected TMDB result: ${tmdbResult.title} (ID: ${tmdbResult.id})`);
+
+    try {
+      // Send the TMDB ID directly to update the media
+      const requestBody = {
+        tmdbId: tmdbResult.id,
+        mediaType: tmdbResult.media_type,
+        preserveFields: selectedMedia.isEditing ? Object.keys(editingMedia) : []
+      };
+
+      let response: Response;
+      let updatedData: any;
+
+      if (selectedMedia.type === 'tv' || tmdbResult.media_type === 'tv') {
+        // For TV series, use series-specific TMDB endpoints
+        addTerminalOutput(`📺 Updating TV series with TMDB ID: ${tmdbResult.id}`);
+
+        response = await fetch(`${getApiUrl()}/api/admin/series/${selectedMedia.id}/update-with-tmdb`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(requestBody),
+        });
+
+        if (response.ok) {
+          updatedData = await response.json();
+
+          // Preserve manually edited fields
+          const finalSeriesData = { ...updatedData };
+          if (selectedMedia.isEditing && editingMedia) {
+            (Object.keys(editingMedia) as Array<keyof Media>).forEach(key => {
+              if (editingMedia[key] !== undefined && editingMedia[key] !== '') {
+                (finalSeriesData as any)[key] = editingMedia[key];
+              }
+            });
+          }
+
+          // Update series list
+          setSeriesList(prev => prev.map(s =>
+            s.id === selectedMedia.id
+              ? finalSeriesData
+              : s
+          ));
+
+          // Convert series data back to media-like format for selectedMedia
+          const finalMedia = {
+            ...selectedMedia,
+            ...finalSeriesData,
+            isEditing: selectedMedia.isEditing,
+            type: 'tv'
+          };
+
+          setSelectedMedia(finalMedia);
+          addTerminalOutput(`✅ TV series updated with TMDB data from "${tmdbResult.title}"`);
+        } else {
+          const errorData = await response.json().catch(() => ({ error: response.statusText }));
+          addTerminalOutput(`❌ TV series TMDB update failed: ${errorData.error || response.statusText}`);
+        }
+      } else {
+        // For movies, use existing movie endpoints
+        addTerminalOutput(`🎬 Updating movie with TMDB ID: ${tmdbResult.id}`);
+
+        response = await fetch(`${getApiUrl()}/api/admin/media/${selectedMedia.id}/update-with-tmdb`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(requestBody),
+        });
+
+        if (response.ok) {
+          updatedData = await response.json();
+
+          // Preserve manually edited fields
+          const finalMedia = { ...updatedData };
+          if (selectedMedia.isEditing && editingMedia) {
+            (Object.keys(editingMedia) as Array<keyof Media>).forEach(key => {
+              if (editingMedia[key] !== undefined && editingMedia[key] !== '') {
+                (finalMedia as any)[key] = editingMedia[key];
+              }
+            });
+          }
+
+          setSelectedMedia({ ...finalMedia, isEditing: selectedMedia.isEditing });
+          setMediaList(prev => prev.map(m => m.id === updatedData.id ? finalMedia : m));
+          addTerminalOutput(`✅ Movie updated with TMDB data from "${tmdbResult.title}"`);
+        } else {
+          const errorData = await response.json().catch(() => ({ error: response.statusText }));
+          addTerminalOutput(`❌ Movie TMDB update failed: ${errorData.error || response.statusText}`);
+        }
+      }
+
+      if (selectedMedia.isEditing && editingMedia) {
+        addTerminalOutput(`🔒 Preserved manual edits: ${Object.keys(editingMedia).join(', ')}`);
+      }
+    } catch (error) {
+      addTerminalOutput(`❌ Error updating with TMDB data: ${error}`);
+      console.error('Error updating with TMDB data:', error);
+    } finally {
+      setActionLoading(prev => ({ ...prev, tmdb: false }));
+    }
+  };
+
+  const handleUpdateBackdropTrailer = async (customTitle?: string) => {
+    if (!selectedMedia) return;
+
+    setActionLoading(prev => ({ ...prev, backdropTrailer: true }));
+
+    // Use custom title if provided, otherwise use current title
+    const searchTitle = customTitle || selectedMedia.title;
+    addTerminalOutput(`🎬 Updating backdrop and trailer for: ${searchTitle}`);
+
+    try {
+      // Use the bulk TMDB update endpoint which focuses on backdrop/trailer data
+      const response = await fetch(`${getApiUrl()}/api/admin/update-tmdb-data`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          mediaId: selectedMedia.id,
+          searchTitle: searchTitle,
+          updateType: 'backdrop_trailer_only'
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        addTerminalOutput(`✅ Backdrop and trailer update completed`);
+        
+        // Refresh the selected media to show updated data
+        if (selectedMedia.type === 'tv') {
+          const refreshResponse = await fetch(`${getApiUrl()}/api/series/${selectedMedia.id}`);
+          if (refreshResponse.ok) {
+            const updatedData = await refreshResponse.json();
+            const finalMedia = {
+              ...selectedMedia,
+              backdrop_path: updatedData.backdrop_path,
+              trailer_url: updatedData.trailer_url,
+            };
+            setSelectedMedia(finalMedia);
+          }
+        } else {
+          const refreshResponse = await fetch(`${getApiUrl()}/api/media/${selectedMedia.id}`);
+          if (refreshResponse.ok) {
+            const updatedData = await refreshResponse.json();
+            setSelectedMedia(prev => prev ? { ...prev, ...updatedData } : null);
+          }
+        }
+        
+        addTerminalOutput(`🖼️ Backdrop URL: ${data.backdrop_url ? '✅ Updated' : '❌ Not found'}`);
+        addTerminalOutput(`🎬 Trailer URL: ${data.trailer_url ? '✅ Updated' : '❌ Not found'}`);
+      } else {
+        const errorData = await response.json().catch(() => ({ error: response.statusText }));
+        addTerminalOutput(`❌ Backdrop/trailer update failed: ${errorData.error || response.statusText}`);
+      }
+    } catch (error) {
+      addTerminalOutput(`❌ Error updating backdrop/trailer: ${error}`);
+      console.error('Error updating backdrop/trailer:', error);
+    } finally {
+      setActionLoading(prev => ({ ...prev, backdropTrailer: false }));
     }
   };
 
@@ -1712,7 +1964,7 @@ function SettingsContent() {
                             ) : (
                               <ImageIcon className="w-4 h-4" />
                             )}
-                            <span>Regenerate Thumbnail</span>
+                            <span>Force Regenerate Thumbnail</span>
                           </MagneticButton>
                         )}
 
@@ -1727,7 +1979,7 @@ function SettingsContent() {
                             ) : (
                               <Video className="w-4 h-4" />
                             )}
-                            <span>Regenerate Preview</span>
+                            <span>Force Regenerate Preview</span>
                           </MagneticButton>
                         )}
 
@@ -1745,7 +1997,7 @@ function SettingsContent() {
                         </MagneticButton>
 
                         <MagneticButton
-                          onClick={handleFetchTMDBData}
+                          onClick={() => handleFetchTMDBData()}
                           disabled={actionLoading.tmdb}
                           className="bg-green-600/20 hover:bg-green-600/40 text-green-400 px-4 py-2 rounded-lg flex items-center space-x-2"
                         >
@@ -1755,6 +2007,28 @@ function SettingsContent() {
                             <RefreshCw className="w-4 h-4" />
                           )}
                           <span>Fetch TMDB Data</span>
+                        </MagneticButton>
+
+                        <MagneticButton
+                          onClick={() => setShowCustomTMDBSearch(true)}
+                          disabled={actionLoading.tmdb}
+                          className="bg-yellow-600/20 hover:bg-yellow-600/40 text-yellow-400 px-4 py-2 rounded-lg flex items-center space-x-2"
+                        >
+                          <Search className="w-4 h-4" />
+                          <span>Custom TMDB Search</span>
+                        </MagneticButton>
+
+                        <MagneticButton
+                          onClick={() => {
+                            setCustomSearchTitle(selectedMedia?.title || '');
+                            setShowCustomTMDBSearch(true);
+                          }}
+                          disabled={actionLoading.tmdb}
+                          className="bg-indigo-600/20 hover:bg-indigo-600/40 text-indigo-400 px-4 py-2 rounded-lg flex items-center space-x-2"
+                          title="Update backdrop and trailer with custom search"
+                        >
+                          <Film className="w-4 h-4" />
+                          <span>Update Backdrop & Trailer</span>
                         </MagneticButton>
 
                         {selectedMedia.isEditing && (
@@ -2262,6 +2536,130 @@ function SettingsContent() {
             </div>
           </div>
         )}
+
+        {/* Custom TMDB Search Modal */}
+        {showCustomTMDBSearch && (
+            <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+              <motion.div
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.9 }}
+                className="bg-black/90 border border-white/20 rounded-lg p-6 max-w-md w-full"
+              >
+                <div className="flex items-center justify-between mb-6">
+                  <h3 className="text-xl font-semibold text-white flex items-center">
+                    <Search className="w-6 h-6 mr-3 text-[#E50914]" />
+                    Custom TMDB Search
+                  </h3>
+                  <button
+                    onClick={() => {
+                      setShowCustomTMDBSearch(false);
+                      setCustomSearchTitle('');
+                    }}
+                    className="text-white/60 hover:text-white"
+                  >
+                    <X className="w-6 h-6" />
+                  </button>
+                </div>
+
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-white/70 mb-2">
+                      Search Title
+                    </label>
+                    <input
+                      type="text"
+                      value={customSearchTitle}
+                      onChange={(e) => setCustomSearchTitle(e.target.value)}
+                      placeholder={`Enter custom search title for "${selectedMedia?.title}"`}
+                      className="w-full bg-black/50 border border-white/20 rounded-lg px-4 py-3 text-white placeholder-white/50 focus:border-[#E50914] focus:outline-none transition-colors"
+                      onKeyPress={(e) => {
+                        if (e.key === 'Enter') {
+                          handleCustomTMDBSearch();
+                        }
+                      }}
+                      autoFocus
+                    />
+                    <p className="text-white/50 text-sm mt-2">
+                      Use this to search TMDB with a different title than the current one. 
+                      Useful for movies with alternate titles or when the filename doesn't match TMDB.
+                    </p>
+                  </div>
+
+                  <div className="flex flex-col space-y-3">
+                    <div className="flex space-x-3">
+                      <MagneticButton
+                        onClick={handleCustomTMDBSearch}
+                        disabled={actionLoading.tmdb || !customSearchTitle.trim()}
+                        className="flex-1 bg-[#E50914] hover:bg-[#E50914]/80 text-white py-3 px-4 rounded-lg flex items-center justify-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {actionLoading.tmdb ? (
+                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                        ) : (
+                          <Search className="w-4 h-4" />
+                        )}
+                        <span>Full Update</span>
+                      </MagneticButton>
+                      <MagneticButton
+                        onClick={() => {
+                          handleUpdateBackdropTrailer(customSearchTitle.trim());
+                        }}
+                        disabled={actionLoading.backdropTrailer || !customSearchTitle.trim()}
+                        className="flex-1 bg-indigo-600 hover:bg-indigo-600/80 text-white py-3 px-4 rounded-lg flex items-center justify-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {actionLoading.backdropTrailer ? (
+                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                        ) : (
+                          <Film className="w-4 h-4" />
+                        )}
+                        <span>Backdrop & Trailer Only</span>
+                      </MagneticButton>
+                    </div>
+                    <MagneticButton
+                      onClick={() => {
+                        setShowCustomTMDBSearch(false);
+                        setCustomSearchTitle('');
+                      }}
+                      className="w-full bg-white/10 hover:bg-white/20 text-white py-3 px-4 rounded-lg"
+                    >
+                      Cancel
+                    </MagneticButton>
+                  </div>
+
+                  <div className="bg-white/5 rounded-lg p-4">
+                    <h4 className="text-white font-medium mb-3">Update Options:</h4>
+                    
+                    <div className="space-y-3">
+                      <div className="bg-[#E50914]/10 rounded p-3">
+                        <h5 className="text-[#E50914] font-medium text-sm mb-1">Full Update</h5>
+                        <ul className="text-white/70 text-xs space-y-1">
+                          <li>• Complete metadata refresh</li>
+                          <li>• Backdrop & trailer URLs</li>
+                          <li>• Poster, cast, crew info</li>
+                          <li>• Genres, ratings, descriptions</li>
+                        </ul>
+                      </div>
+                      
+                      <div className="bg-indigo-600/10 rounded p-3">
+                        <h5 className="text-indigo-400 font-medium text-sm mb-1">Backdrop & Trailer Only</h5>
+                        <ul className="text-white/70 text-xs space-y-1">
+                          <li>• Backdrop image URL only</li>
+                          <li>• Trailer video URL only</li>
+                          <li>• Preserves all other metadata</li>
+                          <li>• Faster, targeted update</li>
+                        </ul>
+                      </div>
+                    </div>
+                    
+                    <p className="text-yellow-400 text-sm mt-3">
+                      ⚠️ Your manual edits will be preserved during any update.
+                    </p>
+                  </div>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        
 
         {/* Media Scanning Tab */}
         {activeTab === 'scanning' && (
@@ -2893,11 +3291,52 @@ function SettingsContent() {
                     </label>
                   </div>
                 </div>
+                
+                {/* TMDB Integration Section */}
+                <div className="bg-white/5 rounded-lg p-6">
+                  <h3 className="text-lg font-semibold text-white mb-3 flex items-center">
+                    <Film className="w-5 h-5 mr-2 text-[#E50914]" />
+                    TMDB Integration
+                  </h3>
+                  <p className="text-white/70 text-sm mb-4">
+                    Enhance your local media with backdrop images and trailer information from The Movie Database (TMDB).
+                  </p>
+                  <div className="space-y-3">
+                    <MagneticButton
+                      onClick={handleBulkTMDBUpdate}
+                      disabled={actionLoading.bulkTmdb}
+                      className="bg-blue-600/20 hover:bg-blue-600/40 text-blue-400 px-4 py-2 rounded-lg flex items-center space-x-2 w-full justify-center"
+                    >
+                      {actionLoading.bulkTmdb ? (
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-400"></div>
+                      ) : (
+                        <RefreshCw className="w-4 h-4" />
+                      )}
+                      <span>Update All Media with TMDB Data</span>
+                    </MagneticButton>
+                    <p className="text-white/50 text-xs">
+                      This will scan all your local movies and TV shows and add backdrop images and trailer URLs from TMDB.
+                    </p>
+                  </div>
+                </div>
               </div>
             </GlassCard>
           </ScrollReveal>
         )}
       </div>
+
+      {/* TMDB Search Modal */}
+      <TMDBSearchModal
+        isOpen={showCustomTMDBSearch}
+        onClose={() => {
+          setShowCustomTMDBSearch(false);
+          setCustomSearchTitle('');
+        }}
+        onSelect={handleTMDBSelection}
+        initialQuery={customSearchTitle}
+        mediaType={selectedMedia?.type === 'tv' ? 'tv' : 'movie'}
+        title={`Search TMDB for ${selectedMedia?.type === 'tv' ? 'TV Series' : 'Movie'}`}
+      />
     </div>
   );
 }

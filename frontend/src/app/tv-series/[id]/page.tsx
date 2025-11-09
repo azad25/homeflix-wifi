@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { usePageTitle } from '@/hooks/usePageTitle';
-import { ArrowLeft, Play, Plus, Check, Share, Download, Info, Star, Clock, Calendar, Globe, Users, Award, Film, Tv, User, Mic, ChevronDown, ChevronUp, Volume2, VolumeX, PlayCircle } from "lucide-react";
+import { ArrowLeft, Play, Plus, Check, Share, Download, Info, Star, Clock, Calendar, Globe, Users, Award, Film, Tv, User, Mic, ChevronDown, ChevronUp, Volume2, VolumeX, PlayCircle, X } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Media } from '@/types/media';
 import { getApiUrl, preloadAssets } from '@/lib/api';
@@ -66,6 +66,8 @@ export default function TVSeriesPage() {
   const [showTitleOverlay, setShowTitleOverlay] = useState(true);
   const [isHoveringTitle, setIsHoveringTitle] = useState(false);
   const [continueWatching, setContinueWatching] = useState<{ episode: Media, progress: number } | null>(null);
+  const [isShowingTrailer, setIsShowingTrailer] = useState(false); // Trailer mode state
+  const [trailerKey, setTrailerKey] = useState<string | null>(null); // YouTube trailer key
   const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
@@ -276,6 +278,18 @@ export default function TVSeriesPage() {
     const apiUrl = getApiUrl();
     console.log('🖼️ Getting background image for:', media.title);
 
+    // First try TMDB backdrop if available (high priority for backdrop)
+    if (media.tmdb_backdrop_url) {
+      console.log('🖼️ Using TMDB backdrop');
+      return media.tmdb_backdrop_url;
+    }
+
+    // Then try local banner
+    if (media.banner_path) {
+      console.log('🖼️ Using series banner');
+      return `${apiUrl}/api/admin/assets/${media.banner_path.split('/').pop()}`;
+    }
+
     // Use random season thumbnail as background if seasons exist
     if (seasons.length > 0 && episodes.length > 0) {
       const randomSeason = seasons[Math.floor(Math.random() * seasons.length)];
@@ -289,25 +303,81 @@ export default function TVSeriesPage() {
       }
     }
 
-    // Fallback to series banner or thumbnail
+    // Fallback to series thumbnail
+    console.log('🖼️ Using series thumbnail:', media.id);
+    return `${apiUrl}/api/thumbnails/${media.id}`;
+  };
+
+  const getBackdropImageUrl = (media: Media) => {
+    const apiUrl = getApiUrl();
+    
+    // First try TMDB backdrop if available (high priority for backdrop)
+    if (media.tmdb_backdrop_url) {
+      return media.tmdb_backdrop_url;
+    }
+    
+    // Then try local banner
     if (media.banner_path) {
-      console.log('🖼️ Using series banner');
       return `${apiUrl}/api/admin/assets/${media.banner_path.split('/').pop()}`;
     }
-
-    console.log('🖼️ Using series thumbnail:', media.id);
+    
+    // Fallback to thumbnail (not poster for backdrop)
     return `${apiUrl}/api/thumbnails/${media.id}`;
   };
 
   const getBackgroundVideoUrl = (media: Media) => {
     const apiUrl = getApiUrl();
+    
+    // Then try local trailer
     if (media.trailer_path) {
       return `${apiUrl}/api/admin/assets/${media.trailer_path.split('/').pop()}`;
     }
+    
+    // Then try preview clips
     if (media.preview_clip_path) {
       return `${apiUrl}/api/admin/assets/${media.preview_clip_path.split('/').pop()}`;
     }
+    
+    // Fallback to preview clips endpoint
     return `${apiUrl}/api/preview-clips/${media.id}`;
+  };
+
+  const extractYouTubeKey = (url: string): string | null => {
+    const match = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([^&\n?#]+)/);
+    return match ? match[1] : null;
+  };
+
+  const handleWatchTrailer = () => {
+    if (!series?.tmdb_trailer_url) return;
+    
+    const key = extractYouTubeKey(series.tmdb_trailer_url);
+    if (key) {
+      setTrailerKey(key);
+      setIsShowingTrailer(true);
+      // Stop background video when showing trailer
+      const video = videoRef.current;
+      if (video) {
+        video.pause();
+        video.muted = true;
+        video.volume = 0;
+        setIsVideoPlaying(false);
+      }
+    }
+  };
+
+  const handleCloseTrailer = () => {
+    setIsShowingTrailer(false);
+    setTrailerKey(null);
+    // Show backdrop image when trailer closes (don't auto-resume video)
+    setTimeout(() => {
+      const video = videoRef.current;
+      if (video && series && !isPlayerOpen) {
+        // Don't auto-play video when trailer closes, show backdrop instead
+        video.pause();
+        video.currentTime = 0;
+        setIsVideoPlaying(false);
+      }
+    }, 100);
   };
 
   const formatRuntime = (minutes: number) => {
@@ -346,18 +416,24 @@ export default function TVSeriesPage() {
 
       {/* Hero Section */}
       <div className="relative h-screen overflow-hidden">
-        {/* Background Image */}
-        <div className="absolute inset-0" style={{ zIndex: 1 }}>
+        {/* Backdrop Background Image - Shows when video not playing */}
+        <div
+          className={`absolute inset-0 pointer-events-none transition-opacity duration-1000 ${!isVideoLoaded || !isVideoPlaying ? 'opacity-100' : 'opacity-0'
+            }`}
+          style={{ zIndex: 2 }}
+        >
           <LazyImage
-            src={getBackgroundImageUrl(series)}
+            src={getBackdropImageUrl(series)}
             alt={series.title}
             fill
-            className={`transition-opacity duration-1000 ${isVideoLoaded && isVideoPlaying ? 'opacity-0' : 'opacity-100'}`}
+            className="object-cover"
             priority
             sizes="100vw"
             loaderSize="large"
             showLoader={true}
           />
+          {/* Gradient overlay for better text readability */}
+          <div className="absolute inset-0 bg-gradient-to-r from-black/70 via-black/30 to-black/20" />
         </div>
 
         {/* Background Video */}
@@ -390,6 +466,35 @@ export default function TVSeriesPage() {
           <source src={`${getBackgroundVideoUrl(series)}?audio=aac&quality=medium`} type="video/mp4" />
           <source src={getBackgroundVideoUrl(series)} type="video/mp4" />
         </video>
+
+        {/* YouTube Trailer Overlay */}
+        {isShowingTrailer && trailerKey && (
+          <div className="absolute inset-0 z-[15] bg-black">
+            <iframe
+              src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=0&controls=0&showinfo=0&rel=0&iv_load_policy=3&modestbranding=1&loop=1&playlist=${trailerKey}&hd=1&vq=hd1080&origin=${typeof window !== 'undefined' ? window.location.origin : ''}`}
+              className="w-full h-full"
+              allow="autoplay; encrypted-media; fullscreen"
+              allowFullScreen
+              style={{
+                border: 'none',
+                outline: 'none'
+              }}
+            />
+            
+            {/* Close Trailer Button */}
+            <button
+              onClick={handleCloseTrailer}
+              className="absolute top-6 right-6 z-[20] bg-black/70 hover:bg-black/90 text-white p-3 rounded-full transition-all duration-300 hover:scale-110"
+            >
+              <X className="w-6 h-6" />
+            </button>
+            
+            {/* Trailer Label */}
+            <div className="absolute top-6 left-6 z-[20] bg-black/70 backdrop-blur-sm text-white px-4 py-2 rounded-lg">
+              <span className="text-sm font-semibold">Official Trailer</span>
+            </div>
+          </div>
+        )}
 
         {/* Overlay */}
         <motion.div
@@ -520,6 +625,17 @@ export default function TVSeriesPage() {
                     <Play className="w-5 h-5" />
                     {continueWatching ? 'Continue Watching' : 'Play'}
                   </MagneticButton>
+
+                  {/* Watch Trailer Button - Only show if TMDB trailer is available */}
+                  {series.tmdb_trailer_url && (
+                    <MagneticButton
+                      onClick={handleWatchTrailer}
+                      className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg text-lg font-semibold flex items-center gap-2"
+                    >
+                      <Play className="w-5 h-5" />
+                      Watch Trailer
+                    </MagneticButton>
+                  )}
 
                   <MagneticButton
                     onClick={toggleMyList}

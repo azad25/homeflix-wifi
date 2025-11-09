@@ -229,12 +229,18 @@ func (wp *WorkerPool) worker(id int) {
 			var err error
 
 			switch task.Type {
-			case "thumbnail", "thumbnail_unlimited":
-				// Process thumbnail task - callback will be handled by the task itself
-				log.Printf("✅ Thumbnail task completed for media %d", task.MediaID)
-			case "preview", "preview_unlimited":
-				// Process preview task - callback will be handled by the task itself
-				log.Printf("✅ Preview task completed for media %d", task.MediaID)
+			case "thumbnail":
+				result, err = wp.processThumbnailOptimized(task)
+			case "thumbnail_unlimited":
+				result, err = wp.processThumbnailUnlimited(task)
+			case "thumbnail_regeneration":
+				result, err = wp.processThumbnailRegeneration(task)
+			case "preview":
+				result, err = wp.processPreviewOptimized(task)
+			case "preview_unlimited":
+				result, err = wp.processPreviewUnlimited(task)
+			case "preview_regeneration":
+				result, err = wp.processPreviewRegeneration(task)
 			default:
 				err = fmt.Errorf("unknown task type: %s", task.Type)
 			}
@@ -277,7 +283,8 @@ func (s *ThumbnailService) processQueue() {
 	}
 }
 
-func (s *ThumbnailService) processThumbnailOptimized(task ProcessingTask) (string, error) {
+// processThumbnailOptimized processes thumbnail generation with hardware acceleration
+func (wp *WorkerPool) processThumbnailOptimized(task ProcessingTask) (string, error) {
 	// Use season/episode data from task if available
 	var season, episode *int
 	if task.Season != nil && task.Episode != nil {
@@ -291,16 +298,12 @@ func (s *ThumbnailService) processThumbnailOptimized(task ProcessingTask) (strin
 	// Try root folder first (preferred location)
 	rootThumbnailPath := filepath.Join("./thumbnails", filename)
 	if _, err := os.Stat(rootThumbnailPath); err == nil {
-		if task.Callback != nil {
-			task.Callback(rootThumbnailPath, nil)
-		}
 		return rootThumbnailPath, nil
 	}
 
 	thumbnailPath := rootThumbnailPath
 
 	// Get optimized FFmpeg configuration
-	wp := &WorkerPool{}
 	config := wp.getOptimizedFFmpegConfig("thumbnail")
 
 	// Get video duration for smart timestamp selection
@@ -320,10 +323,12 @@ func (s *ThumbnailService) processThumbnailOptimized(task ProcessingTask) (strin
 	// Build optimized FFmpeg command
 	args := buildThumbnailCommand(task.VideoPath, thumbnailPath, timeStr, config)
 
-	// No timeout for large video files - let it take as long as needed
-	cmd := exec.Command("ffmpeg", args...)
+	// Use context with timeout for optimized processing
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
 
-	// Run without timeout constraints
+	// Run with timeout
 	err = cmd.Run()
 	if err != nil {
 		log.Printf("❌ Optimized thumbnail generation failed for media %d: %v", task.MediaID, err)
@@ -1305,6 +1310,21 @@ func generateUniqueFilename(mediaID uint, title string, season *int, episode *in
 	return fmt.Sprintf("%s_%d_%s%s", prefix, mediaID, cleanTitle, extension)
 }
 
+// generateUniqueFilenameWithTimestamp creates unique filename with timestamp for regeneration
+func generateUniqueFilenameWithTimestamp(mediaID uint, title string, season *int, episode *int, prefix, extension string) string {
+	timestamp := time.Now().Format("20060102_150405") // YYYYMMDD_HHMMSS format
+	
+	// For TV series episodes, include season/episode info
+	if season != nil && episode != nil && *season > 0 && *episode > 0 {
+		cleanTitle := cleanTitleForFilename(title)
+		return fmt.Sprintf("%s_%d_%s_S%02dE%02d_%s%s", prefix, mediaID, cleanTitle, *season, *episode, timestamp, extension)
+	}
+	
+	// For movies or episodes without season/episode info
+	cleanTitle := cleanTitleForFilename(title)
+	return fmt.Sprintf("%s_%d_%s_%s%s", prefix, mediaID, cleanTitle, timestamp, extension)
+}
+
 // cleanTitleForFilename creates a safe filename from a title
 func cleanTitleForFilename(title string) string {
 	// Remove or replace characters that are not safe for filenames
@@ -1448,6 +1468,146 @@ func (s *ThumbnailService) GeneratePreviewClipAsyncWithEpisodeInfo(videoPath str
 		return result.path, result.err
 	case <-time.After(120 * time.Second): // Longer timeout for previews
 		return "", fmt.Errorf("preview generation timeout")
+	}
+}
+
+// RegenerateThumbnailAsync forces thumbnail regeneration with timestamped filename
+func (s *ThumbnailService) RegenerateThumbnailAsync(videoPath string, mediaID uint, title string) (string, error) {
+	return s.RegenerateThumbnailAsyncWithEpisodeInfo(videoPath, mediaID, title, nil, nil)
+}
+
+// RegenerateThumbnailAsyncWithEpisodeInfo forces thumbnail regeneration with timestamped filename and episode info
+func (s *ThumbnailService) RegenerateThumbnailAsyncWithEpisodeInfo(videoPath string, mediaID uint, title string, season *int, episode *int) (string, error) {
+	taskID := fmt.Sprintf("regen_thumb_%d_%d", mediaID, time.Now().Unix())
+
+	// Create job status
+	s.mu.Lock()
+	s.activeJobs[taskID] = &JobStatus{
+		ID:        taskID,
+		Type:      "thumbnail_regeneration",
+		Status:    "queued",
+		StartTime: time.Now(),
+	}
+	s.mu.Unlock()
+
+	// Create result channel for synchronous response
+	resultChan := make(chan struct {
+		path string
+		err  error
+	}, 1)
+
+	task := ProcessingTask{
+		ID:        taskID,
+		Type:      "thumbnail_regeneration",
+		VideoPath: videoPath,
+		MediaID:   mediaID,
+		Title:     title,
+		Priority:  1,
+		Season:    season,
+		Episode:   episode,
+		Callback: func(path string, err error) {
+			// Update job status
+			s.mu.Lock()
+			if job, exists := s.activeJobs[taskID]; exists {
+				if err != nil {
+					job.Status = "failed"
+					job.Error = err
+				} else {
+					job.Status = "completed"
+				}
+			}
+			s.mu.Unlock()
+
+			// Send result
+			resultChan <- struct {
+				path string
+				err  error
+			}{path, err}
+		},
+	}
+
+	// Submit to queue with timeout
+	select {
+	case s.processingQueue <- task:
+		// Successfully queued
+	case <-time.After(5 * time.Second):
+		return "", fmt.Errorf("processing queue full - timeout after 5 seconds")
+	}
+
+	// Wait for result
+	result := <-resultChan
+	return result.path, result.err
+}
+
+// RegeneratePreviewClipAsync forces preview clip regeneration with timestamped filename
+func (s *ThumbnailService) RegeneratePreviewClipAsync(videoPath string, mediaID uint, title string) (string, error) {
+	return s.RegeneratePreviewClipAsyncWithEpisodeInfo(videoPath, mediaID, title, nil, nil)
+}
+
+// RegeneratePreviewClipAsyncWithEpisodeInfo forces preview clip regeneration with timestamped filename and episode info
+func (s *ThumbnailService) RegeneratePreviewClipAsyncWithEpisodeInfo(videoPath string, mediaID uint, title string, season *int, episode *int) (string, error) {
+	taskID := fmt.Sprintf("regen_preview_%d_%d", mediaID, time.Now().Unix())
+
+	// Create job status
+	s.mu.Lock()
+	s.activeJobs[taskID] = &JobStatus{
+		ID:        taskID,
+		Type:      "preview_regeneration",
+		Status:    "queued",
+		StartTime: time.Now(),
+	}
+	s.mu.Unlock()
+
+	// Create result channel for synchronous response
+	resultChan := make(chan struct {
+		path string
+		err  error
+	}, 1)
+
+	task := ProcessingTask{
+		ID:        taskID,
+		Type:      "preview_regeneration",
+		VideoPath: videoPath,
+		MediaID:   mediaID,
+		Title:     title,
+		Priority:  1,
+		Season:    season,
+		Episode:   episode,
+		Callback: func(path string, err error) {
+			// Update job status
+			s.mu.Lock()
+			if job, exists := s.activeJobs[taskID]; exists {
+				if err != nil {
+					job.Status = "failed"
+					job.Error = err
+				} else {
+					job.Status = "completed"
+				}
+			}
+			s.mu.Unlock()
+
+			// Send result
+			resultChan <- struct {
+				path string
+				err  error
+			}{path, err}
+		},
+	}
+
+	// Submit to queue with timeout
+	select {
+	case s.processingQueue <- task:
+		// Successfully queued
+	case <-time.After(5 * time.Second):
+		return "", fmt.Errorf("processing queue full - timeout after 5 seconds")
+	}
+
+	// Wait for result with timeout
+	select {
+	case result := <-resultChan:
+		return result.path, result.err
+	case <-time.After(120 * time.Second): // Longer timeout for previews
+		return "", fmt.Errorf("preview regeneration timeout")
 	}
 }
 
@@ -2641,6 +2801,238 @@ func (wp *WorkerPool) generateUltraFastPreviewUnlimited(videoPath string, mediaI
 	}
 
 	log.Printf("✅ Unlimited ultra-fast preview successful for media %d", mediaID)
+	return previewPath, nil
+}
+
+// processThumbnailRegeneration processes thumbnail regeneration with timestamped filename
+func (wp *WorkerPool) processThumbnailRegeneration(task ProcessingTask) (string, error) {
+	// Create unique filename with timestamp for regeneration
+	filename := generateUniqueFilenameWithTimestamp(task.MediaID, task.Title, task.Season, task.Episode, "thumb", ".jpg")
+
+	// Always use root folder for regenerated assets
+	thumbnailPath := filepath.Join("./thumbnails", filename)
+
+	// Get optimized FFmpeg configuration
+	config := wp.getOptimizedFFmpegConfig("thumbnail")
+
+	// Get video duration for smart timestamp selection
+	duration, err := getVideoDurationFast(task.VideoPath)
+	if err != nil {
+		log.Printf("Failed to get video duration for media %d: %v", task.MediaID, err)
+		duration = 300 // Default fallback
+	}
+
+	// Calculate optimal timestamp (avoid intro/credits)
+	timestamp := calculateOptimalTimestamp(duration, "thumbnail")
+	timeStr := secondsToTimeString(timestamp)
+
+	log.Printf("🔄 Regenerating HD thumbnail for media %d at %s using %s (timestamped: %s)",
+		task.MediaID, timeStr, config.HWAccel, filename)
+
+	// Build optimized FFmpeg command
+	args := buildThumbnailCommand(task.VideoPath, thumbnailPath, timeStr, config)
+
+	// Use context with reasonable timeout for regeneration
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
+
+	// Run with timeout
+	err = cmd.Run()
+	if err != nil {
+		log.Printf("❌ Thumbnail regeneration failed for media %d: %v", task.MediaID, err)
+		// Fallback to software encoding
+		return wp.generateThumbnailFallback(task.VideoPath, task.MediaID, thumbnailPath)
+	}
+
+	// Verify thumbnail was created
+	if _, err := os.Stat(thumbnailPath); err != nil {
+		return wp.generateThumbnailFallback(task.VideoPath, task.MediaID, thumbnailPath)
+	}
+
+	log.Printf("✅ HD thumbnail regenerated for media %d: %s", task.MediaID, thumbnailPath)
+	return thumbnailPath, nil
+}
+
+// processPreviewRegeneration processes preview regeneration with timestamped filename
+func (wp *WorkerPool) processPreviewRegeneration(task ProcessingTask) (string, error) {
+	// Create unique filename with timestamp for regeneration
+	filename := generateUniqueFilenameWithTimestamp(task.MediaID, task.Title, task.Season, task.Episode, "preview", ".mp4")
+
+	// Always use root folder for regenerated assets
+	previewPath := filepath.Join("./previews", filename)
+
+	// Get optimized FFmpeg configuration
+	config := wp.getOptimizedFFmpegConfig("preview")
+
+	// Get video duration for smart segment selection
+	duration, err := getVideoDurationFast(task.VideoPath)
+	if err != nil {
+		log.Printf("Failed to get video duration for media %d: %v", task.MediaID, err)
+		duration = 300 // Default fallback
+	}
+
+	// Calculate optimal start time and duration
+	startTime := calculateOptimalTimestamp(duration, "preview")
+	clipDuration := 15 // 15 seconds
+
+	// Ensure we don't exceed video duration
+	if startTime+clipDuration > duration {
+		startTime = max(10, duration-clipDuration-5)
+	}
+
+	startTimeStr := secondsToTimeString(startTime)
+
+	log.Printf("🔄 Regenerating 15s HD preview with ALAC audio for media %d starting at %s using %s (timestamped: %s)",
+		task.MediaID, startTimeStr, config.HWAccel, filename)
+
+	// Try to generate preview with ALAC audio first
+	if previewWithALAC, err := wp.generatePreviewWithALACRegeneration(task, previewPath, startTimeStr, clipDuration, config); err == nil {
+		return previewWithALAC, nil
+	}
+
+	// Fallback to standard preview generation
+	args := buildPreviewCommand(task.VideoPath, previewPath, startTimeStr, clipDuration, config)
+
+	// Use context with reasonable timeout for regeneration
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
+
+	// Run with timeout
+	err = cmd.Run()
+	if err != nil {
+		log.Printf("❌ Preview regeneration failed for media %d: %v", task.MediaID, err)
+
+		// Check for specific CUDA errors
+		if config.HWAccel == "cuda" {
+			log.Printf("🔄 CUDA preview regeneration failed, trying software fallback for media %d", task.MediaID)
+			return wp.generatePreviewWithSoftwareEncodingRegeneration(task.VideoPath, task.MediaID, previewPath, startTimeStr, clipDuration)
+		}
+
+		// Fallback to other methods
+		return wp.generatePreviewFallback(task.VideoPath, task.MediaID, previewPath)
+	}
+
+	// Verify preview was created
+	if _, err := os.Stat(previewPath); err != nil {
+		return wp.generatePreviewFallback(task.VideoPath, task.MediaID, previewPath)
+	}
+
+	log.Printf("✅ 15s HD preview regenerated for media %d: %s", task.MediaID, previewPath)
+	return previewPath, nil
+}
+
+// generatePreviewWithALACRegeneration generates preview with ALAC audio for regeneration
+func (wp *WorkerPool) generatePreviewWithALACRegeneration(task ProcessingTask, previewPath, startTimeStr string, clipDuration int, config FFmpegConfig) (string, error) {
+	// Check if ALAC audio exists for this media
+	alacPath := wp.getALACPath(task.MediaID)
+	if alacPath == "" {
+		// No ALAC audio available, skip ALAC preview
+		return "", fmt.Errorf("no ALAC audio available for media %d", task.MediaID)
+	}
+
+	log.Printf("🎵 Regenerating preview with ALAC audio for media %d", task.MediaID)
+
+	// Build FFmpeg command with ALAC audio (same as unlimited version but with timeout)
+	args := []string{
+		"-ss", startTimeStr, // Start time
+		"-i", task.VideoPath, // Video input
+		"-ss", startTimeStr, // Start time for audio
+		"-i", alacPath, // ALAC audio input
+		"-t", fmt.Sprintf("%d", clipDuration), // Duration
+		"-map", "0:v:0", // Map video from first input
+		"-map", "1:a:0", // Map ALAC audio from second input
+	}
+
+	// Add hardware acceleration if available
+	if config.HWAccel != "none" {
+		switch config.HWAccel {
+		case "cuda":
+			args = append(args, "-hwaccel", "cuda", "-hwaccel_output_format", "cuda")
+			args = append(args, "-c:v", "h264_nvenc")
+		case "vaapi":
+			args = append(args, "-hwaccel", "vaapi", "-hwaccel_output_format", "vaapi")
+			args = append(args, "-c:v", "h264_vaapi")
+		}
+	} else {
+		args = append(args, "-c:v", "libx264")
+	}
+
+	// Audio settings - copy ALAC or re-encode if needed
+	args = append(args,
+		"-c:a", "aac", // Re-encode to AAC for web compatibility
+		"-b:a", "192k", // High quality audio bitrate
+		"-ar", "48000", // 48kHz sample rate
+		"-ac", "2", // Stereo for previews
+		"-af", "loudnorm=I=-16:TP=-1.5:LRA=11", // Loudness normalization
+	)
+
+	// Video quality settings
+	args = append(args,
+		"-preset", "fast", // Fast encoding
+		"-crf", "23", // Good quality
+		"-pix_fmt", "yuv420p", // Web compatibility
+		"-movflags", "+faststart", // Web optimization
+		"-y", // Overwrite existing
+		previewPath,
+	)
+
+	// Use context with timeout for regeneration
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
+
+	err := cmd.Run()
+	if err != nil {
+		log.Printf("❌ Preview regeneration with ALAC audio failed for media %d: %v", task.MediaID, err)
+		return "", err
+	}
+
+	// Verify preview was created
+	if _, err := os.Stat(previewPath); err != nil {
+		return "", fmt.Errorf("preview file not created: %v", err)
+	}
+
+	log.Printf("✅ Preview regenerated with ALAC audio for media %d: %s", task.MediaID, previewPath)
+	return previewPath, nil
+}
+
+// generatePreviewWithSoftwareEncodingRegeneration tries software encoding for regeneration
+func (wp *WorkerPool) generatePreviewWithSoftwareEncodingRegeneration(videoPath string, mediaID uint, previewPath, startTime string, duration int) (string, error) {
+	log.Printf("🔄 Trying software encoding for preview regeneration (media %d) - CUDA fallback", mediaID)
+
+	// Use context with timeout for regeneration
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+
+	// Build optimized software encoding command
+	args := []string{
+		"-y", // Overwrite output
+		"-ss", startTime,
+		"-i", videoPath,
+		"-t", fmt.Sprintf("%d", duration),
+		"-c:v", "libx264",
+		"-preset", "fast", // Balanced speed/quality
+		"-crf", "23",
+		"-vf", "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2",
+		"-c:a", "aac",
+		"-b:a", "128k",
+		"-ac", "2",
+		"-movflags", "+faststart",
+		"-pix_fmt", "yuv420p",
+		"-threads", "4", // Limit threads for stability
+		previewPath,
+	}
+
+	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
+
+	if err := cmd.Run(); err != nil {
+		log.Printf("❌ Software encoding regeneration failed for media %d: %v", mediaID, err)
+		return wp.generatePreviewFallback(videoPath, mediaID, previewPath)
+	}
+
+	log.Printf("✅ Software encoding preview regeneration successful for media %d", mediaID)
 	return previewPath, nil
 }
 

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"homeflix-backend/internal/interfaces"
 	"homeflix-backend/internal/models"
 	"homeflix-backend/internal/services"
 )
@@ -268,6 +269,8 @@ func UpdateSeriesWithTMDB(mediaService *services.MediaService, tmdbService *serv
 		c.JSON(http.StatusOK, series)
 	}
 }
+
+
 
 // GetSeasonsBySeriesID returns all seasons for a specific series
 func GetSeasonsBySeriesID(mediaService *services.MediaService) gin.HandlerFunc {
@@ -1666,5 +1669,580 @@ func GetRecommendedTVShows(tmdbService *services.TMDBService) gin.HandlerFunc {
 		c.JSON(http.StatusOK, recommended)
 		log.Printf("✅ TMDB recommended TV shows retrieved for ID: %d", id)
 	}
+}
+
+// UpdateLocalMediaWithTMDB updates local media items with TMDB backdrop and trailer URLs
+func UpdateLocalMediaWithTMDB(mediaService *services.MediaService, tmdbService *services.TMDBService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		log.Printf("🎬 Starting TMDB update for local media...")
+
+		// Check if this is a single media update request
+		var requestBody struct {
+			MediaID     uint   `json:"mediaId"`
+			SearchTitle string `json:"searchTitle"`
+			UpdateType  string `json:"updateType"`
+		}
+
+		// Try to parse request body for single media update
+		if err := c.ShouldBindJSON(&requestBody); err == nil && requestBody.MediaID > 0 {
+			// Single media update
+			log.Printf("🎯 Single media update requested for ID: %d", requestBody.MediaID)
+			
+			media, err := mediaService.GetMediaByID(requestBody.MediaID)
+			if err != nil {
+				log.Printf("❌ Failed to get media by ID %d: %v", requestBody.MediaID, err)
+				c.JSON(http.StatusNotFound, gin.H{"error": "Media not found"})
+				return
+			}
+
+			// Use custom search title if provided
+			searchTitle := requestBody.SearchTitle
+			if searchTitle == "" {
+				searchTitle = media.Title
+			}
+
+			// Update single media
+			backdropURL, trailerURL, err := updateSingleMediaWithTMDB(media, searchTitle, tmdbService)
+			if err != nil {
+				log.Printf("❌ Failed to update media: %v", err)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				return
+			}
+
+			// Save updates
+			media.TMDBBackdropURL = backdropURL
+			media.TMDBTrailerURL = trailerURL
+			
+			if err := mediaService.UpdateMedia(media); err != nil {
+				log.Printf("❌ Failed to save media updates: %v", err)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save updates"})
+				return
+			}
+
+			log.Printf("✅ Updated single media '%s' - Backdrop: %t, Trailer: %t", 
+				media.Title, backdropURL != "", trailerURL != "")
+
+			c.JSON(http.StatusOK, gin.H{
+				"message":      "Media updated successfully",
+				"backdrop_url": backdropURL,
+				"trailer_url":  trailerURL,
+				"updated":      1,
+				"total":        1,
+			})
+			return
+		}
+
+		// Bulk update for all media
+		log.Printf("📦 Bulk update requested for all media")
+
+		// Get all movies and TV shows (not episodes)
+		allMedia, err := mediaService.GetAllMedia()
+		if err != nil {
+			log.Printf("❌ Failed to get media: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get media"})
+			return
+		}
+
+		// Filter for movies and TV shows only (not episodes)
+		var mediaToUpdate []models.Media
+		for _, media := range allMedia {
+			if media.Type == "movie" || (media.Type == "episode" && media.SeriesID == nil) {
+				// Include movies and standalone videos that might be movies/shows
+				mediaToUpdate = append(mediaToUpdate, media)
+			}
+		}
+
+		log.Printf("🔍 Found %d media items to potentially update with TMDB data", len(mediaToUpdate))
+
+		var updated int
+		var errors []string
+
+		for _, media := range mediaToUpdate {
+			// Skip if already has TMDB data
+			if media.TMDBBackdropURL != "" && media.TMDBTrailerURL != "" {
+				log.Printf("⏭️ Skipping %s - already has TMDB data", media.Title)
+				continue
+			}
+
+			// Use the helper function to update this media
+			backdropURL, trailerURL, err := updateSingleMediaWithTMDB(&media, media.Title, tmdbService)
+			if err != nil {
+				log.Printf("❌ Failed to update media '%s': %v", media.Title, err)
+				errors = append(errors, fmt.Sprintf("Media '%s': %v", media.Title, err))
+				continue
+			}
+
+			// Update media with TMDB data if we got any
+			if backdropURL != "" || trailerURL != "" {
+				media.TMDBBackdropURL = backdropURL
+				media.TMDBTrailerURL = trailerURL
+
+				if err := mediaService.UpdateMedia(&media); err != nil {
+					log.Printf("❌ Failed to save media '%s': %v", media.Title, err)
+					errors = append(errors, fmt.Sprintf("Save failed for '%s': %v", media.Title, err))
+					continue
+				}
+
+				updated++
+				log.Printf("✅ Updated '%s' - Backdrop: %t, Trailer: %t", 
+					media.Title, backdropURL != "", trailerURL != "")
+			} else {
+				log.Printf("⚠️ No TMDB data found for '%s'", media.Title)
+			}
+		}
+
+		log.Printf("🎬 TMDB update completed: %d updated, %d errors", updated, len(errors))
+
+		response := gin.H{
+			"message": "TMDB update completed",
+			"updated": updated,
+			"total":   len(mediaToUpdate),
+		}
+
+		if len(errors) > 0 {
+			response["errors"] = errors
+		}
+
+		c.JSON(http.StatusOK, response)
+	}
+}
+
+// updateSingleMediaWithTMDB updates a single media item with TMDB data
+func updateSingleMediaWithTMDB(media *models.Media, searchTitle string, tmdbService *services.TMDBService) (backdropURL, trailerURL string, err error) {
+	log.Printf("🔍 Processing single media: %s", searchTitle)
+
+	// Clean the title by removing year for better TMDB search
+	cleanTitle := tmdbService.RemoveYearFromTitle(searchTitle)
+	log.Printf("🧹 Cleaned title: '%s' -> '%s'", searchTitle, cleanTitle)
+
+	if media.Type == "movie" {
+		// Search for movie
+		movie, err := tmdbService.SearchMovie(cleanTitle, media.Year)
+		if err != nil {
+			return "", "", fmt.Errorf("TMDB search failed for movie '%s': %v", searchTitle, err)
+		}
+
+		// Get backdrop URL
+		if movie.BackdropPath != "" {
+			backdropURL = "https://image.tmdb.org/t/p/w1280" + movie.BackdropPath
+		}
+
+		// Get detailed info with videos for trailer
+		details, err := tmdbService.GetMovieDetailsWithExtras(movie.ID)
+		if err != nil {
+			log.Printf("⚠️ Failed to get movie details with videos for '%s': %v", searchTitle, err)
+		} else {
+			// Extract trailer URL
+			trailerURL = extractMovieTrailerURL(details)
+		}
+
+		log.Printf("🎬 Movie TMDB data - Backdrop: %t, Trailer: %t", backdropURL != "", trailerURL != "")
+
+	} else {
+		// Try as TV show
+		tv, err := tmdbService.SearchTV(cleanTitle, media.Year)
+		if err != nil {
+			return "", "", fmt.Errorf("TMDB search failed for TV show '%s': %v", searchTitle, err)
+		}
+
+		// Get backdrop URL
+		if tv.BackdropPath != "" {
+			backdropURL = "https://image.tmdb.org/t/p/w1280" + tv.BackdropPath
+		}
+
+		// Get detailed info with videos for trailer
+		details, err := tmdbService.GetTVDetails(tv.ID)
+		if err != nil {
+			log.Printf("⚠️ Failed to get TV details for '%s': %v", searchTitle, err)
+		} else {
+			// Extract trailer URL
+			trailerURL = extractTVTrailerURL(details)
+		}
+
+		log.Printf("📺 TV TMDB data - Backdrop: %t, Trailer: %t", backdropURL != "", trailerURL != "")
+	}
+
+	return backdropURL, trailerURL, nil
+}
+
+// extractMovieTrailerURL extracts trailer URL from movie details
+func extractMovieTrailerURL(details *services.TMDBMovieDetailsWithExtras) string {
+	if details == nil || len(details.Videos.Results) == 0 {
+		return ""
+	}
+
+	// Look for official trailers first, then any trailers
+	for _, video := range details.Videos.Results {
+		if video.Site == "YouTube" && video.Key != "" {
+			if video.Type == "Trailer" && video.Official {
+				return fmt.Sprintf("https://www.youtube.com/watch?v=%s", video.Key)
+			}
+		}
+	}
+
+	// Fallback to any trailer
+	for _, video := range details.Videos.Results {
+		if video.Site == "YouTube" && video.Key != "" && video.Type == "Trailer" {
+			return fmt.Sprintf("https://www.youtube.com/watch?v=%s", video.Key)
+		}
+	}
+
+	return ""
+}
+
+// extractTVTrailerURL extracts trailer URL from TV show details
+func extractTVTrailerURL(details *services.TMDBTVDetails) string {
+	if details == nil || len(details.Videos.Results) == 0 {
+		return ""
+	}
+
+	// Look for official trailers first, then any trailers
+	for _, video := range details.Videos.Results {
+		if video.Site == "YouTube" && video.Key != "" {
+			if video.Type == "Trailer" && video.Official {
+				return fmt.Sprintf("https://www.youtube.com/watch?v=%s", video.Key)
+			}
+		}
+	}
+
+	// Fallback to any trailer
+	for _, video := range details.Videos.Results {
+		if video.Site == "YouTube" && video.Key != "" && video.Type == "Trailer" {
+			return fmt.Sprintf("https://www.youtube.com/watch?v=%s", video.Key)
+		}
+	}
+
+	return ""
+}
+
+
+
+// convertMovieDetailsToMetadata converts TMDB movie details to MediaMetadata
+func convertMovieDetailsToMetadata(movieDetails *services.TMDBMovieDetailsWithExtras) *interfaces.MediaMetadata {
+	if movieDetails == nil {
+		return nil
+	}
+
+	// Extract cast (stars) - top 5 for stars, more for full cast
+	var stars []string
+	var cast []string
+	for i, castMember := range movieDetails.Credits.Cast {
+		if i < 5 { // Top 5 stars
+			stars = append(stars, castMember.Name)
+		}
+		if i < 15 { // Top 15 for full cast
+			cast = append(cast, fmt.Sprintf("%s (%s)", castMember.Name, castMember.Character))
+		}
+	}
+
+	// Extract crew by roles
+	var directors []string
+	var writers []string
+	var producers []string
+	var crew []string
+
+	for _, crewMember := range movieDetails.Credits.Crew {
+		switch crewMember.Job {
+		case "Director":
+			directors = append(directors, crewMember.Name)
+		case "Writer", "Screenplay", "Story":
+			writers = append(writers, crewMember.Name)
+		case "Producer", "Executive Producer":
+			producers = append(producers, crewMember.Name)
+		case "Director of Photography", "Cinematography", "Music", "Editor":
+			crew = append(crew, fmt.Sprintf("%s (%s)", crewMember.Name, crewMember.Job))
+		}
+	}
+
+	// Extract genres
+	var genres []string
+	for _, genre := range movieDetails.Genres {
+		genres = append(genres, genre.Name)
+	}
+
+	// Extract country
+	var country string
+	if len(movieDetails.ProductionCountries) > 0 {
+		country = movieDetails.ProductionCountries[0].Name
+	}
+
+	// Extract language
+	var language string
+	if len(movieDetails.SpokenLanguages) > 0 {
+		language = movieDetails.SpokenLanguages[0].Name
+	}
+
+	// Extract year from release date
+	releaseYear := 0
+	if movieDetails.ReleaseDate != "" {
+		if parsedTime, err := time.Parse("2006-01-02", movieDetails.ReleaseDate); err == nil {
+			releaseYear = parsedTime.Year()
+		}
+	}
+
+	// Build poster and backdrop URLs
+	posterURL := ""
+	if movieDetails.PosterPath != "" {
+		posterURL = "https://image.tmdb.org/t/p/w500" + movieDetails.PosterPath
+	}
+	
+	backdropURL := ""
+	if movieDetails.BackdropPath != "" {
+		backdropURL = "https://image.tmdb.org/t/p/w1280" + movieDetails.BackdropPath
+	}
+
+	// Extract trailer URL from videos
+	trailerURL := ""
+	if len(movieDetails.Videos.Results) > 0 {
+		// Look for official trailers first, then any trailers
+		var foundTrailer *services.TMDBVideo
+		var fallbackTrailer *services.TMDBVideo
+		
+		for _, video := range movieDetails.Videos.Results {
+			if video.Site == "YouTube" && video.Key != "" {
+				if video.Type == "Trailer" {
+					if video.Official {
+						// Official trailer is the best option
+						foundTrailer = &video
+						break
+					} else if fallbackTrailer == nil {
+						// Non-official trailer as fallback
+						fallbackTrailer = &video
+					}
+				} else if video.Type == "Teaser" && fallbackTrailer == nil {
+					// Teaser as last resort
+					fallbackTrailer = &video
+				}
+			}
+		}
+		
+		// Use the best trailer found
+		if foundTrailer != nil {
+			trailerURL = fmt.Sprintf("https://www.youtube.com/watch?v=%s", foundTrailer.Key)
+		} else if fallbackTrailer != nil {
+			trailerURL = fmt.Sprintf("https://www.youtube.com/watch?v=%s", fallbackTrailer.Key)
+		}
+	}
+
+	// Format box office information
+	boxOffice := ""
+	if movieDetails.Revenue > 0 {
+		if movieDetails.Revenue >= 1000000000 {
+			boxOffice = fmt.Sprintf("$%.1fB", float64(movieDetails.Revenue)/1000000000)
+		} else if movieDetails.Revenue >= 1000000 {
+			boxOffice = fmt.Sprintf("$%.1fM", float64(movieDetails.Revenue)/1000000)
+		} else if movieDetails.Revenue >= 1000 {
+			boxOffice = fmt.Sprintf("$%.1fK", float64(movieDetails.Revenue)/1000)
+		} else {
+			boxOffice = fmt.Sprintf("$%d", movieDetails.Revenue)
+		}
+	}
+
+	// Collection information
+	collection := ""
+	if movieDetails.BelongsToCollection != nil {
+		collection = movieDetails.BelongsToCollection.Name
+	}
+
+	return &interfaces.MediaMetadata{
+		Title:       movieDetails.Title,
+		Tagline:     movieDetails.Tagline,
+		ShortDesc:   truncateDescription(movieDetails.Overview, 150),
+		LongDesc:    movieDetails.Overview,
+		Description: movieDetails.Overview,
+		Year:        releaseYear,
+		Stars:       stars,
+		Directors:   directors,
+		Country:     country,
+		Language:    language,
+		Quality:     "HD", // Default quality
+		Rating:      movieDetails.VoteAverage,
+		Genres:      genres,
+		PosterURL:   posterURL,
+		BackdropURL: backdropURL,
+		TrailerURL:  trailerURL,
+		Runtime:     movieDetails.Runtime,
+		// Enhanced metadata
+		Budget:     movieDetails.Budget,
+		Revenue:    movieDetails.Revenue,
+		BoxOffice:  boxOffice,
+		Status:     movieDetails.Status,
+		IMDBID:     movieDetails.IMDBID,
+		Homepage:   movieDetails.Homepage,
+		Collection: collection,
+		Cast:       cast,
+		Crew:       crew,
+		Writers:    writers,
+		Producers:  producers,
+		// Additional fields
+		Popularity: movieDetails.Popularity,
+		VoteCount:  movieDetails.VoteCount,
+		Adult:      movieDetails.Adult,
+	}
+}
+
+// convertTVDetailsToMetadata converts TMDB TV details to MediaMetadata
+func convertTVDetailsToMetadata(tvDetails *services.TMDBTVDetails) *interfaces.MediaMetadata {
+	if tvDetails == nil {
+		return nil
+	}
+
+	// Extract cast (stars) - top 5 for stars, more for full cast
+	var stars []string
+	var cast []string
+	for i, castMember := range tvDetails.Credits.Cast {
+		if i < 5 { // Top 5 stars
+			stars = append(stars, castMember.Name)
+		}
+		if i < 15 { // Top 15 for full cast
+			cast = append(cast, fmt.Sprintf("%s (%s)", castMember.Name, castMember.Character))
+		}
+	}
+
+	// Extract crew by roles
+	var directors []string
+	var writers []string
+	var producers []string
+	var crew []string
+
+	for _, crewMember := range tvDetails.Credits.Crew {
+		switch crewMember.Job {
+		case "Director":
+			directors = append(directors, crewMember.Name)
+		case "Writer", "Screenplay", "Story":
+			writers = append(writers, crewMember.Name)
+		case "Producer", "Executive Producer":
+			producers = append(producers, crewMember.Name)
+		case "Director of Photography", "Cinematography", "Music", "Editor":
+			crew = append(crew, fmt.Sprintf("%s (%s)", crewMember.Name, crewMember.Job))
+		}
+	}
+
+	// Extract genres
+	var genres []string
+	for _, genre := range tvDetails.Genres {
+		genres = append(genres, genre.Name)
+	}
+
+	// Extract country
+	var country string
+	if len(tvDetails.ProductionCountries) > 0 {
+		country = tvDetails.ProductionCountries[0].Name
+	}
+
+	// Extract language
+	var language string
+	if len(tvDetails.SpokenLanguages) > 0 {
+		language = tvDetails.SpokenLanguages[0].Name
+	}
+
+	// Extract year from first air date
+	releaseYear := 0
+	if tvDetails.FirstAirDate != "" {
+		if parsedTime, err := time.Parse("2006-01-02", tvDetails.FirstAirDate); err == nil {
+			releaseYear = parsedTime.Year()
+		}
+	}
+
+	// Build poster and backdrop URLs
+	posterURL := ""
+	if tvDetails.PosterPath != "" {
+		posterURL = "https://image.tmdb.org/t/p/w500" + tvDetails.PosterPath
+	}
+	
+	backdropURL := ""
+	if tvDetails.BackdropPath != "" {
+		backdropURL = "https://image.tmdb.org/t/p/w1280" + tvDetails.BackdropPath
+	}
+
+	// Extract trailer URL from videos
+	trailerURL := ""
+	if len(tvDetails.Videos.Results) > 0 {
+		// Look for official trailers first, then any trailers
+		var foundTrailer *services.TMDBVideo
+		var fallbackTrailer *services.TMDBVideo
+		
+		for _, video := range tvDetails.Videos.Results {
+			if video.Site == "YouTube" && video.Key != "" {
+				if video.Type == "Trailer" {
+					if video.Official {
+						// Official trailer is the best option
+						foundTrailer = &video
+						break
+					} else if fallbackTrailer == nil {
+						// Non-official trailer as fallback
+						fallbackTrailer = &video
+					}
+				} else if video.Type == "Teaser" && fallbackTrailer == nil {
+					// Teaser as last resort
+					fallbackTrailer = &video
+				}
+			}
+		}
+		
+		// Use the best trailer found
+		if foundTrailer != nil {
+			trailerURL = fmt.Sprintf("https://www.youtube.com/watch?v=%s", foundTrailer.Key)
+		} else if fallbackTrailer != nil {
+			trailerURL = fmt.Sprintf("https://www.youtube.com/watch?v=%s", fallbackTrailer.Key)
+		}
+	}
+
+	// Calculate average runtime from episode run times
+	runtime := 0
+	if len(tvDetails.EpisodeRunTime) > 0 {
+		total := 0
+		for _, rt := range tvDetails.EpisodeRunTime {
+			total += rt
+		}
+		runtime = total / len(tvDetails.EpisodeRunTime)
+	}
+
+	return &interfaces.MediaMetadata{
+		Title:       tvDetails.Name,
+		Tagline:     tvDetails.Tagline,
+		ShortDesc:   truncateDescription(tvDetails.Overview, 150),
+		LongDesc:    tvDetails.Overview,
+		Description: tvDetails.Overview,
+		Year:        releaseYear,
+		Stars:       stars,
+		Directors:   directors,
+		Country:     country,
+		Language:    language,
+		Quality:     "HD", // Default quality
+		Rating:      tvDetails.VoteAverage,
+		Genres:      genres,
+		PosterURL:   posterURL,
+		BackdropURL: backdropURL,
+		TrailerURL:  trailerURL,
+		Runtime:     runtime,
+		// TV-specific metadata
+		Status:     tvDetails.Status,
+		Homepage:   tvDetails.Homepage,
+		Cast:       cast,
+		Crew:       crew,
+		Writers:    writers,
+		Producers:  producers,
+		// Additional fields
+		Popularity: tvDetails.Popularity,
+		VoteCount:  tvDetails.VoteCount,
+		Adult:      tvDetails.Adult,
+	}
+}
+
+// truncateDescription truncates text to a specified length with ellipsis
+func truncateDescription(text string, maxLength int) string {
+	if len(text) <= maxLength {
+		return text
+	}
+
+	// Find the last space before maxLength
+	truncated := text[:maxLength]
+	lastSpace := strings.LastIndex(truncated, " ")
+	if lastSpace > 0 {
+		truncated = truncated[:lastSpace]
+	}
+
+	return truncated + "..."
 }
 
