@@ -319,5 +319,11 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		api.POST("/admin/media-paths", mediaPathsHandler.AddMediaPath)
 		api.PUT("/admin/media-paths/:id", mediaPathsHandler.UpdateMediaPath)
 		api.DELETE("/admin/media-paths/:id", mediaPathsHandler.DeleteMediaPath)
+
+		// System monitoring endpoints
+		api.GET("/admin/system/stats", handlers.GetSystemStats())
+		api.GET("/admin/system/logs", handlers.GetServerLogs())
+		api.GET("/admin/system/logs/stream", handlers.StreamServerLogs())
+		api.GET("/admin/system/stats/stream", handlers.StreamSystemStats())
 	}
 }

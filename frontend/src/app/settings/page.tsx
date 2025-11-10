@@ -13,6 +13,7 @@ import { useNavigate } from "@/hooks/useNavigate";
 import RedLoader from '@/components/RedLoader';
 import TorrentDashboard from '@/components/TorrentDashboard';
 import TMDBSearchModal from '@/components/TMDBSearchModal';
+import SystemLogs from '@/components/SystemLogs';
 import { useSearchParams } from 'next/navigation';
 interface MediaAssets {
   banner?: string;
@@ -119,6 +120,7 @@ function SettingsContent() {
 
     return () => clearInterval(interval);
   }, []);
+
 
   // Initialize terminal with welcome message
   useEffect(() => {
@@ -1904,6 +1906,16 @@ function SettingsContent() {
             Media Paths
           </MagneticButton>
           <MagneticButton
+            onClick={() => setActiveTab('system-logs')}
+            className={`px-6 py-3 rounded-lg font-semibold transition-all duration-300 ${activeTab === 'system-logs'
+              ? 'bg-[#E50914] text-white shadow-lg shadow-red-500/25'
+              : 'bg-transparent text-white/70 hover:text-white hover:bg-white/10'
+              }`}
+          >
+            <Activity className="w-4 h-4 mr-2" />
+            System Logs
+          </MagneticButton>
+          <MagneticButton
             onClick={() => setActiveTab('general')}
             className={`px-6 py-3 rounded-lg font-semibold transition-all duration-300 ${activeTab === 'general'
               ? 'bg-[#E50914] text-white shadow-lg shadow-red-500/25'
@@ -3231,6 +3243,11 @@ function SettingsContent() {
               </GlassCard>
             </ScrollReveal>
           </div>
+        )}
+
+        {/* System Logs Tab */}
+        {activeTab === 'system-logs' && (
+          <SystemLogs onTerminalOutput={addTerminalOutput} />
         )}
 
         {/* Torrent Downloads Tab */}
