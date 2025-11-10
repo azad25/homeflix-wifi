@@ -71,7 +71,7 @@ export default function MyListPage() {
     const interval = setInterval(() => {
       fetchDownloads();
     }, 3000);
-    
+
     return () => clearInterval(interval);
   }, [watchlist]); // Depend on watchlist so it uses updated data
 
@@ -84,12 +84,12 @@ export default function MyListPage() {
       const apiUrl = getApiUrl();
       const wishlistMedia = await fetchWishlistMedia(apiUrl);
       setWatchlist(wishlistMedia);
-      
+
       // Preload assets for better performance (poster first, then thumbnail)
       if (wishlistMedia.length > 0) {
         preloadAssets(wishlistMedia, ['poster', 'thumbnail']);
       }
-      
+
       setLoading(false);
     } catch (error) {
       console.error("Error fetching wishlist:", error);
@@ -105,16 +105,16 @@ export default function MyListPage() {
       if (response.ok) {
         const data = await response.json();
         const downloads = data.downloads || [];
-        
+
         // Filter downloads that have TMDB IDs and are actively downloading/paused
         const downloadingItems: DownloadingMedia[] = [];
-        
+
         for (const download of downloads) {
           if (download.tmdb_id && (download.status === 'downloading' || download.status === 'paused')) {
             // Find corresponding media in watchlist (TMDB items have ID starting with 9)
             const tmdbWishlistId = parseInt(`9${download.tmdb_id}`);
             const wishlistItem = watchlist.find(item => item.id === tmdbWishlistId);
-            
+
             if (wishlistItem) {
               // Use the wishlist item data (which already has proper poster info)
               console.log('Found wishlist item for download:', wishlistItem.title, 'poster_url:', wishlistItem.poster_url);
@@ -129,27 +129,27 @@ export default function MyListPage() {
                 const tmdbResponse = await fetch(`${apiUrl}/api/tmdb-movie/${download.tmdb_id}?type=${download.media_type || 'movie'}`);
                 if (tmdbResponse.ok) {
                   const tmdbData = await tmdbResponse.json();
-                  
+
                   // Handle both wrapped and direct response formats
                   const mediaData = tmdbData.data || tmdbData;
                   const mediaType = tmdbData.media_type || download.media_type || 'movie';
-                  
+
                   const posterUrl = mediaData.poster_path ? `https://image.tmdb.org/t/p/w500${mediaData.poster_path}` : null;
                   console.log('TMDB data fetched:', mediaData.title || mediaData.name, 'poster_path:', mediaData.poster_path, 'poster_url:', posterUrl);
-                  
+
                   downloadingItems.push({
                     id: tmdbWishlistId,
                     title: mediaData.title || mediaData.name || download.name,
                     type: mediaType === 'tv' ? 'episode' : 'movie',
-                    year: mediaData.release_date || mediaData.first_air_date ? 
-                      new Date(mediaData.release_date || mediaData.first_air_date).getFullYear() : 
+                    year: mediaData.release_date || mediaData.first_air_date ?
+                      new Date(mediaData.release_date || mediaData.first_air_date).getFullYear() :
                       new Date().getFullYear(),
                     rating: mediaData.vote_average || 0,
                     genres: mediaData.genres?.map((g: any) => ({ name: g.name })) || [],
                     tmdb_id: download.tmdb_id,
                     poster_url: posterUrl,
                     poster_path: mediaData.poster_path,
-                    overview: mediaData.overview,
+                    description: mediaData.overview,
                     downloadInfo: download
                   });
                 } else {
@@ -185,7 +185,7 @@ export default function MyListPage() {
             }
           }
         }
-        
+
         console.log('Final downloading items:', downloadingItems.map(item => ({ title: item.title, poster_url: item.poster_url })));
         setDownloadingMedia(downloadingItems);
       }
@@ -285,7 +285,7 @@ export default function MyListPage() {
   const DownloadingMediaCard: React.FC<{ media: DownloadingMedia }> = ({ media }) => {
     const { downloadInfo } = media;
     const progress = downloadInfo.progress || 0;
-    
+
     const handleClick = () => {
       if (media.tmdb_id) {
         navigate.push(`/tmdb-movie/${media.tmdb_id}?type=${downloadInfo.media_type || 'movie'}`);
@@ -298,7 +298,7 @@ export default function MyListPage() {
         poster_path: media.poster_path,
         tmdb_id: media.tmdb_id
       });
-      
+
       if (media.poster_url) {
         console.log('Using poster_url:', media.poster_url);
         return media.poster_url;
@@ -308,7 +308,7 @@ export default function MyListPage() {
         console.log('Using poster_path to create URL:', url);
         return url;
       }
-      
+
       console.log('No poster found, using placeholder for:', media.title);
       // Generate a placeholder with the movie/show title
       return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(`
@@ -326,7 +326,7 @@ export default function MyListPage() {
     };
 
     return (
-      <div 
+      <div
         className="relative group cursor-pointer bg-gray-800 rounded-lg overflow-hidden hover:bg-gray-700 transition-all duration-300 hover:scale-105"
         onClick={handleClick}
       >
@@ -341,7 +341,7 @@ export default function MyListPage() {
               target.src = '/placeholder-poster.jpg';
             }}
           />
-          
+
           {/* Progress Circle Overlay */}
           <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
             <div className="relative w-16 h-16">
@@ -368,7 +368,7 @@ export default function MyListPage() {
                   className="transition-all duration-300"
                 />
               </svg>
-              
+
               {/* Progress Text */}
               <div className="absolute inset-0 flex items-center justify-center">
                 <span className="text-white text-xs font-bold">
@@ -389,23 +389,23 @@ export default function MyListPage() {
           <h3 className="text-white font-medium text-sm line-clamp-2 mb-2 group-hover:text-red-400 transition-colors">
             {media.title}
           </h3>
-          
+
           <div className="space-y-1 text-xs text-gray-400">
             <div className="flex justify-between">
               <span>Status:</span>
               <span className="capitalize text-white">{downloadInfo.status}</span>
             </div>
-            
+
             <div className="flex justify-between">
               <span>Speed:</span>
               <span className="text-green-400">{formatSpeed(downloadInfo.download_rate)}</span>
             </div>
-            
+
             <div className="flex justify-between">
               <span>Size:</span>
               <span>{formatBytes(downloadInfo.downloaded)} / {formatBytes(downloadInfo.size)}</span>
             </div>
-            
+
             <div className="flex justify-between">
               <span>ETA:</span>
               <span>{downloadInfo.eta}</span>
@@ -485,7 +485,7 @@ export default function MyListPage() {
                 {downloadingMedia.length} active
               </span>
             </div>
-            
+
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-6 mb-8">
               {downloadingMedia.map((media) => (
                 <DownloadingMediaCard key={`download-${media.id}`} media={media} />
@@ -501,7 +501,7 @@ export default function MyListPage() {
               <Heart className="w-6 h-6 text-red-500" />
               <h2 className="text-2xl font-bold text-white">My Watchlist</h2>
             </div>
-            
+
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-6">
               {filteredList.map((media, index) => (
                 <div key={media.id} className="relative">
