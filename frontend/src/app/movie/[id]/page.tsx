@@ -520,6 +520,7 @@ export default function MoviePage() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const trailerRef = useRef<HTMLIFrameElement>(null);
   const isMountedRef = useRef(true);
+  const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const [media, setMedia] = useState<Media | null>(null);
 
@@ -541,6 +542,9 @@ export default function MoviePage() {
   const [isShowingTrailer, setIsShowingTrailer] = useState(false); // Trailer mode state
   const [trailerKey, setTrailerKey] = useState<string | null>(null); // YouTube trailer key
   const [showControls, setShowControls] = useState(true); // Show/hide trailer controls
+  const [trailerLoaded, setTrailerLoaded] = useState(false); // Track if trailer iframe is loaded
+  const [trailerReady, setTrailerReady] = useState(false); // Track if trailer is ready to play
+  const [forceShowBackdrop, setForceShowBackdrop] = useState(false); // Force show backdrop when player closes
 
   // Component mount/unmount tracking
   useEffect(() => {
@@ -791,6 +795,7 @@ export default function MoviePage() {
         video.play().then(() => {
           setIsVideoPlaying(true);
           setIsMuted(false);
+          setForceShowBackdrop(false); // Reset backdrop force when video plays
         }).catch(() => {
           video.muted = true;
           setIsMuted(true);
@@ -892,16 +897,25 @@ export default function MoviePage() {
     }
   }, [loading, media]);
 
-  // Auto-hide trailer controls after 3 seconds
+  // Auto-hide trailer controls after 3 seconds when playing
   useEffect(() => {
-    if (!isShowingTrailer) return;
+    if (!isShowingTrailer || !isVideoPlaying || !showControls) return;
 
-    const timer = setTimeout(() => {
+    // Clear existing timeout
+    if (controlsTimeoutRef.current) {
+      clearTimeout(controlsTimeoutRef.current);
+    }
+
+    controlsTimeoutRef.current = setTimeout(() => {
       setShowControls(false);
     }, 3000);
 
-    return () => clearTimeout(timer);
-  }, [showControls, isShowingTrailer]);
+    return () => {
+      if (controlsTimeoutRef.current) {
+        clearTimeout(controlsTimeoutRef.current);
+      }
+    };
+  }, [showControls, isShowingTrailer, isVideoPlaying]);
 
   // Handle trailer video loading and sound initialization
   useEffect(() => {
@@ -930,6 +944,75 @@ export default function MoviePage() {
 
     return () => {
       document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isShowingTrailer]);
+
+  // YouTube API message listener for trailer state sync
+  useEffect(() => {
+    const handleYouTubeMessage = (event: MessageEvent) => {
+      if (event.origin !== 'https://www.youtube.com' || !isShowingTrailer) return;
+
+      try {
+        const data = JSON.parse(event.data);
+
+        if (data.event === 'video-progress') {
+          // Video progress updates
+          if (data.info && typeof data.info.playerState !== 'undefined') {
+            const playerState = data.info.playerState;
+            // YouTube player states: -1 (unstarted), 0 (ended), 1 (playing), 2 (paused), 3 (buffering), 5 (cued)
+            const isPlaying = playerState === 1;
+            const isPaused = playerState === 2;
+            const isReady = playerState >= 0; // Ready when not unstarted
+
+            setIsVideoPlaying(isPlaying);
+            setTrailerReady(isReady);
+            setShowControls(true);
+
+            // Auto-hide controls after 3 seconds when playing
+            if (isPlaying) {
+              setTimeout(() => {
+                setShowControls(false);
+              }, 3000);
+            }
+          }
+        } else if (data.event === 'onReady') {
+          // Trailer is ready to play
+          setTrailerReady(true);
+          setTrailerLoaded(true);
+          // Auto-play after ready
+          setTimeout(() => {
+            if (trailerRef.current) {
+              trailerRef.current.contentWindow?.postMessage('{"event":"command","func":"playVideo","args":""}', '*');
+            }
+          }, 500);
+        } else if (data.event === 'onStateChange') {
+          // State change events
+          if (data.info && typeof data.info === 'number') {
+            const playerState = data.info;
+            const isPlaying = playerState === 1;
+            const isPaused = playerState === 2;
+
+            setIsVideoPlaying(isPlaying);
+            setTrailerReady(playerState >= 0);
+
+            if (isPlaying) {
+              setTimeout(() => {
+                setShowControls(false);
+              }, 3000);
+            }
+          }
+        }
+      } catch (error) {
+        // Ignore parsing errors
+      }
+    };
+
+    if (isShowingTrailer) {
+      window.addEventListener('message', handleYouTubeMessage);
+    }
+
+    return () => {
+      window.removeEventListener('message', handleYouTubeMessage);
     };
   }, [isShowingTrailer]);
 
@@ -1113,7 +1196,7 @@ export default function MoviePage() {
   };
 
   const handlePlay = () => {
-    // Immediately stop background video when opening player
+    // Immediately stop background video and trailer when opening player
     const video = videoRef.current;
     if (video) {
       video.pause();
@@ -1123,6 +1206,17 @@ export default function MoviePage() {
       setIsVideoPlaying(false);
       setIsMuted(true);
     }
+
+    // Close trailer if it's showing
+    if (isShowingTrailer) {
+      setIsShowingTrailer(false);
+      setTrailerKey(null);
+    }
+
+    // Ensure backdrop shows when opening player
+    setIsVideoLoaded(false);
+    setIsVideoPlaying(false);
+    setForceShowBackdrop(false); // Reset backdrop force state
     setIsPlayerOpen(true);
   };
 
@@ -1146,6 +1240,11 @@ export default function MoviePage() {
     setHasWatchedBefore(false);
     setLastWatched(null);
     setForceStartFromBeginning(true);
+
+    // Ensure backdrop shows when opening player
+    setIsVideoLoaded(false);
+    setIsVideoPlaying(false);
+    setForceShowBackdrop(false); // Reset backdrop force state
     setIsPlayerOpen(true);
   };
 
@@ -1153,19 +1252,29 @@ export default function MoviePage() {
     setIsPlayerOpen(false);
     setForceStartFromBeginning(false);
 
-    // Show backdrop image when player closes (don't auto-resume video)
+    // Immediately update states to show backdrop
+    setIsVideoPlaying(false);
+    setIsMuted(true);
+    setIsVideoLoaded(false);
+    setForceShowBackdrop(true); // Force backdrop to show
+
+    // Ensure backdrop image shows when player closes
+    const video = videoRef.current;
+    if (video && media) {
+      // Stop and hide video completely to show backdrop
+      video.pause();
+      video.muted = true;
+      video.volume = 0;
+      video.currentTime = 0;
+      video.style.display = 'none';
+      video.style.visibility = 'hidden';
+      video.style.opacity = '0';
+    }
+
+    // Reset forceShowBackdrop after 3 seconds to allow normal video behavior
     setTimeout(() => {
-      const video = videoRef.current;
-      if (video && media) {
-        video.style.display = 'block';
-        video.style.visibility = 'visible';
-        // Don't auto-play video when player closes, show backdrop instead
-        video.pause();
-        video.currentTime = 0;
-        setIsVideoPlaying(false);
-        setIsMuted(true);
-      }
-    }, 100);
+      setForceShowBackdrop(false);
+    }, 3000);
   };
 
   // Handle cast button click
@@ -1386,11 +1495,23 @@ export default function MoviePage() {
       if (key && typeof key === 'string' && key.trim()) {
         setTrailerKey(key);
         setIsShowingTrailer(true);
-        setIsVideoPlaying(true); // Auto-play trailer
+        setIsVideoPlaying(false); // Start with paused state until trailer loads
         setIsMuted(false); // Start with sound
         setShowControls(true); // Show controls initially
+        setTrailerLoaded(false); // Reset trailer loaded state
+        setTrailerReady(false); // Reset trailer ready state
+
         // Stop background video when showing trailer
         stopVideo();
+
+        // Stop any background video/audio
+        const video = videoRef.current;
+        if (video) {
+          video.pause();
+          video.muted = true;
+          video.volume = 0;
+          video.currentTime = 0;
+        }
       } else {
         console.warn('Could not extract YouTube key from trailer URL:', media.tmdb_trailer_url);
         // Show user-friendly message
@@ -1408,25 +1529,24 @@ export default function MoviePage() {
     setIsVideoPlaying(false);
     setIsMuted(false);
     setShowControls(true);
-    // Resume background video after closing trailer
+    setTrailerLoaded(false);
+    setTrailerReady(false);
+
+    // Show backdrop image when trailer closes (don't auto-resume video)
     setTimeout(() => {
       const video = videoRef.current;
       if (video && media && !isPlayerOpen) {
+        video.pause();
+        video.muted = true;
+        video.volume = 0;
         video.currentTime = 0;
-        video.loop = true;
-        video.muted = false;
-        video.volume = 1.0;
-        setIsMuted(false);
-
-        video.play().then(() => {
-          setIsVideoPlaying(true);
-        }).catch(() => {
-          video.muted = true;
-          setIsMuted(true);
-          video.play().then(() => {
-            setIsVideoPlaying(true);
-          }).catch(() => { });
-        });
+        setIsVideoPlaying(false);
+        setIsMuted(true);
+        setIsVideoLoaded(false); // Reset to show backdrop
+        // Hide video to ensure backdrop is visible
+        video.style.display = 'none';
+        video.style.visibility = 'hidden';
+        video.style.opacity = '0';
       }
     }, 100);
   };
@@ -1466,21 +1586,22 @@ export default function MoviePage() {
 
       {/* Hero Section */}
       <div className="relative h-screen overflow-hidden">
-        {/* Backdrop Background Image - Shows when video not playing */}
+        {/* Backdrop Background Image - Shows when video not playing or player is open */}
         <div
-          className={`absolute inset-0 pointer-events-none transition-opacity duration-1000 ${!isVideoLoaded || !isVideoPlaying ? 'opacity-100' : 'opacity-0'
+          className={`absolute inset-0 pointer-events-none transition-opacity duration-1000 ${!isVideoLoaded || !isVideoPlaying || isPlayerOpen || forceShowBackdrop ? 'opacity-100' : 'opacity-0'
             }`}
           style={{ zIndex: 2 }}
         >
-          <LazyImage
+          <img
             src={getBackdropImageUrl(media)}
             alt={media.title}
-            fill
-            className="object-cover"
-            priority
-            sizes="100vw"
-            loaderSize="large"
-            showLoader={true}
+            className="w-full h-full object-cover"
+            loading="eager"
+            onError={(e) => {
+              const target = e.target as HTMLImageElement;
+              const apiUrl = getApiUrl();
+              target.src = `${apiUrl}/api/thumbnails/${media?.id || 'default'}`;
+            }}
           />
           {/* Gradient overlay for better text readability */}
           <div className="absolute inset-0 bg-gradient-to-r from-black/70 via-black/30 to-black/20" />
@@ -1508,10 +1629,10 @@ export default function MoviePage() {
             width: '100%',
             height: '100%',
             objectFit: 'cover',
-            // Hide video completely when player is open
-            display: isPlayerOpen ? 'none' : 'block',
-            visibility: isPlayerOpen ? 'hidden' : 'visible',
-            opacity: isPlayerOpen ? 0 : 1,
+            // Hide video completely when player is open or when we want to show backdrop
+            display: isPlayerOpen || !isVideoLoaded || !isVideoPlaying || forceShowBackdrop ? 'none' : 'block',
+            visibility: isPlayerOpen || !isVideoLoaded || !isVideoPlaying || forceShowBackdrop ? 'hidden' : 'visible',
+            opacity: isPlayerOpen || !isVideoLoaded || !isVideoPlaying || forceShowBackdrop ? 0 : 1,
             transition: 'opacity 0.3s ease-in-out'
           }}
 
@@ -1668,18 +1789,53 @@ export default function MoviePage() {
         {isShowingTrailer && trailerKey && (
           <div
             className="absolute inset-0 z-[15] bg-black cursor-pointer"
-            onMouseMove={() => setShowControls(true)}
+            onMouseMove={() => {
+              setShowControls(true);
+              // Clear existing timeout
+              if (controlsTimeoutRef.current) {
+                clearTimeout(controlsTimeoutRef.current);
+              }
+              // Auto-hide controls after 3 seconds when playing
+              if (isVideoPlaying) {
+                controlsTimeoutRef.current = setTimeout(() => {
+                  setShowControls(false);
+                }, 3000);
+              }
+            }}
+            onMouseLeave={() => {
+              // Clear existing timeout
+              if (controlsTimeoutRef.current) {
+                clearTimeout(controlsTimeoutRef.current);
+              }
+              // Hide controls when mouse leaves if video is playing
+              if (isVideoPlaying) {
+                controlsTimeoutRef.current = setTimeout(() => {
+                  setShowControls(false);
+                }, 1000);
+              }
+            }}
             onClick={(e) => {
               // Only close if clicking on the overlay itself, not the controls
               if (e.target === e.currentTarget) {
-                handleCloseTrailer();
+                // Toggle play/pause on backdrop click
+                if (trailerRef.current && trailerReady) {
+                  const iframe = trailerRef.current;
+                  if (isVideoPlaying) {
+                    iframe.contentWindow?.postMessage('{"event":"command","func":"pauseVideo","args":""}', '*');
+                    setIsVideoPlaying(false);
+                  } else {
+                    iframe.contentWindow?.postMessage('{"event":"command","func":"playVideo","args":""}', '*');
+                    setIsVideoPlaying(true);
+                  }
+                  setShowControls(true);
+                }
               }
             }}
           >
             <iframe
               ref={trailerRef}
-              src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=0&controls=0&showinfo=0&rel=0&iv_load_policy=3&modestbranding=1&enablejsapi=1&loop=1&playlist=${trailerKey}&origin=${typeof window !== 'undefined' ? window.location.origin : ''}&vq=hd1080&hd=1&quality=hd1080`}
-              className={`w-full h-full transition-opacity duration-300 ${isVideoPlaying ? 'opacity-100' : 'opacity-0'}`}
+              src={`https://www.youtube.com/embed/${trailerKey}?autoplay=0&mute=${isMuted ? 1 : 0}&controls=0&showinfo=0&rel=0&iv_load_policy=3&modestbranding=1&enablejsapi=1&loop=1&playlist=${trailerKey}&origin=${typeof window !== 'undefined' ? window.location.origin : ''}&vq=hd1080&hd=1&quality=hd1080`}
+              className={`w-full h-full transition-opacity duration-500 ${trailerLoaded && trailerReady ? 'opacity-100' : 'opacity-0'}`}
               allow="autoplay; encrypted-media"
               allowFullScreen
               style={{
@@ -1687,18 +1843,53 @@ export default function MoviePage() {
                 border: 'none',
                 outline: 'none'
               }}
-              onLoad={() => setIsVideoLoaded(true)}
+              onLoad={() => {
+                setTrailerLoaded(true);
+                // Initialize YouTube API communication
+                setTimeout(() => {
+                  if (trailerRef.current) {
+                    trailerRef.current.contentWindow?.postMessage('{"event":"listening","id":"trailer"}', '*');
+                  }
+                }, 1000);
+              }}
             />
-            {/* Show backdrop image when video is paused */}
-            {!isVideoPlaying && (
+            {/* Show backdrop image when video is paused or not loaded */}
+            {(!trailerLoaded || !trailerReady || !isVideoPlaying) && (
               <div
-                className="absolute inset-0 z-[10] bg-cover bg-center bg-no-repeat"
+                className="absolute inset-0 z-[10] bg-cover bg-center bg-no-repeat transition-opacity duration-500"
                 style={{
                   backgroundImage: `url(${getBackdropImageUrl(media)})`,
                 }}
               >
                 <div className="absolute inset-0 bg-gradient-to-r from-black/60 via-black/30 to-black/20" />
                 <div className="absolute bottom-0 left-0 right-0 h-1/2 bg-gradient-to-t from-black/80 to-transparent" />
+
+                {/* Loading indicator when trailer is loading */}
+                {!trailerLoaded && (
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="bg-black/70 backdrop-blur-sm rounded-full p-4">
+                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white"></div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Play button when trailer is ready but paused */}
+                {trailerLoaded && trailerReady && !isVideoPlaying && (
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <button
+                      onClick={() => {
+                        if (trailerRef.current) {
+                          trailerRef.current.contentWindow?.postMessage('{"event":"command","func":"playVideo","args":""}', '*');
+                          setIsVideoPlaying(true);
+                          setShowControls(true);
+                        }
+                      }}
+                      className="bg-red-600/90 backdrop-blur-sm rounded-full p-6 hover:bg-red-700/90 transition-all duration-300 hover:scale-110"
+                    >
+                      <Play className="w-12 h-12 text-white fill-current" />
+                    </button>
+                  </div>
+                )}
               </div>
             )}
 
@@ -1714,39 +1905,66 @@ export default function MoviePage() {
                   exit={{ opacity: 0 }}
                   className="absolute inset-0 pointer-events-none z-[25]"
                 >
+                  {/* Close button - Top right */}
+                  {/* <div className="absolute top-8 right-8 z-[30] pointer-events-auto">
+                    <button
+                      onClick={handleCloseTrailer}
+                      className="p-3 bg-black/70 backdrop-blur-sm rounded-full text-white hover:bg-black/90 transition-all duration-300 hover:scale-110"
+                    >
+                      <X className="w-5 h-5" />
+                    </button>
+                  </div> */}
+
                   {/* Video Controls - Bottom right */}
                   <div className="absolute bottom-8 right-8 z-[30] flex gap-3 pointer-events-auto">
                     <button
-                      onClick={() => {
-                        if (trailerRef.current) {
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (trailerRef.current && trailerReady) {
                           const iframe = trailerRef.current;
                           if (isVideoPlaying) {
                             iframe.contentWindow?.postMessage('{"event":"command","func":"pauseVideo","args":""}', '*');
+                            setIsVideoPlaying(false);
                           } else {
                             iframe.contentWindow?.postMessage('{"event":"command","func":"playVideo","args":""}', '*');
+                            setIsVideoPlaying(true);
                           }
-                          setIsVideoPlaying(!isVideoPlaying);
                           setShowControls(true);
+
+                          // Clear existing timeout
+                          if (controlsTimeoutRef.current) {
+                            clearTimeout(controlsTimeoutRef.current);
+                          }
+                          // Auto-hide controls after 3 seconds when playing
+                          if (!isVideoPlaying) {
+                            controlsTimeoutRef.current = setTimeout(() => {
+                              setShowControls(false);
+                            }, 3000);
+                          }
                         }
                       }}
                       className="p-3 bg-black/70 backdrop-blur-sm rounded-full text-white hover:bg-black/90 transition-all duration-300 hover:scale-110"
+                      disabled={!trailerReady}
                     >
                       {isVideoPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
                     </button>
                     <button
-                      onClick={() => {
-                        if (trailerRef.current) {
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (trailerRef.current && trailerReady) {
                           const iframe = trailerRef.current;
                           if (isMuted) {
                             iframe.contentWindow?.postMessage('{"event":"command","func":"unMute","args":""}', '*');
+                            setIsMuted(false);
                           } else {
                             iframe.contentWindow?.postMessage('{"event":"command","func":"mute","args":""}', '*');
+                            setIsMuted(true);
                           }
-                          setIsMuted(!isMuted);
                           setShowControls(true);
                         }
                       }}
                       className="p-3 bg-black/70 backdrop-blur-sm rounded-full text-white hover:bg-black/90 transition-all duration-300 hover:scale-110"
+                      disabled={!trailerReady}
                     >
                       {isMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
                     </button>
