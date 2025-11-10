@@ -169,6 +169,42 @@ func GetSeriesByID(mediaService *services.MediaService) gin.HandlerFunc {
 	}
 }
 
+// DeleteSeries removes a TV series and all its episodes from the database
+func DeleteSeries(mediaService *services.MediaService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id, err := strconv.ParseUint(c.Param("id"), 10, 32)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid series ID"})
+			return
+		}
+
+		// Check if series exists before attempting deletion
+		series, err := mediaService.GetSeriesByID(uint(id))
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Series not found"})
+			return
+		}
+
+		log.Printf("🗑️ API: Deleting TV series '%s' (ID: %d)", series.Title, id)
+
+		// Delete the series and all associated episodes
+		err = mediaService.DeleteSeries(uint(id))
+		if err != nil {
+			log.Printf("❌ Failed to delete series %d: %v", id, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"message": "TV series and all episodes deleted successfully",
+			"deleted_series": gin.H{
+				"id":    series.ID,
+				"title": series.Title,
+			},
+		})
+	}
+}
+
 // UpdateSeriesMetadata updates a TV series with new metadata
 func UpdateSeriesMetadata(mediaService *services.MediaService) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -206,6 +242,7 @@ func UpdateSeriesMetadata(mediaService *services.MediaService) gin.HandlerFunc {
 }
 
 // UpdateSeriesWithTMDB automatically fetches and updates series metadata from TMDB
+// Now includes automatic poster download and database storage
 func UpdateSeriesWithTMDB(mediaService *services.MediaService, tmdbService *services.TMDBService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id, err := strconv.ParseUint(c.Param("id"), 10, 32)
@@ -322,10 +359,29 @@ func UpdateSeriesWithTMDB(mediaService *services.MediaService, tmdbService *serv
 		if tvDetails.BackdropPath != "" {
 			backdropURL := tmdbService.GetPosterURL(tvDetails.BackdropPath, "w1280")
 			updates["backdrop_path"] = backdropURL
+			updates["tmdb_backdrop_url"] = backdropURL // Store TMDB URL separately
 		}
+		
+		// ENHANCED: Download and save poster from TMDB (like GenerateSeriesPoster does)
 		if tvDetails.PosterPath != "" {
 			posterURL := tmdbService.GetPosterURL(tvDetails.PosterPath, "w500")
-			updates["poster_path"] = posterURL
+			log.Printf("🎨 TMDB poster URL found: %s", posterURL)
+			log.Printf("📥 Downloading TV series poster from TMDB for: %s", series.Title)
+			
+			// Download poster using TMDB service for TV series
+			posterPath, posterErr := tmdbService.DownloadTVPoster(series.Title, uint(id), "./backend/posters")
+			if posterErr != nil {
+				log.Printf("⚠️ Failed to download TV poster from TMDB: %v", posterErr)
+				// Still update with TMDB URL as fallback
+				updates["poster_path"] = posterURL
+				updates["tmdb_poster_url"] = posterURL
+			} else {
+				log.Printf("✅ TV series poster downloaded and saved: %s", posterPath)
+				// Use local downloaded poster path
+				updates["poster_path"] = posterPath
+				// Also store TMDB URL for reference
+				updates["tmdb_poster_url"] = posterURL
+			}
 		}
 
 		// Extract trailer URL from videos
@@ -334,6 +390,8 @@ func UpdateSeriesWithTMDB(mediaService *services.MediaService, tmdbService *serv
 				if video.Site == "YouTube" && video.Type == "Trailer" && video.Key != "" {
 					trailerURL := fmt.Sprintf("https://www.youtube.com/watch?v=%s", video.Key)
 					updates["trailer_url"] = trailerURL
+					updates["tmdb_trailer_url"] = trailerURL // Store TMDB URL separately
+					log.Printf("🎬 Found trailer for series %d: %s", id, trailerURL)
 					break
 				}
 			}
@@ -345,7 +403,7 @@ func UpdateSeriesWithTMDB(mediaService *services.MediaService, tmdbService *serv
 			for i, genre := range tvDetails.Genres {
 				genreNames[i] = genre.Name
 			}
-			updates["genres"] = genreNames
+			updates["genre_names"] = genreNames
 		}
 
 		// Update the series with TMDB data

@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { usePageTitle } from '@/hooks/usePageTitle';
-import { ArrowLeft, Play, Plus, Check, Share, Download, Info, Star, Clock, Calendar, Globe, Users, Award, Film, Tv, User, Mic, ChevronDown, ChevronUp, Volume2, VolumeX, PlayCircle, X } from "lucide-react";
+import { ArrowLeft, Play, Plus, Check, Share, Download, Info, Star, Clock, Calendar, Globe, Users, Award, Film, Tv, User, Mic, ChevronDown, ChevronUp, Volume2, VolumeX, PlayCircle, X, Pause } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Media } from '@/types/media';
 import { getApiUrl, preloadAssets } from '@/lib/api';
@@ -23,6 +23,7 @@ import {
   ParticleField
 } from '@/components/scrollx';
 import { useNavigate } from "@/hooks/useNavigate";
+import ImageWithFallback from '@/components/ImageWithFallback';
 
 interface Season {
   id: number;
@@ -68,7 +69,13 @@ export default function TVSeriesPage() {
   const [continueWatching, setContinueWatching] = useState<{ episode: Media, progress: number } | null>(null);
   const [isShowingTrailer, setIsShowingTrailer] = useState(false); // Trailer mode state
   const [trailerKey, setTrailerKey] = useState<string | null>(null); // YouTube trailer key
+  const [showControls, setShowControls] = useState(true); // Show/hide trailer controls
+  const [trailerLoaded, setTrailerLoaded] = useState(false); // Track if trailer iframe is loaded
+  const [trailerReady, setTrailerReady] = useState(false); // Track if trailer is ready to play
+  const [userPausedTrailer, setUserPausedTrailer] = useState(false); // Track if user manually paused trailer
   const videoRef = useRef<HTMLVideoElement>(null);
+  const trailerRef = useRef<HTMLIFrameElement>(null);
+  const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     if (params.id) {
@@ -422,18 +429,17 @@ export default function TVSeriesPage() {
             }`}
           style={{ zIndex: 2 }}
         >
-          <LazyImage
+          <img
             src={getBackdropImageUrl(series)}
             alt={series.title}
-            fill
-            className="object-cover"
-            priority
-            sizes="100vw"
-            loaderSize="large"
-            showLoader={true}
+            className="w-full h-full object-cover"
+            loading="eager"
+            onError={(e) => {
+              const target = e.target as HTMLImageElement;
+              const apiUrl = getApiUrl();
+              target.src = `${apiUrl}/api/thumbnails/${series?.id || 'default'}`;
+            }}
           />
-          {/* Gradient overlay for better text readability */}
-          <div className="absolute inset-0 bg-gradient-to-r from-black/70 via-black/30 to-black/20" />
         </div>
 
         {/* Background Video */}
@@ -467,57 +473,326 @@ export default function TVSeriesPage() {
           <source src={getBackgroundVideoUrl(series)} type="video/mp4" />
         </video>
 
-        {/* YouTube Trailer Overlay */}
+        {/* YouTube Trailer Overlay - Netflix Style with Custom Controls */}
         {isShowingTrailer && trailerKey && (
-          <div className="absolute inset-0 z-[15] bg-black">
+          <div
+            className="absolute inset-0 z-[15] bg-black cursor-pointer"
+            onMouseMove={() => {
+              // Ensure background video is stopped when interacting with trailer
+              const video = videoRef.current;
+              if (video) {
+                video.pause();
+                video.muted = true;
+                video.volume = 0;
+                video.currentTime = 0;
+                video.style.display = 'none';
+                video.style.visibility = 'hidden';
+                video.style.opacity = '0';
+              }
+
+              setShowControls(true);
+              // Clear existing timeout
+              if (controlsTimeoutRef.current) {
+                clearTimeout(controlsTimeoutRef.current);
+              }
+              // Auto-hide controls after 3 seconds when playing
+              if (isVideoPlaying) {
+                controlsTimeoutRef.current = setTimeout(() => {
+                  setShowControls(false);
+                }, 3000);
+              }
+            }}
+            onMouseLeave={() => {
+              // Clear existing timeout
+              if (controlsTimeoutRef.current) {
+                clearTimeout(controlsTimeoutRef.current);
+              }
+              // Hide controls when mouse leaves if video is playing
+              if (isVideoPlaying) {
+                controlsTimeoutRef.current = setTimeout(() => {
+                  setShowControls(false);
+                }, 1000);
+              }
+            }}
+            onClick={(e) => {
+              // Only toggle play/pause if clicking on the overlay itself, not the controls
+              if (e.target === e.currentTarget) {
+                // Toggle play/pause on backdrop click
+                if (trailerRef.current && trailerReady) {
+                  const iframe = trailerRef.current;
+                  if (isVideoPlaying) {
+                    iframe.contentWindow?.postMessage('{"event":"command","func":"pauseVideo","args":""}', '*');
+                    setIsVideoPlaying(false);
+                    setUserPausedTrailer(true);
+                  } else {
+                    iframe.contentWindow?.postMessage('{"event":"command","func":"playVideo","args":""}', '*');
+                    setIsVideoPlaying(true);
+                    setUserPausedTrailer(false);
+                  }
+                  setShowControls(true);
+
+                  // Clear existing timeout
+                  if (controlsTimeoutRef.current) {
+                    clearTimeout(controlsTimeoutRef.current);
+                  }
+                  // Auto-hide controls after 3 seconds when playing
+                  if (!isVideoPlaying) {
+                    controlsTimeoutRef.current = setTimeout(() => {
+                      setShowControls(false);
+                    }, 3000);
+                  }
+                }
+              }
+            }}
+          >
             <iframe
-              src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=0&controls=0&showinfo=0&rel=0&iv_load_policy=3&modestbranding=1&loop=1&playlist=${trailerKey}&hd=1&vq=hd1080&origin=${typeof window !== 'undefined' ? window.location.origin : ''}`}
-              className="w-full h-full"
-              allow="autoplay; encrypted-media; fullscreen"
+              ref={trailerRef}
+              src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=0&controls=0&showinfo=0&rel=0&iv_load_policy=3&modestbranding=1&enablejsapi=1&loop=1&playlist=${trailerKey}&origin=${typeof window !== 'undefined' ? window.location.origin : ''}&vq=hd1080&hd=1&quality=hd1080`}
+              className={`w-full h-full transition-opacity duration-500 ${trailerLoaded && trailerReady ? 'opacity-100' : 'opacity-0'}`}
+              allow="autoplay; encrypted-media"
               allowFullScreen
               style={{
+                pointerEvents: 'none',
                 border: 'none',
                 outline: 'none'
               }}
+              onLoad={() => {
+                setTrailerLoaded(true);
+                // Initialize YouTube API communication and auto-play with sound
+                setTimeout(() => {
+                  if (trailerRef.current && !userPausedTrailer) {
+                    trailerRef.current.contentWindow?.postMessage('{"event":"listening","id":"trailer"}', '*');
+                    // Force unmute and play
+                    trailerRef.current.contentWindow?.postMessage('{"event":"command","func":"unMute","args":""}', '*');
+                    trailerRef.current.contentWindow?.postMessage('{"event":"command","func":"playVideo","args":""}', '*');
+                    setIsVideoPlaying(true);
+                    setTrailerReady(true);
+                  }
+                }, 1000);
+              }}
             />
             
-            {/* Close Trailer Button */}
-            <button
-              onClick={handleCloseTrailer}
-              className="absolute top-6 right-6 z-[20] bg-black/70 hover:bg-black/90 text-white p-3 rounded-full transition-all duration-300 hover:scale-110"
-            >
-              <X className="w-6 h-6" />
-            </button>
-            
-            {/* Trailer Label */}
-            <div className="absolute top-6 left-6 z-[20] bg-black/70 backdrop-blur-sm text-white px-4 py-2 rounded-lg">
-              <span className="text-sm font-semibold">Official Trailer</span>
-            </div>
+            {/* Show backdrop image when video is paused or not loaded */}
+            {(!trailerLoaded || !trailerReady || !isVideoPlaying) && (
+              <div
+                className="absolute inset-0 z-[10] bg-cover bg-center bg-no-repeat transition-opacity duration-500"
+                style={{
+                  backgroundImage: `url(${getBackdropImageUrl(series)})`,
+                }}
+              >
+                <div className="absolute inset-0 bg-gradient-to-r from-black/60 via-black/30 to-black/20" />
+                <div className="absolute bottom-0 left-0 right-0 h-1/2 bg-gradient-to-t from-black/80 to-transparent" />
+
+                {/* Loading indicator when trailer is loading */}
+                {!trailerLoaded && (
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="bg-black/70 backdrop-blur-sm rounded-full p-4">
+                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white"></div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Play button when trailer is ready but paused */}
+                {trailerLoaded && trailerReady && !isVideoPlaying && (
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <button
+                      onClick={() => {
+                        if (trailerRef.current) {
+                          trailerRef.current.contentWindow?.postMessage('{"event":"command","func":"playVideo","args":""}', '*');
+                          setIsVideoPlaying(true);
+                          setUserPausedTrailer(false);
+                          setShowControls(true);
+                        }
+                      }}
+                      className="bg-red-600/90 backdrop-blur-sm rounded-full p-6 hover:bg-red-700/90 transition-all duration-300 hover:scale-110"
+                    >
+                      <Play className="w-12 h-12 text-white fill-current" />
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="absolute inset-0 bg-gradient-to-r from-black/60 via-transparent to-transparent pointer-events-none" />
+            <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-black/80 to-transparent pointer-events-none" />
+
+            {/* Trailer Controls - Netflix Style */}
+            <AnimatePresence>
+              {showControls && (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="absolute inset-0 pointer-events-none z-[25]"
+                >
+                  {/* Close button - Top right */}
+                  <div className="absolute top-8 right-8 z-[30] pointer-events-auto">
+                    <button
+                      onClick={handleCloseTrailer}
+                      className="p-3 bg-black/70 backdrop-blur-sm rounded-full text-white hover:bg-black/90 transition-all duration-300 hover:scale-110"
+                    >
+                      <X className="w-5 h-5" />
+                    </button>
+                  </div>
+
+                  {/* Trailer Label - Top left */}
+                  <div className="absolute top-8 left-8 z-[30] bg-black/70 backdrop-blur-sm text-white px-4 py-2 rounded-lg pointer-events-none">
+                    <span className="text-sm font-semibold">Official Trailer</span>
+                  </div>
+
+                  {/* Video Controls - Bottom right */}
+                  <div className="absolute bottom-8 right-8 z-[30] flex gap-3 pointer-events-auto">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (trailerRef.current && trailerReady) {
+                          const iframe = trailerRef.current;
+                          if (isVideoPlaying) {
+                            iframe.contentWindow?.postMessage('{"event":"command","func":"pauseVideo","args":""}', '*');
+                            setIsVideoPlaying(false);
+                            setUserPausedTrailer(true);
+                          } else {
+                            iframe.contentWindow?.postMessage('{"event":"command","func":"playVideo","args":""}', '*');
+                            setIsVideoPlaying(true);
+                            setUserPausedTrailer(false);
+                          }
+                          setShowControls(true);
+
+                          // Clear existing timeout
+                          if (controlsTimeoutRef.current) {
+                            clearTimeout(controlsTimeoutRef.current);
+                          }
+                          // Auto-hide controls after 3 seconds when playing
+                          if (!isVideoPlaying) {
+                            controlsTimeoutRef.current = setTimeout(() => {
+                              setShowControls(false);
+                            }, 3000);
+                          }
+                        }
+                      }}
+                      className="p-3 bg-black/70 backdrop-blur-sm rounded-full text-white hover:bg-black/90 transition-all duration-300 hover:scale-110"
+                      disabled={!trailerReady}
+                    >
+                      {isVideoPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (trailerRef.current && trailerReady) {
+                          const iframe = trailerRef.current;
+                          const video = videoRef.current;
+                          if (video) {
+                            if (video.muted) {
+                              // Unmute
+                              iframe.contentWindow?.postMessage('{"event":"command","func":"unMute","args":""}', '*');
+                              video.muted = false;
+                            } else {
+                              // Mute
+                              iframe.contentWindow?.postMessage('{"event":"command","func":"mute","args":""}', '*');
+                              video.muted = true;
+                            }
+                          }
+                          setShowControls(true);
+
+                          // Clear existing timeout
+                          if (controlsTimeoutRef.current) {
+                            clearTimeout(controlsTimeoutRef.current);
+                          }
+                          // Keep controls visible for a bit after mute/unmute
+                          controlsTimeoutRef.current = setTimeout(() => {
+                            if (isVideoPlaying) {
+                              setShowControls(false);
+                            }
+                          }, 3000);
+                        }
+                      }}
+                      className="p-3 bg-black/70 backdrop-blur-sm rounded-full text-white hover:bg-black/90 transition-all duration-300 hover:scale-110"
+                      disabled={!trailerReady}
+                    >
+                      {videoRef.current?.muted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
+                    </button>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
         )}
 
-        {/* Overlay */}
-        <motion.div
-          className="absolute inset-0 bg-gradient-to-b from-black/80 via-black/60 to-black/40 z-15"
-          initial={{ opacity: 1 }}
-          animate={{ opacity: showTitleOverlay ? 1 : 0.3 }}
-          transition={{ duration: 1.2, ease: [0.25, 0.46, 0.45, 0.94] }}
-        />
+        {/* Bottom gradient for text readability only */}
+        <div className="absolute bottom-0 left-0 right-0 h-1/3 bg-gradient-to-t from-black/90 via-black/50 to-transparent z-10" />
 
-        <div className="absolute inset-0 bg-gradient-to-t from-black via-black/80 to-transparent z-10" />
-
-        {/* Hero Content */}
-        <div className="absolute inset-0 flex items-end z-20">
+        {/* Hero Content - Bottom Left with Poster (TMDB Style) */}
+        <div className="absolute bottom-0 left-0 z-[20] p-8 pointer-events-auto w-full">
           <div
-            className="w-full h-full flex items-end"
+            className="flex gap-6 items-end"
             onMouseEnter={() => setIsHoveringTitle(true)}
             onMouseLeave={() => setIsHoveringTitle(false)}
           >
-            <ParticleField count={50} className="absolute inset-0 opacity-30" />
+            <ParticleField count={50} className="absolute inset-0 opacity-30 pointer-events-none" />
 
-            <div className="container mx-auto px-6 md:px-12 lg:px-16 relative z-10">
-              <div className="max-w-4xl w-full">
-                {/* Breadcrumb Navigation */}
+            {/* Series Poster */}
+            <motion.div
+              initial={{ scale: 0.8, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              transition={{ duration: 0.6, delay: 0.4 }}
+              className="flex-shrink-0 hidden md:block"
+            >
+              <div className="relative w-48 lg:w-64 h-72 lg:h-96 rounded-lg overflow-hidden shadow-2xl border border-white/10">
+                {/* Use poster if available, otherwise fallback to thumbnail */}
+                {series.poster_path || series.tmdb_poster_url ? (
+                  <img
+                    src={series.tmdb_poster_url || series.poster_path || `${getApiUrl()}/api/posters/${series.id}`}
+                    alt={series.title}
+                    className="w-full h-full object-cover"
+                    loading="eager"
+                    onError={(e) => {
+                      const target = e.target as HTMLImageElement;
+                      const apiUrl = getApiUrl();
+                      // Fallback to poster endpoint, then thumbnail
+                      if (!target.src.includes('/api/posters/')) {
+                        target.src = `${apiUrl}/api/posters/${series.id}`;
+                      } else if (!target.src.includes('/api/thumbnails/')) {
+                        target.src = `${apiUrl}/api/thumbnails/${series.id}`;
+                      }
+                    }}
+                  />
+                ) : (
+                  <ImageWithFallback
+                    mediaId={series.id}
+                    alt={series.title}
+                    fill={true}
+                    sizes="256px"
+                    className="object-cover"
+                    loading="eager"
+                  />
+                )}
+              </div>
+            </motion.div>
+
+            {/* Series Details */}
+            <div className="flex-1 space-y-4 pb-4">
+              {/* Series Title */}
+              <motion.div
+                initial={{ opacity: 0, y: 50 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.8, delay: 0.2 }}
+              >
+                <div className="flex items-center gap-3 mb-3">
+                  <Tv className="w-6 h-6 text-red-500" />
+                  <span className="text-red-400 font-semibold text-sm">TV SERIES</span>
+                </div>
+
+                <h1 className="text-3xl md:text-4xl lg:text-5xl font-bold text-white mb-3 leading-tight bg-gradient-to-r from-white to-gray-300 bg-clip-text text-transparent">
+                  {series.title}
+                </h1>
+
+                <div className="text-white/80 text-base font-medium mb-3">
+                  {seasons.length} Season{seasons.length !== 1 ? 's' : ''} • {episodes.length} Episodes
+                </div>
+              </motion.div>
+
+              {/* Continue Watching */}
+              {continueWatching && (
                 <motion.div
                   initial={{ opacity: 0, y: 30 }}
                   animate={{
@@ -525,156 +800,121 @@ export default function TVSeriesPage() {
                     y: (!showTitleOverlay || isHoveringTitle) ? 0 : 30
                   }}
                   transition={{ duration: 0.6, delay: 0.1 }}
-                  className="flex items-center gap-2 mb-4 text-sm text-white/60"
+                  className="mb-4"
                 >
-                  <button
-                    onClick={() => navigate.push('/tv-series')}
-                    className="hover:text-white transition-colors"
-                  >
-                    TV Series
-                  </button>
-                  <span>/</span>
-                  <span className="text-red-400">{series.title}</span>
-                </motion.div>
-
-                {/* Series Title */}
-                <motion.div
-                  initial={{ opacity: 0, y: 50 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.8, delay: 0.2 }}
-                  className="mb-6"
-                >
-                  <div className="flex items-center gap-3 mb-4">
-                    <Tv className="w-8 h-8 text-red-500" />
-                    <span className="text-red-400 font-semibold text-lg">TV SERIES</span>
-                  </div>
-
-                  <h1 className="text-4xl md:text-6xl lg:text-7xl font-bold text-white mb-4 leading-tight">
-                    {series.title}
-                  </h1>
-
-                  <div className="text-white/80 text-lg font-medium">
-                    {seasons.length} Season{seasons.length !== 1 ? 's' : ''} • {episodes.length} Episodes
-                  </div>
-                </motion.div>
-
-                {/* Continue Watching */}
-                {continueWatching && (
-                  <motion.div
-                    initial={{ opacity: 0, y: 30 }}
-                    animate={{
-                      opacity: (!showTitleOverlay || isHoveringTitle) ? 1 : 0,
-                      y: (!showTitleOverlay || isHoveringTitle) ? 0 : 30
-                    }}
-                    transition={{ duration: 0.6, delay: 0.1 }}
-                    className="mb-6"
-                  >
-                    <div className="bg-white/10 backdrop-blur-md rounded-lg p-4 border border-white/20">
-                      <div className="flex items-center gap-3 mb-2">
-                        <PlayCircle className="w-5 h-5 text-red-400" />
-                        <span className="text-white font-medium">Continue Watching</span>
-                      </div>
-                      <p className="text-white/80 text-sm">
-                        {continueWatching.episode.title} • {Math.round((continueWatching.progress / (continueWatching.episode.duration || 1)) * 100)}% complete
-                      </p>
+                  <div className="bg-white/10 backdrop-blur-md rounded-lg p-3 border border-white/20">
+                    <div className="flex items-center gap-2 mb-1">
+                      <PlayCircle className="w-4 h-4 text-red-400" />
+                      <span className="text-white font-medium text-sm">Continue Watching</span>
                     </div>
-                  </motion.div>
+                    <p className="text-white/80 text-xs">
+                      {continueWatching.episode.title} • {Math.round((continueWatching.progress / (continueWatching.episode.duration || 1)) * 100)}% complete
+                    </p>
+                  </div>
+                </motion.div>
+              )}
+
+              {/* Stats Row - Compact */}
+              <motion.div
+                initial={{ opacity: 0, y: 30 }}
+                animate={{
+                  opacity: (!showTitleOverlay || isHoveringTitle) ? 1 : 0,
+                  y: (!showTitleOverlay || isHoveringTitle) ? 0 : 30
+                }}
+                transition={{ duration: 0.6, delay: 0.2 }}
+                className="flex flex-wrap items-center gap-2 text-sm mb-3"
+              >
+                {series.rating && (
+                  <div className="flex items-center gap-1 bg-yellow-500/20 px-2 py-1 rounded-full">
+                    <Star className="w-4 h-4 text-yellow-400 fill-current" />
+                    <span className="font-semibold">{series.rating.toFixed(1)}</span>
+                  </div>
                 )}
 
-                {/* Metadata */}
+                <div className="flex items-center gap-1 bg-blue-500/20 px-2 py-1 rounded-full">
+                  <Calendar className="w-4 h-4 text-blue-400" />
+                  <span>{series.year || new Date().getFullYear()}</span>
+                </div>
+              </motion.div>
+
+              {/* Genres - Compact */}
+              {series.genres && series.genres.length > 0 && (
                 <motion.div
                   initial={{ opacity: 0, y: 30 }}
                   animate={{
                     opacity: (!showTitleOverlay || isHoveringTitle) ? 1 : 0,
                     y: (!showTitleOverlay || isHoveringTitle) ? 0 : 30
                   }}
-                  transition={{ duration: 0.6, delay: 0.2 }}
-                  className="flex items-center gap-4 text-white/90 mb-6 flex-wrap"
+                  transition={{ duration: 0.6, delay: 0.25 }}
+                  className="flex flex-wrap gap-1 mb-3"
                 >
-                  {series.rating && (
-                    <span className="flex items-center gap-1 text-green-400 font-semibold">
-                      <Star className="w-4 h-4" />
-                      {series.rating}
-                    </span>
-                  )}
-                  <span className="flex items-center gap-1">
-                    <Calendar className="w-4 h-4" />
-                    {series.year || new Date().getFullYear()}
-                  </span>
-                  {series.genres && series.genres.length > 0 && (
-                    <span className="text-white/80">
-                      {series.genres.slice(0, 3).map(g => g.name).join(' • ')}
-                    </span>
-                  )}
-                </motion.div>
-
-                {/* Action Buttons */}
-                <motion.div
-                  initial={{ opacity: 0, y: 30 }}
-                  animate={{
-                    opacity: (!showTitleOverlay || isHoveringTitle) ? 1 : 0,
-                    y: (!showTitleOverlay || isHoveringTitle) ? 0 : 30
-                  }}
-                  transition={{ duration: 0.6, delay: 0.3 }}
-                  className="flex flex-wrap gap-4 mb-8"
-                >
-                  <MagneticButton
-                    onClick={() => handlePlay()}
-                    className="bg-red-600 hover:bg-red-700 text-white px-8 py-3 rounded-lg text-lg font-semibold flex items-center gap-2"
-                  >
-                    <Play className="w-5 h-5" />
-                    {continueWatching ? 'Continue Watching' : 'Play'}
-                  </MagneticButton>
-
-                  {/* Watch Trailer Button - Only show if TMDB trailer is available */}
-                  {series.tmdb_trailer_url && (
-                    <MagneticButton
-                      onClick={handleWatchTrailer}
-                      className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg text-lg font-semibold flex items-center gap-2"
+                  {series.genres.slice(0, 3).map((genre, index) => (
+                    <span
+                      key={index}
+                      className="px-2 py-1 bg-red-600/30 border border-red-500/50 rounded-full text-xs font-medium"
                     >
-                      <Play className="w-5 h-5" />
-                      Watch Trailer
-                    </MagneticButton>
-                  )}
-
-                  <MagneticButton
-                    onClick={toggleMyList}
-                    className="bg-white/10 hover:bg-white/20 text-white p-3 rounded-full"
-                  >
-                    {isInMyList ? <Check className="w-5 h-5" /> : <Plus className="w-5 h-5" />}
-                  </MagneticButton>
-
-                  <MagneticButton className="bg-white/10 hover:bg-white/20 text-white p-3 rounded-full">
-                    <Share className="w-5 h-5" />
-                  </MagneticButton>
+                      {typeof genre === 'string' ? genre : genre?.name || 'Unknown'}
+                    </span>
+                  ))}
                 </motion.div>
+              )}
 
-                {/* Description */}
-                <motion.div
-                  initial={{ opacity: 0, y: 30 }}
-                  animate={{
-                    opacity: (!showTitleOverlay || isHoveringTitle) ? 1 : 0,
-                    y: (!showTitleOverlay || isHoveringTitle) ? 0 : 30
-                  }}
-                  transition={{ duration: 0.6, delay: 0.4 }}
+              {/* Action Buttons - Compact */}
+              <motion.div
+                initial={{ opacity: 0, y: 30 }}
+                animate={{
+                  opacity: (!showTitleOverlay || isHoveringTitle) ? 1 : 0,
+                  y: (!showTitleOverlay || isHoveringTitle) ? 0 : 30
+                }}
+                transition={{ duration: 0.6, delay: 0.3 }}
+                className="flex flex-wrap gap-2 mb-4"
+              >
+                <button
+                  onClick={() => handlePlay()}
+                  className="flex items-center gap-1 px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg text-sm font-semibold transition-all duration-300 hover:scale-105"
                 >
-                  <p className="text-white/90 mb-4 text-lg leading-relaxed max-w-3xl">
-                    {series.description ? (
-                      showFullDescription ? series.description : `${series.description.substring(0, 200)}${series.description.length > 200 ? '...' : ''}`
-                    ) : (
-                      "Experience this amazing TV series with compelling characters and engaging storylines that will keep you watching episode after episode."
-                    )}
-                    {series.description && series.description.length > 200 && (
-                      <button
-                        onClick={() => setShowFullDescription(!showFullDescription)}
-                        className="text-red-400 hover:text-red-300 ml-2 font-medium"
-                      >
-                        {showFullDescription ? 'Show less' : 'Read more'}
-                      </button>
-                    )}
-                  </p>
-                </motion.div>
-              </div>
+                  <Play className="w-4 h-4" />
+                  {continueWatching ? 'Continue' : 'Play'}
+                </button>
+
+                {/* Watch Trailer Button - Only show if TMDB trailer is available */}
+                {series.tmdb_trailer_url && (
+                  <button
+                    onClick={handleWatchTrailer}
+                    className="flex items-center gap-1 px-4 py-2 bg-blue-600/80 hover:bg-blue-700 rounded-lg text-sm font-semibold transition-all duration-300 hover:scale-105"
+                  >
+                    <Play className="w-4 h-4" />
+                    Watch Trailer
+                  </button>
+                )}
+
+                <button
+                  onClick={toggleMyList}
+                  className="flex items-center gap-1 px-4 py-2 bg-gray-800/80 hover:bg-gray-700 rounded-lg text-sm font-semibold transition-all duration-300 hover:scale-105"
+                >
+                  {isInMyList ? <Check className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
+                  Watchlist
+                </button>
+
+                <button className="flex items-center gap-1 px-4 py-2 bg-gray-800/80 hover:bg-gray-700 rounded-lg text-sm font-semibold transition-all duration-300 hover:scale-105">
+                  <Share className="w-4 h-4" />
+                  Share
+                </button>
+              </motion.div>
+
+              {/* Description - Compact */}
+              <motion.div
+                initial={{ opacity: 0, y: 30 }}
+                animate={{
+                  opacity: (!showTitleOverlay || isHoveringTitle) ? 1 : 0,
+                  y: (!showTitleOverlay || isHoveringTitle) ? 0 : 30
+                }}
+                transition={{ duration: 0.6, delay: 0.4 }}
+              >
+                <p className="text-sm text-gray-300 leading-relaxed line-clamp-3">
+                  {series.description || "Experience this amazing TV series with compelling characters and engaging storylines that will keep you watching episode after episode."}
+                </p>
+              </motion.div>
             </div>
           </div>
         </div>

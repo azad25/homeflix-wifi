@@ -16,9 +16,15 @@ import TMDBSearchModal from '@/components/TMDBSearchModal';
 import SystemLogs from '@/components/SystemLogs';
 import { useSearchParams } from 'next/navigation';
 interface MediaAssets {
+  id?: number;
+  title?: string;
   banner?: string;
+  banner_path?: string;
   thumbnail?: string;
+  thumbnail_path?: string;
+  poster_path?: string;
   trailer?: string;
+  trailer_path?: string;
 }
 
 interface EditableMedia extends Media {
@@ -144,34 +150,78 @@ function SettingsContent() {
       ]);
 
       console.log('📊 Fetched media:', { movies: media.length, series: series.length });
-      setMediaList(media);
-      setSeriesList(series);
+      
+      // Transform genres to genre_names for all media items
+      const transformedMedia = media.map((m: any) => {
+        if (m.genres && Array.isArray(m.genres)) {
+          const { genres, ...rest } = m;
+          return {
+            ...rest,
+            genre_names: genres.map((g: any) => typeof g === 'string' ? g : g.name || g)
+          };
+        }
+        return m;
+      });
+      
+      const transformedSeries = series.map((s: any) => {
+        if (s.genres && Array.isArray(s.genres)) {
+          const { genres, ...rest } = s;
+          return {
+            ...rest,
+            genre_names: genres.map((g: any) => typeof g === 'string' ? g : g.name || g)
+          };
+        }
+        return s;
+      });
+      
+      setMediaList(transformedMedia);
+      setSeriesList(transformedSeries);
       setLoading(false);
 
       // If we have a selected media, try to find and update it in the new list
       if (selectedMedia) {
         if (selectedMedia.type === 'tv') {
-          const updatedSeries = series.find((s: any) => s.id === selectedMedia.id);
+          const updatedSeries = transformedSeries.find((s: any) => s.id === selectedMedia.id);
           if (updatedSeries) {
             const updatedMedia = {
               ...selectedMedia,
               ...updatedSeries,
               type: 'tv' as const,
-              id: selectedMedia.id,
-
+              id: selectedMedia.id
             };
+            
+            // Ensure genres is removed and genre_names is properly formatted
+            if ((updatedMedia as any).genres) {
+              delete (updatedMedia as any).genres;
+            }
+            if (updatedMedia.genre_names && Array.isArray(updatedMedia.genre_names)) {
+              updatedMedia.genre_names = updatedMedia.genre_names.map((g: any) => 
+                typeof g === 'string' ? g : g?.name || String(g)
+              );
+            }
+            
             setSelectedMedia(updatedMedia);
             console.log('🔄 Updated selected TV series from fresh data');
           }
         } else {
-          const updatedMovie = media.find((m: any) => m.id === selectedMedia.id);
+          const updatedMovie = transformedMedia.find((m: any) => m.id === selectedMedia.id);
           if (updatedMovie) {
             const updatedMedia = {
               ...updatedMovie,
               isEditing: selectedMedia.isEditing,
-              id: selectedMedia.id,
-
+              id: selectedMedia.id
             };
+            
+            // Ensure genres is removed and genre_names is properly formatted
+            if ((updatedMedia as any).genres) {
+              delete (updatedMedia as any).genres;
+            }
+            if (updatedMedia.genre_names && Array.isArray(updatedMedia.genre_names)) {
+              updatedMedia.genre_names = updatedMedia.genre_names.map((g: any) => 
+                typeof g === 'string' ? g : g?.name || String(g)
+              );
+            }
+            
             setSelectedMedia(updatedMedia);
             console.log('🔄 Updated selected movie from fresh data');
           }
@@ -314,7 +364,10 @@ function SettingsContent() {
       return (
         media.title?.toLowerCase().includes(query) ||
         media.description?.toLowerCase().includes(query) ||
-        media.genre_names?.some(genre => genre.toLowerCase().includes(query)) ||
+        media.genre_names?.some(genre => {
+          const genreStr = typeof genre === 'string' ? genre : (genre as any)?.name || String(genre);
+          return genreStr.toLowerCase().includes(query);
+        }) ||
         media.year?.toString().includes(query) ||
         media.country?.toLowerCase().includes(query) ||
         media.language?.toLowerCase().includes(query)
@@ -343,6 +396,17 @@ function SettingsContent() {
             ? editingMedia.title
             : media.title;
 
+          // Clean media object - remove genres and ensure genre_names is strings only
+          const cleanMedia = { ...media };
+          if ((cleanMedia as any).genres) {
+            delete (cleanMedia as any).genres;
+          }
+          if (cleanMedia.genre_names && Array.isArray(cleanMedia.genre_names)) {
+            cleanMedia.genre_names = cleanMedia.genre_names.map((g: any) => 
+              typeof g === 'string' ? g : g?.name || String(g)
+            );
+          }
+
           return {
             id: media.id.toString(),
             name: displayTitle,
@@ -350,12 +414,11 @@ function SettingsContent() {
             size: `${Math.floor((media.duration || media.runtime || 0) / 60)}min`,
             modified: new Date().toLocaleDateString(),
             media: {
-              ...media,
+              ...cleanMedia,
               // Ensure all required fields exist
               id: media.id,
               title: media.title || 'Unknown Title',
-              type: 'movie' as const,
-
+              type: 'movie' as const
             }
           };
         })
@@ -380,7 +443,7 @@ function SettingsContent() {
               type: 'tv' as const,
               rating: series.rating,
               year: series.release_date ? new Date(series.release_date).getFullYear() : undefined,
-              genre_names: series.genres?.map((g: any) => g.name) || [],
+              genre_names: series.genres?.map((g: any) => typeof g === 'string' ? g : g?.name || String(g)) || [],
               poster_path: series.poster_path,
               backdrop_path: series.backdrop_path,
               status: series.status,
@@ -435,10 +498,29 @@ function SettingsContent() {
         const assets = await response.json();
         setMediaAssets(assets);
         addTerminalOutput(`📁 Loaded assets for ${media.title}`);
+      } else {
+        // Assets endpoint might not be available, use media data directly
+        setMediaAssets({
+          id: media.id,
+          title: media.title,
+          banner_path: media.banner_path || '',
+          poster_path: media.poster_path || '',
+          thumbnail_path: media.thumbnail_path || '',
+          trailer_path: media.trailer_path || ''
+        });
       }
     } catch (error) {
       console.error('Error fetching media assets:', error);
-      addTerminalOutput(`⚠️ Could not load assets for ${media.title}`);
+      // Fallback to media data
+      setMediaAssets({
+        id: media.id,
+        title: media.title,
+        banner_path: media.banner_path || '',
+        poster_path: media.poster_path || '',
+        thumbnail_path: media.thumbnail_path || '',
+        trailer_path: media.trailer_path || ''
+      });
+      addTerminalOutput(`⚠️ Using media data for assets (endpoint unavailable)`);
     }
   };
 
@@ -855,6 +937,16 @@ function SettingsContent() {
             id: selectedMedia.id
           };
 
+          // Ensure genres is removed and genre_names is properly formatted
+          if ((finalMedia as any).genres) {
+            delete (finalMedia as any).genres;
+          }
+          if (finalMedia.genre_names && Array.isArray(finalMedia.genre_names)) {
+            finalMedia.genre_names = finalMedia.genre_names.map((g: any) => 
+              typeof g === 'string' ? g : g?.name || String(g)
+            );
+          }
+
           setSelectedMedia(finalMedia);
           addTerminalOutput(`✅ TV series TMDB data updated successfully`);
           addTerminalOutput(`📊 Updated fields: title, description, backdrop_path, poster_path, rating, year, trailer_url`);
@@ -902,6 +994,15 @@ function SettingsContent() {
 
           // Preserve manually edited fields
           const finalMedia = { ...updatedData };
+          
+          // Ensure genres is properly formatted as string array
+          if (finalMedia.genres && Array.isArray(finalMedia.genres)) {
+            finalMedia.genre_names = finalMedia.genres.map((g: any) => 
+              typeof g === 'string' ? g : g.name || g
+            );
+            delete (finalMedia as any).genres;
+          }
+          
           if (selectedMedia.isEditing && editingMedia) {
             (Object.keys(editingMedia) as Array<keyof Media>).forEach(key => {
               if (editingMedia[key] !== undefined && editingMedia[key] !== '') {
@@ -915,7 +1016,7 @@ function SettingsContent() {
           finalMedia.id = selectedMedia.id;
 
           setSelectedMedia(finalMedia);
-          setMediaList(prev => prev.map(m => m.id === updatedData.id ? finalMedia : m));
+          setMediaList(prev => prev.map(m => m.id === selectedMedia.id ? finalMedia : m));
           addTerminalOutput(`✅ Movie TMDB data updated successfully`);
           addTerminalOutput(`📊 Updated fields: title, description, backdrop_path, poster_path, rating, year, runtime, trailer_url`);
 
@@ -990,6 +1091,15 @@ function SettingsContent() {
 
           // Preserve manually edited fields
           const finalSeriesData = { ...updatedData };
+          
+          // Ensure genres is properly formatted as string array
+          if (finalSeriesData.genres && Array.isArray(finalSeriesData.genres)) {
+            finalSeriesData.genre_names = finalSeriesData.genres.map((g: any) => 
+              typeof g === 'string' ? g : g.name || g
+            );
+            delete (finalSeriesData as any).genres;
+          }
+          
           if (selectedMedia.isEditing && editingMedia) {
             (Object.keys(editingMedia) as Array<keyof Media>).forEach(key => {
               if (editingMedia[key] !== undefined && editingMedia[key] !== '') {
@@ -1014,6 +1124,16 @@ function SettingsContent() {
             // Ensure critical fields are preserved
             id: selectedMedia.id
           };
+
+          // Ensure genres is removed and genre_names is properly formatted
+          if ((finalMedia as any).genres) {
+            delete (finalMedia as any).genres;
+          }
+          if (finalMedia.genre_names && Array.isArray(finalMedia.genre_names)) {
+            finalMedia.genre_names = finalMedia.genre_names.map((g: any) => 
+              typeof g === 'string' ? g : g?.name || String(g)
+            );
+          }
 
           setSelectedMedia(finalMedia);
           addTerminalOutput(`✅ TV series updated with TMDB data from "${tmdbResult.title}"`);
@@ -1045,6 +1165,15 @@ function SettingsContent() {
 
           // Preserve manually edited fields
           const finalMedia = { ...updatedData };
+          
+          // Ensure genres is properly formatted as string array
+          if (finalMedia.genres && Array.isArray(finalMedia.genres)) {
+            finalMedia.genre_names = finalMedia.genres.map((g: any) => 
+              typeof g === 'string' ? g : g.name || g
+            );
+            delete (finalMedia as any).genres;
+          }
+          
           if (selectedMedia.isEditing && editingMedia) {
             (Object.keys(editingMedia) as Array<keyof Media>).forEach(key => {
               if (editingMedia[key] !== undefined && editingMedia[key] !== '') {
@@ -1058,7 +1187,7 @@ function SettingsContent() {
           finalMedia.id = selectedMedia.id;
 
           setSelectedMedia(finalMedia);
-          setMediaList(prev => prev.map(m => m.id === updatedData.id ? finalMedia : m));
+          setMediaList(prev => prev.map(m => m.id === selectedMedia.id ? finalMedia : m));
           addTerminalOutput(`✅ Movie updated with TMDB data from "${tmdbResult.title}"`);
           addTerminalOutput(`📊 Updated fields: title, description, backdrop_path, poster_path, rating, year, runtime, trailer_url`);
 
@@ -1675,9 +1804,9 @@ function SettingsContent() {
             subtitles.map((subtitle) => (
               <div key={subtitle.id} className="flex items-center justify-between bg-white/5 rounded p-2">
                 <div className="flex-1">
-                  <div className="text-white text-sm font-medium">{subtitle.language}</div>
+                  <div className="text-white text-sm font-medium">{String(subtitle.language || 'Unknown')}</div>
                   <div className="text-white/60 text-xs">
-                    {subtitle.track_type} • {subtitle.codec_name}
+                    {String(subtitle.track_type || '')} • {String(subtitle.codec_name || '')}
                     {subtitle.is_default && ' • Default'}
                     {subtitle.is_forced && ' • Forced'}
                   </div>
@@ -1964,11 +2093,13 @@ function SettingsContent() {
                         Found {(() => {
                           const query = searchQuery.toLowerCase();
                           const movieCount = mediaList.filter(media => {
-                            if (media.type !== 'movie') return false;
                             return (
                               media.title?.toLowerCase().includes(query) ||
                               media.description?.toLowerCase().includes(query) ||
-                              media.genre_names?.some(genre => genre.toLowerCase().includes(query)) ||
+                              media.genre_names?.some(genre => {
+                                const genreStr = typeof genre === 'string' ? genre : (genre as any)?.name || String(genre);
+                                return genreStr.toLowerCase().includes(query);
+                              }) ||
                               media.year?.toString().includes(query) ||
                               media.country?.toLowerCase().includes(query) ||
                               media.language?.toLowerCase().includes(query)
@@ -2656,18 +2787,22 @@ function SettingsContent() {
                         {selectedMedia.isEditing ? (
                           <input
                             type="text"
-                            value={editingMedia.genre_names?.join(', ') || ''}
+                            value={editingMedia.genre_names?.map(g => typeof g === 'string' ? g : (g as any)?.name || String(g)).join(', ') || ''}
                             onChange={(e) => setEditingMedia(prev => ({ ...prev, genre_names: e.target.value.split(',').map(g => g.trim()) }))}
                             className="w-full bg-black/50 border border-white/20 rounded-lg px-4 py-2 text-white"
                             placeholder="Action, Drama, Thriller (comma separated)"
                           />
                         ) : (
                           <div className="flex flex-wrap gap-2">
-                            {selectedMedia.genre_names?.map((genre, index) => (
-                              <span key={index} className="bg-[#E50914]/20 text-[#E50914] px-3 py-1 rounded-full text-sm">
-                                {genre}
-                              </span>
-                            )) || <span className="text-white/60">No genres assigned</span>}
+                            {selectedMedia.genre_names && selectedMedia.genre_names.length > 0 ? (
+                              selectedMedia.genre_names.map((genre, index) => (
+                                <span key={index} className="bg-[#E50914]/20 text-[#E50914] px-3 py-1 rounded-full text-sm">
+                                  {typeof genre === 'string' ? genre : (genre as any)?.name || String(genre)}
+                                </span>
+                              ))
+                            ) : (
+                              <span className="text-white/60">No genres assigned</span>
+                            )}
                           </div>
                         )}
                       </div>

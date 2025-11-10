@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -388,14 +389,10 @@ func (s *MediaService) UpdateSeries(id uint, updates map[string]interface{}) (*m
 		}
 	}()
 
-	// Update the series with provided fields
-	if err := tx.Model(&series).Updates(updates).Error; err != nil {
-		tx.Rollback()
-		return nil, fmt.Errorf("failed to update series: %v", err)
-	}
-
-	// Handle genre updates if provided
+	// Handle genre updates if provided (do this first to update both relationship and field)
 	if genreNames, ok := updates["genre_names"].([]string); ok && len(genreNames) > 0 {
+		// Update the GenreNames field directly
+		series.GenreNames = genreNames
 		// Clear existing genres
 		if err := tx.Model(&series).Association("Genres").Clear(); err != nil {
 			tx.Rollback()
@@ -423,6 +420,23 @@ func (s *MediaService) UpdateSeries(id uint, updates map[string]interface{}) (*m
 				return nil, fmt.Errorf("failed to append genre %s: %v", genreName, err)
 			}
 		}
+		
+		// Remove genre_names from updates map since we handled it separately
+		delete(updates, "genre_names")
+	}
+
+	// Update the series with remaining fields
+	if len(updates) > 0 {
+		if err := tx.Model(&series).Updates(updates).Error; err != nil {
+			tx.Rollback()
+			return nil, fmt.Errorf("failed to update series: %v", err)
+		}
+	}
+	
+	// Save the series to persist GenreNames field
+	if err := tx.Save(&series).Error; err != nil {
+		tx.Rollback()
+		return nil, fmt.Errorf("failed to save series: %v", err)
 	}
 
 	// Commit the transaction
@@ -441,19 +455,185 @@ func (s *MediaService) UpdateSeries(id uint, updates map[string]interface{}) (*m
 func (s *MediaService) FindOrCreateSeries(title string) (*models.Series, error) {
 	var series models.Series
 	err := s.DBManager.WithTx(func(tx *gorm.DB) error {
-		if err := tx.Where("title = ?", title).First(&series).Error; err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				series = models.Series{
-					Title:  title,
-					Status: "ongoing",
-				}
-				return tx.Create(&series).Error
-			}
-			return err
+		// Strategy 1: Exact title match (fastest)
+		if err := tx.Where("title = ?", title).First(&series).Error; err == nil {
+			log.Printf("✅ Found series by exact match: %s (ID: %d)", series.Title, series.ID)
+			return nil
 		}
-		return nil
+
+		// Strategy 2: Fuzzy match for renamed series (prevents duplicates)
+		// This handles cases where user renamed "Breaking Bad" to "Breaking Bad (2008)"
+		var allSeries []models.Series
+		if err := tx.Find(&allSeries).Error; err != nil {
+			return fmt.Errorf("failed to load series for fuzzy matching: %v", err)
+		}
+
+		// Find best match using similarity scoring
+		bestMatch := s.findBestSeriesMatch(title, allSeries)
+		if bestMatch != nil {
+			series = *bestMatch
+			log.Printf("🔍 Found series by fuzzy match: '%s' matched to '%s' (ID: %d)", title, series.Title, series.ID)
+			return nil
+		}
+
+		// Strategy 3: Create new series only if no match found
+		log.Printf("🆕 Creating new series: %s (no existing match found)", title)
+		series = models.Series{
+			Title:  title,
+			Status: "ongoing",
+		}
+		return tx.Create(&series).Error
 	})
 	return &series, err
+}
+
+// findBestSeriesMatch finds the best matching series using fuzzy title comparison
+// This prevents duplicate series when titles are renamed (e.g., "Breaking Bad" vs "Breaking Bad (2008)")
+func (s *MediaService) findBestSeriesMatch(searchTitle string, allSeries []models.Series) *models.Series {
+	if len(allSeries) == 0 {
+		return nil
+	}
+
+	// Normalize search title for comparison
+	normalizedSearch := s.normalizeSeriesTitle(searchTitle)
+	if normalizedSearch == "" {
+		return nil
+	}
+
+	var bestMatch *models.Series
+	var bestScore float64 = 0.0
+	const matchThreshold = 0.75 // 75% similarity required
+
+	for i := range allSeries {
+		normalizedExisting := s.normalizeSeriesTitle(allSeries[i].Title)
+		if normalizedExisting == "" {
+			continue
+		}
+
+		// Calculate similarity score
+		score := s.calculateSeriesSimilarity(normalizedSearch, normalizedExisting)
+
+		// Check if this is the best match so far
+		if score > bestScore && score >= matchThreshold {
+			bestScore = score
+			bestMatch = &allSeries[i]
+		}
+	}
+
+	if bestMatch != nil {
+		log.Printf("📊 Best match score: %.2f for '%s' -> '%s'", bestScore, searchTitle, bestMatch.Title)
+	}
+
+	return bestMatch
+}
+
+// normalizeSeriesTitle normalizes a series title for fuzzy matching
+// Removes years, special characters, and extra whitespace
+func (s *MediaService) normalizeSeriesTitle(title string) string {
+	// Convert to lowercase
+	normalized := strings.ToLower(title)
+
+	// Remove year patterns: (2008), [2008], 2008
+	normalized = regexp.MustCompile(`[\(\[\{]?\d{4}[\)\]\}]?`).ReplaceAllString(normalized, "")
+
+	// Remove special characters but keep spaces
+	normalized = regexp.MustCompile(`[^\p{L}\p{N}\s]`).ReplaceAllString(normalized, " ")
+
+	// Remove extra whitespace
+	normalized = regexp.MustCompile(`\s+`).ReplaceAllString(normalized, " ")
+
+	// Trim
+	normalized = strings.TrimSpace(normalized)
+
+	return normalized
+}
+
+// calculateSeriesSimilarity calculates similarity between two normalized titles
+// Returns a score between 0.0 (no match) and 1.0 (perfect match)
+func (s *MediaService) calculateSeriesSimilarity(title1, title2 string) float64 {
+	// Exact match after normalization
+	if title1 == title2 {
+		return 1.0
+	}
+
+	// Check if one title contains the other (handles "Breaking Bad" vs "Breaking Bad Season 1")
+	if strings.Contains(title1, title2) || strings.Contains(title2, title1) {
+		shorter := title1
+		longer := title2
+		if len(title1) > len(title2) {
+			shorter = title2
+			longer = title1
+		}
+		// Score based on length ratio
+		return float64(len(shorter)) / float64(len(longer))
+	}
+
+	// Calculate Levenshtein distance for more complex cases
+	distance := s.levenshteinDistance(title1, title2)
+	maxLen := len(title1)
+	if len(title2) > maxLen {
+		maxLen = len(title2)
+	}
+
+	if maxLen == 0 {
+		return 0.0
+	}
+
+	// Convert distance to similarity score
+	similarity := 1.0 - (float64(distance) / float64(maxLen))
+	return similarity
+}
+
+// levenshteinDistance calculates the Levenshtein distance between two strings
+func (s *MediaService) levenshteinDistance(s1, s2 string) int {
+	if len(s1) == 0 {
+		return len(s2)
+	}
+	if len(s2) == 0 {
+		return len(s1)
+	}
+
+	// Create matrix
+	matrix := make([][]int, len(s1)+1)
+	for i := range matrix {
+		matrix[i] = make([]int, len(s2)+1)
+		matrix[i][0] = i
+	}
+	for j := range matrix[0] {
+		matrix[0][j] = j
+	}
+
+	// Fill matrix
+	for i := 1; i <= len(s1); i++ {
+		for j := 1; j <= len(s2); j++ {
+			cost := 1
+			if s1[i-1] == s2[j-1] {
+				cost = 0
+			}
+
+			matrix[i][j] = minInt3(
+				matrix[i-1][j]+1,      // deletion
+				matrix[i][j-1]+1,      // insertion
+				matrix[i-1][j-1]+cost, // substitution
+			)
+		}
+	}
+
+	return matrix[len(s1)][len(s2)]
+}
+
+// minInt3 returns the minimum of three integers
+func minInt3(a, b, c int) int {
+	if a < b {
+		if a < c {
+			return a
+		}
+		return c
+	}
+	if b < c {
+		return b
+	}
+	return c
 }
 
 func (s *MediaService) CreateSubtitle(subtitle *models.Subtitle) error {
@@ -1111,6 +1291,64 @@ func (s *MediaService) DeleteMedia(id uint) error {
 		}
 		
 		log.Printf("Successfully deleted media with ID %d and all related data", id)
+		return nil
+	})
+}
+
+// DeleteSeries removes a TV series and all its episodes from the database
+func (s *MediaService) DeleteSeries(id uint) error {
+	return s.DBManager.WithTx(func(tx *gorm.DB) error {
+		// Get the series to verify it exists
+		var series models.Series
+		if err := tx.First(&series, id).Error; err != nil {
+			return fmt.Errorf("series not found: %w", err)
+		}
+		
+		log.Printf("🗑️ Deleting TV series: %s (ID: %d)", series.Title, id)
+		
+		// Find all episodes (media items) associated with this series
+		var episodes []models.Media
+		if err := tx.Where("series_id = ?", id).Find(&episodes).Error; err != nil {
+			return fmt.Errorf("failed to find episodes: %w", err)
+		}
+		
+		log.Printf("📺 Found %d episodes to delete for series: %s", len(episodes), series.Title)
+		
+		// Delete each episode and its associations
+		for _, episode := range episodes {
+			// Delete media-genre associations for this episode
+			if err := tx.Exec("DELETE FROM media_genres WHERE media_id = ?", episode.ID).Error; err != nil {
+				log.Printf("⚠️ Warning: Failed to delete genre associations for episode %d: %v", episode.ID, err)
+			}
+			
+			// Delete subtitles for this episode
+			if err := tx.Where("media_id = ?", episode.ID).Delete(&models.Subtitle{}).Error; err != nil {
+				log.Printf("⚠️ Warning: Failed to delete subtitles for episode %d: %v", episode.ID, err)
+			}
+			
+			// Delete playback progress for this episode
+			if err := tx.Exec("DELETE FROM playback_progress WHERE media_id = ?", episode.ID).Error; err != nil {
+				log.Printf("⚠️ Warning: Failed to delete playback progress for episode %d: %v", episode.ID, err)
+			}
+			
+			// Delete the episode itself
+			if err := tx.Delete(&models.Media{}, episode.ID).Error; err != nil {
+				log.Printf("❌ Error deleting episode %d: %v", episode.ID, err)
+				return fmt.Errorf("failed to delete episode %d: %w", episode.ID, err)
+			}
+		}
+		
+		// Delete series-genre associations
+		if err := tx.Exec("DELETE FROM series_genres WHERE series_id = ?", id).Error; err != nil {
+			log.Printf("⚠️ Warning: Failed to delete series genre associations: %v", err)
+		}
+		
+		// Delete the series itself
+		if err := tx.Delete(&models.Series{}, id).Error; err != nil {
+			return fmt.Errorf("failed to delete series: %w", err)
+		}
+		
+		log.Printf("✅ Successfully deleted series '%s' (ID: %d) with %d episodes and all related data", series.Title, id, len(episodes))
 		return nil
 	})
 }

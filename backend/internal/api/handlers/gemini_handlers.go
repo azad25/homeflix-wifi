@@ -169,6 +169,7 @@ func UpdateMediaMetadata(mediaService *services.MediaService) gin.HandlerFunc {
 }
 
 // UpdateMediaWithTMDB automatically fetches and updates media metadata from TMDB
+// Now includes automatic poster download and database storage
 func UpdateMediaWithTMDB(mediaService *services.MediaService, tmdbService *services.TMDBService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id, err := strconv.ParseUint(c.Param("id"), 10, 32)
@@ -286,11 +287,7 @@ func UpdateMediaWithTMDB(mediaService *services.MediaService, tmdbService *servi
 		media.Homepage = metadata.Homepage
 		media.Collection = metadata.Collection
 		
-		// Update poster and backdrop URLs if available
-		if metadata.PosterURL != "" {
-			log.Printf("🖼️ Updating poster URL: %s", metadata.PosterURL)
-			media.PosterPath = metadata.PosterURL
-		}
+		// Update backdrop and trailer URLs
 		if metadata.BackdropURL != "" {
 			log.Printf("🖼️ Updating backdrop URL: %s", metadata.BackdropURL)
 			media.BannerPath = metadata.BackdropURL
@@ -298,6 +295,24 @@ func UpdateMediaWithTMDB(mediaService *services.MediaService, tmdbService *servi
 		if metadata.TrailerURL != "" {
 			log.Printf("🎬 Updating trailer URL: %s", metadata.TrailerURL)
 			media.TMDBTrailerURL = metadata.TrailerURL
+		}
+		
+		// ENHANCED: Download and save poster from TMDB (like GeneratePoster does)
+		if metadata.PosterURL != "" {
+			log.Printf("🎨 TMDB poster URL found: %s", metadata.PosterURL)
+			log.Printf("📥 Downloading poster from TMDB for: %s", media.Title)
+			
+			// Download poster using TMDB service (same as GeneratePoster)
+			posterPath, posterErr := tmdbService.DownloadPoster(media.Title, media.ID, "./backend/posters")
+			if posterErr != nil {
+				log.Printf("⚠️ Failed to download poster from TMDB: %v", posterErr)
+				// Still update with TMDB URL as fallback
+				media.PosterPath = metadata.PosterURL
+			} else {
+				log.Printf("✅ Poster downloaded and saved: %s", posterPath)
+				// Use local downloaded poster path
+				media.PosterPath = posterPath
+			}
 		}
 		
 		// Update runtime if available

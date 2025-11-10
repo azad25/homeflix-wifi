@@ -64,6 +64,7 @@ export interface Media {
   
   // TMDB Integration fields for local media
   tmdb_backdrop_url?: string; // TMDB backdrop image URL
+  tmdb_poster_url?: string;   // TMDB poster image URL (stored when downloading from TMDB)
   tmdb_trailer_url?: string;  // TMDB trailer video URL
 
   // Series info
@@ -98,6 +99,14 @@ export interface Series {
   id: number;
   title: string;
   description?: string;
+  year?: number;
+  first_air_date?: string;
+  rating?: number;
   total_seasons: number;
   total_episodes: number;
+  genres?: Genre[];
+  poster_path?: string;
+  backdrop_path?: string;
+  thumbnail_path?: string;
+  banner_path?: string;
 }

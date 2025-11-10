@@ -2105,25 +2105,46 @@ func (s *MediaScanner) processVideoFile(path string, info os.FileInfo) error {
 
 	// If it's an episode, find or create the series and assign season/episode numbers
 	if metadata.Type == "episode" && metadata.SeriesTitle != "" {
-		series, err := s.GetMediaService().FindOrCreateSeries(metadata.SeriesTitle)
-		if err != nil {
-			log.Printf("Error finding/creating series %s: %v", metadata.SeriesTitle, err)
-			return err
-		}
-		media.SeriesID = &series.ID
+		// CRITICAL FIX: Preserve existing SeriesID to prevent duplicate series on rename
+		// Only find/create series for new episodes or episodes without a series assignment
+		if media.SeriesID != nil && *media.SeriesID > 0 {
+			// Episode already has a series assigned - preserve it
+			log.Printf("🛡️ Preserving existing series assignment for episode: %s (SeriesID: %d)", media.Title, *media.SeriesID)
+			
+			// Still update season/episode numbers from metadata if they changed
+			if metadata.Season > 0 && (media.Season == nil || *media.Season != metadata.Season) {
+				media.Season = &metadata.Season
+				media.SeasonNumber = &metadata.Season
+				log.Printf("🔄 Updated season number to: %d", metadata.Season)
+			}
+			if metadata.Episode > 0 && (media.Episode == nil || *media.Episode != metadata.Episode) {
+				media.Episode = &metadata.Episode
+				media.EpisodeNumber = &metadata.Episode
+				log.Printf("🔄 Updated episode number to: %d", metadata.Episode)
+			}
+		} else {
+			// New episode or episode without series - find or create series with fuzzy matching
+			log.Printf("🔍 Finding/creating series for new episode: %s (extracted title: %s)", media.Title, metadata.SeriesTitle)
+			series, err := s.GetMediaService().FindOrCreateSeries(metadata.SeriesTitle)
+			if err != nil {
+				log.Printf("❌ Error finding/creating series %s: %v", metadata.SeriesTitle, err)
+				return err
+			}
+			media.SeriesID = &series.ID
 
-		// Assign season and episode numbers from metadata
-		if metadata.Season > 0 {
-			media.Season = &metadata.Season
-			media.SeasonNumber = &metadata.Season
-		}
-		if metadata.Episode > 0 {
-			media.Episode = &metadata.Episode
-			media.EpisodeNumber = &metadata.Episode
-		}
+			// Assign season and episode numbers from metadata
+			if metadata.Season > 0 {
+				media.Season = &metadata.Season
+				media.SeasonNumber = &metadata.Season
+			}
+			if metadata.Episode > 0 {
+				media.Episode = &metadata.Episode
+				media.EpisodeNumber = &metadata.Episode
+			}
 
-		log.Printf("📺 Episode metadata assigned - Series: %s, Season: %d, Episode: %d",
-			metadata.SeriesTitle, metadata.Season, metadata.Episode)
+			log.Printf("📺 Episode metadata assigned - Series: %s (ID: %d), Season: %d, Episode: %d",
+				series.Title, series.ID, metadata.Season, metadata.Episode)
+		}
 	} else if metadata.Type == "movie" {
 		// Ensure movies don't get assigned to series
 		media.SeriesID = nil

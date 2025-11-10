@@ -33,6 +33,7 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		// Hierarchical TV series routes
 		api.GET("/series", handlers.GetAllSeries(mediaService))
 		api.GET("/series/:id", handlers.GetSeriesByID(mediaService))
+		api.DELETE("/series/:id", handlers.DeleteSeries(mediaService))
 		api.PUT("/series/:id/metadata", handlers.UpdateSeriesMetadata(mediaService))
 		api.GET("/series/:id/seasons", handlers.GetSeasonsBySeriesID(mediaService))
 		api.GET("/series/:id/seasons/:season/episodes", handlers.GetEpisodesBySeriesAndSeason(mediaService))

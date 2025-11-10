@@ -62,7 +62,7 @@ type Media struct {
 	Adult        bool     `json:"adult"`                               // Adult content flag
 	
 	// Genres - keeping both relationship and JSON for flexibility
-	Genres     []Genre  `json:"genres" gorm:"many2many:media_genres;"`
+	Genres     []Genre  `json:"-" gorm:"many2many:media_genres;"` // Exclude from JSON to prevent object rendering errors
 	GenreNames []string `json:"genre_names" gorm:"serializer:json"` // For JSON compatibility
 	
 	// Video info
@@ -85,16 +85,16 @@ type Media struct {
 	
 	// Series info (for episodes)
 	SeriesID      *uint   `json:"series_id,omitempty"`
-	Series        *Series `json:"series,omitempty" gorm:"foreignKey:SeriesID"`
+	Series        *Series `json:"-" gorm:"foreignKey:SeriesID"` // Exclude from JSON to prevent circular references
 	SeasonID      *uint   `json:"season_id,omitempty"`
-	SeasonRef     *Season `json:"season_ref,omitempty" gorm:"foreignKey:SeasonID"`
+	SeasonRef     *Season `json:"-" gorm:"foreignKey:SeasonID"` // Exclude from JSON to prevent circular references
 	Season        *int    `json:"season_number_legacy,omitempty"`
 	Episode       *int    `json:"episode,omitempty"`
 	SeasonNumber  *int    `json:"season_number,omitempty"`
 	EpisodeNumber *int    `json:"episode_number,omitempty"`
 	
 	// Subtitles
-	Subtitles []Subtitle `json:"subtitles"`
+	Subtitles []Subtitle `json:"-"` // Exclude from JSON to prevent object rendering errors
 	
 	// View tracking
 	ViewCount  int        `json:"view_count"`
@@ -108,6 +108,17 @@ type Media struct {
 func (m *Media) BeforeCreate(tx *gorm.DB) error {
 	if m.UUID == "" {
 		m.UUID = uuid.New().String()
+	}
+	return nil
+}
+
+// AfterFind hook to populate GenreNames from Genres relationship
+func (m *Media) AfterFind(tx *gorm.DB) error {
+	if len(m.Genres) > 0 {
+		m.GenreNames = make([]string, len(m.Genres))
+		for i, genre := range m.Genres {
+			m.GenreNames[i] = genre.Name
+		}
 	}
 	return nil
 }
@@ -134,9 +145,9 @@ type Series struct {
 	Certification string  `json:"certification"` // TV-G, TV-PG, TV-14, TV-MA, etc.
 	
 	// Relationships
-	Episodes []Media  `json:"episodes" gorm:"foreignKey:SeriesID"`
-	Seasons  []Season `json:"seasons" gorm:"foreignKey:SeriesID"`
-	Genres   []Genre  `json:"genres" gorm:"many2many:series_genres;"`
+	Episodes []Media  `json:"-" gorm:"foreignKey:SeriesID"` // Exclude from JSON to prevent circular references
+	Seasons  []Season `json:"-" gorm:"foreignKey:SeriesID"` // Exclude from JSON to prevent circular references
+	Genres   []Genre  `json:"-" gorm:"many2many:series_genres;"` // Exclude from JSON to prevent object rendering errors
 	GenreNames []string `json:"genre_names" gorm:"serializer:json"` // For JSON compatibility
 	
 	// Metadata
@@ -144,6 +155,23 @@ type Series struct {
 	TotalEpisodes int   `json:"total_episodes"`
 	PosterPath    string `json:"poster_path"`
 	BackdropPath  string `json:"backdrop_path"`
+	TrailerURL    string `json:"trailer_url"` // Local or YouTube trailer URL
+	
+	// TMDB Integration fields
+	TMDBBackdropURL string `json:"tmdb_backdrop_url"` // TMDB backdrop image URL
+	TMDBPosterURL   string `json:"tmdb_poster_url"`   // TMDB poster image URL
+	TMDBTrailerURL  string `json:"tmdb_trailer_url"`  // TMDB YouTube trailer URL
+}
+
+// AfterFind hook to populate GenreNames from Genres relationship
+func (s *Series) AfterFind(tx *gorm.DB) error {
+	if len(s.Genres) > 0 {
+		s.GenreNames = make([]string, len(s.Genres))
+		for i, genre := range s.Genres {
+			s.GenreNames[i] = genre.Name
+		}
+	}
+	return nil
 }
 
 // Season represents a season within a TV series
