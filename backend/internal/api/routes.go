@@ -288,6 +288,9 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		// TMDB upcoming movies endpoint (cached for 24 hours)
 		api.GET("/upcoming-movies", handlers.GetUpcomingMovies(tmdbService))
 		
+		// TMDB TV series endpoint (airing today, on the air, trending)
+		api.GET("/upcoming-tv-series", handlers.GetUpcomingTVSeries(tmdbService))
+		
 		// TMDB movie details endpoint (cached for 6 hours)
 		api.GET("/tmdb-movie/:id", handlers.GetTMDBMovieDetails(tmdbService))
 		
@@ -322,6 +325,7 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 
 		// System monitoring endpoints
 		api.GET("/admin/system/stats", handlers.GetSystemStats())
+		api.GET("/admin/system/info", handlers.GetSystemInfo())
 		api.GET("/admin/system/logs", handlers.GetServerLogs())
 		api.GET("/admin/system/logs/stream", handlers.StreamServerLogs())
 		api.GET("/admin/system/stats/stream", handlers.StreamSystemStats())

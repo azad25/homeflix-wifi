@@ -76,6 +76,61 @@ type LogEntry struct {
 	Source    string    `json:"source"`
 }
 
+// SystemInfo represents detailed system hardware information
+type SystemInfo struct {
+	CPU     CPUInfo     `json:"cpu"`
+	GPU     GPUInfo     `json:"gpu"`
+	Memory  MemoryInfo  `json:"memory"`
+	Disk    DiskInfo    `json:"disk"`
+	Network NetworkInfo `json:"network"`
+	OS      OSInfo      `json:"os"`
+}
+
+type CPUInfo struct {
+	Model      string `json:"model"`
+	Cores      int    `json:"cores"`
+	Threads    int    `json:"threads"`
+	MaxFreq    string `json:"max_freq"`
+	Cache      string `json:"cache"`
+	Arch       string `json:"arch"`
+}
+
+type GPUInfo struct {
+	Model  string `json:"model"`
+	Vendor string `json:"vendor"`
+	Driver string `json:"driver"`
+	Memory string `json:"memory"`
+}
+
+type MemoryInfo struct {
+	Total     string `json:"total"`
+	Type      string `json:"type"`
+	Speed     string `json:"speed"`
+	Slots     int    `json:"slots"`
+}
+
+type DiskInfo struct {
+	Model      string   `json:"model"`
+	Type       string   `json:"type"`
+	Total      string   `json:"total"`
+	Partitions []string `json:"partitions"`
+}
+
+type NetworkInfo struct {
+	Hostname   string   `json:"hostname"`
+	Interfaces []string `json:"interfaces"`
+	IPAddress  string   `json:"ip_address"`
+	MACAddress string   `json:"mac_address"`
+}
+
+type OSInfo struct {
+	Name     string `json:"name"`
+	Version  string `json:"version"`
+	Kernel   string `json:"kernel"`
+	Platform string `json:"platform"`
+	Uptime   string `json:"uptime"`
+}
+
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
 		return true // Allow all origins for development
@@ -656,4 +711,382 @@ func getSampleLogs(count int) []LogEntry {
 		return logs[:count]
 	}
 	return logs
+}
+
+// GetSystemInfo returns detailed system hardware information
+func GetSystemInfo() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		info, err := collectSystemInfo()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		c.JSON(http.StatusOK, info)
+	}
+}
+
+// collectSystemInfo gathers detailed system hardware information
+func collectSystemInfo() (*SystemInfo, error) {
+	info := &SystemInfo{}
+
+	// CPU Info
+	info.CPU = getCPUInfo()
+
+	// GPU Info
+	info.GPU = getGPUInfo()
+
+	// Memory Info
+	info.Memory = getMemoryInfo()
+
+	// Disk Info
+	info.Disk = getDiskInfo()
+
+	// Network Info
+	info.Network = getNetworkInfo()
+
+	// OS Info
+	info.OS = getOSInfo()
+
+	return info, nil
+}
+
+// getCPUInfo retrieves detailed CPU information
+func getCPUInfo() CPUInfo {
+	cpuInfo := CPUInfo{
+		Cores: runtime.NumCPU(),
+		Arch:  runtime.GOARCH,
+	}
+
+	if runtime.GOOS == "linux" {
+		// Get CPU model from /proc/cpuinfo
+		if data, err := os.ReadFile("/proc/cpuinfo"); err == nil {
+			lines := strings.Split(string(data), "\n")
+			for _, line := range lines {
+				if strings.HasPrefix(line, "model name") {
+					parts := strings.Split(line, ":")
+					if len(parts) > 1 {
+						cpuInfo.Model = strings.TrimSpace(parts[1])
+						break
+					}
+				}
+			}
+
+			// Get cache size
+			for _, line := range lines {
+				if strings.HasPrefix(line, "cache size") {
+					parts := strings.Split(line, ":")
+					if len(parts) > 1 {
+						cpuInfo.Cache = strings.TrimSpace(parts[1])
+						break
+					}
+				}
+			}
+		}
+
+		// Get max frequency
+		if data, err := os.ReadFile("/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq"); err == nil {
+			freq := strings.TrimSpace(string(data))
+			if freqInt, err := strconv.ParseInt(freq, 10, 64); err == nil {
+				cpuInfo.MaxFreq = fmt.Sprintf("%.2f GHz", float64(freqInt)/1000000)
+			}
+		}
+	}
+
+	// Estimate threads (usually 2x cores for hyperthreading)
+	cpuInfo.Threads = cpuInfo.Cores * 2
+
+	if cpuInfo.Model == "" {
+		cpuInfo.Model = "Unknown CPU"
+	}
+
+	return cpuInfo
+}
+
+// getGPUInfo retrieves GPU information
+func getGPUInfo() GPUInfo {
+	gpuInfo := GPUInfo{
+		Model:  "Unknown GPU",
+		Vendor: "Unknown",
+		Driver: "N/A",
+		Memory: "N/A",
+	}
+
+	if runtime.GOOS == "linux" {
+		// Try lspci for GPU info
+		cmd := exec.Command("lspci")
+		if output, err := cmd.Output(); err == nil {
+			lines := strings.Split(string(output), "\n")
+			for _, line := range lines {
+				if strings.Contains(strings.ToLower(line), "vga") || strings.Contains(strings.ToLower(line), "3d") {
+					parts := strings.Split(line, ":")
+					if len(parts) > 2 {
+						gpuInfo.Model = strings.TrimSpace(parts[2])
+						if strings.Contains(strings.ToLower(line), "nvidia") {
+							gpuInfo.Vendor = "NVIDIA"
+						} else if strings.Contains(strings.ToLower(line), "amd") || strings.Contains(strings.ToLower(line), "radeon") {
+							gpuInfo.Vendor = "AMD"
+						} else if strings.Contains(strings.ToLower(line), "intel") {
+							gpuInfo.Vendor = "Intel"
+						}
+						break
+					}
+				}
+			}
+		}
+
+		// Try nvidia-smi for NVIDIA GPUs
+		cmd = exec.Command("nvidia-smi", "--query-gpu=name,driver_version,memory.total", "--format=csv,noheader")
+		if output, err := cmd.Output(); err == nil {
+			parts := strings.Split(strings.TrimSpace(string(output)), ",")
+			if len(parts) >= 3 {
+				gpuInfo.Model = strings.TrimSpace(parts[0])
+				gpuInfo.Vendor = "NVIDIA"
+				gpuInfo.Driver = strings.TrimSpace(parts[1])
+				gpuInfo.Memory = strings.TrimSpace(parts[2])
+			}
+		}
+	}
+
+	return gpuInfo
+}
+
+// getMemoryInfo retrieves memory information
+func getMemoryInfo() MemoryInfo {
+	memInfo := MemoryInfo{
+		Type:  "Unknown",
+		Speed: "Unknown",
+		Slots: 1,
+	}
+
+	if runtime.GOOS == "linux" {
+		// Get total memory from /proc/meminfo
+		if data, err := os.ReadFile("/proc/meminfo"); err == nil {
+			lines := strings.Split(string(data), "\n")
+			for _, line := range lines {
+				if strings.HasPrefix(line, "MemTotal:") {
+					parts := strings.Fields(line)
+					if len(parts) >= 2 {
+						if totalKB, err := strconv.ParseUint(parts[1], 10, 64); err == nil {
+							totalGB := float64(totalKB) / (1024 * 1024)
+							memInfo.Total = fmt.Sprintf("%.1f GB", totalGB)
+						}
+					}
+					break
+				}
+			}
+		}
+
+		// Try dmidecode for detailed memory info
+		cmd := exec.Command("dmidecode", "-t", "memory")
+		if output, err := cmd.Output(); err == nil {
+			lines := strings.Split(string(output), "\n")
+			slotCount := 0
+			for _, line := range lines {
+				if strings.Contains(line, "Type:") && !strings.Contains(line, "Error") && !strings.Contains(line, "Unknown") {
+					parts := strings.Split(line, ":")
+					if len(parts) > 1 {
+						memType := strings.TrimSpace(parts[1])
+						if memType != "" && memType != "Unknown" {
+							memInfo.Type = memType
+						}
+					}
+				}
+				if strings.Contains(line, "Speed:") && !strings.Contains(line, "Unknown") {
+					parts := strings.Split(line, ":")
+					if len(parts) > 1 {
+						memInfo.Speed = strings.TrimSpace(parts[1])
+					}
+				}
+				if strings.Contains(line, "Size:") && !strings.Contains(line, "No Module") {
+					slotCount++
+				}
+			}
+			if slotCount > 0 {
+				memInfo.Slots = slotCount
+			}
+		}
+	}
+
+	if memInfo.Total == "" {
+		memInfo.Total = "Unknown"
+	}
+
+	return memInfo
+}
+
+// getDiskInfo retrieves disk information
+func getDiskInfo() DiskInfo {
+	diskInfo := DiskInfo{
+		Model:      "Unknown",
+		Type:       "Unknown",
+		Total:      "Unknown",
+		Partitions: []string{},
+	}
+
+	if runtime.GOOS == "linux" {
+		// Get disk model from /sys/block
+		if entries, err := os.ReadDir("/sys/block"); err == nil {
+			for _, entry := range entries {
+				if strings.HasPrefix(entry.Name(), "sd") || strings.HasPrefix(entry.Name(), "nvme") {
+					modelPath := fmt.Sprintf("/sys/block/%s/device/model", entry.Name())
+					if data, err := os.ReadFile(modelPath); err == nil {
+						diskInfo.Model = strings.TrimSpace(string(data))
+					}
+
+					// Determine disk type
+					if strings.HasPrefix(entry.Name(), "nvme") {
+						diskInfo.Type = "NVMe SSD"
+					} else {
+						rotationalPath := fmt.Sprintf("/sys/block/%s/queue/rotational", entry.Name())
+						if data, err := os.ReadFile(rotationalPath); err == nil {
+							if strings.TrimSpace(string(data)) == "0" {
+								diskInfo.Type = "SSD"
+							} else {
+								diskInfo.Type = "HDD"
+							}
+						}
+					}
+					break
+				}
+			}
+		}
+
+		// Get partition info
+		cmd := exec.Command("lsblk", "-o", "NAME,SIZE,TYPE,MOUNTPOINT", "-n")
+		if output, err := cmd.Output(); err == nil {
+			lines := strings.Split(string(output), "\n")
+			var totalSize uint64
+			for _, line := range lines {
+				fields := strings.Fields(line)
+				if len(fields) >= 3 {
+					if fields[2] == "part" {
+						partition := fmt.Sprintf("%s (%s)", fields[0], fields[1])
+						if len(fields) >= 4 {
+							partition += fmt.Sprintf(" - %s", fields[3])
+						}
+						diskInfo.Partitions = append(diskInfo.Partitions, partition)
+					}
+					if fields[2] == "disk" && len(fields) >= 2 {
+						// Parse size (e.g., "500G", "1T")
+						sizeStr := fields[1]
+						if strings.HasSuffix(sizeStr, "T") {
+							if val, err := strconv.ParseFloat(strings.TrimSuffix(sizeStr, "T"), 64); err == nil {
+								totalSize += uint64(val * 1024 * 1024 * 1024 * 1024)
+							}
+						} else if strings.HasSuffix(sizeStr, "G") {
+							if val, err := strconv.ParseFloat(strings.TrimSuffix(sizeStr, "G"), 64); err == nil {
+								totalSize += uint64(val * 1024 * 1024 * 1024)
+							}
+						}
+					}
+				}
+			}
+			if totalSize > 0 {
+				diskInfo.Total = fmt.Sprintf("%.1f TB", float64(totalSize)/(1024*1024*1024*1024))
+			}
+		}
+	}
+
+	return diskInfo
+}
+
+// getNetworkInfo retrieves network information
+func getNetworkInfo() NetworkInfo {
+	netInfo := NetworkInfo{
+		Hostname:   "Unknown",
+		Interfaces: []string{},
+		IPAddress:  "Unknown",
+		MACAddress: "Unknown",
+	}
+
+	// Get hostname
+	if hostname, err := os.Hostname(); err == nil {
+		netInfo.Hostname = hostname
+	}
+
+	if runtime.GOOS == "linux" {
+		// Get network interfaces
+		cmd := exec.Command("ip", "link", "show")
+		if output, err := cmd.Output(); err == nil {
+			lines := strings.Split(string(output), "\n")
+			for _, line := range lines {
+				if strings.Contains(line, ": ") && !strings.Contains(line, "lo:") {
+					parts := strings.Split(line, ": ")
+					if len(parts) >= 2 {
+						ifaceName := strings.TrimSpace(parts[1])
+						if !strings.Contains(ifaceName, "lo") {
+							netInfo.Interfaces = append(netInfo.Interfaces, ifaceName)
+						}
+					}
+				}
+			}
+		}
+
+		// Get IP address
+		cmd = exec.Command("hostname", "-I")
+		if output, err := cmd.Output(); err == nil {
+			ips := strings.Fields(string(output))
+			if len(ips) > 0 {
+				netInfo.IPAddress = ips[0]
+			}
+		}
+
+		// Get MAC address of first non-loopback interface
+		if len(netInfo.Interfaces) > 0 {
+			macPath := fmt.Sprintf("/sys/class/net/%s/address", netInfo.Interfaces[0])
+			if data, err := os.ReadFile(macPath); err == nil {
+				netInfo.MACAddress = strings.TrimSpace(string(data))
+			}
+		}
+	}
+
+	return netInfo
+}
+
+// getOSInfo retrieves operating system information
+func getOSInfo() OSInfo {
+	osInfo := OSInfo{
+		Platform: runtime.GOOS,
+	}
+
+	if runtime.GOOS == "linux" {
+		// Get OS name and version from /etc/os-release
+		if data, err := os.ReadFile("/etc/os-release"); err == nil {
+			lines := strings.Split(string(data), "\n")
+			for _, line := range lines {
+				if strings.HasPrefix(line, "PRETTY_NAME=") {
+					osInfo.Name = strings.Trim(strings.TrimPrefix(line, "PRETTY_NAME="), "\"")
+				}
+				if strings.HasPrefix(line, "VERSION=") {
+					osInfo.Version = strings.Trim(strings.TrimPrefix(line, "VERSION="), "\"")
+				}
+			}
+		}
+
+		// Get kernel version
+		cmd := exec.Command("uname", "-r")
+		if output, err := cmd.Output(); err == nil {
+			osInfo.Kernel = strings.TrimSpace(string(output))
+		}
+
+		// Get uptime
+		if data, err := os.ReadFile("/proc/uptime"); err == nil {
+			fields := strings.Fields(string(data))
+			if len(fields) > 0 {
+				if uptimeSec, err := strconv.ParseFloat(fields[0], 64); err == nil {
+					days := int(uptimeSec / 86400)
+					hours := int((uptimeSec - float64(days*86400)) / 3600)
+					minutes := int((uptimeSec - float64(days*86400) - float64(hours*3600)) / 60)
+					osInfo.Uptime = fmt.Sprintf("%dd %dh %dm", days, hours, minutes)
+				}
+			}
+		}
+	}
+
+	if osInfo.Name == "" {
+		osInfo.Name = "Unknown OS"
+	}
+
+	return osInfo
 }

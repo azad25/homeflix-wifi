@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
-import { Activity, HardDrive, Server, TrendingUp, Timer, FileSearch, Trash2, RefreshCw, Search, X } from 'lucide-react';
+import { Activity, HardDrive, Server, TrendingUp, Timer, FileSearch, Trash2, RefreshCw, Search, X, Cpu, Monitor, MemoryStick, Database, Wifi, Info } from 'lucide-react';
 import { GlassCard, ScrollReveal, MagneticButton } from '@/components/scrollx';
 import { getApiUrl } from '@/lib/api';
 
@@ -51,12 +51,55 @@ interface LogEntry {
   source: string;
 }
 
+interface SystemInfo {
+  cpu: {
+    model: string;
+    cores: number;
+    threads: number;
+    max_freq: string;
+    cache: string;
+    arch: string;
+  };
+  gpu: {
+    model: string;
+    vendor: string;
+    driver: string;
+    memory: string;
+  };
+  memory: {
+    total: string;
+    type: string;
+    speed: string;
+    slots: number;
+  };
+  disk: {
+    model: string;
+    type: string;
+    total: string;
+    partitions: string[];
+  };
+  network: {
+    hostname: string;
+    interfaces: string[];
+    ip_address: string;
+    mac_address: string;
+  };
+  os: {
+    name: string;
+    version: string;
+    kernel: string;
+    platform: string;
+    uptime: string;
+  };
+}
+
 interface SystemLogsProps {
   onTerminalOutput?: (message: string) => void;
 }
 
 export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
   const [systemStats, setSystemStats] = useState<SystemStats | null>(null);
+  const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null);
   const [serverLogs, setServerLogs] = useState<LogEntry[]>([]);
   const [isLogsConnected, setIsLogsConnected] = useState(false);
   const [isStatsConnected, setIsStatsConnected] = useState(false);
@@ -73,6 +116,7 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
   useEffect(() => {
     connectToSystemLogs();
     connectToSystemStats();
+    fetchSystemInfo();
 
     return () => {
       disconnectWebSockets();
@@ -172,6 +216,19 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
       }
     } catch (error) {
       addTerminalOutput('❌ Failed to fetch initial logs');
+    }
+  };
+
+  const fetchSystemInfo = async () => {
+    try {
+      const response = await fetch(`${getApiUrl()}/api/admin/system/info`);
+      if (response.ok) {
+        const data = await response.json();
+        setSystemInfo(data);
+        addTerminalOutput('💻 System information loaded');
+      }
+    } catch (error) {
+      addTerminalOutput('❌ Failed to fetch system information');
     }
   };
 
@@ -337,8 +394,200 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
         </GlassCard>
       </ScrollReveal>
 
+      {/* System Hardware Information */}
+      {systemInfo && (
+        <ScrollReveal delay={0.1}>
+          <GlassCard className="p-6">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-2xl font-semibold text-white flex items-center">
+                <Info className="w-6 h-6 mr-3 text-[#E50914]" />
+                System Hardware Information
+              </h2>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {/* CPU Information */}
+              <div className="bg-gradient-to-br from-blue-600/10 to-blue-800/10 rounded-lg p-4 border border-blue-500/20">
+                <div className="flex items-center mb-3">
+                  <Cpu className="w-5 h-5 text-blue-400 mr-2" />
+                  <h3 className="text-lg font-semibold text-white">CPU</h3>
+                </div>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-white/60">Model:</span>
+                    <span className="text-white font-medium text-right ml-2">{systemInfo.cpu.model}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-white/60">Cores:</span>
+                    <span className="text-white">{systemInfo.cpu.cores} ({systemInfo.cpu.threads} threads)</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-white/60">Max Frequency:</span>
+                    <span className="text-white">{systemInfo.cpu.max_freq || 'N/A'}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-white/60">Cache:</span>
+                    <span className="text-white">{systemInfo.cpu.cache || 'N/A'}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-white/60">Architecture:</span>
+                    <span className="text-white">{systemInfo.cpu.arch}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* GPU Information */}
+              <div className="bg-gradient-to-br from-green-600/10 to-green-800/10 rounded-lg p-4 border border-green-500/20">
+                <div className="flex items-center mb-3">
+                  <Monitor className="w-5 h-5 text-green-400 mr-2" />
+                  <h3 className="text-lg font-semibold text-white">GPU</h3>
+                </div>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-white/60">Model:</span>
+                    <span className="text-white font-medium text-right ml-2">{systemInfo.gpu.model}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-white/60">Vendor:</span>
+                    <span className="text-white">{systemInfo.gpu.vendor}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-white/60">Driver:</span>
+                    <span className="text-white">{systemInfo.gpu.driver}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-white/60">Memory:</span>
+                    <span className="text-white">{systemInfo.gpu.memory}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Memory Information */}
+              <div className="bg-gradient-to-br from-purple-600/10 to-purple-800/10 rounded-lg p-4 border border-purple-500/20">
+                <div className="flex items-center mb-3">
+                  <MemoryStick className="w-5 h-5 text-purple-400 mr-2" />
+                  <h3 className="text-lg font-semibold text-white">RAM</h3>
+                </div>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-white/60">Total:</span>
+                    <span className="text-white font-medium">{systemInfo.memory.total}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-white/60">Type:</span>
+                    <span className="text-white">{systemInfo.memory.type}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-white/60">Speed:</span>
+                    <span className="text-white">{systemInfo.memory.speed}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-white/60">Slots:</span>
+                    <span className="text-white">{systemInfo.memory.slots}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Disk Information */}
+              <div className="bg-gradient-to-br from-orange-600/10 to-orange-800/10 rounded-lg p-4 border border-orange-500/20">
+                <div className="flex items-center mb-3">
+                  <Database className="w-5 h-5 text-orange-400 mr-2" />
+                  <h3 className="text-lg font-semibold text-white">Storage</h3>
+                </div>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-white/60">Model:</span>
+                    <span className="text-white font-medium text-right ml-2">{systemInfo.disk.model}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-white/60">Type:</span>
+                    <span className="text-white">{systemInfo.disk.type}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-white/60">Total:</span>
+                    <span className="text-white">{systemInfo.disk.total}</span>
+                  </div>
+                  {systemInfo.disk.partitions.length > 0 && (
+                    <div className="mt-2 pt-2 border-t border-white/10">
+                      <span className="text-white/60 text-xs">Partitions:</span>
+                      <div className="mt-1 space-y-1">
+                        {systemInfo.disk.partitions.slice(0, 3).map((partition, idx) => (
+                          <div key={idx} className="text-white/80 text-xs truncate">{partition}</div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Network Information */}
+              <div className="bg-gradient-to-br from-cyan-600/10 to-cyan-800/10 rounded-lg p-4 border border-cyan-500/20">
+                <div className="flex items-center mb-3">
+                  <Wifi className="w-5 h-5 text-cyan-400 mr-2" />
+                  <h3 className="text-lg font-semibold text-white">Network</h3>
+                </div>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-white/60">Hostname:</span>
+                    <span className="text-white font-medium text-right ml-2">{systemInfo.network.hostname}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-white/60">IP Address:</span>
+                    <span className="text-white">{systemInfo.network.ip_address}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-white/60">MAC Address:</span>
+                    <span className="text-white text-xs">{systemInfo.network.mac_address}</span>
+                  </div>
+                  {systemInfo.network.interfaces.length > 0 && (
+                    <div className="mt-2 pt-2 border-t border-white/10">
+                      <span className="text-white/60 text-xs">Interfaces:</span>
+                      <div className="mt-1 space-y-1">
+                        {systemInfo.network.interfaces.map((iface, idx) => (
+                          <div key={idx} className="text-white/80 text-xs">{iface}</div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* OS Information */}
+              <div className="bg-gradient-to-br from-pink-600/10 to-pink-800/10 rounded-lg p-4 border border-pink-500/20">
+                <div className="flex items-center mb-3">
+                  <Server className="w-5 h-5 text-pink-400 mr-2" />
+                  <h3 className="text-lg font-semibold text-white">Operating System</h3>
+                </div>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-white/60">OS:</span>
+                    <span className="text-white font-medium text-right ml-2">{systemInfo.os.name}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-white/60">Version:</span>
+                    <span className="text-white">{systemInfo.os.version || 'N/A'}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-white/60">Kernel:</span>
+                    <span className="text-white">{systemInfo.os.kernel || 'N/A'}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-white/60">Platform:</span>
+                    <span className="text-white">{systemInfo.os.platform}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-white/60">Uptime:</span>
+                    <span className="text-white">{systemInfo.os.uptime || 'N/A'}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </GlassCard>
+        </ScrollReveal>
+      )}
+
       {/* Real-time Server Logs */}
-      <ScrollReveal delay={0.1}>
+      <ScrollReveal delay={0.2}>
         <GlassCard className="p-6">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-xl font-semibold text-white flex items-center">

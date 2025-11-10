@@ -274,7 +274,7 @@ const UpcomingMovies: React.FC<UpcomingMoviesProps> = ({
           {movies.map((movie) => (
             <div
               key={movie.id}
-              className="flex-shrink-0 w-48 group cursor-pointer"
+              className="flex-shrink-0 w-48 group/card cursor-pointer"
               onClick={() => handleMovieClick(movie)}
             >
               {/* Poster */}
@@ -282,7 +282,7 @@ const UpcomingMovies: React.FC<UpcomingMoviesProps> = ({
                 <img
                   src={getPosterUrl(movie.poster_path)}
                   alt={movie.title}
-                  className="w-full h-72 object-cover transition-transform duration-300 group-hover:scale-105"
+                  className="w-full h-72 object-cover transition-transform duration-300 group-hover/card:scale-105"
                   onError={(e) => {
                     const target = e.target as HTMLImageElement;
                     target.src = '/placeholder-poster.jpg';
@@ -300,7 +300,7 @@ const UpcomingMovies: React.FC<UpcomingMoviesProps> = ({
                 )}
 
                 {/* Hover Overlay with Description */}
-                <div className="absolute inset-0 bg-black/90 opacity-0 group-hover:opacity-100 transition-opacity duration-300 p-4 flex flex-col justify-end">
+                <div className="absolute inset-0 bg-black/90 opacity-0 group-hover/card:opacity-100 transition-opacity duration-300 p-4 flex flex-col justify-end">
                   <div className="text-white">
                     <h3 className="font-semibold text-sm mb-2 line-clamp-2">
                       {movie.title}
@@ -318,7 +318,7 @@ const UpcomingMovies: React.FC<UpcomingMoviesProps> = ({
 
               {/* Movie Info */}
               <div className="px-1">
-                <h3 className="text-white font-medium text-sm mb-1 line-clamp-2 group-hover:text-red-400 transition-colors">
+                <h3 className="text-white font-medium text-sm mb-1 line-clamp-2 group-hover/card:text-red-400 transition-colors">
                   {movie.title}
                 </h3>
                 <div className="flex items-center justify-between text-xs text-gray-400">

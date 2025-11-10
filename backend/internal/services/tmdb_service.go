@@ -2720,4 +2720,176 @@ func (t *TMDBService) validateMetadata(metadata *interfaces.MediaMetadata, title
 	}
 }
 
+// UpcomingTVSeriesResponse represents the combined response for TV series
+type UpcomingTVSeriesResponse struct {
+	AiringToday    []TMDBTV  `json:"airing_today"`
+	OnTheAir       []TMDBTV  `json:"on_the_air"`
+	TrendingDaily  []TMDBTV  `json:"trending_daily"`
+	TrendingWeekly []TMDBTV  `json:"trending_weekly"`
+	CachedAt       time.Time `json:"cached_at"`
+}
+
+// GetUpcomingTVSeries fetches airing today, on the air, and trending TV series from TMDB
+func (t *TMDBService) GetUpcomingTVSeries() (*UpcomingTVSeriesResponse, error) {
+	if t.apiKey == "" {
+		return nil, fmt.Errorf("TMDB API key not configured")
+	}
+
+	log.Printf("📺 Fetching TV series from TMDB...")
+
+	// Fetch airing today TV shows
+	airingToday, err := t.fetchAiringTodayTVShows()
+	if err != nil {
+		log.Printf("⚠️ Failed to fetch airing today TV shows: %v", err)
+		airingToday = []TMDBTV{} // Continue with empty slice
+	}
+
+	// Fetch on the air TV shows
+	onTheAir, err := t.fetchOnTheAirTVShows()
+	if err != nil {
+		log.Printf("⚠️ Failed to fetch on the air TV shows: %v", err)
+		onTheAir = []TMDBTV{} // Continue with empty slice
+	}
+
+	// Fetch trending TV shows (daily)
+	trendingDaily, err := t.fetchTrendingTVShows("day")
+	if err != nil {
+		log.Printf("⚠️ Failed to fetch daily trending TV shows: %v", err)
+		trendingDaily = []TMDBTV{} // Continue with empty slice
+	}
+
+	// Fetch trending TV shows (weekly)
+	trendingWeekly, err := t.fetchTrendingTVShows("week")
+	if err != nil {
+		log.Printf("⚠️ Failed to fetch weekly trending TV shows: %v", err)
+		trendingWeekly = []TMDBTV{} // Continue with empty slice
+	}
+
+	response := &UpcomingTVSeriesResponse{
+		AiringToday:    airingToday,
+		OnTheAir:       onTheAir,
+		TrendingDaily:  trendingDaily,
+		TrendingWeekly: trendingWeekly,
+		CachedAt:       time.Now(),
+	}
+
+	log.Printf("✅ Successfully fetched TV series: %d airing today, %d on the air, %d trending daily, %d trending weekly",
+		len(airingToday), len(onTheAir), len(trendingDaily), len(trendingWeekly))
+
+	return response, nil
+}
+
+// fetchAiringTodayTVShows fetches TV shows airing today
+func (t *TMDBService) fetchAiringTodayTVShows() ([]TMDBTV, error) {
+	requestURL := fmt.Sprintf("%s/tv/airing_today", t.baseURL)
+	params := url.Values{}
+	params.Add("language", "en-US")
+	params.Add("page", "1")
+
+	req, err := http.NewRequest("GET", requestURL+"?"+params.Encode(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Authorization", "Bearer "+t.apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := t.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("TMDB API error: %d", resp.StatusCode)
+	}
+
+	var searchResp TMDBTVSearchResponse
+	if err := json.NewDecoder(resp.Body).Decode(&searchResp); err != nil {
+		return nil, err
+	}
+
+	// Limit to 20 results
+	if len(searchResp.Results) > 20 {
+		searchResp.Results = searchResp.Results[:20]
+	}
+
+	return searchResp.Results, nil
+}
+
+// fetchOnTheAirTVShows fetches TV shows currently on the air
+func (t *TMDBService) fetchOnTheAirTVShows() ([]TMDBTV, error) {
+	requestURL := fmt.Sprintf("%s/tv/on_the_air", t.baseURL)
+	params := url.Values{}
+	params.Add("language", "en-US")
+	params.Add("page", "1")
+
+	req, err := http.NewRequest("GET", requestURL+"?"+params.Encode(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Authorization", "Bearer "+t.apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := t.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("TMDB API error: %d", resp.StatusCode)
+	}
+
+	var searchResp TMDBTVSearchResponse
+	if err := json.NewDecoder(resp.Body).Decode(&searchResp); err != nil {
+		return nil, err
+	}
+
+	// Limit to 20 results
+	if len(searchResp.Results) > 20 {
+		searchResp.Results = searchResp.Results[:20]
+	}
+
+	return searchResp.Results, nil
+}
+
+// fetchTrendingTVShows fetches trending TV shows for a given time window
+func (t *TMDBService) fetchTrendingTVShows(timeWindow string) ([]TMDBTV, error) {
+	requestURL := fmt.Sprintf("%s/trending/tv/%s", t.baseURL, timeWindow)
+	params := url.Values{}
+	params.Add("page", "1")
+
+	req, err := http.NewRequest("GET", requestURL+"?"+params.Encode(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Authorization", "Bearer "+t.apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := t.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("TMDB API error: %d", resp.StatusCode)
+	}
+
+	var searchResp TMDBTVSearchResponse
+	if err := json.NewDecoder(resp.Body).Decode(&searchResp); err != nil {
+		return nil, err
+	}
+
+	// Limit to 20 results
+	if len(searchResp.Results) > 20 {
+		searchResp.Results = searchResp.Results[:20]
+	}
+
+	return searchResp.Results, nil
+}
+
 

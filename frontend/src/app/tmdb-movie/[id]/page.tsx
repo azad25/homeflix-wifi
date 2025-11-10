@@ -30,6 +30,7 @@ import { addToWishlist, removeFromWishlist, isInWishlist } from '@/lib/wishlist'
 import Navbar from '@/components/Navbar';
 import RedLoader from '@/components/RedLoader';
 import UpcomingMovies from '@/components/UpcomingMovies';
+import UpcomingTVSeries from '@/components/UpcomingTVSeries';
 
 // Related Media Component
 interface RelatedMediaProps {
@@ -1424,6 +1425,18 @@ const TMDBMoviePage: React.FC = () => {
             showSection="now_playing"
             maxItems={12}
             title="Now Playing in Theaters"
+            className="mb-8"
+          />
+          <UpcomingTVSeries
+            showSection="airing_today"
+            maxItems={12}
+            title="TV Shows Airing Today"
+            className="mb-8"
+          />
+          <UpcomingTVSeries
+            showSection="trending_daily"
+            maxItems={12}
+            title="Trending TV Shows"
           />
         </div>
       </div>

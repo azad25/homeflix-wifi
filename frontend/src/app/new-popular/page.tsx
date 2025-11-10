@@ -12,6 +12,7 @@ import { apiCall, preloadAssets } from '@/lib/api';
 import Navbar from '@/components/Navbar';
 import RedLoader from '@/components/RedLoader';
 import UpcomingMovies from '@/components/UpcomingMovies';
+import UpcomingTVSeries from '@/components/UpcomingTVSeries';
 import { useRouter } from 'next/navigation';
 import { useNavigate } from '@/hooks/useNavigate';
 
@@ -181,6 +182,27 @@ const NewPopularPage: React.FC = () => {
           {/* TMDB Trending Weekly */}
           <UpcomingMovies 
             showSection="trending_weekly"
+            maxItems={10}
+            className="px-4 md:px-8"
+          />
+
+          {/* TV Series - Airing Today */}
+          <UpcomingTVSeries 
+            showSection="airing_today"
+            maxItems={15}
+            className="px-4 md:px-8"
+          />
+
+          {/* TV Series - On the Air */}
+          <UpcomingTVSeries 
+            showSection="on_the_air"
+            maxItems={12}
+            className="px-4 md:px-8"
+          />
+
+          {/* TV Series - Trending Daily */}
+          <UpcomingTVSeries 
+            showSection="trending_daily"
             maxItems={10}
             className="px-4 md:px-8"
           />

@@ -1619,6 +1619,25 @@ func GetUpcomingMovies(tmdbService *services.TMDBService) gin.HandlerFunc {
 	}
 }
 
+// GetUpcomingTVSeries gets TV series (airing today, on the air, trending) from TMDB
+func GetUpcomingTVSeries(tmdbService *services.TMDBService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		tvSeries, err := tmdbService.GetUpcomingTVSeries()
+		if err != nil {
+			log.Printf("❌ Failed to get TV series: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error": "Failed to get TV series",
+				"details": err.Error(),
+			})
+			return
+		}
+
+		c.JSON(http.StatusOK, tvSeries)
+		log.Printf("✅ Retrieved TV series: %d airing today, %d on the air, %d trending daily, %d trending weekly",
+			len(tvSeries.AiringToday), len(tvSeries.OnTheAir), len(tvSeries.TrendingDaily), len(tvSeries.TrendingWeekly))
+	}
+}
+
 // GetRelatedMedia gets related movies or TV shows from TMDB
 func GetRelatedMedia(tmdbService *services.TMDBService) gin.HandlerFunc {
 	return func(c *gin.Context) {

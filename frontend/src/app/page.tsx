@@ -13,6 +13,7 @@ import { ScrollXHero, EnhancedHorizontalRow } from '@/components/scrollx';
 import RecentlyWatched from '@/components/RecentlyWatched';
 import ContinueWatching from '@/components/ContinueWatching';
 import UpcomingMovies from '@/components/UpcomingMovies';
+import UpcomingTVSeries from '@/components/UpcomingTVSeries';
 
 export default function Home() {
   usePageTitle('Home');
@@ -429,6 +430,27 @@ export default function Home() {
             <UpcomingMovies 
               showSection="trending_daily"
               maxItems={15}
+              className="px-4 md:px-8"
+            />
+
+            {/* TV Series - Airing Today */}
+            <UpcomingTVSeries 
+              showSection="airing_today"
+              maxItems={15}
+              className="px-4 md:px-8"
+            />
+
+            {/* TV Series - On the Air */}
+            <UpcomingTVSeries 
+              showSection="on_the_air"
+              maxItems={12}
+              className="px-4 md:px-8"
+            />
+
+            {/* TV Series - Trending Daily */}
+            <UpcomingTVSeries 
+              showSection="trending_daily"
+              maxItems={10}
               className="px-4 md:px-8"
             />
           </div>
