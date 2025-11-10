@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"fmt"
+	"log"
 	"net/http"
 	"path/filepath"
 	"regexp"
@@ -185,13 +187,20 @@ func UpdateMediaWithTMDB(mediaService *services.MediaService, tmdbService *servi
 		var requestBody struct {
 			SearchTitle    string   `json:"searchTitle"`
 			PreserveFields []string `json:"preserveFields"`
+			TMDBId         int      `json:"tmdbId"`
+			MediaType      string   `json:"mediaType"`
+			TMDBData       interface{} `json:"tmdbData"`
 		}
 		
 		// Try to parse JSON body, but don't fail if it's empty (for backward compatibility)
 		if err := c.ShouldBindJSON(&requestBody); err != nil {
 			// If JSON parsing fails, use default behavior
+			log.Printf("⚠️ Failed to parse request body for media %d: %v", id, err)
 			requestBody.SearchTitle = media.Title
 			requestBody.PreserveFields = []string{}
+		} else {
+			log.Printf("📥 Received TMDB update request for media %d: TMDBId=%d, SearchTitle='%s', MediaType='%s'", 
+				id, requestBody.TMDBId, requestBody.SearchTitle, requestBody.MediaType)
 		}
 
 		// Use custom search title if provided, otherwise use media title
@@ -200,17 +209,37 @@ func UpdateMediaWithTMDB(mediaService *services.MediaService, tmdbService *servi
 			searchTitle = requestBody.SearchTitle
 		}
 
-		// Create metadata options
-		options := &services.MetadataOptions{
-			SearchTitle:    searchTitle,
-			PreserveFields: requestBody.PreserveFields,
-		}
+		log.Printf("🎬 Fetching TMDB data for movie: %s (ID: %d)", searchTitle, id)
 
-		// Try TMDB first, fallback to filename parsing if it fails
-		metadata, err := tmdbService.GenerateMediaMetadataWithOptions(media.FilePath, media.Title, options)
-		if err != nil {
-			// Fallback: create metadata from filename
-			metadata = createFallbackMetadata(media.FilePath, media.Title)
+		var metadata *interfaces.MediaMetadata
+
+		// If TMDB ID is provided, use it directly for more accurate results
+		if requestBody.TMDBId > 0 {
+			log.Printf("🎯 Using provided TMDB ID: %d for movie update", requestBody.TMDBId)
+			
+			// Get movie details directly by TMDB ID
+			movieDetails, tmdbErr := tmdbService.GetMovieDetailsWithExtras(requestBody.TMDBId)
+			if tmdbErr != nil {
+				log.Printf("❌ Failed to get movie details for TMDB ID %d: %v", requestBody.TMDBId, tmdbErr)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to fetch TMDB data: %v", tmdbErr)})
+				return
+			}
+
+			// Convert TMDB details to metadata format
+			metadata = tmdbService.ConvertMovieDetailsToMetadata(movieDetails)
+		} else {
+			// Create metadata options
+			options := &services.MetadataOptions{
+				SearchTitle:    searchTitle,
+				PreserveFields: requestBody.PreserveFields,
+			}
+
+			// Try TMDB search, fallback to filename parsing if it fails
+			metadata, err = tmdbService.GenerateMediaMetadataWithOptions(media.FilePath, media.Title, options)
+			if err != nil {
+				// Fallback: create metadata from filename
+				metadata = createFallbackMetadata(media.FilePath, media.Title)
+			}
 		}
 
 		// Update media with TMDB data, respecting preserved fields
@@ -259,10 +288,16 @@ func UpdateMediaWithTMDB(mediaService *services.MediaService, tmdbService *servi
 		
 		// Update poster and backdrop URLs if available
 		if metadata.PosterURL != "" {
+			log.Printf("🖼️ Updating poster URL: %s", metadata.PosterURL)
 			media.PosterPath = metadata.PosterURL
 		}
 		if metadata.BackdropURL != "" {
+			log.Printf("🖼️ Updating backdrop URL: %s", metadata.BackdropURL)
 			media.BannerPath = metadata.BackdropURL
+		}
+		if metadata.TrailerURL != "" {
+			log.Printf("🎬 Updating trailer URL: %s", metadata.TrailerURL)
+			media.TMDBTrailerURL = metadata.TrailerURL
 		}
 		
 		// Update runtime if available

@@ -22,7 +22,6 @@ interface MediaAssets {
 
 interface EditableMedia extends Media {
   isEditing?: boolean;
-  uuid?: string;
 }
 
 interface TMDBSearchResult {
@@ -70,19 +69,24 @@ function SettingsContent() {
     priority: 0
   });
   const [showAddPathForm, setShowAddPathForm] = useState(false);
-  const [showCustomTMDBSearch, setShowCustomTMDBSearch] = useState(false);
+  const [showTMDBSearchModal, setShowTMDBSearchModal] = useState(false);
   const [customSearchTitle, setCustomSearchTitle] = useState('');
+
+  // Debug modal state
+  useEffect(() => {
+    console.log('🎭 Modal State Changed:', { showTMDBSearchModal, customSearchTitle, selectedMediaType: selectedMedia?.type });
+  }, [showTMDBSearchModal, customSearchTitle, selectedMedia?.type]);
   const navigate = useNavigate();
 
   useEffect(() => {
     // Check URL parameters for tab and media info
     const tab = searchParams.get('tab');
     const mediaParam = searchParams.get('media');
-    
+
     if (tab) {
       setActiveTab(tab);
     }
-    
+
     if (mediaParam) {
       try {
         const mediaInfo = JSON.parse(mediaParam);
@@ -91,14 +95,14 @@ function SettingsContent() {
         console.error('Error parsing media info:', error);
       }
     }
-    
+
     fetchMediaList();
     fetchActiveDownloads(); // Check for active downloads
-    
+
     if (activeTab === 'paths') {
       fetchMediaPaths();
     }
-    
+
     if (activeTab === 'analytics') {
       fetchSystemStats();
     }
@@ -112,7 +116,7 @@ function SettingsContent() {
     const interval = setInterval(() => {
       fetchActiveDownloads();
     }, 5000);
-    
+
     return () => clearInterval(interval);
   }, []);
 
@@ -130,14 +134,47 @@ function SettingsContent() {
 
   const fetchMediaList = async () => {
     try {
+      console.log('🔄 Fetching media list...');
       const { apiCall, API_ENDPOINTS } = await import('@/lib/api');
       const [media, series] = await Promise.all([
         apiCall(API_ENDPOINTS.media),
         fetch(`${await import('@/lib/api').then(m => m.getApiUrl())}/api/series`).then(r => r.json()).catch(() => [])
       ]);
+
+      console.log('📊 Fetched media:', { movies: media.length, series: series.length });
       setMediaList(media);
       setSeriesList(series);
       setLoading(false);
+
+      // If we have a selected media, try to find and update it in the new list
+      if (selectedMedia) {
+        if (selectedMedia.type === 'tv') {
+          const updatedSeries = series.find((s: any) => s.id === selectedMedia.id);
+          if (updatedSeries) {
+            const updatedMedia = {
+              ...selectedMedia,
+              ...updatedSeries,
+              type: 'tv' as const,
+              id: selectedMedia.id,
+
+            };
+            setSelectedMedia(updatedMedia);
+            console.log('🔄 Updated selected TV series from fresh data');
+          }
+        } else {
+          const updatedMovie = media.find((m: any) => m.id === selectedMedia.id);
+          if (updatedMovie) {
+            const updatedMedia = {
+              ...updatedMovie,
+              isEditing: selectedMedia.isEditing,
+              id: selectedMedia.id,
+
+            };
+            setSelectedMedia(updatedMedia);
+            console.log('🔄 Updated selected movie from fresh data');
+          }
+        }
+      }
     } catch (error) {
       console.error('Error fetching media:', error);
       setLoading(false);
@@ -151,12 +188,12 @@ function SettingsContent() {
       if (response.ok) {
         const data = await response.json();
         const downloads = data.downloads || [];
-        
+
         // Count active downloads (downloading status)
-        const activeCount = downloads.filter((download: any) => 
+        const activeCount = downloads.filter((download: any) =>
           download.status === 'downloading'
         ).length;
-        
+
         setActiveDownloads(activeCount);
       }
     } catch (error) {
@@ -310,7 +347,14 @@ function SettingsContent() {
             type: 'file' as const,
             size: `${Math.floor((media.duration || media.runtime || 0) / 60)}min`,
             modified: new Date().toLocaleDateString(),
-            media: media
+            media: {
+              ...media,
+              // Ensure all required fields exist
+              id: media.id,
+              title: media.title || 'Unknown Title',
+              type: 'movie' as const,
+
+            }
           };
         })
       },
@@ -329,9 +373,9 @@ function SettingsContent() {
             // Convert series to media-like object for compatibility
             media: {
               id: series.id,
-              title: series.title,
-              description: series.description,
-              type: 'tv',
+              title: series.title || 'Unknown Title',
+              description: series.description || '',
+              type: 'tv' as const,
               rating: series.rating,
               year: series.release_date ? new Date(series.release_date).getFullYear() : undefined,
               genre_names: series.genres?.map((g: any) => g.name) || [],
@@ -340,15 +384,23 @@ function SettingsContent() {
               status: series.status,
               total_seasons: series.total_seasons,
               total_episodes: series.total_episodes,
+
               // Add other fields that might be needed
-              country: '',
-              language: '',
-              quality: '',
-              certification: '',
-              runtime: undefined,
+              country: series.country || '',
+              language: series.language || '',
+              quality: series.quality || '',
+              certification: series.certification || '',
+              runtime: series.episode_runtime || undefined,
               seasons: series.total_seasons,
               episodes: series.total_episodes,
-              network: ''
+              network: series.network || '',
+              tagline: series.tagline || '',
+              view_count: series.view_count || 0,
+              file_size: series.file_size,
+              resolution: series.resolution,
+              codec: series.codec,
+              thumbnail_path: series.thumbnail_path,
+              trailer_url: series.trailer_url
             }
           };
         })
@@ -358,17 +410,33 @@ function SettingsContent() {
   };
 
   const handleMediaSelect = async (media: Media) => {
-    setSelectedMedia({ ...media, isEditing: false });
+    console.log('🎯 Selecting media:', media);
+
+    // Ensure we have a complete media object
+    const completeMedia = {
+      ...media,
+      isEditing: false,
+      // Ensure all required fields exist
+      id: media.id,
+      title: media.title || 'Unknown Title',
+      type: media.type || 'movie'
+    };
+
+    setSelectedMedia(completeMedia);
     setEditingMedia({});
+    addTerminalOutput(`📂 Selected ${media.type}: ${media.title}`);
+
     // Fetch existing assets for this media
     try {
       const response = await fetch(`${getApiUrl()}/api/admin/media/${media.id}/assets`);
       if (response.ok) {
         const assets = await response.json();
         setMediaAssets(assets);
+        addTerminalOutput(`📁 Loaded assets for ${media.title}`);
       }
     } catch (error) {
       console.error('Error fetching media assets:', error);
+      addTerminalOutput(`⚠️ Could not load assets for ${media.title}`);
     }
   };
 
@@ -530,7 +598,7 @@ function SettingsContent() {
         const result = await response.json();
         addTerminalOutput(`✅ Thumbnail regenerated successfully`);
         addTerminalOutput(`📁 New thumbnail path: ${result.thumbnail_path || 'N/A'}`);
-        
+
         // Refresh the selected media to get updated thumbnail path
         const mediaResponse = await fetch(`${getApiUrl()}/api/media/${selectedMedia.id}`);
         if (mediaResponse.ok) {
@@ -574,7 +642,7 @@ function SettingsContent() {
         addTerminalOutput(`✅ Preview clip regenerated successfully`);
         addTerminalOutput(`📁 New preview path: ${result.preview_path || 'N/A'}`);
         addTerminalOutput(`📊 File size: ${result.file_size ? `${(result.file_size / (1024 * 1024)).toFixed(2)} MB` : 'N/A'}`);
-        
+
         // Refresh the selected media to get updated preview path
         const mediaResponse = await fetch(`${getApiUrl()}/api/media/${selectedMedia.id}`);
         if (mediaResponse.ok) {
@@ -683,7 +751,7 @@ function SettingsContent() {
       if (response.ok) {
         const data = await response.json();
         addTerminalOutput(`✅ Bulk TMDB update completed: ${data.updated} items updated out of ${data.total}`);
-        
+
         if (data.errors && data.errors.length > 0) {
           addTerminalOutput(`⚠️ Some items had errors:`);
           data.errors.slice(0, 5).forEach((error: string) => {
@@ -731,7 +799,7 @@ function SettingsContent() {
 
       if (selectedMedia.type === 'tv') {
         // For TV series, use series-specific TMDB endpoints
-        addTerminalOutput(`🎬 Fetching TMDB data for TV series: ${searchTitle}`);
+        addTerminalOutput(`📺 Fetching TMDB data for TV series: ${searchTitle}`);
 
         // Try the main TMDB endpoint first
         response = await fetch(`${getApiUrl()}/api/admin/series/${selectedMedia.id}/update-with-tmdb`, {
@@ -756,6 +824,7 @@ function SettingsContent() {
 
         if (response.ok) {
           updatedData = await response.json();
+          addTerminalOutput(`✅ Received updated series data from backend`);
 
           // Preserve manually edited fields
           const finalSeriesData = { ...updatedData };
@@ -779,13 +848,23 @@ function SettingsContent() {
             ...selectedMedia,
             ...finalSeriesData,
             isEditing: selectedMedia.isEditing,
-            // Ensure media-like properties are maintained
-            type: 'tv'
+            type: 'tv' as const,
+            // Ensure critical fields are preserved
+            id: selectedMedia.id
           };
 
           setSelectedMedia(finalMedia);
           addTerminalOutput(`✅ TV series TMDB data updated successfully`);
-          addTerminalOutput(`🔒 Preserved manual edits: ${Object.keys(editingMedia).join(', ')}`);
+          addTerminalOutput(`📊 Updated fields: title, description, backdrop_path, poster_path, rating, year, trailer_url`);
+
+          // Log specific updates
+          if (updatedData.backdrop_path) addTerminalOutput(`🖼️ Backdrop updated: ${updatedData.backdrop_path}`);
+          if (updatedData.trailer_url) addTerminalOutput(`🎬 Trailer updated: ${updatedData.trailer_url}`);
+          if (updatedData.poster_path) addTerminalOutput(`🎭 Poster updated: ${updatedData.poster_path}`);
+
+          if (selectedMedia.isEditing && editingMedia && Object.keys(editingMedia).length > 0) {
+            addTerminalOutput(`🔒 Preserved manual edits: ${Object.keys(editingMedia).join(', ')}`);
+          }
         } else {
           const errorData = await response.json().catch(() => ({ error: response.statusText }));
           addTerminalOutput(`❌ TV series TMDB fetch failed: ${errorData.error || response.statusText}`);
@@ -817,6 +896,7 @@ function SettingsContent() {
 
         if (response.ok) {
           updatedData = await response.json();
+          addTerminalOutput(`✅ Received updated movie data from backend`);
 
           // Preserve manually edited fields
           const finalMedia = { ...updatedData };
@@ -828,39 +908,52 @@ function SettingsContent() {
             });
           }
 
-          setSelectedMedia({ ...finalMedia, isEditing: selectedMedia.isEditing });
+          // Ensure critical fields are preserved
+          finalMedia.isEditing = selectedMedia.isEditing;
+          finalMedia.id = selectedMedia.id;
+
+          setSelectedMedia(finalMedia);
           setMediaList(prev => prev.map(m => m.id === updatedData.id ? finalMedia : m));
           addTerminalOutput(`✅ Movie TMDB data updated successfully`);
-          addTerminalOutput(`🔒 Preserved manual edits: ${Object.keys(editingMedia).join(', ')}`);
+          addTerminalOutput(`📊 Updated fields: title, description, backdrop_path, poster_path, rating, year, runtime, trailer_url`);
+
+          // Log specific updates
+          if (updatedData.backdrop_path) addTerminalOutput(`🖼️ Backdrop updated: ${updatedData.backdrop_path}`);
+          if (updatedData.trailer_url) addTerminalOutput(`🎬 Trailer updated: ${updatedData.trailer_url}`);
+          if (updatedData.poster_path) addTerminalOutput(`🎭 Poster updated: ${updatedData.poster_path}`);
+
+          if (selectedMedia.isEditing && editingMedia && Object.keys(editingMedia).length > 0) {
+            addTerminalOutput(`🔒 Preserved manual edits: ${Object.keys(editingMedia).join(', ')}`);
+          }
         } else {
           const errorData = await response.json().catch(() => ({ error: response.statusText }));
           addTerminalOutput(`❌ Movie TMDB fetch failed: ${errorData.error || response.statusText}`);
         }
       }
+
+      // Refresh the media list to ensure consistency
+      addTerminalOutput(`🔄 Refreshing media list to ensure consistency...`);
+      await fetchMediaList();
+
     } catch (error) {
       addTerminalOutput(`❌ Error fetching TMDB data: ${error}`);
       console.error('Error fetching TMDB data:', error);
     } finally {
       setActionLoading(prev => ({ ...prev, tmdb: false }));
-      // Close the custom search modal if it was used
+      // Close the search modal if it was used
       if (customTitle) {
-        setShowCustomTMDBSearch(false);
+        setShowTMDBSearchModal(false);
         setCustomSearchTitle('');
       }
     }
   };
 
-  const handleCustomTMDBSearch = () => {
-    if (!customSearchTitle.trim()) {
-      addTerminalOutput('❌ Please enter a search title');
-      return;
-    }
-    handleFetchTMDBData(customSearchTitle.trim());
-  };
+
 
   const handleTMDBSelection = async (tmdbResult: TMDBSearchResult) => {
     if (!selectedMedia) return;
 
+    console.log('🎬 TMDB Selection:', tmdbResult);
     setActionLoading(prev => ({ ...prev, tmdb: true }));
     addTerminalOutput(`🎬 Updating with selected TMDB result: ${tmdbResult.title} (ID: ${tmdbResult.id})`);
 
@@ -869,7 +962,9 @@ function SettingsContent() {
       const requestBody = {
         tmdbId: tmdbResult.id,
         mediaType: tmdbResult.media_type,
-        preserveFields: selectedMedia.isEditing ? Object.keys(editingMedia) : []
+        preserveFields: selectedMedia.isEditing ? Object.keys(editingMedia) : [],
+        // Include the full TMDB result for immediate use
+        tmdbData: tmdbResult
       };
 
       let response: Response;
@@ -889,6 +984,7 @@ function SettingsContent() {
 
         if (response.ok) {
           updatedData = await response.json();
+          addTerminalOutput(`✅ Received updated series data from backend`);
 
           // Preserve manually edited fields
           const finalSeriesData = { ...updatedData };
@@ -912,11 +1008,19 @@ function SettingsContent() {
             ...selectedMedia,
             ...finalSeriesData,
             isEditing: selectedMedia.isEditing,
-            type: 'tv'
+            type: 'tv' as const,
+            // Ensure critical fields are preserved
+            id: selectedMedia.id
           };
 
           setSelectedMedia(finalMedia);
           addTerminalOutput(`✅ TV series updated with TMDB data from "${tmdbResult.title}"`);
+          addTerminalOutput(`📊 Updated fields: title, description, backdrop_path, poster_path, rating, year, trailer_url`);
+
+          // Log specific updates
+          if (updatedData.backdrop_path) addTerminalOutput(`🖼️ Backdrop updated: ${updatedData.backdrop_path}`);
+          if (updatedData.trailer_url) addTerminalOutput(`🎬 Trailer updated: ${updatedData.trailer_url}`);
+          if (updatedData.poster_path) addTerminalOutput(`🎭 Poster updated: ${updatedData.poster_path}`);
         } else {
           const errorData = await response.json().catch(() => ({ error: response.statusText }));
           addTerminalOutput(`❌ TV series TMDB update failed: ${errorData.error || response.statusText}`);
@@ -935,6 +1039,7 @@ function SettingsContent() {
 
         if (response.ok) {
           updatedData = await response.json();
+          addTerminalOutput(`✅ Received updated movie data from backend`);
 
           // Preserve manually edited fields
           const finalMedia = { ...updatedData };
@@ -946,23 +1051,42 @@ function SettingsContent() {
             });
           }
 
-          setSelectedMedia({ ...finalMedia, isEditing: selectedMedia.isEditing });
+          // Ensure critical fields are preserved
+          finalMedia.isEditing = selectedMedia.isEditing;
+          finalMedia.id = selectedMedia.id;
+
+          setSelectedMedia(finalMedia);
           setMediaList(prev => prev.map(m => m.id === updatedData.id ? finalMedia : m));
           addTerminalOutput(`✅ Movie updated with TMDB data from "${tmdbResult.title}"`);
+          addTerminalOutput(`📊 Updated fields: title, description, backdrop_path, poster_path, rating, year, runtime, trailer_url`);
+
+          // Log specific updates
+          if (updatedData.backdrop_path) addTerminalOutput(`🖼️ Backdrop updated: ${updatedData.backdrop_path}`);
+          if (updatedData.trailer_url) addTerminalOutput(`🎬 Trailer updated: ${updatedData.trailer_url}`);
+          if (updatedData.poster_path) addTerminalOutput(`🎭 Poster updated: ${updatedData.poster_path}`);
         } else {
           const errorData = await response.json().catch(() => ({ error: response.statusText }));
           addTerminalOutput(`❌ Movie TMDB update failed: ${errorData.error || response.statusText}`);
         }
       }
 
-      if (selectedMedia.isEditing && editingMedia) {
+      if (selectedMedia.isEditing && editingMedia && Object.keys(editingMedia).length > 0) {
         addTerminalOutput(`🔒 Preserved manual edits: ${Object.keys(editingMedia).join(', ')}`);
       }
+
+      // Refresh the media list to ensure consistency
+      addTerminalOutput(`🔄 Refreshing media list to ensure consistency...`);
+      await fetchMediaList();
+
     } catch (error) {
       addTerminalOutput(`❌ Error updating with TMDB data: ${error}`);
       console.error('Error updating with TMDB data:', error);
     } finally {
       setActionLoading(prev => ({ ...prev, tmdb: false }));
+      // Close the modal after processing
+      setShowTMDBSearchModal(false);
+      setCustomSearchTitle('');
+      addTerminalOutput(`🎭 TMDB search modal closed`);
     }
   };
 
@@ -992,7 +1116,7 @@ function SettingsContent() {
       if (response.ok) {
         const data = await response.json();
         addTerminalOutput(`✅ Backdrop and trailer update completed`);
-        
+
         // Refresh the selected media to show updated data
         if (selectedMedia.type === 'tv') {
           const refreshResponse = await fetch(`${getApiUrl()}/api/series/${selectedMedia.id}`);
@@ -1012,7 +1136,7 @@ function SettingsContent() {
             setSelectedMedia(prev => prev ? { ...prev, ...updatedData } : null);
           }
         }
-        
+
         addTerminalOutput(`🖼️ Backdrop URL: ${data.backdrop_url ? '✅ Updated' : '❌ Not found'}`);
         addTerminalOutput(`🎬 Trailer URL: ${data.trailer_url ? '✅ Updated' : '❌ Not found'}`);
       } else {
@@ -1849,13 +1973,19 @@ function SettingsContent() {
                         })()} results
                       </p>
                     )}
+
+                    <p className="text-white/50 text-xs mt-2">
+                      💡 Click to select media for management
+                    </p>
                   </div>
 
                   <div className="max-h-96 overflow-y-auto">
                     <FolderTree
                       data={createFolderTreeData()}
                       onSelect={(item: any) => {
+                        console.log('🎯 FolderTree onSelect called with:', item);
                         if (item.type === 'file' && item.media) {
+                          console.log('📂 Selecting media from folder tree:', item.media);
                           handleMediaSelect(item.media);
                         }
                       }}
@@ -1918,35 +2048,62 @@ function SettingsContent() {
                           <MagneticButton
                             onClick={() => {
                               if (selectedMedia.type === 'tv') {
-                                navigate.push(`/tv-series/${selectedMedia.uuid || selectedMedia.id}`);
+                                navigate.push(`/tv-series/${selectedMedia.id}`);
                               } else {
-                                navigate.push(`/movie/${selectedMedia.uuid || selectedMedia.id}`);
+                                navigate.push(`/movie/${selectedMedia.id}`);
                               }
                             }}
-                            className="bg-white/10 hover:bg-white/20 text-white p-3 rounded-full"
+                            className="bg-[#E50914] hover:bg-[#E50914]/80 text-white px-4 py-2 rounded-lg flex items-center space-x-2"
+                            title={`Watch ${selectedMedia.type === 'tv' ? 'Series' : 'Movie'}`}
                           >
-                            <Play className="w-5 h-5" />
+                            <Play className="w-4 h-4" />
+                            <span>Watch</span>
+                          </MagneticButton>
+                          <MagneticButton
+                            onClick={() => {
+                              if (selectedMedia.type === 'tv') {
+                                navigate.push(`/tv-series/${selectedMedia.id}`);
+                              } else {
+                                navigate.push(`/movie/${selectedMedia.id}`);
+                              }
+                            }}
+                            className="bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-lg flex items-center space-x-2"
+                            title={`View ${selectedMedia.type === 'tv' ? 'Series' : 'Movie'} Details`}
+                          >
+                            <Info className="w-4 h-4" />
+                            <span>Details</span>
                           </MagneticButton>
                           <MagneticButton
                             onClick={handleEditToggle}
-                            className={`p-3 rounded-full ${selectedMedia.isEditing
+                            className={`px-4 py-2 rounded-lg flex items-center space-x-2 ${selectedMedia.isEditing
                               ? 'bg-[#E50914] hover:bg-[#E50914]/80 text-white'
                               : 'bg-white/10 hover:bg-white/20 text-white'
                               }`}
                           >
-                            {selectedMedia.isEditing ? <X className="w-5 h-5" /> : <Edit3 className="w-5 h-5" />}
+                            {selectedMedia.isEditing ? (
+                              <>
+                                <X className="w-4 h-4" />
+                                <span>Cancel</span>
+                              </>
+                            ) : (
+                              <>
+                                <Edit3 className="w-4 h-4" />
+                                <span>Edit</span>
+                              </>
+                            )}
                           </MagneticButton>
                           <MagneticButton
                             onClick={handleDeleteMedia}
                             disabled={actionLoading.delete}
-                            className="bg-red-600/20 hover:bg-red-600/40 text-red-400 p-3 rounded-full transition-all duration-300 hover:scale-110"
+                            className="bg-red-600/20 hover:bg-red-600/40 text-red-400 px-4 py-2 rounded-lg flex items-center space-x-2 transition-all duration-300"
                             title="Delete Media (Permanent)"
                           >
                             {actionLoading.delete ? (
-                              <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-red-400"></div>
+                              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-red-400"></div>
                             ) : (
-                              <Trash2 className="w-5 h-5" />
+                              <Trash2 className="w-4 h-4" />
                             )}
+                            <span>Delete</span>
                           </MagneticButton>
                         </div>
                       </div>
@@ -2010,25 +2167,83 @@ function SettingsContent() {
                         </MagneticButton>
 
                         <MagneticButton
-                          onClick={() => setShowCustomTMDBSearch(true)}
+                          onClick={() => {
+                            console.log('🔍 Opening TMDB Search Modal for:', selectedMedia?.title);
+                            console.log('🎭 Current modal state:', showTMDBSearchModal);
+                            const searchTitle = selectedMedia?.title || '';
+                            setCustomSearchTitle(searchTitle);
+                            setShowTMDBSearchModal(true);
+                            addTerminalOutput(`🔍 Opening TMDB search for: ${searchTitle}`);
+                          }}
                           disabled={actionLoading.tmdb}
                           className="bg-yellow-600/20 hover:bg-yellow-600/40 text-yellow-400 px-4 py-2 rounded-lg flex items-center space-x-2"
                         >
                           <Search className="w-4 h-4" />
-                          <span>Custom TMDB Search</span>
+                          <span>Search & Update TMDB</span>
                         </MagneticButton>
 
                         <MagneticButton
-                          onClick={() => {
-                            setCustomSearchTitle(selectedMedia?.title || '');
-                            setShowCustomTMDBSearch(true);
+                          onClick={async () => {
+                            console.log('🧪 Testing TMDB API directly...');
+                            try {
+                              const apiUrl = getApiUrl();
+                              const testQuery = selectedMedia?.title || 'Avengers';
+
+                              // Test TMDB search endpoint
+                              addTerminalOutput(`🔍 Testing TMDB search for: ${testQuery}`);
+                              const searchResponse = await fetch(`${apiUrl}/api/tmdb/search?q=${encodeURIComponent(testQuery)}&type=movie`);
+                              console.log('📡 Search Response status:', searchResponse.status);
+
+                              if (searchResponse.ok) {
+                                const searchData = await searchResponse.json();
+                                console.log('📊 TMDB Search Response:', searchData);
+                                addTerminalOutput(`✅ TMDB Search Test: Found ${searchData.results?.length || 0} results for "${testQuery}"`);
+
+                                // Test TMDB update endpoint if we have results
+                                if (searchData.results && searchData.results.length > 0 && selectedMedia) {
+                                  const firstResult = searchData.results[0];
+                                  addTerminalOutput(`🎬 Testing TMDB update with first result: ${firstResult.title} (ID: ${firstResult.id})`);
+
+                                  const updateEndpoint = selectedMedia.type === 'tv'
+                                    ? `${apiUrl}/api/admin/series/${selectedMedia.id}/update-with-tmdb`
+                                    : `${apiUrl}/api/admin/media/${selectedMedia.id}/update-with-tmdb`;
+
+                                  const updateResponse = await fetch(updateEndpoint, {
+                                    method: 'POST',
+                                    headers: {
+                                      'Content-Type': 'application/json',
+                                    },
+                                    body: JSON.stringify({
+                                      tmdbId: firstResult.id,
+                                      mediaType: firstResult.media_type || selectedMedia.type,
+                                      preserveFields: []
+                                    }),
+                                  });
+
+                                  if (updateResponse.ok) {
+                                    const updateData = await updateResponse.json();
+                                    addTerminalOutput(`✅ TMDB Update Test: Successfully updated with "${firstResult.title}"`);
+                                    console.log('📊 TMDB Update Response:', updateData);
+                                  } else {
+                                    const errorText = await updateResponse.text();
+                                    addTerminalOutput(`❌ TMDB Update Test Failed: ${updateResponse.status} ${updateResponse.statusText}`);
+                                    console.error('❌ TMDB Update Error:', errorText);
+                                  }
+                                }
+                              } else {
+                                const errorText = await searchResponse.text();
+                                console.error('❌ TMDB Search Error:', errorText);
+                                addTerminalOutput(`❌ TMDB Search Test Failed: ${searchResponse.status} ${searchResponse.statusText}`);
+                              }
+                            } catch (error) {
+                              console.error('❌ TMDB Test Exception:', error);
+                              addTerminalOutput(`❌ TMDB API Test Exception: ${error}`);
+                            }
                           }}
-                          disabled={actionLoading.tmdb}
-                          className="bg-indigo-600/20 hover:bg-indigo-600/40 text-indigo-400 px-4 py-2 rounded-lg flex items-center space-x-2"
-                          title="Update backdrop and trailer with custom search"
+                          className="bg-purple-600/20 hover:bg-purple-600/40 text-purple-400 px-4 py-2 rounded-lg flex items-center space-x-2"
                         >
-                          <Film className="w-4 h-4" />
-                          <span>Update Backdrop & Trailer</span>
+                          <TrendingUp className="w-4 h-4" />
+                          <span>Test TMDB API</span>
                         </MagneticButton>
 
                         {selectedMedia.isEditing && (
@@ -2047,11 +2262,62 @@ function SettingsContent() {
                         )}
 
                         <MagneticButton
-                          onClick={fetchScanStats}
-                          className="bg-purple-600/20 hover:bg-purple-600/40 text-purple-400 px-4 py-2 rounded-lg flex items-center space-x-2"
+                          onClick={async () => {
+                            if (!selectedMedia) return;
+                            addTerminalOutput(`🔄 Refreshing selected media: ${selectedMedia.title}`);
+
+                            try {
+                              // Refresh the specific media item
+                              let refreshResponse;
+                              if (selectedMedia.type === 'tv') {
+                                refreshResponse = await fetch(`${getApiUrl()}/api/series/${selectedMedia.id}`);
+                              } else {
+                                refreshResponse = await fetch(`${getApiUrl()}/api/media/${selectedMedia.id}`);
+                              }
+
+                              if (refreshResponse.ok) {
+                                const refreshedData = await refreshResponse.json();
+
+                                if (selectedMedia.type === 'tv') {
+                                  // Convert series data back to media-like format
+                                  const refreshedMedia = {
+                                    ...selectedMedia,
+                                    ...refreshedData,
+                                    type: 'tv' as const,
+                                    id: selectedMedia.id
+                                  };
+                                  setSelectedMedia(refreshedMedia);
+
+                                  // Update series list
+                                  setSeriesList(prev => prev.map(s =>
+                                    s.id === selectedMedia.id ? refreshedData : s
+                                  ));
+                                } else {
+                                  const refreshedMedia = {
+                                    ...refreshedData,
+                                    isEditing: selectedMedia.isEditing,
+                                    id: selectedMedia.id
+                                  };
+                                  setSelectedMedia(refreshedMedia);
+
+                                  // Update media list
+                                  setMediaList(prev => prev.map(m =>
+                                    m.id === selectedMedia.id ? refreshedMedia : m
+                                  ));
+                                }
+
+                                addTerminalOutput(`✅ Successfully refreshed: ${selectedMedia.title}`);
+                              } else {
+                                addTerminalOutput(`❌ Failed to refresh media: ${refreshResponse.statusText}`);
+                              }
+                            } catch (error) {
+                              addTerminalOutput(`❌ Error refreshing media: ${error}`);
+                            }
+                          }}
+                          className="bg-cyan-600/20 hover:bg-cyan-600/40 text-cyan-400 px-4 py-2 rounded-lg flex items-center space-x-2"
                         >
-                          <BarChart3 className="w-4 h-4" />
-                          <span>Refresh Stats</span>
+                          <RefreshCw className="w-4 h-4" />
+                          <span>Refresh Selected Media</span>
                         </MagneticButton>
 
                         <MagneticButton
@@ -2393,6 +2659,41 @@ function SettingsContent() {
                           </div>
                         )}
                       </div>
+
+                      {/* Quick Navigation */}
+                      <div className="mt-6 pt-6 border-t border-white/10">
+                        <div className="flex items-center justify-between">
+                          <h5 className="text-sm font-medium text-white/70">Quick Actions</h5>
+                          <div className="flex space-x-3">
+                            <MagneticButton
+                              onClick={() => {
+                                if (selectedMedia.type === 'tv') {
+                                  navigate.push(`/tv-series/${selectedMedia.id}`);
+                                } else {
+                                  navigate.push(`/movie/${selectedMedia.id}`);
+                                }
+                              }}
+                              className="bg-[#E50914] hover:bg-[#E50914]/80 text-white px-4 py-2 rounded-lg flex items-center space-x-2 text-sm"
+                            >
+                              <Play className="w-4 h-4" />
+                              <span>Watch Now</span>
+                            </MagneticButton>
+                            <MagneticButton
+                              onClick={() => {
+                                if (selectedMedia.type === 'tv') {
+                                  navigate.push(`/tv-series/${selectedMedia.id}`);
+                                } else {
+                                  navigate.push(`/movie/${selectedMedia.id}`);
+                                }
+                              }}
+                              className="bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-lg flex items-center space-x-2 text-sm"
+                            >
+                              <Info className="w-4 h-4" />
+                              <span>View Details</span>
+                            </MagneticButton>
+                          </div>
+                        </div>
+                      </div>
                     </GlassCard>
 
                     {/* Asset Management */}
@@ -2537,129 +2838,8 @@ function SettingsContent() {
           </div>
         )}
 
-        {/* Custom TMDB Search Modal */}
-        {showCustomTMDBSearch && (
-            <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-              <motion.div
-                initial={{ opacity: 0, scale: 0.9 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.9 }}
-                className="bg-black/90 border border-white/20 rounded-lg p-6 max-w-md w-full"
-              >
-                <div className="flex items-center justify-between mb-6">
-                  <h3 className="text-xl font-semibold text-white flex items-center">
-                    <Search className="w-6 h-6 mr-3 text-[#E50914]" />
-                    Custom TMDB Search
-                  </h3>
-                  <button
-                    onClick={() => {
-                      setShowCustomTMDBSearch(false);
-                      setCustomSearchTitle('');
-                    }}
-                    className="text-white/60 hover:text-white"
-                  >
-                    <X className="w-6 h-6" />
-                  </button>
-                </div>
 
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-white/70 mb-2">
-                      Search Title
-                    </label>
-                    <input
-                      type="text"
-                      value={customSearchTitle}
-                      onChange={(e) => setCustomSearchTitle(e.target.value)}
-                      placeholder={`Enter custom search title for "${selectedMedia?.title}"`}
-                      className="w-full bg-black/50 border border-white/20 rounded-lg px-4 py-3 text-white placeholder-white/50 focus:border-[#E50914] focus:outline-none transition-colors"
-                      onKeyPress={(e) => {
-                        if (e.key === 'Enter') {
-                          handleCustomTMDBSearch();
-                        }
-                      }}
-                      autoFocus
-                    />
-                    <p className="text-white/50 text-sm mt-2">
-                      Use this to search TMDB with a different title than the current one. 
-                      Useful for movies with alternate titles or when the filename doesn't match TMDB.
-                    </p>
-                  </div>
 
-                  <div className="flex flex-col space-y-3">
-                    <div className="flex space-x-3">
-                      <MagneticButton
-                        onClick={handleCustomTMDBSearch}
-                        disabled={actionLoading.tmdb || !customSearchTitle.trim()}
-                        className="flex-1 bg-[#E50914] hover:bg-[#E50914]/80 text-white py-3 px-4 rounded-lg flex items-center justify-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        {actionLoading.tmdb ? (
-                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                        ) : (
-                          <Search className="w-4 h-4" />
-                        )}
-                        <span>Full Update</span>
-                      </MagneticButton>
-                      <MagneticButton
-                        onClick={() => {
-                          handleUpdateBackdropTrailer(customSearchTitle.trim());
-                        }}
-                        disabled={actionLoading.backdropTrailer || !customSearchTitle.trim()}
-                        className="flex-1 bg-indigo-600 hover:bg-indigo-600/80 text-white py-3 px-4 rounded-lg flex items-center justify-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        {actionLoading.backdropTrailer ? (
-                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                        ) : (
-                          <Film className="w-4 h-4" />
-                        )}
-                        <span>Backdrop & Trailer Only</span>
-                      </MagneticButton>
-                    </div>
-                    <MagneticButton
-                      onClick={() => {
-                        setShowCustomTMDBSearch(false);
-                        setCustomSearchTitle('');
-                      }}
-                      className="w-full bg-white/10 hover:bg-white/20 text-white py-3 px-4 rounded-lg"
-                    >
-                      Cancel
-                    </MagneticButton>
-                  </div>
-
-                  <div className="bg-white/5 rounded-lg p-4">
-                    <h4 className="text-white font-medium mb-3">Update Options:</h4>
-                    
-                    <div className="space-y-3">
-                      <div className="bg-[#E50914]/10 rounded p-3">
-                        <h5 className="text-[#E50914] font-medium text-sm mb-1">Full Update</h5>
-                        <ul className="text-white/70 text-xs space-y-1">
-                          <li>• Complete metadata refresh</li>
-                          <li>• Backdrop & trailer URLs</li>
-                          <li>• Poster, cast, crew info</li>
-                          <li>• Genres, ratings, descriptions</li>
-                        </ul>
-                      </div>
-                      
-                      <div className="bg-indigo-600/10 rounded p-3">
-                        <h5 className="text-indigo-400 font-medium text-sm mb-1">Backdrop & Trailer Only</h5>
-                        <ul className="text-white/70 text-xs space-y-1">
-                          <li>• Backdrop image URL only</li>
-                          <li>• Trailer video URL only</li>
-                          <li>• Preserves all other metadata</li>
-                          <li>• Faster, targeted update</li>
-                        </ul>
-                      </div>
-                    </div>
-                    
-                    <p className="text-yellow-400 text-sm mt-3">
-                      ⚠️ Your manual edits will be preserved during any update.
-                    </p>
-                  </div>
-                </div>
-              </motion.div>
-            </div>
-          )}
-        
 
         {/* Media Scanning Tab */}
         {activeTab === 'scanning' && (
@@ -3093,7 +3273,7 @@ function SettingsContent() {
                       <input
                         type="text"
                         value={newMediaPath.path}
-                        onChange={(e) => setNewMediaPath({...newMediaPath, path: e.target.value})}
+                        onChange={(e) => setNewMediaPath({ ...newMediaPath, path: e.target.value })}
                         placeholder="/path/to/media/directory"
                         className="w-full px-4 py-3 bg-black/50 border border-white/20 rounded-lg text-white placeholder-white/50 focus:border-[#E50914] focus:outline-none transition-colors"
                       />
@@ -3103,7 +3283,7 @@ function SettingsContent() {
                       <input
                         type="text"
                         value={newMediaPath.name}
-                        onChange={(e) => setNewMediaPath({...newMediaPath, name: e.target.value})}
+                        onChange={(e) => setNewMediaPath({ ...newMediaPath, name: e.target.value })}
                         placeholder="Friendly name for this path"
                         className="w-full px-4 py-3 bg-black/50 border border-white/20 rounded-lg text-white placeholder-white/50 focus:border-[#E50914] focus:outline-none transition-colors"
                       />
@@ -3112,7 +3292,7 @@ function SettingsContent() {
                       <label className="block text-white/70 text-sm font-medium mb-2">Type</label>
                       <select
                         value={newMediaPath.path_type}
-                        onChange={(e) => setNewMediaPath({...newMediaPath, path_type: e.target.value})}
+                        onChange={(e) => setNewMediaPath({ ...newMediaPath, path_type: e.target.value })}
                         className="w-full px-4 py-3 bg-black/50 border border-white/20 rounded-lg text-white focus:border-[#E50914] focus:outline-none transition-colors"
                       >
                         <option value="primary">Primary</option>
@@ -3125,7 +3305,7 @@ function SettingsContent() {
                       <input
                         type="number"
                         value={newMediaPath.priority}
-                        onChange={(e) => setNewMediaPath({...newMediaPath, priority: parseInt(e.target.value) || 0})}
+                        onChange={(e) => setNewMediaPath({ ...newMediaPath, priority: parseInt(e.target.value) || 0 })}
                         placeholder="0"
                         className="w-full px-4 py-3 bg-black/50 border border-white/20 rounded-lg text-white placeholder-white/50 focus:border-[#E50914] focus:outline-none transition-colors"
                       />
@@ -3135,7 +3315,7 @@ function SettingsContent() {
                       <input
                         type="text"
                         value={newMediaPath.description}
-                        onChange={(e) => setNewMediaPath({...newMediaPath, description: e.target.value})}
+                        onChange={(e) => setNewMediaPath({ ...newMediaPath, description: e.target.value })}
                         placeholder="Optional description"
                         className="w-full px-4 py-3 bg-black/50 border border-white/20 rounded-lg text-white placeholder-white/50 focus:border-[#E50914] focus:outline-none transition-colors"
                       />
@@ -3181,11 +3361,10 @@ function SettingsContent() {
                           <div className="flex items-center gap-3 mb-2">
                             <Folder className="w-5 h-5 text-[#E50914]" />
                             <h3 className="text-lg font-semibold text-white">{path.name}</h3>
-                            <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                              path.path_type === 'primary' ? 'bg-blue-500/20 text-blue-400' :
+                            <span className={`px-2 py-1 rounded-full text-xs font-medium ${path.path_type === 'primary' ? 'bg-blue-500/20 text-blue-400' :
                               path.path_type === 'torrent' ? 'bg-green-500/20 text-green-400' :
-                              'bg-purple-500/20 text-purple-400'
-                            }`}>
+                                'bg-purple-500/20 text-purple-400'
+                              }`}>
                               {path.path_type}
                             </span>
                             {path.priority > 0 && (
@@ -3202,11 +3381,10 @@ function SettingsContent() {
                         <div className="flex items-center gap-2">
                           <MagneticButton
                             onClick={() => updateMediaPath(path.id, { is_active: !path.is_active })}
-                            className={`px-4 py-2 rounded-lg font-medium transition-all duration-300 ${
-                              path.is_active 
-                                ? 'bg-green-500/20 text-green-400 hover:bg-green-500/30' 
-                                : 'bg-red-500/20 text-red-400 hover:bg-red-500/30'
-                            }`}
+                            className={`px-4 py-2 rounded-lg font-medium transition-all duration-300 ${path.is_active
+                              ? 'bg-green-500/20 text-green-400 hover:bg-green-500/30'
+                              : 'bg-red-500/20 text-red-400 hover:bg-red-500/30'
+                              }`}
                           >
                             {path.is_active ? 'Active' : 'Inactive'}
                           </MagneticButton>
@@ -3291,7 +3469,7 @@ function SettingsContent() {
                     </label>
                   </div>
                 </div>
-                
+
                 {/* TMDB Integration Section */}
                 <div className="bg-white/5 rounded-lg p-6">
                   <h3 className="text-lg font-semibold text-white mb-3 flex items-center">
@@ -3327,10 +3505,13 @@ function SettingsContent() {
 
       {/* TMDB Search Modal */}
       <TMDBSearchModal
-        isOpen={showCustomTMDBSearch}
+        key={`tmdb-modal-${selectedMedia?.id}-${showTMDBSearchModal}`}
+        isOpen={showTMDBSearchModal}
         onClose={() => {
-          setShowCustomTMDBSearch(false);
+          console.log('🚪 Closing TMDB Search Modal');
+          setShowTMDBSearchModal(false);
           setCustomSearchTitle('');
+          addTerminalOutput('🚪 TMDB search modal closed');
         }}
         onSelect={handleTMDBSelection}
         initialQuery={customSearchTitle}

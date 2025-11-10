@@ -51,6 +51,7 @@ const TMDBSearchModal: React.FC<TMDBSearchModalProps> = ({
 
   // Reset state when modal opens
   useEffect(() => {
+    console.log('🎭 TMDBSearchModal useEffect:', { isOpen, initialQuery, mediaType });
     if (isOpen) {
       setSearchQuery(initialQuery);
       setSelectedIndex(-1);
@@ -62,7 +63,7 @@ const TMDBSearchModal: React.FC<TMDBSearchModalProps> = ({
     }
   }, [isOpen, initialQuery]);
 
-  // Debounced search for suggestions
+  // Debounced search for suggestions - exactly like Navbar
   useEffect(() => {
     if (searchQuery.trim().length > 1) {
       const timeoutId = setTimeout(() => {
@@ -76,32 +77,24 @@ const TMDBSearchModal: React.FC<TMDBSearchModalProps> = ({
     }
   }, [searchQuery]);
 
+  // Exact same fetchSuggestions as Navbar
   const fetchSuggestions = async (query: string) => {
     if (!query.trim()) return;
 
     setIsLoading(true);
     try {
       const apiUrl = getApiUrl();
-      let endpoint = '/api/tmdb/suggestions';
-      
-      // Use specific endpoints based on media type
-      if (mediaType === 'movie') {
-        endpoint = '/api/tmdb/search';
-      } else if (mediaType === 'tv') {
-        endpoint = '/api/tmdb/search';
-      }
-      
-      const response = await fetch(`${apiUrl}${endpoint}?q=${encodeURIComponent(query)}&type=${mediaType}`);
+      const response = await fetch(`${apiUrl}/api/tmdb/suggestions?q=${encodeURIComponent(query)}`);
 
       if (response.ok) {
         const data: TMDBSuggestionsResponse = await response.json();
         let results = data.results || [];
-        
+
         // Filter by media type if specified
         if (mediaType !== 'all') {
           results = results.filter(result => result.media_type === mediaType);
         }
-        
+
         setSuggestions(results);
         setSelectedIndex(-1);
       } else {
@@ -121,7 +114,7 @@ const TMDBSearchModal: React.FC<TMDBSearchModalProps> = ({
       onClose();
     } else if (e.key === 'ArrowDown') {
       e.preventDefault();
-      setSelectedIndex(prev => 
+      setSelectedIndex(prev =>
         prev < suggestions.length - 1 ? prev + 1 : prev
       );
     } else if (e.key === 'ArrowUp') {
@@ -136,8 +129,10 @@ const TMDBSearchModal: React.FC<TMDBSearchModalProps> = ({
   };
 
   const handleSelect = (result: TMDBSearchResult) => {
+    console.log('🎬 TMDBSearchModal: Selecting result:', result);
+    console.log('🎭 Modal will stay open until update completes...');
     onSelect(result);
-    onClose();
+    // Don't close immediately - let the parent handle closing after processing
   };
 
   const getPosterUrl = (posterPath: string) => {
@@ -165,7 +160,7 @@ const TMDBSearchModal: React.FC<TMDBSearchModalProps> = ({
         >
           {/* Backdrop */}
           <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" />
-          
+
           {/* Modal */}
           <motion.div
             initial={{ scale: 0.9, opacity: 0 }}
@@ -222,9 +217,8 @@ const TMDBSearchModal: React.FC<TMDBSearchModalProps> = ({
                     <button
                       key={`${suggestion.media_type}-${suggestion.id}`}
                       onClick={() => handleSelect(suggestion)}
-                      className={`w-full px-6 py-4 text-left hover:bg-white/10 transition-colors flex items-center gap-4 group ${
-                        index === selectedIndex ? 'bg-white/10' : ''
-                      }`}
+                      className={`w-full px-6 py-4 text-left hover:bg-white/10 transition-colors flex items-center gap-4 group ${index === selectedIndex ? 'bg-white/10' : ''
+                        }`}
                     >
                       <div className="flex-shrink-0">
                         <img
@@ -233,7 +227,7 @@ const TMDBSearchModal: React.FC<TMDBSearchModalProps> = ({
                           className="w-12 h-16 object-cover rounded bg-gray-800"
                           onError={(e) => {
                             const target = e.target as HTMLImageElement;
-                            target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDgiIGhlaWdodD0iNjQiIHZpZXdCb3g9IjAgMCA0OCA2NCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjQ4IiBoZWlnaHQ9IjY0IiBmaWxsPSIjMzc0MTUxIi8+CjxwYXRoIGQ9Ik0yNCAzMkMzMC42Mjc0IDMyIDM2IDI2LjYyNzQgMzYgMjBDMzYgMTMuMzcyNiAzMC42Mjc0IDggMjQgOEMxNy4zNzI2IDggMTIgMTMuMzcyNiAxMiAyMEMxMiAyNi42Mjc0IDE3LjM3MjYgMzIgMjQgMzJaIiBmaWxsPSIjNkI3Mjg4Ii8+CjxwYXRoIGQ9Ik0xMiA0NEMxMiAzNi4yNjggMTguMjY4IDMwIDI2IDMwSDIyQzI5LjczMiAzMCAzNiAzNi4yNjggMzYgNDRWNTZIMTJWNDRaIiBmaWxsPSIjNkI3Mjg4Ii8+Cjwvc3ZnPgo=';
+                            target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDgiIGhlaWdodD0iNjQiIHZpZXdCb3g9IjAgMCA0OCA2NCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjQ4IiBoZWlnaHQ9IjY0IiBmaWxsPSIjMzc0MTUxIi8+CjxwYXRoIGQ9Ik0yNCAzMkMzMC42Mjc0IDMyIDM2IDI2LjYyNzQgMzYgMjBDMzYgMTMuMzcyNiAzMC42Mjc0IDggMjQgOEMxNy4zNzI2IDggMTIgMTMuMzcyNiAxMiAyMEMxMiAyNi42Mjc0IDE3LjM3MjYgMzIgMjQgMzJaIiBmaWxsPSIjNkI3Mjg4Ci8+CjxwYXRoIGQ9Ik0xMiA0NEMxMiAzNi4yNjggMTguMjY4IDMwIDI2IDMwSDIyQzI5LjczMiAzMCAzNiAzNi4yNjggMzYgNDRWNTZIMTJWNDRaIiBmaWxsPSIjNkI3Mjg4Ii8+Cjwvc3ZnPgo=';
                           }}
                         />
                       </div>

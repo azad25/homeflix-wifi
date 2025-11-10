@@ -195,6 +195,29 @@ type CrewMember struct {
 	ImageURL  string `json:"image_url"`
 }
 
+// TMDBVideos represents the videos response from TMDB
+type TMDBVideos struct {
+	Results []TMDBVideo `json:"results"`
+}
+
+// TMDBVideo represents a single video from TMDB
+type TMDBVideo struct {
+	ID          string `json:"id"`
+	Key         string `json:"key"`
+	Name        string `json:"name"`
+	Site        string `json:"site"`
+	Size        int    `json:"size"`
+	Type        string `json:"type"`
+	Official    bool   `json:"official"`
+	PublishedAt string `json:"published_at"`
+}
+
+// TMDBMovieDetailsWithExtras includes video data
+type TMDBMovieDetailsWithExtras struct {
+	TMDBMovieDetails
+	Videos TMDBVideos `json:"videos"`
+}
+
 func NewTMDBService() *TMDBService {
 	apiKey := os.Getenv("TMDB_API_KEY")
 	if apiKey == "" {
@@ -395,6 +418,41 @@ func (t *TMDBService) GetTVDetails(tvID int) (*TMDBTVDetails, error) {
 	}
 
 	var details TMDBTVDetails
+	if err := json.NewDecoder(resp.Body).Decode(&details); err != nil {
+		return nil, err
+	}
+
+	return &details, nil
+}
+
+func (t *TMDBService) GetMovieDetailsWithExtras(movieID int) (*TMDBMovieDetailsWithExtras, error) {
+	if t.apiKey == "" {
+		return nil, fmt.Errorf("TMDB API key not configured")
+	}
+
+	detailsURL := fmt.Sprintf("%s/movie/%d", t.baseURL, movieID)
+	params := url.Values{}
+	params.Add("append_to_response", "credits,videos")
+
+	req, err := http.NewRequest("GET", detailsURL+"?"+params.Encode(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Authorization", "Bearer "+t.apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := t.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("TMDB API error: %d", resp.StatusCode)
+	}
+
+	var details TMDBMovieDetailsWithExtras
 	if err := json.NewDecoder(resp.Body).Decode(&details); err != nil {
 		return nil, err
 	}
@@ -1887,92 +1945,156 @@ func (t *TMDBService) fetchUpcomingMovies() ([]TMDBMovie, error) {
 	return searchResp.Results, nil
 }
 
-// TMDBMovieDetailsWithExtras represents detailed movie information with videos and credits
-type TMDBMovieDetailsWithExtras struct {
-	TMDBMovieDetails
-	Videos TMDBVideos `json:"videos"`
-}
-
-// TMDBVideos represents the videos response from TMDB
-type TMDBVideos struct {
-	Results []TMDBVideo `json:"results"`
-}
-
-// TMDBVideo represents a single video (trailer, teaser, etc.)
-type TMDBVideo struct {
-	ID          string `json:"id"`
-	Key         string `json:"key"`
-	Name        string `json:"name"`
-	Site        string `json:"site"`
-	Type        string `json:"type"`
-	Official    bool   `json:"official"`
-	PublishedAt string `json:"published_at"`
-	Size        int    `json:"size"`
-}
-
-// GetMovieDetailsWithExtras fetches detailed movie information including videos and credits
-func (t *TMDBService) GetMovieDetailsWithExtras(movieID int) (*TMDBMovieDetailsWithExtras, error) {
-	if t.apiKey == "" {
-		return nil, fmt.Errorf("TMDB API key not configured")
+// ConvertMovieDetailsToMetadata converts TMDB movie details to MediaMetadata format
+func (t *TMDBService) ConvertMovieDetailsToMetadata(details *TMDBMovieDetailsWithExtras) *interfaces.MediaMetadata {
+	if details == nil {
+		return nil
 	}
 
-	detailsURL := fmt.Sprintf("%s/movie/%d", t.baseURL, movieID)
-	params := url.Values{}
-	params.Add("append_to_response", "credits,videos")
-
-	req, err := http.NewRequest("GET", detailsURL+"?"+params.Encode(), nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	req.Header.Set("Authorization", "Bearer "+t.apiKey)
-	req.Header.Set("Content-Type", "application/json")
-
-	// Execute request with retry logic
-	var resp *http.Response
-	maxRetries := 3
-	for attempt := 1; attempt <= maxRetries; attempt++ {
-		resp, err = t.httpClient.Do(req)
-		if err == nil {
-			break
+	// Extract cast (stars) - top 5 for stars, more for full cast
+	var stars []string
+	var cast []string
+	for i, castMember := range details.Credits.Cast {
+		if i < 5 { // Top 5 stars
+			stars = append(stars, castMember.Name)
 		}
-		if attempt < maxRetries {
-			log.Printf("⚠️ TMDB API request failed (attempt %d/%d): %v, retrying...", attempt, maxRetries, err)
-			time.Sleep(time.Duration(attempt) * time.Second) // Progressive backoff
-			continue
+		if i < 15 { // Top 15 for full cast
+			cast = append(cast, fmt.Sprintf("%s (%s)", castMember.Name, castMember.Character))
 		}
-		return nil, fmt.Errorf("failed to execute request after %d attempts: %w", maxRetries, err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == http.StatusNotFound {
-		return nil, fmt.Errorf("movie not found (ID: %d)", movieID)
-	} else if resp.StatusCode == http.StatusUnauthorized {
-		return nil, fmt.Errorf("TMDB API authentication failed - check API key")
-	} else if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("TMDB API error: %d", resp.StatusCode)
 	}
 
-	var details TMDBMovieDetailsWithExtras
-	if err := json.NewDecoder(resp.Body).Decode(&details); err != nil {
-		return nil, fmt.Errorf("failed to decode response: %w", err)
+	// Extract crew by roles
+	var directors []string
+	var writers []string
+	var producers []string
+	var crew []string
+
+	for _, crewMember := range details.Credits.Crew {
+		switch crewMember.Job {
+		case "Director":
+			directors = append(directors, crewMember.Name)
+		case "Writer", "Screenplay", "Story":
+			writers = append(writers, crewMember.Name)
+		case "Producer", "Executive Producer":
+			producers = append(producers, crewMember.Name)
+		case "Director of Photography", "Cinematography", "Music", "Editor":
+			crew = append(crew, fmt.Sprintf("%s (%s)", crewMember.Name, crewMember.Job))
+		}
 	}
 
-	// Validate that we got the essential data
-	if details.ID == 0 {
-		return nil, fmt.Errorf("invalid movie data received from TMDB")
+	// Extract genres
+	var genres []string
+	for _, genre := range details.Genres {
+		genres = append(genres, genre.Name)
 	}
 
-	// Initialize Videos.Results if nil to prevent nil pointer issues
-	if details.Videos.Results == nil {
-		details.Videos.Results = []TMDBVideo{}
+	// Extract country
+	var country string
+	if len(details.ProductionCountries) > 0 {
+		country = details.ProductionCountries[0].Name
 	}
 
-	log.Printf("✅ TMDB: Fetched movie details for '%s' (ID: %d) with %d videos and %d cast members", 
-		details.Title, details.ID, len(details.Videos.Results), len(details.Credits.Cast))
+	// Extract language
+	var language string
+	if len(details.SpokenLanguages) > 0 {
+		language = details.SpokenLanguages[0].Name
+	}
 
-	return &details, nil
+	// Extract year from release date
+	releaseYear := 0
+	if details.ReleaseDate != "" {
+		if parsedTime, err := time.Parse("2006-01-02", details.ReleaseDate); err == nil {
+			releaseYear = parsedTime.Year()
+		}
+	}
+
+	// Build poster and backdrop URLs
+	posterURL := t.buildImageURL(details.PosterPath, "w500")
+	backdropURL := t.buildImageURL(details.BackdropPath, "w1280")
+
+	// Extract trailer URL from videos
+	trailerURL := ""
+	if len(details.Videos.Results) > 0 {
+		// Look for official trailers first, then any trailers
+		var foundTrailer *TMDBVideo
+		var fallbackTrailer *TMDBVideo
+		
+		for _, video := range details.Videos.Results {
+			if video.Site == "YouTube" && video.Key != "" {
+				if video.Type == "Trailer" {
+					if video.Official {
+						// Official trailer is the best option
+						foundTrailer = &video
+						break
+					} else if fallbackTrailer == nil {
+						// Non-official trailer as fallback
+						fallbackTrailer = &video
+					}
+				} else if video.Type == "Teaser" && fallbackTrailer == nil {
+					// Teaser as last resort
+					fallbackTrailer = &video
+				}
+			}
+		}
+		
+		// Use the best trailer found
+		if foundTrailer != nil {
+			trailerURL = fmt.Sprintf("https://www.youtube.com/watch?v=%s", foundTrailer.Key)
+		} else if fallbackTrailer != nil {
+			trailerURL = fmt.Sprintf("https://www.youtube.com/watch?v=%s", fallbackTrailer.Key)
+		}
+	}
+
+	// Format box office information
+	boxOffice := ""
+	if details.Revenue > 0 {
+		boxOffice = t.formatCurrency(details.Revenue)
+	}
+
+	// Collection information
+	collection := ""
+	if details.BelongsToCollection != nil {
+		collection = details.BelongsToCollection.Name
+	}
+
+	return &interfaces.MediaMetadata{
+		Title:       details.Title,
+		Tagline:     details.Tagline,
+		ShortDesc:   t.truncateText(details.Overview, 150),
+		LongDesc:    details.Overview,
+		Description: details.Overview,
+		Year:        releaseYear,
+		Stars:       stars,
+		Directors:   directors,
+		Country:     country,
+		Language:    language,
+		Quality:     "HD", // Default quality
+		Rating:      details.VoteAverage,
+		Genres:      genres,
+		PosterURL:   posterURL,
+		BackdropURL: backdropURL,
+		TrailerURL:  trailerURL,
+		Runtime:     details.Runtime,
+		// Enhanced metadata
+		Budget:     details.Budget,
+		Revenue:    details.Revenue,
+		BoxOffice:  boxOffice,
+		Status:     details.Status,
+		IMDBID:     details.IMDBID,
+		Homepage:   details.Homepage,
+		Collection: collection,
+		Cast:       cast,
+		Crew:       crew,
+		Writers:    writers,
+		Producers:  producers,
+		// Additional fields
+		Popularity: details.Popularity,
+		VoteCount:  details.VoteCount,
+		Adult:      details.Adult,
+	}
 }
+
+
 
 // TMDBSearchResult represents a unified search result for both movies and TV shows
 type TMDBSearchResult struct {
@@ -2597,3 +2719,5 @@ func (t *TMDBService) validateMetadata(metadata *interfaces.MediaMetadata, title
 		log.Printf("✅ Metadata validation passed for '%s'", title)
 	}
 }
+
+

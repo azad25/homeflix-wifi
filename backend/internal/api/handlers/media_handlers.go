@@ -215,16 +215,22 @@ func UpdateSeriesWithTMDB(mediaService *services.MediaService, tmdbService *serv
 			return
 		}
 
-		// Parse request body for search parameters
+		// Parse request body for search parameters and TMDB data
 		var requestBody struct {
 			SearchTitle    string   `json:"searchTitle"`
 			PreserveFields []string `json:"preserveFields"`
+			TMDBId         int      `json:"tmdbId"`
+			MediaType      string   `json:"mediaType"`
+			TMDBData       interface{} `json:"tmdbData"`
 		}
 		if err := c.BindJSON(&requestBody); err != nil {
 			log.Printf("❌ Invalid request body for series %d: %v", id, err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
 			return
 		}
+
+		log.Printf("📥 Received TMDB update request for series %d: TMDBId=%d, SearchTitle='%s', MediaType='%s'", 
+			id, requestBody.TMDBId, requestBody.SearchTitle, requestBody.MediaType)
 
 		// Get existing series
 		series, err := mediaService.GetSeriesByID(uint(id))
@@ -242,32 +248,173 @@ func UpdateSeriesWithTMDB(mediaService *services.MediaService, tmdbService *serv
 
 		log.Printf("🎬 Fetching TMDB data for TV series: %s (ID: %d)", searchTitle, id)
 
-		// For now, we'll create a simple TMDB update that preserves manual edits
-		// In the future, we can implement full TMDB TV series metadata fetching
+		// Extract year from title for better search accuracy
+		year := extractYearFromTitle(searchTitle)
+		cleanTitle := removeYearFromTitle(searchTitle)
+
+		// Search for TV series in TMDB
+		var tvDetails *services.TMDBTVDetails
+		if requestBody.TMDBId > 0 {
+			log.Printf("🎯 Using provided TMDB ID: %d", requestBody.TMDBId)
+			tvDetails, err = tmdbService.GetTVDetails(requestBody.TMDBId)
+			if err != nil {
+				log.Printf("❌ Failed to get TV details for TMDB ID %d: %v", requestBody.TMDBId, err)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to fetch TMDB data: %v", err)})
+				return
+			}
+		} else {
+			// Search for TV series by title
+			tv, err := tmdbService.SearchTV(cleanTitle, year)
+			if err != nil {
+				// Try without year
+				tv, err = tmdbService.SearchTV(cleanTitle, 0)
+				if err != nil {
+					log.Printf("❌ Failed to find TV series in TMDB: %v", err)
+					c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("TV series not found in TMDB: %v", err)})
+					return
+				}
+			}
+
+			// Get detailed information
+			tvDetails, err = tmdbService.GetTVDetails(tv.ID)
+			if err != nil {
+				log.Printf("❌ Failed to get TV details: %v", err)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to get TV details: %v", err)})
+				return
+			}
+		}
+
+		// Prepare updates map
 		updates := make(map[string]interface{})
 
 		// Only update fields that aren't being preserved
-		if !contains(requestBody.PreserveFields, "title") && requestBody.SearchTitle != "" {
-			updates["title"] = requestBody.SearchTitle
+		if !contains(requestBody.PreserveFields, "title") && tvDetails.Name != "" {
+			updates["title"] = tvDetails.Name
 		}
-
-		// Add a note that this was updated via TMDB (for future full implementation)
-		log.Printf("📝 TMDB update requested for series %s - preserving fields: %v", series.Title, requestBody.PreserveFields)
-
-		// Update the series with any changes
-		if len(updates) > 0 {
-			updatedSeries, err := mediaService.UpdateSeries(uint(id), updates)
-			if err != nil {
-				log.Printf("❌ Failed to update series %d with TMDB data: %v", id, err)
-				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-				return
+		if !contains(requestBody.PreserveFields, "description") && tvDetails.Overview != "" {
+			updates["description"] = tvDetails.Overview
+		}
+		if !contains(requestBody.PreserveFields, "tagline") && tvDetails.Tagline != "" {
+			updates["tagline"] = tvDetails.Tagline
+		}
+		if !contains(requestBody.PreserveFields, "year") && tvDetails.FirstAirDate != "" {
+			if year, err := extractYearFromDate(tvDetails.FirstAirDate); err == nil && year > 0 {
+				updates["release_date"] = tvDetails.FirstAirDate
 			}
-			series = updatedSeries
 		}
+		if !contains(requestBody.PreserveFields, "rating") && tvDetails.VoteAverage > 0 {
+			updates["rating"] = tvDetails.VoteAverage
+		}
+		if !contains(requestBody.PreserveFields, "status") && tvDetails.Status != "" {
+			updates["status"] = tvDetails.Status
+		}
+		if !contains(requestBody.PreserveFields, "seasons") && tvDetails.NumberOfSeasons > 0 {
+			updates["total_seasons"] = tvDetails.NumberOfSeasons
+		}
+		if !contains(requestBody.PreserveFields, "episodes") && tvDetails.NumberOfEpisodes > 0 {
+			updates["total_episodes"] = tvDetails.NumberOfEpisodes
+		}
+		if !contains(requestBody.PreserveFields, "network") && len(tvDetails.Networks) > 0 {
+			updates["network"] = tvDetails.Networks[0].Name
+		}
+
+		// Always update backdrop and trailer URLs (these are enhancements, not user data)
+		if tvDetails.BackdropPath != "" {
+			backdropURL := tmdbService.GetPosterURL(tvDetails.BackdropPath, "w1280")
+			updates["backdrop_path"] = backdropURL
+		}
+		if tvDetails.PosterPath != "" {
+			posterURL := tmdbService.GetPosterURL(tvDetails.PosterPath, "w500")
+			updates["poster_path"] = posterURL
+		}
+
+		// Extract trailer URL from videos
+		if len(tvDetails.Videos.Results) > 0 {
+			for _, video := range tvDetails.Videos.Results {
+				if video.Site == "YouTube" && video.Type == "Trailer" && video.Key != "" {
+					trailerURL := fmt.Sprintf("https://www.youtube.com/watch?v=%s", video.Key)
+					updates["trailer_url"] = trailerURL
+					break
+				}
+			}
+		}
+
+		// Update genres if available
+		if len(tvDetails.Genres) > 0 {
+			genreNames := make([]string, len(tvDetails.Genres))
+			for i, genre := range tvDetails.Genres {
+				genreNames[i] = genre.Name
+			}
+			updates["genres"] = genreNames
+		}
+
+		// Update the series with TMDB data
+		updatedSeries, err := mediaService.UpdateSeries(uint(id), updates)
+		if err != nil {
+			log.Printf("❌ Failed to update series %d with TMDB data: %v", id, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		series = updatedSeries
 
 		log.Printf("✅ Series TMDB update completed for: %s", series.Title)
+		log.Printf("📊 Updated fields: %v", getMapKeys(updates))
+		
 		c.JSON(http.StatusOK, series)
 	}
+}
+
+// Helper functions for TMDB updates
+func extractYearFromTitle(title string) int {
+	// Look for year in parentheses at the end
+	if strings.Contains(title, "(") && strings.Contains(title, ")") {
+		start := strings.LastIndex(title, "(")
+		end := strings.LastIndex(title, ")")
+		if start < end && end == len(title)-1 {
+			yearStr := title[start+1 : end]
+			if year, err := strconv.Atoi(yearStr); err == nil && year >= 1900 && year <= 2030 {
+				return year
+			}
+		}
+	}
+	return 0
+}
+
+func removeYearFromTitle(title string) string {
+	// Remove year in parentheses at the end
+	if strings.Contains(title, "(") && strings.Contains(title, ")") {
+		start := strings.LastIndex(title, "(")
+		end := strings.LastIndex(title, ")")
+		if start < end && end == len(title)-1 {
+			yearStr := title[start+1 : end]
+			if year, err := strconv.Atoi(yearStr); err == nil && year >= 1900 && year <= 2030 {
+				return strings.TrimSpace(title[:start])
+			}
+		}
+	}
+	return title
+}
+
+func extractYearFromDate(dateStr string) (int, error) {
+	if dateStr == "" {
+		return 0, fmt.Errorf("empty date string")
+	}
+	
+	// Parse date in format "2006-01-02"
+	t, err := time.Parse("2006-01-02", dateStr)
+	if err != nil {
+		return 0, err
+	}
+	
+	return t.Year(), nil
+}
+
+func getMapKeys(m map[string]interface{}) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
 }
 
 
