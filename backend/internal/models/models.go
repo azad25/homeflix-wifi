@@ -62,7 +62,7 @@ type Media struct {
 	Adult        bool     `json:"adult"`                               // Adult content flag
 	
 	// Genres - keeping both relationship and JSON for flexibility
-	Genres     []Genre  `json:"-" gorm:"many2many:media_genres;"` // Exclude from JSON to prevent object rendering errors
+	Genres     []Genre  `json:"genres" gorm:"many2many:media_genres;"` // Include in JSON for frontend
 	GenreNames []string `json:"genre_names" gorm:"serializer:json"` // For JSON compatibility
 	
 	// Video info
