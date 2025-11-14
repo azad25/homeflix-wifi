@@ -257,6 +257,8 @@ const EnhancedMovieCard: React.FC<EnhancedMovieCardProps> = ({
               }`}
             loading={priority ? "eager" : "lazy"}
             priority={priority}
+            posterUrl={media.tmdb_poster_url || media.poster_url}
+            mediaType={media.type}
           />
 
           {/* Preview Video */}

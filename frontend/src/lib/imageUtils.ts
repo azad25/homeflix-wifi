@@ -36,14 +36,29 @@ export const getPrimaryImageWithFallback = (mediaId: number | string) => {
 /**
  * Custom hook for handling image loading with poster-to-thumbnail fallback
  */
-export const useImageWithFallback = (mediaId: number | string, posterUrl?: string | null) => {
+export const useImageWithFallback = (mediaId: number | string, posterUrl?: string | null, mediaType?: string) => {
+  const apiUrl = getApiUrl();
   const { primary, fallback } = getPrimaryImageWithFallback(mediaId);
   
-  // If posterUrl is provided (for TMDB movies), use it as primary
-  const primarySrc = posterUrl || primary;
+  // If posterUrl is provided (for TMDB or custom posters), use it as primary
+  if (posterUrl) {
+    return {
+      primarySrc: posterUrl,
+      fallbackSrc: primary // Regular poster endpoint as fallback
+    };
+  }
   
+  // For TV series/episodes, try series poster endpoint first
+  if (mediaType === 'series' || mediaType === 'tv' || mediaType === 'episode') {
+    return {
+      primarySrc: `${apiUrl}/api/series/${mediaId}/poster`,
+      fallbackSrc: primary // Regular poster endpoint as fallback
+    };
+  }
+  
+  // For movies and other media, use regular poster endpoint
   return {
-    primarySrc,
+    primarySrc: primary,
     fallbackSrc: fallback
   };
 };

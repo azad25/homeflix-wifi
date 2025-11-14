@@ -988,7 +988,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
 
 
 
-  // ZERO-LATENCY BACKGROUND IMAGES: Cached URLs with no validation
+  // ZERO-LATENCY BACKGROUND IMAGES: Prioritize TMDB backdrop, fallback to thumbnails
   const getBackgroundImageUrl = useCallback((media: Media): string => {
     if (!media?.id || typeof media.id !== 'number' || media.id <= 0) {
       // Return optimized placeholder for invalid media
@@ -1003,9 +1003,16 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
       return urlCache.current.get(cacheKey)!;
     }
 
-    const apiUrl = getApiUrl();
-    // CRITICAL: Use thumbnail endpoint for maximum reliability and caching
-    const url = `${apiUrl}/api/thumbnails/${media.id}`;
+    let url: string;
+
+    // PRIORITY 1: Use TMDB backdrop URL if available
+    if (media.tmdb_backdrop_url && media.tmdb_backdrop_url.trim() !== '') {
+      url = media.tmdb_backdrop_url;
+    } else {
+      // FALLBACK: Use thumbnail endpoint for maximum reliability and caching
+      const apiUrl = getApiUrl();
+      url = `${apiUrl}/api/thumbnails/${media.id}`;
+    }
 
     // Cache the URL for instant future access
     urlCache.current.set(cacheKey, url);

@@ -738,34 +738,33 @@ export default function TVSeriesPage() {
               className="flex-shrink-0 hidden md:block"
             >
               <div className="relative w-48 lg:w-64 h-72 lg:h-96 rounded-lg overflow-hidden shadow-2xl border border-white/10">
-                {/* Use poster if available, otherwise fallback to thumbnail */}
-                {series.poster_path || series.tmdb_poster_url ? (
-                  <img
-                    src={series.tmdb_poster_url || series.poster_path || `${getApiUrl()}/api/posters/${series.id}`}
-                    alt={series.title}
-                    className="w-full h-full object-cover"
-                    loading="eager"
-                    onError={(e) => {
-                      const target = e.target as HTMLImageElement;
-                      const apiUrl = getApiUrl();
-                      // Fallback to poster endpoint, then thumbnail
-                      if (!target.src.includes('/api/posters/')) {
-                        target.src = `${apiUrl}/api/posters/${series.id}`;
-                      } else if (!target.src.includes('/api/thumbnails/')) {
-                        target.src = `${apiUrl}/api/thumbnails/${series.id}`;
-                      }
-                    }}
-                  />
-                ) : (
-                  <ImageWithFallback
-                    mediaId={series.id}
-                    alt={series.title}
-                    fill={true}
-                    sizes="256px"
-                    className="object-cover"
-                    loading="eager"
-                  />
-                )}
+                {/* Use series poster with proper fallback chain */}
+                <img
+                  src={series.tmdb_poster_url || `${getApiUrl()}/api/series/${series.id}/poster`}
+                  alt={series.title}
+                  className="w-full h-full object-cover"
+                  loading="eager"
+                  onError={(e) => {
+                    const target = e.target as HTMLImageElement;
+                    const apiUrl = getApiUrl();
+                    // Fallback chain: TMDB poster -> series poster -> series thumbnail -> gradient
+                    if (series.tmdb_poster_url && !target.src.includes('tmdb')) {
+                      target.src = series.tmdb_poster_url;
+                    } else if (!target.src.includes('/api/series/') && !target.src.includes('/poster')) {
+                      target.src = `${apiUrl}/api/series/${series.id}/poster`;
+                    } else if (!target.src.includes('/api/thumbnails/')) {
+                      target.src = `${apiUrl}/api/thumbnails/${series.id}`;
+                    } else {
+                      // Final fallback: Show gradient
+                      const parent = target.parentElement!;
+                      parent.innerHTML = `
+                        <div class="w-full h-full bg-gradient-to-br from-red-600 to-red-800 flex items-center justify-center">
+                          <span class="text-4xl font-bold text-white">${series.title.charAt(0)}</span>
+                        </div>
+                      `;
+                    }
+                  }}
+                />
               </div>
             </motion.div>
 
@@ -928,17 +927,6 @@ export default function TVSeriesPage() {
 
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
               {seasons.sort((a, b) => a.season_number - b.season_number).map((season) => {
-                // Get random episode from season for thumbnail
-                const getRandomSeasonThumbnail = () => {
-                  if (season.episodes && season.episodes.length > 0) {
-                    const randomEpisode = season.episodes[Math.floor(Math.random() * season.episodes.length)];
-                    return episodes.find(ep => ep.id === randomEpisode.id);
-                  }
-                  return null;
-                };
-
-                const thumbnailEpisode = getRandomSeasonThumbnail();
-
                 return (
                   <motion.div
                     key={season.id}
@@ -948,18 +936,34 @@ export default function TVSeriesPage() {
                     transition={{ duration: 0.2 }}
                   >
                     <div className="relative aspect-[2/3] bg-gray-800 rounded-lg overflow-hidden mb-3 group-hover:scale-105 transition-transform duration-300">
-                      {thumbnailEpisode ? (
-                        <img
-                          src={`${getApiUrl()}/api/thumbnails/${thumbnailEpisode.id}`}
-                          alt={`${series?.title} ${season.name}`}
-                          className="w-full h-full object-cover"
-                          loading="lazy"
-                        />
-                      ) : (
-                        <div className="w-full h-full bg-gradient-to-br from-red-600 to-red-800 flex items-center justify-center">
-                          <span className="text-4xl font-bold text-white">{season.season_number}</span>
-                        </div>
-                      )}
+                      {/* Use series poster for seasons */}
+                      <img
+                        src={series.tmdb_poster_url || `${getApiUrl()}/api/series/${series.id}/poster`}
+                        alt={`${series?.title} ${season.name}`}
+                        className="w-full h-full object-cover"
+                        loading="lazy"
+                        onError={(e) => {
+                          const target = e.target as HTMLImageElement;
+                          const apiUrl = getApiUrl();
+                          // Fallback chain: TMDB poster -> series poster -> series thumbnail -> gradient
+                          if (series.tmdb_poster_url && !target.src.includes('tmdb')) {
+                            target.src = series.tmdb_poster_url;
+                          } else if (!target.src.includes('/api/series/') && !target.src.includes('/poster')) {
+                            target.src = `${apiUrl}/api/series/${series.id}/poster`;
+                          } else if (!target.src.includes('/api/thumbnails/')) {
+                            target.src = `${apiUrl}/api/thumbnails/${series.id}`;
+                          } else {
+                            // Final fallback: Show gradient with season number
+                            const parent = target.parentElement!;
+                            parent.innerHTML = `
+                              <div class="w-full h-full bg-gradient-to-br from-red-600 to-red-800 flex flex-col items-center justify-center">
+                                <span class="text-4xl font-bold text-white">S${season.season_number}</span>
+                                <span class="text-sm font-medium text-white/80 text-center px-2">${series.title}</span>
+                              </div>
+                            `;
+                          }
+                        }}
+                      />
 
                       <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
 
@@ -1002,30 +1006,6 @@ export default function TVSeriesPage() {
             </div>
           </ScrollReveal>
 
-          {/* Latest Episodes Preview */}
-          {episodes.length > 0 && (
-            <ScrollReveal direction="up" delay={0.4}>
-              <div className="mt-16">
-                <h2 className="text-3xl font-bold text-white mb-8">Latest Episodes</h2>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-                  {episodes.slice(0, 8).map((episode, index) => {
-                    const seasonNumber = extractSeasonNumber(episode.title) || 1;
-                    return (
-                      <NetflixMediaCard
-                        key={episode.id}
-                        media={episode}
-                        onPlay={handlePlay}
-                        onInfo={(media) => navigate.push(`/tv-series/${params.id}/season/${seasonNumber}`)}
-                        priority={index < 4 ? 'high' : 'normal'}
-                        showPreviewOnHover={true}
-                      />
-                    );
-                  })}
-                </div>
-              </div>
-            </ScrollReveal>
-          )}
 
           {/* Series Details */}
           <ScrollReveal direction="up" delay={0.6}>

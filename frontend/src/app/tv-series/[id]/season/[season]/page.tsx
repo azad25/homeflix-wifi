@@ -354,15 +354,58 @@ export default function SeasonPage() {
               <span className="text-sm font-medium">Back to Series</span>
             </button>
 
-            {/* Series Title */}
-            <motion.h1
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.6 }}
-              className="text-4xl md:text-6xl lg:text-7xl font-bold mb-4 drop-shadow-2xl"
-            >
-              {series.title}
-            </motion.h1>
+            {/* Hero Content with Poster */}
+            <div className="flex gap-6 items-end">
+              {/* Series Poster */}
+              <motion.div
+                initial={{ scale: 0.8, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                transition={{ duration: 0.6, delay: 0.2 }}
+                className="flex-shrink-0 hidden md:block"
+              >
+                <div className="relative w-40 lg:w-48 h-60 lg:h-72 rounded-lg overflow-hidden shadow-2xl border border-white/10">
+                  {/* Use series poster */}
+                  <img
+                    src={series.tmdb_poster_url || `${getApiUrl()}/api/series/${series.id}/poster`}
+                    alt={series.title}
+                    className="w-full h-full object-cover"
+                    loading="eager"
+                    onError={(e) => {
+                      const target = e.target as HTMLImageElement;
+                      const apiUrl = getApiUrl();
+                      // Fallback chain: TMDB poster -> series poster -> series thumbnail -> gradient
+                      if (series.tmdb_poster_url && !target.src.includes('tmdb')) {
+                        target.src = series.tmdb_poster_url;
+                      } else if (!target.src.includes('/api/series/') && !target.src.includes('/poster')) {
+                        target.src = `${apiUrl}/api/series/${series.id}/poster`;
+                      } else if (!target.src.includes('/api/thumbnails/')) {
+                        target.src = `${apiUrl}/api/thumbnails/${series.id}`;
+                      } else {
+                        // Final fallback: Show gradient
+                        const parent = target.parentElement!;
+                        parent.innerHTML = `
+                          <div class="w-full h-full bg-gradient-to-br from-red-600 to-red-800 flex flex-col items-center justify-center">
+                            <span class="text-2xl font-bold text-white">${series.title.charAt(0)}</span>
+                            <span class="text-xs font-medium text-white/80 text-center px-2">S${currentSeason}</span>
+                          </div>
+                        `;
+                      }
+                    }}
+                  />
+                </div>
+              </motion.div>
+
+              {/* Series Details */}
+              <div className="flex-1 space-y-4 pb-4">
+                {/* Series Title */}
+                <motion.h1
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.6 }}
+                  className="text-3xl md:text-5xl lg:text-6xl font-bold mb-4 drop-shadow-2xl"
+                >
+                  {series.title}
+                </motion.h1>
 
             {/* Season Selector */}
             <motion.div
@@ -465,6 +508,8 @@ export default function SeasonPage() {
                 More Info
               </button>
             </motion.div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -502,15 +547,57 @@ export default function SeasonPage() {
                       <div className="relative aspect-video bg-zinc-800 rounded overflow-hidden cursor-pointer"
                         onClick={() => handlePlay(episode)}
                       >
-                        {episode.media && (
+                        {episode.media ? (
                           <>
+                            {/* Use series poster first, then fallback to episode thumbnail */}
                             <img
-                              src={`${getApiUrl()}/api/thumbnails/${episode.media.id}`}
+                              src={(() => {
+                                // Try multiple poster sources in order of preference
+                                if (series.tmdb_poster_url) return series.tmdb_poster_url;
+                                if (series.poster_path) return `${getApiUrl()}/api/admin/assets/${series.poster_path.split('/').pop()}`;
+                                return `${getApiUrl()}/api/series/${series.id}/poster`;
+                              })()}
                               alt={episode.name}
                               className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
                               loading={index < 3 ? 'eager' : 'lazy'}
                               onError={(e) => {
-                                e.currentTarget.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="640" height="360"%3E%3Crect fill="%2318181b" width="640" height="360"/%3E%3C/svg%3E';
+                                const target = e.target as HTMLImageElement;
+                                const apiUrl = getApiUrl();
+                                
+                                // Comprehensive fallback chain
+                                if (series.tmdb_poster_url && target.src.includes('tmdb')) {
+                                  // TMDB failed, try local poster path
+                                  if (series.poster_path) {
+                                    target.src = `${apiUrl}/api/admin/assets/${series.poster_path.split('/').pop()}`;
+                                  } else {
+                                    target.src = `${apiUrl}/api/series/${series.id}/poster`;
+                                  }
+                                } else if (series.poster_path && target.src.includes('/api/admin/assets/')) {
+                                  // Local poster path failed, try series poster endpoint
+                                  target.src = `${apiUrl}/api/series/${series.id}/poster`;
+                                } else if (target.src.includes('/api/series/') && target.src.includes('/poster')) {
+                                  // Series poster endpoint failed, try episode thumbnail
+                                  if (episode.media) {
+                                    target.src = `${apiUrl}/api/thumbnails/${episode.media.id}`;
+                                  } else {
+                                    target.src = `${apiUrl}/api/thumbnails/${series.id}`;
+                                  }
+                                } else if (episode.media && target.src.includes(`/api/thumbnails/${episode.media.id}`)) {
+                                  // Episode thumbnail failed, try series thumbnail
+                                  target.src = `${apiUrl}/api/thumbnails/${series.id}`;
+                                } else {
+                                  // Final fallback: Show episode info overlay
+                                  const parent = target.parentElement!;
+                                  parent.innerHTML = `
+                                    <div class="w-full h-full bg-gradient-to-br from-red-600 to-red-800 flex flex-col items-center justify-center p-4">
+                                      <div class="text-center">
+                                        <div class="text-3xl font-bold text-white mb-2">E${episode.episode_number}</div>
+                                        <div class="text-sm text-white/90 font-medium line-clamp-2">${episode.name}</div>
+                                        <div class="text-xs text-white/70 mt-1">${series.title}</div>
+                                      </div>
+                                    </div>
+                                  `;
+                                }
                               }}
                             />
                             
@@ -533,6 +620,51 @@ export default function SeasonPage() {
                               </div>
                             )}
                           </>
+                        ) : (
+                          // No episode media, show series poster
+                          <img
+                            src={(() => {
+                              // Try multiple poster sources in order of preference
+                              if (series.tmdb_poster_url) return series.tmdb_poster_url;
+                              if (series.poster_path) return `${getApiUrl()}/api/admin/assets/${series.poster_path.split('/').pop()}`;
+                              return `${getApiUrl()}/api/series/${series.id}/poster`;
+                            })()}
+                            alt={episode.name}
+                            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                            loading={index < 3 ? 'eager' : 'lazy'}
+                            onError={(e) => {
+                              const target = e.target as HTMLImageElement;
+                              const apiUrl = getApiUrl();
+                              
+                              // Comprehensive fallback chain
+                              if (series.tmdb_poster_url && target.src.includes('tmdb')) {
+                                // TMDB failed, try local poster path
+                                if (series.poster_path) {
+                                  target.src = `${apiUrl}/api/admin/assets/${series.poster_path.split('/').pop()}`;
+                                } else {
+                                  target.src = `${apiUrl}/api/series/${series.id}/poster`;
+                                }
+                              } else if (series.poster_path && target.src.includes('/api/admin/assets/')) {
+                                // Local poster path failed, try series poster endpoint
+                                target.src = `${apiUrl}/api/series/${series.id}/poster`;
+                              } else if (target.src.includes('/api/series/')) {
+                                // Series poster endpoint failed, try series thumbnail
+                                target.src = `${apiUrl}/api/thumbnails/${series.id}`;
+                              } else {
+                                // Final fallback
+                                const parent = target.parentElement!;
+                                parent.innerHTML = `
+                                  <div class="w-full h-full bg-gradient-to-br from-red-600 to-red-800 flex flex-col items-center justify-center p-4">
+                                    <div class="text-center">
+                                      <div class="text-3xl font-bold text-white mb-2">E${episode.episode_number}</div>
+                                      <div class="text-sm text-white/90 font-medium line-clamp-2">${episode.name}</div>
+                                      <div class="text-xs text-white/70 mt-1">${series.title}</div>
+                                    </div>
+                                  </div>
+                                `;
+                              }
+                            }}
+                          />
                         )}
                       </div>
                     </div>

@@ -98,11 +98,85 @@ export default function Home() {
         .slice(0, 20);
       setPopularMovies(popularMovies);
 
-      // Popular series (most viewed TV shows)
-      const popularSeries = allMedia
-        .filter((item: Media) => item.type === "episode")
-        .sort((a: Media, b: Media) => (b.view_count || 0) - (a.view_count || 0))
+      // Popular series (most viewed TV shows) - Group episodes into series
+      const tvEpisodes = allMedia.filter((item: Media) => item.type === "episode");
+      
+      // Build series groups from episodes (same logic as TV shows page)
+      const seriesMap = new Map<string | number, any>();
+      tvEpisodes.forEach((ep: Media) => {
+        // Extract series ID - prefer series_id, fallback to extracting from title
+        const sid = ep.series_id ?? ep.series?.id ?? extractSeriesIdFromTitle(ep.title) ?? ep.id;
+        
+        // Clean series title - remove episode info and technical prefixes
+        let seriesTitle = ep.series?.title || ep.title || 'Untitled Series';
+        
+        // Remove episode patterns like "- S01E01", "S1E1", "Episode 1", etc.
+        seriesTitle = seriesTitle
+          .replace(/\s*-\s*S\d+E\d+.*$/i, '')
+          .replace(/\s*S\d+E\d+.*$/i, '')
+          .replace(/\s*Season\s+\d+.*$/i, '')
+          .replace(/\s*Episode\s+\d+.*$/i, '')
+          .replace(/\s*Ep\s*\d+.*$/i, '')
+          .replace(/\s*\d+x\d+.*$/i, '')
+          .trim();
+
+        if (!seriesMap.has(sid)) {
+          seriesMap.set(sid, {
+            id: sid,
+            title: seriesTitle,
+            description: ep.series?.description || ep.description || '',
+            rating: ep.rating || 0,
+            type: 'series',
+            series_id: sid,
+            genres: ep.genres || [],
+            episodes: [],
+            thumbnail_path: ep.thumbnail_path,
+            banner_path: ep.banner_path,
+            // Use proper poster URLs for series - prioritize TMDB poster, then series poster endpoint
+            poster_path: (ep.series as any)?.tmdb_poster_url || ep.tmdb_poster_url || ep.series?.poster_path || undefined,
+            tmdb_poster_url: (ep.series as any)?.tmdb_poster_url || ep.tmdb_poster_url,
+            poster_url: (ep.series as any)?.tmdb_poster_url || ep.tmdb_poster_url,
+            view_count: 0,
+            // Add these fields to make it more compatible with Media interface
+            file_path: undefined,
+            duration: undefined
+          });
+        }
+
+        const group = seriesMap.get(sid)!;
+        group.episodes.push(ep);
+        // Sum up view counts from all episodes for series popularity
+        group.view_count += (ep.view_count || 0);
+        
+        // Update rating to average of all episodes
+        const totalRating = group.episodes.reduce((sum: number, episode: Media) => sum + (episode.rating || 0), 0);
+        group.rating = totalRating / group.episodes.length;
+      });
+
+      // Helper function to extract series ID from title patterns
+      function extractSeriesIdFromTitle(title: string): string | null {
+        // Try to extract series name from common patterns
+        const patterns = [
+          /^(.+?)\s*-\s*S\d+E\d+/i,
+          /^(.+?)\s*S\d+E\d+/i,
+          /^(.+?)\s*Season\s+\d+/i,
+          /^(.+?)\s*Episode\s+\d+/i,
+        ];
+        
+        for (const pattern of patterns) {
+          const match = title.match(pattern);
+          if (match) {
+            return match[1].trim();
+          }
+        }
+        return null;
+      }
+
+      // Convert to array and sort by total view count
+      const popularSeries = Array.from(seriesMap.values())
+        .sort((a, b) => (b.view_count || 0) - (a.view_count || 0))
         .slice(0, 20);
+      
       setPopularSeries(popularSeries);
 
       // Trending now (highest rated recent content)
@@ -160,7 +234,7 @@ export default function Home() {
       ];
 
       if (allContentForPreload.length > 0) {
-        preloadAssets(allContentForPreload, ['poster', 'thumbnail', 'preview']);
+        preloadAssets(allContentForPreload, ['thumbnail', 'preview']);
       }
 
       setLoading(false);
@@ -221,7 +295,22 @@ export default function Home() {
   };
 
   const handlePlay = (media: Media, startTime?: number) => {
-    setSelectedMedia(media);
+    // Check if this is a series object (has episodes array)
+    if (media.type === 'series' && (media as any).episodes && (media as any).episodes.length > 0) {
+      // Play the first episode of the series
+      const firstEpisode = (media as any).episodes[0];
+      setSelectedMedia({
+        id: firstEpisode.id,
+        title: firstEpisode.title,
+        thumbnail_path: firstEpisode.thumbnail_path,
+        description: firstEpisode.description,
+        type: 'episode',
+        series_id: media.series_id || media.id
+      } as Media);
+    } else {
+      // Regular media (movie or episode)
+      setSelectedMedia(media);
+    }
     setIsPlayerOpen(true);
   };
 

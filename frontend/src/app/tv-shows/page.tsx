@@ -515,13 +515,13 @@ export default function TVShowsPage() {
                               onError={(e) => {
                                 const target = e.target as HTMLImageElement;
                                 const apiUrl = getApiUrl();
-                                // Fallback chain: series poster -> episode thumbnail -> series thumbnail -> gradient
+                                // Fallback chain: series poster -> series thumbnail -> episode thumbnail -> gradient
                                 if (!target.src.includes('/api/series/') && !target.src.includes('/poster')) {
                                   target.src = `${apiUrl}/api/series/${series.id}/poster`;
-                                } else if (fallbackEpisode && !target.src.includes(`/api/thumbnails/${fallbackEpisode.id}`)) {
-                                  target.src = `${apiUrl}/api/thumbnails/${fallbackEpisode.id}`;
                                 } else if (series.thumbnail_path && !target.src.includes(`/api/thumbnails/${series.id}`)) {
                                   target.src = `${apiUrl}/api/thumbnails/${series.id}`;
+                                } else if (fallbackEpisode && !target.src.includes(`/api/thumbnails/${fallbackEpisode.id}`)) {
+                                  target.src = `${apiUrl}/api/thumbnails/${fallbackEpisode.id}`;
                                 } else {
                                   // Final fallback: Show gradient
                                   const parent = target.parentElement!;
@@ -606,10 +606,8 @@ export default function TVShowsPage() {
                       {/* Seasons Grid */}
                       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
                         {series.seasons.map((season) => {
-                          // Use random episode from season for thumbnail
-                          const randomEpisode = season.episodes.length > 0
-                            ? season.episodes[Math.floor(Math.random() * season.episodes.length)]
-                            : season.episodes[0];
+                          // Get first episode from season for fallback
+                          const firstEpisode = season.episodes.length > 0 ? season.episodes[0] : null;
 
                           return (
                             <div
@@ -618,14 +616,34 @@ export default function TVShowsPage() {
                               onClick={() => handleSeasonClick(series, season.season_number)}
                             >
                               <div className="relative aspect-[2/3] bg-gray-800 rounded-lg overflow-hidden mb-3 group-hover:scale-105 transition-transform duration-300">
-                                {randomEpisode?.thumbnail_path && (
-                                  <img
-                                    src={`${getApiUrl()}/api/thumbnails/${randomEpisode.id}`}
-                                    alt={`${series.title} ${season.name}`}
-                                    className="w-full h-full object-cover"
-                                    loading="lazy"
-                                  />
-                                )}
+                                {/* Use series poster for seasons */}
+                                <img
+                                  src={getPosterUrl(series.id)}
+                                  alt={`${series.title} ${season.name}`}
+                                  className="w-full h-full object-cover"
+                                  loading="lazy"
+                                  onError={(e) => {
+                                    const target = e.target as HTMLImageElement;
+                                    const apiUrl = getApiUrl();
+                                    // Fallback chain: series poster -> series thumbnail -> first episode thumbnail -> gradient
+                                    if (!target.src.includes('/api/series/') && !target.src.includes('/poster')) {
+                                      target.src = `${apiUrl}/api/series/${series.id}/poster`;
+                                    } else if (series.thumbnail_path && !target.src.includes(`/api/thumbnails/${series.id}`)) {
+                                      target.src = `${apiUrl}/api/thumbnails/${series.id}`;
+                                    } else if (firstEpisode && !target.src.includes(`/api/thumbnails/${firstEpisode.id}`)) {
+                                      target.src = `${apiUrl}/api/thumbnails/${firstEpisode.id}`;
+                                    } else {
+                                      // Final fallback: Show gradient with season number
+                                      const parent = target.parentElement!;
+                                      parent.innerHTML = `
+                                        <div class="w-full h-full bg-gradient-to-br from-red-600 to-red-800 flex flex-col items-center justify-center">
+                                          <span class="text-4xl font-bold text-white">S${season.season_number}</span>
+                                          <span class="text-sm font-medium text-white/80 text-center px-2">${series.title}</span>
+                                        </div>
+                                      `;
+                                    }
+                                  }}
+                                />
                                 <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
                                 <div className="absolute top-2 left-2 bg-red-600 text-white px-2 py-1 rounded text-xs font-semibold">
                                   S{season.season_number}
@@ -709,13 +727,13 @@ export default function TVShowsPage() {
                               onError={(e) => {
                                 const target = e.target as HTMLImageElement;
                                 const apiUrl = getApiUrl();
-                                // Fallback chain: series poster -> episode thumbnail -> series thumbnail -> gradient
+                                // Fallback chain: series poster -> series thumbnail -> episode thumbnail -> gradient
                                 if (!target.src.includes('/api/series/') && !target.src.includes('/poster')) {
                                   target.src = `${apiUrl}/api/series/${series.id}/poster`;
-                                } else if (fallbackEpisode && !target.src.includes(`/api/thumbnails/${fallbackEpisode.id}`)) {
-                                  target.src = `${apiUrl}/api/thumbnails/${fallbackEpisode.id}`;
                                 } else if (series.thumbnail_path && !target.src.includes(`/api/thumbnails/${series.id}`)) {
                                   target.src = `${apiUrl}/api/thumbnails/${series.id}`;
+                                } else if (fallbackEpisode && !target.src.includes(`/api/thumbnails/${fallbackEpisode.id}`)) {
+                                  target.src = `${apiUrl}/api/thumbnails/${fallbackEpisode.id}`;
                                 } else {
                                   // Final fallback: Show gradient
                                   const parent = target.parentElement!;
@@ -800,13 +818,13 @@ export default function TVShowsPage() {
                               onError={(e) => {
                                 const target = e.target as HTMLImageElement;
                                 const apiUrl = getApiUrl();
-                                // Fallback chain: series poster -> episode thumbnail -> series thumbnail -> gradient
+                                // Fallback chain: series poster -> series thumbnail -> episode thumbnail -> gradient
                                 if (!target.src.includes('/api/series/') && !target.src.includes('/poster')) {
                                   target.src = `${apiUrl}/api/series/${series.id}/poster`;
-                                } else if (fallbackEpisode && !target.src.includes(`/api/thumbnails/${fallbackEpisode.id}`)) {
-                                  target.src = `${apiUrl}/api/thumbnails/${fallbackEpisode.id}`;
                                 } else if (series.thumbnail_path && !target.src.includes(`/api/thumbnails/${series.id}`)) {
                                   target.src = `${apiUrl}/api/thumbnails/${series.id}`;
+                                } else if (fallbackEpisode && !target.src.includes(`/api/thumbnails/${fallbackEpisode.id}`)) {
+                                  target.src = `${apiUrl}/api/thumbnails/${fallbackEpisode.id}`;
                                 } else {
                                   // Final fallback: Show gradient
                                   const parent = target.parentElement!;
@@ -860,36 +878,34 @@ export default function TVShowsPage() {
                       return (
                         <div key={series.id} className="group cursor-pointer" onClick={() => handleInfo(series)}>
                           <div className="relative aspect-[2/3] bg-gray-800 rounded-lg overflow-hidden mb-3 group-hover:scale-105 transition-transform duration-300">
-                            {series.poster_path ? (
-                              <img
-                                src={`${getApiUrl()}/api/posters/${series.id}`}
-                                alt={series.title}
-                                className="w-full h-full object-cover"
-                                loading="lazy"
-                                onError={(e) => {
-                                  // Fallback to thumbnail if poster fails
-                                  if (fallbackEpisode) {
-                                    (e.target as HTMLImageElement).src = `${getApiUrl()}/api/thumbnails/${fallbackEpisode?.id}`;
-                                  } else if (series.thumbnail_path) {
-                                    (e.target as HTMLImageElement).src = `${getApiUrl()}/api/thumbnails/${series.id}`;
-                                  }
-                                }}
-                              />
-                            ) : fallbackEpisode ? (
-                              <img
-                                src={`${getApiUrl()}/api/thumbnails/${fallbackEpisode?.id}`}
-                                alt={series.title}
-                                className="w-full h-full object-cover"
-                                loading="lazy"
-                              />
-                            ) : series.thumbnail_path ? (
-                              <img
-                                src={`${getApiUrl()}/api/thumbnails/${series.id}`}
-                                alt={series.title}
-                                className="w-full h-full object-cover"
-                                loading="lazy"
-                              />
-                            ) : (
+                            {/* Use series poster with proper fallback chain */}
+                            <img
+                              src={getPosterUrl(series.id)}
+                              alt={series.title}
+                              className="w-full h-full object-cover"
+                              loading="lazy"
+                              onError={(e) => {
+                                const target = e.target as HTMLImageElement;
+                                const apiUrl = getApiUrl();
+                                // Fallback chain: series poster -> series thumbnail -> episode thumbnail -> gradient
+                                if (!target.src.includes('/api/series/') && !target.src.includes('/poster')) {
+                                  target.src = `${apiUrl}/api/series/${series.id}/poster`;
+                                } else if (series.thumbnail_path && !target.src.includes(`/api/thumbnails/${series.id}`)) {
+                                  target.src = `${apiUrl}/api/thumbnails/${series.id}`;
+                                } else if (fallbackEpisode && !target.src.includes(`/api/thumbnails/${fallbackEpisode.id}`)) {
+                                  target.src = `${apiUrl}/api/thumbnails/${fallbackEpisode.id}`;
+                                } else {
+                                  // Final fallback: Show gradient
+                                  const parent = target.parentElement!;
+                                  parent.innerHTML = `
+                                    <div class="w-full h-full bg-gradient-to-br from-red-600 to-red-800 flex items-center justify-center">
+                                      <span class="text-2xl font-bold text-white">${series.title.charAt(0)}</span>
+                                    </div>
+                                  `;
+                                }
+                              }}
+                            />
+                            {false && (
                               <div className="w-full h-full bg-gradient-to-br from-red-600 to-red-800 flex flex-col items-center justify-center p-4">
                                 <svg className="w-16 h-16 text-white/50 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 4v16M17 4v16M3 8h4m10 0h4M3 12h18M3 16h4m10 0h4M4 20h16a1 1 0 001-1V5a1 1 0 00-1-1H4a1 1 0 00-1 1v14a1 1 0 001 1z" />

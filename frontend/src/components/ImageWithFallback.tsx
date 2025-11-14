@@ -13,6 +13,8 @@ interface ImageWithFallbackProps {
   loading?: 'eager' | 'lazy';
   priority?: boolean;
   onLoad?: () => void;
+  posterUrl?: string | null; // For TMDB or custom poster URLs
+  mediaType?: string; // Media type for proper poster endpoint selection
 }
 
 const ImageWithFallback: React.FC<ImageWithFallbackProps> = ({
@@ -23,11 +25,14 @@ const ImageWithFallback: React.FC<ImageWithFallbackProps> = ({
   className,
   loading = 'lazy',
   priority = false,
-  onLoad
+  onLoad,
+  posterUrl,
+  mediaType
 }) => {
   const [imageError, setImageError] = useState(false);
   const [fallbackError, setFallbackError] = useState(false);
-  const { primarySrc, fallbackSrc } = useImageWithFallback(mediaId);
+  
+  const { primarySrc, fallbackSrc } = useImageWithFallback(mediaId, posterUrl, mediaType);
 
   // Determine which source to use
   const currentSrc = imageError ? fallbackSrc : primarySrc;
