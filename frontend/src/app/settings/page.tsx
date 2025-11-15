@@ -1820,6 +1820,51 @@ function SettingsContent() {
     }
   };
 
+  const handleDownloadSubtitleAsFile = async (subtitle: any) => {
+    if (!subtitle.attributes?.files?.[0]?.file_id) return;
+
+    const fileId = subtitle.attributes.files[0].file_id;
+    const subtitleTitle = subtitle.attributes?.feature_details?.title || 'Unknown';
+    const language = subtitle.attributes?.language || 'Unknown';
+    
+    addTerminalOutput(`⬇️ Downloading SRT file: ${subtitleTitle} (${language.toUpperCase()})`);
+
+    try {
+      const response = await fetch(`${getApiUrl()}/api/opensubtitles/download?file_id=${fileId}`);
+      
+      if (response.ok) {
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        
+        // Get filename from Content-Disposition header or use default
+        const contentDisposition = response.headers.get('content-disposition');
+        let filename = `${subtitleTitle}_${language}.srt`;
+        if (contentDisposition) {
+          const filenameMatch = contentDisposition.match(/filename="?([^"]+)"?/);
+          if (filenameMatch) {
+            filename = filenameMatch[1];
+          }
+        }
+        
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+        
+        addTerminalOutput(`✅ SRT file downloaded: ${filename}`);
+      } else {
+        const errorData = await response.json().catch(() => ({ error: response.statusText }));
+        addTerminalOutput(`❌ Failed to download SRT file: ${errorData.error || response.statusText}`);
+      }
+    } catch (error) {
+      addTerminalOutput(`❌ Error downloading SRT file: ${error}`);
+      console.error('SRT download error:', error);
+    }
+  };
+
   const handleDeleteAsset = async (type: 'banner' | 'thumbnail' | 'trailer') => {
     if (!selectedMedia) return;
 
@@ -1887,6 +1932,29 @@ function SettingsContent() {
       }
     };
 
+    const handleDownloadSubtitle = async (subtitle: any) => {
+      try {
+        const response = await fetch(`${getApiUrl()}/api/media/${mediaId}/subtitles/${subtitle.id}/file`);
+        
+        if (response.ok) {
+          const blob = await response.blob();
+          const url = window.URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `${subtitle.language || 'subtitle'}.srt`;
+          document.body.appendChild(a);
+          a.click();
+          window.URL.revokeObjectURL(url);
+          document.body.removeChild(a);
+          addTerminalOutput(`✅ Downloaded subtitle: ${subtitle.language}`);
+        } else {
+          addTerminalOutput(`❌ Failed to download subtitle`);
+        }
+      } catch (error) {
+        addTerminalOutput(`❌ Error downloading subtitle: ${error}`);
+      }
+    };
+
     if (loading) {
       return (
         <div className="mt-4">
@@ -1913,13 +1981,22 @@ function SettingsContent() {
                     {subtitle.is_forced && ' • Forced'}
                   </div>
                 </div>
-                <button
-                  onClick={() => handleDeleteSubtitle(subtitle.id)}
-                  className="text-red-400 hover:text-red-300 p-1"
-                  title="Delete subtitle"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => handleDownloadSubtitle(subtitle)}
+                    className="text-blue-400 hover:text-blue-300 p-1"
+                    title="Download subtitle as SRT"
+                  >
+                    <Download className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => handleDeleteSubtitle(subtitle.id)}
+                    className="text-red-400 hover:text-red-300 p-1"
+                    title="Delete subtitle"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
             ))
           )}
@@ -3907,18 +3984,31 @@ function SettingsContent() {
                                     </p>
                                   )}
                                 </div>
-                                <MagneticButton
-                                  onClick={() => handleDownloadOpenSubtitle(subtitle)}
-                                  disabled={downloadingSubtitle === subtitle.attributes?.files?.[0]?.file_id}
-                                  className="bg-green-600/20 hover:bg-green-600/40 text-green-400 px-3 py-2 rounded-lg flex items-center space-x-2 ml-3 text-sm"
-                                >
-                                  {downloadingSubtitle === subtitle.attributes?.files?.[0]?.file_id ? (
-                                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-green-400"></div>
-                                  ) : (
+                                <div className="flex gap-2 ml-3">
+                                  <MagneticButton
+                                    onClick={() => handleDownloadSubtitleAsFile(subtitle)}
+                                    className="bg-blue-600/20 hover:bg-blue-600/40 text-blue-400 px-3 py-2 rounded-lg flex items-center space-x-2 text-sm"
+                                    title="Download as SRT file to your computer"
+                                  >
                                     <Download className="w-4 h-4" />
+                                    <span>SRT</span>
+                                  </MagneticButton>
+                                  {selectedMedia && (
+                                    <MagneticButton
+                                      onClick={() => handleDownloadOpenSubtitle(subtitle)}
+                                      disabled={downloadingSubtitle === subtitle.attributes?.files?.[0]?.file_id}
+                                      className="bg-green-600/20 hover:bg-green-600/40 text-green-400 px-3 py-2 rounded-lg flex items-center space-x-2 text-sm"
+                                      title="Add subtitle to media library"
+                                    >
+                                      {downloadingSubtitle === subtitle.attributes?.files?.[0]?.file_id ? (
+                                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-green-400"></div>
+                                      ) : (
+                                        <Download className="w-4 h-4" />
+                                      )}
+                                      <span>Add</span>
+                                    </MagneticButton>
                                   )}
-                                  <span>Download</span>
-                                </MagneticButton>
+                                </div>
                               </div>
                             </div>
                           ))}

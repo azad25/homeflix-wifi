@@ -165,6 +165,7 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		// OpenSubtitles integration endpoints
 		api.GET("/opensubtitles/search", handlers.SearchOpenSubtitles(openSubService))
 		api.POST("/admin/media/:id/opensubtitles/download", handlers.DownloadOpenSubtitle(mediaService, openSubService))
+		api.GET("/opensubtitles/download", handlers.DownloadOpenSubtitleDirect(openSubService))
 		api.GET("/opensubtitles/languages", handlers.GetOpenSubtitlesLanguages(openSubService))
 
 		// ALAC Audio endpoints

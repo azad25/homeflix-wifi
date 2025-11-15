@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
+	"math/rand"
 	"net/http"
 	"net/url"
 	"os"
@@ -100,7 +102,7 @@ type SubtitleSearchRequest struct {
 }
 
 type SubtitleDownloadRequest struct {
-	FileID int `json:"file_id"`
+	FileID interface{} `json:"file_id"` // Can be int or string from API
 }
 
 func NewOpenSubtitlesService() *OpenSubtitlesService {
@@ -116,10 +118,80 @@ func (s *OpenSubtitlesService) IsConfigured() bool {
 	return s.apiKey != ""
 }
 
+// retryWithBackoff performs HTTP request with exponential backoff retry logic
+func (s *OpenSubtitlesService) retryWithBackoff(req *http.Request, maxRetries int) (*http.Response, error) {
+	var resp *http.Response
+	var err error
+	
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		resp, err = s.client.Do(req)
+		if err != nil {
+			if attempt < maxRetries {
+				backoffDuration := time.Duration(math.Pow(2, float64(attempt))) * time.Second
+				// Add jitter to prevent thundering herd
+				jitter := time.Duration(rand.Intn(1000)) * time.Millisecond
+				totalWait := backoffDuration + jitter
+				fmt.Printf("⏳ Retry attempt %d/%d after %v (backoff: %v + jitter: %v)\n", 
+					attempt+1, maxRetries, totalWait, backoffDuration, jitter)
+				time.Sleep(totalWait)
+				continue
+			}
+			return nil, err
+		}
+		
+		// Retry on 503 (Service Unavailable) or 429 (Too Many Requests)
+		if resp.StatusCode == http.StatusServiceUnavailable || resp.StatusCode == http.StatusTooManyRequests {
+			if attempt < maxRetries {
+				backoffDuration := time.Duration(math.Pow(2, float64(attempt))) * time.Second
+				jitter := time.Duration(rand.Intn(1000)) * time.Millisecond
+				totalWait := backoffDuration + jitter
+				
+				// Read and discard response body to reuse connection
+				io.ReadAll(resp.Body)
+				resp.Body.Close()
+				
+				retryAfter := resp.Header.Get("Retry-After")
+				if retryAfter != "" {
+					fmt.Printf("⏳ Server requested retry after: %s\n", retryAfter)
+				}
+				
+				fmt.Printf("⏳ Retry attempt %d/%d after %v (Status: %d)\n", 
+					attempt+1, maxRetries, totalWait, resp.StatusCode)
+				time.Sleep(totalWait)
+				
+				// Create a fresh request for the next attempt
+				newReq := &http.Request{
+					Method:   req.Method,
+					URL:      req.URL,
+					Header:   req.Header.Clone(),
+					Body:     req.Body,
+					Host:     req.Host,
+				}
+				// Reset body if it was seekable
+				if req.Body != nil {
+					if closer, ok := req.Body.(io.Closer); ok {
+						closer.Close()
+					}
+				}
+				req = newReq
+				continue
+			}
+		}
+		
+		// Success or non-retryable error
+		return resp, nil
+	}
+	
+	return resp, nil
+}
+
+
 func (s *OpenSubtitlesService) Login() error {
 	if s.username == "" || s.password == "" {
 		return fmt.Errorf("username and password required for login")
 	}
+
+	fmt.Printf("🔐 Attempting OpenSubtitles login with username: %s\n", s.username)
 
 	loginData := map[string]string{
 		"username": s.username,
@@ -146,15 +218,18 @@ func (s *OpenSubtitlesService) Login() error {
 	}
 	defer resp.Body.Close()
 
+	fmt.Printf("🔐 Login Response Status: %d\n", resp.StatusCode)
+
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
+		fmt.Printf("❌ Login Error Response: %s\n", string(body))
 		return fmt.Errorf("login failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
 	var loginResponse struct {
-		User  map[string]interface{} `json:"user"`
-		Token string                 `json:"token"`
-		Status string                `json:"status"`
+		User   map[string]interface{} `json:"user"`
+		Token  string                 `json:"token"`
+		Status interface{}            `json:"status"` // Can be string or number
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&loginResponse); err != nil {
@@ -166,6 +241,7 @@ func (s *OpenSubtitlesService) Login() error {
 	}
 
 	s.token = loginResponse.Token
+	fmt.Printf("✅ Login successful! Token length: %d\n", len(s.token))
 	return nil
 }
 
@@ -268,39 +344,62 @@ func (s *OpenSubtitlesService) DownloadSubtitle(fileID int) (*OpenSubtitlesDownl
 		return nil, nil, fmt.Errorf("failed to marshal download request: %v", err)
 	}
 
-	req, err := http.NewRequest("POST", openSubtitlesBaseURL+"/download", bytes.NewBuffer(jsonData))
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create download request: %v", err)
+	fmt.Printf("📋 Download request JSON: %s\n", string(jsonData))
+
+	// Helper function to create a fresh request
+	createRequest := func() *http.Request {
+		reqBody := bytes.NewReader(jsonData)
+		req, err := http.NewRequest("POST", openSubtitlesBaseURL+"/download", reqBody)
+		if err != nil {
+			return nil
+		}
+
+		req.Header.Set("Api-Key", s.apiKey)
+		req.Header.Set("Authorization", "Bearer "+s.token)
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("User-Agent", "HomeFlix v1.0")
+		
+		return req
 	}
 
-	req.Header.Set("Api-Key", s.apiKey)
-	req.Header.Set("Authorization", "Bearer "+s.token)
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", "HomeFlix v1.0")
+	tokenPreview := s.token
+	if len(tokenPreview) > 20 {
+		tokenPreview = tokenPreview[:20]
+	}
+	fmt.Printf("📤 Requesting download for fileID: %d with token: %s...\n", fileID, tokenPreview)
 
-	resp, err := s.client.Do(req)
+	// Create initial request and use retry logic with exponential backoff
+	req := createRequest()
+	resp, err := s.retryWithBackoff(req, 3) // Retry up to 3 times
 	if err != nil {
 		return nil, nil, fmt.Errorf("download request failed: %v", err)
 	}
 	defer resp.Body.Close()
 
+	fmt.Printf("📊 Download Response Status: %d\n", resp.StatusCode)
+
 	if resp.StatusCode == http.StatusUnauthorized {
+		fmt.Println("🔄 Token expired, attempting re-login...")
 		// Token might be expired, try to login again
 		if err := s.Login(); err != nil {
 			return nil, nil, fmt.Errorf("failed to re-login: %v", err)
 		}
 		
 		// Retry the request with new token
-		req.Header.Set("Authorization", "Bearer "+s.token)
-		resp, err = s.client.Do(req)
+		req := createRequest()
+		resp, err = s.retryWithBackoff(req, 3)
 		if err != nil {
 			return nil, nil, fmt.Errorf("retry download request failed: %v", err)
 		}
 		defer resp.Body.Close()
+		fmt.Printf("📊 Retry Response Status: %d\n", resp.StatusCode)
 	}
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
+		fmt.Printf("❌ Download API Error (Status %d):\n", resp.StatusCode)
+		fmt.Printf("   Response: %s\n", string(body))
+		fmt.Printf("   Headers: %v\n", resp.Header)
 		return nil, nil, fmt.Errorf("download failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
@@ -308,10 +407,14 @@ func (s *OpenSubtitlesService) DownloadSubtitle(fileID int) (*OpenSubtitlesDownl
 	if err := json.NewDecoder(resp.Body).Decode(&downloadResp); err != nil {
 		return nil, nil, fmt.Errorf("failed to decode download response: %v", err)
 	}
+	
+	fmt.Printf("✅ Download response decoded: Link=%s, FileName=%s, Remaining=%d\n", downloadResp.Link, downloadResp.FileName, downloadResp.Remaining)
 
 	if downloadResp.Link == "" {
 		return nil, nil, fmt.Errorf("no download link provided")
 	}
+
+	fmt.Printf("🔗 Download link received: %s\n", downloadResp.Link)
 
 	// Download the actual subtitle file
 	fileResp, err := http.Get(downloadResp.Link)
@@ -320,8 +423,12 @@ func (s *OpenSubtitlesService) DownloadSubtitle(fileID int) (*OpenSubtitlesDownl
 	}
 	defer fileResp.Body.Close()
 
+	fmt.Printf("📥 File download status: %d\n", fileResp.StatusCode)
+	fmt.Printf("📥 File download headers: %v\n", fileResp.Header)
+
 	if fileResp.StatusCode != http.StatusOK {
-		return nil, nil, fmt.Errorf("subtitle file download failed with status %d", fileResp.StatusCode)
+		body, _ := io.ReadAll(fileResp.Body)
+		return nil, nil, fmt.Errorf("subtitle file download failed with status %d: %s", fileResp.StatusCode, string(body))
 	}
 
 	subtitleData, err := io.ReadAll(fileResp.Body)
@@ -329,6 +436,10 @@ func (s *OpenSubtitlesService) DownloadSubtitle(fileID int) (*OpenSubtitlesDownl
 		return nil, nil, fmt.Errorf("failed to read subtitle data: %v", err)
 	}
 
+	fmt.Printf("✅ Successfully downloaded %d bytes of subtitle data\n", len(subtitleData))
+	fmt.Printf("📊 Content-Type: %s\n", fileResp.Header.Get("Content-Type"))
+	fmt.Printf("📊 Content-Disposition: %s\n", fileResp.Header.Get("Content-Disposition"))
+	
 	return &downloadResp, subtitleData, nil
 }
 

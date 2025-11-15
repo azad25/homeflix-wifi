@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"archive/zip"
+	"bytes"
 	"fmt"
 	"io"
 	"net/http"
@@ -358,6 +360,13 @@ func SearchOpenSubtitles(openSubService *services.OpenSubtitlesService) gin.Hand
 // DownloadOpenSubtitle downloads a subtitle from OpenSubtitles and saves it to the media
 func DownloadOpenSubtitle(mediaService *services.MediaService, openSubService *services.OpenSubtitlesService) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		defer func() {
+			if r := recover(); r != nil {
+				fmt.Printf("❌ PANIC in DownloadOpenSubtitle: %v\n", r)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Internal server error: %v", r)})
+			}
+		}()
+
 		mediaIDStr := c.Param("id")
 		mediaID, err := strconv.Atoi(mediaIDStr)
 		if err != nil {
@@ -380,21 +389,87 @@ func DownloadOpenSubtitle(mediaService *services.MediaService, openSubService *s
 		}
 
 		if err := c.ShouldBindJSON(&requestBody); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
+			fmt.Printf("❌ JSON binding error: %v\n", err)
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body", "details": err.Error()})
 			return
 		}
+
+		fmt.Printf("📥 Downloading subtitle: fileID=%d, language=%s, mediaID=%d\n", requestBody.FileID, requestBody.Language, mediaID)
 
 		// Download subtitle from OpenSubtitles
 		downloadResp, subtitleData, err := openSubService.DownloadSubtitle(requestBody.FileID)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			fmt.Printf("❌ Download error: %v\n", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Download failed: %v", err)})
 			return
+		}
+
+		if subtitleData == nil || len(subtitleData) == 0 {
+			fmt.Printf("❌ Downloaded subtitle data is empty\n")
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Downloaded subtitle data is empty"})
+			return
+		}
+
+		fmt.Printf("✅ Downloaded %d bytes of subtitle data\n", len(subtitleData))
+
+		// Check if the downloaded file is a ZIP and extract if needed
+		var finalSubtitleData []byte
+		var finalFilename string
+		
+		// Try to detect if it's a ZIP file
+		if len(subtitleData) > 4 && subtitleData[0] == 0x50 && subtitleData[1] == 0x4b && 
+		   subtitleData[2] == 0x03 && subtitleData[3] == 0x04 {
+			fmt.Println("📦 Detected ZIP file, extracting...")
+			
+			// Extract from ZIP
+			reader, err := zip.NewReader(bytes.NewReader(subtitleData), int64(len(subtitleData)))
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to read ZIP file: %v", err)})
+				return
+			}
+			
+			// Find the first .srt file
+			found := false
+			for _, file := range reader.File {
+				if strings.HasSuffix(strings.ToLower(file.Name), ".srt") {
+					f, err := file.Open()
+					if err != nil {
+						continue
+					}
+					defer f.Close()
+					
+					extractedData, err := io.ReadAll(f)
+					if err != nil {
+						continue
+					}
+					
+					finalSubtitleData = extractedData
+					finalFilename = file.Name
+					found = true
+					fmt.Printf("📦 Extracted SRT from ZIP: %s (%d bytes)\n", file.Name, len(extractedData))
+					break
+				}
+			}
+			
+			if !found {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "No .srt file found in ZIP archive"})
+				return
+			}
+		} else {
+			finalSubtitleData = subtitleData
+			if downloadResp.FileName != "" {
+				finalFilename = downloadResp.FileName
+			} else {
+				finalFilename = fmt.Sprintf("subtitle_%d.srt", mediaID)
+			}
 		}
 
 		// Determine language
 		language := requestBody.Language
 		if language == "" {
-			if downloadResp.FileName != "" {
+			if finalFilename != "" {
+				language = openSubService.ExtractLanguageFromFilename(finalFilename)
+			} else if downloadResp.FileName != "" {
 				language = openSubService.ExtractLanguageFromFilename(downloadResp.FileName)
 			} else {
 				language = "English"
@@ -413,10 +488,13 @@ func DownloadOpenSubtitle(mediaService *services.MediaService, openSubService *s
 		filePath := filepath.Join(subtitlesDir, filename)
 
 		// Save subtitle file to disk
-		if err := os.WriteFile(filePath, subtitleData, 0644); err != nil {
+		if err := os.WriteFile(filePath, finalSubtitleData, 0644); err != nil {
+			fmt.Printf("❌ Failed to save subtitle file: %v\n", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save subtitle file"})
 			return
 		}
+		
+		fmt.Printf("💾 Saved subtitle file to: %s (%d bytes)\n", filePath, len(finalSubtitleData))
 
 		// Create subtitle track entry
 		subtitleTrack := &models.SubtitleTrack{
@@ -436,10 +514,13 @@ func DownloadOpenSubtitle(mediaService *services.MediaService, openSubService *s
 		err = mediaService.CreateSubtitleTrack(subtitleTrack)
 		if err != nil {
 			// Clean up file if database operation fails
+			fmt.Printf("❌ Failed to create subtitle track in database: %v\n", err)
 			os.Remove(filePath)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create subtitle track"})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to create subtitle track: %v", err)})
 			return
 		}
+		
+		fmt.Printf("✅ Subtitle track created successfully with ID: %d\n", subtitleTrack.ID)
 
 		// Also create legacy subtitle entry for backward compatibility
 		subtitle := &models.Subtitle{
@@ -452,7 +533,9 @@ func DownloadOpenSubtitle(mediaService *services.MediaService, openSubService *s
 		err = mediaService.CreateSubtitle(subtitle)
 		if err != nil {
 			// Log warning but don't fail the request
-			fmt.Printf("Warning: Failed to create legacy subtitle entry: %v\n", err)
+			fmt.Printf("⚠️  Failed to create legacy subtitle entry: %v\n", err)
+		} else {
+			fmt.Printf("✅ Legacy subtitle entry created successfully\n")
 		}
 
 		c.JSON(http.StatusOK, gin.H{
@@ -472,5 +555,105 @@ func GetOpenSubtitlesLanguages(openSubService *services.OpenSubtitlesService) gi
 	return func(c *gin.Context) {
 		languages := openSubService.GetSupportedLanguages()
 		c.JSON(http.StatusOK, gin.H{"languages": languages})
+	}
+}
+
+// DownloadOpenSubtitleDirect downloads a subtitle from OpenSubtitles and returns it as a file (without saving to media)
+func DownloadOpenSubtitleDirect(openSubService *services.OpenSubtitlesService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		fileIDStr := c.Query("file_id")
+		if fileIDStr == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "file_id parameter is required"})
+			return
+		}
+
+		fileID := 0
+		_, err := fmt.Sscanf(fileIDStr, "%d", &fileID)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid file_id format"})
+			return
+		}
+
+		fmt.Printf("📥 Direct download requested for fileID: %d\n", fileID)
+
+		// Download subtitle from OpenSubtitles
+		downloadResp, subtitleData, err := openSubService.DownloadSubtitle(fileID)
+		if err != nil {
+			fmt.Printf("❌ Download error: %v\n", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Download failed: %v", err)})
+			return
+		}
+
+		if subtitleData == nil || len(subtitleData) == 0 {
+			fmt.Printf("❌ Downloaded subtitle data is empty\n")
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Downloaded subtitle data is empty"})
+			return
+		}
+
+		fmt.Printf("✅ Downloaded %d bytes of subtitle data\n", len(subtitleData))
+
+		// Check if the downloaded file is a ZIP and extract if needed
+		var finalSubtitleData []byte
+		var finalFilename string
+
+		// Try to detect if it's a ZIP file
+		if len(subtitleData) > 4 && subtitleData[0] == 0x50 && subtitleData[1] == 0x4b &&
+			subtitleData[2] == 0x03 && subtitleData[3] == 0x04 {
+			fmt.Println("📦 Detected ZIP file, extracting...")
+
+			// Extract from ZIP
+			reader, err := zip.NewReader(bytes.NewReader(subtitleData), int64(len(subtitleData)))
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to read ZIP file: %v", err)})
+				return
+			}
+
+			// Find the first .srt file
+			found := false
+			for _, file := range reader.File {
+				if strings.HasSuffix(strings.ToLower(file.Name), ".srt") {
+					f, err := file.Open()
+					if err != nil {
+						continue
+					}
+					defer f.Close()
+
+					extractedData, err := io.ReadAll(f)
+					if err != nil {
+						continue
+					}
+
+					finalSubtitleData = extractedData
+					finalFilename = file.Name
+					found = true
+					fmt.Printf("📦 Extracted SRT from ZIP: %s (%d bytes)\n", file.Name, len(extractedData))
+					break
+				}
+			}
+
+			if !found {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "No .srt file found in ZIP archive"})
+				return
+			}
+		} else {
+			finalSubtitleData = subtitleData
+			if downloadResp.FileName != "" {
+				finalFilename = downloadResp.FileName
+			} else {
+				finalFilename = "subtitle.srt"
+			}
+		}
+
+		// Ensure filename ends with .srt
+		if !strings.HasSuffix(strings.ToLower(finalFilename), ".srt") {
+			finalFilename = finalFilename + ".srt"
+		}
+
+		fmt.Printf("📥 Serving file: %s (%d bytes)\n", finalFilename, len(finalSubtitleData))
+
+		// Set headers for file download
+		c.Header("Content-Type", "text/plain; charset=utf-8")
+		c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, finalFilename))
+		c.Data(http.StatusOK, "text/plain; charset=utf-8", finalSubtitleData)
 	}
 }
