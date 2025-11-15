@@ -1,7 +1,6 @@
 package services
 
 import (
-	"encoding/json"
 	"encoding/xml"
 	"fmt"
 	"io"
@@ -35,25 +34,22 @@ type NewsService struct {
 	fallbackArticles []NewsArticle
 	lastUpdate     time.Time
 	mutex          sync.RWMutex
-	updateChan     chan NewsArticle
-	stopChan       chan bool
-	isRunning      bool
 	rotationIndex  int
 }
 
-// TheNewsAPI.com configuration
+// Primary RSS Feed URLs - Only these 4 sources
 const (
-	NewsAPIToken     = "f74IgnlU8MfqYXH1PLAnrL5FtYjZbZIC3Mj1UlK0"
-	NewsAPIBaseURL   = "https://api.thenewsapi.com/v1/news"
+	// CNN RSS Feeds
+	CNNTopStoriesURL = "http://rss.cnn.com/rss/cnn_topstories.rss"
 	
-	// Different endpoints for variety
-	TopNewsURL       = NewsAPIBaseURL + "/top?api_token=" + NewsAPIToken + "&locale=us&limit=20"
-	AllNewsURL       = NewsAPIBaseURL + "/all?api_token=" + NewsAPIToken + "&language=en&limit=15&categories=general,business,tech,sports"
-	HeadlinesURL     = NewsAPIBaseURL + "/headlines?api_token=" + NewsAPIToken + "&locale=us&language=en"
+	// BBC RSS Feeds
+	BBCTopStoriesURL = "https://feeds.bbci.co.uk/news/rss.xml"
 	
-	// RSS Feed URLs
-	RSSFeedURL1      = "https://rss.app/feeds/rO56tNFt146qV6bX.xml"
-	RSSFeedURL2      = "https://rss.app/feeds/tg57Lt7HK6HsAAQf.xml"
+	// RT (Russia Today) RSS Feeds
+	RTMainNewsURL    = "https://www.rt.com/rss/"
+	
+	// Al Jazeera RSS Feeds
+	AlJazeeraAllURL  = "https://www.aljazeera.com/xml/rss/all.xml"
 )
 
 // RSS Feed structures
@@ -80,9 +76,6 @@ func NewNewsService() *NewsService {
 	ns := &NewsService{
 		articles:         make([]NewsArticle, 0),
 		fallbackArticles: make([]NewsArticle, 0),
-		updateChan:       make(chan NewsArticle, 100),
-		stopChan:         make(chan bool),
-		isRunning:        false,
 		rotationIndex:    0,
 	}
 	
@@ -94,50 +87,20 @@ func NewNewsService() *NewsService {
 }
 
 func (ns *NewsService) Start() {
-	ns.mutex.Lock()
-	defer ns.mutex.Unlock()
-	
-	if ns.isRunning {
-		return
-	}
-	
-	ns.isRunning = true
-	
-	// Initial fetch
-	go ns.fetchAllNews()
-	
-	// Start background updater
-	go ns.backgroundUpdater()
-	
-	log.Println("News service started")
+	// News service now only fetches on-demand
+	log.Println("News service initialized (on-demand fetching)")
 }
 
 func (ns *NewsService) Stop() {
-	ns.mutex.Lock()
-	defer ns.mutex.Unlock()
-	
-	if !ns.isRunning {
-		return
-	}
-	
-	ns.isRunning = false
-	ns.stopChan <- true
-	
+	// No background processes to stop
 	log.Println("News service stopped")
 }
 
-func (ns *NewsService) backgroundUpdater() {
-	ticker := time.NewTicker(3 * time.Minute) // Update every 3 minutes for more frequent updates
-	defer ticker.Stop()
-	
-	for {
-		select {
-		case <-ticker.C:
-			go ns.fetchAllNews()
-		case <-ns.stopChan:
-			return
-		}
-	}
+// backgroundUpdater removed - news now fetched on-demand only
+
+// FetchNewsOnDemand triggers a fresh news fetch when called
+func (ns *NewsService) FetchNewsOnDemand() {
+	go ns.fetchAllNews()
 }
 
 func (ns *NewsService) fetchAllNews() {
@@ -147,14 +110,16 @@ func (ns *NewsService) fetchAllNews() {
 	newArticles := make([]NewsArticle, 0)
 	articlesChan := make(chan []NewsArticle, 10)
 	
-	// Fetch from RSS feeds only (removed NewsAPI)
+	// Primary RSS feed sources - only these 4
 	sources := []struct {
 		name string
 		url  string
 		fetcher func(string) ([]NewsArticle, error)
 	}{
-		{"RSS-1", RSSFeedURL1, ns.fetchRSSFeed},
-		{"RSS-2", RSSFeedURL2, ns.fetchRSSFeed},
+		{"CNN", CNNTopStoriesURL, ns.fetchRSSFeed},
+		{"BBC", BBCTopStoriesURL, ns.fetchRSSFeed},
+		{"RT", RTMainNewsURL, ns.fetchRSSFeed},
+		{"Al Jazeera", AlJazeeraAllURL, ns.fetchRSSFeed},
 	}
 	
 	for _, source := range sources {
@@ -240,195 +205,6 @@ func (ns *NewsService) fetchAllNews() {
 	ns.mutex.Unlock()
 	
 	log.Printf("Updated news: %d articles from recent sources", len(recentArticles))
-}
-
-// TheNewsAPI.com response structures
-type NewsAPIResponse struct {
-	Meta struct {
-		Found    int `json:"found"`
-		Returned int `json:"returned"`
-		Limit    int `json:"limit"`
-		Page     int `json:"page"`
-	} `json:"meta"`
-	Data []NewsAPIArticle `json:"data"`
-}
-
-type NewsAPIArticle struct {
-	UUID        string   `json:"uuid"`
-	Title       string   `json:"title"`
-	Description string   `json:"description"`
-	Keywords    string   `json:"keywords"`
-	Snippet     string   `json:"snippet"`
-	URL         string   `json:"url"`
-	ImageURL    string   `json:"image_url"`
-	Language    string   `json:"language"`
-	PublishedAt string   `json:"published_at"`
-	Source      string   `json:"source"`
-	Categories  []string `json:"categories"`
-}
-
-type HeadlinesResponse struct {
-	Data map[string][]NewsAPIArticle `json:"data"`
-}
-
-func (ns *NewsService) fetchNewsAPI(url string) ([]NewsArticle, error) {
-	client := &http.Client{Timeout: 15 * time.Second}
-	
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return nil, err
-	}
-	
-	// Set proper headers
-	req.Header.Set("User-Agent", "HomeFlix-TV/1.0")
-	req.Header.Set("Accept", "application/json")
-	
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("HTTP error: %d", resp.StatusCode)
-	}
-	
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-	
-	var newsResp NewsAPIResponse
-	if err := json.Unmarshal(body, &newsResp); err != nil {
-		return nil, err
-	}
-	
-	var articles []NewsArticle
-	for _, apiArticle := range newsResp.Data {
-		if apiArticle.Title == "" {
-			continue
-		}
-		
-		// Clean and validate title
-		title := ns.cleanTitle(apiArticle.Title)
-		if len(title) < 10 {
-			continue
-		}
-		
-		// Parse published date
-		publishedAt, err := time.Parse(time.RFC3339, apiArticle.PublishedAt)
-		if err != nil {
-			publishedAt = time.Now().Add(-time.Hour)
-		}
-		
-		// Use description or snippet
-		description := apiArticle.Description
-		if description == "" {
-			description = apiArticle.Snippet
-		}
-		
-		// Determine category
-		category := "General"
-		if len(apiArticle.Categories) > 0 {
-			category = strings.Title(apiArticle.Categories[0])
-		}
-		
-		article := NewsArticle{
-			ID:          apiArticle.UUID,
-			Title:       title,
-			Description: ns.truncateText(description, 120),
-			URL:         apiArticle.URL,
-			PublishedAt: publishedAt,
-			Category:    category,
-		}
-		
-		articles = append(articles, article)
-		
-		if len(articles) >= 15 {
-			break
-		}
-	}
-	
-	return articles, nil
-}
-
-func (ns *NewsService) fetchHeadlinesAPI(url string) ([]NewsArticle, error) {
-	client := &http.Client{Timeout: 15 * time.Second}
-	
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return nil, err
-	}
-	
-	req.Header.Set("User-Agent", "HomeFlix-TV/1.0")
-	req.Header.Set("Accept", "application/json")
-	
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("HTTP error: %d", resp.StatusCode)
-	}
-	
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-	
-	var headlinesResp HeadlinesResponse
-	if err := json.Unmarshal(body, &headlinesResp); err != nil {
-		return nil, err
-	}
-	
-	var articles []NewsArticle
-	
-	// Process different categories
-	for categoryName, categoryArticles := range headlinesResp.Data {
-		for _, apiArticle := range categoryArticles {
-			if apiArticle.Title == "" {
-				continue
-			}
-			
-			title := ns.cleanTitle(apiArticle.Title)
-			if len(title) < 10 {
-				continue
-			}
-			
-			publishedAt, err := time.Parse(time.RFC3339, apiArticle.PublishedAt)
-			if err != nil {
-				publishedAt = time.Now().Add(-time.Hour)
-			}
-			
-			description := apiArticle.Description
-			if description == "" {
-				description = apiArticle.Snippet
-			}
-			
-			article := NewsArticle{
-				ID:          apiArticle.UUID,
-				Title:       title,
-				Description: ns.truncateText(description, 120),
-				URL:         apiArticle.URL,
-				PublishedAt: publishedAt,
-				Category:    strings.Title(categoryName),
-			}
-			
-			articles = append(articles, article)
-			
-			if len(articles) >= 20 {
-				break
-			}
-		}
-		
-		if len(articles) >= 20 {
-			break
-		}
-	}
-	
-	return articles, nil
 }
 
 func (ns *NewsService) fetchRSSFeed(url string) ([]NewsArticle, error) {

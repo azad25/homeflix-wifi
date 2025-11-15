@@ -318,3 +318,159 @@ func extractLanguageFromFilename(filename string) string {
 	
 	return "Unknown"
 }
+
+// SearchOpenSubtitles searches for subtitles using OpenSubtitles API
+func SearchOpenSubtitles(openSubService *services.OpenSubtitlesService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		query := c.Query("query")
+		if query == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Query parameter is required"})
+			return
+		}
+
+		language := c.Query("language")
+		if language == "" {
+			language = "en" // Default to English
+		}
+
+		year := c.Query("year")
+		imdbID := c.Query("imdb_id")
+		tmdbID := c.Query("tmdb_id")
+
+		searchReq := services.SubtitleSearchRequest{
+			Query:    query,
+			Language: language,
+			Year:     year,
+			ImdbID:   imdbID,
+			TmdbID:   tmdbID,
+		}
+
+		result, err := openSubService.SearchSubtitles(searchReq)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		c.JSON(http.StatusOK, result)
+	}
+}
+
+// DownloadOpenSubtitle downloads a subtitle from OpenSubtitles and saves it to the media
+func DownloadOpenSubtitle(mediaService *services.MediaService, openSubService *services.OpenSubtitlesService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		mediaIDStr := c.Param("id")
+		mediaID, err := strconv.Atoi(mediaIDStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid media ID"})
+			return
+		}
+
+		// Get media to ensure it exists
+		media, err := mediaService.GetMediaByID(uint(mediaID))
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Media not found"})
+			return
+		}
+
+		// Get file_id from request body
+		var requestBody struct {
+			FileID   int    `json:"file_id" binding:"required"`
+			Language string `json:"language"`
+			FileName string `json:"file_name"`
+		}
+
+		if err := c.ShouldBindJSON(&requestBody); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
+			return
+		}
+
+		// Download subtitle from OpenSubtitles
+		downloadResp, subtitleData, err := openSubService.DownloadSubtitle(requestBody.FileID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		// Determine language
+		language := requestBody.Language
+		if language == "" {
+			if downloadResp.FileName != "" {
+				language = openSubService.ExtractLanguageFromFilename(downloadResp.FileName)
+			} else {
+				language = "English"
+			}
+		}
+
+		// Create subtitles directory if it doesn't exist
+		subtitlesDir := "subtitles"
+		if err := os.MkdirAll(subtitlesDir, 0755); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create subtitles directory"})
+			return
+		}
+
+		// Generate filename: media_id_language.srt
+		filename := fmt.Sprintf("%d_%s.srt", mediaID, strings.ToLower(strings.ReplaceAll(language, " ", "_")))
+		filePath := filepath.Join(subtitlesDir, filename)
+
+		// Save subtitle file to disk
+		if err := os.WriteFile(filePath, subtitleData, 0644); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save subtitle file"})
+			return
+		}
+
+		// Create subtitle track entry
+		subtitleTrack := &models.SubtitleTrack{
+			MediaID:     media.ID,
+			StreamIndex: -1, // External subtitles don't have stream index
+			Language:    language,
+			Title:       fmt.Sprintf("%s (OpenSubtitles)", language),
+			CodecName:   "srt",
+			FilePath:    filePath,
+			Format:      "srt",
+			TrackType:   "external",
+			IsDefault:   false,
+			IsForced:    false,
+			IsHearing:   false,
+		}
+
+		err = mediaService.CreateSubtitleTrack(subtitleTrack)
+		if err != nil {
+			// Clean up file if database operation fails
+			os.Remove(filePath)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create subtitle track"})
+			return
+		}
+
+		// Also create legacy subtitle entry for backward compatibility
+		subtitle := &models.Subtitle{
+			MediaID:  media.ID,
+			Language: language,
+			FilePath: filePath,
+			Format:   "srt",
+		}
+
+		err = mediaService.CreateSubtitle(subtitle)
+		if err != nil {
+			// Log warning but don't fail the request
+			fmt.Printf("Warning: Failed to create legacy subtitle entry: %v\n", err)
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"message":     "Subtitle downloaded and added successfully",
+			"language":    language,
+			"format":      "srt",
+			"path":        filePath,
+			"trackId":     subtitleTrack.ID,
+			"file_name":   downloadResp.FileName,
+			"remaining":   downloadResp.Remaining,
+		})
+	}
+}
+
+// GetOpenSubtitlesLanguages returns supported languages for OpenSubtitles
+func GetOpenSubtitlesLanguages(openSubService *services.OpenSubtitlesService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		languages := openSubService.GetSupportedLanguages()
+		c.JSON(http.StatusOK, gin.H{"languages": languages})
+	}
+}

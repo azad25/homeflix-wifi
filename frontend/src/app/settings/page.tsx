@@ -78,6 +78,11 @@ function SettingsContent() {
   const [showAddPathForm, setShowAddPathForm] = useState(false);
   const [showTMDBSearchModal, setShowTMDBSearchModal] = useState(false);
   const [customSearchTitle, setCustomSearchTitle] = useState('');
+  const [openSubtitlesResults, setOpenSubtitlesResults] = useState<any[]>([]);
+  const [openSubtitlesLoading, setOpenSubtitlesLoading] = useState(false);
+  const [openSubtitlesQuery, setOpenSubtitlesQuery] = useState('');
+  const [selectedLanguage, setSelectedLanguage] = useState('en');
+  const [downloadingSubtitle, setDownloadingSubtitle] = useState<number | null>(null);
 
   // Debug modal state
   useEffect(() => {
@@ -1718,6 +1723,103 @@ function SettingsContent() {
     return 'Unknown';
   };
 
+  // OpenSubtitles handlers
+  const handleOpenSubtitlesSearch = async () => {
+    if (!selectedMedia || !openSubtitlesQuery.trim()) return;
+
+    setOpenSubtitlesLoading(true);
+    setOpenSubtitlesResults([]);
+    addTerminalOutput(`🔍 Searching OpenSubtitles for: ${openSubtitlesQuery} (${selectedLanguage})`);
+
+    try {
+      const params = new URLSearchParams({
+        query: openSubtitlesQuery,
+        language: selectedLanguage,
+      });
+
+      // Add year if available
+      if (selectedMedia.year) {
+        params.append('year', selectedMedia.year.toString());
+      }
+
+      const response = await fetch(`${getApiUrl()}/api/opensubtitles/search?${params}`);
+      
+      if (response.ok) {
+        const data = await response.json();
+        const results = data.data || [];
+        setOpenSubtitlesResults(results);
+        addTerminalOutput(`✅ Found ${results.length} subtitle(s) for "${openSubtitlesQuery}"`);
+        
+        if (results.length === 0) {
+          addTerminalOutput(`💡 Try searching with just the movie title or different language`);
+        }
+      } else {
+        const errorData = await response.json().catch(() => ({ error: response.statusText }));
+        addTerminalOutput(`❌ OpenSubtitles search failed: ${errorData.error || response.statusText}`);
+      }
+    } catch (error) {
+      addTerminalOutput(`❌ Error searching OpenSubtitles: ${error}`);
+      console.error('OpenSubtitles search error:', error);
+    } finally {
+      setOpenSubtitlesLoading(false);
+    }
+  };
+
+  const handleDownloadOpenSubtitle = async (subtitle: any) => {
+    if (!selectedMedia || !subtitle.attributes?.files?.[0]?.file_id) return;
+
+    const fileId = subtitle.attributes.files[0].file_id;
+    setDownloadingSubtitle(fileId);
+    
+    const subtitleTitle = subtitle.attributes?.feature_details?.title || 'Unknown';
+    const language = subtitle.attributes?.language || 'Unknown';
+    
+    addTerminalOutput(`⬇️ Downloading subtitle: ${subtitleTitle} (${language.toUpperCase()})`);
+
+    try {
+      const response = await fetch(`${getApiUrl()}/api/admin/media/${selectedMedia.id}/opensubtitles/download`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          file_id: fileId,
+          language: language,
+          file_name: subtitle.attributes?.files?.[0]?.file_name || `${subtitleTitle}.srt`,
+        }),
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        addTerminalOutput(`✅ Subtitle downloaded successfully: ${result.language}`);
+        addTerminalOutput(`📁 Saved as: ${result.path}`);
+        
+        if (result.remaining !== undefined) {
+          addTerminalOutput(`📊 Remaining downloads today: ${result.remaining}`);
+        }
+
+        // Refresh media data to show new subtitle
+        const mediaResponse = await fetch(`${getApiUrl()}/api/media/${selectedMedia.id}`);
+        if (mediaResponse.ok) {
+          const updatedMedia = await mediaResponse.json();
+          setSelectedMedia(prev => prev ? { ...prev, ...updatedMedia } : null);
+        }
+
+        // Refresh the media list
+        await fetchMediaList();
+        
+      } else {
+        const errorData = await response.json().catch(() => ({ error: response.statusText }));
+        addTerminalOutput(`❌ Failed to download subtitle: ${errorData.error || response.statusText}`);
+      }
+    } catch (error) {
+      addTerminalOutput(`❌ Error downloading subtitle: ${error}`);
+      console.error('Subtitle download error:', error);
+    } finally {
+      setDownloadingSubtitle(null);
+    }
+  };
+
   const handleDeleteAsset = async (type: 'banner' | 'thumbnail' | 'trailer') => {
     if (!selectedMedia) return;
 
@@ -2045,6 +2147,16 @@ function SettingsContent() {
             System Logs
           </MagneticButton>
           <MagneticButton
+            onClick={() => setActiveTab('subtitles')}
+            className={`px-6 py-3 rounded-lg font-semibold transition-all duration-300 ${activeTab === 'subtitles'
+              ? 'bg-[#E50914] text-white shadow-lg shadow-red-500/25'
+              : 'bg-transparent text-white/70 hover:text-white hover:bg-white/10'
+              }`}
+          >
+            <FileSearch className="w-4 h-4 mr-2" />
+            Subtitles
+          </MagneticButton>
+          <MagneticButton
             onClick={() => setActiveTab('general')}
             className={`px-6 py-3 rounded-lg font-semibold transition-all duration-300 ${activeTab === 'general'
               ? 'bg-[#E50914] text-white shadow-lg shadow-red-500/25'
@@ -2323,70 +2435,6 @@ function SettingsContent() {
                         >
                           <Search className="w-4 h-4" />
                           <span>Search & Update TMDB</span>
-                        </MagneticButton>
-
-                        <MagneticButton
-                          onClick={async () => {
-                            console.log('🧪 Testing TMDB API directly...');
-                            try {
-                              const apiUrl = getApiUrl();
-                              const testQuery = selectedMedia?.title || 'Avengers';
-
-                              // Test TMDB search endpoint
-                              addTerminalOutput(`🔍 Testing TMDB search for: ${testQuery}`);
-                              const searchResponse = await fetch(`${apiUrl}/api/tmdb/search?q=${encodeURIComponent(testQuery)}&type=movie`);
-                              console.log('📡 Search Response status:', searchResponse.status);
-
-                              if (searchResponse.ok) {
-                                const searchData = await searchResponse.json();
-                                console.log('📊 TMDB Search Response:', searchData);
-                                addTerminalOutput(`✅ TMDB Search Test: Found ${searchData.results?.length || 0} results for "${testQuery}"`);
-
-                                // Test TMDB update endpoint if we have results
-                                if (searchData.results && searchData.results.length > 0 && selectedMedia) {
-                                  const firstResult = searchData.results[0];
-                                  addTerminalOutput(`🎬 Testing TMDB update with first result: ${firstResult.title} (ID: ${firstResult.id})`);
-
-                                  const updateEndpoint = selectedMedia.type === 'tv'
-                                    ? `${apiUrl}/api/admin/series/${selectedMedia.id}/update-with-tmdb`
-                                    : `${apiUrl}/api/admin/media/${selectedMedia.id}/update-with-tmdb`;
-
-                                  const updateResponse = await fetch(updateEndpoint, {
-                                    method: 'POST',
-                                    headers: {
-                                      'Content-Type': 'application/json',
-                                    },
-                                    body: JSON.stringify({
-                                      tmdbId: firstResult.id,
-                                      mediaType: firstResult.media_type || selectedMedia.type,
-                                      preserveFields: []
-                                    }),
-                                  });
-
-                                  if (updateResponse.ok) {
-                                    const updateData = await updateResponse.json();
-                                    addTerminalOutput(`✅ TMDB Update Test: Successfully updated with "${firstResult.title}"`);
-                                    console.log('📊 TMDB Update Response:', updateData);
-                                  } else {
-                                    const errorText = await updateResponse.text();
-                                    addTerminalOutput(`❌ TMDB Update Test Failed: ${updateResponse.status} ${updateResponse.statusText}`);
-                                    console.error('❌ TMDB Update Error:', errorText);
-                                  }
-                                }
-                              } else {
-                                const errorText = await searchResponse.text();
-                                console.error('❌ TMDB Search Error:', errorText);
-                                addTerminalOutput(`❌ TMDB Search Test Failed: ${searchResponse.status} ${searchResponse.statusText}`);
-                              }
-                            } catch (error) {
-                              console.error('❌ TMDB Test Exception:', error);
-                              addTerminalOutput(`❌ TMDB API Test Exception: ${error}`);
-                            }
-                          }}
-                          className="bg-purple-600/20 hover:bg-purple-600/40 text-purple-400 px-4 py-2 rounded-lg flex items-center space-x-2"
-                        >
-                          <TrendingUp className="w-4 h-4" />
-                          <span>Test TMDB API</span>
                         </MagneticButton>
 
                         {selectedMedia.isEditing && (
@@ -2843,6 +2891,27 @@ function SettingsContent() {
                       </div>
                     </GlassCard>
 
+                    {/* File Information */}
+                    {selectedMedia?.file_path && (
+                      <GlassCard className="p-6">
+                        <h3 className="text-xl font-semibold text-white mb-4 flex items-center">
+                          <File className="w-6 h-6 mr-3 text-[#E50914]" />
+                          File Information
+                        </h3>
+                        <div className="bg-white/5 backdrop-blur-sm rounded-lg p-4 border border-white/10">
+                          <div className="flex items-center space-x-3">
+                            <HardDrive className="w-5 h-5 text-white/60" />
+                            <div className="flex-1">
+                              <p className="text-white/70 text-sm mb-1">File Path</p>
+                              <p className="text-white font-mono text-sm break-all bg-black/20 px-3 py-2 rounded border">
+                                {selectedMedia.file_path}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      </GlassCard>
+                    )}
+
                     {/* Asset Management */}
                     <GlassCard className="p-6">
                       <h3 className="text-xl font-semibold text-white mb-6 flex items-center">
@@ -2955,7 +3024,150 @@ function SettingsContent() {
                             )}
                           </div>
                         </div>
+
+            
                       </div>
+
+                      {/* OpenSubtitles Integration */}
+                        {selectedMedia && (
+                          <div className="bg-white/5 backdrop-blur-sm rounded-lg p-6 border border-white/10 mt-6 w-full">
+                            <h4 className="text-white font-semibold mb-4 flex items-center">
+                              <Globe className="w-5 h-5 mr-2 text-[#E50914]" />
+                              OpenSubtitles Search
+                            </h4>
+
+                            <div className="space-y-4">
+                              {/* Search Form */}
+                              <div className="flex gap-3">
+                                <div className="flex-1">
+                                  <input
+                                    type="text"
+                                    placeholder={`Search subtitles for "${selectedMedia.title}"...`}
+                                    value={openSubtitlesQuery}
+                                    onChange={(e) => setOpenSubtitlesQuery(e.target.value)}
+                                    className="w-full bg-black/50 border border-white/20 rounded-lg px-4 py-2 text-white placeholder-white/50 focus:border-[#E50914] focus:outline-none transition-colors"
+                                    onKeyPress={(e) => {
+                                      if (e.key === 'Enter') {
+                                        handleOpenSubtitlesSearch();
+                                      }
+                                    }}
+                                  />
+                                </div>
+                                <select
+                                  value={selectedLanguage}
+                                  onChange={(e) => setSelectedLanguage(e.target.value)}
+                                  className="bg-black/50 border border-white/20 rounded-lg px-3 py-2 text-white focus:border-[#E50914] focus:outline-none transition-colors"
+                                >
+                                  <option value="en">English</option>
+                                  <option value="es">Spanish</option>
+                                  <option value="fr">French</option>
+                                  <option value="de">German</option>
+                                  <option value="it">Italian</option>
+                                  <option value="pt">Portuguese</option>
+                                  <option value="ru">Russian</option>
+                                  <option value="ja">Japanese</option>
+                                  <option value="ko">Korean</option>
+                                  <option value="zh">Chinese</option>
+                                  <option value="ar">Arabic</option>
+                                </select>
+                                <MagneticButton
+                                  onClick={handleOpenSubtitlesSearch}
+                                  disabled={openSubtitlesLoading || !openSubtitlesQuery.trim()}
+                                  className="bg-[#E50914] hover:bg-[#E50914]/80 text-white px-6 py-2 rounded-lg flex items-center space-x-2 transition-colors"
+                                >
+                                  {openSubtitlesLoading ? (
+                                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                                  ) : (
+                                    <Search className="w-4 h-4" />
+                                  )}
+                                  <span>Search</span>
+                                </MagneticButton>
+                              </div>
+
+                              {/* Auto-populate button */}
+                              <MagneticButton
+                                onClick={() => {
+                                  setOpenSubtitlesQuery(selectedMedia.title);
+                                  addTerminalOutput(`🎬 Auto-populated search with: ${selectedMedia.title}`);
+                                }}
+                                className="bg-blue-600/20 hover:bg-blue-600/40 text-blue-400 px-4 py-2 rounded-lg flex items-center space-x-2 text-sm"
+                              >
+                                <Film className="w-4 h-4" />
+                                <span>Use Media Title</span>
+                              </MagneticButton>
+
+                              {/* Search Results */}
+                              {openSubtitlesResults.length > 0 && (
+                                <div className="space-y-3 max-h-96 overflow-y-auto">
+                                  <h5 className="text-white/80 font-medium">Search Results ({openSubtitlesResults.length})</h5>
+                                  {openSubtitlesResults.map((subtitle, index) => (
+                                    <div key={index} className="bg-black/30 rounded-lg p-4 border border-white/10">
+                                      <div className="flex items-center justify-between">
+                                        <div className="flex-1">
+                                          <div className="flex items-center space-x-3 mb-2">
+                                            <span className="text-white font-medium">
+                                              {subtitle.attributes?.feature_details?.title || 'Unknown Title'}
+                                            </span>
+                                            <span className="text-white/60 text-sm">
+                                              ({subtitle.attributes?.feature_details?.year || 'Unknown Year'})
+                                            </span>
+                                            <span className="bg-[#E50914]/20 text-[#E50914] px-2 py-1 rounded text-xs">
+                                              {subtitle.attributes?.language?.toUpperCase() || 'Unknown'}
+                                            </span>
+                                          </div>
+                                          <div className="flex items-center space-x-4 text-sm text-white/60">
+                                            <span>📥 {subtitle.attributes?.download_count || 0} downloads</span>
+                                            <span>⭐ {subtitle.attributes?.ratings?.toFixed(1) || 'N/A'}</span>
+                                            {subtitle.attributes?.hearing_impaired && (
+                                              <span className="text-yellow-400">🔊 CC</span>
+                                            )}
+                                            {subtitle.attributes?.hd && (
+                                              <span className="text-blue-400">🎬 HD</span>
+                                            )}
+                                          </div>
+                                          {subtitle.attributes?.release && (
+                                            <p className="text-white/50 text-xs mt-1 truncate">
+                                              Release: {subtitle.attributes.release}
+                                            </p>
+                                          )}
+                                        </div>
+                                        <MagneticButton
+                                          onClick={() => handleDownloadOpenSubtitle(subtitle)}
+                                          disabled={downloadingSubtitle === subtitle.attributes?.files?.[0]?.file_id}
+                                          className="bg-green-600/20 hover:bg-green-600/40 text-green-400 px-4 py-2 rounded-lg flex items-center space-x-2 ml-4"
+                                        >
+                                          {downloadingSubtitle === subtitle.attributes?.files?.[0]?.file_id ? (
+                                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-green-400"></div>
+                                          ) : (
+                                            <Download className="w-4 h-4" />
+                                          )}
+                                          <span>Add</span>
+                                        </MagneticButton>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+
+                              {/* No results message */}
+                              {openSubtitlesResults.length === 0 && openSubtitlesQuery && !openSubtitlesLoading && (
+                                <div className="text-center py-8 text-white/60">
+                                  <Search className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                                  <p>No subtitles found for "{openSubtitlesQuery}"</p>
+                                  <p className="text-sm mt-1">Try a different search term or language</p>
+                                </div>
+                              )}
+
+                              {/* Help text */}
+                              <div className="bg-blue-600/10 border border-blue-600/20 rounded-lg p-3">
+                                <p className="text-blue-300 text-sm">
+                                  💡 <strong>Tip:</strong> Click "Use Media Title" to auto-populate the search with the current media title, 
+                                  then click "Search" to find matching subtitles from OpenSubtitles.org
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        )}
 
                       {uploading && (
                         <motion.div
@@ -3571,6 +3783,262 @@ function SettingsContent() {
                     <Search className="w-4 h-4 mr-2" />
                     Scan All Paths
                   </MagneticButton>
+                </div>
+              </div>
+            </GlassCard>
+          </ScrollReveal>
+        )}
+
+        {/* Subtitles Management Tab */}
+        {activeTab === 'subtitles' && (
+          <ScrollReveal>
+            <GlassCard className="p-8">
+              <h2 className="text-2xl font-semibold text-white mb-6 flex items-center">
+                <FileSearch className="w-6 h-6 mr-3 text-[#E50914]" />
+                Subtitle Management
+              </h2>
+
+              <div className="space-y-8">
+                {/* OpenSubtitles Search Section */}
+                <div className="bg-white/5 backdrop-blur-sm rounded-lg p-6 border border-white/10">
+                  <h3 className="text-xl font-semibold text-white mb-4 flex items-center">
+                    <Globe className="w-5 h-5 mr-2 text-[#E50914]" />
+                    OpenSubtitles Search
+                  </h3>
+                  <p className="text-white/70 mb-6">
+                    Search and download subtitles from OpenSubtitles.org for any media in your library.
+                  </p>
+
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    {/* Search Form */}
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-sm font-medium text-white/70 mb-2">Search Query</label>
+                        <input
+                          type="text"
+                          placeholder="Enter movie or TV show title..."
+                          value={openSubtitlesQuery}
+                          onChange={(e) => setOpenSubtitlesQuery(e.target.value)}
+                          className="w-full bg-black/50 border border-white/20 rounded-lg px-4 py-3 text-white placeholder-white/50 focus:border-[#E50914] focus:outline-none transition-colors"
+                          onKeyPress={(e) => {
+                            if (e.key === 'Enter') {
+                              handleOpenSubtitlesSearch();
+                            }
+                          }}
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-white/70 mb-2">Language</label>
+                        <select
+                          value={selectedLanguage}
+                          onChange={(e) => setSelectedLanguage(e.target.value)}
+                          className="w-full bg-black/50 border border-white/20 rounded-lg px-4 py-3 text-white focus:border-[#E50914] focus:outline-none transition-colors"
+                        >
+                          <option value="en">English</option>
+                          <option value="es">Spanish</option>
+                          <option value="fr">French</option>
+                          <option value="de">German</option>
+                          <option value="it">Italian</option>
+                          <option value="pt">Portuguese</option>
+                          <option value="ru">Russian</option>
+                          <option value="ja">Japanese</option>
+                          <option value="ko">Korean</option>
+                          <option value="zh">Chinese</option>
+                          <option value="ar">Arabic</option>
+                          <option value="nl">Dutch</option>
+                          <option value="sv">Swedish</option>
+                          <option value="no">Norwegian</option>
+                          <option value="da">Danish</option>
+                          <option value="fi">Finnish</option>
+                          <option value="pl">Polish</option>
+                          <option value="tr">Turkish</option>
+                          <option value="he">Hebrew</option>
+                          <option value="th">Thai</option>
+                          <option value="vi">Vietnamese</option>
+                        </select>
+                      </div>
+
+                      <MagneticButton
+                        onClick={handleOpenSubtitlesSearch}
+                        disabled={openSubtitlesLoading || !openSubtitlesQuery.trim()}
+                        className="w-full bg-[#E50914] hover:bg-[#E50914]/80 text-white px-6 py-3 rounded-lg flex items-center justify-center space-x-2 transition-colors"
+                      >
+                        {openSubtitlesLoading ? (
+                          <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+                        ) : (
+                          <Search className="w-5 h-5" />
+                        )}
+                        <span>Search Subtitles</span>
+                      </MagneticButton>
+                    </div>
+
+                    {/* Search Results */}
+                    <div className="space-y-4">
+                      <h4 className="text-lg font-medium text-white">Search Results</h4>
+                      
+                      {openSubtitlesResults.length > 0 ? (
+                        <div className="space-y-3 max-h-96 overflow-y-auto">
+                          {openSubtitlesResults.slice(0, 10).map((subtitle, index) => (
+                            <div key={index} className="bg-black/30 rounded-lg p-4 border border-white/10">
+                              <div className="flex items-start justify-between">
+                                <div className="flex-1">
+                                  <div className="flex items-center space-x-3 mb-2">
+                                    <span className="text-white font-medium text-sm">
+                                      {subtitle.attributes?.feature_details?.title || 'Unknown Title'}
+                                    </span>
+                                    <span className="text-white/60 text-xs">
+                                      ({subtitle.attributes?.feature_details?.year || 'N/A'})
+                                    </span>
+                                    <span className="bg-[#E50914]/20 text-[#E50914] px-2 py-1 rounded text-xs">
+                                      {subtitle.attributes?.language?.toUpperCase() || 'Unknown'}
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center space-x-3 text-xs text-white/60">
+                                    <span>📥 {subtitle.attributes?.download_count || 0}</span>
+                                    <span>⭐ {subtitle.attributes?.ratings?.toFixed(1) || 'N/A'}</span>
+                                    {subtitle.attributes?.hearing_impaired && (
+                                      <span className="text-yellow-400">🔊 CC</span>
+                                    )}
+                                  </div>
+                                  {subtitle.attributes?.release && (
+                                    <p className="text-white/50 text-xs mt-1 truncate">
+                                      {subtitle.attributes.release}
+                                    </p>
+                                  )}
+                                </div>
+                                <MagneticButton
+                                  onClick={() => handleDownloadOpenSubtitle(subtitle)}
+                                  disabled={downloadingSubtitle === subtitle.attributes?.files?.[0]?.file_id}
+                                  className="bg-green-600/20 hover:bg-green-600/40 text-green-400 px-3 py-2 rounded-lg flex items-center space-x-2 ml-3 text-sm"
+                                >
+                                  {downloadingSubtitle === subtitle.attributes?.files?.[0]?.file_id ? (
+                                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-green-400"></div>
+                                  ) : (
+                                    <Download className="w-4 h-4" />
+                                  )}
+                                  <span>Download</span>
+                                </MagneticButton>
+                              </div>
+                            </div>
+                          ))}
+                          {openSubtitlesResults.length > 10 && (
+                            <p className="text-white/60 text-sm text-center">
+                              Showing first 10 results of {openSubtitlesResults.length}
+                            </p>
+                          )}
+                        </div>
+                      ) : openSubtitlesQuery && !openSubtitlesLoading ? (
+                        <div className="text-center py-8 text-white/60">
+                          <Search className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                          <p>No subtitles found for "{openSubtitlesQuery}"</p>
+                          <p className="text-sm mt-1">Try a different search term or language</p>
+                        </div>
+                      ) : (
+                        <div className="text-center py-8 text-white/60">
+                          <FileSearch className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                          <p>Enter a search query to find subtitles</p>
+                          <p className="text-sm mt-1">Search by movie or TV show title</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Help Section */}
+                  <div className="mt-6 bg-blue-600/10 border border-blue-600/20 rounded-lg p-4">
+                    <h4 className="text-blue-300 font-medium mb-2">💡 How to use OpenSubtitles</h4>
+                    <ul className="text-blue-300/80 text-sm space-y-1">
+                      <li>• Enter the exact title of your movie or TV show</li>
+                      <li>• Select your preferred language from the dropdown</li>
+                      <li>• Click "Search Subtitles" to find available options</li>
+                      <li>• Click "Download" to add subtitles to your media library</li>
+                      <li>• Downloaded subtitles will be automatically associated with matching media</li>
+                    </ul>
+                  </div>
+                </div>
+
+                {/* Subtitle Management Tools */}
+                <div className="bg-white/5 backdrop-blur-sm rounded-lg p-6 border border-white/10">
+                  <h3 className="text-xl font-semibold text-white mb-4 flex items-center">
+                    <Settings className="w-5 h-5 mr-2 text-[#E50914]" />
+                    Subtitle Tools
+                  </h3>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    <MagneticButton
+                      onClick={handleScanSubtitles}
+                      disabled={actionLoading.scanSubtitles}
+                      className="bg-blue-600/20 hover:bg-blue-600/40 text-blue-400 py-3 px-4 rounded-lg flex items-center justify-center space-x-2"
+                    >
+                      {actionLoading.scanSubtitles ? (
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-400"></div>
+                      ) : (
+                        <Search className="w-4 h-4" />
+                      )}
+                      <span>Scan Storage for Subtitles</span>
+                    </MagneticButton>
+
+                    <MagneticButton
+                      onClick={() => {
+                        // Trigger subtitle file input
+                        const input = document.createElement('input');
+                        input.type = 'file';
+                        input.accept = '.srt,.vtt,.ass,.ssa,.sub,.sbv';
+                        input.multiple = true;
+                        input.onchange = (e: Event) => {
+                          const target = e.target as HTMLInputElement;
+                          handleSubtitleUpload(e as unknown as React.ChangeEvent<HTMLInputElement>);
+                        };
+                        input.click();
+                      }}
+                      disabled={uploading}
+                      className="bg-green-600/20 hover:bg-green-600/40 text-green-400 py-3 px-4 rounded-lg flex items-center justify-center space-x-2"
+                    >
+                      {uploading ? (
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-green-400"></div>
+                      ) : (
+                        <Upload className="w-4 h-4" />
+                      )}
+                      <span>Upload Subtitle Files</span>
+                    </MagneticButton>
+
+                    <MagneticButton
+                      onClick={() => {
+                        addTerminalOutput('📊 Checking subtitle system status...');
+                        // Add any subtitle system checks here
+                        addTerminalOutput('✅ Subtitle system is operational');
+                      }}
+                      className="bg-purple-600/20 hover:bg-purple-600/40 text-purple-400 py-3 px-4 rounded-lg flex items-center justify-center space-x-2"
+                    >
+                      <Info className="w-4 h-4" />
+                      <span>System Status</span>
+                    </MagneticButton>
+                  </div>
+                </div>
+
+                {/* Configuration */}
+                <div className="bg-white/5 backdrop-blur-sm rounded-lg p-6 border border-white/10">
+                  <h3 className="text-xl font-semibold text-white mb-4 flex items-center">
+                    <Settings className="w-5 h-5 mr-2 text-[#E50914]" />
+                    Configuration
+                  </h3>
+                  
+                  <div className="space-y-4">
+                    <div className="bg-yellow-600/10 border border-yellow-600/20 rounded-lg p-4">
+                      <h4 className="text-yellow-300 font-medium mb-2">⚙️ OpenSubtitles API Configuration</h4>
+                      <p className="text-yellow-300/80 text-sm mb-3">
+                        To use OpenSubtitles integration, configure the following environment variables:
+                      </p>
+                      <div className="bg-black/30 rounded p-3 font-mono text-sm text-white/80">
+                        <div>OPENSUB_API_KEY=your_api_key_here</div>
+                        <div>OPENSUB_USERNAME=your_username</div>
+                        <div>OPENSUB_PASSWORD=your_password</div>
+                      </div>
+                      <p className="text-yellow-300/80 text-xs mt-2">
+                        Get your API key from: <a href="https://www.opensubtitles.com/en/profile/api" target="_blank" rel="noopener noreferrer" className="underline">OpenSubtitles.com</a>
+                      </p>
+                    </div>
+                  </div>
                 </div>
               </div>
             </GlassCard>

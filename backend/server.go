@@ -79,6 +79,9 @@ func main() {
 	// Initialize poster service
 	posterService := services.NewPosterService("./posters")
 
+	// Initialize OpenSubtitles service
+	openSubService := services.NewOpenSubtitlesService()
+
 	// Integrate ALAC service with thumbnail service for preview clips with ALAC audio
 	thumbnailService.SetALACService(alacService)
 
@@ -183,7 +186,7 @@ func main() {
 	r.Use(cors.New(cors.Config{
 		AllowOrigins:     []string{"*"},
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD"},
-		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization", "X-User-ID", "x-user-id", "Range"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization", "X-User-ID", "x-user-id", "Range", "Cache-Control", "Pragma", "Expires"},
 		ExposeHeaders:    []string{"Content-Length", "Content-Range", "Accept-Ranges", "Content-Type", "X-Cache", "Connection"},
 		AllowCredentials: false, // Set to false when using wildcard origin
 		MaxAge:           12 * time.Hour, // Cache preflight for 12 hours
@@ -193,7 +196,7 @@ func main() {
 	newsService.Start()
 
 	// Initialize API routes
-	api.SetupRoutes(r, mediaService, streamService, thumbnailService, userService, recommendationService, playbackService, geminiService, celeryService, alacService, tmdbService, mediaScanner, watcherService, redisCache, transcodeService, newsService, posterService, db)
+	api.SetupRoutes(r, mediaService, streamService, thumbnailService, userService, recommendationService, playbackService, geminiService, celeryService, alacService, tmdbService, mediaScanner, watcherService, redisCache, transcodeService, newsService, posterService, openSubService, db)
 
 	// Start server with optimizations
 	port := os.Getenv("PORT")

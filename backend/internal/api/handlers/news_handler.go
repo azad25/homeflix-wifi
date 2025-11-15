@@ -21,6 +21,7 @@ func NewNewsHandlers(newsService *services.NewsService) *NewsHandlers {
 }
 
 // GetLatestNews returns the latest news articles
+// This now triggers fresh news fetching on each request
 func (nh *NewsHandlers) GetLatestNews() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		limitStr := c.DefaultQuery("limit", "20")
@@ -28,6 +29,9 @@ func (nh *NewsHandlers) GetLatestNews() gin.HandlerFunc {
 		if err != nil || limit < 1 {
 			limit = 20
 		}
+
+		// Trigger fresh news fetch when accessed
+		go nh.newsService.FetchNewsOnDemand()
 
 		articles := nh.newsService.GetLatestNews(limit)
 
@@ -40,8 +44,12 @@ func (nh *NewsHandlers) GetLatestNews() gin.HandlerFunc {
 }
 
 // GetBreakingNews returns breaking news for the ticker
+// This now triggers fresh news fetching on each request
 func (nh *NewsHandlers) GetBreakingNews() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// Trigger fresh news fetch when accessed
+		go nh.newsService.FetchNewsOnDemand()
+		
 		articles := nh.newsService.GetBreakingNews()
 
 		c.JSON(http.StatusOK, gin.H{
@@ -52,8 +60,12 @@ func (nh *NewsHandlers) GetBreakingNews() gin.HandlerFunc {
 }
 
 // GetNewsForTicker returns news formatted for the TV ticker
+// This now triggers fresh news fetching on each request
 func (nh *NewsHandlers) GetNewsForTicker() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// Trigger fresh news fetch when ticker is accessed
+		go nh.newsService.FetchNewsOnDemand()
+		
 		articles := nh.newsService.GetNewsForTicker()
 		
 		// Debug logging

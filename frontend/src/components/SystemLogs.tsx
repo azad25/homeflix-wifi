@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
-import { Activity, HardDrive, Server, TrendingUp, Timer, FileSearch, Trash2, RefreshCw, Search, X, Cpu, Monitor, MemoryStick, Database, Wifi, Info } from 'lucide-react';
+import { Activity, HardDrive, Server, TrendingUp, Timer, FileSearch, Trash2, RefreshCw, Search, X, Cpu, Monitor, MemoryStick, Database, Wifi, Info, Zap } from 'lucide-react';
 import { GlassCard, ScrollReveal, MagneticButton } from '@/components/scrollx';
 import { getApiUrl } from '@/lib/api';
 
@@ -106,6 +106,8 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
   const [logsWebSocket, setLogsWebSocket] = useState<WebSocket | null>(null);
   const [statsWebSocket, setStatsWebSocket] = useState<WebSocket | null>(null);
   const [filterText, setFilterText] = useState('');
+  const [lastLogUpdate, setLastLogUpdate] = useState<Date | null>(null);
+  const [isFetchingLogs, setIsFetchingLogs] = useState(false);
 
   const addTerminalOutput = (message: string) => {
     if (onTerminalOutput) {
@@ -114,12 +116,32 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
   };
 
   useEffect(() => {
+    // Clear any existing logs first
+    setServerLogs([]);
+    
+    // Load initial data first
+    fetchInitialLogs();
+    fetchSystemInfo();
+    
+    // Try WebSocket connections
     connectToSystemLogs();
     connectToSystemStats();
-    fetchSystemInfo();
+
+    // Set up polling as fallback - force refresh every time
+    const logsInterval = setInterval(() => {
+      fetchInitialLogs(); // Always fetch, regardless of WebSocket status
+    }, 3000); // Poll every 3 seconds
+
+    const statsInterval = setInterval(() => {
+      if (!isStatsConnected) {
+        fetchSystemStats();
+      }
+    }, 2000); // Poll every 2 seconds for system stats
 
     return () => {
       disconnectWebSockets();
+      clearInterval(logsInterval);
+      clearInterval(statsInterval);
     };
   }, []);
 
@@ -144,17 +166,26 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
 
       ws.onclose = () => {
         setIsLogsConnected(false);
-        addTerminalOutput('❌ Disconnected from server logs');
+        addTerminalOutput('⚠️ WebSocket disconnected, falling back to polling');
+        // Attempt to reconnect after 5 seconds
+        setTimeout(() => {
+          if (!isLogsConnected) {
+            connectToSystemLogs();
+          }
+        }, 5000);
       };
 
-      ws.onerror = () => {
+      ws.onerror = (error) => {
         setIsLogsConnected(false);
-        addTerminalOutput('❌ Server logs connection error');
+        addTerminalOutput('⚠️ WebSocket unavailable, using polling mode');
+        console.warn('WebSocket connection failed, falling back to polling:', error);
       };
 
       setLogsWebSocket(ws);
     } catch (error) {
-      addTerminalOutput('❌ Failed to connect to server logs');
+      setIsLogsConnected(false);
+      addTerminalOutput('⚠️ WebSocket not supported, using polling mode');
+      console.warn('WebSocket connection failed:', error);
     }
   };
 
@@ -179,17 +210,26 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
 
       ws.onclose = () => {
         setIsStatsConnected(false);
-        addTerminalOutput('❌ Disconnected from system stats');
+        addTerminalOutput('⚠️ Stats WebSocket disconnected');
+        // Attempt to reconnect after 5 seconds
+        setTimeout(() => {
+          if (!isStatsConnected) {
+            connectToSystemStats();
+          }
+        }, 5000);
       };
 
-      ws.onerror = () => {
+      ws.onerror = (error) => {
         setIsStatsConnected(false);
-        addTerminalOutput('❌ System stats connection error');
+        addTerminalOutput('⚠️ Stats WebSocket unavailable');
+        console.warn('Stats WebSocket connection failed:', error);
       };
 
       setStatsWebSocket(ws);
     } catch (error) {
-      addTerminalOutput('❌ Failed to connect to system stats');
+      setIsStatsConnected(false);
+      addTerminalOutput('⚠️ Stats WebSocket not supported');
+      console.warn('Stats WebSocket connection failed:', error);
     }
   };
 
@@ -207,15 +247,72 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
   };
 
   const fetchInitialLogs = async () => {
+    setIsFetchingLogs(true);
     try {
-      const response = await fetch(`${getApiUrl()}/api/admin/system/logs?lines=50`);
-      if (response.ok) {
+      // Add timestamp to prevent caching
+      const timestamp = Date.now();
+      const randomParam = Math.random();
+      
+      // Try multiple URLs in case of hostname issues
+      const apiUrl = getApiUrl();
+      const urls = [
+        `${apiUrl}/api/admin/system/logs?lines=100&t=${timestamp}&r=${randomParam}`,
+        `http://localhost:8252/api/admin/system/logs?lines=100&t=${timestamp}&r=${randomParam}`,
+        `http://127.0.0.1:8252/api/admin/system/logs?lines=100&t=${timestamp}&r=${randomParam}`
+      ];
+      
+      
+      let response;
+      let lastError;
+      
+      for (const url of urls) {
+        try {
+          response = await fetch(url, {
+            method: 'GET',
+            headers: {
+              'Cache-Control': 'no-cache, no-store, must-revalidate',
+              'Pragma': 'no-cache',
+              'Expires': '0'
+            }
+          });
+          
+          if (response.ok) {
+            break; // Success, exit the loop
+          } else {
+            lastError = `${response.status} ${response.statusText}`;
+          }
+        } catch (error) {
+          lastError = error;
+          continue; // Try next URL
+        }
+      }
+      
+      if (response && response.ok) {
         const data = await response.json();
-        setServerLogs(data.logs || []);
-        addTerminalOutput(`📋 Loaded ${data.logs?.length || 0} recent log entries`);
+        const newLogs = data.logs || [];
+        
+        // Always update logs and timestamp
+        setServerLogs(newLogs);
+        setLastLogUpdate(new Date());
+      } else {
+        addTerminalOutput(`❌ Failed to fetch logs from all endpoints: ${lastError}`);
       }
     } catch (error) {
-      addTerminalOutput('❌ Failed to fetch initial logs');
+      addTerminalOutput(`❌ Failed to fetch logs: ${error}`);
+    } finally {
+      setIsFetchingLogs(false);
+    }
+  };
+
+  const fetchSystemStats = async () => {
+    try {
+      const response = await fetch(`${getApiUrl()}/api/admin/system/stats`);
+      if (response.ok) {
+        const data = await response.json();
+        setSystemStats(data);
+      }
+    } catch (error) {
+      console.warn('Failed to fetch system stats:', error);
     }
   };
 
@@ -255,12 +352,29 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
             </h2>
             <div className="flex items-center space-x-4">
               <div className="flex items-center space-x-2">
-                <div className={`w-2 h-2 rounded-full ${isLogsConnected ? 'bg-green-400 animate-pulse' : 'bg-red-400'}`}></div>
-                <span className="text-white/70 text-sm">Logs {isLogsConnected ? 'Connected' : 'Disconnected'}</span>
+                <div className={`w-2 h-2 rounded-full ${isLogsConnected ? 'bg-green-400 animate-pulse' : 'bg-yellow-400'}`}></div>
+                <span className="text-white/70 text-sm">
+                  Logs {isLogsConnected ? 'WebSocket' : 'Polling'}
+                </span>
               </div>
               <div className="flex items-center space-x-2">
-                <div className={`w-2 h-2 rounded-full ${isStatsConnected ? 'bg-green-400 animate-pulse' : 'bg-red-400'}`}></div>
-                <span className="text-white/70 text-sm">Stats {isStatsConnected ? 'Connected' : 'Disconnected'}</span>
+                <div className={`w-2 h-2 rounded-full ${isStatsConnected ? 'bg-green-400 animate-pulse' : 'bg-yellow-400'}`}></div>
+                <span className="text-white/70 text-sm">
+                  Stats {isStatsConnected ? 'WebSocket' : 'Polling'}
+                </span>
+              </div>
+              <div className="text-white/50 text-xs">
+                {serverLogs.length} entries
+                {isFetchingLogs && (
+                  <div className="text-blue-400 text-xs animate-pulse">
+                    Fetching...
+                  </div>
+                )}
+                {lastLogUpdate && !isFetchingLogs && (
+                  <div className="text-white/40 text-xs">
+                    Updated: {lastLogUpdate.toLocaleTimeString()}
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -596,18 +710,76 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
             </h3>
             <div className="flex items-center space-x-2">
               <MagneticButton
-                onClick={() => setServerLogs([])}
+                onClick={() => {
+                  setServerLogs([]);
+                  addTerminalOutput('🧹 Log display cleared');
+                }}
                 className="bg-white/10 hover:bg-white/20 text-white px-3 py-2 rounded-lg flex items-center space-x-2 text-sm"
               >
                 <Trash2 className="w-4 h-4" />
                 <span>Clear</span>
               </MagneticButton>
               <MagneticButton
-                onClick={fetchInitialLogs}
+                onClick={async () => {
+                  addTerminalOutput('🔄 Manually refreshing logs and stats');
+                  fetchInitialLogs();
+                  fetchSystemStats();
+                }}
                 className="bg-blue-600/20 hover:bg-blue-600/40 text-blue-400 px-3 py-2 rounded-lg flex items-center space-x-2 text-sm"
               >
                 <RefreshCw className="w-4 h-4" />
                 <span>Refresh</span>
+              </MagneticButton>
+              <MagneticButton
+                onClick={() => {
+                  disconnectWebSockets();
+                  setTimeout(() => {
+                    connectToSystemLogs();
+                    connectToSystemStats();
+                    addTerminalOutput('🔄 Attempting to reconnect WebSockets');
+                  }, 1000);
+                }}
+                className="bg-green-600/20 hover:bg-green-600/40 text-green-400 px-3 py-2 rounded-lg flex items-center space-x-2 text-sm"
+              >
+                <RefreshCw className="w-4 h-4" />
+                <span>Reconnect</span>
+              </MagneticButton>
+              <MagneticButton
+                onClick={async () => {
+                  addTerminalOutput('🚀 Force refreshing logs...');
+                  setServerLogs([]);
+                  setLastLogUpdate(null);
+                  
+                  // Force fetch with new timestamp
+                  const timestamp = Date.now();
+                  const randomParam = Math.random();
+                  const apiUrl = getApiUrl();
+                  const url = `${apiUrl}/api/admin/system/logs?lines=50&t=${timestamp}&r=${randomParam}&force=true`;
+                  
+                  try {
+                    const response = await fetch(url, {
+                      method: 'GET',
+                      headers: {
+                        'Cache-Control': 'no-cache, no-store, must-revalidate',
+                        'Pragma': 'no-cache',
+                        'Expires': '0'
+                      }
+                    });
+                    
+                    if (response.ok) {
+                      const data = await response.json();
+                      setServerLogs(data.logs || []);
+                      setLastLogUpdate(new Date());
+                      addTerminalOutput(`🎯 Force refresh: Got ${data.logs?.length || 0} fresh logs`);
+                    }
+                  } catch (error) {
+                    addTerminalOutput(`🚨 Force refresh failed: ${error}`);
+                  }
+                }}
+                className="bg-red-600/20 hover:bg-red-600/40 text-red-400 px-3 py-2 rounded-lg flex items-center space-x-2 text-sm"
+              >
+                <Zap className="w-4 h-4" />
+                <span>Force Refresh</span>
               </MagneticButton>
             </div>
           </div>
@@ -702,7 +874,7 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
               {filterText ? (
                 <>Filtered: {filteredLogs.length} / {serverLogs.length} entries</>
               ) : (
-                <>Showing {serverLogs.length} log entries • Auto-updating via WebSocket</>
+                <>Showing {serverLogs.length} log entries • {isLogsConnected ? 'Real-time via WebSocket' : 'Auto-refreshing via polling'}</>
               )}
             </div>
           </div>

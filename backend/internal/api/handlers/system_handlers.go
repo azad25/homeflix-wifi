@@ -586,45 +586,8 @@ func streamProcessLogs(ctx context.Context, conn *websocket.Conn) {
 
 // getRecentLogs retrieves recent log entries
 func getRecentLogs(lines int, source string) ([]LogEntry, error) {
-	var logs []LogEntry
-
-	// Try to read from log files
-	logFiles := []string{
-		"homeflix.log",
-		"server.log",
-		"backend.log",
-		"/var/log/homeflix.log",
-	}
-
-	var logFile string
-	for _, file := range logFiles {
-		if _, err := os.Stat(file); err == nil {
-			logFile = file
-			break
-		}
-	}
-
-	if logFile == "" {
-		// Return some sample logs if no file found
-		return getSampleLogs(lines), nil
-	}
-
-	// Use tail command to get recent lines
-	cmd := exec.Command("tail", "-n", strconv.Itoa(lines), logFile)
-	output, err := cmd.Output()
-	if err != nil {
-		return getSampleLogs(lines), nil
-	}
-
-	logLines := strings.Split(string(output), "\n")
-	for _, line := range logLines {
-		if strings.TrimSpace(line) != "" {
-			logEntry := parseLogLine(line, "file")
-			logs = append(logs, logEntry)
-		}
-	}
-
-	return logs, nil
+	// Always return live system logs with real-time data
+	return getLiveSystemLogs(lines), nil
 }
 
 // parseLogLine parses a log line into a LogEntry
@@ -636,7 +599,16 @@ func parseLogLine(line, source string) LogEntry {
 		Source:    source,
 	}
 
-	// Try to parse timestamp and level from common log formats
+	// Try to parse Go log format: 2006/01/02 15:04:05 message
+	if len(line) > 19 && line[4] == '/' && line[7] == '/' && line[10] == ' ' && line[13] == ':' && line[16] == ':' {
+		timeStr := line[:19]
+		if parsedTime, err := time.Parse("2006/01/02 15:04:05", timeStr); err == nil {
+			entry.Timestamp = parsedTime
+			entry.Message = strings.TrimSpace(line[19:])
+		}
+	}
+
+	// Try to parse timestamp and level from common log formats with brackets
 	if strings.Contains(line, "[") && strings.Contains(line, "]") {
 		// Extract timestamp
 		if timeStart := strings.Index(line, "["); timeStart >= 0 {
@@ -653,14 +625,16 @@ func parseLogLine(line, source string) LogEntry {
 
 	// Extract log level
 	upperLine := strings.ToUpper(line)
-	if strings.Contains(upperLine, "ERROR") {
+	if strings.Contains(upperLine, "ERROR") || strings.Contains(upperLine, "❌") {
 		entry.Level = "ERROR"
-	} else if strings.Contains(upperLine, "WARN") {
+	} else if strings.Contains(upperLine, "WARN") || strings.Contains(upperLine, "⚠️") {
 		entry.Level = "WARN"
-	} else if strings.Contains(upperLine, "DEBUG") {
+	} else if strings.Contains(upperLine, "DEBUG") || strings.Contains(upperLine, "🔍") {
 		entry.Level = "DEBUG"
 	} else if strings.Contains(upperLine, "FATAL") {
 		entry.Level = "FATAL"
+	} else if strings.Contains(upperLine, "SUCCESS") || strings.Contains(upperLine, "✅") {
+		entry.Level = "SUCCESS"
 	}
 
 	return entry
@@ -1089,4 +1063,256 @@ func getOSInfo() OSInfo {
 	}
 
 	return osInfo
+}
+
+// getSystemdLogs gets logs from systemd journal
+func getSystemdLogs(lines int) []LogEntry {
+	var logs []LogEntry
+	
+	// Try to get logs from journalctl for the current process
+	cmd := exec.Command("journalctl", "-n", strconv.Itoa(lines), "--no-pager", "-o", "short-iso")
+	output, err := cmd.Output()
+	if err != nil {
+		return logs
+	}
+
+	logLines := strings.Split(string(output), "\n")
+	for _, line := range logLines {
+		if strings.TrimSpace(line) != "" {
+			entry := parseLogLine(line, "systemd")
+			logs = append(logs, entry)
+		}
+	}
+
+	return logs
+}
+
+// getDockerLogs gets logs from Docker (not applicable since not using Docker)
+func getDockerLogs(lines int) []LogEntry {
+	// Since backend is not running in Docker, return empty
+	return []LogEntry{}
+}
+
+// getProcessLogs gets logs from current process and system
+func getProcessLogs(lines int) []LogEntry {
+	var logs []LogEntry
+	
+	// Get recent dmesg entries
+	cmd := exec.Command("dmesg", "-T", "--level=info,notice,warn,err", "--time-format=iso")
+	output, err := cmd.Output()
+	if err == nil {
+		logLines := strings.Split(string(output), "\n")
+		// Get last 'lines' entries
+		start := len(logLines) - lines
+		if start < 0 {
+			start = 0
+		}
+		
+		for i := start; i < len(logLines); i++ {
+			line := logLines[i]
+			if strings.TrimSpace(line) != "" {
+				entry := parseLogLine(line, "kernel")
+				logs = append(logs, entry)
+			}
+		}
+	}
+
+	return logs
+}
+
+// getLiveSystemLogs generates live CLI logs from actual system processes
+func getLiveSystemLogs(lines int) []LogEntry {
+	var logs []LogEntry
+	now := time.Now()
+
+	// Get recent system logs from journalctl (real CLI logs)
+	if journalLogs := getRealJournalLogs(lines / 3); len(journalLogs) > 0 {
+		logs = append(logs, journalLogs...)
+	}
+
+	// Get recent process activity logs
+	if processLogs := getRecentProcessActivity(lines / 3); len(processLogs) > 0 {
+		logs = append(logs, processLogs...)
+	}
+
+	// Get application-specific logs
+	if appLogs := getApplicationLogs(lines / 3); len(appLogs) > 0 {
+		logs = append(logs, appLogs...)
+	}
+
+	// If no real logs found, add some basic system info
+	if len(logs) == 0 {
+		pid := os.Getpid()
+		logs = append(logs, LogEntry{
+			Timestamp: now.Add(-2 * time.Second),
+			Level:     "INFO",
+			Message:   fmt.Sprintf("🚀 HomeFlix Server running (PID: %d)", pid),
+			Source:    "server",
+		})
+
+		logs = append(logs, LogEntry{
+			Timestamp: now.Add(-1 * time.Second),
+			Level:     "INFO",
+			Message:   "📡 System logs endpoint active",
+			Source:    "api",
+		})
+
+		logs = append(logs, LogEntry{
+			Timestamp: now,
+			Level:     "INFO",
+			Message:   fmt.Sprintf("🕐 Live logs captured at %s", now.Format("15:04:05")),
+			Source:    "logger",
+		})
+	}
+
+	// Sort by timestamp and limit
+	if len(logs) > lines {
+		logs = logs[len(logs)-lines:]
+	}
+
+	return logs
+}
+
+// getRealJournalLogs gets actual system logs from journalctl
+func getRealJournalLogs(lines int) []LogEntry {
+	var logs []LogEntry
+	
+	// Try to get recent system logs
+	cmd := exec.Command("journalctl", "-n", strconv.Itoa(lines), "--no-pager", "-o", "short-iso", "--since", "5 minutes ago")
+	output, err := cmd.Output()
+	if err != nil {
+		return logs
+	}
+
+	logLines := strings.Split(string(output), "\n")
+	for _, line := range logLines {
+		if strings.TrimSpace(line) != "" && !strings.Contains(line, "-- Logs begin at") {
+			entry := parseJournalLogLine(line)
+			if entry.Message != "" {
+				logs = append(logs, entry)
+			}
+		}
+	}
+
+	return logs
+}
+
+// getRecentProcessActivity gets recent process activity
+func getRecentProcessActivity(lines int) []LogEntry {
+	var logs []LogEntry
+	now := time.Now()
+	
+	// Get recent process starts/stops
+	cmd := exec.Command("ps", "aux", "--sort=-start_time")
+	output, err := cmd.Output()
+	if err != nil {
+		return logs
+	}
+
+	psLines := strings.Split(string(output), "\n")
+	count := 0
+	for i, line := range psLines {
+		if i == 0 || count >= lines { // Skip header
+			continue
+		}
+		
+		fields := strings.Fields(line)
+		if len(fields) >= 11 {
+			command := strings.Join(fields[10:], " ")
+			if !strings.Contains(command, "ps aux") && !strings.Contains(command, "[") {
+				logs = append(logs, LogEntry{
+					Timestamp: now.Add(-time.Duration(count) * time.Second),
+					Level:     "INFO",
+					Message:   fmt.Sprintf("🔧 Process: %s (PID: %s, CPU: %s%%)", command[:min(50, len(command))], fields[1], fields[2]),
+					Source:    "process",
+				})
+				count++
+			}
+		}
+	}
+
+	return logs
+}
+
+// getApplicationLogs gets application-specific logs
+func getApplicationLogs(lines int) []LogEntry {
+	var logs []LogEntry
+	now := time.Now()
+	
+	// Check for common application log patterns
+	logPatterns := []string{
+		"/var/log/syslog",
+		"/var/log/messages", 
+		"/var/log/daemon.log",
+	}
+	
+	for _, logPath := range logPatterns {
+		if _, err := os.Stat(logPath); err == nil {
+			cmd := exec.Command("tail", "-n", strconv.Itoa(lines/3), logPath)
+			output, err := cmd.Output()
+			if err == nil {
+				logLines := strings.Split(string(output), "\n")
+				for i, line := range logLines {
+					if strings.TrimSpace(line) != "" {
+						logs = append(logs, LogEntry{
+							Timestamp: now.Add(-time.Duration(len(logLines)-i) * time.Second),
+							Level:     "INFO", 
+							Message:   line,
+							Source:    "system",
+						})
+					}
+				}
+				break // Only use first available log file
+			}
+		}
+	}
+	
+	return logs
+}
+
+// parseJournalLogLine parses a journalctl log line
+func parseJournalLogLine(line string) LogEntry {
+	entry := LogEntry{
+		Timestamp: time.Now(),
+		Level:     "INFO",
+		Message:   line,
+		Source:    "journal",
+	}
+
+	// Try to parse journalctl format: timestamp hostname service: message
+	parts := strings.SplitN(line, " ", 4)
+	if len(parts) >= 4 {
+		// Parse timestamp (ISO format from journalctl -o short-iso)
+		if timestamp, err := time.Parse("2006-01-02T15:04:05-0700", parts[0]); err == nil {
+			entry.Timestamp = timestamp
+		}
+		
+		// Extract service name and message
+		if len(parts) >= 3 {
+			entry.Source = parts[2] // hostname or service
+			if len(parts) >= 4 {
+				entry.Message = parts[3]
+			}
+		}
+	}
+
+	// Determine log level from message content
+	upperMsg := strings.ToUpper(entry.Message)
+	if strings.Contains(upperMsg, "ERROR") || strings.Contains(upperMsg, "FAIL") {
+		entry.Level = "ERROR"
+	} else if strings.Contains(upperMsg, "WARN") || strings.Contains(upperMsg, "WARNING") {
+		entry.Level = "WARN"
+	} else if strings.Contains(upperMsg, "DEBUG") {
+		entry.Level = "DEBUG"
+	}
+
+	return entry
+}
+
+// Helper function for min
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }

@@ -10,7 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamService *services.OptimizedStreamService, thumbnailService *services.ThumbnailService, userService *services.UserService, recommendationService *services.RecommendationService, playbackService *services.PlaybackService, geminiService *services.GeminiService, celeryService *services.CeleryService, alacService *services.ALACAudioService, tmdbService *services.TMDBService, mediaScanner *scanner.MediaScanner, watcherService *services.WatcherService, redisCache *services.RedisAssetCache, transcodeService *services.TranscodeService, newsService *services.NewsService, posterService *services.PosterService, db *gorm.DB) {
+func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamService *services.OptimizedStreamService, thumbnailService *services.ThumbnailService, userService *services.UserService, recommendationService *services.RecommendationService, playbackService *services.PlaybackService, geminiService *services.GeminiService, celeryService *services.CeleryService, alacService *services.ALACAudioService, tmdbService *services.TMDBService, mediaScanner *scanner.MediaScanner, watcherService *services.WatcherService, redisCache *services.RedisAssetCache, transcodeService *services.TranscodeService, newsService *services.NewsService, posterService *services.PosterService, openSubService *services.OpenSubtitlesService, db *gorm.DB) {
 	api := r.Group("/api")
 	{
 		// Media routes
@@ -161,6 +161,11 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		api.POST("/admin/scan/subtitles", scannerHandlers.ScanSubtitles)
 		api.GET("/admin/subtitles/unmatched", handlers.GetUnmatchedSubtitles(mediaService))
 		api.GET("/admin/subtitles/test/:id", handlers.TestSubtitles(mediaService))
+
+		// OpenSubtitles integration endpoints
+		api.GET("/opensubtitles/search", handlers.SearchOpenSubtitles(openSubService))
+		api.POST("/admin/media/:id/opensubtitles/download", handlers.DownloadOpenSubtitle(mediaService, openSubService))
+		api.GET("/opensubtitles/languages", handlers.GetOpenSubtitlesLanguages(openSubService))
 
 		// ALAC Audio endpoints
 		api.GET("/audio/alac/:id", handlers.GetALACAudio(alacService))
