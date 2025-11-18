@@ -1753,7 +1753,17 @@ function SettingsContent() {
       
       if (response.ok) {
         const data = await response.json();
-        const results = data.data || [];
+        
+        // Handle different response formats between standalone and media-specific search
+        let results = [];
+        if (standalone) {
+          // Standalone search returns: { data: [...], total_count: ..., total_pages: ..., page: ... }
+          results = data.data || [];
+        } else {
+          // Media-specific search returns the raw OpenSubtitles API response: { data: [...] }
+          results = data.data || [];
+        }
+        
         setOpenSubtitlesResults(results);
         addTerminalOutput(`✅ Found ${results.length} subtitle(s) for "${openSubtitlesQuery}"`);
         
@@ -1761,6 +1771,12 @@ function SettingsContent() {
           addTerminalOutput(`💡 Try searching with just the movie title or different language`);
         } else {
           addTerminalOutput(`📊 Results include downloads, ratings, and file information`);
+          
+          // Log the structure of the first result for debugging
+          if (results.length > 0) {
+            console.log('🔍 First result structure:', results[0]);
+            addTerminalOutput(`🔍 Sample result keys: ${Object.keys(results[0]).join(', ')}`);
+          }
         }
       } else {
         const errorData = await response.json().catch(() => ({ error: response.statusText }));
@@ -1777,8 +1793,13 @@ function SettingsContent() {
   const handleDownloadOpenSubtitle = async (subtitle: any) => {
     if (!selectedMedia) return;
 
-    // Extract file_id from the subtitle object structure
-    const fileId = subtitle.attributes?.files?.[0]?.file_id || subtitle.file_id;
+    // Handle both standalone and media-specific search result formats
+    const isStandaloneFormat = subtitle.movie_title !== undefined;
+    
+    const fileId = isStandaloneFormat 
+      ? subtitle.file_id 
+      : subtitle.attributes?.files?.[0]?.file_id;
+      
     if (!fileId) {
       addTerminalOutput(`❌ No file ID found for subtitle`);
       return;
@@ -1786,12 +1807,21 @@ function SettingsContent() {
 
     setDownloadingSubtitle(fileId);
     
-    const subtitleTitle = subtitle.attributes?.feature_details?.title || subtitle.movie_title || selectedMedia.title || 'Unknown';
-    const language = subtitle.attributes?.language || subtitle.language || 'Unknown';
+    const subtitleTitle = isStandaloneFormat 
+      ? (subtitle.movie_title || selectedMedia.title || 'Unknown')
+      : (subtitle.attributes?.feature_details?.title || selectedMedia.title || 'Unknown');
+      
+    const language = isStandaloneFormat 
+      ? (subtitle.language || 'Unknown')
+      : (subtitle.attributes?.language || 'Unknown');
     
     addTerminalOutput(`⬇️ Downloading subtitle: ${subtitleTitle} (${language.toUpperCase()})`);
 
     try {
+      const fileName = isStandaloneFormat 
+        ? (subtitle.file_name || `${subtitleTitle}.srt`)
+        : (subtitle.attributes?.files?.[0]?.file_name || `${subtitleTitle}.srt`);
+
       const response = await fetch(`${getApiUrl()}/api/admin/media/${selectedMedia.id}/opensubtitles/download`, {
         method: 'POST',
         headers: {
@@ -1800,7 +1830,7 @@ function SettingsContent() {
         body: JSON.stringify({
           file_id: fileId,
           language: language,
-          file_name: subtitle.attributes?.files?.[0]?.file_name || subtitle.file_name || `${subtitleTitle}.srt`,
+          file_name: fileName,
         }),
       });
 
@@ -1836,15 +1866,25 @@ function SettingsContent() {
   };
 
   const handleDownloadSubtitleAsFile = async (subtitle: any) => {
-    // Extract file_id from the subtitle object structure
-    const fileId = subtitle.attributes?.files?.[0]?.file_id || subtitle.file_id;
+    // Handle both standalone and media-specific search result formats
+    const isStandaloneFormat = subtitle.movie_title !== undefined;
+    
+    const fileId = isStandaloneFormat 
+      ? subtitle.file_id 
+      : subtitle.attributes?.files?.[0]?.file_id;
+      
     if (!fileId) {
       addTerminalOutput(`❌ No file ID found for subtitle download`);
       return;
     }
 
-    const subtitleTitle = subtitle.attributes?.feature_details?.title || subtitle.movie_title || 'Unknown';
-    const language = subtitle.attributes?.language || subtitle.language || 'Unknown';
+    const subtitleTitle = isStandaloneFormat 
+      ? (subtitle.movie_title || 'Unknown')
+      : (subtitle.attributes?.feature_details?.title || 'Unknown');
+      
+    const language = isStandaloneFormat 
+      ? (subtitle.language || 'Unknown')
+      : (subtitle.attributes?.language || 'Unknown');
     
     addTerminalOutput(`⬇️ Downloading SRT file: ${subtitleTitle} (${language.toUpperCase()})`);
 
@@ -1859,7 +1899,10 @@ function SettingsContent() {
         
         // Get filename from Content-Disposition header or use default
         const contentDisposition = response.headers.get('content-disposition');
-        let filename = subtitle.attributes?.files?.[0]?.file_name || subtitle.file_name || `${subtitleTitle}_${language}.srt`;
+        let filename = isStandaloneFormat 
+          ? (subtitle.file_name || `${subtitleTitle}_${language}.srt`)
+          : (subtitle.attributes?.files?.[0]?.file_name || `${subtitleTitle}_${language}.srt`);
+          
         if (contentDisposition) {
           const filenameMatch = contentDisposition.match(/filename="?([^"]+)"?/);
           if (filenameMatch) {
@@ -3977,71 +4020,106 @@ function SettingsContent() {
                       
                       {openSubtitlesResults.length > 0 ? (
                         <div className="space-y-3 max-h-96 overflow-y-auto">
-                          {openSubtitlesResults.slice(0, 10).map((subtitle, index) => (
-                            <div key={index} className="bg-black/30 rounded-lg p-4 border border-white/10">
-                              <div className="flex items-start justify-between">
-                                <div className="flex-1">
-                                  <div className="flex items-center space-x-3 mb-2">
-                                    <span className="text-white font-medium text-sm">
-                                      {subtitle.movie_title || 'Unknown Title'}
-                                    </span>
-                                    <span className="text-white/60 text-xs">
-                                      ({subtitle.movie_year || 'N/A'})
-                                    </span>
-                                    <span className="bg-[#E50914]/20 text-[#E50914] px-2 py-1 rounded text-xs">
-                                      {subtitle.language?.toUpperCase() || 'Unknown'}
-                                    </span>
-                                  </div>
-                                  <div className="flex items-center space-x-3 text-xs text-white/60">
-                                    <span>📥 {subtitle.downloads || 0}</span>
-                                    <span>⭐ {subtitle.rating?.toFixed(1) || 'N/A'}</span>
-                                    <span>👍 {subtitle.votes || 0}</span>
-                                    {subtitle.hearing_impaired && (
-                                      <span className="text-yellow-400">🔊 CC</span>
-                                    )}
-                                    {subtitle.hd && (
-                                      <span className="text-green-400">🎬 HD</span>
-                                    )}
-                                  </div>
-                                  {subtitle.release && (
-                                    <p className="text-white/50 text-xs mt-1 truncate">
-                                      {subtitle.release}
-                                    </p>
-                                  )}
-                                  {subtitle.uploader && (
-                                    <p className="text-white/40 text-xs mt-1">
-                                      By: {subtitle.uploader} ({subtitle.uploader_rank})
-                                    </p>
-                                  )}
-                                </div>
-                                <div className="flex gap-2 ml-3">
-                                  <MagneticButton
-                                    onClick={() => handleDownloadSubtitleAsFile(subtitle)}
-                                    className="bg-blue-600/20 hover:bg-blue-600/40 text-blue-400 px-3 py-2 rounded-lg flex items-center space-x-2 text-sm"
-                                    title="Download as SRT file to your computer"
-                                  >
-                                    <Download className="w-4 h-4" />
-                                    <span>SRT</span>
-                                  </MagneticButton>
-                                  {selectedMedia && (
-                                    <MagneticButton
-                                      onClick={() => handleDownloadOpenSubtitle(subtitle)}
-                                      disabled={downloadingSubtitle === (subtitle.attributes?.files?.[0]?.file_id || subtitle.file_id)}
-                                      className="bg-green-600/20 hover:bg-green-600/40 text-green-400 px-3 py-2 rounded-lg flex items-center space-x-2 text-sm"
-                                      title="Add subtitle to selected media"
-                                    >
-                                      {downloadingSubtitle === (subtitle.attributes?.files?.[0]?.file_id || subtitle.file_id) ? (
-                                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-green-400"></div>
-                                      ) : (
-                                        <Download className="w-4 h-4" />
+                          {openSubtitlesResults.slice(0, 10).map((subtitle, index) => {
+                            // Handle both standalone and media-specific search result formats
+                            const isStandaloneFormat = subtitle.movie_title !== undefined;
+                            
+                            const subtitleData = isStandaloneFormat ? {
+                              // Standalone format (flattened)
+                              title: subtitle.movie_title || 'Unknown Title',
+                              year: subtitle.movie_year || 'N/A',
+                              language: subtitle.language || 'Unknown',
+                              downloads: subtitle.downloads || 0,
+                              rating: subtitle.rating || 0,
+                              votes: subtitle.votes || 0,
+                              hearing_impaired: subtitle.hearing_impaired || false,
+                              hd: subtitle.hd || false,
+                              release: subtitle.release || '',
+                              uploader: subtitle.uploader || '',
+                              uploader_rank: subtitle.uploader_rank || '',
+                              file_id: subtitle.file_id || 0
+                            } : {
+                              // Media-specific format (nested attributes)
+                              title: subtitle.attributes?.feature_details?.title || 'Unknown Title',
+                              year: subtitle.attributes?.feature_details?.year || 'N/A',
+                              language: subtitle.attributes?.language || 'Unknown',
+                              downloads: subtitle.attributes?.download_count || 0,
+                              rating: subtitle.attributes?.ratings || 0,
+                              votes: subtitle.attributes?.votes || 0,
+                              hearing_impaired: subtitle.attributes?.hearing_impaired || false,
+                              hd: subtitle.attributes?.hd || false,
+                              release: subtitle.attributes?.release || '',
+                              uploader: subtitle.attributes?.uploader?.name || '',
+                              uploader_rank: subtitle.attributes?.uploader?.rank || '',
+                              file_id: subtitle.attributes?.files?.[0]?.file_id || 0
+                            };
+
+                            return (
+                              <div key={index} className="bg-black/30 rounded-lg p-4 border border-white/10">
+                                <div className="flex items-start justify-between">
+                                  <div className="flex-1">
+                                    <div className="flex items-center space-x-3 mb-2">
+                                      <span className="text-white font-medium text-sm">
+                                        {subtitleData.title}
+                                      </span>
+                                      <span className="text-white/60 text-xs">
+                                        ({subtitleData.year})
+                                      </span>
+                                      <span className="bg-[#E50914]/20 text-[#E50914] px-2 py-1 rounded text-xs">
+                                        {subtitleData.language.toUpperCase()}
+                                      </span>
+                                    </div>
+                                    <div className="flex items-center space-x-3 text-xs text-white/60">
+                                      <span>📥 {subtitleData.downloads}</span>
+                                      <span>⭐ {subtitleData.rating?.toFixed(1) || 'N/A'}</span>
+                                      <span>👍 {subtitleData.votes}</span>
+                                      {subtitleData.hearing_impaired && (
+                                        <span className="text-yellow-400">🔊 CC</span>
                                       )}
-                                      <span>Add</span>
+                                      {subtitleData.hd && (
+                                        <span className="text-green-400">🎬 HD</span>
+                                      )}
+                                    </div>
+                                    {subtitleData.release && (
+                                      <p className="text-white/50 text-xs mt-1 truncate">
+                                        {subtitleData.release}
+                                      </p>
+                                    )}
+                                    {subtitleData.uploader && (
+                                      <p className="text-white/40 text-xs mt-1">
+                                        By: {subtitleData.uploader} ({subtitleData.uploader_rank})
+                                      </p>
+                                    )}
+                                  </div>
+                                  <div className="flex gap-2 ml-3">
+                                    <MagneticButton
+                                      onClick={() => handleDownloadSubtitleAsFile(subtitle)}
+                                      className="bg-blue-600/20 hover:bg-blue-600/40 text-blue-400 px-3 py-2 rounded-lg flex items-center space-x-2 text-sm"
+                                      title="Download as SRT file to your computer"
+                                    >
+                                      <Download className="w-4 h-4" />
+                                      <span>SRT</span>
                                     </MagneticButton>
-                                  )}
+                                    {selectedMedia && (
+                                      <MagneticButton
+                                        onClick={() => handleDownloadOpenSubtitle(subtitle)}
+                                        disabled={downloadingSubtitle === subtitleData.file_id}
+                                        className="bg-green-600/20 hover:bg-green-600/40 text-green-400 px-3 py-2 rounded-lg flex items-center space-x-2 text-sm"
+                                        title="Add subtitle to selected media"
+                                      >
+                                        {downloadingSubtitle === subtitleData.file_id ? (
+                                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-green-400"></div>
+                                        ) : (
+                                          <Download className="w-4 h-4" />
+                                        )}
+                                        <span>Add</span>
+                                      </MagneticButton>
+                                    )}
+                                  </div>
                                 </div>
                               </div>
-                            </div>
-                          ))}
+                            );
+                          })}
                           {openSubtitlesResults.length > 10 && (
                             <p className="text-white/60 text-sm text-center">
                               Showing first 10 results of {openSubtitlesResults.length}

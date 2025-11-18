@@ -119,11 +119,18 @@ func (s *OpenSubtitlesService) IsConfigured() bool {
 }
 
 // retryWithBackoff performs HTTP request with exponential backoff retry logic
-func (s *OpenSubtitlesService) retryWithBackoff(req *http.Request, maxRetries int) (*http.Response, error) {
+// retryWithBackoff performs HTTP request with exponential backoff retry logic
+// For POST requests with body, the caller must provide a function to recreate the request
+func (s *OpenSubtitlesService) retryWithBackoff(createReq func() *http.Request, maxRetries int) (*http.Response, error) {
 	var resp *http.Response
 	var err error
 	
 	for attempt := 0; attempt <= maxRetries; attempt++ {
+		req := createReq()
+		if req == nil {
+			return nil, fmt.Errorf("failed to create request for attempt %d", attempt+1)
+		}
+		
 		resp, err = s.client.Do(req)
 		if err != nil {
 			if attempt < maxRetries {
@@ -158,22 +165,6 @@ func (s *OpenSubtitlesService) retryWithBackoff(req *http.Request, maxRetries in
 				fmt.Printf("⏳ Retry attempt %d/%d after %v (Status: %d)\n", 
 					attempt+1, maxRetries, totalWait, resp.StatusCode)
 				time.Sleep(totalWait)
-				
-				// Create a fresh request for the next attempt
-				newReq := &http.Request{
-					Method:   req.Method,
-					URL:      req.URL,
-					Header:   req.Header.Clone(),
-					Body:     req.Body,
-					Host:     req.Host,
-				}
-				// Reset body if it was seekable
-				if req.Body != nil {
-					if closer, ok := req.Body.(io.Closer); ok {
-						closer.Close()
-					}
-				}
-				req = newReq
 				continue
 			}
 		}
@@ -183,6 +174,13 @@ func (s *OpenSubtitlesService) retryWithBackoff(req *http.Request, maxRetries in
 	}
 	
 	return resp, nil
+}
+
+// retryWithBackoffSimple is for GET requests without body
+func (s *OpenSubtitlesService) retryWithBackoffSimple(req *http.Request, maxRetries int) (*http.Response, error) {
+	return s.retryWithBackoff(func() *http.Request {
+		return req
+	}, maxRetries)
 }
 
 
@@ -287,7 +285,7 @@ func (s *OpenSubtitlesService) SearchSubtitles(req SubtitleSearchRequest) (*Open
 	httpReq.Header.Set("User-Agent", "HomeFlix v1.0")
 	httpReq.Header.Set("Accept", "application/json")
 
-	resp, err := s.retryWithBackoff(httpReq, 2)
+	resp, err := s.retryWithBackoffSimple(httpReq, 2)
 	if err != nil {
 		return nil, fmt.Errorf("search request failed: %v", err)
 	}
@@ -338,6 +336,11 @@ func (s *OpenSubtitlesService) DownloadSubtitle(fileID int) (*OpenSubtitlesDownl
 		return nil, nil, fmt.Errorf("OpenSubtitles API key not configured")
 	}
 
+	// Validate file_id - must be a positive integer
+	if fileID <= 0 {
+		return nil, nil, fmt.Errorf("invalid file_id: must be a positive integer from search results")
+	}
+
 	// Ensure we're logged in
 	if s.token == "" {
 		if err := s.Login(); err != nil {
@@ -367,6 +370,7 @@ func (s *OpenSubtitlesService) DownloadSubtitle(fileID int) (*OpenSubtitlesDownl
 		req.Header.Set("Api-Key", s.apiKey)
 		req.Header.Set("Authorization", "Bearer "+s.token)
 		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Accept", "application/json")
 		req.Header.Set("User-Agent", "HomeFlix v1.0")
 		
 		return req
@@ -379,8 +383,7 @@ func (s *OpenSubtitlesService) DownloadSubtitle(fileID int) (*OpenSubtitlesDownl
 	fmt.Printf("📤 Requesting download for fileID: %d with token: %s...\n", fileID, tokenPreview)
 
 	// Create initial request and use retry logic with exponential backoff
-	req := createRequest()
-	resp, err := s.retryWithBackoff(req, 3) // Retry up to 3 times
+	resp, err := s.retryWithBackoff(createRequest, 3) // Retry up to 3 times
 	if err != nil {
 		return nil, nil, fmt.Errorf("download request failed: %v", err)
 	}
@@ -395,9 +398,25 @@ func (s *OpenSubtitlesService) DownloadSubtitle(fileID int) (*OpenSubtitlesDownl
 			return nil, nil, fmt.Errorf("failed to re-login: %v", err)
 		}
 		
+		// Update the createRequest function to use new token
+		createRequest = func() *http.Request {
+			reqBody := bytes.NewReader(jsonData)
+			req, err := http.NewRequest("POST", openSubtitlesBaseURL+"/download", reqBody)
+			if err != nil {
+				return nil
+			}
+
+			req.Header.Set("Api-Key", s.apiKey)
+			req.Header.Set("Authorization", "Bearer "+s.token)
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Accept", "application/json")
+			req.Header.Set("User-Agent", "HomeFlix v1.0")
+			
+			return req
+		}
+		
 		// Retry the request with new token
-		req := createRequest()
-		resp, err = s.retryWithBackoff(req, 3)
+		resp, err = s.retryWithBackoff(createRequest, 3)
 		if err != nil {
 			return nil, nil, fmt.Errorf("retry download request failed: %v", err)
 		}
@@ -410,7 +429,21 @@ func (s *OpenSubtitlesService) DownloadSubtitle(fileID int) (*OpenSubtitlesDownl
 		fmt.Printf("❌ Download API Error (Status %d):\n", resp.StatusCode)
 		fmt.Printf("   Response: %s\n", string(body))
 		fmt.Printf("   Headers: %v\n", resp.Header)
-		return nil, nil, fmt.Errorf("download failed with status %d: %s", resp.StatusCode, string(body))
+		fmt.Printf("   Request Headers: %v\n", resp.Request.Header)
+		
+		// Provide specific error messages for common issues
+		switch resp.StatusCode {
+		case http.StatusServiceUnavailable:
+			return nil, nil, fmt.Errorf("service unavailable (503): this usually indicates an invalid file_id or server issue. Ensure file_id comes from search results")
+		case http.StatusUnauthorized:
+			return nil, nil, fmt.Errorf("unauthorized (401): check API key and login token")
+		case http.StatusNotAcceptable:
+			return nil, nil, fmt.Errorf("not acceptable (406): invalid file_id - ensure you're using file_id from attributes.files array, not subtitle_id")
+		case http.StatusTooManyRequests:
+			return nil, nil, fmt.Errorf("rate limit exceeded (429): daily download quota reached")
+		default:
+			return nil, nil, fmt.Errorf("download failed with status %d: %s", resp.StatusCode, string(body))
+		}
 	}
 
 	var downloadResp OpenSubtitlesDownloadResponse
@@ -500,6 +533,38 @@ func (s *OpenSubtitlesService) ExtractLanguageFromFilename(filename string) stri
 	}
 	
 	return "English" // Default to English
+}
+
+// ValidateFileID checks if a file_id looks valid and provides debugging info
+func (s *OpenSubtitlesService) ValidateFileID(fileID int, searchResults *OpenSubtitlesSearchResult) error {
+	if fileID <= 0 {
+		return fmt.Errorf("file_id must be positive, got: %d", fileID)
+	}
+
+	if searchResults == nil {
+		return fmt.Errorf("no search results provided for validation")
+	}
+
+	// Check if file_id exists in any of the search results
+	for _, item := range searchResults.Data {
+		for _, file := range item.Attributes.Files {
+			if file.FileID == fileID {
+				fmt.Printf("✅ file_id %d found in search results (filename: %s)\n", fileID, file.FileName)
+				return nil
+			}
+		}
+	}
+
+	// List available file_ids for debugging
+	fmt.Printf("❌ file_id %d not found in search results. Available file_ids:\n", fileID)
+	for i, item := range searchResults.Data {
+		fmt.Printf("   Result %d (ID: %s):\n", i+1, item.ID)
+		for j, file := range item.Attributes.Files {
+			fmt.Printf("     File %d: file_id=%d, filename=%s\n", j+1, file.FileID, file.FileName)
+		}
+	}
+
+	return fmt.Errorf("file_id %d not found in search results", fileID)
 }
 
 // GetSupportedLanguages returns a list of commonly supported languages
