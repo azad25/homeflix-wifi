@@ -1775,13 +1775,19 @@ function SettingsContent() {
   };
 
   const handleDownloadOpenSubtitle = async (subtitle: any) => {
-    if (!selectedMedia || !subtitle.file_id) return;
+    if (!selectedMedia) return;
 
-    const fileId = subtitle.file_id;
+    // Extract file_id from the subtitle object structure
+    const fileId = subtitle.attributes?.files?.[0]?.file_id || subtitle.file_id;
+    if (!fileId) {
+      addTerminalOutput(`❌ No file ID found for subtitle`);
+      return;
+    }
+
     setDownloadingSubtitle(fileId);
     
-    const subtitleTitle = subtitle.movie_title || selectedMedia.title || 'Unknown';
-    const language = subtitle.language || 'Unknown';
+    const subtitleTitle = subtitle.attributes?.feature_details?.title || subtitle.movie_title || selectedMedia.title || 'Unknown';
+    const language = subtitle.attributes?.language || subtitle.language || 'Unknown';
     
     addTerminalOutput(`⬇️ Downloading subtitle: ${subtitleTitle} (${language.toUpperCase()})`);
 
@@ -1794,7 +1800,7 @@ function SettingsContent() {
         body: JSON.stringify({
           file_id: fileId,
           language: language,
-          file_name: subtitle.file_name || `${subtitleTitle}.srt`,
+          file_name: subtitle.attributes?.files?.[0]?.file_name || subtitle.file_name || `${subtitleTitle}.srt`,
         }),
       });
 
@@ -1830,11 +1836,15 @@ function SettingsContent() {
   };
 
   const handleDownloadSubtitleAsFile = async (subtitle: any) => {
-    if (!subtitle.file_id) return;
+    // Extract file_id from the subtitle object structure
+    const fileId = subtitle.attributes?.files?.[0]?.file_id || subtitle.file_id;
+    if (!fileId) {
+      addTerminalOutput(`❌ No file ID found for subtitle download`);
+      return;
+    }
 
-    const fileId = subtitle.file_id;
-    const subtitleTitle = subtitle.movie_title || 'Unknown';
-    const language = subtitle.language || 'Unknown';
+    const subtitleTitle = subtitle.attributes?.feature_details?.title || subtitle.movie_title || 'Unknown';
+    const language = subtitle.attributes?.language || subtitle.language || 'Unknown';
     
     addTerminalOutput(`⬇️ Downloading SRT file: ${subtitleTitle} (${language.toUpperCase()})`);
 
@@ -1849,7 +1859,7 @@ function SettingsContent() {
         
         // Get filename from Content-Disposition header or use default
         const contentDisposition = response.headers.get('content-disposition');
-        let filename = subtitle.file_name || `${subtitleTitle}_${language}.srt`;
+        let filename = subtitle.attributes?.files?.[0]?.file_name || subtitle.file_name || `${subtitleTitle}_${language}.srt`;
         if (contentDisposition) {
           const filenameMatch = contentDisposition.match(/filename="?([^"]+)"?/);
           if (filenameMatch) {
@@ -3221,10 +3231,10 @@ function SettingsContent() {
                                         </div>
                                         <MagneticButton
                                           onClick={() => handleDownloadOpenSubtitle(subtitle)}
-                                          disabled={downloadingSubtitle === subtitle.attributes?.files?.[0]?.file_id}
+                                          disabled={downloadingSubtitle === (subtitle.attributes?.files?.[0]?.file_id || subtitle.file_id)}
                                           className="bg-green-600/20 hover:bg-green-600/40 text-green-400 px-4 py-2 rounded-lg flex items-center space-x-2 ml-4"
                                         >
-                                          {downloadingSubtitle === subtitle.attributes?.files?.[0]?.file_id ? (
+                                          {downloadingSubtitle === (subtitle.attributes?.files?.[0]?.file_id || subtitle.file_id) ? (
                                             <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-green-400"></div>
                                           ) : (
                                             <Download className="w-4 h-4" />
@@ -4016,11 +4026,11 @@ function SettingsContent() {
                                   {selectedMedia && (
                                     <MagneticButton
                                       onClick={() => handleDownloadOpenSubtitle(subtitle)}
-                                      disabled={downloadingSubtitle === subtitle.file_id}
+                                      disabled={downloadingSubtitle === (subtitle.attributes?.files?.[0]?.file_id || subtitle.file_id)}
                                       className="bg-green-600/20 hover:bg-green-600/40 text-green-400 px-3 py-2 rounded-lg flex items-center space-x-2 text-sm"
                                       title="Add subtitle to selected media"
                                     >
-                                      {downloadingSubtitle === subtitle.file_id ? (
+                                      {downloadingSubtitle === (subtitle.attributes?.files?.[0]?.file_id || subtitle.file_id) ? (
                                         <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-green-400"></div>
                                       ) : (
                                         <Download className="w-4 h-4" />
