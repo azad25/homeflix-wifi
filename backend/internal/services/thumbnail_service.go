@@ -637,8 +637,8 @@ func buildPreviewCommand(videoPath, outputPath, startTime string, duration int, 
 			"-b:v", "1.5M", // Lower bitrate for VRAM
 		)
 
-		// Use software scaling for stability
-		args = append(args, "-vf", "scale=1280:720:force_original_aspect_ratio=decrease")
+		// Use software scaling for stability - HD 1080p output
+		args = append(args, "-vf", "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2")
 	} else if config.Encoder != "" {
 		args = append(args, "-c:v", config.Encoder)
 
@@ -653,8 +653,10 @@ func buildPreviewCommand(videoPath, outputPath, startTime string, duration int, 
 	// Encoding settings optimized for speed and compatibility
 	if config.HWAccel == "none" {
 		args = append(args,
+			"-c:v", "libx264", // Software video codec
 			"-preset", "ultrafast",
 			"-crf", "23", // Good quality/speed balance
+			"-vf", "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2", // HD 1080p for software encoding
 		)
 	}
 
@@ -911,11 +913,11 @@ func (wp *WorkerPool) generatePreviewWithSoftwareEncoding(videoPath string, medi
 
 // generateUltraFastPreview creates a preview with minimal quality settings for maximum compatibility
 func (wp *WorkerPool) generateUltraFastPreview(videoPath string, mediaID uint, previewPath, startTime string, duration int) (string, error) {
-	log.Printf("🚀 Trying ultra-fast preview generation for media %d", mediaID)
+	log.Printf("🚀 Trying ultra-fast HD 1080p preview generation for media %d", mediaID)
 
 	// No timeout for ultra-fast preview - let it take as long as needed
 
-	// Ultra-minimal FFmpeg command for maximum compatibility
+	// Ultra-minimal FFmpeg command for maximum compatibility - HD 1080p
 	args := []string{
 		"-y",
 		"-ss", startTime,
@@ -923,8 +925,8 @@ func (wp *WorkerPool) generateUltraFastPreview(videoPath string, mediaID uint, p
 		"-t", fmt.Sprintf("%d", duration),
 		"-c:v", "libx264",
 		"-preset", "ultrafast",
-		"-crf", "28", // Lower quality for speed
-		"-vf", "scale=1280:720:force_original_aspect_ratio=decrease", // Lower resolution
+		"-crf", "25", // Better quality for HD output
+		"-vf", "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2", // HD 1080p resolution
 		"-c:a", "aac",
 		"-b:a", "96k",
 		"-ac", "2",
@@ -1028,10 +1030,8 @@ func (wp *WorkerPool) createPlaceholderThumbnail(mediaID uint, thumbnailPath str
 
 // trySimplePreviewGeneration uses minimal FFmpeg parameters (worker pool version)
 func (wp *WorkerPool) trySimplePreviewGeneration(videoPath, previewPath string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-
-	cmd := exec.CommandContext(ctx, "ffmpeg",
+	// No timeout for HD/4K processing - let it take as long as needed
+	cmd := exec.Command("ffmpeg",
 		"-y",              // Overwrite output
 		"-ss", "00:01:00", // Start at 1 minute
 		"-i", videoPath,
@@ -1052,10 +1052,8 @@ func (wp *WorkerPool) trySimplePreviewGeneration(videoPath, previewPath string) 
 
 // tryShortPreviewGeneration creates a very short preview (worker pool version)
 func (wp *WorkerPool) tryShortPreviewGeneration(videoPath, previewPath string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
-	defer cancel()
-
-	cmd := exec.CommandContext(ctx, "ffmpeg",
+	// No timeout for HD/4K processing - let it take as long as needed
+	cmd := exec.Command("ffmpeg",
 		"-i", videoPath,
 		"-ss", "00:00:30", // Start at 30 seconds
 		"-t", "00:00:10", // Duration of 10 seconds
@@ -1462,13 +1460,9 @@ func (s *ThumbnailService) GeneratePreviewClipAsyncWithEpisodeInfo(videoPath str
 		return "", fmt.Errorf("processing queue full - timeout after 5 seconds")
 	}
 
-	// Wait for result with timeout
-	select {
-	case result := <-resultChan:
-		return result.path, result.err
-	case <-time.After(120 * time.Second): // Longer timeout for previews
-		return "", fmt.Errorf("preview generation timeout")
-	}
+	// Wait for result without timeout for HD/4K processing
+	result := <-resultChan
+	return result.path, result.err
 }
 
 // RegenerateThumbnailAsync forces thumbnail regeneration with timestamped filename
@@ -1602,13 +1596,9 @@ func (s *ThumbnailService) RegeneratePreviewClipAsyncWithEpisodeInfo(videoPath s
 		return "", fmt.Errorf("processing queue full - timeout after 5 seconds")
 	}
 
-	// Wait for result with timeout
-	select {
-	case result := <-resultChan:
-		return result.path, result.err
-	case <-time.After(120 * time.Second): // Longer timeout for previews
-		return "", fmt.Errorf("preview regeneration timeout")
-	}
+	// Wait for result without timeout for HD/4K processing
+	result := <-resultChan
+	return result.path, result.err
 }
 
 // GeneratePreviewClipBatch generates multiple preview clips in parallel
@@ -1948,7 +1938,7 @@ func (s *ThumbnailService) GenerateOptimizedPreviewClip(videoPath string, mediaI
 		crf        string
 		suffix     string
 	}{
-		"high":   {"1280:720", "3M", "25", "_720p"},
+		"high":   {"1920:1080", "5M", "23", "_1080p"},
 		"medium": {"854:480", "1.5M", "28", "_480p"},
 		"low":    {"640:360", "800k", "32", "_360p"},
 	}
@@ -2769,12 +2759,12 @@ func (wp *WorkerPool) generatePreviewWithSoftwareEncodingUnlimited(videoPath str
 
 // generateUltraFastPreviewUnlimited creates a preview with minimal quality settings without timeout
 func (wp *WorkerPool) generateUltraFastPreviewUnlimited(videoPath string, mediaID uint, previewPath, startTime string, duration int) (string, error) {
-	log.Printf("🚀 Trying unlimited ultra-fast preview generation for media %d", mediaID)
+	log.Printf("🚀 Trying unlimited ultra-fast HD 1080p preview generation for media %d", mediaID)
 
 	// Use context without timeout for unlimited processing
 	ctx := context.Background()
 
-	// Ultra-minimal FFmpeg command for maximum compatibility
+	// Ultra-minimal FFmpeg command for maximum compatibility - HD 1080p
 	args := []string{
 		"-y",
 		"-ss", startTime,
@@ -2782,8 +2772,8 @@ func (wp *WorkerPool) generateUltraFastPreviewUnlimited(videoPath string, mediaI
 		"-t", fmt.Sprintf("%d", duration),
 		"-c:v", "libx264",
 		"-preset", "ultrafast",
-		"-crf", "28", // Lower quality for speed
-		"-vf", "scale=1280:720:force_original_aspect_ratio=decrease", // Lower resolution
+		"-crf", "25", // Better quality for HD output
+		"-vf", "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2", // HD 1080p resolution
 		"-c:a", "aac",
 		"-b:a", "96k",
 		"-ac", "2",
@@ -2894,9 +2884,8 @@ func (wp *WorkerPool) processPreviewRegeneration(task ProcessingTask) (string, e
 	// Fallback to standard preview generation
 	args := buildPreviewCommand(task.VideoPath, previewPath, startTimeStr, clipDuration, config)
 
-	// Use context with reasonable timeout for regeneration
-	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
-	defer cancel()
+	// Use context without timeout for HD/4K regeneration - unlimited time
+	ctx := context.Background()
 	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
 
 	// Run with timeout
@@ -2978,9 +2967,8 @@ func (wp *WorkerPool) generatePreviewWithALACRegeneration(task ProcessingTask, p
 		previewPath,
 	)
 
-	// Use context with timeout for regeneration
-	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
-	defer cancel()
+	// Use context without timeout for HD/4K regeneration - unlimited time
+	ctx := context.Background()
 	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
 
 	err := cmd.Run()
@@ -3002,9 +2990,8 @@ func (wp *WorkerPool) generatePreviewWithALACRegeneration(task ProcessingTask, p
 func (wp *WorkerPool) generatePreviewWithSoftwareEncodingRegeneration(videoPath string, mediaID uint, previewPath, startTime string, duration int) (string, error) {
 	log.Printf("🔄 Trying software encoding for preview regeneration (media %d) - CUDA fallback", mediaID)
 
-	// Use context with timeout for regeneration
-	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
-	defer cancel()
+	// Use context without timeout for HD/4K regeneration - unlimited time
+	ctx := context.Background()
 
 	// Build optimized software encoding command
 	args := []string{

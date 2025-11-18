@@ -339,6 +339,8 @@ func SearchOpenSubtitles(openSubService *services.OpenSubtitlesService) gin.Hand
 		imdbID := c.Query("imdb_id")
 		tmdbID := c.Query("tmdb_id")
 
+		fmt.Printf("🔍 OpenSubtitles Search Request: query=%s, language=%s, year=%s\n", query, language, year)
+
 		searchReq := services.SubtitleSearchRequest{
 			Query:    query,
 			Language: language,
@@ -349,10 +351,12 @@ func SearchOpenSubtitles(openSubService *services.OpenSubtitlesService) gin.Hand
 
 		result, err := openSubService.SearchSubtitles(searchReq)
 		if err != nil {
+			fmt.Printf("❌ OpenSubtitles search error: %v\n", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
 
+		fmt.Printf("✅ OpenSubtitles search completed: %d results\n", len(result.Data))
 		c.JSON(http.StatusOK, result)
 	}
 }
@@ -558,6 +562,85 @@ func GetOpenSubtitlesLanguages(openSubService *services.OpenSubtitlesService) gi
 	}
 }
 
+// SearchOpenSubtitlesStandalone searches for subtitles without requiring a specific media item
+func SearchOpenSubtitlesStandalone(openSubService *services.OpenSubtitlesService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		query := c.Query("query")
+		if query == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Query parameter is required"})
+			return
+		}
+
+		language := c.Query("language")
+		if language == "" {
+			language = "en" // Default to English
+		}
+
+		year := c.Query("year")
+		imdbID := c.Query("imdb_id")
+		tmdbID := c.Query("tmdb_id")
+
+		fmt.Printf("🔍 Standalone OpenSubtitles Search: query=%s, language=%s, year=%s\n", query, language, year)
+
+		searchReq := services.SubtitleSearchRequest{
+			Query:    query,
+			Language: language,
+			Year:     year,
+			ImdbID:   imdbID,
+			TmdbID:   tmdbID,
+		}
+
+		result, err := openSubService.SearchSubtitles(searchReq)
+		if err != nil {
+			fmt.Printf("❌ Standalone OpenSubtitles search error: %v\n", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		fmt.Printf("✅ Standalone OpenSubtitles search completed: %d results\n", len(result.Data))
+		
+		// Transform the results to include more user-friendly information
+		transformedResults := make([]map[string]interface{}, 0, len(result.Data))
+		for _, item := range result.Data {
+			if len(item.Attributes.Files) > 0 {
+				transformedResult := map[string]interface{}{
+					"id":           item.ID,
+					"file_id":      item.Attributes.Files[0].FileID,
+					"file_name":    item.Attributes.Files[0].FileName,
+					"language":     item.Attributes.Language,
+					"downloads":    item.Attributes.DownloadCount,
+					"rating":       item.Attributes.Ratings,
+					"votes":        item.Attributes.Votes,
+					"hearing_impaired": item.Attributes.HearingImpaired,
+					"hd":           item.Attributes.HD,
+					"fps":          item.Attributes.FPS,
+					"release":      item.Attributes.Release,
+					"comments":     item.Attributes.Comments,
+					"uploader":     item.Attributes.Uploader.Name,
+					"uploader_rank": item.Attributes.Uploader.Rank,
+				}
+
+				// Add feature details if available
+				if item.Attributes.FeatureDetails.Title != "" {
+					transformedResult["movie_title"] = item.Attributes.FeatureDetails.Title
+					transformedResult["movie_year"] = item.Attributes.FeatureDetails.Year
+					transformedResult["imdb_id"] = item.Attributes.FeatureDetails.ImdbID
+					transformedResult["tmdb_id"] = item.Attributes.FeatureDetails.TmdbID
+				}
+
+				transformedResults = append(transformedResults, transformedResult)
+			}
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"data":        transformedResults,
+			"total_count": result.TotalCount,
+			"total_pages": result.TotalPages,
+			"page":        result.Page,
+		})
+	}
+}
+
 // DownloadOpenSubtitleDirect downloads a subtitle from OpenSubtitles and returns it as a file (without saving to media)
 func DownloadOpenSubtitleDirect(openSubService *services.OpenSubtitlesService) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -608,10 +691,11 @@ func DownloadOpenSubtitleDirect(openSubService *services.OpenSubtitlesService) g
 				return
 			}
 
-			// Find the first .srt file
+			// Find the first subtitle file (.srt, .vtt, .ass, etc.)
 			found := false
 			for _, file := range reader.File {
-				if strings.HasSuffix(strings.ToLower(file.Name), ".srt") {
+				ext := strings.ToLower(filepath.Ext(file.Name))
+				if ext == ".srt" || ext == ".vtt" || ext == ".ass" || ext == ".ssa" || ext == ".sub" {
 					f, err := file.Open()
 					if err != nil {
 						continue
@@ -626,13 +710,13 @@ func DownloadOpenSubtitleDirect(openSubService *services.OpenSubtitlesService) g
 					finalSubtitleData = extractedData
 					finalFilename = file.Name
 					found = true
-					fmt.Printf("📦 Extracted SRT from ZIP: %s (%d bytes)\n", file.Name, len(extractedData))
+					fmt.Printf("📦 Extracted subtitle from ZIP: %s (%d bytes)\n", file.Name, len(extractedData))
 					break
 				}
 			}
 
 			if !found {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "No .srt file found in ZIP archive"})
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "No subtitle file found in ZIP archive"})
 				return
 			}
 		} else {
@@ -644,8 +728,8 @@ func DownloadOpenSubtitleDirect(openSubService *services.OpenSubtitlesService) g
 			}
 		}
 
-		// Ensure filename ends with .srt
-		if !strings.HasSuffix(strings.ToLower(finalFilename), ".srt") {
+		// Ensure filename has proper extension
+		if !strings.Contains(finalFilename, ".") {
 			finalFilename = finalFilename + ".srt"
 		}
 

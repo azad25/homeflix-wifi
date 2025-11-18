@@ -277,7 +277,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
   const loadExternalSubtitle = useCallback(async (url: string, mediaId?: number) => {
     // Create a unique key for this media and subtitle URL
     const loadingKey = `${mediaId || media.id}-${url}`;
-    
+
     // Prevent loading if we're already loading this specific combination
     if ((window as any).currentlyLoadingSubtitle === loadingKey) {
       return;
@@ -1030,7 +1030,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
             (window as any).lastSubtitleText = '';
             (window as any).currentSubtitleMediaId = null;
             setCurrentSubtitleText('');
-            
+
             // Load new subtitles with media ID
             loadExternalSubtitle(currentSubtitle, media.id);
           }
@@ -1045,9 +1045,9 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
   useEffect(() => {
     if (isOpen && media.id && subtitlesEnabled && currentSubtitle && hasInitiallyLoaded && !isLoading) {
       // Check if we have subtitles for the current media
-      const hasCorrectSubtitles = (window as any).currentSubtitleMediaId === media.id && 
-                                  (window as any).currentSubtitleCues?.length > 0;
-      
+      const hasCorrectSubtitles = (window as any).currentSubtitleMediaId === media.id &&
+        (window as any).currentSubtitleCues?.length > 0;
+
       if (!hasCorrectSubtitles) {
         const timeoutId = setTimeout(() => {
           if (subtitlesEnabled && currentSubtitle && media.id) {
@@ -1410,7 +1410,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
 
             } else {
               setNextEpisode(null);
-
             }
           } else {
 
@@ -1752,10 +1751,12 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
           clearTimeout(controlsTimeoutRef.current);
         }
         controlsTimeoutRef.current = setTimeout(() => {
-          setShowControls(false);
-          const container = containerRef.current;
-          if (container) {
-            container.style.cursor = 'none';
+          if (!showSettings && !isDragging) {
+            setShowControls(false);
+            const container = containerRef.current;
+            if (container) {
+              container.style.cursor = 'none';
+            }
           }
         }, 3000);
       } else {
@@ -2185,7 +2186,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
       }
 
       controlsTimeoutRef.current = setTimeout(() => {
-        if (isPlaying && !isDragging) {
+        if (isPlaying && !isDragging && !showSettings) {
           setShowControls(false);
           // Hide cursor when controls hide
           if (container) {
@@ -2197,7 +2198,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
 
     const handleMouseLeave = () => {
       // Immediately hide controls and cursor when mouse leaves the video area
-      if (isPlaying && !isDragging) {
+      if (isPlaying && !isDragging && !showSettings) {
         setShowControls(false);
         const container = containerRef.current;
         if (container) {
@@ -2207,36 +2208,31 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
     };
 
     const container = containerRef.current;
+    if (!container) return;
 
-    // Use document for fullscreen mode, container for normal mode
-    const targetElement = document.fullscreenElement ? document : container;
+    // Always use container for event listeners to ensure proper cleanup
+    container.addEventListener('mousemove', handleMouseMove);
+    container.addEventListener('mouseleave', handleMouseLeave);
 
-    if (targetElement && container) {
-      targetElement.addEventListener('mousemove', handleMouseMove);
-      container.addEventListener('mouseleave', handleMouseLeave);
-
-      // Also handle touch events for mobile
-      if (isMobile) {
-        targetElement.addEventListener('touchstart', handleMouseMove);
-      }
-
-      // Show controls and cursor initially
-      setShowControls(true);
-      container.style.cursor = 'default';
-
-      return () => {
-        targetElement.removeEventListener('mousemove', handleMouseMove);
-        container.removeEventListener('mouseleave', handleMouseLeave);
-        if (isMobile) {
-          targetElement.removeEventListener('touchstart', handleMouseMove);
-        }
-        // Reset cursor when component unmounts
-        if (container) {
-          container.style.cursor = 'default';
-        }
-      };
+    // Also handle touch events for mobile
+    if (isMobile) {
+      container.addEventListener('touchstart', handleMouseMove);
     }
-  }, [isPlaying, isMobile, isDragging]);
+
+    // Show controls and cursor initially
+    setShowControls(true);
+    container.style.cursor = 'default';
+
+    return () => {
+      container.removeEventListener('mousemove', handleMouseMove);
+      container.removeEventListener('mouseleave', handleMouseLeave);
+      if (isMobile) {
+        container.removeEventListener('touchstart', handleMouseMove);
+      }
+      // Reset cursor when component unmounts
+      container.style.cursor = 'default';
+    };
+  }, [isPlaying, isMobile, isDragging, showSettings]);
 
   const handleClose = useCallback(async () => {
     const video = videoRef.current;
@@ -2453,15 +2449,18 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
           exit={{ opacity: 0 }}
           className="fixed inset-0 z-50 bg-black"
           ref={containerRef}
-          style={{ cursor: showControls ? 'default' : 'none' }}
+          style={{
+            cursor: (showControls || !isPlaying || isDragging || showSettings) ? 'default' : 'none'
+          }}
         >
           {/* Click overlay for play/pause functionality - only covers video area, not controls */}
           <div
-            className="absolute inset-0 z-5 cursor-pointer transition-all duration-300"
+            className="absolute inset-0 z-5 transition-all duration-300"
             style={{
               // Dynamically exclude control areas when they're visible
               bottom: showControls ? '120px' : '0px',
-              top: showControls ? '80px' : '0px'
+              top: showControls ? '80px' : '0px',
+              cursor: (showControls || !isPlaying || isDragging || showSettings) ? 'pointer' : 'none'
             }}
             onClick={async (e) => {
               e.preventDefault();

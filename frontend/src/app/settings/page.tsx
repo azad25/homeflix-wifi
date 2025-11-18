@@ -1724,12 +1724,17 @@ function SettingsContent() {
   };
 
   // OpenSubtitles handlers
-  const handleOpenSubtitlesSearch = async () => {
-    if (!selectedMedia || !openSubtitlesQuery.trim()) return;
+  const handleOpenSubtitlesSearch = async (standalone = false) => {
+    if (!openSubtitlesQuery.trim()) return;
+    
+    // For standalone search, we don't need selectedMedia
+    if (!standalone && !selectedMedia) return;
 
     setOpenSubtitlesLoading(true);
     setOpenSubtitlesResults([]);
-    addTerminalOutput(`🔍 Searching OpenSubtitles for: ${openSubtitlesQuery} (${selectedLanguage})`);
+    
+    const searchContext = standalone ? 'standalone' : `for ${selectedMedia?.title}`;
+    addTerminalOutput(`🔍 Searching OpenSubtitles ${searchContext}: ${openSubtitlesQuery} (${selectedLanguage})`);
 
     try {
       const params = new URLSearchParams({
@@ -1737,12 +1742,14 @@ function SettingsContent() {
         language: selectedLanguage,
       });
 
-      // Add year if available
-      if (selectedMedia.year) {
+      // Add year if available and not standalone
+      if (!standalone && selectedMedia?.year) {
         params.append('year', selectedMedia.year.toString());
       }
 
-      const response = await fetch(`${getApiUrl()}/api/opensubtitles/search?${params}`);
+      // Use different endpoint for standalone search
+      const endpoint = standalone ? 'opensubtitles/search-standalone' : 'opensubtitles/search';
+      const response = await fetch(`${getApiUrl()}/api/${endpoint}?${params}`);
       
       if (response.ok) {
         const data = await response.json();
@@ -1752,6 +1759,8 @@ function SettingsContent() {
         
         if (results.length === 0) {
           addTerminalOutput(`💡 Try searching with just the movie title or different language`);
+        } else {
+          addTerminalOutput(`📊 Results include downloads, ratings, and file information`);
         }
       } else {
         const errorData = await response.json().catch(() => ({ error: response.statusText }));
@@ -1766,13 +1775,13 @@ function SettingsContent() {
   };
 
   const handleDownloadOpenSubtitle = async (subtitle: any) => {
-    if (!selectedMedia || !subtitle.attributes?.files?.[0]?.file_id) return;
+    if (!selectedMedia || !subtitle.file_id) return;
 
-    const fileId = subtitle.attributes.files[0].file_id;
+    const fileId = subtitle.file_id;
     setDownloadingSubtitle(fileId);
     
-    const subtitleTitle = subtitle.attributes?.feature_details?.title || 'Unknown';
-    const language = subtitle.attributes?.language || 'Unknown';
+    const subtitleTitle = subtitle.movie_title || selectedMedia.title || 'Unknown';
+    const language = subtitle.language || 'Unknown';
     
     addTerminalOutput(`⬇️ Downloading subtitle: ${subtitleTitle} (${language.toUpperCase()})`);
 
@@ -1785,7 +1794,7 @@ function SettingsContent() {
         body: JSON.stringify({
           file_id: fileId,
           language: language,
-          file_name: subtitle.attributes?.files?.[0]?.file_name || `${subtitleTitle}.srt`,
+          file_name: subtitle.file_name || `${subtitleTitle}.srt`,
         }),
       });
 
@@ -1821,11 +1830,11 @@ function SettingsContent() {
   };
 
   const handleDownloadSubtitleAsFile = async (subtitle: any) => {
-    if (!subtitle.attributes?.files?.[0]?.file_id) return;
+    if (!subtitle.file_id) return;
 
-    const fileId = subtitle.attributes.files[0].file_id;
-    const subtitleTitle = subtitle.attributes?.feature_details?.title || 'Unknown';
-    const language = subtitle.attributes?.language || 'Unknown';
+    const fileId = subtitle.file_id;
+    const subtitleTitle = subtitle.movie_title || 'Unknown';
+    const language = subtitle.language || 'Unknown';
     
     addTerminalOutput(`⬇️ Downloading SRT file: ${subtitleTitle} (${language.toUpperCase()})`);
 
@@ -1840,7 +1849,7 @@ function SettingsContent() {
         
         // Get filename from Content-Disposition header or use default
         const contentDisposition = response.headers.get('content-disposition');
-        let filename = `${subtitleTitle}_${language}.srt`;
+        let filename = subtitle.file_name || `${subtitleTitle}_${language}.srt`;
         if (contentDisposition) {
           const filenameMatch = contentDisposition.match(/filename="?([^"]+)"?/);
           if (filenameMatch) {
@@ -2127,122 +2136,124 @@ function SettingsContent() {
 
       <div className="container mx-auto px-6 md:px-12 lg:px-16 py-8">
         {/* Netflix-style Tab Navigation */}
-        <div className="flex flex-wrap gap-2 mb-12 bg-black/50 backdrop-blur-sm rounded-lg p-2">
-          <MagneticButton
-            onClick={() => setActiveTab('media')}
-            className={`px-6 py-3 rounded-lg font-semibold transition-all duration-300 ${activeTab === 'media'
-              ? 'bg-[#E50914] text-white shadow-lg shadow-red-500/25'
-              : 'bg-transparent text-white/70 hover:text-white hover:bg-white/10'
-              }`}
-          >
-            <Database className="w-4 h-4 mr-2" />
-            Media Library
-          </MagneticButton>
-          <MagneticButton
-            onClick={() => setActiveTab('scanning')}
-            className={`px-6 py-3 rounded-lg font-semibold transition-all duration-300 ${activeTab === 'scanning'
-              ? 'bg-[#E50914] text-white shadow-lg shadow-red-500/25'
-              : 'bg-transparent text-white/70 hover:text-white hover:bg-white/10'
-              }`}
-          >
-            <Search className="w-4 h-4 mr-2" />
-            Media Scanning
-          </MagneticButton>
-          <MagneticButton
-            onClick={() => setActiveTab('system')}
-            className={`px-6 py-3 rounded-lg font-semibold transition-all duration-300 ${activeTab === 'system'
-              ? 'bg-[#E50914] text-white shadow-lg shadow-red-500/25'
-              : 'bg-transparent text-white/70 hover:text-white hover:bg-white/10'
-              }`}
-          >
-            <Server className="w-4 h-4 mr-2" />
-            System Management
-          </MagneticButton>
-          <MagneticButton
-            onClick={() => setActiveTab('tasks')}
-            className={`px-6 py-3 rounded-lg font-semibold transition-all duration-300 ${activeTab === 'tasks'
-              ? 'bg-[#E50914] text-white shadow-lg shadow-red-500/25'
-              : 'bg-transparent text-white/70 hover:text-white hover:bg-white/10'
-              }`}
-          >
-            <Activity className="w-4 h-4 mr-2" />
-            Task Management
-          </MagneticButton>
-          <MagneticButton
-            onClick={() => setActiveTab('watcher')}
-            className={`px-6 py-3 rounded-lg font-semibold transition-all duration-300 ${activeTab === 'watcher'
-              ? 'bg-[#E50914] text-white shadow-lg shadow-red-500/25'
-              : 'bg-transparent text-white/70 hover:text-white hover:bg-white/10'
-              }`}
-          >
-            <Monitor className="w-4 h-4 mr-2" />
-            File Watcher
-          </MagneticButton>
-          <MagneticButton
-            onClick={() => setActiveTab('analytics')}
-            className={`px-6 py-3 rounded-lg font-semibold transition-all duration-300 ${activeTab === 'analytics'
-              ? 'bg-[#E50914] text-white shadow-lg shadow-red-500/25'
-              : 'bg-transparent text-white/70 hover:text-white hover:bg-white/10'
-              }`}
-          >
-            <BarChart3 className="w-4 h-4 mr-2" />
-            Analytics
-          </MagneticButton>
-          <MagneticButton
-            onClick={() => setActiveTab('torrent')}
-            className={`px-6 py-3 rounded-lg font-semibold transition-all duration-300 relative ${activeTab === 'torrent'
-              ? 'bg-[#E50914] text-white shadow-lg shadow-red-500/25'
-              : 'bg-transparent text-white/70 hover:text-white hover:bg-white/10'
-              }`}
-          >
-            <Download className="w-4 h-4 mr-2" />
-            Torrents
-            {activeDownloads > 0 && (
-              <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center animate-pulse">
-                {activeDownloads}
-              </span>
-            )}
-          </MagneticButton>
-          <MagneticButton
-            onClick={() => setActiveTab('paths')}
-            className={`px-6 py-3 rounded-lg font-semibold transition-all duration-300 ${activeTab === 'paths'
-              ? 'bg-[#E50914] text-white shadow-lg shadow-red-500/25'
-              : 'bg-transparent text-white/70 hover:text-white hover:bg-white/10'
-              }`}
-          >
-            <Folder className="w-4 h-4 mr-2" />
-            Media Paths
-          </MagneticButton>
-          <MagneticButton
-            onClick={() => setActiveTab('system-logs')}
-            className={`px-6 py-3 rounded-lg font-semibold transition-all duration-300 ${activeTab === 'system-logs'
-              ? 'bg-[#E50914] text-white shadow-lg shadow-red-500/25'
-              : 'bg-transparent text-white/70 hover:text-white hover:bg-white/10'
-              }`}
-          >
-            <Activity className="w-4 h-4 mr-2" />
-            System Logs
-          </MagneticButton>
-          <MagneticButton
-            onClick={() => setActiveTab('subtitles')}
-            className={`px-6 py-3 rounded-lg font-semibold transition-all duration-300 ${activeTab === 'subtitles'
-              ? 'bg-[#E50914] text-white shadow-lg shadow-red-500/25'
-              : 'bg-transparent text-white/70 hover:text-white hover:bg-white/10'
-              }`}
-          >
-            <FileSearch className="w-4 h-4 mr-2" />
-            Subtitles
-          </MagneticButton>
-          <MagneticButton
-            onClick={() => setActiveTab('general')}
-            className={`px-6 py-3 rounded-lg font-semibold transition-all duration-300 ${activeTab === 'general'
-              ? 'bg-[#E50914] text-white shadow-lg shadow-red-500/25'
-              : 'bg-transparent text-white/70 hover:text-white hover:bg-white/10'
-              }`}
-          >
-            <Settings className="w-4 h-4 mr-2" />
-            General
-          </MagneticButton>
+        <div className="overflow-x-auto mb-12">
+          <div className="flex gap-2 bg-black/50 backdrop-blur-sm rounded-lg p-2 min-w-max">
+            <MagneticButton
+              onClick={() => setActiveTab('media')}
+              className={`px-4 py-3 rounded-lg font-semibold transition-all duration-300 flex items-center gap-2 whitespace-nowrap ${activeTab === 'media'
+                ? 'bg-[#E50914] text-white shadow-lg shadow-red-500/25'
+                : 'bg-transparent text-white/70 hover:text-white hover:bg-white/10'
+                }`}
+            >
+              <Database className="w-4 h-4" />
+              Media
+            </MagneticButton>
+            <MagneticButton
+              onClick={() => setActiveTab('scanning')}
+              className={`px-4 py-3 rounded-lg font-semibold transition-all duration-300 flex items-center gap-2 whitespace-nowrap ${activeTab === 'scanning'
+                ? 'bg-[#E50914] text-white shadow-lg shadow-red-500/25'
+                : 'bg-transparent text-white/70 hover:text-white hover:bg-white/10'
+                }`}
+            >
+              <Search className="w-4 h-4" />
+              Scanning
+            </MagneticButton>
+            <MagneticButton
+              onClick={() => setActiveTab('system')}
+              className={`px-4 py-3 rounded-lg font-semibold transition-all duration-300 flex items-center gap-2 whitespace-nowrap ${activeTab === 'system'
+                ? 'bg-[#E50914] text-white shadow-lg shadow-red-500/25'
+                : 'bg-transparent text-white/70 hover:text-white hover:bg-white/10'
+                }`}
+            >
+              <Server className="w-4 h-4" />
+              System
+            </MagneticButton>
+            <MagneticButton
+              onClick={() => setActiveTab('tasks')}
+              className={`px-4 py-3 rounded-lg font-semibold transition-all duration-300 flex items-center gap-2 whitespace-nowrap ${activeTab === 'tasks'
+                ? 'bg-[#E50914] text-white shadow-lg shadow-red-500/25'
+                : 'bg-transparent text-white/70 hover:text-white hover:bg-white/10'
+                }`}
+            >
+              <Activity className="w-4 h-4" />
+              Tasks
+            </MagneticButton>
+            <MagneticButton
+              onClick={() => setActiveTab('watcher')}
+              className={`px-4 py-3 rounded-lg font-semibold transition-all duration-300 flex items-center gap-2 whitespace-nowrap ${activeTab === 'watcher'
+                ? 'bg-[#E50914] text-white shadow-lg shadow-red-500/25'
+                : 'bg-transparent text-white/70 hover:text-white hover:bg-white/10'
+                }`}
+            >
+              <Monitor className="w-4 h-4" />
+              Watcher
+            </MagneticButton>
+            <MagneticButton
+              onClick={() => setActiveTab('analytics')}
+              className={`px-4 py-3 rounded-lg font-semibold transition-all duration-300 flex items-center gap-2 whitespace-nowrap ${activeTab === 'analytics'
+                ? 'bg-[#E50914] text-white shadow-lg shadow-red-500/25'
+                : 'bg-transparent text-white/70 hover:text-white hover:bg-white/10'
+                }`}
+            >
+              <BarChart3 className="w-4 h-4" />
+              Analytics
+            </MagneticButton>
+            <MagneticButton
+              onClick={() => setActiveTab('torrent')}
+              className={`px-4 py-3 rounded-lg font-semibold transition-all duration-300 flex items-center gap-2 whitespace-nowrap relative ${activeTab === 'torrent'
+                ? 'bg-[#E50914] text-white shadow-lg shadow-red-500/25'
+                : 'bg-transparent text-white/70 hover:text-white hover:bg-white/10'
+                }`}
+            >
+              <Download className="w-4 h-4" />
+              Torrents
+              {activeDownloads > 0 && (
+                <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center animate-pulse">
+                  {activeDownloads}
+                </span>
+              )}
+            </MagneticButton>
+            <MagneticButton
+              onClick={() => setActiveTab('paths')}
+              className={`px-4 py-3 rounded-lg font-semibold transition-all duration-300 flex items-center gap-2 whitespace-nowrap ${activeTab === 'paths'
+                ? 'bg-[#E50914] text-white shadow-lg shadow-red-500/25'
+                : 'bg-transparent text-white/70 hover:text-white hover:bg-white/10'
+                }`}
+            >
+              <Folder className="w-4 h-4" />
+              Paths
+            </MagneticButton>
+            <MagneticButton
+              onClick={() => setActiveTab('system-logs')}
+              className={`px-4 py-3 rounded-lg font-semibold transition-all duration-300 flex items-center gap-2 whitespace-nowrap ${activeTab === 'system-logs'
+                ? 'bg-[#E50914] text-white shadow-lg shadow-red-500/25'
+                : 'bg-transparent text-white/70 hover:text-white hover:bg-white/10'
+                }`}
+            >
+              <Activity className="w-4 h-4" />
+              Logs
+            </MagneticButton>
+            <MagneticButton
+              onClick={() => setActiveTab('subtitles')}
+              className={`px-4 py-3 rounded-lg font-semibold transition-all duration-300 flex items-center gap-2 whitespace-nowrap ${activeTab === 'subtitles'
+                ? 'bg-[#E50914] text-white shadow-lg shadow-red-500/25'
+                : 'bg-transparent text-white/70 hover:text-white hover:bg-white/10'
+                }`}
+            >
+              <FileSearch className="w-4 h-4" />
+              Subtitles
+            </MagneticButton>
+            <MagneticButton
+              onClick={() => setActiveTab('general')}
+              className={`px-4 py-3 rounded-lg font-semibold transition-all duration-300 flex items-center gap-2 whitespace-nowrap ${activeTab === 'general'
+                ? 'bg-[#E50914] text-white shadow-lg shadow-red-500/25'
+                : 'bg-transparent text-white/70 hover:text-white hover:bg-white/10'
+                }`}
+            >
+              <Settings className="w-4 h-4" />
+              General
+            </MagneticButton>
+          </div>
         </div>
 
         {/* Media Management Tab */}
@@ -3148,7 +3159,7 @@ function SettingsContent() {
                                   <option value="ar">Arabic</option>
                                 </select>
                                 <MagneticButton
-                                  onClick={handleOpenSubtitlesSearch}
+                                  onClick={() => handleOpenSubtitlesSearch()}
                                   disabled={openSubtitlesLoading || !openSubtitlesQuery.trim()}
                                   className="bg-[#E50914] hover:bg-[#E50914]/80 text-white px-6 py-2 rounded-lg flex items-center space-x-2 transition-colors"
                                 >
@@ -3899,7 +3910,7 @@ function SettingsContent() {
                           className="w-full bg-black/50 border border-white/20 rounded-lg px-4 py-3 text-white placeholder-white/50 focus:border-[#E50914] focus:outline-none transition-colors"
                           onKeyPress={(e) => {
                             if (e.key === 'Enter') {
-                              handleOpenSubtitlesSearch();
+                              handleOpenSubtitlesSearch(true);
                             }
                           }}
                         />
@@ -3937,7 +3948,7 @@ function SettingsContent() {
                       </div>
 
                       <MagneticButton
-                        onClick={handleOpenSubtitlesSearch}
+                        onClick={() => handleOpenSubtitlesSearch(true)}
                         disabled={openSubtitlesLoading || !openSubtitlesQuery.trim()}
                         className="w-full bg-[#E50914] hover:bg-[#E50914]/80 text-white px-6 py-3 rounded-lg flex items-center justify-center space-x-2 transition-colors"
                       >
@@ -3962,25 +3973,34 @@ function SettingsContent() {
                                 <div className="flex-1">
                                   <div className="flex items-center space-x-3 mb-2">
                                     <span className="text-white font-medium text-sm">
-                                      {subtitle.attributes?.feature_details?.title || 'Unknown Title'}
+                                      {subtitle.movie_title || 'Unknown Title'}
                                     </span>
                                     <span className="text-white/60 text-xs">
-                                      ({subtitle.attributes?.feature_details?.year || 'N/A'})
+                                      ({subtitle.movie_year || 'N/A'})
                                     </span>
                                     <span className="bg-[#E50914]/20 text-[#E50914] px-2 py-1 rounded text-xs">
-                                      {subtitle.attributes?.language?.toUpperCase() || 'Unknown'}
+                                      {subtitle.language?.toUpperCase() || 'Unknown'}
                                     </span>
                                   </div>
                                   <div className="flex items-center space-x-3 text-xs text-white/60">
-                                    <span>📥 {subtitle.attributes?.download_count || 0}</span>
-                                    <span>⭐ {subtitle.attributes?.ratings?.toFixed(1) || 'N/A'}</span>
-                                    {subtitle.attributes?.hearing_impaired && (
+                                    <span>📥 {subtitle.downloads || 0}</span>
+                                    <span>⭐ {subtitle.rating?.toFixed(1) || 'N/A'}</span>
+                                    <span>👍 {subtitle.votes || 0}</span>
+                                    {subtitle.hearing_impaired && (
                                       <span className="text-yellow-400">🔊 CC</span>
                                     )}
+                                    {subtitle.hd && (
+                                      <span className="text-green-400">🎬 HD</span>
+                                    )}
                                   </div>
-                                  {subtitle.attributes?.release && (
+                                  {subtitle.release && (
                                     <p className="text-white/50 text-xs mt-1 truncate">
-                                      {subtitle.attributes.release}
+                                      {subtitle.release}
+                                    </p>
+                                  )}
+                                  {subtitle.uploader && (
+                                    <p className="text-white/40 text-xs mt-1">
+                                      By: {subtitle.uploader} ({subtitle.uploader_rank})
                                     </p>
                                   )}
                                 </div>
@@ -3996,11 +4016,11 @@ function SettingsContent() {
                                   {selectedMedia && (
                                     <MagneticButton
                                       onClick={() => handleDownloadOpenSubtitle(subtitle)}
-                                      disabled={downloadingSubtitle === subtitle.attributes?.files?.[0]?.file_id}
+                                      disabled={downloadingSubtitle === subtitle.file_id}
                                       className="bg-green-600/20 hover:bg-green-600/40 text-green-400 px-3 py-2 rounded-lg flex items-center space-x-2 text-sm"
-                                      title="Add subtitle to media library"
+                                      title="Add subtitle to selected media"
                                     >
-                                      {downloadingSubtitle === subtitle.attributes?.files?.[0]?.file_id ? (
+                                      {downloadingSubtitle === subtitle.file_id ? (
                                         <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-green-400"></div>
                                       ) : (
                                         <Download className="w-4 h-4" />
@@ -4035,15 +4055,28 @@ function SettingsContent() {
                   </div>
 
                   {/* Help Section */}
-                  <div className="mt-6 bg-blue-600/10 border border-blue-600/20 rounded-lg p-4">
-                    <h4 className="text-blue-300 font-medium mb-2">💡 How to use OpenSubtitles</h4>
-                    <ul className="text-blue-300/80 text-sm space-y-1">
-                      <li>• Enter the exact title of your movie or TV show</li>
-                      <li>• Select your preferred language from the dropdown</li>
-                      <li>• Click "Search Subtitles" to find available options</li>
-                      <li>• Click "Download" to add subtitles to your media library</li>
-                      <li>• Downloaded subtitles will be automatically associated with matching media</li>
-                    </ul>
+                  <div className="mt-6 space-y-4">
+                    {!selectedMedia && (
+                      <div className="bg-yellow-600/10 border border-yellow-600/20 rounded-lg p-4">
+                        <h4 className="text-yellow-300 font-medium mb-2">📌 Select Media First</h4>
+                        <p className="text-yellow-300/80 text-sm">
+                          To add subtitles to your media library, first select a media item from the "Media Library" tab. 
+                          You can still download SRT files directly to your computer without selecting media.
+                        </p>
+                      </div>
+                    )}
+                    
+                    <div className="bg-blue-600/10 border border-blue-600/20 rounded-lg p-4">
+                      <h4 className="text-blue-300 font-medium mb-2">💡 How to use OpenSubtitles</h4>
+                      <ul className="text-blue-300/80 text-sm space-y-1">
+                        <li>• Enter the exact title of your movie or TV show</li>
+                        <li>• Select your preferred language from the dropdown</li>
+                        <li>• Click "Search Subtitles" to find available options</li>
+                        <li>• Click "SRT" to download subtitle file to your computer</li>
+                        <li>• Click "Add" to add subtitles directly to selected media in your library</li>
+                        <li>• Downloaded subtitles will be automatically associated with matching media</li>
+                      </ul>
+                    </div>
                   </div>
                 </div>
 

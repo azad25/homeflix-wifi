@@ -273,6 +273,7 @@ func (s *OpenSubtitlesService) SearchSubtitles(req SubtitleSearchRequest) (*Open
 	// Add ordering and limit
 	params.Set("order_by", "download_count")
 	params.Set("order_direction", "desc")
+	params.Set("page", "1")
 
 	searchURL := fmt.Sprintf("%s/subtitles?%s", openSubtitlesBaseURL, params.Encode())
 	fmt.Printf("🔍 OpenSubtitles Search URL: %s\n", searchURL)
@@ -284,14 +285,23 @@ func (s *OpenSubtitlesService) SearchSubtitles(req SubtitleSearchRequest) (*Open
 
 	httpReq.Header.Set("Api-Key", s.apiKey)
 	httpReq.Header.Set("User-Agent", "HomeFlix v1.0")
+	httpReq.Header.Set("Accept", "application/json")
 
-	resp, err := s.client.Do(httpReq)
+	resp, err := s.retryWithBackoff(httpReq, 2)
 	if err != nil {
 		return nil, fmt.Errorf("search request failed: %v", err)
 	}
 	defer resp.Body.Close()
 
 	fmt.Printf("📊 OpenSubtitles API Response Status: %d\n", resp.StatusCode)
+
+	if resp.StatusCode == http.StatusUnauthorized {
+		return nil, fmt.Errorf("unauthorized: check your API key")
+	}
+
+	if resp.StatusCode == http.StatusTooManyRequests {
+		return nil, fmt.Errorf("rate limit exceeded: please try again later")
+	}
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
