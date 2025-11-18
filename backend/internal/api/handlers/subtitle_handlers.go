@@ -63,9 +63,11 @@ func UploadSubtitle(mediaService *services.MediaService) gin.HandlerFunc {
 		// Create subtitles directory if it doesn't exist
 		subtitlesDir := "subtitles"
 		if err := os.MkdirAll(subtitlesDir, 0755); err != nil {
+			fmt.Printf("❌ Failed to create subtitles directory: %v\n", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create subtitles directory"})
 			return
 		}
+		fmt.Printf("📁 Subtitles directory ready: %s\n", subtitlesDir)
 
 		// Generate filename: media_id_language.ext
 		filename := fmt.Sprintf("%d_%s%s", mediaID, strings.ToLower(language), ext)
@@ -479,6 +481,9 @@ func DownloadOpenSubtitle(mediaService *services.MediaService, openSubService *s
 				language = "English"
 			}
 		}
+		
+		// Clean language for filename
+		cleanLanguage := strings.ToLower(strings.ReplaceAll(strings.ReplaceAll(language, " ", "_"), "/", "_"))
 
 		// Create subtitles directory if it doesn't exist
 		subtitlesDir := "subtitles"
@@ -488,8 +493,15 @@ func DownloadOpenSubtitle(mediaService *services.MediaService, openSubService *s
 		}
 
 		// Generate filename: media_id_language.srt
-		filename := fmt.Sprintf("%d_%s.srt", mediaID, strings.ToLower(strings.ReplaceAll(language, " ", "_")))
+		filename := fmt.Sprintf("%d_%s.srt", mediaID, cleanLanguage)
 		filePath := filepath.Join(subtitlesDir, filename)
+
+		// Ensure the subtitles directory exists with proper permissions
+		if err := os.MkdirAll(subtitlesDir, 0755); err != nil {
+			fmt.Printf("❌ Failed to ensure subtitles directory: %v\n", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create subtitles directory"})
+			return
+		}
 
 		// Save subtitle file to disk
 		if err := os.WriteFile(filePath, finalSubtitleData, 0644); err != nil {
@@ -499,6 +511,13 @@ func DownloadOpenSubtitle(mediaService *services.MediaService, openSubService *s
 		}
 		
 		fmt.Printf("💾 Saved subtitle file to: %s (%d bytes)\n", filePath, len(finalSubtitleData))
+		
+		// Verify the file was actually written
+		if stat, err := os.Stat(filePath); err != nil {
+			fmt.Printf("❌ Failed to verify saved subtitle file: %v\n", err)
+		} else {
+			fmt.Printf("✅ Verified subtitle file: %s (size: %d bytes)\n", filePath, stat.Size())
+		}
 
 		// Create subtitle track entry
 		subtitleTrack := &models.SubtitleTrack{
@@ -515,6 +534,9 @@ func DownloadOpenSubtitle(mediaService *services.MediaService, openSubService *s
 			IsHearing:   false,
 		}
 
+		fmt.Printf("💾 Creating subtitle track in database: MediaID=%d, Language=%s, FilePath=%s\n", 
+			subtitleTrack.MediaID, subtitleTrack.Language, subtitleTrack.FilePath)
+		
 		err = mediaService.CreateSubtitleTrack(subtitleTrack)
 		if err != nil {
 			// Clean up file if database operation fails
@@ -729,15 +751,32 @@ func DownloadOpenSubtitleDirect(openSubService *services.OpenSubtitlesService) g
 		}
 
 		// Ensure filename has proper extension
-		if !strings.Contains(finalFilename, ".") {
+		if !strings.HasSuffix(strings.ToLower(finalFilename), ".srt") && 
+		   !strings.HasSuffix(strings.ToLower(finalFilename), ".vtt") && 
+		   !strings.HasSuffix(strings.ToLower(finalFilename), ".ass") {
+			// Remove any existing extension and add .srt
+			if dotIndex := strings.LastIndex(finalFilename, "."); dotIndex != -1 {
+				finalFilename = finalFilename[:dotIndex]
+			}
 			finalFilename = finalFilename + ".srt"
 		}
 
 		fmt.Printf("📥 Serving file: %s (%d bytes)\n", finalFilename, len(finalSubtitleData))
 
-		// Set headers for file download
-		c.Header("Content-Type", "text/plain; charset=utf-8")
+		// Set headers for file download with proper content type
+		contentType := "text/plain; charset=utf-8"
+		ext := strings.ToLower(filepath.Ext(finalFilename))
+		switch ext {
+		case ".srt":
+			contentType = "text/srt; charset=utf-8"
+		case ".vtt":
+			contentType = "text/vtt; charset=utf-8"
+		case ".ass":
+			contentType = "text/ass; charset=utf-8"
+		}
+		
+		c.Header("Content-Type", contentType)
 		c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, finalFilename))
-		c.Data(http.StatusOK, "text/plain; charset=utf-8", finalSubtitleData)
+		c.Data(http.StatusOK, contentType, finalSubtitleData)
 	}
 }

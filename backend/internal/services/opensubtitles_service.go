@@ -338,8 +338,10 @@ func (s *OpenSubtitlesService) DownloadSubtitle(fileID int) (*OpenSubtitlesDownl
 
 	// Validate file_id - must be a positive integer
 	if fileID <= 0 {
-		return nil, nil, fmt.Errorf("invalid file_id: must be a positive integer from search results")
+		return nil, nil, fmt.Errorf("invalid file_id: must be a positive integer from search results, got: %d", fileID)
 	}
+	
+	fmt.Printf("🔍 Validating file_id: %d\n", fileID)
 
 	// Ensure we're logged in
 	if s.token == "" {
