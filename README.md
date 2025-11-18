@@ -2,9 +2,13 @@
 
 Transform your media collection into a professional streaming platform! HomeFlix is a full-featured streaming platform that automatically organizes and streams your movies and TV shows with a beautiful, responsive interface. Search movies from directly TMDB and get updated on new movies or tv shows, trailers.
 
-## 🎉 **NEW in Version 2.0: Integrated Torrent Downloads!**
+## 🎉 **NEW in Version 2.5-Stable: Professional Subtitle Management!**
 
-**Download movies directly from TMDB pages with one click!** HomeFlix now includes a complete torrent download system with real-time progress tracking, automatic library integration, and professional UI.
+**Complete subtitle ecosystem with OpenSubtitles integration!** HomeFlix now features professional subtitle management with automatic downloads, multi-language support, and seamless integration with the world's largest subtitle database.
+
+## 🎬 **Previous: Version 2.0 - Integrated Torrent Downloads**
+
+**Download movies directly from TMDB pages with one click!** HomeFlix includes a complete torrent download system with real-time progress tracking, automatic library integration, and professional UI.
 
 ![HomeFlix Interface](/preview_0.png)
 ![HomeFlix Interface](/preview-2.png)
@@ -16,6 +20,59 @@ Transform your media collection into a professional streaming platform! HomeFlix
 ![TMDB TV Shows](/preview_12.png)
 ![Advanced Search](/preview_13.png)
 ![Movie Discovery](/preview_14.png)
+
+---
+
+## 🚀 **Version 2.5-Stable Changelog - Professional Subtitle Management**
+
+### 📝 **NEW: OpenSubtitles API Integration**
+- **World's Largest Database**: Access to millions of subtitles from OpenSubtitles.com
+- **Automatic Search**: Find subtitles by movie title, year, IMDB ID, or TMDB ID
+- **Smart Matching**: Intelligent subtitle matching with quality scoring
+- **Multi-Language Support**: 20+ languages including English, Spanish, French, German, and more
+- **Professional API**: Robust integration with retry logic and error handling
+
+### 🔍 **NEW: Advanced Subtitle Search**
+- **Real-time Search**: Instant subtitle search with live results
+- **Quality Indicators**: Download count, ratings, and user votes for each subtitle
+- **Release Matching**: Find subtitles matching your specific movie release
+- **Hearing Impaired Support**: Dedicated subtitles for accessibility
+- **HD Quality Filtering**: Filter subtitles optimized for HD content
+
+### 📥 **NEW: One-Click Subtitle Downloads**
+- **Direct Integration**: Download button on every movie page
+- **Automatic Extraction**: Smart ZIP file extraction and format detection
+- **Instant Availability**: Downloaded subtitles immediately available in player
+- **Format Support**: SRT, VTT, ASS, SSA, and more subtitle formats
+- **File Management**: Automatic organization and cleanup of subtitle files
+
+### 🎯 **NEW: Smart Subtitle Features**
+- **Language Detection**: Automatic language detection from filenames
+- **Duplicate Prevention**: Prevents downloading existing subtitles
+- **Quality Scoring**: Ranks subtitles by downloads, ratings, and trust level
+- **Uploader Information**: Shows uploader reputation and rank
+- **Release Comments**: View subtitle comments and release information
+
+### 📱 **NEW: Enhanced Subtitle Management**
+- **Upload Support**: Upload your own subtitle files (.srt, .vtt, .ass, .ssa)
+- **Track Management**: Complete subtitle track system with metadata
+- **External/Internal**: Support for both embedded and external subtitles
+- **Testing Tools**: Built-in subtitle validation and testing endpoints
+- **Legacy Compatibility**: Maintains backward compatibility with existing subtitles
+
+### ⚙️ **NEW: Professional Configuration**
+- **API Key Management**: Secure OpenSubtitles API key configuration
+- **Rate Limiting**: Built-in rate limiting with exponential backoff
+- **Error Recovery**: Robust error handling with automatic retries
+- **Download Quotas**: Tracks daily download limits and remaining quota
+- **Authentication**: Secure login system for OpenSubtitles accounts
+
+### 🔧 **NEW: Developer Features**
+- **RESTful API**: Complete subtitle API with search, download, and management
+- **Standalone Endpoints**: Search subtitles without requiring media items
+- **Direct Downloads**: Download subtitles as files without saving to library
+- **Validation Tools**: File ID validation and debugging information
+- **Language Support**: Comprehensive language code mapping and detection
 
 ---
 
@@ -116,7 +173,9 @@ Transform your media collection into a professional streaming platform! HomeFlix
 - **TMDB Trailers**: High-quality YouTube trailers embedded with auto-play
 - **Cast & Crew Info**: Complete filmography data from TMDB
 - **Preview Videos**: Short clips for quick browsing
-- **Subtitle Support**: Multi-language subtitle files
+- **🆕 Professional Subtitles**: OpenSubtitles integration with millions of subtitles
+- **🆕 Multi-Language Support**: 20+ languages with automatic detection
+- **🆕 One-Click Downloads**: Instant subtitle downloads from movie pages
 - **Backdrop Images**: High-resolution backdrop images from TMDB
 - **Movie Metadata**: Comprehensive movie details including ratings, runtime, budget, and more
 
@@ -134,6 +193,18 @@ Transform your media collection into a professional streaming platform! HomeFlix
 - **Trending Content**: Discover what's popular and trending
 - **My List Integration**: Add TMDB movies to your personal watchlist
 - **Netflix-style Interface**: Beautiful movie detail pages with video backgrounds
+
+### 📝 **Professional Subtitle System**
+- **OpenSubtitles Integration**: Access to millions of subtitles from the world's largest database
+- **Smart Search**: Find subtitles by title, year, IMDB/TMDB ID with quality scoring
+- **Multi-Language Support**: 20+ languages including English, Spanish, French, German, Italian, Portuguese, Russian, Japanese, Korean, Chinese, Arabic, and more
+- **One-Click Downloads**: Instant subtitle downloads directly from movie pages
+- **Format Support**: SRT, VTT, ASS, SSA, SUB, SBV subtitle formats
+- **Upload System**: Upload your own subtitle files with automatic organization
+- **Quality Indicators**: Download counts, ratings, votes, and uploader reputation
+- **Hearing Impaired**: Dedicated accessibility subtitles with CC/SDH support
+- **Release Matching**: Find subtitles matching your specific movie release
+- **Automatic Extraction**: Smart ZIP file handling and format detection
 
 ### 📊 **Analytics & Tracking**
 - **Watch History**: Track viewing progress and history
@@ -164,6 +235,7 @@ chmod +x setup.sh start.sh setup-jackett.sh
 - **Redis** - For caching (optional but recommended)
 - **🆕 Docker** - For Jackett torrent indexer (optional but recommended)
 - **🆕 Jackett** - Torrent indexer for download functionality
+- **🆕 OpenSubtitles Account** - For subtitle downloads (free registration at opensubtitles.com)
 
 #### System Dependencies
 ```bash
@@ -227,6 +299,26 @@ Place your movies and TV shows in `/media/azad/Movies1` (or update the path in t
 # 5. Start downloading movies with one click!
 ```
 
+### 🆕 6. Setup OpenSubtitles Integration (Recommended)
+```bash
+# Configure environment variables
+export OPENSUB_API_KEY="your_api_key_here"
+export OPENSUB_USERNAME="your_username"
+export OPENSUB_PASSWORD="your_password"
+
+# Or add to .env file:
+echo "OPENSUB_API_KEY=your_api_key_here" >> .env
+echo "OPENSUB_USERNAME=your_username" >> .env
+echo "OPENSUB_PASSWORD=your_password" >> .env
+```
+
+**Setup Steps:**
+1. Register free account at [opensubtitles.com](https://www.opensubtitles.com)
+2. Get your API key from the developer section
+3. Add credentials to environment variables or .env file
+4. Restart HomeFlix to enable subtitle downloads
+5. Click subtitle button on any movie page to search and download!
+
 **See [Complete Torrent Setup Guide](documentation/COMPLETE_TORRENT_SETUP_GUIDE.md) for detailed instructions.**
 
 ## 🎬 **NEW: Torrent Download System**
@@ -268,6 +360,40 @@ Powered by Jackett for reliable torrent searching:
 3. **Native Setup**: Manual Jackett installation for advanced users
 
 **See [Complete Setup Guide](documentation/COMPLETE_TORRENT_SETUP_GUIDE.md) for detailed instructions.**
+
+## 📝 **NEW: Professional Subtitle System**
+
+### OpenSubtitles Integration
+HomeFlix 2.5 introduces comprehensive subtitle management with OpenSubtitles.com integration:
+
+- **Subtitle Search Button**: Appears on every movie page for instant subtitle search
+- **Smart Matching**: Automatically searches by movie title, year, and IMDB/TMDB ID
+- **Quality Scoring**: Ranks subtitles by downloads, ratings, and uploader reputation
+- **Multi-Language**: Support for 20+ languages with automatic detection
+- **One-Click Download**: Download and integrate subtitles with a single click
+
+### Professional Subtitle Dashboard
+Complete subtitle management system:
+
+- **Search Interface**: Browse millions of subtitles with advanced filtering
+- **Quality Indicators**: View download counts, ratings, votes, and uploader ranks
+- **Language Selection**: Filter by specific languages or search all available
+- **Release Matching**: Find subtitles matching your specific movie release
+- **Format Support**: Handles SRT, VTT, ASS, SSA, SUB, and SBV formats
+
+### Advanced Subtitle Features
+- **Automatic Extraction**: Smart ZIP file handling and format detection
+- **Upload System**: Upload your own subtitle files with drag-and-drop
+- **Track Management**: Complete subtitle track system with metadata
+- **Hearing Impaired**: Dedicated CC/SDH subtitles for accessibility
+- **Testing Tools**: Built-in validation and subtitle testing endpoints
+- **API Integration**: RESTful API for developers and third-party tools
+
+### Setup Requirements
+1. **Free Account**: Register at [opensubtitles.com](https://www.opensubtitles.com)
+2. **API Key**: Get your developer API key from account settings
+3. **Configuration**: Add credentials to .env file or environment variables
+4. **Rate Limits**: Respects OpenSubtitles rate limits with smart retry logic
 
 ---
 
@@ -348,7 +474,8 @@ homeflix/
 ## 📱 Supported Formats
 - **Video**: MP4, MKV, AVI, MOV, WMV, FLV
 - **Audio**: AAC, MP3, FLAC, ALAC, DTS, AC3
-- **Subtitles**: SRT, VTT, ASS, SSA
+- **🆕 Subtitles**: SRT, VTT, ASS, SSA, SUB, SBV (with OpenSubtitles integration)
+- **🆕 Subtitle Languages**: English, Spanish, French, German, Italian, Portuguese, Russian, Japanese, Korean, Chinese, Arabic, Dutch, Swedish, Norwegian, Danish, Finnish, Polish, Turkish, Hebrew, Thai, Vietnamese
 
 ## 🔒 Security & Privacy
 - **Local Media Protection**: Your personal media never leaves your network
@@ -359,6 +486,8 @@ homeflix/
 - **🆕 Torrent Privacy**: Optional VPN integration and proxy support
 - **🆕 Legal Compliance**: Built-in reminders for legal content only
 - **🆕 Local Processing**: All torrent management happens on your device
+- **🆕 Subtitle Privacy**: OpenSubtitles integration with secure API authentication
+- **🆕 Rate Limiting**: Respects service limits with intelligent retry mechanisms
 
 ## 📞 Support
 - Check the logs in `homeflix.log` for troubleshooting
@@ -366,15 +495,25 @@ homeflix/
 - Verify your media directory permissions
 - Make sure ports 3008 and 8252 are available
 - **🆕 Torrent Issues**: See [Torrent Setup Guide](documentation/COMPLETE_TORRENT_SETUP_GUIDE.md) for troubleshooting
+- **🆕 Subtitle Issues**: Check OpenSubtitles API key and account credentials in .env file
 
 ## 📚 Documentation
 - **[Complete Torrent Setup Guide](documentation/COMPLETE_TORRENT_SETUP_GUIDE.md)** - Detailed torrent system setup
 - **[Jackett Integration Guide](documentation/JACKETT_INTEGRATION_GUIDE.md)** - Jackett configuration and indexers
 - **[Torrent Implementation Summary](documentation/TORRENT_IMPLEMENTATION_SUMMARY.md)** - Technical details and architecture
 - **[Media Paths System](documentation/MEDIA_PATHS_SYSTEM.md)** - File organization and paths
+- **🆕 [OpenSubtitles Integration Guide](documentation/OPENSUBTITLES_SETUP_GUIDE.md)** - Complete subtitle system setup
+- **🆕 [Subtitle API Documentation](documentation/SUBTITLE_API_REFERENCE.md)** - Developer API reference
 
 ---
 
-**Enjoy your personal Netflix experience with one-click downloads! 🍿🎬**
+**Enjoy your personal Netflix experience with professional subtitles and one-click downloads! 🍿🎬📝**
 
-*Version 2.0 brings professional torrent downloads directly to your HomeFlix experience - discover, download, and watch all in one place!*
+*Version 2.5-Stable brings professional subtitle management with OpenSubtitles integration - search, download, and watch with perfect subtitles in any language!*
+
+### 🎯 **What's Next?**
+- Enhanced subtitle synchronization tools
+- Automatic subtitle translation
+- Advanced subtitle editing features
+- Community subtitle sharing
+- AI-powered subtitle generation
