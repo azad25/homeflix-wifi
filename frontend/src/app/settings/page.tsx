@@ -83,6 +83,8 @@ function SettingsContent() {
   const [openSubtitlesQuery, setOpenSubtitlesQuery] = useState('');
   const [selectedLanguage, setSelectedLanguage] = useState('en');
   const [downloadingSubtitle, setDownloadingSubtitle] = useState<number | null>(null);
+  const [folderTreeData, setFolderTreeData] = useState<any[]>([]);
+  const [loadingTreeData, setLoadingTreeData] = useState(false);
 
   // Debug modal state
   useEffect(() => {
@@ -131,6 +133,13 @@ function SettingsContent() {
 
     return () => clearInterval(interval);
   }, []);
+
+  // Load folder tree data when media lists or search query changes
+  useEffect(() => {
+    if (activeTab === 'media' && (mediaList.length > 0 || seriesList.length > 0)) {
+      loadFolderTreeData();
+    }
+  }, [mediaList, seriesList, searchQuery, activeTab]);
 
 
   // Initialize terminal with welcome message
@@ -360,38 +369,41 @@ function SettingsContent() {
   };
 
   // Transform media list into folder tree structure with search filtering
-  const createFolderTreeData = () => {
-    // Filter movies based on search query
-    const filteredMovies = mediaList.filter(media => {
-      if (media.type !== 'movie') return false;
-      if (!searchQuery.trim()) return true;
-      const query = searchQuery.toLowerCase();
-      return (
-        media.title?.toLowerCase().includes(query) ||
-        media.description?.toLowerCase().includes(query) ||
-        media.genre_names?.some(genre => {
-          const genreStr = typeof genre === 'string' ? genre : (genre as any)?.name || String(genre);
-          return genreStr.toLowerCase().includes(query);
-        }) ||
-        media.year?.toString().includes(query) ||
-        media.country?.toLowerCase().includes(query) ||
-        media.language?.toLowerCase().includes(query)
-      );
-    });
+  // Load folder tree data with seasons and episodes
+  const loadFolderTreeData = async () => {
+    setLoadingTreeData(true);
+    try {
+      // Filter movies based on search query
+      const filteredMovies = mediaList.filter(media => {
+        if (media.type !== 'movie') return false;
+        if (!searchQuery.trim()) return true;
+        const query = searchQuery.toLowerCase();
+        return (
+          media.title?.toLowerCase().includes(query) ||
+          media.description?.toLowerCase().includes(query) ||
+          media.genre_names?.some(genre => {
+            const genreStr = typeof genre === 'string' ? genre : (genre as any)?.name || String(genre);
+            return genreStr.toLowerCase().includes(query);
+          }) ||
+          media.year?.toString().includes(query) ||
+          media.country?.toLowerCase().includes(query) ||
+          media.language?.toLowerCase().includes(query)
+        );
+      });
 
-    // Filter TV series based on search query
-    const filteredSeries = seriesList.filter(series => {
-      if (!searchQuery.trim()) return true;
-      const query = searchQuery.toLowerCase();
-      return (
-        series.title?.toLowerCase().includes(query) ||
-        series.description?.toLowerCase().includes(query) ||
-        series.status?.toLowerCase().includes(query)
-      );
-    });
+      // Filter TV series based on search query
+      const filteredSeries = seriesList.filter(series => {
+        if (!searchQuery.trim()) return true;
+        const query = searchQuery.toLowerCase();
+        return (
+          series.title?.toLowerCase().includes(query) ||
+          series.description?.toLowerCase().includes(query) ||
+          series.status?.toLowerCase().includes(query)
+        );
+      });
 
-    const folders = {
-      movies: {
+      // Create movies folder
+      const moviesFolder = {
         id: 'movies',
         name: `Movies (${filteredMovies.length})`,
         type: 'folder' as const,
@@ -415,9 +427,12 @@ function SettingsContent() {
           return {
             id: media.id.toString(),
             name: displayTitle,
-            type: 'file' as const,
-            size: `${Math.floor((media.duration || media.runtime || 0) / 60)}min`,
-            modified: new Date().toLocaleDateString(),
+            type: 'media' as const,
+            metadata: {
+              mediaType: 'movie' as const,
+              duration: (media.duration || media.runtime || 0) * 60, // Convert to seconds
+              size: media.file_size
+            },
             media: {
               ...cleanMedia,
               // Ensure all required fields exist
@@ -427,56 +442,166 @@ function SettingsContent() {
             }
           };
         })
-      },
-      tvShows: {
-        id: 'tv-shows',
-        name: `TV Shows (${filteredSeries.length})`,
-        type: 'folder' as const,
-        children: filteredSeries.map(series => {
-          return {
-            id: `series-${series.id}`,
-            name: series.title,
-            type: 'file' as const,
-            size: `${series.total_episodes || 0} episodes`,
-            modified: new Date().toLocaleDateString(),
-            series: series,
-            // Convert series to media-like object for compatibility
-            media: {
-              id: series.id,
-              title: series.title || 'Unknown Title',
-              description: series.description || '',
-              type: 'tv' as const,
-              rating: series.rating,
-              year: series.release_date ? new Date(series.release_date).getFullYear() : undefined,
-              genre_names: series.genres?.map((g: any) => typeof g === 'string' ? g : g?.name || String(g)) || [],
-              poster_path: series.poster_path,
-              backdrop_path: series.backdrop_path,
-              status: series.status,
-              total_seasons: series.total_seasons,
-              total_episodes: series.total_episodes,
+      };
 
-              // Add other fields that might be needed
+      // Create TV shows folder with seasons and episodes
+      const tvShowsChildren = await Promise.all(filteredSeries.map(async series => {
+        // Fetch seasons and episodes for this series
+        let seasons: any[] = [];
+        try {
+          const seasonsResponse = await fetch(`${getApiUrl()}/api/series/${series.id}/seasons`);
+          if (seasonsResponse.ok) {
+            seasons = await seasonsResponse.json();
+          }
+        } catch (error) {
+          console.error(`Error fetching seasons for series ${series.id}:`, error);
+        }
+
+        // Create season folders with episodes
+        const seasonChildren = await Promise.all(seasons.map(async season => {
+          let episodes: any[] = [];
+          try {
+            const episodesResponse = await fetch(`${getApiUrl()}/api/series/${series.id}/seasons/${season.season_number}/episodes`);
+            if (episodesResponse.ok) {
+              episodes = await episodesResponse.json();
+            }
+          } catch (error) {
+            console.error(`Error fetching episodes for season ${season.season_number}:`, error);
+          }
+
+          // Create episode files
+          const episodeChildren = episodes.map(episode => ({
+            id: `episode-${episode.id}`,
+            name: `E${episode.episode_number.toString().padStart(2, '0')} - ${episode.title || 'Untitled'}`,
+            type: 'media' as const,
+            metadata: {
+              mediaType: 'episode' as const,
+              duration: (episode.runtime || 0) * 60, // Convert to seconds
+              size: episode.file_size
+            },
+            episode: episode,
+            // Convert episode to media-like object for compatibility
+            media: {
+              id: episode.id,
+              title: episode.title || `Episode ${episode.episode_number}`,
+              description: episode.overview || episode.description || '',
+              type: 'episode' as const,
+              rating: episode.vote_average || episode.rating,
+              year: episode.air_date ? new Date(episode.air_date).getFullYear() : undefined,
+              genre_names: series.genres?.map((g: any) => typeof g === 'string' ? g : g?.name || String(g)) || [],
+              poster_path: episode.still_path || series.poster_path,
+              backdrop_path: episode.still_path || series.backdrop_path,
+              runtime: episode.runtime,
+              season_number: season.season_number,
+              episode_number: episode.episode_number,
+              series_id: series.id,
+              series_title: series.title,
+              air_date: episode.air_date,
+              vote_count: episode.vote_count,
+              
+              // Inherit series data
               country: series.country || '',
               language: series.language || '',
               quality: series.quality || '',
               certification: series.certification || '',
-              runtime: series.episode_runtime || undefined,
-              seasons: series.total_seasons,
-              episodes: series.total_episodes,
               network: series.network || '',
-              tagline: series.tagline || '',
-              view_count: series.view_count || 0,
-              file_size: series.file_size,
-              resolution: series.resolution,
-              codec: series.codec,
-              thumbnail_path: series.thumbnail_path,
-              trailer_url: series.trailer_url
+              view_count: episode.view_count || 0,
+              file_size: episode.file_size,
+              resolution: episode.resolution,
+              codec: episode.codec,
+              file_path: episode.file_path
+            }
+          }));
+
+          return {
+            id: `season-${series.id}-${season.season_number}`,
+            name: `Season ${season.season_number}${season.name ? ` - ${season.name}` : ''} (${episodes.length} episodes)`,
+            type: 'folder' as const,
+            children: episodeChildren,
+            season: season,
+            // Convert season to media-like object for compatibility
+            media: {
+              id: season.id || `${series.id}-s${season.season_number}`,
+              title: `${series.title} - Season ${season.season_number}`,
+              description: season.overview || season.description || '',
+              type: 'season' as const,
+              rating: season.vote_average || series.rating,
+              year: season.air_date ? new Date(season.air_date).getFullYear() : undefined,
+              genre_names: series.genres?.map((g: any) => typeof g === 'string' ? g : g?.name || String(g)) || [],
+              poster_path: season.poster_path || series.poster_path,
+              backdrop_path: series.backdrop_path,
+              season_number: season.season_number,
+              episode_count: episodes.length,
+              series_id: series.id,
+              series_title: series.title,
+              air_date: season.air_date,
+              
+              // Inherit series data
+              country: series.country || '',
+              language: series.language || '',
+              quality: series.quality || '',
+              certification: series.certification || '',
+              network: series.network || '',
+              total_episodes: episodes.length
             }
           };
-        })
-      }
-    };
-    return [folders.movies, folders.tvShows];
+        }));
+
+        return {
+          id: `series-${series.id}`,
+          name: `${series.title} (${seasons.length} seasons, ${series.total_episodes || 0} episodes)`,
+          type: 'folder' as const,
+          children: seasonChildren,
+          series: series,
+          // Convert series to media-like object for compatibility
+          media: {
+            id: series.id,
+            title: series.title || 'Unknown Title',
+            description: series.description || '',
+            type: 'tv' as const,
+            rating: series.rating,
+            year: series.release_date ? new Date(series.release_date).getFullYear() : undefined,
+            genre_names: series.genres?.map((g: any) => typeof g === 'string' ? g : g?.name || String(g)) || [],
+            poster_path: series.poster_path,
+            backdrop_path: series.backdrop_path,
+            status: series.status,
+            total_seasons: series.total_seasons,
+            total_episodes: series.total_episodes,
+
+            // Add other fields that might be needed
+            country: series.country || '',
+            language: series.language || '',
+            quality: series.quality || '',
+            certification: series.certification || '',
+            runtime: series.episode_runtime || undefined,
+            seasons: series.total_seasons,
+            episodes: series.total_episodes,
+            network: series.network || '',
+            tagline: series.tagline || '',
+            view_count: series.view_count || 0,
+            file_size: series.file_size,
+            resolution: series.resolution,
+            codec: series.codec,
+            thumbnail_path: series.thumbnail_path,
+            trailer_url: series.trailer_url
+          }
+        };
+      }));
+
+      const tvShowsFolder = {
+        id: 'tv-shows',
+        name: `TV Shows (${filteredSeries.length})`,
+        type: 'folder' as const,
+        children: tvShowsChildren
+      };
+
+      setFolderTreeData([moviesFolder, tvShowsFolder]);
+    } catch (error) {
+      console.error('Error loading folder tree data:', error);
+      addTerminalOutput(`❌ Error loading TV series hierarchy: ${error}`);
+    } finally {
+      setLoadingTreeData(false);
+    }
   };
 
   const handleMediaSelect = async (media: Media) => {
@@ -2447,23 +2572,47 @@ function SettingsContent() {
                       </p>
                     )}
 
-                    <p className="text-white/50 text-xs mt-2">
-                      💡 Click to select media for management
-                    </p>
+                    <div className="flex items-center justify-between mt-2">
+                      <p className="text-white/50 text-xs">
+                        💡 Click to select media for management
+                      </p>
+                      <MagneticButton
+                        onClick={loadFolderTreeData}
+                        disabled={loadingTreeData}
+                        className="bg-blue-600/20 hover:bg-blue-600/40 text-blue-400 px-2 py-1 rounded text-xs flex items-center space-x-1"
+                        title="Refresh TV series hierarchy"
+                      >
+                        <RefreshCw className={`w-3 h-3 ${loadingTreeData ? 'animate-spin' : ''}`} />
+                        <span>Refresh</span>
+                      </MagneticButton>
+                    </div>
                   </div>
 
                   <div className="max-h-96 overflow-y-auto">
-                    <FolderTree
-                      data={createFolderTreeData()}
-                      onSelect={(item: any) => {
-                        console.log('🎯 FolderTree onSelect called with:', item);
-                        if (item.type === 'file' && item.media) {
-                          console.log('📂 Selecting media from folder tree:', item.media);
-                          handleMediaSelect(item.media);
-                        }
-                      }}
-                      className="text-white"
-                    />
+                    {loadingTreeData ? (
+                      <div className="flex items-center justify-center py-8">
+                        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-[#E50914]"></div>
+                        <span className="ml-2 text-white/60">Loading TV series hierarchy...</span>
+                      </div>
+                    ) : (
+                      <FolderTree
+                        data={folderTreeData}
+                        onSelect={(item: any) => {
+                          console.log('🎯 FolderTree onSelect called with:', item);
+                          // Handle media selection (movies, episodes)
+                          if (item.type === 'media' && item.media) {
+                            console.log('📂 Selecting media from folder tree:', item.media);
+                            handleMediaSelect(item.media);
+                          }
+                          // Handle folder selection (series, seasons) - allow media selection for series and seasons
+                          else if (item.type === 'folder' && item.media && (item.media.type === 'tv' || item.media.type === 'season')) {
+                            console.log('📁 Selecting folder media from folder tree:', item.media);
+                            handleMediaSelect(item.media);
+                          }
+                        }}
+                        className="text-white"
+                      />
+                    )}
                   </div>
                 </GlassCard>
               </ScrollReveal>
