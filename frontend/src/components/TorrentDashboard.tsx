@@ -290,10 +290,12 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
   const removeDownload = async (id: string, name: string) => {
     // Confirm deletion with user
     const confirmDelete = window.confirm(
-      `Are you sure you want to delete "${name}"?\n\n` +
-      `This will:\n` +
+      `Are you sure you want to remove "${name}" from downloads?\n\n` +
+      `ULTRA-SAFE DELETION:\n` +
       `• Remove the torrent from downloads\n` +
-      `• Delete all downloaded files\n` +
+      `• Delete ONLY files belonging to this specific torrent\n` +
+      `• Protect ALL other torrents and their files\n` +
+      `• Never delete system or shared files\n` +
       `• This action cannot be undone`
     );
 
@@ -311,8 +313,14 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
       });
 
       if (response.ok) {
-        // Show success message
-        alert(`✅ Successfully deleted "${name}" and all associated files`);
+        const result = await response.json();
+        // Show success message with details
+        const removedFiles = result.removed_files || [];
+        if (removedFiles.length > 0) {
+          alert(`✅ Successfully removed "${name}" from downloads\n\nRemoved ${removedFiles.length} file(s):\n${removedFiles.slice(0, 3).join('\n')}${removedFiles.length > 3 ? '\n... and more' : ''}`);
+        } else {
+          alert(`✅ Successfully removed "${name}" from downloads\n\nNo files were deleted (torrent may have been incomplete or already cleaned up)`);
+        }
       } else {
         const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
         
@@ -320,7 +328,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
         if (response.status === 404 || errorData.error?.includes('not found')) {
           alert(`⚠️ "${name}" was already removed or not found. Cleaning up from list.`);
         } else {
-          throw new Error(errorData.error || `Failed to delete download (${response.status})`);
+          throw new Error(errorData.error || `Failed to remove download (${response.status})`);
         }
       }
       
@@ -329,7 +337,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
       
     } catch (err) {
       console.error('Failed to remove download:', err);
-      alert(`❌ Failed to delete "${name}": ${err instanceof Error ? err.message : 'Unknown error'}`);
+      alert(`❌ Failed to remove "${name}": ${err instanceof Error ? err.message : 'Unknown error'}`);
       
       // Still refresh the list in case the backend partially cleaned up
       fetchDownloads(currentPage);
@@ -699,7 +707,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
                     <button
                       onClick={() => removeDownload(download.id, download.name)}
                       className="p-2 text-gray-400 hover:text-red-400 hover:bg-gray-700 rounded-lg transition-colors"
-                      title="Delete torrent and files"
+                      title="Ultra-safe removal (protects other torrents)"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>

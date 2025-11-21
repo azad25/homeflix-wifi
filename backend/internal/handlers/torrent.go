@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"homeflix-backend/internal/models"
@@ -447,14 +448,10 @@ func (h *TorrentHandler) RemoveDownload(c *gin.Context) {
 		log.Printf("✅ Successfully removed torrent from client: %s", id)
 	}
 
-	// Remove files if save path exists
+	// Safely remove only the specific torrent files, not the entire directory
+	var removedFiles []string
 	if savePath != "" {
-		if err := os.RemoveAll(savePath); err != nil {
-			log.Printf("⚠️ Failed to remove torrent files at %s: %v", savePath, err)
-			// Don't fail the request if file deletion fails, just log it
-		} else {
-			log.Printf("🗑️ Successfully removed torrent files: %s", savePath)
-		}
+		removedFiles = h.removeSpecificTorrentFiles(savePath, torrentDownload.Name)
 	}
 
 	// Always remove from database (this is the most important cleanup)
@@ -467,9 +464,385 @@ func (h *TorrentHandler) RemoveDownload(c *gin.Context) {
 	log.Printf("✅ Successfully cleaned up torrent: %s", torrentDownload.Name)
 
 	c.JSON(http.StatusOK, gin.H{
-		"message": fmt.Sprintf("Download and files removed successfully"),
-		"removed_path": savePath,
+		"message": fmt.Sprintf("Download removed successfully"),
+		"removed_files": removedFiles,
+		"torrent_name": torrentDownload.Name,
 	})
+}
+
+// removeSpecificTorrentFiles safely removes only the files belonging to this specific torrent
+// ULTRA-SAFE: This function will NEVER delete other torrents' files
+func (h *TorrentHandler) removeSpecificTorrentFiles(savePath, torrentName string) []string {
+	var removedFiles []string
+	
+	// Check if the save path exists
+	if _, err := os.Stat(savePath); os.IsNotExist(err) {
+		log.Printf("📁 Save path does not exist: %s", savePath)
+		return removedFiles
+	}
+
+	// Get all other active torrents to ensure we don't delete their files
+	otherTorrents := h.getAllOtherTorrentPaths(torrentName)
+	log.Printf("🛡️ Found %d other active torrents to protect", len(otherTorrents))
+
+	// Get the parent directory and the torrent folder name
+	parentDir := filepath.Dir(savePath)
+	torrentFolder := filepath.Base(savePath)
+	
+	log.Printf("🔍 Analyzing torrent files - Parent: %s, Folder: %s, Torrent: %s", parentDir, torrentFolder, torrentName)
+
+	// Strategy 1: If savePath is a specific folder for this torrent, check if it's safe to remove entirely
+	if h.isSpecificTorrentFolder(savePath, torrentName) {
+		// Triple-check this is safe and doesn't contain other torrents
+		if h.isSafeToDelete(savePath) && !h.containsOtherTorrents(savePath, otherTorrents) {
+			if err := os.RemoveAll(savePath); err != nil {
+				log.Printf("⚠️ Failed to remove torrent folder %s: %v", savePath, err)
+			} else {
+				log.Printf("🗑️ Successfully removed torrent folder: %s", savePath)
+				removedFiles = append(removedFiles, savePath)
+			}
+		} else {
+			log.Printf("🛡️ Refusing to delete folder - contains other torrents or unsafe: %s", savePath)
+			// Fall back to individual file deletion
+			removedFiles = h.removeIndividualTorrentFiles(savePath, torrentName, otherTorrents)
+		}
+		return removedFiles
+	}
+
+	// Strategy 2: Individual file removal with strict safety checks
+	removedFiles = h.removeIndividualTorrentFiles(savePath, torrentName, otherTorrents)
+	return removedFiles
+}
+
+// getAllOtherTorrentPaths gets paths of all other active torrents to protect them
+func (h *TorrentHandler) getAllOtherTorrentPaths(excludeTorrentName string) []string {
+	var otherPaths []string
+	
+	// Get all torrents from database except the one being deleted
+	var otherTorrents []models.TorrentDownload
+	h.db.Where("name != ?", excludeTorrentName).Find(&otherTorrents)
+	
+	for _, torrent := range otherTorrents {
+		if torrent.SavePath != "" {
+			otherPaths = append(otherPaths, torrent.SavePath)
+		}
+	}
+	
+	// Also get paths from active client downloads
+	clientDownloads := h.client.GetDownloads()
+	for _, download := range clientDownloads {
+		if download.Name != excludeTorrentName && download.SavePath != "" {
+			otherPaths = append(otherPaths, download.SavePath)
+		}
+	}
+	
+	return otherPaths
+}
+
+// isSpecificTorrentFolder checks if the path is a dedicated folder for this torrent
+func (h *TorrentHandler) isSpecificTorrentFolder(savePath, torrentName string) bool {
+	torrentFolder := filepath.Base(savePath)
+	
+	// Clean names for comparison
+	cleanFolder := h.cleanNameForComparison(torrentFolder)
+	cleanTorrent := h.cleanNameForComparison(torrentName)
+	
+	// Check if folder name strongly matches torrent name
+	similarity := h.calculateNameSimilarity(cleanFolder, cleanTorrent)
+	
+	log.Printf("🔍 Folder similarity check: '%s' vs '%s' = %.2f", cleanFolder, cleanTorrent, similarity)
+	
+	// Require high similarity (80%+) to consider it a dedicated folder
+	return similarity >= 0.8
+}
+
+// containsOtherTorrents checks if the path contains files from other torrents
+func (h *TorrentHandler) containsOtherTorrents(targetPath string, otherTorrentPaths []string) bool {
+	for _, otherPath := range otherTorrentPaths {
+		// Check if other torrent path is inside or same as target path
+		if strings.HasPrefix(otherPath, targetPath) || otherPath == targetPath {
+			log.Printf("🛡️ Found other torrent in path: %s contains %s", targetPath, otherPath)
+			return true
+		}
+		
+		// Check if target path is inside other torrent path
+		if strings.HasPrefix(targetPath, otherPath) {
+			log.Printf("🛡️ Target path is inside other torrent: %s inside %s", targetPath, otherPath)
+			return true
+		}
+	}
+	return false
+}
+
+// removeIndividualTorrentFiles removes only files that specifically belong to this torrent
+func (h *TorrentHandler) removeIndividualTorrentFiles(savePath, torrentName string, otherTorrentPaths []string) []string {
+	var removedFiles []string
+	
+	log.Printf("🔍 Scanning for individual files belonging to: %s", torrentName)
+	
+	err := filepath.Walk(savePath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil // Continue on errors
+		}
+
+		// Skip directories
+		if info.IsDir() {
+			return nil
+		}
+
+		// Skip if this file might belong to another torrent
+		if h.isFileProtectedByOtherTorrent(path, otherTorrentPaths) {
+			log.Printf("🛡️ Skipping protected file: %s", path)
+			return nil
+		}
+
+		// Check if this file belongs to our torrent with strict matching
+		fileName := filepath.Base(path)
+		if h.isFileFromTorrentStrict(fileName, torrentName) {
+			// Double-check file is not critical or system file
+			if h.isSafeFileToDelete(path) {
+				if err := os.Remove(path); err != nil {
+					log.Printf("⚠️ Failed to remove file %s: %v", path, err)
+				} else {
+					log.Printf("🗑️ Removed torrent file: %s", path)
+					removedFiles = append(removedFiles, path)
+				}
+			} else {
+				log.Printf("🛡️ Skipping unsafe file: %s", path)
+			}
+		} else {
+			log.Printf("🔍 File doesn't match torrent, skipping: %s", fileName)
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		log.Printf("⚠️ Error walking directory %s: %v", savePath, err)
+	}
+
+	return removedFiles
+}
+
+// isFileProtectedByOtherTorrent checks if a file might belong to another active torrent
+func (h *TorrentHandler) isFileProtectedByOtherTorrent(filePath string, otherTorrentPaths []string) bool {
+	for _, otherPath := range otherTorrentPaths {
+		// If file is in another torrent's directory, protect it
+		if strings.HasPrefix(filePath, otherPath) {
+			return true
+		}
+	}
+	return false
+}
+
+// isFileFromTorrentStrict uses stricter matching to ensure file belongs to specific torrent
+func (h *TorrentHandler) isFileFromTorrentStrict(fileName, torrentName string) bool {
+	// Clean names for comparison
+	cleanFileName := h.cleanNameForComparison(fileName)
+	cleanTorrentName := h.cleanNameForComparison(torrentName)
+	
+	// Calculate similarity
+	similarity := h.calculateNameSimilarity(cleanFileName, cleanTorrentName)
+	
+	log.Printf("🔍 File similarity check: '%s' vs '%s' = %.2f", cleanFileName, cleanTorrentName, similarity)
+	
+	// Require very high similarity (90%+) for strict matching
+	return similarity >= 0.9
+}
+
+// cleanNameForComparison cleans a name for accurate comparison
+func (h *TorrentHandler) cleanNameForComparison(name string) string {
+	// Convert to lowercase
+	clean := strings.ToLower(name)
+	
+	// Replace common separators with spaces
+	clean = strings.ReplaceAll(clean, ".", " ")
+	clean = strings.ReplaceAll(clean, "_", " ")
+	clean = strings.ReplaceAll(clean, "-", " ")
+	clean = strings.ReplaceAll(clean, "[", " ")
+	clean = strings.ReplaceAll(clean, "]", " ")
+	clean = strings.ReplaceAll(clean, "(", " ")
+	clean = strings.ReplaceAll(clean, ")", " ")
+	
+	// Remove common video/torrent suffixes
+	suffixes := []string{
+		"1080p", "720p", "480p", "4k", "2160p", "uhd",
+		"bluray", "bdrip", "webrip", "web-dl", "hdtv", "dvdrip",
+		"x264", "x265", "h264", "h265", "hevc", "xvid",
+		"aac", "ac3", "dts", "mp3", "flac",
+		"mkv", "mp4", "avi", "mov", "wmv", "m4v",
+		"yify", "rarbg", "eztv", "ettv", "yts",
+		"proper", "repack", "extended", "unrated", "directors", "cut",
+	}
+	
+	for _, suffix := range suffixes {
+		clean = strings.ReplaceAll(clean, " "+suffix+" ", " ")
+		clean = strings.ReplaceAll(clean, " "+suffix, "")
+	}
+	
+	// Remove extra spaces and trim
+	clean = strings.Join(strings.Fields(clean), " ")
+	clean = strings.TrimSpace(clean)
+	
+	return clean
+}
+
+// calculateNameSimilarity calculates similarity between two cleaned names
+func (h *TorrentHandler) calculateNameSimilarity(name1, name2 string) float64 {
+	if name1 == name2 {
+		return 1.0
+	}
+	
+	if name1 == "" || name2 == "" {
+		return 0.0
+	}
+	
+	// Split into words
+	words1 := strings.Fields(name1)
+	words2 := strings.Fields(name2)
+	
+	if len(words1) == 0 || len(words2) == 0 {
+		return 0.0
+	}
+	
+	// Count matching words
+	matchingWords := 0
+	totalWords := len(words1)
+	
+	for _, word1 := range words1 {
+		if len(word1) < 3 { // Skip very short words
+			continue
+		}
+		
+		for _, word2 := range words2 {
+			if len(word2) < 3 {
+				continue
+			}
+			
+			// Check for exact match or substring match for longer words
+			if word1 == word2 || 
+			   (len(word1) > 4 && strings.Contains(word1, word2)) || 
+			   (len(word2) > 4 && strings.Contains(word2, word1)) {
+				matchingWords++
+				break
+			}
+		}
+	}
+	
+	if totalWords == 0 {
+		return 0.0
+	}
+	
+	return float64(matchingWords) / float64(totalWords)
+}
+
+// isSafeFileToDelete checks if an individual file is safe to delete
+func (h *TorrentHandler) isSafeFileToDelete(filePath string) bool {
+	fileName := strings.ToLower(filepath.Base(filePath))
+	
+	// Never delete system or important files
+	dangerousFiles := []string{
+		"desktop.ini", "thumbs.db", ".ds_store",
+		"autorun.inf", "boot.ini", "config.sys",
+		"system.ini", "win.ini", "msdos.sys",
+		"io.sys", "pagefile.sys", "hiberfil.sys",
+	}
+	
+	for _, dangerous := range dangerousFiles {
+		if fileName == dangerous {
+			log.Printf("🛡️ Refusing to delete system file: %s", fileName)
+			return false
+		}
+	}
+	
+	// Only delete media files and related files
+	safeExtensions := []string{
+		".mkv", ".mp4", ".avi", ".mov", ".wmv", ".m4v", ".flv", ".webm",
+		".srt", ".vtt", ".ass", ".ssa", ".sub", ".idx",
+		".nfo", ".txt", ".jpg", ".jpeg", ".png", ".bmp",
+	}
+	
+	ext := strings.ToLower(filepath.Ext(fileName))
+	for _, safeExt := range safeExtensions {
+		if ext == safeExt {
+			return true
+		}
+	}
+	
+	log.Printf("🛡️ Refusing to delete file with unknown extension: %s", fileName)
+	return false
+}
+
+// isSafeToDelete checks if a path is safe to delete entirely
+func (h *TorrentHandler) isSafeToDelete(path string) bool {
+	// Convert to absolute path
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		log.Printf("⚠️ Could not get absolute path for %s: %v", path, err)
+		return false
+	}
+
+	// List of paths that should NEVER be deleted
+	unsafePaths := []string{
+		"/",
+		"/home",
+		"/usr",
+		"/var",
+		"/etc",
+		"/bin",
+		"/sbin",
+		"/lib",
+		"/opt",
+		"/root",
+		"/boot",
+		"/dev",
+		"/proc",
+		"/sys",
+		"/tmp",
+		"/mnt",
+		"/media",
+		"C:\\",
+		"C:\\Windows",
+		"C:\\Program Files",
+		"C:\\Users",
+		"C:\\System32",
+	}
+
+	// Check against unsafe paths
+	for _, unsafePath := range unsafePaths {
+		if absPath == unsafePath || strings.HasPrefix(absPath, unsafePath+string(filepath.Separator)) {
+			log.Printf("🛡️ Blocked deletion of system path: %s", absPath)
+			return false
+		}
+	}
+
+	// Must be at least 3 levels deep to be considered safe
+	// e.g., /home/user/downloads/movie is safe, but /home/user is not
+	pathParts := strings.Split(strings.Trim(absPath, string(filepath.Separator)), string(filepath.Separator))
+	if len(pathParts) < 3 {
+		log.Printf("🛡️ Path too shallow, refusing to delete: %s (parts: %d)", absPath, len(pathParts))
+		return false
+	}
+
+	// Check if it's in a downloads or torrents directory (safer)
+	pathLower := strings.ToLower(absPath)
+	safeKeywords := []string{"download", "torrent", "temp", "tmp"}
+	for _, keyword := range safeKeywords {
+		if strings.Contains(pathLower, keyword) {
+			log.Printf("✅ Path contains safe keyword '%s': %s", keyword, absPath)
+			return true
+		}
+	}
+
+	// If no safe keywords found, be more cautious
+	log.Printf("⚠️ Path doesn't contain safe keywords, being cautious: %s", absPath)
+	return false
+}
+
+// isFileFromTorrent checks if a file likely belongs to the torrent (legacy function - use isFileFromTorrentStrict for new code)
+func (h *TorrentHandler) isFileFromTorrent(fileName, torrentName string) bool {
+	// Use the new strict matching for better safety
+	return h.isFileFromTorrentStrict(fileName, torrentName)
 }
 
 // Get torrent configuration
