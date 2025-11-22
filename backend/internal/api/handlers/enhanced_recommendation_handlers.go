@@ -65,18 +65,26 @@ func GetSmartTrendingRecommendationsEnhanced(recommendationService *services.Rec
 
 		log.Printf("🔥 Generating smart trending recommendations for session %s", sessionID)
 
-		// Get trending media with session-based randomization
-		trending, err := mediaService.GetTrendingMedia(limit * 3) // Get more to allow filtering
+		// Use the enhanced trending recommendations from recommendation service (excludes episodes)
+		trending, err := recommendationService.GetEnhancedTrendingRecommendations(limit, sessionID)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
+			// Fallback to dynamic trending recommendations
+			trending, err = recommendationService.GetDynamicRecommendations("trending", limit, sessionID)
+			if err != nil {
+				// Final fallback to default recommendations
+				trending, err = recommendationService.GetDefaultRecommendations(limit)
+				if err != nil {
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch trending recommendations"})
+					return
+				}
+			}
 		}
 
-		// Apply session-based shuffling and filtering
-		recommendations := applySessionBasedShuffle(trending, sessionID, limit)
+		// Ensure no episodes are included (double-check)
+		trending = filterOutEpisodes(trending)
 
 		c.Header("X-Session-ID", sessionID)
-		c.JSON(http.StatusOK, recommendations)
+		c.JSON(http.StatusOK, trending)
 	}
 }
 
@@ -111,15 +119,23 @@ func GetMixedRecommendationsEnhanced(recommendationService *services.Recommendat
 
 		log.Printf("🎭 Generating mixed recommendations for session %s", sessionID)
 
-		// Get different types of content
-		allMedia, err := mediaService.GetAllMedia()
+		// Use enhanced popular recommendations as the base for mixed content (excludes episodes)
+		recommendations, err := recommendationService.GetEnhancedPopularRecommendations(limit, sessionID)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
+			// Fallback to dynamic mixed recommendations
+			recommendations, err = recommendationService.GetDynamicRecommendations("mixed", limit, sessionID)
+			if err != nil {
+				// Final fallback to default recommendations
+				recommendations, err = recommendationService.GetDefaultRecommendations(limit)
+				if err != nil {
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch mixed recommendations"})
+					return
+				}
+			}
 		}
 
-		// Generate mixed recommendations with session-based variety
-		recommendations := generateMixedWithSession(allMedia, sessionID, limit)
+		// Ensure no episodes are included (double-check)
+		recommendations = filterOutEpisodes(recommendations)
 
 		c.Header("X-Session-ID", sessionID)
 		c.JSON(http.StatusOK, recommendations)
@@ -180,22 +196,19 @@ func generateSessionAwareRecommendations(recommendationService *services.Recomme
 
 	switch recType {
 	case "trending":
-		trending, err := mediaService.GetTrendingMedia(limit * 2)
+		trending, err := recommendationService.GetEnhancedTrendingRecommendations(limit, sessionID)
 		if err == nil {
-			trending = filterOutEpisodes(trending)
-			recommendations = applySessionBasedShuffle(trending, sessionID, limit)
+			recommendations = trending
 		}
 	case "popular":
-		popular, err := mediaService.GetPopularMedia()
+		popular, err := recommendationService.GetEnhancedPopularRecommendations(limit, sessionID)
 		if err == nil {
-			popular = filterOutEpisodes(popular)
-			recommendations = applySessionBasedShuffle(popular, sessionID, limit)
+			recommendations = popular
 		}
 	case "recent":
-		recent, err := mediaService.GetRecentMedia()
+		recent, err := recommendationService.GetDynamicRecommendations("recent", limit, sessionID)
 		if err == nil {
-			recent = filterOutEpisodes(recent)
-			recommendations = applySessionBasedShuffle(recent, sessionID, limit)
+			recommendations = recent
 		}
 	default: // mixed
 		recommendations = generateMixedWithSession(allMedia, sessionID, limit)

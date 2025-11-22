@@ -33,47 +33,39 @@ const NewPopularPage: React.FC = () => {
         setIsLoading(true);
         setError(null);
 
-        // Fetch movies only for New & Popular page
-        const allMovies: Media[] = await apiCall('/api/media/movies?limit=100');
+        // Fetch content using enhanced recommendation APIs (no episodes included)
+        const [
+          recentMovies,
+          popularMovies,
+          trendingMovies
+        ] = await Promise.all([
+          apiCall('/api/recommendations/recent?limit=20'),
+          apiCall('/api/recommendations/popular?limit=20'),
+          apiCall('/api/recommendations/trending?limit=20')
+        ]);
 
-        if (allMovies.length === 0) {
-          throw new Error('No movie content available');
+        // Ensure we have content
+        if (!recentMovies?.length && !popularMovies?.length && !trendingMovies?.length) {
+          throw new Error('No content available');
         }
 
-        // Sort by creation date for new content (most recent first)
-        const sortedByDate = [...allMovies].sort((a, b) => {
-          const dateA = new Date(a.created_at || 0).getTime();
-          const dateB = new Date(b.created_at || 0).getTime();
-          return dateB - dateA;
-        });
-
-        // Sort by view count for popular content
-        const sortedByViews = [...allMovies].sort((a, b) => {
-          return (b.view_count || 0) - (a.view_count || 0);
-        });
-
-        // Sort by rating for trending content
-        const sortedByRating = [...allMovies].sort((a, b) => {
-          return (b.rating || 0) - (a.rating || 0);
-        });
-
-        // Get featured content (top movies for hero section)
+        // Get featured content (mix of trending and popular for hero section)
         const featured = [
-          ...sortedByDate.slice(0, 3),
-          ...sortedByViews.slice(0, 2)
+          ...(trendingMovies?.slice(0, 3) || []),
+          ...(popularMovies?.slice(0, 2) || [])
         ].slice(0, 5);
 
         setFeaturedMedia(featured);
-        setNewContent(sortedByDate.slice(0, 20));
-        setPopularContent(sortedByViews.slice(0, 20));
-        setTrendingContent(sortedByRating.slice(0, 20));
+        setNewContent(recentMovies || []);
+        setPopularContent(popularMovies || []);
+        setTrendingContent(trendingMovies || []);
 
         // Preload assets for better performance (poster first, then thumbnail, then preview)
         const allContentForPreload = [
           ...featured,
-          ...sortedByDate.slice(0, 10),
-          ...sortedByViews.slice(0, 10),
-          ...sortedByRating.slice(0, 10)
+          ...(recentMovies?.slice(0, 10) || []),
+          ...(popularMovies?.slice(0, 10) || []),
+          ...(trendingMovies?.slice(0, 10) || [])
         ];
 
         if (allContentForPreload.length > 0) {

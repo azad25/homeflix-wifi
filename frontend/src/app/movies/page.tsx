@@ -89,13 +89,51 @@ export default function MoviesPage() {
         m.genres?.some(g => g.name.toLowerCase().includes('horror'))
       ).slice(0, 20));
       
-      setSciFiMovies(movies.filter((m: Media) => 
-        m.genres?.some(g => g.name.toLowerCase().includes('sci-fi') || g.name.toLowerCase().includes('science'))
-      ).slice(0, 20));
+      // Sci-Fi movies - use enhanced API
+      try {
+        const scifiResponse = await fetch(`${getApiUrl()}/api/recommendations/scifi?limit=20`);
+        if (scifiResponse.ok) {
+          const scifiMovies = await scifiResponse.json();
+          setSciFiMovies(scifiMovies);
+        } else {
+          // Fallback to local filtering
+          setSciFiMovies(movies.filter((m: Media) => 
+            m.genres?.some(g => g.name.toLowerCase().includes('sci-fi') || g.name.toLowerCase().includes('science'))
+          ).slice(0, 20));
+        }
+      } catch (error) {
+        setSciFiMovies(movies.filter((m: Media) => 
+          m.genres?.some(g => g.name.toLowerCase().includes('sci-fi') || g.name.toLowerCase().includes('science'))
+        ).slice(0, 20));
+      }
 
-      // Recent and popular
-      setRecentMovies(movies.sort((a: Media, b: Media) => b.id - a.id).slice(0, 20));
-      setPopularMovies(movies.sort((a: Media, b: Media) => (b.view_count ?? 0) - (a.view_count ?? 0)).slice(0, 20));
+      // Recent movies - use enhanced API
+      try {
+        const recentResponse = await fetch(`${getApiUrl()}/api/recommendations/recent?limit=20`);
+        if (recentResponse.ok) {
+          const recentMovies = await recentResponse.json();
+          setRecentMovies(recentMovies);
+        } else {
+          // Fallback to local sorting
+          setRecentMovies(movies.sort((a: Media, b: Media) => b.id - a.id).slice(0, 20));
+        }
+      } catch (error) {
+        setRecentMovies(movies.sort((a: Media, b: Media) => b.id - a.id).slice(0, 20));
+      }
+
+      // Popular movies - use enhanced API
+      try {
+        const popularResponse = await fetch(`${getApiUrl()}/api/recommendations/popular?limit=20`);
+        if (popularResponse.ok) {
+          const popularMovies = await popularResponse.json();
+          setPopularMovies(popularMovies);
+        } else {
+          // Fallback to local sorting
+          setPopularMovies(movies.sort((a: Media, b: Media) => (b.view_count ?? 0) - (a.view_count ?? 0)).slice(0, 20));
+        }
+      } catch (error) {
+        setPopularMovies(movies.sort((a: Media, b: Media) => (b.view_count ?? 0) - (a.view_count ?? 0)).slice(0, 20));
+      }
       
       // Preload assets for better performance (poster first, then thumbnail, then preview)
       const allMoviesForPreload = [
