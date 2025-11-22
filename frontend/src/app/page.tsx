@@ -27,6 +27,7 @@ export default function Home() {
   const [comedyMovies, setComedyMovies] = useState<Media[]>([]);
   const [dramaMovies, setDramaMovies] = useState<Media[]>([]);
   const [horrorMovies, setHorrorMovies] = useState<Media[]>([]);
+  const [scifiMovies, setScifiMovies] = useState<Media[]>([]);
   const [searchResults, setSearchResults] = useState<Media[]>([]);
   const [selectedMedia, setSelectedMedia] = useState<Media | null>(null);
   const [isPlayerOpen, setIsPlayerOpen] = useState(false);
@@ -91,11 +92,42 @@ export default function Home() {
         .slice(0, 20);
       setRecentMovies(recentMovies);
 
-      // Popular movies (most viewed)
-      const popularMovies = allMedia
-        .filter((item: Media) => item.type === "movie")
-        .sort((a: Media, b: Media) => (b.view_count || 0) - (a.view_count || 0))
-        .slice(0, 20);
+      // Popular movies - use enhanced API endpoint with mixed criteria (views, rating, year, genres)
+      let popularMovies: Media[] = [];
+      try {
+        const popularResponse = await fetch(`${getApiUrl()}/api/recommendations/popular?limit=20`);
+        if (popularResponse.ok) {
+          popularMovies = await popularResponse.json();
+          console.log(`✅ Got ${popularMovies.length} enhanced popular movies with mixed criteria`);
+        } else {
+          throw new Error('Popular API failed');
+        }
+      } catch (error) {
+        console.warn('⚠️ Enhanced popular movies failed, using fallback');
+        // Fallback to mixed criteria sorting (views, rating, year, genres)
+        popularMovies = allMedia
+          .filter((item: Media) => item.type === "movie")
+          .sort((a: Media, b: Media) => {
+            const currentYear = new Date().getFullYear();
+            const viewScoreA = (a.view_count || 0) * 0.4;
+            const viewScoreB = (b.view_count || 0) * 0.4;
+            const ratingScoreA = (a.rating || 0) * 10;
+            const ratingScoreB = (b.rating || 0) * 10;
+            const yearScoreA = ((a.year || 0) >= currentYear - 2) ? 25 : ((a.year || 0) >= currentYear - 5) ? 15 : 0;
+            const yearScoreB = ((b.year || 0) >= currentYear - 2) ? 25 : ((b.year || 0) >= currentYear - 5) ? 15 : 0;
+            const genreScoreA = (a.genres || []).some(g => 
+              ['Action', 'Drama', 'Comedy', 'Sci-Fi'].includes(g.name)
+            ) ? 10 : 0;
+            const genreScoreB = (b.genres || []).some(g => 
+              ['Action', 'Drama', 'Comedy', 'Sci-Fi'].includes(g.name)
+            ) ? 10 : 0;
+            
+            const totalScoreA = viewScoreA + ratingScoreA + yearScoreA + genreScoreA;
+            const totalScoreB = viewScoreB + ratingScoreB + yearScoreB + genreScoreB;
+            return totalScoreB - totalScoreA;
+          })
+          .slice(0, 20);
+      }
       setPopularMovies(popularMovies);
 
       // Popular series (most viewed TV shows) - Group episodes into series
@@ -179,10 +211,47 @@ export default function Home() {
       
       setPopularSeries(popularSeries);
 
-      // Trending now (highest rated recent content)
-      const trendingNow = allMedia
-        .sort((a: Media, b: Media) => (b.rating || 0) - (a.rating || 0))
-        .slice(0, 20);
+      // Trending now - use enhanced API endpoint with mixed criteria (views, genres, latest year, high rating)
+      let trendingNow: Media[] = [];
+      try {
+        const trendingResponse = await fetch(`${getApiUrl()}/api/recommendations/trending?limit=20`);
+        if (trendingResponse.ok) {
+          trendingNow = await trendingResponse.json();
+          console.log(`✅ Got ${trendingNow.length} enhanced trending movies with mixed criteria`);
+        } else {
+          throw new Error('Trending API failed');
+        }
+      } catch (error) {
+        console.warn('⚠️ Enhanced trending failed, using fallback');
+        // Fallback to mixed criteria sorting (views, genres, latest year, high rating)
+        const currentYear = new Date().getFullYear();
+        trendingNow = allMedia
+          .sort((a: Media, b: Media) => {
+            const yearBoostA = ((a.year || 0) >= currentYear - 1) ? 50 : ((a.year || 0) >= currentYear - 3) ? 25 : 0;
+            const yearBoostB = ((b.year || 0) >= currentYear - 1) ? 50 : ((b.year || 0) >= currentYear - 3) ? 25 : 0;
+            const genreBoostA = (a.genres || []).some(g => 
+              g.name.toLowerCase().includes('action') || 
+              g.name.toLowerCase().includes('sci-fi') || 
+              g.name.toLowerCase().includes('science') ||
+              g.name.toLowerCase().includes('thriller')
+            ) ? 20 : 0;
+            const genreBoostB = (b.genres || []).some(g => 
+              g.name.toLowerCase().includes('action') || 
+              g.name.toLowerCase().includes('sci-fi') || 
+              g.name.toLowerCase().includes('science') ||
+              g.name.toLowerCase().includes('thriller')
+            ) ? 20 : 0;
+            const viewBoostA = (a.view_count || 0) * 0.2;
+            const viewBoostB = (b.view_count || 0) * 0.2;
+            const ratingBoostA = (a.rating || 0) * 8;
+            const ratingBoostB = (b.rating || 0) * 8;
+            
+            const scoreA = viewBoostA + ratingBoostA + yearBoostA + genreBoostA;
+            const scoreB = viewBoostB + ratingBoostB + yearBoostB + genreBoostB;
+            return scoreB - scoreA;
+          })
+          .slice(0, 20);
+      }
       setTrendingNow(trendingNow);
 
       // Genre-based collections
@@ -225,12 +294,41 @@ export default function Home() {
         .slice(0, 20);
       setHorrorMovies(horrorMovies);
 
+      // Sci-Fi Movies - use enhanced API endpoint
+      let scifiMovies: Media[] = [];
+      try {
+        const scifiResponse = await fetch(`${getApiUrl()}/api/recommendations/scifi?limit=20`);
+        if (scifiResponse.ok) {
+          scifiMovies = await scifiResponse.json();
+          console.log(`✅ Got ${scifiMovies.length} enhanced sci-fi movies`);
+        } else {
+          throw new Error('Sci-Fi API failed');
+        }
+      } catch (error) {
+        console.warn('⚠️ Enhanced sci-fi failed, using fallback');
+        // Fallback to local filtering
+        scifiMovies = allMedia
+          .filter((item: Media) =>
+            item.type === "movie" &&
+            (item.genres || []).some(genre =>
+              genre.name.toLowerCase().includes('sci-fi') ||
+              genre.name.toLowerCase().includes('science fiction') ||
+              genre.name.toLowerCase().includes('science') ||
+              genre.name.toLowerCase().includes('fantasy')
+            )
+          )
+          .sort((a: Media, b: Media) => (b.rating || 0) - (a.rating || 0))
+          .slice(0, 20);
+      }
+      setScifiMovies(scifiMovies);
+
       // Preload assets for better performance (poster first, then thumbnail, then preview)
       const allContentForPreload = [
         ...featuredSelection,
         ...recentMovies.slice(0, 10),
         ...popularMovies.slice(0, 10),
-        ...trendingNow.slice(0, 10)
+        ...trendingNow.slice(0, 10),
+        ...scifiMovies.slice(0, 10)
       ];
 
       if (allContentForPreload.length > 0) {
@@ -484,6 +582,17 @@ export default function Home() {
               <EnhancedHorizontalRow
                 title="Horror & Thriller"
                 media={horrorMovies}
+                onPlay={handlePlay}
+                onInfo={handleInfo}
+                size="medium"
+              />
+            )}
+
+            {/* Sci-Fi Movies - Enhanced API */}
+            {scifiMovies.length > 0 && (
+              <EnhancedHorizontalRow
+                title="Sci-Fi & Fantasy"
+                media={scifiMovies}
                 onPlay={handlePlay}
                 onInfo={handleInfo}
                 size="medium"

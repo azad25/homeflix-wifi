@@ -87,14 +87,15 @@ interface TorrentDashboardProps {
 const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
   const [activeTab, setActiveTab] = useState<'search' | 'downloads' | 'config'>('search');
   const [searchResults, setSearchResults] = useState<TorrentResult[]>([]);
-  const [downloads, setDownloads] = useState<DownloadInfo[]>([]);
+  const [allDownloads, setAllDownloads] = useState<DownloadInfo[]>([]); // All downloads from API
+  const [downloads, setDownloads] = useState<DownloadInfo[]>([]); // Filtered and paginated downloads
   const [config, setConfig] = useState<TorrentConfig | null>(null);
   const [loading, setLoading] = useState(false);
   const [searchLoading, setSearchLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [qualityFilter, setQualityFilter] = useState('');
-  
+
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
@@ -121,11 +122,60 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
       setSearchQuery(query);
       searchTorrents(query);
     }
-
-    // Set up polling for download updates
-    const interval = setInterval(() => fetchDownloads(currentPage), 3000);
-    return () => clearInterval(interval);
   }, [mediaInfo]);
+
+  // Reset to page 1 when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [downloadSearchQuery, statusFilter]);
+
+  // Client-side filtering and pagination
+  const filterAndPaginateDownloads = () => {
+    let filtered = allDownloads;
+
+    // Apply search filter
+    if (downloadSearchQuery.trim()) {
+      filtered = filtered.filter(download =>
+        download.name.toLowerCase().includes(downloadSearchQuery.toLowerCase())
+      );
+    }
+
+    // Apply status filter
+    if (statusFilter) {
+      filtered = filtered.filter(download => download.status === statusFilter);
+    }
+
+    // Calculate pagination
+    const totalCount = filtered.length;
+    const totalPages = Math.ceil(totalCount / itemsPerPage);
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const endIndex = startIndex + itemsPerPage;
+    const paginatedDownloads = filtered.slice(startIndex, endIndex);
+
+    // Update state
+    setDownloads(paginatedDownloads);
+    setTotalCount(totalCount);
+    setTotalPages(totalPages);
+    setHasNext(currentPage < totalPages);
+    setHasPrev(currentPage > 1);
+  };
+
+  // Effect to filter and paginate when filters or page changes
+  useEffect(() => {
+    filterAndPaginateDownloads();
+  }, [allDownloads, downloadSearchQuery, statusFilter, currentPage]);
+
+  // Separate useEffect for polling to avoid recreating interval on every state change
+  useEffect(() => {
+    // Only poll if we're on the downloads tab
+    if (activeTab !== 'downloads') return;
+
+    const interval = setInterval(() => {
+      // Refresh all downloads data
+      fetchDownloads();
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [activeTab]);
 
   const fetchConfig = async () => {
     try {
@@ -140,29 +190,14 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
     }
   };
 
-  const fetchDownloads = async (page: number = currentPage, search: string = downloadSearchQuery, status: string = statusFilter) => {
+  const fetchDownloads = async () => {
     try {
       const apiUrl = getApiUrl();
-      const params = new URLSearchParams({
-        page: page.toString(),
-        limit: itemsPerPage.toString(),
-        ...(search && { search }),
-        ...(status && { status })
-      });
-      
-      const response = await fetch(`${apiUrl}/api/torrent/downloads?${params}`);
+      // Fetch all downloads without pagination or filters
+      const response = await fetch(`${apiUrl}/api/torrent/downloads?limit=1000`);
       if (response.ok) {
         const data = await response.json();
-        setDownloads(data.downloads || []);
-        
-        // Update pagination state
-        if (data.pagination) {
-          setCurrentPage(data.pagination.current_page);
-          setTotalPages(data.pagination.total_pages);
-          setTotalCount(data.pagination.total_count);
-          setHasNext(data.pagination.has_next);
-          setHasPrev(data.pagination.has_prev);
-        }
+        setAllDownloads(data.downloads || []);
       }
     } catch (err) {
       console.error('Failed to fetch downloads:', err);
@@ -203,14 +238,14 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
 
   const searchDownloads = () => {
     setCurrentPage(1);
-    fetchDownloads(1, downloadSearchQuery, statusFilter);
+    // Filtering happens automatically via useEffect
   };
 
   const clearDownloadSearch = () => {
     setDownloadSearchQuery('');
     setStatusFilter('');
     setCurrentPage(1);
-    fetchDownloads(1, '', '');
+    // Filtering happens automatically via useEffect
   };
 
   const startDownload = async (result: TorrentResult) => {
@@ -232,7 +267,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
       if (response.ok) {
         setActiveTab('downloads');
         setCurrentPage(1);
-        fetchDownloads(1);
+        fetchDownloads();
       } else {
         throw new Error('Failed to start download');
       }
@@ -252,7 +287,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
         const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
         throw new Error(errorData.error || 'Failed to pause download');
       }
-      fetchDownloads(currentPage);
+      fetchDownloads();
     } catch (err) {
       console.error('Failed to pause download:', err);
       setError(err instanceof Error ? err.message : 'Failed to pause download');
@@ -274,7 +309,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
         const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
         throw new Error(errorData.error || 'Failed to resume download');
       }
-      fetchDownloads(currentPage);
+      fetchDownloads();
     } catch (err) {
       console.error('Failed to resume download:', err);
       setError(err instanceof Error ? err.message : 'Failed to resume download');
@@ -305,7 +340,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
 
     try {
       const apiUrl = getApiUrl();
-      const response = await fetch(`${apiUrl}/api/torrent/downloads/${id}`, { 
+      const response = await fetch(`${apiUrl}/api/torrent/downloads/${id}`, {
         method: 'DELETE',
         headers: {
           'Content-Type': 'application/json'
@@ -323,7 +358,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
         }
       } else {
         const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
-        
+
         // If it's a "not found" error, it means it was already deleted somehow
         if (response.status === 404 || errorData.error?.includes('not found')) {
           alert(`⚠️ "${name}" was already removed or not found. Cleaning up from list.`);
@@ -331,16 +366,16 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
           throw new Error(errorData.error || `Failed to remove download (${response.status})`);
         }
       }
-      
+
       // Always refresh the downloads list, even if there was an error
-      fetchDownloads(currentPage);
-      
+      fetchDownloads();
+
     } catch (err) {
       console.error('Failed to remove download:', err);
       alert(`❌ Failed to remove "${name}": ${err instanceof Error ? err.message : 'Unknown error'}`);
-      
+
       // Still refresh the list in case the backend partially cleaned up
-      fetchDownloads(currentPage);
+      fetchDownloads();
     }
   };
 
@@ -378,7 +413,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
     try {
       // First save the current config so the backend can test it
       await updateConfig(config);
-      
+
       // Then test the connection via backend
       const apiUrl = getApiUrl();
       const response = await fetch(`${apiUrl}/api/torrent/test-connection`, {
@@ -390,9 +425,9 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
 
       if (response.ok && data.success) {
         alert(`✅ Jackett connection successful!\n` +
-              `URL: ${data.jackett_url}\n` +
-              `Test results: ${data.test_results} torrents found\n` +
-              `Status: ${data.message}`);
+          `URL: ${data.jackett_url}\n` +
+          `Test results: ${data.test_results} torrents found\n` +
+          `Status: ${data.message}`);
       } else {
         alert(`❌ Jackett connection failed:\n${data.error || 'Unknown error'}`);
       }
@@ -439,7 +474,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
   const getStatusText = (status: string, eta: string) => {
     switch (status) {
       case 'completed': return 'Completed';
-      case 'downloading': 
+      case 'downloading':
         if (eta === 'Resuming...' || eta === 'Connecting to peers...') {
           return eta;
         }
@@ -466,7 +501,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
               <span className="ml-2 text-blue-400">({mediaInfo.media_type === 'tv' ? 'TV Series' : 'Movie'})</span>
             </div>
             <div className="text-xs mt-1 text-green-400">
-              ✨ {mediaInfo.media_type === 'tv' 
+              ✨ {mediaInfo.media_type === 'tv'
                 ? 'TV series search includes all seasons automatically for comprehensive results'
                 : 'Movie search optimized for better results (year removed)'}
             </div>
@@ -485,8 +520,8 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
             key={id}
             onClick={() => setActiveTab(id as any)}
             className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${activeTab === id
-                ? 'bg-red-600 text-white'
-                : 'text-gray-400 hover:text-white hover:bg-gray-700'
+              ? 'bg-red-600 text-white'
+              : 'text-gray-400 hover:text-white hover:bg-gray-700'
               }`}
           >
             <Icon className="w-4 h-4" />
@@ -523,14 +558,14 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder={mediaInfo?.media_type === 'tv' 
-                    ? "Search for TV series... (will search all seasons automatically)" 
+                  placeholder={mediaInfo?.media_type === 'tv'
+                    ? "Search for TV series... (will search all seasons automatically)"
                     : "Search for movies or TV shows... (edit to customize search)"}
                   className="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-red-500"
                   onKeyPress={(e) => e.key === 'Enter' && searchTorrents()}
                 />
                 <p className="text-xs text-gray-400 mt-1">
-                  💡 Tip: {mediaInfo?.media_type === 'tv' 
+                  💡 Tip: {mediaInfo?.media_type === 'tv'
                     ? 'TV series searches now include all seasons automatically for better results'
                     : 'You can manually edit the search term above for better results'}
                 </p>
@@ -554,7 +589,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
                 {searchLoading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
                 Search
               </button>
-              
+
               {searchQuery && (
                 <button
                   onClick={() => {
@@ -662,6 +697,53 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
             exit={{ opacity: 0, y: -20 }}
             className="space-y-4"
           >
+            {/* Downloads Search and Filter Controls */}
+            <div className="flex gap-4 mb-6">
+              <div className="flex-1">
+                <input
+                  type="text"
+                  value={downloadSearchQuery}
+                  onChange={(e) => setDownloadSearchQuery(e.target.value)}
+                  placeholder="Search downloads by name..."
+                  className="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-red-500"
+                  onKeyPress={(e) => {
+                    if (e.key === 'Enter') {
+                      setCurrentPage(1);
+                      // Filtering happens automatically via useEffect
+                    }
+                  }}
+                />
+              </div>
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                className="px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-red-500"
+              >
+                <option value="">All Status</option>
+                <option value="downloading">Downloading</option>
+                <option value="completed">Completed</option>
+                <option value="paused">Paused</option>
+                <option value="error">Error</option>
+              </select>
+              <button
+                onClick={searchDownloads}
+                className="px-6 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium transition-colors flex items-center gap-2"
+              >
+                <Search className="w-4 h-4" />
+                Filter
+              </button>
+
+              {(downloadSearchQuery || statusFilter) && (
+                <button
+                  onClick={clearDownloadSearch}
+                  className="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg font-medium transition-colors flex items-center gap-2"
+                >
+                  <X className="w-4 h-4" />
+                  Clear
+                </button>
+              )}
+            </div>
+
             {downloads.map((download) => (
               <div key={download.id} className="bg-gray-800 rounded-lg p-4">
                 <div className="flex items-center justify-between mb-3">
@@ -763,34 +845,26 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
                 <div className="text-sm text-gray-400">
                   Showing {((currentPage - 1) * itemsPerPage) + 1}-{Math.min(currentPage * itemsPerPage, totalCount)} of {totalCount} downloads
                 </div>
-                
+
                 <div className="flex items-center gap-2">
                   <button
-                    onClick={() => {
-                      const newPage = currentPage - 1;
-                      setCurrentPage(newPage);
-                      fetchDownloads(newPage);
-                    }}
+                    onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
                     disabled={!hasPrev}
                     className="flex items-center gap-1 px-3 py-2 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:text-gray-500 disabled:cursor-not-allowed text-white rounded text-sm transition-colors"
                   >
                     <ChevronLeft className="w-4 h-4" />
                     Previous
                   </button>
-                  
+
                   <div className="flex items-center gap-1 px-3 py-2 bg-gray-800 text-gray-300 rounded text-sm">
                     <span>Page</span>
                     <span className="font-medium text-white">{currentPage}</span>
                     <span>of</span>
                     <span className="font-medium text-white">{totalPages}</span>
                   </div>
-                  
+
                   <button
-                    onClick={() => {
-                      const newPage = currentPage + 1;
-                      setCurrentPage(newPage);
-                      fetchDownloads(newPage);
-                    }}
+                    onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
                     disabled={!hasNext}
                     className="flex items-center gap-1 px-3 py-2 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:text-gray-500 disabled:cursor-not-allowed text-white rounded text-sm transition-colors"
                   >
@@ -1039,11 +1113,11 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
                   </div>
                 </div>
               </div>
-              
+
               <div className="mt-3 p-3 bg-blue-900/30 border border-blue-500/30 rounded-lg">
                 <p className="text-sm text-blue-200">
-                  <strong>💡 Performance Tip:</strong> These settings are optimized for high-speed connections (60Mbps+). 
-                  Higher peer connections = faster downloads but more CPU/memory usage. 
+                  <strong>💡 Performance Tip:</strong> These settings are optimized for high-speed connections (60Mbps+).
+                  Higher peer connections = faster downloads but more CPU/memory usage.
                   Restart required after changing these settings.
                 </p>
               </div>

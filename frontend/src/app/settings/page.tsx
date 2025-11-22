@@ -430,7 +430,6 @@ function SettingsContent() {
             type: 'media' as const,
             metadata: {
               mediaType: 'movie' as const,
-              duration: (media.duration || media.runtime || 0) * 60, // Convert to seconds
               size: media.file_size
             },
             media: {

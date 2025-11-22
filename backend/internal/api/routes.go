@@ -224,6 +224,7 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		api.GET("/recommendations/recent", handlers.GetRecentRecommendations(recommendationService))
 		api.GET("/recommendations/top-rated", handlers.GetHighRatedRecommendations(recommendationService))
 		api.GET("/recommendations/genre", handlers.GetGenreRecommendations(recommendationService))
+		api.GET("/recommendations/scifi", handlers.GetSciFiRecommendations(recommendationService))
 		api.GET("/recommendations/mixed", handlers.GetMixedRecommendationsEnhanced(recommendationService, mediaService))
 
 		// Advanced recommendation endpoints with session awareness

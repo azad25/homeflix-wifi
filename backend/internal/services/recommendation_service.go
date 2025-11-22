@@ -818,6 +818,231 @@ func (s *RecommendationService) getLatestGenreMix(limit int) []models.Media {
 	return s.shuffleMedia(media)
 }
 
+// GetEnhancedTrendingRecommendations provides trending content with mixed criteria (views, genres, latest year, high rating)
+func (s *RecommendationService) GetEnhancedTrendingRecommendations(limit int, sessionID string) ([]models.Media, error) {
+	var allMedia []models.Media
+	currentYear := time.Now().Year()
+	
+	// Get a larger pool of media to work with (3x the limit for better variety)
+	poolSize := limit * 3
+	if poolSize < 60 {
+		poolSize = 60
+	}
+	
+	// Get recent high-quality content with good views
+	err := s.db.Preload("Genres").
+		Where("type != ? AND year >= ? AND rating >= ? AND view_count > ?", "episode", currentYear-3, 6.0, 5).
+		Order("RANDOM()").
+		Offset(rand.Intn(10)). // Random offset for variety
+		Limit(poolSize/3).
+		Find(&allMedia).Error
+	
+	if err != nil {
+		return nil, err
+	}
+	
+	// Get popular action/sci-fi/thriller content
+	var genreMedia []models.Media
+	err = s.db.Preload("Genres").
+		Joins("JOIN media_genres mg ON media.id = mg.media_id").
+		Joins("JOIN genres g ON mg.genre_id = g.id").
+		Where("media.type != ? AND (g.name ILIKE ? OR g.name ILIKE ? OR g.name ILIKE ? OR g.name ILIKE ?) AND media.view_count > ?", 
+			"episode", "%action%", "%sci-fi%", "%science%", "%thriller%", 10).
+		Order("RANDOM()").
+		Limit(poolSize/3).
+		Find(&genreMedia).Error
+	
+	if err == nil {
+		allMedia = append(allMedia, genreMedia...)
+	}
+	
+	// Get highly rated recent content
+	var ratedMedia []models.Media
+	err = s.db.Preload("Genres").
+		Where("type != ? AND rating >= ? AND year >= ?", "episode", 7.5, currentYear-5).
+		Order("RANDOM()").
+		Limit(poolSize/3).
+		Find(&ratedMedia).Error
+	
+	if err == nil {
+		allMedia = append(allMedia, ratedMedia...)
+	}
+	
+	// Remove duplicates and shuffle
+	allMedia = s.removeDuplicateMedia(allMedia)
+	allMedia = s.shuffleMedia(allMedia)
+	
+	// Apply session filtering
+	allMedia = s.filterSessionContent(allMedia, sessionID)
+	
+	// Limit to requested size
+	if len(allMedia) > limit {
+		allMedia = allMedia[:limit]
+	}
+	
+	return allMedia, nil
+}
+
+// GetEnhancedPopularRecommendations provides popular content with mixed criteria (views, rating, year, genres)
+func (s *RecommendationService) GetEnhancedPopularRecommendations(limit int, sessionID string) ([]models.Media, error) {
+	var allMedia []models.Media
+	currentYear := time.Now().Year()
+	
+	// Get a larger pool of media to work with (3x the limit for better variety)
+	poolSize := limit * 3
+	if poolSize < 60 {
+		poolSize = 60
+	}
+	
+	// Get most viewed content (balanced approach)
+	var popularMedia []models.Media
+	err := s.db.Preload("Genres").
+		Where("type != ? AND view_count > ? AND view_count < ?", "episode", 15, 500).
+		Order("view_count DESC, RANDOM()").
+		Offset(rand.Intn(10)). // Random offset for variety
+		Limit(poolSize/4).
+		Find(&popularMedia).Error
+	
+	if err != nil {
+		return nil, err
+	}
+	allMedia = append(allMedia, popularMedia...)
+	
+	// Get mixed quality content (not just high-rated)
+	var mixedMedia []models.Media
+	err = s.db.Preload("Genres").
+		Where("type != ? AND rating >= ? AND rating <= ?", "episode", 6.0, 8.5).
+		Order("RANDOM()").
+		Offset(rand.Intn(10)).
+		Limit(poolSize/4).
+		Find(&mixedMedia).Error
+	
+	if err == nil {
+		allMedia = append(allMedia, mixedMedia...)
+	}
+	
+	// Get recent diverse content (not just popular)
+	var recentMedia []models.Media
+	err = s.db.Preload("Genres").
+		Where("type != ? AND year >= ? AND view_count > ?", "episode", currentYear-4, 5).
+		Order("RANDOM()").
+		Offset(rand.Intn(15)).
+		Limit(poolSize/4).
+		Find(&recentMedia).Error
+	
+	if err == nil {
+		allMedia = append(allMedia, recentMedia...)
+	}
+	
+	// Get diverse genre content (balanced popularity)
+	var genreMedia []models.Media
+	err = s.db.Preload("Genres").
+		Joins("JOIN media_genres mg ON media.id = mg.media_id").
+		Joins("JOIN genres g ON mg.genre_id = g.id").
+		Where("media.type != ? AND (g.name ILIKE ? OR g.name ILIKE ? OR g.name ILIKE ? OR g.name ILIKE ?) AND media.view_count > ? AND media.view_count < ?", 
+			"episode", "%action%", "%drama%", "%comedy%", "%thriller%", 3, 200).
+		Order("RANDOM()").
+		Offset(rand.Intn(20)).
+		Limit(poolSize/4).
+		Find(&genreMedia).Error
+	
+	if err == nil {
+		allMedia = append(allMedia, genreMedia...)
+	}
+	
+	// Remove duplicates and shuffle
+	allMedia = s.removeDuplicateMedia(allMedia)
+	allMedia = s.shuffleMedia(allMedia)
+	
+	// Apply session filtering
+	allMedia = s.filterSessionContent(allMedia, sessionID)
+	
+	// Limit to requested size
+	if len(allMedia) > limit {
+		allMedia = allMedia[:limit]
+	}
+	
+	return allMedia, nil
+}
+
+// GetSciFiRecommendations provides science fiction movies and series
+func (s *RecommendationService) GetSciFiRecommendations(limit int, sessionID string) ([]models.Media, error) {
+	var allMedia []models.Media
+	currentYear := time.Now().Year()
+	
+	// Get a larger pool for better variety
+	poolSize := limit * 2
+	if poolSize < 40 {
+		poolSize = 40
+	}
+	
+	// Get recent high-quality sci-fi content (strict sci-fi only, exclude drama/comedy)
+	var recentSciFi []models.Media
+	err := s.db.Preload("Genres").
+		Joins("JOIN media_genres mg1 ON media.id = mg1.media_id").
+		Joins("JOIN genres g1 ON mg1.genre_id = g1.id").
+		Where("(g1.name ILIKE ? OR g1.name ILIKE ? OR g1.name ILIKE ?) AND media.type != ? AND media.year >= ? AND media.rating >= ?", 
+			"%sci-fi%", "%science fiction%", "%science%", "episode", currentYear-5, 6.0).
+		Where("media.id NOT IN (SELECT mg2.media_id FROM media_genres mg2 JOIN genres g2 ON mg2.genre_id = g2.id WHERE g2.name ILIKE ? OR g2.name ILIKE ?)", 
+			"%drama%", "%comedy%").
+		Order("RANDOM()").
+		Limit(poolSize/2).
+		Find(&recentSciFi).Error
+	
+	if err != nil {
+		return nil, err
+	}
+	allMedia = append(allMedia, recentSciFi...)
+	
+	// Get popular sci-fi content (strict sci-fi only, exclude drama/comedy)
+	var popularSciFi []models.Media
+	err = s.db.Preload("Genres").
+		Joins("JOIN media_genres mg1 ON media.id = mg1.media_id").
+		Joins("JOIN genres g1 ON mg1.genre_id = g1.id").
+		Where("(g1.name ILIKE ? OR g1.name ILIKE ? OR g1.name ILIKE ?) AND media.type != ? AND media.view_count > ?", 
+			"%sci-fi%", "%science fiction%", "%science%", "episode", 3).
+		Where("media.id NOT IN (SELECT mg2.media_id FROM media_genres mg2 JOIN genres g2 ON mg2.genre_id = g2.id WHERE g2.name ILIKE ? OR g2.name ILIKE ?)", 
+			"%drama%", "%comedy%").
+		Order("media.view_count DESC, RANDOM()").
+		Limit(poolSize/2).
+		Find(&popularSciFi).Error
+	
+	if err == nil {
+		allMedia = append(allMedia, popularSciFi...)
+	}
+	
+	// If we don't have enough sci-fi content, add some broader sci-fi/fantasy content
+	if len(allMedia) < limit {
+		var fallbackSciFi []models.Media
+		err = s.db.Preload("Genres").
+			Joins("JOIN media_genres ON media.id = media_genres.media_id").
+			Joins("JOIN genres ON media_genres.genre_id = genres.id").
+			Where("(genres.name ILIKE ? OR genres.name ILIKE ? OR genres.name ILIKE ? OR genres.name ILIKE ?) AND media.type != ?", 
+				"%sci-fi%", "%science fiction%", "%science%", "%fantasy%", "episode").
+			Order("RANDOM()").
+			Limit(limit).
+			Find(&fallbackSciFi).Error
+		
+		if err == nil {
+			allMedia = append(allMedia, fallbackSciFi...)
+		}
+	}
+	
+	// Remove duplicates and shuffle
+	allMedia = s.removeDuplicateMedia(allMedia)
+	allMedia = s.shuffleMedia(allMedia)
+	
+	// Apply session filtering
+	allMedia = s.filterSessionContent(allMedia, sessionID)
+	
+	// Limit to requested size
+	if len(allMedia) > limit {
+		allMedia = allMedia[:limit]
+	}
+	
+	return allMedia, nil
+}
+
 // Keep original function for compatibility
 func (s *RecommendationService) getLatestHighRated(limit int) []models.Media {
 	var media []models.Media
@@ -977,12 +1202,21 @@ func (s *RecommendationService) trackSessionContent(media []models.Media, sessio
 }
 
 func (s *RecommendationService) shuffleMedia(media []models.Media) []models.Media {
-	rand.Seed(time.Now().UnixNano())
-	for i := len(media) - 1; i > 0; i-- {
-		j := rand.Intn(i + 1)
-		media[i], media[j] = media[j], media[i]
+	if len(media) <= 1 {
+		return media
 	}
-	return media
+	
+	// Create a copy to avoid modifying the original slice
+	shuffled := make([]models.Media, len(media))
+	copy(shuffled, media)
+	
+	// Fisher-Yates shuffle
+	for i := len(shuffled) - 1; i > 0; i-- {
+		j := rand.Intn(i + 1)
+		shuffled[i], shuffled[j] = shuffled[j], shuffled[i]
+	}
+	
+	return shuffled
 }
 
 // Additional helper methods for specific algorithms
@@ -1448,3 +1682,4 @@ func (s *RecommendationService) getBalancedPersonalized(userID uint, limit int) 
 	
 	return s.shuffleMedia(allMedia)
 }
+

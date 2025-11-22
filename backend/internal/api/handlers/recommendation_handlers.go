@@ -21,17 +21,21 @@ func GetTrendingRecommendations(recommendationService *services.RecommendationSe
 			}
 		}
 		
-		// Generate session ID for duplicate prevention
+		// Generate session ID for duplicate prevention with time-based randomization
 		sessionID := generateSessionID(c)
 		
-		// Use dynamic trending recommendations with session awareness
-		media, err := recommendationService.GetDynamicRecommendations("trending", limit, sessionID)
+		// Use enhanced trending recommendations with mixed criteria (views, genres, year, rating)
+		media, err := recommendationService.GetEnhancedTrendingRecommendations(limit, sessionID)
 		if err != nil {
-			// Fallback to default recommendations
-			media, err = recommendationService.GetDefaultRecommendations(limit)
+			// Fallback to dynamic trending recommendations
+			media, err = recommendationService.GetDynamicRecommendations("trending", limit, sessionID)
 			if err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch trending recommendations"})
-				return
+				// Final fallback to default recommendations
+				media, err = recommendationService.GetDefaultRecommendations(limit)
+				if err != nil {
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch trending recommendations"})
+					return
+				}
 			}
 		}
 		
@@ -48,17 +52,21 @@ func GetPopularRecommendations(recommendationService *services.RecommendationSer
 			}
 		}
 		
-		// Generate session ID for duplicate prevention
+		// Generate session ID for duplicate prevention with time-based randomization
 		sessionID := generateSessionID(c)
 		
-		// Use dynamic popular recommendations with session awareness
-		media, err := recommendationService.GetDynamicRecommendations("popular", limit, sessionID)
+		// Use enhanced popular recommendations with comprehensive scoring (views, rating, year, genres)
+		media, err := recommendationService.GetEnhancedPopularRecommendations(limit, sessionID)
 		if err != nil {
-			// Fallback to default recommendations
-			media, err = recommendationService.GetDefaultRecommendations(limit)
+			// Fallback to dynamic popular recommendations
+			media, err = recommendationService.GetDynamicRecommendations("popular", limit, sessionID)
 			if err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch popular recommendations"})
-				return
+				// Final fallback to default recommendations
+				media, err = recommendationService.GetDefaultRecommendations(limit)
+				if err != nil {
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch popular recommendations"})
+					return
+				}
 			}
 		}
 		
@@ -365,14 +373,17 @@ func GetRecommendations(recommendationService *services.RecommendationService) g
 
 // generateSessionID creates a unique session ID for tracking shown content
 func generateSessionID(c *gin.Context) string {
-	// Use IP address + User-Agent + current hour for session identification
-	// This creates sessions that last about an hour and are unique per client
+	// Use IP address + User-Agent + current 10-minute window for session identification
+	// This creates sessions that rotate every 10 minutes for more variety
 	clientIP := c.ClientIP()
 	userAgent := c.GetHeader("User-Agent")
-	currentHour := time.Now().Format("2006010215") // YYYYMMDDHH
+	now := time.Now()
+	// Create 10-minute windows: 00-09, 10-19, 20-29, etc.
+	tenMinuteWindow := (now.Minute() / 10) * 10
+	currentWindow := fmt.Sprintf("%s%02d", now.Format("2006010215"), tenMinuteWindow) // YYYYMMDDHHMM
 
 	// Create a simple hash-like session ID
-	sessionID := fmt.Sprintf("%s_%s_%s", clientIP, userAgent, currentHour)
+	sessionID := fmt.Sprintf("%s_%s_%s", clientIP, userAgent, currentWindow)
 
 	// Truncate to reasonable length and make it URL-safe
 	if len(sessionID) > 50 {
@@ -381,3 +392,32 @@ func generateSessionID(c *gin.Context) string {
 
 	return sessionID
 }
+
+// GetSciFiRecommendations returns science fiction content
+func GetSciFiRecommendations(recommendationService *services.RecommendationService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		limit := 20
+		if limitStr := c.Query("limit"); limitStr != "" {
+			if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= 100 {
+				limit = l
+			}
+		}
+		
+		// Generate session ID for duplicate prevention
+		sessionID := generateSessionID(c)
+		
+		// Get sci-fi recommendations
+		media, err := recommendationService.GetSciFiRecommendations(limit, sessionID)
+		if err != nil {
+			// Fallback to default recommendations
+			media, err = recommendationService.GetDefaultRecommendations(limit)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch sci-fi recommendations"})
+				return
+			}
+		}
+		
+		c.JSON(http.StatusOK, media)
+	}
+}
+
