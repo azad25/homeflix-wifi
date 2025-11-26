@@ -186,15 +186,15 @@ type MKVIndexer struct {
 }
 
 type MKVIndex struct {
-	seekHeads    []int64       // EBML SeekHead offsets
-	cues         []CuePoint    // Cue point offsets with timestamps
-	clusters     []ClusterInfo // Cluster information
-	duration     int64         // Duration in milliseconds
-	indexed      bool          // Whether indexing is complete
-	seekable     bool          // Whether file is seekable
-	hasProperCues bool         // Whether file has proper cue points
-	segmentStart int64         // Start of segment data
-	segmentSize  int64         // Size of segment
+	seekHeads     []int64       // EBML SeekHead offsets
+	cues          []CuePoint    // Cue point offsets with timestamps
+	clusters      []ClusterInfo // Cluster information
+	duration      int64         // Duration in milliseconds
+	indexed       bool          // Whether indexing is complete
+	seekable      bool          // Whether file is seekable
+	hasProperCues bool          // Whether file has proper cue points
+	segmentStart  int64         // Start of segment data
+	segmentSize   int64         // Size of segment
 }
 
 type CuePoint struct {
@@ -285,34 +285,34 @@ func NewNetflixStreamService(alacService *ALACAudioService) *NetflixStreamServic
 	totalMemory := getTotalMemory()
 
 	// WIFI-OPTIMIZED STREAMING CONFIGURATION - FAST INITIAL RESPONSE
-	segmentSize := int64(2 * 1024 * 1024)           // 2MB segments for WiFi - faster initial response
-	maxBufferSize := int64(512 * 1024 * 1024)       // 512MB buffer - reasonable for WiFi devices
-	cacheSize := int64(1024 * 1024 * 1024)          // 1GB cache - WiFi device friendly
+	segmentSize := int64(2 * 1024 * 1024)     // 2MB segments for WiFi - faster initial response
+	maxBufferSize := int64(512 * 1024 * 1024) // 512MB buffer - reasonable for WiFi devices
+	cacheSize := int64(1024 * 1024 * 1024)    // 1GB cache - WiFi device friendly
 
 	service := &NetflixStreamService{
 		segmentSize:      segmentSize,
 		maxBufferSize:    maxBufferSize,
 		cacheSize:        cacheSize,
 		bufferPool:       newWiFiOptimizedBufferPool(),
-		workerPool:       newStreamWorkerPool(cpuCores * 4),  // 4x CPU cores - WiFi optimized
-		ioWorkerPool:     newIOWorkerPool(cpuCores * 2),      // 2x I/O workers - WiFi bandwidth limited
-		l1Cache:          newL1SegmentCache(cacheSize / 2),   // 512MB L1 cache for WiFi
-		l2Cache:          newL2FileCache(cacheSize / 4),      // 256MB L2 cache for WiFi
-		l3Cache:          newL3DiskCache(cacheSize / 4),      // 256MB L3 cache for WiFi
+		workerPool:       newStreamWorkerPool(cpuCores * 4), // 4x CPU cores - WiFi optimized
+		ioWorkerPool:     newIOWorkerPool(cpuCores * 2),     // 2x I/O workers - WiFi bandwidth limited
+		l1Cache:          newL1SegmentCache(cacheSize / 2),  // 512MB L1 cache for WiFi
+		l2Cache:          newL2FileCache(cacheSize / 4),     // 256MB L2 cache for WiFi
+		l3Cache:          newL3DiskCache(cacheSize / 4),     // 256MB L3 cache for WiFi
 		stats:            newStreamStats(),
 		mkvIndexer:       NewMKVIndexer(),
 		adaptiveBitrate:  newAdaptiveBitrate(),
 		activeSessions:   make(map[string]*NetflixSession),
-		tcpWindowSize:    2 * 1024 * 1024,   // 2MB TCP window for WiFi optimization
-		enableSendfile:   false,             // Keep disabled for compatibility
-		enableDirectIO:   false,             // Disable for WiFi - use page cache for better performance
-		enableReadahead:  true,              // Keep readahead for WiFi
+		tcpWindowSize:    2 * 1024 * 1024, // 2MB TCP window for WiFi optimization
+		enableSendfile:   false,           // Keep disabled for compatibility
+		enableDirectIO:   false,           // Disable for WiFi - use page cache for better performance
+		enableReadahead:  true,            // Keep readahead for WiFi
 		cpuCores:         cpuCores,
 		totalMemory:      totalMemory,
-		ioScheduler:      "mq-deadline",     // Better for WiFi latency
-		prefetchDistance: 8 * 1024 * 1024,   // 8MB prefetch for WiFi - much smaller
-		readAheadSize:    4 * 1024 * 1024,   // 4MB readahead for WiFi
-		ioQueueDepth:     32,                // Smaller queue depth for WiFi
+		ioScheduler:      "mq-deadline",   // Better for WiFi latency
+		prefetchDistance: 8 * 1024 * 1024, // 8MB prefetch for WiFi - much smaller
+		readAheadSize:    4 * 1024 * 1024, // 4MB readahead for WiFi
+		ioQueueDepth:     32,              // Smaller queue depth for WiFi
 		alacService:      alacService,
 		audioTranscoder:  newAudioTranscoder(),
 	}
@@ -329,37 +329,37 @@ func NewNetflixStreamService(alacService *ALACAudioService) *NetflixStreamServic
 // initializeWiFiOptimizedStreaming initializes optimizations for WiFi devices
 func (s *NetflixStreamService) initializeWiFiOptimizedStreaming() {
 	log.Printf("📱 Initializing WiFi-optimized streaming for 1-10s load times...")
-	
+
 	// Pre-warm cache layers with smaller, WiFi-friendly sizes
 	go s.preWarmWiFiCacheLayers()
-	
+
 	// Start WiFi-optimized prefetching service
 	go s.wiFiOptimizedPrefetchingService()
-	
+
 	// Initialize connection pooling for WiFi
 	go s.initializeWiFiConnectionOptimizations()
-	
+
 	// Start background optimization for popular content
 	go s.backgroundWiFiOptimizationService()
 }
 
 func (s *NetflixStreamService) preWarmWiFiCacheLayers() {
 	log.Printf("📱 Pre-warming cache layers for WiFi devices...")
-	
+
 	// Pre-allocate smaller cache structures for WiFi
 	s.l1Cache.PreWarm()
-	s.l2Cache.PreWarm() 
+	s.l2Cache.PreWarm()
 	s.l3Cache.PreWarm()
-	
+
 	log.Printf("✅ WiFi cache layers pre-warmed")
 }
 
 func (s *NetflixStreamService) wiFiOptimizedPrefetchingService() {
 	log.Printf("📱 Starting WiFi-optimized prefetching service...")
-	
+
 	// This prefetches initial chunks of popular content for instant playback
 	// Smaller prefetch sizes optimized for WiFi bandwidth
-	
+
 	// Pre-cache common seek positions for instant seeking
 	go s.preCacheCommonSeekPositions()
 }
@@ -367,7 +367,7 @@ func (s *NetflixStreamService) wiFiOptimizedPrefetchingService() {
 // Pre-cache common seek positions (0%, 25%, 50%, 75%) for instant seeking
 func (s *NetflixStreamService) preCacheCommonSeekPositions() {
 	log.Printf("⚡ Pre-caching common seek positions for instant seeking...")
-	
+
 	// This would be called by the media service to pre-cache seek positions
 	// for recently accessed or popular files
 }
@@ -375,7 +375,7 @@ func (s *NetflixStreamService) preCacheCommonSeekPositions() {
 // getOptimalAudioSettings returns optimal audio settings for highest quality
 func (s *NetflixStreamService) getOptimalAudioSettings(filePath string) ([]string, error) {
 	// Get audio stream info
-	cmd := exec.Command("ffprobe", "-v", "quiet", "-print_format", "json", 
+	cmd := exec.Command("ffprobe", "-v", "quiet", "-print_format", "json",
 		"-show_streams", "-select_streams", "a:0", filePath)
 	output, err := cmd.Output()
 	if err != nil {
@@ -411,7 +411,7 @@ func (s *NetflixStreamService) getOptimalAudioSettings(filePath string) ([]strin
 	}
 
 	stream := audioStream.Streams[0]
-	
+
 	// Preserve original channels up to 8 (7.1 surround)
 	channels := stream.Channels
 	if channels > 8 {
@@ -459,58 +459,58 @@ func (s *NetflixStreamService) getOptimalAudioSettings(filePath string) ([]strin
 // PreCacheSeekPositions pre-caches common seek positions for a file for instant seeking
 func (s *NetflixStreamService) PreCacheSeekPositions(filePath string) error {
 	log.Printf("⚡ Pre-caching seek positions for instant seeking: %s", filepath.Base(filePath))
-	
+
 	// Open file
 	file, err := os.Open(filePath)
 	if err != nil {
 		return fmt.Errorf("failed to open file for seek caching: %v", err)
 	}
 	defer file.Close()
-	
+
 	// Get file size
 	stat, err := file.Stat()
 	if err != nil {
 		return fmt.Errorf("failed to stat file for seek caching: %v", err)
 	}
 	fileSize := stat.Size()
-	
+
 	// Pre-cache common seek positions (0%, 10%, 25%, 50%, 75%, 90%)
 	seekPositions := []float64{0.0, 0.1, 0.25, 0.5, 0.75, 0.9}
 	chunkSize := int64(512 * 1024) // 512KB chunks for instant seeking
-	
+
 	for _, pos := range seekPositions {
 		offset := int64(float64(fileSize) * pos)
-		
+
 		// Align to reasonable boundaries
 		if offset > 0 {
 			offset = (offset / (64 * 1024)) * (64 * 1024) // Align to 64KB boundaries
 		}
-		
+
 		// Don't exceed file size
 		if offset >= fileSize {
 			continue
 		}
-		
+
 		end := offset + chunkSize - 1
 		if end >= fileSize {
 			end = fileSize - 1
 		}
-		
+
 		// Create cache key
 		cacheKey := fmt.Sprintf("seek:%s:%d-%d", filePath, offset, end)
-		
+
 		// Check if already cached
 		if s.l1Cache.Get(cacheKey) != nil {
 			continue
 		}
-		
+
 		// Read and cache this seek position
 		_, err := file.Seek(offset, 0)
 		if err != nil {
 			log.Printf("⚠️ Failed to seek to position %d for caching: %v", offset, err)
 			continue
 		}
-		
+
 		readSize := end - offset + 1
 		data := make([]byte, readSize)
 		n, err := io.ReadFull(file, data)
@@ -518,26 +518,26 @@ func (s *NetflixStreamService) PreCacheSeekPositions(filePath string) error {
 			log.Printf("⚠️ Failed to read seek position %d for caching: %v", offset, err)
 			continue
 		}
-		
+
 		// Cache this seek position
 		s.l1Cache.Put(cacheKey, data[:n], offset, int64(n))
 		log.Printf("✅ Cached seek position %.0f%% (%d bytes) for instant seeking", pos*100, n)
 	}
-	
+
 	log.Printf("⚡ Seek positions pre-cached for instant seeking: %s", filepath.Base(filePath))
 	return nil
 }
 
 func (s *NetflixStreamService) initializeWiFiConnectionOptimizations() {
 	log.Printf("📱 Initializing WiFi connection optimizations...")
-	
+
 	// Configure connection pooling and keep-alive optimized for WiFi
 	// Smaller buffer sizes, more aggressive connection reuse
 }
 
 func (s *NetflixStreamService) backgroundWiFiOptimizationService() {
 	log.Printf("📱 Background WiFi optimization service started")
-	
+
 	// Background service to optimize content for WiFi devices
 	// Pre-transcode problematic files, cache initial chunks, etc.
 }
@@ -550,26 +550,26 @@ func (s *NetflixStreamService) detectWiFiOrMobileConnection(r *http.Request) boo
 		"mobile", "android", "iphone", "ipad", "tablet",
 		"phone", "touch", "webos", "blackberry",
 	}
-	
+
 	for _, indicator := range mobileIndicators {
 		if strings.Contains(userAgent, indicator) {
 			return true
 		}
 	}
-	
+
 	// Check for WiFi-specific headers or connection hints
 	connectionType := strings.ToLower(r.Header.Get("Connection-Type"))
 	if connectionType == "wifi" || connectionType == "cellular" {
 		return true
 	}
-	
+
 	// Check for bandwidth hints (lower bandwidth = likely WiFi/mobile)
 	if bandwidth := r.Header.Get("Downlink"); bandwidth != "" {
 		if bw, err := strconv.ParseFloat(bandwidth, 64); err == nil && bw < 50.0 { // < 50 Mbps
 			return true
 		}
 	}
-	
+
 	// Check for network information API hints
 	if effectiveType := strings.ToLower(r.Header.Get("ECT")); effectiveType != "" {
 		// 2g, 3g, 4g indicate mobile/WiFi
@@ -577,7 +577,7 @@ func (s *NetflixStreamService) detectWiFiOrMobileConnection(r *http.Request) boo
 			return true
 		}
 	}
-	
+
 	// Default to WiFi optimization for better compatibility
 	return true
 }
@@ -585,21 +585,21 @@ func (s *NetflixStreamService) detectWiFiOrMobileConnection(r *http.Request) boo
 // setWiFiOptimizedHeaders sets headers optimized for WiFi connections
 func (s *NetflixStreamService) setWiFiOptimizedHeaders(w http.ResponseWriter) {
 	headers := w.Header()
-	
+
 	// WiFi-optimized caching
 	headers.Set("Cache-Control", "public, max-age=3600, stale-while-revalidate=1800")
-	
+
 	// Connection optimization
 	headers.Set("Connection", "keep-alive")
 	headers.Set("Keep-Alive", "timeout=30, max=100")
-	
+
 	// Compression hints
 	headers.Set("Vary", "Accept-Encoding")
-	
+
 	// WiFi-specific optimizations
 	headers.Set("X-WiFi-Optimized", "true")
 	headers.Set("X-Accel-Buffering", "no") // Disable proxy buffering
-	
+
 	// Performance hints for browsers
 	headers.Set("X-Content-Type-Options", "nosniff")
 	headers.Set("X-Frame-Options", "SAMEORIGIN")
@@ -709,12 +709,12 @@ func newL3DiskCache(maxSize int64) *L3DiskCache {
 func (cache *L3DiskCache) PreWarm() {
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
-	
+
 	// Pre-allocate map capacity for instant access
 	if len(cache.files) == 0 {
 		cache.files = make(map[string]*CacheEntry, 10000)
 	}
-	
+
 	log.Printf("🔥 L3 disk cache pre-warmed for instant access")
 }
 
@@ -790,15 +790,15 @@ func newBufferPool() *BufferPool {
 func (bp *BufferPool) Get(size int64) []byte {
 	// WiFi-optimized buffer selection for faster initial response
 	if size <= 64*1024 {
-		return bp.tiny.Get().([]byte)[:size]    // 64KB for initial chunks
+		return bp.tiny.Get().([]byte)[:size] // 64KB for initial chunks
 	} else if size <= 512*1024 {
-		return bp.small.Get().([]byte)[:size]   // 512KB for small chunks
+		return bp.small.Get().([]byte)[:size] // 512KB for small chunks
 	} else if size <= 2*1024*1024 {
-		return bp.medium.Get().([]byte)[:size]  // 2MB for medium chunks
+		return bp.medium.Get().([]byte)[:size] // 2MB for medium chunks
 	} else if size <= 8*1024*1024 {
-		return bp.large.Get().([]byte)[:size]   // 8MB for large chunks
+		return bp.large.Get().([]byte)[:size] // 8MB for large chunks
 	} else {
-		return bp.xlarge.Get().([]byte)[:size]  // 16MB max for WiFi
+		return bp.xlarge.Get().([]byte)[:size] // 16MB max for WiFi
 	}
 }
 
@@ -869,7 +869,7 @@ func (s *NetflixStreamService) StreamVideo(w http.ResponseWriter, r *http.Reques
 
 func (s *NetflixStreamService) Stream(w http.ResponseWriter, r *http.Request, filePath string) error {
 	log.Printf("📹 WiFi-optimized streaming request: %s", filepath.Base(filePath))
-	
+
 	// CRITICAL: Detect WiFi/mobile connection for optimization
 	isWiFiOrMobile := s.detectWiFiOrMobileConnection(r)
 	if isWiFiOrMobile {
@@ -877,42 +877,42 @@ func (s *NetflixStreamService) Stream(w http.ResponseWriter, r *http.Request, fi
 		// Set WiFi-optimized headers immediately
 		s.setWiFiOptimizedHeaders(w)
 	}
-	
+
 	// Check for force transcoding parameter
 	forceTranscode := r.URL.Query().Get("force_transcode") == "true"
 	if forceTranscode {
 		log.Printf("🔄 FORCE TRANSCODING requested for: %s", filepath.Base(filePath))
 		return s.streamWithAudioTranscoding(w, r, filePath)
 	}
-	
+
 	// Check User-Agent to determine browser compatibility
 	userAgent := r.Header.Get("User-Agent")
 	userAgentLower := strings.ToLower(userAgent)
-	
+
 	// Improved Chrome detection - Chrome includes "Chrome" but not "Edg" (Edge) or "OPR" (Opera)
-	isChrome := strings.Contains(userAgentLower, "chrome") && 
-		!strings.Contains(userAgentLower, "edg") && 
+	isChrome := strings.Contains(userAgentLower, "chrome") &&
+		!strings.Contains(userAgentLower, "edg") &&
 		!strings.Contains(userAgentLower, "opr") &&
 		!strings.Contains(userAgentLower, "firefox")
-	
+
 	// Additional Chrome detection patterns
 	if !isChrome && strings.Contains(userAgentLower, "chrome/") {
 		isChrome = true
 		log.Printf("🔍 Chrome detected via Chrome/ pattern")
 	}
-	
+
 	log.Printf("🌐 Browser detection: User-Agent=%s, isChrome=%v", userAgent, isChrome)
-	log.Printf("🔍 Chrome detection details: contains_chrome=%v, contains_edg=%v, contains_opr=%v, contains_firefox=%v", 
+	log.Printf("🔍 Chrome detection details: contains_chrome=%v, contains_edg=%v, contains_opr=%v, contains_firefox=%v",
 		strings.Contains(userAgentLower, "chrome"),
 		strings.Contains(userAgentLower, "edg"),
 		strings.Contains(userAgentLower, "opr"),
 		strings.Contains(userAgentLower, "firefox"))
-	
+
 	// CHROME AUDIO COMPATIBILITY CHECK
 	// Chrome is strict about audio codecs - only supports AAC, MP3, Opus
 	// Also check for Chrome-specific headers or force check for AC3 audio
 	forceAudioCheck := strings.Contains(userAgentLower, "chrome") || r.Header.Get("X-Force-Chrome-Check") == "true"
-	
+
 	if isChrome || forceAudioCheck {
 		if forceAudioCheck && !isChrome {
 			log.Printf("🔍 Forcing Chrome audio check due to Chrome user agent pattern")
@@ -922,9 +922,9 @@ func (s *NetflixStreamService) Stream(w http.ResponseWriter, r *http.Request, fi
 		if err != nil {
 			log.Printf("⚠️ Audio compatibility check failed for %s: %v", filepath.Base(filePath), err)
 		}
-		
+
 		log.Printf("🎵 Chrome audio check result: needsTranscoding=%v for %s", needsAudioTranscoding, filepath.Base(filePath))
-		
+
 		if needsAudioTranscoding {
 			log.Printf("🔄 CHROME AUDIO TRANSCODING: Incompatible audio codec detected: %s", filepath.Base(filePath))
 			return s.streamWithAudioTranscoding(w, r, filePath)
@@ -933,7 +933,7 @@ func (s *NetflixStreamService) Stream(w http.ResponseWriter, r *http.Request, fi
 		}
 	} else {
 		log.Printf("🌐 Non-Chrome browser detected - using direct streaming: %s", filepath.Base(filePath))
-		
+
 		// Even for non-Chrome, check if this is actually Chrome with AC3 audio
 		if strings.Contains(userAgentLower, "chrome") {
 			log.Printf("⚠️ Detected Chrome in User-Agent but not flagged as Chrome - checking AC3 audio")
@@ -947,7 +947,7 @@ func (s *NetflixStreamService) Stream(w http.ResponseWriter, r *http.Request, fi
 			}
 		}
 	}
-	
+
 	// File is compatible - proceed with direct streaming
 	log.Printf("✅ DIRECT STREAMING (with seeking support): %s", filepath.Base(filePath))
 	return s.streamDirectlyWithSeeking(w, r, filePath)
@@ -963,7 +963,7 @@ func (s *NetflixStreamService) checkChromeAudioCompatibility(filePath string) (b
 	}
 
 	outputStr := string(output)
-	
+
 	// Extract codec name from JSON output
 	var codecName string
 	lines := strings.Split(outputStr, "\n")
@@ -1002,7 +1002,7 @@ func (s *NetflixStreamService) checkChromeAudioCompatibility(filePath string) (b
 
 	codecName = strings.ToLower(codecName)
 	isCompatible, exists := chromeCompatibleCodecs[codecName]
-	
+
 	if !exists {
 		// Unknown codec - assume incompatible for Chrome
 		log.Printf("⚠️ Unknown audio codec '%s' for Chrome - assuming incompatible", codecName)
@@ -1010,13 +1010,13 @@ func (s *NetflixStreamService) checkChromeAudioCompatibility(filePath string) (b
 	}
 
 	log.Printf("🎵 Audio codec analysis: %s -> Chrome compatible: %v", codecName, isCompatible)
-	
+
 	// Special handling for AC3 - always transcode for Chrome even if marked compatible elsewhere
 	if codecName == "ac3" || codecName == "eac3" {
 		log.Printf("🔄 FORCING AC3/EAC3 transcoding for Chrome audio compatibility")
 		return true, nil // Force transcoding for AC3/EAC3
 	}
-	
+
 	// Return true if needs transcoding (codec is NOT compatible)
 	return !isCompatible, nil
 }
@@ -1051,23 +1051,24 @@ func (s *NetflixStreamService) streamChromeCompatibleTranscoding(w http.Response
 	w.Header().Set("X-WiFi-Transcoding", "true")
 
 	// HIGH QUALITY AUDIO transcoding with WiFi optimization
+	audioTrack := s.getEnglishAudioTrack(filePath)
 	args := []string{
 		"-i", filePath,
-		"-c:v", "copy",     // Copy video stream for speed
-		"-c:a", "aac",      // Transcode audio to AAC
-		"-b:a", "320k",     // HIGH QUALITY audio bitrate - maximum AAC quality
-		"-ac", "2",         // Stereo output (preserve original channels if <= 2)
-		"-ar", "48000",     // High quality sample rate - standard for professional audio
+		"-c:v", "copy", // Copy video stream for speed
+		"-c:a", "aac", // Transcode audio to AAC
+		"-b:a", "320k", // HIGH QUALITY audio bitrate - maximum AAC quality
+		"-ac", "2", // Stereo output (preserve original channels if <= 2)
+		"-ar", "48000", // High quality sample rate - standard for professional audio
 		"-profile:a", "aac_low", // AAC-LC profile for compatibility
 		"-aac_coder", "twoloop", // High quality AAC encoder
-		"-f", "mp4",        // MP4 container
+		"-f", "mp4", // MP4 container
 		"-movflags", "frag_keyframe+empty_moov+default_base_moof", // Optimized for streaming
 		"-frag_duration", "2000000", // 2 second fragments for WiFi
 		"-avoid_negative_ts", "make_zero",
 		"-fflags", "+genpts+flush_packets", // Generate PTS and flush packets immediately
-		"-max_muxing_queue_size", "1024",   // Limit queue size for WiFi
-		"-map", "0:v:0",    // Map first video stream
-		"-map", "0:a:0",    // Map first audio stream
+		"-max_muxing_queue_size", "1024", // Limit queue size for WiFi
+		"-map", "0:v:0", // Map first video stream
+		"-map", audioTrack, // Map English audio track (or default/first)
 		"-",
 	}
 
@@ -1100,10 +1101,10 @@ func (s *NetflixStreamService) streamChromeCompatibleTranscoding(w http.Response
 	}
 
 	log.Printf("✅ Chrome audio transcoding completed: %s", filepath.Base(filePath))
-	
+
 	// Start background caching for future requests
 	go s.createChromeCompatibleCachedVersion(filePath)
-	
+
 	return nil
 }
 
@@ -1120,12 +1121,12 @@ func (s *NetflixStreamService) streamAudioTranscodingWithSeeking(w http.Response
 	}
 
 	start := ranges[0].start
-	
+
 	// Estimate seek time (rough approximation)
 	var seekTime float64 = 0
 	if start > 0 {
 		// Get file duration first
-		cmd := exec.Command("ffprobe", "-v", "quiet", "-show_entries", 
+		cmd := exec.Command("ffprobe", "-v", "quiet", "-show_entries",
 			"format=duration", "-of", "csv=p=0", filePath)
 		output, err := cmd.Output()
 		if err == nil {
@@ -1159,26 +1160,27 @@ func (s *NetflixStreamService) streamAudioTranscodingWithSeeking(w http.Response
 	w.WriteHeader(http.StatusPartialContent)
 
 	// Start FFmpeg with seeking for Chrome audio transcoding with enhanced audio settings
+	audioTrack := s.getEnglishAudioTrack(filePath)
 	args := []string{
 		"-ss", fmt.Sprintf("%.2f", seekTime), // Seek to position
 		"-i", filePath,
 		"-c:v", "copy", // Copy video stream
-		"-c:a", "aac",  // Transcode audio to AAC for Chrome
+		"-c:a", "aac", // Transcode audio to AAC for Chrome
 		"-b:a", "256k", // Higher quality audio bitrate
-		"-ac", "2",     // Stereo output
+		"-ac", "2", // Stereo output
 		"-ar", "48000", // Standard sample rate
 		"-profile:a", "aac_low", // AAC-LC profile for Chrome compatibility
-		"-f", "mp4",    // MP4 container
+		"-f", "mp4", // MP4 container
 		"-movflags", "frag_keyframe+empty_moov+faststart", // Enable streaming
 		"-avoid_negative_ts", "make_zero", // Handle negative timestamps
-		"-fflags", "+genpts",              // Generate presentation timestamps
+		"-fflags", "+genpts", // Generate presentation timestamps
 		"-map", "0:v:0", // Map first video stream
-		"-map", "0:a:0", // Map first audio stream
+		"-map", audioTrack, // Map English audio track (or default/first)
 		"-",
 	}
 
 	cmd := exec.Command("ffmpeg", args...)
-	
+
 	// Get stdout pipe for streaming
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -1215,31 +1217,32 @@ func (s *NetflixStreamService) createChromeCompatibleCachedVersion(filePath stri
 	// Create transcoded file path
 	cacheDir := filepath.Join(os.TempDir(), "homeflix-chrome-cache")
 	os.MkdirAll(cacheDir, 0755)
-	
+
 	fileName := filepath.Base(filePath)
 	nameWithoutExt := strings.TrimSuffix(fileName, filepath.Ext(fileName))
 	transcodedPath := filepath.Join(cacheDir, nameWithoutExt+"_chrome.mp4")
 
 	// Transcode with enhanced Chrome compatibility and HIGHEST QUALITY audio
+	audioTrack := s.getEnglishAudioTrack(filePath)
 	args := []string{
 		"-i", filePath,
 		"-c:v", "copy", // Copy video stream for speed
-		"-c:a", "aac",  // Transcode audio to AAC for Chrome
+		"-c:a", "aac", // Transcode audio to AAC for Chrome
 		"-b:a", "320k", // HIGHEST QUALITY audio bitrate for Chrome
-		"-ac", "2",     // Stereo output (preserve original channels if <= 2)
+		"-ac", "2", // Stereo output (preserve original channels if <= 2)
 		"-ar", "48000", // High quality sample rate for web
 		"-profile:a", "aac_low", // AAC-LC profile for maximum compatibility
 		"-movflags", "+faststart", // Move moov atom to beginning for instant seeking
 		"-avoid_negative_ts", "make_zero",
 		"-fflags", "+genpts", // Generate presentation timestamps
 		"-map", "0:v:0", // Map first video stream
-		"-map", "0:a:0", // Map first audio stream
+		"-map", audioTrack, // Map English audio track (or default/first)
 		"-y", // Overwrite output file
 		transcodedPath,
 	}
 
 	cmd := exec.Command("ffmpeg", args...)
-	
+
 	// Run transcoding
 	if err := cmd.Run(); err != nil {
 		log.Printf("❌ Background Chrome caching failed for %s: %v", filepath.Base(filePath), err)
@@ -1343,16 +1346,19 @@ func (s *NetflixStreamService) streamMandatorySeekableTranscoding(w http.Respons
 	w.Header().Set("X-Transcoded-For-Seeking", "true")
 
 	// MANDATORY transcoding with maximum seeking compatibility and HIGHEST QUALITY audio
+	audioTrack := s.getEnglishAudioTrack(filePath)
 	args := []string{
 		"-i", filePath,
 		"-c:v", "copy", // Copy video stream to preserve quality
-		"-c:a", "aac",  // Transcode audio to AAC for browser compatibility
+		"-c:a", "aac", // Transcode audio to AAC for browser compatibility
 		"-b:a", "320k", // HIGHEST QUALITY audio bitrate
-		"-ac", "2",     // Stereo output (preserve original channels if <= 2)
-		"-f", "mp4",    // MP4 container for guaranteed seeking
+		"-ac", "2", // Stereo output (preserve original channels if <= 2)
+		"-f", "mp4", // MP4 container for guaranteed seeking
 		"-movflags", "frag_keyframe+empty_moov+faststart", // Enable streaming and seeking
 		"-avoid_negative_ts", "make_zero", // Handle negative timestamps
-		"-fflags", "+genpts",              // Generate presentation timestamps
+		"-fflags", "+genpts", // Generate presentation timestamps
+		"-map", "0:v:0", // Map first video stream
+		"-map", audioTrack, // Map English audio track (or default/first)
 		"-",
 	}
 
@@ -1385,10 +1391,10 @@ func (s *NetflixStreamService) streamMandatorySeekableTranscoding(w http.Respons
 	}
 
 	log.Printf("✅ MANDATORY transcoding completed: %s is now seekable", filepath.Base(filePath))
-	
+
 	// Start background caching for future requests
 	go s.createSeekableCachedVersion(filePath)
-	
+
 	return nil
 }
 
@@ -1405,12 +1411,12 @@ func (s *NetflixStreamService) streamMandatoryTranscodingWithSeeking(w http.Resp
 	}
 
 	start := ranges[0].start
-	
+
 	// Estimate seek time (rough approximation)
 	var seekTime float64 = 0
 	if start > 0 {
 		// Get file duration first
-		cmd := exec.Command("ffprobe", "-v", "quiet", "-show_entries", 
+		cmd := exec.Command("ffprobe", "-v", "quiet", "-show_entries",
 			"format=duration", "-of", "csv=p=0", filePath)
 		output, err := cmd.Output()
 		if err == nil {
@@ -1444,22 +1450,25 @@ func (s *NetflixStreamService) streamMandatoryTranscodingWithSeeking(w http.Resp
 	w.WriteHeader(http.StatusPartialContent)
 
 	// Start FFmpeg with seeking for mandatory transcoding with HIGHEST QUALITY audio
+	audioTrack := s.getEnglishAudioTrack(filePath)
 	args := []string{
 		"-ss", fmt.Sprintf("%.2f", seekTime), // Seek to position
 		"-i", filePath,
 		"-c:v", "copy", // Copy video stream
-		"-c:a", "aac",  // Transcode audio to AAC
+		"-c:a", "aac", // Transcode audio to AAC
 		"-b:a", "320k", // HIGHEST QUALITY audio bitrate
-		"-ac", "2",     // Stereo output (preserve original channels if <= 2)
-		"-f", "mp4",    // MP4 container
+		"-ac", "2", // Stereo output (preserve original channels if <= 2)
+		"-f", "mp4", // MP4 container
 		"-movflags", "frag_keyframe+empty_moov+faststart", // Enable streaming
 		"-avoid_negative_ts", "make_zero", // Handle negative timestamps
-		"-fflags", "+genpts",              // Generate presentation timestamps
+		"-fflags", "+genpts", // Generate presentation timestamps
+		"-map", "0:v:0", // Map first video stream
+		"-map", audioTrack, // Map English audio track (or default/first)
 		"-",
 	}
 
 	cmd := exec.Command("ffmpeg", args...)
-	
+
 	// Get stdout pipe for streaming
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -1496,27 +1505,30 @@ func (s *NetflixStreamService) createSeekableCachedVersion(filePath string) {
 	// Create transcoded file path
 	cacheDir := filepath.Join(os.TempDir(), "homeflix-seekable-cache")
 	os.MkdirAll(cacheDir, 0755)
-	
+
 	fileName := filepath.Base(filePath)
 	nameWithoutExt := strings.TrimSuffix(fileName, filepath.Ext(fileName))
 	transcodedPath := filepath.Join(cacheDir, nameWithoutExt+"_seekable.mp4")
 
 	// Transcode with maximum seeking compatibility and HIGHEST QUALITY audio
+	audioTrack := s.getEnglishAudioTrack(filePath)
 	args := []string{
 		"-i", filePath,
 		"-c:v", "copy", // Copy video stream
-		"-c:a", "aac",  // Transcode audio to AAC
+		"-c:a", "aac", // Transcode audio to AAC
 		"-b:a", "320k", // HIGHEST QUALITY audio bitrate
-		"-ac", "2",     // Stereo output (preserve original channels if <= 2)
+		"-ac", "2", // Stereo output (preserve original channels if <= 2)
 		"-movflags", "+faststart", // Move moov atom to beginning for instant seeking
 		"-avoid_negative_ts", "make_zero",
 		"-fflags", "+genpts", // Generate presentation timestamps
+		"-map", "0:v:0", // Map first video stream
+		"-map", audioTrack, // Map English audio track (or default/first)
 		"-y", // Overwrite output file
 		transcodedPath,
 	}
 
 	cmd := exec.Command("ffmpeg", args...)
-	
+
 	// Run transcoding
 	if err := cmd.Run(); err != nil {
 		log.Printf("❌ Background seekable caching failed for %s: %v", filepath.Base(filePath), err)
@@ -1625,7 +1637,7 @@ func (s *NetflixStreamService) handleWiFiOptimizedRangeRequest(w http.ResponseWr
 		w.Header().Set("Content-Length", fmt.Sprintf("%d", contentLength))
 		w.Header().Set("X-Seek-Cache", "HIT-INSTANT")
 		w.WriteHeader(http.StatusPartialContent)
-		
+
 		_, err := w.Write(cached.data)
 		if err == nil {
 			log.Printf("⚡ INSTANT seek cache hit: %d-%d (%d bytes)", start, end, contentLength)
@@ -1674,16 +1686,16 @@ func (s *NetflixStreamService) streamWiFiOptimizedRangeWithCaching(w http.Respon
 			return fmt.Errorf("failed to read range for caching: %v", err)
 		}
 		rangeData = rangeData[:n]
-		
+
 		// Cache this range for instant future seeks
 		go s.l1Cache.Put(cacheKey, rangeData, start, int64(n))
-		
+
 		// Send entire cached range immediately
 		_, writeErr := w.Write(rangeData)
 		if writeErr != nil {
 			return writeErr
 		}
-		
+
 		log.Printf("⚡ Range cached and sent: %d-%d (%d bytes) - future seeks will be INSTANT", start, end, n)
 		return nil
 	}
@@ -1722,7 +1734,7 @@ func (s *NetflixStreamService) streamWiFiOptimizedRangeWithCaching(w http.Respon
 	// Stream remaining range content
 	remainingSize := contentLength - int64(n)
 	limitedReader := io.LimitReader(file, remainingSize)
-	
+
 	// Use adaptive chunking for remaining content
 	buffer := s.bufferPool.Get(2 * 1024 * 1024) // 2MB chunks for range continuation
 	defer s.bufferPool.Put(buffer)
@@ -1880,10 +1892,10 @@ func (s *NetflixStreamService) streamRemainingWithAdaptiveChunking(w http.Respon
 	// Adaptive chunk sizes for WiFi - start small, grow larger
 	chunkSizes := []int64{
 		1024 * 1024,     // 1MB - second chunk
-		2 * 1024 * 1024, // 2MB - third chunk  
+		2 * 1024 * 1024, // 2MB - third chunk
 		4 * 1024 * 1024, // 4MB - subsequent chunks
 	}
-	
+
 	chunkIndex := 0
 	var totalStreamed int64
 
@@ -1901,7 +1913,7 @@ func (s *NetflixStreamService) streamRemainingWithAdaptiveChunking(w http.Respon
 
 		// Get buffer for this chunk
 		buffer := s.bufferPool.Get(currentChunkSize)
-		
+
 		// Read chunk
 		n, err := file.Read(buffer[:currentChunkSize])
 		if n > 0 {
@@ -2000,7 +2012,7 @@ func (s *NetflixStreamService) initializeInstantStreamingOptimizations() {
 
 func (s *NetflixStreamService) preWarmCacheLayers() {
 	log.Printf("🔥 Pre-warming cache layers for instant access...")
-	
+
 	// Pre-allocate cache structures for zero-latency access
 	s.l1Cache.PreWarm()
 	s.l2Cache.PreWarm()
@@ -2009,21 +2021,21 @@ func (s *NetflixStreamService) preWarmCacheLayers() {
 
 func (s *NetflixStreamService) aggressivePrefetchingService() {
 	log.Printf("🚀 Starting aggressive prefetching for instant seeking...")
-	
+
 	// This will prefetch popular content and recently accessed files
 	// Implementation would integrate with media service to identify hot content
 }
 
 func (s *NetflixStreamService) initializeZeroCopyOptimizations() {
 	log.Printf("⚡ Initializing zero-copy sendfile optimizations...")
-	
+
 	// Configure system for optimal zero-copy performance
 	// This includes TCP buffer tuning and sendfile optimizations
 }
 
 func (s *NetflixStreamService) optimizeSystemForInstantStreaming() {
 	log.Printf("🔧 Optimizing system for sub-millisecond streaming...")
-	
+
 	// Set CPU affinity for streaming workers
 	// Configure I/O scheduler for minimum latency
 	// Optimize network stack for LAN speeds
@@ -2031,14 +2043,14 @@ func (s *NetflixStreamService) optimizeSystemForInstantStreaming() {
 
 func (s *NetflixStreamService) backgroundTranscodingService() {
 	log.Printf("🎬 Background transcoding service started")
-	
+
 	// This would be called by the media service to pre-transcode unseekable files
 	// For now, it's a placeholder for future integration
 }
 
 func (s *NetflixStreamService) PreTranscodeUnseekableFile(filePath string) error {
 	fileExt := strings.ToLower(filepath.Ext(filePath))
-	
+
 	// Only handle MKV files for now
 	if fileExt != ".mkv" {
 		return nil
@@ -2107,7 +2119,7 @@ func (s *NetflixStreamService) streamRangeWithSendfile(w http.ResponseWriter, fi
 		tcpFile, err := tcpConn.File()
 		if err == nil {
 			defer tcpFile.Close()
-			
+
 			// Direct sendfile syscall with offset
 			offsetPtr := offset
 			written, err := syscall.Sendfile(int(tcpFile.Fd()), int(file.Fd()), &offsetPtr, int(length))
@@ -2133,7 +2145,7 @@ func (s *NetflixStreamService) streamWithSendfileZeroCopy(w http.ResponseWriter,
 	if err != nil {
 		return fmt.Errorf("failed to hijack connection: %v", err)
 	}
-	
+
 	// Ensure connection is properly closed
 	defer func() {
 		if conn != nil {
@@ -2143,11 +2155,11 @@ func (s *NetflixStreamService) streamWithSendfileZeroCopy(w http.ResponseWriter,
 
 	// ULTRA-OPTIMIZE TCP connection for LAN gigabit speeds
 	if tcpConn, ok := conn.(*net.TCPConn); ok {
-		tcpConn.SetNoDelay(true)                        // Disable Nagle's algorithm for instant delivery
-		tcpConn.SetWriteBuffer(32 * 1024 * 1024)        // 32MB write buffer for LAN streaming
-		tcpConn.SetReadBuffer(1024 * 1024)              // 1MB read buffer
-		tcpConn.SetKeepAlive(true)                      // Keep connection alive
-		tcpConn.SetKeepAlivePeriod(300 * time.Second)   // 5min keep-alive for long streams
+		tcpConn.SetNoDelay(true)                      // Disable Nagle's algorithm for instant delivery
+		tcpConn.SetWriteBuffer(32 * 1024 * 1024)      // 32MB write buffer for LAN streaming
+		tcpConn.SetReadBuffer(1024 * 1024)            // 1MB read buffer
+		tcpConn.SetKeepAlive(true)                    // Keep connection alive
+		tcpConn.SetKeepAlivePeriod(300 * time.Second) // 5min keep-alive for long streams
 	}
 
 	// Write HTTP headers manually for hijacked connection
@@ -2173,32 +2185,32 @@ func (s *NetflixStreamService) streamWithSendfileZeroCopy(w http.ResponseWriter,
 			return fmt.Errorf("failed to get TCP file descriptor: %v", err)
 		}
 		defer tcpFile.Close()
-		
+
 		// Use smaller chunks to prevent sendfile issues
 		chunkSize := int64(64 * 1024 * 1024) // 64MB chunks (reduced from 256MB)
 		var totalWritten int64
-		
+
 		for offset := int64(0); offset < fileSize; offset += chunkSize {
 			remaining := fileSize - offset
 			currentChunk := chunkSize
 			if remaining < chunkSize {
 				currentChunk = remaining
 			}
-			
+
 			offsetPtr := offset
 			written, err := syscall.Sendfile(int(tcpFile.Fd()), int(file.Fd()), &offsetPtr, int(currentChunk))
 			if err != nil {
 				return fmt.Errorf("sendfile chunk failed at offset %d: %v", offset, err)
 			}
-			
+
 			totalWritten += int64(written)
-			
+
 			// Check if we wrote the expected amount
 			if int64(written) != currentChunk {
 				return fmt.Errorf("sendfile incomplete chunk: wrote %d, expected %d at offset %d", written, currentChunk, offset)
 			}
 		}
-		
+
 		// Verify total written matches file size
 		if totalWritten == fileSize {
 			return nil
@@ -2224,9 +2236,9 @@ func (s *NetflixStreamService) streamRangeWithZeroCopySendfile(w http.ResponseWr
 
 	// ULTRA-OPTIMIZE TCP connection for instant range delivery
 	if tcpConn, ok := conn.(*net.TCPConn); ok {
-		tcpConn.SetNoDelay(true)                        // Instant delivery
-		tcpConn.SetWriteBuffer(32 * 1024 * 1024)        // 32MB write buffer for ranges
-		tcpConn.SetReadBuffer(512 * 1024)               // 512KB read buffer
+		tcpConn.SetNoDelay(true)                 // Instant delivery
+		tcpConn.SetWriteBuffer(32 * 1024 * 1024) // 32MB write buffer for ranges
+		tcpConn.SetReadBuffer(512 * 1024)        // 512KB read buffer
 		tcpConn.SetKeepAlive(true)
 		tcpConn.SetKeepAlivePeriod(300 * time.Second)
 	}
@@ -2253,7 +2265,7 @@ func (s *NetflixStreamService) streamRangeWithZeroCopySendfile(w http.ResponseWr
 		tcpFile, err := tcpConn.File()
 		if err == nil {
 			defer tcpFile.Close()
-			
+
 			offsetPtr := offset
 			written, err := syscall.Sendfile(int(tcpFile.Fd()), int(file.Fd()), &offsetPtr, int(length))
 			if err == nil && int64(written) == length {
@@ -2304,7 +2316,7 @@ func (s *NetflixStreamService) copyWithZeroLatencyFlushing(dst io.Writer, src io
 
 	var written int64
 	flusher, canFlush := dst.(http.Flusher)
-	
+
 	// ULTRA-INSTANT LAN STREAMING: Zero-latency read and immediate flush
 	for {
 		n, err := src.Read(buffer)
@@ -2312,7 +2324,7 @@ func (s *NetflixStreamService) copyWithZeroLatencyFlushing(dst io.Writer, src io
 			// Write chunk immediately with zero buffering
 			m, writeErr := dst.Write(buffer[:n])
 			written += int64(m)
-			
+
 			// ZERO-LATENCY FLUSH: Immediate delivery for sub-ms response
 			if canFlush {
 				func() {
@@ -2324,18 +2336,18 @@ func (s *NetflixStreamService) copyWithZeroLatencyFlushing(dst io.Writer, src io
 					flusher.Flush()
 				}()
 			}
-			
+
 			if writeErr != nil {
 				// Handle broken pipe as normal client disconnection
-				if strings.Contains(writeErr.Error(), "broken pipe") || 
-				   strings.Contains(writeErr.Error(), "connection reset") {
+				if strings.Contains(writeErr.Error(), "broken pipe") ||
+					strings.Contains(writeErr.Error(), "connection reset") {
 					log.Printf("⚠️ Client disconnected during ultra-instant stream (written: %d MB)", written/(1024*1024))
 					return written, nil
 				}
 				return written, writeErr
 			}
 		}
-		
+
 		if err == io.EOF {
 			break
 		}
@@ -2343,7 +2355,7 @@ func (s *NetflixStreamService) copyWithZeroLatencyFlushing(dst io.Writer, src io
 			return written, err
 		}
 	}
-	
+
 	// Final flush to ensure all data is sent
 	if canFlush {
 		func() {
@@ -2355,7 +2367,7 @@ func (s *NetflixStreamService) copyWithZeroLatencyFlushing(dst io.Writer, src io
 			flusher.Flush()
 		}()
 	}
-	
+
 	return written, nil
 }
 
@@ -2457,17 +2469,17 @@ func (s *NetflixStreamService) copyWithInstantFlushing(dst io.Writer, src io.Rea
 // copyWithBrokenPipeProtection - Copy with broken pipe error handling
 func (s *NetflixStreamService) copyWithBrokenPipeProtection(dst io.Writer, src io.Reader, buffer []byte) (int64, error) {
 	written, err := io.CopyBuffer(dst, src, buffer)
-	
+
 	if err != nil {
 		// Handle broken pipe and connection reset as normal client disconnection
-		if strings.Contains(err.Error(), "broken pipe") || 
-		   strings.Contains(err.Error(), "connection reset") ||
-		   strings.Contains(err.Error(), "write: connection reset by peer") {
+		if strings.Contains(err.Error(), "broken pipe") ||
+			strings.Contains(err.Error(), "connection reset") ||
+			strings.Contains(err.Error(), "write: connection reset by peer") {
 			log.Printf("⚠️ Client disconnected during stream (written: %d bytes)", written)
 			return written, nil // Don't treat as error
 		}
 	}
-	
+
 	return written, err
 }
 
@@ -2515,7 +2527,7 @@ func (s *NetflixStreamService) handlePreviewRangeRequestInstant(w http.ResponseW
 	if conn, ok := w.(http.Hijacker); ok {
 		if netConn, _, err := conn.Hijack(); err == nil {
 			defer netConn.Close()
-			
+
 			// Configure TCP for instant delivery
 			if tcpConn, ok := netConn.(*net.TCPConn); ok {
 				tcpConn.SetNoDelay(true)
@@ -2705,7 +2717,7 @@ func (s *NetflixStreamService) streamPreviewUltraOptimized(w http.ResponseWriter
 func (s *NetflixStreamService) StreamPreviewClip(w http.ResponseWriter, r *http.Request, filePath string) error {
 	// CRITICAL: Detect WiFi and optimize accordingly
 	isWiFiOrMobile := s.detectWiFiOrMobileConnection(r)
-	
+
 	// Try L1 cache first for ULTRA-INSTANT response
 	cacheKey := fmt.Sprintf("preview:%s", filePath)
 	if cached := s.l1Cache.Get(cacheKey); cached != nil {
@@ -2714,7 +2726,7 @@ func (s *NetflixStreamService) StreamPreviewClip(w http.ResponseWriter, r *http.
 		headers.Set("Content-Type", "video/mp4")
 		headers.Set("Accept-Ranges", "bytes")
 		headers.Set("Content-Length", fmt.Sprintf("%d", cached.size))
-		
+
 		if isWiFiOrMobile {
 			headers.Set("Cache-Control", "public, max-age=7200, stale-while-revalidate=3600") // WiFi-friendly caching
 			headers.Set("X-WiFi-Cache", "HIT-L1-OPTIMIZED")
@@ -2722,16 +2734,16 @@ func (s *NetflixStreamService) StreamPreviewClip(w http.ResponseWriter, r *http.
 			headers.Set("Cache-Control", "public, max-age=86400, immutable")
 			headers.Set("X-Cache", "HIT-L1-ULTRA-INSTANT")
 		}
-		
+
 		headers.Set("Access-Control-Allow-Origin", "*")
 		headers.Set("X-Response-Time", "instant")
-		
+
 		// Handle range requests from cache with zero-copy
 		rangeHeader := r.Header.Get("Range")
 		if rangeHeader != "" {
 			return s.streamCachedRangeUltraFast(w, r, cached, rangeHeader)
 		}
-		
+
 		// Full file from cache with single write operation
 		_, err := w.Write(cached.data)
 		if err == nil {
@@ -2900,11 +2912,11 @@ func (s *NetflixStreamService) streamPreviewSendfile(w http.ResponseWriter, r *h
 
 	// Optimize TCP connection for instant streaming
 	if tcpConn, ok := conn.(*net.TCPConn); ok {
-		tcpConn.SetNoDelay(true)                        // Disable Nagle's algorithm
-		tcpConn.SetWriteBuffer(16 * 1024 * 1024)        // 16MB write buffer
-		tcpConn.SetReadBuffer(64 * 1024)                // Small read buffer
-		tcpConn.SetKeepAlive(true)                      // Keep connection alive
-		tcpConn.SetKeepAlivePeriod(30 * time.Second)    // 30s keep-alive
+		tcpConn.SetNoDelay(true)                     // Disable Nagle's algorithm
+		tcpConn.SetWriteBuffer(16 * 1024 * 1024)     // 16MB write buffer
+		tcpConn.SetReadBuffer(64 * 1024)             // Small read buffer
+		tcpConn.SetKeepAlive(true)                   // Keep connection alive
+		tcpConn.SetKeepAlivePeriod(30 * time.Second) // 30s keep-alive
 	}
 
 	// Write HTTP response headers manually
@@ -2926,7 +2938,7 @@ func (s *NetflixStreamService) streamPreviewSendfile(w http.ResponseWriter, r *h
 		tcpFile, err := tcpConn.File()
 		if err == nil {
 			defer tcpFile.Close()
-			
+
 			// Direct sendfile syscall for maximum performance
 			written, err := syscall.Sendfile(int(tcpFile.Fd()), int(file.Fd()), nil, int(fileSize))
 			if err == nil && int64(written) == fileSize {
@@ -2939,7 +2951,7 @@ func (s *NetflixStreamService) streamPreviewSendfile(w http.ResponseWriter, r *h
 	// Fallback to regular copy if sendfile fails
 	buffer := s.bufferPool.Get(8 * 1024 * 1024) // 8MB buffer
 	defer s.bufferPool.Put(buffer)
-	
+
 	_, err = io.CopyBuffer(conn, file, buffer)
 	if err != nil {
 		return fmt.Errorf("failed to stream with fallback: %v", err)
@@ -2948,7 +2960,6 @@ func (s *NetflixStreamService) streamPreviewSendfile(w http.ResponseWriter, r *h
 	log.Printf("🚀 Hijacked connection stream: %d bytes", fileSize)
 	return nil
 }
-
 
 // streamRangeSendfile - Sendfile for range requests
 func (s *NetflixStreamService) streamRangeSendfile(w http.ResponseWriter, r *http.Request, file *os.File, offset, length int64) error {
@@ -2989,7 +3000,7 @@ func (s *NetflixStreamService) streamRangeSendfile(w http.ResponseWriter, r *htt
 		tcpFile, err := tcpConn.File()
 		if err == nil {
 			defer tcpFile.Close()
-			
+
 			offsetPtr := offset
 			written, err := syscall.Sendfile(int(tcpFile.Fd()), int(file.Fd()), &offsetPtr, int(length))
 			if err == nil && int64(written) == length {
@@ -3015,7 +3026,7 @@ func parseRangeHeaderFast(rangeHeader string, fileSize int64) ([]httpRange, erro
 	}
 
 	rangeSpec := rangeHeader[6:] // Skip "bytes=" without allocation
-	
+
 	// Fast path: single range (most common case)
 	if !strings.Contains(rangeSpec, ",") {
 		return parseSingleRangeFast(rangeSpec, fileSize)
@@ -3024,12 +3035,12 @@ func parseRangeHeaderFast(rangeHeader string, fileSize int64) ([]httpRange, erro
 	// Multiple ranges (less common)
 	rangeParts := strings.Split(rangeSpec, ",")
 	ranges := make([]httpRange, 0, len(rangeParts))
-	
+
 	for _, part := range rangeParts {
 		if len(part) == 0 {
 			continue
 		}
-		
+
 		// Trim whitespace manually for speed
 		start := 0
 		end := len(part)
@@ -3040,7 +3051,7 @@ func parseRangeHeaderFast(rangeHeader string, fileSize int64) ([]httpRange, erro
 			end--
 		}
 		part = part[start:end]
-		
+
 		if singleRange, err := parseSingleRangeFast(part, fileSize); err == nil && len(singleRange) > 0 {
 			ranges = append(ranges, singleRange[0])
 		}
@@ -3142,7 +3153,7 @@ func (s *NetflixStreamService) GetVideoInfo(filePath string) (map[string]interfa
 	if fileExt == ".mkv" {
 		// Index the file if not already done
 		s.mkvIndexer.IndexFile(filePath)
-		
+
 		if mkvIndex := s.mkvIndexer.GetIndex(filePath); mkvIndex != nil {
 			info["seekable"] = mkvIndex.seekable
 			info["has_cue_points"] = mkvIndex.hasProperCues
@@ -3193,9 +3204,9 @@ func (s *NetflixStreamService) getStreamInfo(filePath string) (map[string]interf
 			SampleRate  string `json:"sample_rate"`
 			BitRate     string `json:"bit_rate"`
 			Disposition struct {
-				Default  int `json:"default"`
-				Forced   int `json:"forced"`
-				Hearing  int `json:"hearing_impaired"`
+				Default int `json:"default"`
+				Forced  int `json:"forced"`
+				Hearing int `json:"hearing_impaired"`
 			} `json:"disposition"`
 			Tags struct {
 				Language string `json:"language"`
@@ -3260,9 +3271,9 @@ func getLanguage(stream struct {
 	SampleRate  string `json:"sample_rate"`
 	BitRate     string `json:"bit_rate"`
 	Disposition struct {
-		Default  int `json:"default"`
-		Forced   int `json:"forced"`
-		Hearing  int `json:"hearing_impaired"`
+		Default int `json:"default"`
+		Forced  int `json:"forced"`
+		Hearing int `json:"hearing_impaired"`
 	} `json:"disposition"`
 	Tags struct {
 		Language string `json:"language"`
@@ -3288,9 +3299,9 @@ func getTitle(stream struct {
 	SampleRate  string `json:"sample_rate"`
 	BitRate     string `json:"bit_rate"`
 	Disposition struct {
-		Default  int `json:"default"`
-		Forced   int `json:"forced"`
-		Hearing  int `json:"hearing_impaired"`
+		Default int `json:"default"`
+		Forced  int `json:"forced"`
+		Hearing int `json:"hearing_impaired"`
 	} `json:"disposition"`
 	Tags struct {
 		Language string `json:"language"`
@@ -3306,6 +3317,84 @@ func getTitle(stream struct {
 	return fmt.Sprintf("%s Track %d", strings.Title(stream.CodecType), stream.Index)
 }
 
+// getEnglishAudioTrack determines which audio track to use, preferring English
+func (s *NetflixStreamService) getEnglishAudioTrack(filePath string) string {
+	// Use ffprobe to get audio stream information including language
+	cmd := exec.Command("ffprobe", "-v", "quiet", "-print_format", "json",
+		"-show_streams", "-select_streams", "a", filePath)
+	output, err := cmd.Output()
+	if err != nil {
+		// Fallback to first audio track
+		log.Printf("⚠️ Could not detect audio tracks, using first track: %v", err)
+		return "0:a:0"
+	}
+
+	var probeData struct {
+		Streams []struct {
+			Index       int    `json:"index"`
+			CodecType   string `json:"codec_type"`
+			Disposition struct {
+				Default int `json:"default"`
+			} `json:"disposition"`
+			Tags struct {
+				Language string `json:"language"`
+			} `json:"tags"`
+		} `json:"streams"`
+	}
+
+	if err := json.Unmarshal(output, &probeData); err != nil {
+		// Fallback to first audio track
+		log.Printf("⚠️ Could not parse audio track info, using first track: %v", err)
+		return "0:a:0"
+	}
+
+	if len(probeData.Streams) == 0 {
+		log.Printf("⚠️ No audio streams found, using first track")
+		return "0:a:0"
+	}
+
+	// If only one audio track, use it
+	if len(probeData.Streams) == 1 {
+		return "0:a:0"
+	}
+
+	// Multiple audio tracks - prefer English
+	var englishTrackIndex = -1
+	var defaultTrackIndex = -1
+
+	for i, stream := range probeData.Streams {
+		lang := strings.ToLower(stream.Tags.Language)
+
+		// Check for English language codes
+		if lang == "eng" || lang == "en" || lang == "english" {
+			englishTrackIndex = i
+			log.Printf("🎵 Found English audio track at index %d", i)
+			break
+		}
+
+		// Track the default audio track as fallback
+		if stream.Disposition.Default == 1 {
+			defaultTrackIndex = i
+		}
+	}
+
+	// Return English track if found
+	if englishTrackIndex >= 0 {
+		log.Printf("✅ Using English audio track: 0:a:%d", englishTrackIndex)
+		return fmt.Sprintf("0:a:%d", englishTrackIndex)
+	}
+
+	// Fall back to default track
+	if defaultTrackIndex >= 0 {
+		log.Printf("ℹ️ No English track found, using default audio track: 0:a:%d", defaultTrackIndex)
+		return fmt.Sprintf("0:a:%d", defaultTrackIndex)
+	}
+
+	// Fall back to first audio track
+	log.Printf("ℹ️ No English or default track found, using first audio track: 0:a:0")
+	return "0:a:0"
+}
+
 func (s *NetflixStreamService) CheckSeekingSupport(filePath string) (bool, error) {
 	return s.verifySeekabilityStrict(filePath)
 }
@@ -3314,7 +3403,7 @@ func (s *NetflixStreamService) CheckSeekingSupport(filePath string) (bool, error
 // This method prioritizes functionality while maintaining quality
 func (s *NetflixStreamService) verifySeekabilityStrict(filePath string) (bool, error) {
 	fileExt := strings.ToLower(filepath.Ext(filePath))
-	
+
 	log.Printf("🔍 Seekability check: %s", filepath.Base(filePath))
 
 	// Step 1: Check file format compatibility - be more permissive
@@ -3340,7 +3429,7 @@ func (s *NetflixStreamService) verifySeekabilityStrict(filePath string) (bool, e
 		log.Printf("⚠️ Audio verification warning: %v - assuming compatible", err)
 		audioCompatible = true // Assume compatible if we can't verify
 	}
-	
+
 	// Only fail for known problematic audio codecs
 	if !audioCompatible {
 		knownProblematicCodecs := []string{"dts", "truehd", "mlp"}
@@ -3387,23 +3476,23 @@ func (s *NetflixStreamService) isFormatSeekable(fileExt string) bool {
 		".mov":  true,
 		".mkv":  true,
 		".webm": true,
-		".avi":  true,  // Many AVI files work fine
-		".wmv":  true,  // Windows Media files
-		".flv":  true,  // Flash video
-		".3gp":  true,  // Mobile video
-		".ogv":  true,  // Ogg video
-		".ts":   true,  // Transport stream
-		".m2ts": true,  // Blu-ray transport stream
-		".mts":  true,  // AVCHD
+		".avi":  true, // Many AVI files work fine
+		".wmv":  true, // Windows Media files
+		".flv":  true, // Flash video
+		".3gp":  true, // Mobile video
+		".ogv":  true, // Ogg video
+		".ts":   true, // Transport stream
+		".m2ts": true, // Blu-ray transport stream
+		".mts":  true, // AVCHD
 	}
-	
+
 	// Only reject truly unsupported formats
 	return seekableFormats[fileExt]
 }
 
 func (s *NetflixStreamService) verifyFileStructure(filePath string) (bool, error) {
 	// Use ffprobe to check basic file structure - be more lenient
-	cmd := exec.Command("ffprobe", "-v", "quiet", "-print_format", "json", 
+	cmd := exec.Command("ffprobe", "-v", "quiet", "-print_format", "json",
 		"-show_format", "-show_streams", filePath)
 	output, err := cmd.Output()
 	if err != nil {
@@ -3413,7 +3502,7 @@ func (s *NetflixStreamService) verifyFileStructure(filePath string) (bool, error
 	}
 
 	outputStr := string(output)
-	
+
 	// Check for basic stream structure - this is the minimum requirement
 	if !strings.Contains(outputStr, `"streams"`) {
 		return false, nil
@@ -3428,7 +3517,7 @@ func (s *NetflixStreamService) verifyFileStructure(filePath string) (bool, error
 	// Modern browsers can handle progressive download even without faststart
 	fileExt := strings.ToLower(filepath.Ext(filePath))
 	if fileExt == ".mp4" || fileExt == ".m4v" {
-		cmd := exec.Command("ffprobe", "-v", "quiet", "-show_entries", 
+		cmd := exec.Command("ffprobe", "-v", "quiet", "-show_entries",
 			"format=start_time", "-of", "csv=p=0", filePath)
 		output, err := cmd.Output()
 		if err == nil {
@@ -3502,7 +3591,7 @@ func (s *NetflixStreamService) testActualSeeking(filePath string) (bool, error) 
 func (s *NetflixStreamService) GetStreamingStrategy(filePath string) (string, error) {
 	// MANDATORY SEEKABILITY APPROACH
 	// All files must pass strict seekability verification or be transcoded
-	
+
 	seekable, err := s.verifySeekabilityStrict(filePath)
 	if err != nil {
 		return "mandatory_transcode", fmt.Errorf("seekability verification failed: %v", err)
@@ -3558,19 +3647,19 @@ func (c *L1SegmentCache) Get(key string) *CachedSegment {
 func (c *L1SegmentCache) Put(key string, data []byte, offset, size int64) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	
+
 	// Check if already exists
 	if existing, ok := c.segments[key]; ok {
 		existing.data = data
 		existing.accessed = time.Now()
 		return
 	}
-	
+
 	// Evict if necessary
 	for c.curSize+size > c.maxSize && len(c.segments) > 0 {
 		c.evictLRU()
 	}
-	
+
 	seg := &CachedSegment{
 		key:      key,
 		data:     data,
@@ -3587,19 +3676,19 @@ func (c *L1SegmentCache) Put(key string, data []byte, offset, size int64) {
 func (c *L1SegmentCache) PreWarm() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	
+
 	// Pre-allocate map capacity for instant access
 	if len(c.segments) == 0 {
 		c.segments = make(map[string]*CachedSegment, 10000) // Pre-allocate for 10k entries
 	}
-	
+
 	log.Printf("🔥 L1 cache pre-warmed for instant access")
 }
 
 func (c *L1SegmentCache) Cleanup() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	
+
 	cutoff := time.Now().Add(-5 * time.Minute)
 	for key, seg := range c.segments {
 		if seg.accessed.Before(cutoff) {
@@ -3613,14 +3702,14 @@ func (c *L1SegmentCache) evictLRU() {
 	// Fast LRU eviction: remove oldest accessed
 	var oldest *CachedSegment
 	var oldestKey string
-	
+
 	for key, seg := range c.segments {
 		if oldest == nil || seg.accessed.Before(oldest.accessed) {
 			oldest = seg
 			oldestKey = key
 		}
 	}
-	
+
 	if oldest != nil {
 		delete(c.segments, oldestKey)
 		c.curSize -= oldest.size
@@ -3656,7 +3745,7 @@ func (c *L2FileCache) GetOrCreate(filePath string, fileSize int64) ([]byte, erro
 	defer file.Close()
 
 	// Memory map with optimized flags for instant access
-	data, err := syscall.Mmap(int(file.Fd()), 0, int(fileSize), 
+	data, err := syscall.Mmap(int(file.Fd()), 0, int(fileSize),
 		syscall.PROT_READ, syscall.MAP_SHARED|syscall.MAP_POPULATE)
 	if err != nil {
 		return nil, err
@@ -3664,7 +3753,7 @@ func (c *L2FileCache) GetOrCreate(filePath string, fileSize int64) ([]byte, erro
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	
+
 	// Evict if necessary
 	for c.curSize+fileSize > c.maxSize && len(c.mappings) > 0 {
 		// Evict oldest mapping
@@ -3675,7 +3764,7 @@ func (c *L2FileCache) GetOrCreate(filePath string, fileSize int64) ([]byte, erro
 			break
 		}
 	}
-	
+
 	c.mappings[filePath] = data
 	c.curSize += fileSize
 
@@ -3685,19 +3774,19 @@ func (c *L2FileCache) GetOrCreate(filePath string, fileSize int64) ([]byte, erro
 func (c *L2FileCache) PreWarm() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	
+
 	// Pre-allocate map capacity for instant access
 	if len(c.mappings) == 0 {
 		c.mappings = make(map[string][]byte, 1000) // Pre-allocate for 1k mappings
 	}
-	
+
 	log.Printf("🔥 L2 memory-mapped cache pre-warmed for instant access")
 }
 
 func (c *L2FileCache) Cleanup() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	
+
 	for _, data := range c.mappings {
 		syscall.Munmap(data)
 	}
@@ -3731,13 +3820,13 @@ func (m *MKVIndexer) IndexFile(filePath string) error {
 	}
 
 	m.fileIndexes[filePath] = index
-	
+
 	if index.seekable {
 		log.Printf("✅ MKV indexed with %d cue points: %s", len(index.cues), filepath.Base(filePath))
 	} else {
 		log.Printf("⚠️ MKV unseekable, will use transcoding: %s", filepath.Base(filePath))
 	}
-	
+
 	return nil
 }
 
@@ -3762,10 +3851,10 @@ func (m *MKVIndexer) extractMKVIndex(filePath string) (*MKVIndex, error) {
 	// Parse mkvinfo output for cue points and segment info
 	lines := strings.Split(string(output), "\n")
 	var currentCue *CuePoint
-	
+
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
-		
+
 		// Extract segment information
 		if strings.Contains(line, "Segment, size") {
 			if parts := strings.Fields(line); len(parts) >= 3 {
@@ -3774,7 +3863,7 @@ func (m *MKVIndexer) extractMKVIndex(filePath string) (*MKVIndex, error) {
 				}
 			}
 		}
-		
+
 		// Extract cue points
 		if strings.Contains(line, "CuePoint") {
 			currentCue = &CuePoint{}
@@ -3804,7 +3893,7 @@ func (m *MKVIndexer) extractMKVIndex(filePath string) (*MKVIndex, error) {
 				}
 			}
 		}
-		
+
 		// Extract duration
 		if strings.Contains(line, "Duration:") {
 			if parts := strings.Fields(line); len(parts) >= 2 {
@@ -3919,17 +4008,17 @@ func (at *AudioTranscoder) isCodecCompatible(codec string) bool {
 		"vorbis":    true,
 		"pcm_s16le": true,
 		"pcm_s24le": true,
-		"ac3":       true,  // Most browsers support AC3 now
-		"eac3":      true,  // Enhanced AC3 is also supported
-		"flac":      true,  // FLAC is widely supported
+		"ac3":       true, // Most browsers support AC3 now
+		"eac3":      true, // Enhanced AC3 is also supported
+		"flac":      true, // FLAC is widely supported
 	}
 
 	// Only truly incompatible codecs that need transcoding
 	incompatibleCodecs := map[string]bool{
-		"dts":       false,  // DTS requires transcoding
-		"truehd":    false,  // TrueHD requires transcoding
-		"mlp":       false,  // MLP requires transcoding
-		"dca":       false,  // DCA requires transcoding
+		"dts":    false, // DTS requires transcoding
+		"truehd": false, // TrueHD requires transcoding
+		"mlp":    false, // MLP requires transcoding
+		"dca":    false, // DCA requires transcoding
 	}
 
 	codec = strings.ToLower(codec)
@@ -3950,7 +4039,7 @@ func (at *AudioTranscoder) isCodecCompatible(codec string) bool {
 func (s *NetflixStreamService) streamWithSeekableTranscoding(w http.ResponseWriter, r *http.Request, filePath string, audioInfo *AudioInfo, mkvIndex *MKVIndex) error {
 	// Check if we have a range request (seeking)
 	rangeHeader := r.Header.Get("Range")
-	
+
 	if rangeHeader != "" {
 		log.Printf("🎯 Seekable transcoding with range request: %s", rangeHeader)
 		return s.streamTranscodedRange(w, r, filePath, rangeHeader, audioInfo, mkvIndex)
@@ -3979,7 +4068,7 @@ func (s *NetflixStreamService) streamTranscodedRange(w http.ResponseWriter, r *h
 	}
 
 	start := ranges[0].start
-	
+
 	// Calculate seek time from byte offset (approximate)
 	var seekTime float64 = 0
 	if mkvIndex != nil && mkvIndex.duration > 0 {
@@ -4006,21 +4095,24 @@ func (s *NetflixStreamService) streamTranscodedRange(w http.ResponseWriter, r *h
 	w.WriteHeader(http.StatusPartialContent)
 
 	// Start FFmpeg with seeking
+	audioTrack := s.getEnglishAudioTrack(filePath)
 	args := []string{
 		"-ss", fmt.Sprintf("%.2f", seekTime), // Seek to position
 		"-i", filePath,
 		"-c:v", "copy", // Copy video stream
-		"-c:a", "aac",  // Transcode audio to AAC
+		"-c:a", "aac", // Transcode audio to AAC
 		"-b:a", "192k", // Audio bitrate
-		"-ac", "2",     // Stereo output
-		"-f", "mp4",    // MP4 container
+		"-ac", "2", // Stereo output
+		"-f", "mp4", // MP4 container
 		"-movflags", "frag_keyframe+empty_moov+faststart", // Enable streaming
 		"-avoid_negative_ts", "make_zero", // Handle negative timestamps
+		"-map", "0:v:0", // Map first video stream
+		"-map", audioTrack, // Map English audio track (or default/first)
 		"-",
 	}
 
 	cmd := exec.Command("ffmpeg", args...)
-	
+
 	// Get stdout pipe for streaming
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -4058,15 +4150,18 @@ func (s *NetflixStreamService) streamRealtimeTranscoding(w http.ResponseWriter, 
 	w.Header().Set("Cache-Control", "no-cache") // Don't cache transcoded streams
 
 	// Start FFmpeg transcoding process with seeking support
+	audioTrack := s.getEnglishAudioTrack(filePath)
 	args := []string{
 		"-i", filePath,
 		"-c:v", "copy", // Copy video stream as-is (no re-encoding)
-		"-c:a", "aac",  // Transcode audio to AAC
+		"-c:a", "aac", // Transcode audio to AAC
 		"-b:a", "192k", // Audio bitrate
-		"-ac", "2",     // Stereo output
-		"-f", "mp4",    // MP4 container
+		"-ac", "2", // Stereo output
+		"-f", "mp4", // MP4 container
 		"-movflags", "frag_keyframe+empty_moov+faststart", // Enable streaming and seeking
 		"-avoid_negative_ts", "make_zero", // Handle negative timestamps
+		"-map", "0:v:0", // Map first video stream
+		"-map", audioTrack, // Map English audio track (or default/first)
 		"-",
 	}
 
@@ -4164,7 +4259,7 @@ func (at *AudioTranscoder) createSeekableTranscodedFile(filePath string, audioIn
 	// Create transcoded file path
 	cacheDir := filepath.Join(os.TempDir(), "homeflix-transcoded")
 	os.MkdirAll(cacheDir, 0755)
-	
+
 	fileName := filepath.Base(filePath)
 	nameWithoutExt := strings.TrimSuffix(fileName, filepath.Ext(fileName))
 	transcodedPath := filepath.Join(cacheDir, nameWithoutExt+"_transcoded.mp4")
@@ -4175,9 +4270,9 @@ func (at *AudioTranscoder) createSeekableTranscodedFile(filePath string, audioIn
 	args := []string{
 		"-i", filePath,
 		"-c:v", "copy", // Copy video stream
-		"-c:a", "aac",  // Transcode audio to AAC
+		"-c:a", "aac", // Transcode audio to AAC
 		"-b:a", "192k", // Audio bitrate
-		"-ac", "2",     // Stereo output
+		"-ac", "2", // Stereo output
 		"-movflags", "+faststart", // Move moov atom to beginning for seeking
 		"-avoid_negative_ts", "make_zero",
 		"-y", // Overwrite output file
@@ -4185,7 +4280,7 @@ func (at *AudioTranscoder) createSeekableTranscodedFile(filePath string, audioIn
 	}
 
 	cmd := exec.Command("ffmpeg", args...)
-	
+
 	// Run transcoding
 	if err := cmd.Run(); err != nil {
 		return nil, fmt.Errorf("transcoding failed: %v", err)
@@ -4246,7 +4341,7 @@ func (at *AudioTranscoder) cleanupCacheIfNeeded() {
 // checkAudioCompatibility checks if the audio codec is browser-compatible
 func (s *NetflixStreamService) checkAudioCompatibility(filePath string) (bool, error) {
 	// Use ffprobe to check audio codec
-	cmd := exec.Command("ffprobe", "-v", "quiet", "-print_format", "json", 
+	cmd := exec.Command("ffprobe", "-v", "quiet", "-print_format", "json",
 		"-show_streams", "-select_streams", "a:0", filePath)
 	output, err := cmd.Output()
 	if err != nil {
@@ -4254,13 +4349,13 @@ func (s *NetflixStreamService) checkAudioCompatibility(filePath string) (bool, e
 	}
 
 	outputStr := string(output)
-	
+
 	// Check for AC3/EAC3 audio codecs that browsers don't support reliably
-	if strings.Contains(outputStr, `"codec_name":"ac3"`) || 
-	   strings.Contains(outputStr, `"codec_name":"eac3"`) ||
-	   strings.Contains(outputStr, `"codec_name":"dts"`) ||
-	   strings.Contains(outputStr, `"codec_name":"truehd"`) {
-		
+	if strings.Contains(outputStr, `"codec_name":"ac3"`) ||
+		strings.Contains(outputStr, `"codec_name":"eac3"`) ||
+		strings.Contains(outputStr, `"codec_name":"dts"`) ||
+		strings.Contains(outputStr, `"codec_name":"truehd"`) {
+
 		// Extract codec name for logging
 		var codecName string
 		if strings.Contains(outputStr, `"codec_name":"ac3"`) {
@@ -4272,17 +4367,17 @@ func (s *NetflixStreamService) checkAudioCompatibility(filePath string) (bool, e
 		} else if strings.Contains(outputStr, `"codec_name":"truehd"`) {
 			codecName = "truehd"
 		}
-		
-		log.Printf("🎵 Audio analysis for %s: codec=%s, compatible=false (browser incompatible)", 
+
+		log.Printf("🎵 Audio analysis for %s: codec=%s, compatible=false (browser incompatible)",
 			filepath.Base(filePath), codecName)
 		return true, nil // Needs transcoding
 	}
-	
+
 	// Check for browser-compatible codecs
 	if strings.Contains(outputStr, `"codec_name":"aac"`) ||
-	   strings.Contains(outputStr, `"codec_name":"mp3"`) ||
-	   strings.Contains(outputStr, `"codec_name":"opus"`) {
-		
+		strings.Contains(outputStr, `"codec_name":"mp3"`) ||
+		strings.Contains(outputStr, `"codec_name":"opus"`) {
+
 		var codecName string
 		if strings.Contains(outputStr, `"codec_name":"aac"`) {
 			codecName = "aac"
@@ -4291,14 +4386,14 @@ func (s *NetflixStreamService) checkAudioCompatibility(filePath string) (bool, e
 		} else if strings.Contains(outputStr, `"codec_name":"opus"`) {
 			codecName = "opus"
 		}
-		
-		log.Printf("🎵 Audio analysis for %s: codec=%s, compatible=true", 
+
+		log.Printf("🎵 Audio analysis for %s: codec=%s, compatible=true",
 			filepath.Base(filePath), codecName)
 		return false, nil // No transcoding needed
 	}
-	
+
 	// Unknown codec - default to transcoding for safety
-	log.Printf("🎵 Audio analysis for %s: codec=unknown, compatible=false (unknown codec)", 
+	log.Printf("🎵 Audio analysis for %s: codec=unknown, compatible=false (unknown codec)",
 		filepath.Base(filePath))
 	return true, nil
 }
@@ -4319,7 +4414,7 @@ func (s *NetflixStreamService) GetAudioInfo(filePath string) (map[string]interfa
 	if err != nil {
 		return nil, err
 	}
-	
+
 	return map[string]interface{}{
 		"codec":       audioInfo.Codec,
 		"channels":    audioInfo.Channels,
