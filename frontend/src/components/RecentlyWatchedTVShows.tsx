@@ -8,6 +8,7 @@ import { getApiUrl } from '@/lib/api';
 import { cleanMovieTitle } from '@/lib/titleUtils';
 import { useNavigate } from '@/hooks/useNavigate';
 import ImageWithFallback from '@/components/ImageWithFallback';
+import { useAudio } from '@/contexts/EnhancedAudioContext';
 
 interface RecentlyWatchedItem {
     id: number;
@@ -29,13 +30,15 @@ interface RecentlyWatchedTVCardProps {
     onPlay: (media: Media, startTime?: number) => void;
     onInfo: (media: Media) => void;
     index: number;
+    mutePageAudio?: () => void;
 }
 
 const RecentlyWatchedTVCard: React.FC<RecentlyWatchedTVCardProps> = ({
     item,
     onPlay,
     onInfo,
-    index
+    index,
+    mutePageAudio
 }) => {
     const navigate = useNavigate();
     const [isHovered, setIsHovered] = useState(false);
@@ -44,6 +47,12 @@ const RecentlyWatchedTVCard: React.FC<RecentlyWatchedTVCardProps> = ({
     const handlePlayClick = (e: React.MouseEvent) => {
         e.stopPropagation();
         setIsLoading(true);
+
+        // Mute all page audio before playback
+        if (mutePageAudio) {
+            mutePageAudio();
+        }
+
         setTimeout(() => {
             onPlay(item.media, item.progress_seconds);
             setIsLoading(false);
@@ -263,6 +272,7 @@ export const RecentlyWatchedTVShows: React.FC<RecentlyWatchedTVShowsProps> = ({
     onPlay,
     onInfo
 }) => {
+    const { muteAll } = useAudio();
     const [recentItems, setRecentItems] = useState<RecentlyWatchedItem[]>([]);
     const [loading, setLoading] = useState(true);
     const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -485,6 +495,7 @@ export const RecentlyWatchedTVShows: React.FC<RecentlyWatchedTVShowsProps> = ({
                             onPlay={onPlay}
                             onInfo={onInfo}
                             index={index}
+                            mutePageAudio={muteAll}
                         />
                     ))}
                 </div>

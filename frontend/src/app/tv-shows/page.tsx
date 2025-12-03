@@ -146,7 +146,12 @@ export default function TVShowsPage() {
                             id: ep.id,
                             title: ep.title || ep.name,
                             thumbnail_path: ep.thumbnail_path || ep.still_path,
-                            description: ep.description || ep.overview
+                            description: ep.description || ep.overview,
+                            file_path: ep.file_path, // Required for video preview
+                            type: ep.type || 'episode',
+                            duration: ep.duration,
+                            quality: ep.quality,
+                            series_id: series.id
                           })),
                           thumbnail_path: season.poster_path || season.thumbnail_path
                         };
@@ -434,29 +439,57 @@ export default function TVShowsPage() {
       {featuredSeries.length > 0 ? (
         <ScrollXHero
           featuredMedia={featuredSeries.map(series => {
-            // Get first episode from first season for fallback
+            // Get all episodes from all seasons
+            const allEpisodes = series.seasons.flatMap(season => season.episodes || []);
+
+            // Pick a random episode for preview clip (or first if random fails)
+            const randomEpisode = allEpisodes.length > 0
+              ? allEpisodes[Math.floor(Math.random() * allEpisodes.length)]
+              : null;
+
             const firstSeason = series.seasons.find(season => season.episodes.length > 0);
             const firstEpisode = firstSeason?.episodes[0];
 
+            // Use the random episode for the media object (this provides the preview clip)
+            const episodeForPreview = randomEpisode || firstEpisode;
+
+            // If no episode found with file_path, skip this series
+            if (!episodeForPreview || !episodeForPreview.file_path) {
+              return null;
+            }
+
             return {
-              id: series.id,
-              title: series.title,
-              description: series.description,
+              // Spread all episode properties first (includes file_path, duration, quality, etc.)
+              ...episodeForPreview,
+              // Then override with series-specific display properties
+              title: series.title, // Keep series title for display
+              description: series.description || episodeForPreview.description,
               rating: series.rating,
-              // Prioritize poster, then episode thumbnail, then series thumbnail
-              thumbnail_path: series.poster_path || firstEpisode?.thumbnail_path || series.thumbnail_path,
-              banner_path: series.banner_path,
+              // Use episode thumbnail for preview, fallback to series poster
+              thumbnail_path: episodeForPreview?.thumbnail_path || series.poster_path || series.thumbnail_path,
+              // Prioritize series backdrop/banner for background
+              banner_path: series.banner_path || episodeForPreview?.banner_path,
+              tmdb_backdrop_url: series.tmdb_backdrop_url,
+              backdrop_path: series.backdrop_path,
               poster_path: series.poster_path,
-              type: 'series',
-              series_id: series.id
+              tmdb_poster_url: series.tmdb_poster_url,
+              type: 'episode', // Mark as episode so ScrollXHero can fetch preview clips
+              series_id: series.id,
+              // Store original episode info for display purposes
+              original_episode_title: episodeForPreview?.title,
+              genres: series.genres || episodeForPreview.genres,
+              year: series.year,
+              total_seasons: series.total_seasons,
+              total_episodes: series.total_episodes
             } as Media;
-          })}
+          }).filter((media): media is Media => media !== null)}  // Filter out null entries with type guard
+          contentFilter='tv-series'
           onPlay={(media) => {
-            const series = featuredSeries.find(s => s.id === media.series_id || s.id === media.id);
+            const series = featuredSeries.find(s => s.id === media.series_id);
             if (series) handlePlay(series);
           }}
           onInfo={(media) => {
-            const series = featuredSeries.find(s => s.id === media.series_id || s.id === media.id);
+            const series = featuredSeries.find(s => s.id === media.series_id);
             if (series) handleInfo(series);
           }}
         />
