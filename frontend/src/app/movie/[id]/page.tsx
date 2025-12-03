@@ -2629,19 +2629,6 @@ export default function MoviePage() {
                                 </div>
                               </div>
                             )}
-                            {media.revenue && media.revenue > 0 && (
-                              <div className="bg-gradient-to-r from-purple-500/10 to-purple-600/10 p-4 rounded-lg border border-purple-500/20">
-                                <div className="text-purple-400 text-sm font-medium mb-1">Revenue</div>
-                                <div className="text-white text-xl font-bold">
-                                  {media.revenue >= 1000000000
-                                    ? `$${(media.revenue / 1000000000).toFixed(1)}B`
-                                    : media.revenue >= 1000000
-                                      ? `$${(media.revenue / 1000000).toFixed(1)}M`
-                                      : `$${media.revenue.toLocaleString()}`
-                                  }
-                                </div>
-                              </div>
-                            )}
                           </div>
                         </div>
                       )}
@@ -2702,7 +2689,7 @@ export default function MoviePage() {
                       )}
 
                       {/* Additional Stats Section */}
-                      <div className="mt-8">
+                      {/* <div className="mt-8">
                         <h3 className="text-lg font-semibold text-white mb-3">Statistics</h3>
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                           {media.rating && (
@@ -2735,7 +2722,7 @@ export default function MoviePage() {
                             </div>
                           )}
                         </div>
-                      </div>
+                      </div> */}
                     </div>
                   </div>
 

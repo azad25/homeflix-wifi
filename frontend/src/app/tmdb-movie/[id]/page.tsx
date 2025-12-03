@@ -23,7 +23,8 @@ import {
   Plus,
   Check,
   Share2,
-  Download
+  Download,
+  X
 } from 'lucide-react';
 import { getApiUrl } from '@/lib/api';
 import { addToWishlist, removeFromWishlist, isInWishlist } from '@/lib/wishlist';
@@ -36,6 +37,7 @@ import UpcomingTVSeries from '@/components/UpcomingTVSeries';
 interface RelatedMediaProps {
   mediaId: number;
   mediaType: 'movie' | 'tv';
+  releaseYear?: number;
   className?: string;
 }
 
@@ -55,7 +57,7 @@ interface RelatedMediaItem {
   genre_ids: number[];
 }
 
-const RelatedMedia: React.FC<RelatedMediaProps> = ({ mediaId, mediaType, className = '' }) => {
+const RelatedMedia: React.FC<RelatedMediaProps> = ({ mediaId, mediaType, releaseYear, className = '' }) => {
   const [relatedMedia, setRelatedMedia] = useState<RelatedMediaItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -65,13 +67,15 @@ const RelatedMedia: React.FC<RelatedMediaProps> = ({ mediaId, mediaType, classNa
     if (mediaId && mediaType) {
       fetchRelatedMedia();
     }
-  }, [mediaId, mediaType]);
+  }, [mediaId, mediaType, releaseYear]);
 
   const fetchRelatedMedia = async () => {
     try {
       setLoading(true);
       const apiUrl = getApiUrl();
-      const response = await fetch(`${apiUrl}/api/tmdb/${mediaId}/related?type=${mediaType}&limit=12`);
+      // Include year parameter if provided for year-based filtering
+      const yearParam = releaseYear ? `&year=${releaseYear}` : '';
+      const response = await fetch(`${apiUrl}/api/tmdb/${mediaId}/related?type=${mediaType}&limit=16${yearParam}`);
 
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
@@ -125,7 +129,7 @@ const RelatedMedia: React.FC<RelatedMediaProps> = ({ mediaId, mediaType, classNa
           Related {mediaType === 'movie' ? 'Movies' : 'TV Shows'}
         </h2>
 
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-8 gap-4">
           {relatedMedia.map((media) => (
             <motion.div
               key={media.id}
@@ -175,6 +179,418 @@ const RelatedMedia: React.FC<RelatedMediaProps> = ({ mediaId, mediaType, classNa
                     {new Date(media.release_date).getFullYear()}
                   </p>
                 )}
+              </div>
+            </motion.div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Movie Images Gallery Component
+interface MovieImagesProps {
+  movieId: number;
+  className?: string;
+}
+
+interface TMDBImage {
+  aspect_ratio: number;
+  file_path: string;
+  height: number;
+  width: number;
+  vote_average: number;
+  vote_count: number;
+}
+
+const MovieImages: React.FC<MovieImagesProps> = ({ movieId, className = '' }) => {
+  const [images, setImages] = useState<{ backdrops: TMDBImage[]; posters: TMDBImage[]; logos: TMDBImage[] } | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'backdrops' | 'posters' | 'logos'>('backdrops');
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (movieId) {
+      fetchImages();
+    }
+  }, [movieId]);
+
+  const fetchImages = async () => {
+    try {
+      setLoading(true);
+      const apiUrl = getApiUrl();
+      const response = await fetch(`${apiUrl}/api/tmdb/movie/${movieId}/images`);
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      setImages(data);
+      setError(null);
+    } catch (err) {
+      console.error('Error fetching movie images:', err);
+      setError('Failed to load images');
+      setImages(null);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const getImageUrl = (path: string, size: string = 'w500') => {
+    return `https://image.tmdb.org/t/p/${size}${path}`;
+  };
+
+  if (loading) {
+    return (
+      <div className={`${className}`}>
+        <div className="max-w-7xl mx-auto">
+          <h2 className="text-2xl font-bold text-white mb-6">Movie Images</h2>
+          <div className="flex items-center justify-center py-12">
+            <RedLoader />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (error || !images || (images.backdrops.length === 0 && images.posters.length === 0 && images.logos.length === 0)) {
+    return null; // Don't show section if no images
+  }
+
+  const currentImages = images[activeTab] || [];
+
+  return (
+    <>
+      <div className={`${className}`}>
+        <div className="max-w-7xl mx-auto">
+          <h2 className="text-2xl font-bold text-white mb-6 flex items-center gap-2">
+            <Film className="w-6 h-6 text-red-500" />
+            Images
+          </h2>
+
+          {/* Tabs */}
+          <div className="flex gap-2 mb-6 border-b border-white/10">
+            <button
+              onClick={() => setActiveTab('backdrops')}
+              className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 ${activeTab === 'backdrops'
+                ? 'border-red-500 text-white'
+                : 'border-transparent text-gray-400 hover:text-white'
+                }`}
+            >
+              Backdrops ({images.backdrops.length})
+            </button>
+            <button
+              onClick={() => setActiveTab('posters')}
+              className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 ${activeTab === 'posters'
+                ? 'border-red-500 text-white'
+                : 'border-transparent text-gray-400 hover:text-white'
+                }`}
+            >
+              Posters ({images.posters.length})
+            </button>
+            {images.logos.length > 0 && (
+              <button
+                onClick={() => setActiveTab('logos')}
+                className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 ${activeTab === 'logos'
+                  ? 'border-red-500 text-white'
+                  : 'border-transparent text-gray-400 hover:text-white'
+                  }`}
+              >
+                Logos ({images.logos.length})
+              </button>
+            )}
+          </div>
+
+          {/* Image Grid */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+            {currentImages.slice(0, 10).map((image, index) => (
+              <motion.div
+                key={index}
+                className="group cursor-pointer relative aspect-video bg-gray-800 rounded-lg overflow-hidden"
+                whileHover={{ scale: 1.05 }}
+                transition={{ duration: 0.2 }}
+                onClick={() => setSelectedImage(getImageUrl(image.file_path, 'original'))}
+              >
+                <img
+                  src={getImageUrl(image.file_path, 'w500')}
+                  alt={`${activeTab} ${index + 1}`}
+                  className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
+                  loading="lazy"
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                  <div className="absolute bottom-2 left-2 flex items-center gap-2 text-xs text-white">
+                    <Star className="w-3 h-3 text-yellow-400 fill-current" />
+                    <span>{image.vote_average.toFixed(1)}</span>
+                    <span className="text-gray-400">•</span>
+                    <span className="text-gray-400">{image.width}×{image.height}</span>
+                  </div>
+                </div>
+              </motion.div>
+            ))}
+          </div>
+
+          {currentImages.length > 10 && (
+            <div className="text-center mt-4">
+              <p className="text-gray-400 text-sm">
+                Showing 10 of {currentImages.length} {activeTab}
+              </p>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Image Modal */}
+      {selectedImage && (
+        <div
+          className="fixed inset-0 z-50 bg-black/95 flex items-center justify-center p-4"
+          onClick={() => setSelectedImage(null)}
+        >
+          <button
+            className="absolute top-4 right-4 text-white hover:text-red-500 transition-colors"
+            onClick={() => setSelectedImage(null)}
+          >
+            <X className="w-8 h-8" />
+          </button>
+          <img
+            src={selectedImage}
+            alt="Full size"
+            className="max-w-full max-h-full object-contain"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
+    </>
+  );
+};
+
+// TMDB Movie List Component - Uses individual endpoints
+interface TMDBMovieListProps {
+  endpoint: 'popular' | 'now-playing' | 'upcoming';
+  title: string;
+  maxItems?: number;
+  asCarousel?: boolean;
+  className?: string;
+}
+
+interface TMDBMovieItem {
+  id: number;
+  title: string;
+  release_date: string;
+  poster_path: string;
+  vote_average: number;
+}
+
+const TMDBMovieList: React.FC<TMDBMovieListProps> = ({ endpoint, title, maxItems = 12, asCarousel = false, className = '' }) => {
+  const [movies, setMovies] = useState<TMDBMovieItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const [error, setError] = useState<string | null>(null);
+  const router = useRouter();
+
+  useEffect(() => {
+    fetchMovies();
+  }, [endpoint]);
+
+  useEffect(() => {
+    if (asCarousel && scrollContainerRef.current) {
+      const container = scrollContainerRef.current;
+      const updateScrollButtons = () => {
+        setCanScrollLeft(container.scrollLeft > 0);
+        setCanScrollRight(container.scrollLeft < container.scrollWidth - container.clientWidth - 10);
+      };
+      updateScrollButtons();
+      container.addEventListener('scroll', updateScrollButtons);
+      return () => container.removeEventListener('scroll', updateScrollButtons);
+    }
+  }, [movies, asCarousel]);
+
+  const fetchMovies = async () => {
+    try {
+      setLoading(true);
+      const apiUrl = getApiUrl();
+      const response = await fetch(`${apiUrl}/api/tmdb/movie/${endpoint}?page=1`);
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      setMovies((data.results || []).slice(0, maxItems));
+      setError(null);
+    } catch (err) {
+      console.error(`Error fetching ${endpoint} movies:`, err);
+      setError('Failed to load movies');
+      setMovies([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const getPosterUrl = (posterPath: string) => {
+    if (!posterPath) return '/placeholder-poster.jpg';
+    return `https://image.tmdb.org/t/p/w500${posterPath}`;
+  };
+
+  const scroll = (direction: 'left' | 'right') => {
+    if (scrollContainerRef.current) {
+      const scrollAmount = direction === 'left' ? -400 : 400;
+      scrollContainerRef.current.scrollBy({ left: scrollAmount, behavior: 'smooth' });
+    }
+  };
+
+  const handleMovieClick = (movieId: number) => {
+    router.push(`/tmdb-movie/${movieId}`);
+  };
+
+  if (loading) {
+    return (
+      <div className={`${className}`}>
+        <div className="max-w-7xl mx-auto">
+          <h2 className="text-2xl font-bold text-white mb-6">{title}</h2>
+          <div className="flex items-center justify-center py-12">
+            <RedLoader />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (error || movies.length === 0) {
+    return null;
+  }
+
+  if (asCarousel) {
+    return (
+      <div className={`${className}`}>
+        <div className="max-w-7xl mx-auto">
+          <h2 className="text-2xl font-bold text-white mb-6 flex items-center gap-2">
+            <Film className="w-6 h-6 text-red-500" />
+            {title}
+          </h2>
+
+          <div className="relative group">
+            {canScrollLeft && (
+              <button
+                onClick={() => scroll('left')}
+                className="absolute left-0 top-1/2 -translate-y-1/2 z-10 bg-black/70 hover:bg-black/90 text-white rounded-full p-2 opacity-0 group-hover:opacity-100 transition-opacity"
+              >
+                <ArrowLeft className="w-6 h-6" />
+              </button>
+            )}
+
+            <div
+              ref={scrollContainerRef}
+              className="flex gap-4 overflow-x-auto scrollbar-hide scroll-smooth pb-4"
+              style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+            >
+              {movies.map((movie) => (
+                <motion.div
+                  key={movie.id}
+                  className="flex-shrink-0 w-48 group cursor-pointer"
+                  whileHover={{ scale: 1.05 }}
+                  transition={{ duration: 0.2 }}
+                  onClick={() => handleMovieClick(movie.id)}
+                >
+                  <div className="relative aspect-[2/3] rounded-lg overflow-hidden bg-gray-800 shadow-lg">
+                    <img
+                      src={getPosterUrl(movie.poster_path)}
+                      alt={movie.title}
+                      className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
+                      loading="lazy"
+                    />
+
+                    {movie.vote_average > 0 && (
+                      <div className="absolute top-2 right-2 bg-black/70 backdrop-blur-sm rounded-full px-2 py-1 flex items-center gap-1">
+                        <Star className="w-3 h-3 text-yellow-400 fill-current" />
+                        <span className="text-xs text-white font-medium">
+                          {movie.vote_average.toFixed(1)}
+                        </span>
+                      </div>
+                    )}
+
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                      <div className="absolute bottom-2 left-2 right-2">
+                        <h3 className="text-white text-sm font-semibold line-clamp-2 mb-1">
+                          {movie.title}
+                        </h3>
+                        {movie.release_date && (
+                          <p className="text-gray-300 text-xs">
+                            {new Date(movie.release_date).getFullYear()}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </motion.div>
+              ))}
+            </div>
+
+            {canScrollRight && (
+              <button
+                onClick={() => scroll('right')}
+                className="absolute right-0 top-1/2 -translate-y-1/2 z-10 bg-black/70 hover:bg-black/90 text-white rounded-full p-2 opacity-0 group-hover:opacity-100 transition-opacity"
+              >
+                <ArrowLeft className="w-6 h-6 rotate-180" />
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className={`${className}`}>
+      <div className="max-w-7xl mx-auto">
+        <h2 className="text-2xl font-bold text-white mb-6 flex items-center gap-2">
+          <Film className="w-6 h-6 text-red-500" />
+          {title}
+        </h2>
+
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+          {movies.map((movie) => (
+            <motion.div
+              key={movie.id}
+              className="group cursor-pointer"
+              whileHover={{ scale: 1.05 }}
+              transition={{ duration: 0.2 }}
+              onClick={() => handleMovieClick(movie.id)}
+            >
+              <div className="relative aspect-[2/3] rounded-lg overflow-hidden bg-gray-800 shadow-lg">
+                <img
+                  src={getPosterUrl(movie.poster_path)}
+                  alt={movie.title}
+                  className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
+                  loading="lazy"
+                />
+
+                {/* Rating Badge */}
+                {movie.vote_average > 0 && (
+                  <div className="absolute top-2 right-2 bg-black/70 backdrop-blur-sm rounded-full px-2 py-1 flex items-center gap-1">
+                    <Star className="w-3 h-3 text-yellow-400 fill-current" />
+                    <span className="text-xs text-white font-medium">
+                      {movie.vote_average.toFixed(1)}
+                    </span>
+                  </div>
+                )}
+
+                {/* Hover Overlay */}
+                <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                  <div className="absolute bottom-2 left-2 right-2">
+                    <h3 className="text-white text-sm font-semibold line-clamp-2 mb-1">
+                      {movie.title}
+                    </h3>
+                    {movie.release_date && (
+                      <p className="text-gray-300 text-xs">
+                        {new Date(movie.release_date).getFullYear()}
+                      </p>
+                    )}
+                  </div>
+                </div>
               </div>
             </motion.div>
           ))}
@@ -1413,6 +1829,20 @@ const TMDBMoviePage: React.FC = () => {
           <RelatedMedia
             mediaId={parseInt(movieId)}
             mediaType={mediaDetails?.media_type || 'movie'}
+            releaseYear={mediaDetails?.release_date ? new Date(mediaDetails.release_date).getFullYear() : undefined}
+            className="mb-8"
+          />
+
+          <MovieImages
+            movieId={parseInt(movieId)}
+            className="mb-8"
+          />
+
+          <TMDBMovieList
+            endpoint="popular"
+            title="Popular Movies"
+            maxItems={20}
+            asCarousel={true}
             className="mb-8"
           />
           <UpcomingMovies

@@ -243,11 +243,13 @@ func (h *TorrentHandler) GetDownloads(c *gin.Context) {
 	
 	// Apply search filters
 	if searchQuery != "" {
+		log.Printf("🔍 Applying search filter: '%s'", searchQuery)
 		query = query.Where("name ILIKE ? OR quality ILIKE ? OR media_type ILIKE ?", 
 			"%"+searchQuery+"%", "%"+searchQuery+"%", "%"+searchQuery+"%")
 	}
 	
 	if statusFilter != "" {
+		log.Printf("🔍 Applying status filter: '%s'", statusFilter)
 		query = query.Where("status = ?", statusFilter)
 	}
 
@@ -257,6 +259,8 @@ func (h *TorrentHandler) GetDownloads(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to count downloads"})
 		return
 	}
+	
+	log.Printf("📊 Total downloads after filters: %d (page %d, limit %d)", totalCount, page, limit)
 
 	// Get paginated downloads from database (ordered by most recent first)
 	var dbDownloads []models.TorrentDownload

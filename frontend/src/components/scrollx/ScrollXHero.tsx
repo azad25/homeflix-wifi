@@ -2249,7 +2249,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
                 transition={{ duration: 0.6, delay: 0.05 }}
               >
                 {/* Quality Badge */}
-                <div className={`px-2 py-1 text-xs font-bold rounded ${getQualityBadge().color} text-white`}>
+                <div className="border border-white/50 px-2 py-1 text-xs font-bold rounded text-white backdrop-blur-sm">
                   {getQualityBadge().text}
                 </div>
 

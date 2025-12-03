@@ -486,7 +486,7 @@ export default function MyListPage() {
               </span>
             </div>
 
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-6 mb-8">
+            <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 xl:grid-cols-10 2xl:grid-cols-12 gap-4 mb-8">
               {downloadingMedia.map((media) => (
                 <DownloadingMediaCard key={`download-${media.id}`} media={media} />
               ))}
@@ -502,7 +502,7 @@ export default function MyListPage() {
               <h2 className="text-2xl font-bold text-white">My Watchlist</h2>
             </div>
 
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-6">
+            <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 xl:grid-cols-10 2xl:grid-cols-12 gap-4">
               {filteredList.map((media, index) => (
                 <div key={media.id} className="relative">
                   <NetflixMediaCard

@@ -683,8 +683,8 @@ const RecommendationSection: React.FC<RecommendationSectionProps> = ({
 
               {/* Quality Badge - Top Right */}
               <div className="absolute top-3 right-3 z-10">
-                <span className="bg-blue-600 text-white text-xs px-2 py-1 rounded-md font-bold shadow-lg">
-                  HD
+                <span className="border border-white/50 text-white text-[10px] px-1.5 py-0.5 rounded font-medium backdrop-blur-sm shadow-lg">
+                  {media.quality && (media.quality.includes('2160') || media.quality.toLowerCase().includes('4k')) ? '4K' : 'HD'}
                 </span>
               </div>
 
@@ -692,17 +692,17 @@ const RecommendationSection: React.FC<RecommendationSectionProps> = ({
               <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent" />
 
               {/* Play button overlay */}
-              <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+              <div className={`absolute inset-0 flex items-center justify-center transition-opacity duration-300 ${isHovered ? 'opacity-100' : 'opacity-0'}`}>
                 <motion.button
                   onClick={(e) => {
                     e.stopPropagation();
                     onPlay(media);
                   }}
-                  className="bg-white/90 backdrop-blur-sm rounded-full p-4 hover:bg-white transition-colors"
+                  className="bg-red-600/90 backdrop-blur-sm rounded-full p-4 hover:bg-red-600 transition-colors shadow-xl"
                   whileHover={{ scale: 1.1 }}
                   whileTap={{ scale: 0.95 }}
                 >
-                  <Play className="w-6 h-6 text-black fill-black" />
+                  <Play className="w-6 h-6 text-white fill-white" />
                 </motion.button>
               </div>
 

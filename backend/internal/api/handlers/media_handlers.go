@@ -1696,6 +1696,175 @@ func GetUpcomingTVSeries(tmdbService *services.TMDBService) gin.HandlerFunc {
 	}
 }
 
+// GetLatestMovie gets the most recently added movie from TMDB
+func GetLatestMovie(tmdbService *services.TMDBService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		movie, err := tmdbService.GetLatestMovie()
+		if err != nil {
+			log.Printf("❌ Failed to get latest movie: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error": "Failed to get latest movie",
+				"details": err.Error(),
+			})
+			return
+		}
+
+		c.JSON(http.StatusOK, movie)
+		log.Printf("✅ Retrieved latest movie: %s (ID: %d)", movie.Title, movie.ID)
+	}
+}
+
+// GetNowPlayingMoviesList gets movies currently in theaters from TMDB
+func GetNowPlayingMoviesList(tmdbService *services.TMDBService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// Get page parameter (default to 1)
+		page := 1
+		if pageStr := c.Query("page"); pageStr != "" {
+			if p, err := strconv.Atoi(pageStr); err == nil && p > 0 {
+				page = p
+			}
+		}
+
+		movies, err := tmdbService.GetNowPlayingMovies(page)
+		if err != nil {
+			log.Printf("❌ Failed to get now playing movies: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error": "Failed to get now playing movies",
+				"details": err.Error(),
+			})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"results": movies,
+			"page": page,
+			"total_results": len(movies),
+		})
+		log.Printf("✅ Retrieved %d now playing movies (page %d)", len(movies), page)
+	}
+}
+
+// GetUpcomingMoviesList gets upcoming movie releases from TMDB
+func GetUpcomingMoviesList(tmdbService *services.TMDBService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// Get page parameter (default to 1)
+		page := 1
+		if pageStr := c.Query("page"); pageStr != "" {
+			if p, err := strconv.Atoi(pageStr); err == nil && p > 0 {
+				page = p
+			}
+		}
+
+		movies, err := tmdbService.GetUpcomingMoviesList(page)
+		if err != nil {
+			log.Printf("❌ Failed to get upcoming movies: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error": "Failed to get upcoming movies",
+				"details": err.Error(),
+			})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"results": movies,
+			"page": page,
+			"total_results": len(movies),
+		})
+		log.Printf("✅ Retrieved %d upcoming movies (page %d)", len(movies), page)
+	}
+}
+
+// GetPopularMoviesList gets currently popular movies from TMDB
+func GetPopularMoviesList(tmdbService *services.TMDBService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// Get page parameter (default to 1)
+		page := 1
+		if pageStr := c.Query("page"); pageStr != "" {
+			if p, err := strconv.Atoi(pageStr); err == nil && p > 0 {
+				page = p
+			}
+		}
+
+		movies, err := tmdbService.GetPopularMovies(page)
+		if err != nil {
+			log.Printf("❌ Failed to get popular movies: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error": "Failed to get popular movies",
+				"details": err.Error(),
+			})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"results": movies,
+			"page": page,
+			"total_results": len(movies),
+		})
+		log.Printf("✅ Retrieved %d popular movies (page %d)", len(movies), page)
+	}
+}
+
+
+// DiscoverMoviesByFilters provides advanced filtered/sorted movie discovery
+func DiscoverMoviesByFilters(tmdbService *services.TMDBService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// Extract all query parameters as a map
+		params := make(map[string]string)
+		for key, values := range c.Request.URL.Query() {
+			if len(values) > 0 {
+				params[key] = values[0]
+			}
+		}
+
+		log.Printf("🔍 TMDB Discover: %d filter parameters", len(params))
+
+		movies, err := tmdbService.DiscoverMovies(params)
+		if err != nil {
+			log.Printf("❌ Failed to discover movies: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error": "Failed to discover movies",
+				"details": err.Error(),
+			})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"results": movies,
+			"total_results": len(movies),
+			"filters": params,
+		})
+		log.Printf("✅ Discovered %d movies with filters", len(movies))
+	}
+}
+
+// GetMovieImagesList gets posters, backdrops, and logos for a movie
+func GetMovieImagesList(tmdbService *services.TMDBService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		idStr := c.Param("id")
+		id, err := strconv.Atoi(idStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": "Invalid movie ID",
+			})
+			return
+		}
+
+		images, err := tmdbService.GetMovieImages(id)
+		if err != nil {
+			log.Printf("❌ Failed to get movie images for ID %d: %v", id, err)
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error": "Failed to get movie images",
+				"details": err.Error(),
+			})
+			return
+		}
+
+		c.JSON(http.StatusOK, images)
+		log.Printf("✅ Retrieved images for movie %d: %d backdrops, %d logos, %d posters",
+			id, len(images.Backdrops), len(images.Logos), len(images.Posters))
+	}
+}
+
 // GetRelatedMedia gets related movies or TV shows from TMDB
 func GetRelatedMedia(tmdbService *services.TMDBService) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -1732,9 +1901,21 @@ func GetRelatedMedia(tmdbService *services.TMDBService) gin.HandlerFunc {
 			}
 		}
 
-		log.Printf("🔍 TMDB Related Media: ID=%d, type=%s, limit=%d", id, mediaType, limit)
+		// Get optional year parameter for year-based filtering
+		releaseYear := 0
+		if yearStr := c.Query("year"); yearStr != "" {
+			if y, err := strconv.Atoi(yearStr); err == nil && y > 1800 && y <= 2100 {
+				releaseYear = y
+			}
+		}
 
-		relatedMedia, err := tmdbService.GetRelatedMedia(id, mediaType, limit)
+		if releaseYear > 0 {
+			log.Printf("🔍 TMDB Related Media: ID=%d, type=%s, limit=%d, year=%d", id, mediaType, limit, releaseYear)
+		} else {
+			log.Printf("🔍 TMDB Related Media: ID=%d, type=%s, limit=%d", id, mediaType, limit)
+		}
+
+		relatedMedia, err := tmdbService.GetRelatedMedia(id, mediaType, limit, releaseYear)
 		if err != nil {
 			log.Printf("❌ TMDB related media failed for ID %d (%s): %v", id, mediaType, err)
 			c.JSON(http.StatusInternalServerError, gin.H{

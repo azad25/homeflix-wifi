@@ -300,6 +300,14 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		// TMDB TV series endpoint (airing today, on the air, trending)
 		api.GET("/upcoming-tv-series", handlers.GetUpcomingTVSeries(tmdbService))
 		
+		// New TMDB movie list endpoints
+		api.GET("/tmdb/movie/latest", handlers.GetLatestMovie(tmdbService))
+		api.GET("/tmdb/movie/now-playing", handlers.GetNowPlayingMoviesList(tmdbService))
+		api.GET("/tmdb/movie/upcoming", handlers.GetUpcomingMoviesList(tmdbService))
+		api.GET("/tmdb/movie/popular", handlers.GetPopularMoviesList(tmdbService))
+		api.GET("/tmdb/discover/movie", handlers.DiscoverMoviesByFilters(tmdbService))
+		api.GET("/tmdb/movie/:id/images", handlers.GetMovieImagesList(tmdbService))
+		
 		// TMDB movie details endpoint (cached for 6 hours)
 		api.GET("/tmdb-movie/:id", handlers.GetTMDBMovieDetails(tmdbService))
 		

@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -85,38 +86,38 @@ type TMDBMovieDetails struct {
 	Homepage            string          `json:"homepage"`
 	BelongsToCollection *TMDBCollection `json:"belongs_to_collection"`
 	// Additional fields for enhanced metadata
-	Certification       string          `json:"certification,omitempty"`
-	Awards              []string        `json:"awards,omitempty"`
+	Certification string   `json:"certification,omitempty"`
+	Awards        []string `json:"awards,omitempty"`
 }
 
 type TMDBTVDetails struct {
 	TMDBTV
-	Tagline             string          `json:"tagline"`
-	NumberOfEpisodes    int             `json:"number_of_episodes"`
-	NumberOfSeasons     int             `json:"number_of_seasons"`
-	EpisodeRunTime      []int           `json:"episode_run_time"`
-	InProduction        bool            `json:"in_production"`
-	LastAirDate         string          `json:"last_air_date"`
-	Status              string          `json:"status"`
-	Type                string          `json:"type"`
-	Genres              []TMDBGenre     `json:"genres"`
-	ProductionCompanies []TMDBCompany   `json:"production_companies"`
-	ProductionCountries []TMDBCountry   `json:"production_countries"`
-	SpokenLanguages     []TMDBLanguage  `json:"spoken_languages"`
-	Credits             TMDBCredits     `json:"credits,omitempty"`
-	Videos              TMDBVideos      `json:"videos,omitempty"`
-	Homepage            string          `json:"homepage"`
-	Networks            []TMDBNetwork   `json:"networks"`
-	Seasons             []TMDBSeason    `json:"seasons"`
+	Tagline             string         `json:"tagline"`
+	NumberOfEpisodes    int            `json:"number_of_episodes"`
+	NumberOfSeasons     int            `json:"number_of_seasons"`
+	EpisodeRunTime      []int          `json:"episode_run_time"`
+	InProduction        bool           `json:"in_production"`
+	LastAirDate         string         `json:"last_air_date"`
+	Status              string         `json:"status"`
+	Type                string         `json:"type"`
+	Genres              []TMDBGenre    `json:"genres"`
+	ProductionCompanies []TMDBCompany  `json:"production_companies"`
+	ProductionCountries []TMDBCountry  `json:"production_countries"`
+	SpokenLanguages     []TMDBLanguage `json:"spoken_languages"`
+	Credits             TMDBCredits    `json:"credits,omitempty"`
+	Videos              TMDBVideos     `json:"videos,omitempty"`
+	Homepage            string         `json:"homepage"`
+	Networks            []TMDBNetwork  `json:"networks"`
+	Seasons             []TMDBSeason   `json:"seasons"`
 	// Additional fields for enhanced metadata
-	Certification       string          `json:"certification,omitempty"`
-	Awards              []string        `json:"awards,omitempty"`
+	Certification string   `json:"certification,omitempty"`
+	Awards        []string `json:"awards,omitempty"`
 }
 
 type TMDBNetwork struct {
-	ID           int    `json:"id"`
-	Name         string `json:"name"`
-	LogoPath     string `json:"logo_path"`
+	ID            int    `json:"id"`
+	Name          string `json:"name"`
+	LogoPath      string `json:"logo_path"`
 	OriginCountry string `json:"origin_country"`
 }
 
@@ -189,10 +190,10 @@ type CastMember struct {
 
 // CrewMember represents a crew member with image URL
 type CrewMember struct {
-	ID        int    `json:"id"`
-	Name      string `json:"name"`
-	Job       string `json:"job"`
-	ImageURL  string `json:"image_url"`
+	ID       int    `json:"id"`
+	Name     string `json:"name"`
+	Job      string `json:"job"`
+	ImageURL string `json:"image_url"`
 }
 
 // TMDBVideos represents the videos response from TMDB
@@ -311,7 +312,7 @@ func (t *TMDBService) searchMovieWithParams(title string, year int) (*TMDBMovie,
 	if result.ID == 0 {
 		return nil, fmt.Errorf("invalid movie data received from TMDB search")
 	}
-	log.Printf("✅ TMDB: Found movie '%s' (ID: %d) with poster: '%s', backdrop: '%s'", 
+	log.Printf("✅ TMDB: Found movie '%s' (ID: %d) with poster: '%s', backdrop: '%s'",
 		result.Title, result.ID, result.PosterPath, result.BackdropPath)
 	return result, nil
 }
@@ -485,17 +486,17 @@ func (t *TMDBService) GenerateMediaMetadataWithOptions(filePath, title string, o
 		log.Printf("⚠️ Detected bad title with 'Unknown Movie' prefix, using filename instead")
 		originalTitle = filepath.Base(filePath)
 	}
-	
+
 	// Extract year from title if present
 	year := t.extractYear(originalTitle)
 	// cleanTitle := t.cleanTitle(originalTitle)
 	cleanTitle := originalTitle
-	
+
 	// For TMDB search, always remove year from title for better matching
 	// The year will be used as a separate search parameter
 	cleanTitleForSearch := t.removeYearFromTitle(cleanTitle)
 
-	log.Printf("🔍 TMDB Search - Original: '%s', Clean: '%s', Search: '%s', Year: %d", 
+	log.Printf("🔍 TMDB Search - Original: '%s', Clean: '%s', Search: '%s', Year: %d",
 		originalTitle, cleanTitle, cleanTitleForSearch, year)
 
 	// Try multiple search strategies
@@ -534,7 +535,7 @@ func (t *TMDBService) GenerateMediaMetadataWithOptions(filePath, title string, o
 		// Create a minimal detailsWithExtras structure
 		detailsWithExtras = &TMDBMovieDetailsWithExtras{
 			TMDBMovieDetails: *basicDetails,
-			Videos: TMDBVideos{Results: []TMDBVideo{}},
+			Videos:           TMDBVideos{Results: []TMDBVideo{}},
 		}
 		log.Printf("✅ Using basic movie details for '%s' without video data", basicDetails.Title)
 	}
@@ -600,13 +601,13 @@ func (t *TMDBService) GenerateMediaMetadataWithOptions(filePath, title string, o
 	// Build poster and backdrop URLs with validation
 	posterURL := t.buildImageURL(details.PosterPath, "w500")
 	backdropURL := t.buildImageURL(details.BackdropPath, "w1280")
-	
+
 	if posterURL != "" {
 		log.Printf("🖼️ Poster URL for '%s': %s", details.Title, posterURL)
 	} else {
 		log.Printf("⚠️ No valid poster path available for '%s' (path: '%s')", details.Title, details.PosterPath)
 	}
-	
+
 	if backdropURL != "" {
 		log.Printf("🖼️ Backdrop URL for '%s': %s", details.Title, backdropURL)
 	} else {
@@ -617,11 +618,11 @@ func (t *TMDBService) GenerateMediaMetadataWithOptions(filePath, title string, o
 	trailerURL := ""
 	if detailsWithExtras != nil && len(detailsWithExtras.Videos.Results) > 0 {
 		log.Printf("🎬 Processing %d videos for '%s'", len(detailsWithExtras.Videos.Results), details.Title)
-		
+
 		// Look for official trailers first, then any trailers
 		var foundTrailer *TMDBVideo
 		var fallbackTrailer *TMDBVideo
-		
+
 		for _, video := range detailsWithExtras.Videos.Results {
 			if video.Site == "YouTube" && video.Key != "" {
 				if video.Type == "Trailer" {
@@ -639,7 +640,7 @@ func (t *TMDBService) GenerateMediaMetadataWithOptions(filePath, title string, o
 				}
 			}
 		}
-		
+
 		// Use the best trailer found
 		if foundTrailer != nil {
 			trailerURL = fmt.Sprintf("https://www.youtube.com/watch?v=%s", foundTrailer.Key)
@@ -725,13 +726,31 @@ func (t *TMDBService) GenerateMediaMetadataWithOptions(filePath, title string, o
 	}
 
 	// Log enhanced metadata for debugging
-	log.Printf("✅ TMDB metadata for '%s': Budget=%s, Revenue=%s, Rating=%.1f, Runtime=%dm", 
+	log.Printf("✅ TMDB metadata for '%s': Budget=%s, Revenue=%s, Rating=%.1f, Runtime=%dm",
 		details.Title, budgetFormatted, boxOffice, details.VoteAverage, details.Runtime)
-	log.Printf("🔗 URLs for '%s': Poster=%s, Backdrop=%s, Trailer=%s", 
-		details.Title, 
-		func() string { if posterURL != "" { return "✅" } else { return "❌" } }(),
-		func() string { if backdropURL != "" { return "✅" } else { return "❌" } }(),
-		func() string { if trailerURL != "" { return "✅" } else { return "❌" } }())
+	log.Printf("🔗 URLs for '%s': Poster=%s, Backdrop=%s, Trailer=%s",
+		details.Title,
+		func() string {
+			if posterURL != "" {
+				return "✅"
+			} else {
+				return "❌"
+			}
+		}(),
+		func() string {
+			if backdropURL != "" {
+				return "✅"
+			} else {
+				return "❌"
+			}
+		}(),
+		func() string {
+			if trailerURL != "" {
+				return "✅"
+			} else {
+				return "❌"
+			}
+		}())
 
 	// Validate metadata before returning
 	t.validateMetadata(metadata, title)
@@ -765,7 +784,7 @@ func (t *TMDBService) DownloadPoster(title string, mediaID uint, posterDir strin
 		}
 	}
 
-	log.Printf("✅ TMDB: Found movie - ID: %d, Title: '%s', Poster: '%s'", 
+	log.Printf("✅ TMDB: Found movie - ID: %d, Title: '%s', Poster: '%s'",
 		movie.ID, movie.Title, movie.PosterPath)
 
 	// Check if movie has a poster
@@ -784,7 +803,7 @@ func (t *TMDBService) DownloadPoster(title string, mediaID uint, posterDir strin
 	// Generate filename using cleaned title
 	cleanTitleForFile := t.cleanTitleForFilename(cleanTitle)
 	filename := fmt.Sprintf("poster_%s.jpg", cleanTitleForFile)
-	
+
 	// Try root folder first (preferred location)
 	rootPosterPath := filepath.Join("./posters", filename)
 	backendPosterPath := filepath.Join(posterDir, filename)
@@ -833,7 +852,7 @@ func (t *TMDBService) DownloadTVPoster(title string, seriesID uint, posterDir st
 		}
 	}
 
-	log.Printf("✅ TMDB: Found TV series - ID: %d, Name: '%s', Poster: '%s'", 
+	log.Printf("✅ TMDB: Found TV series - ID: %d, Name: '%s', Poster: '%s'",
 		tv.ID, tv.Name, tv.PosterPath)
 
 	// Check if TV series has a poster
@@ -852,7 +871,7 @@ func (t *TMDBService) DownloadTVPoster(title string, seriesID uint, posterDir st
 	// Generate filename using cleaned title
 	cleanTitleForFile := t.cleanTitleForFilename(cleanTitle)
 	filename := fmt.Sprintf("poster_%s.jpg", cleanTitleForFile)
-	
+
 	// Try root folder first (preferred location)
 	rootPosterPath := filepath.Join("./posters", filename)
 	backendPosterPath := filepath.Join(posterDir, filename)
@@ -924,24 +943,24 @@ func (t *TMDBService) cleanTitleForFilename(title string) string {
 	cleaned = strings.ReplaceAll(cleaned, "'", "")
 	cleaned = strings.ReplaceAll(cleaned, "(", "")
 	cleaned = strings.ReplaceAll(cleaned, ")", "")
-	
+
 	// Remove multiple underscores and trim
 	cleaned = regexp.MustCompile(`_+`).ReplaceAllString(cleaned, "_")
 	cleaned = strings.Trim(cleaned, "_")
-	
+
 	// Convert to lowercase for consistency
 	cleaned = strings.ToLower(cleaned)
-	
+
 	// Limit length to avoid filesystem issues
 	if len(cleaned) > 100 {
 		cleaned = cleaned[:100]
 	}
-	
+
 	// Ensure we have something if title was all special characters
 	if cleaned == "" {
 		cleaned = "untitled"
 	}
-	
+
 	return cleaned
 }
 
@@ -950,12 +969,12 @@ func (t *TMDBService) GetPosterURL(posterPath string, size string) string {
 	if posterPath == "" {
 		return ""
 	}
-	
+
 	// Default to w500 if no size specified
 	if size == "" {
 		size = "w500"
 	}
-	
+
 	return "https://image.tmdb.org/t/p/" + size + posterPath
 }
 
@@ -996,9 +1015,9 @@ func (t *TMDBService) CleanTitle(title string) string {
 	if t.isEpisodeFile(title) {
 		return t.cleanEpisodeTitle(title)
 	}
-	
+
 	cleaned := t.cleanTitle(title)
-	
+
 	// Safety check - never return empty title
 	if cleaned == "" || len(strings.TrimSpace(cleaned)) == 0 {
 		// Fallback to simple cleaning
@@ -1006,7 +1025,7 @@ func (t *TMDBService) CleanTitle(title string) string {
 		if fallback != "" && len(strings.TrimSpace(fallback)) > 0 {
 			return fallback
 		}
-		
+
 		// Last resort - return original with basic cleanup
 		basic := strings.TrimSuffix(filepath.Base(title), filepath.Ext(filepath.Base(title)))
 		basic = strings.ReplaceAll(basic, ".", " ")
@@ -1014,15 +1033,15 @@ func (t *TMDBService) CleanTitle(title string) string {
 		basic = strings.ReplaceAll(basic, "-", " ")
 		basic = regexp.MustCompile(`\s+`).ReplaceAllString(basic, " ")
 		basic = strings.TrimSpace(basic)
-		
+
 		if basic != "" {
 			return basic
 		}
-		
+
 		// Absolute fallback
 		return "Unknown Title"
 	}
-	
+
 	return cleaned
 }
 
@@ -1038,19 +1057,19 @@ func (t *TMDBService) removeYearFromTitle(title string) string {
 	// Remove year patterns like (2019), [2019], {2019}
 	bracketYearPattern := regexp.MustCompile(`\s*[\[\(\{]\s*(19\d{2}|20\d{2})\s*[\]\)\}]\s*`)
 	title = bracketYearPattern.ReplaceAllString(title, " ")
-	
+
 	// Remove standalone years at the end of title
 	endYearPattern := regexp.MustCompile(`\s+(19\d{2}|20\d{2})\s*$`)
 	title = endYearPattern.ReplaceAllString(title, "")
-	
+
 	// Remove years surrounded by separators
 	separatorYearPattern := regexp.MustCompile(`\s*[\._\-\s](19\d{2}|20\d{2})[\._\-\s]*`)
 	title = separatorYearPattern.ReplaceAllString(title, " ")
-	
+
 	// Clean up multiple spaces and trim
 	title = regexp.MustCompile(`\s+`).ReplaceAllString(title, " ")
 	title = strings.TrimSpace(title)
-	
+
 	return title
 }
 
@@ -1058,19 +1077,19 @@ func (t *TMDBService) removeYearFromTitle(title string) string {
 func (t *TMDBService) isEpisodeFile(title string) bool {
 	// Check for common episode patterns
 	episodePatterns := []string{
-		`S\d{1,2}E\d{1,2}`,     // S01E01, S1E1
-		`\d{1,2}x\d{1,2}`,      // 1x01, 12x05
-		`Episode\s+\d+`,        // Episode 1, Episode 12
-		`Ep\s*\d+`,             // Ep1, Ep 12
-		`E\d{1,2}`,             // E01, E1
+		`S\d{1,2}E\d{1,2}`, // S01E01, S1E1
+		`\d{1,2}x\d{1,2}`,  // 1x01, 12x05
+		`Episode\s+\d+`,    // Episode 1, Episode 12
+		`Ep\s*\d+`,         // Ep1, Ep 12
+		`E\d{1,2}`,         // E01, E1
 	}
-	
+
 	for _, pattern := range episodePatterns {
 		if matched, _ := regexp.MatchString(`(?i)`+pattern, title); matched {
 			return true
 		}
 	}
-	
+
 	return false
 }
 
@@ -1079,22 +1098,22 @@ func (t *TMDBService) cleanEpisodeTitle(title string) string {
 	// Extract season/episode info first
 	seasonEpisodePattern := regexp.MustCompile(`(?i)(S\d{1,2}E\d{1,2}|\d{1,2}x\d{1,2}|Episode\s+\d+|Ep\s*\d+|E\d{1,2})`)
 	seasonEpisodeMatch := seasonEpisodePattern.FindString(title)
-	
+
 	// Clean the title using standard cleaning
 	cleaned := t.cleanTitle(title)
-	
+
 	// If we found season/episode info and it's not in the cleaned title, append it
 	if seasonEpisodeMatch != "" {
 		// Normalize the season/episode format
 		normalizedSE := strings.ToUpper(seasonEpisodeMatch)
 		normalizedSE = regexp.MustCompile(`\s+`).ReplaceAllString(normalizedSE, "")
-		
+
 		// Check if season/episode info is already in cleaned title
 		if !strings.Contains(strings.ToUpper(cleaned), normalizedSE) {
 			cleaned = cleaned + " " + normalizedSE
 		}
 	}
-	
+
 	return cleaned
 }
 
@@ -1125,7 +1144,7 @@ func (t *TMDBService) cleanTitle(title string) string {
 	// Step 3: Find the main title by looking for the first quality/technical indicator
 	// This is the key improvement - we stop at the FIRST technical indicator
 	titleEndPattern := regexp.MustCompile("(?i)\\s+(\\b(1080p|2160p|720p|480p|4K|8K|UHD|FHD|HD|BluRay|BRRip|BDRip|DVDRip|WEBRip|WEB.DL|WEB|HDTV|HDRip|x264|x265|h264|h265|HEVC|AVC|XviD|10bit|8bit|HDR|AAC|AC3|DTS|5\\.1|7\\.1|YIFY|YTS|RARBG|PSA|ETRG|Hasan)\\b)")
-	
+
 	// Find where the title likely ends
 	titleEndIndex := titleEndPattern.FindStringIndex(baseName)
 	if titleEndIndex != nil {
@@ -1199,7 +1218,7 @@ func (t *TMDBService) cleanTitle(title string) string {
 		// Preserve direct sequel numbers at end of title
 		`\s+\d{1,2}$`,
 	}
-	
+
 	// Mark sequel patterns for preservation
 	var preservedParts []string
 	for _, pattern := range sequelPatterns {
@@ -1207,14 +1226,14 @@ func (t *TMDBService) cleanTitle(title string) string {
 		matches := seqRegex.FindAllString(baseName, -1)
 		preservedParts = append(preservedParts, matches...)
 	}
-	
+
 	log.Printf("🔢 Preserved sequel/number parts: %v", preservedParts)
 
 	// Step 11: Clean up special characters (preserve apostrophes, numbers, and sequel indicators)
 	// Enhanced to preserve more punctuation that might be part of titles
 	specialCharsPattern := regexp.MustCompile(`[^\p{L}\p{N}\s'&:!?.,#-]`)
 	baseName = specialCharsPattern.ReplaceAllString(baseName, " ")
-	
+
 	// Step 11.5: Restore preserved sequel/number parts if they were removed
 	for _, preserved := range preservedParts {
 		if preserved != "" && !strings.Contains(baseName, preserved) {
@@ -1235,11 +1254,11 @@ func (t *TMDBService) cleanTitle(title string) string {
 	// Step 13: If we're left with a very short string or empty, try a fallback approach
 	if len(baseName) <= 2 || baseName == "" {
 		log.Printf("⚠️ Title too short, trying fallback approach...")
-		
+
 		// Fallback: try to extract title from the original filename more conservatively
 		originalBase := filepath.Base(title)
 		originalBase = strings.TrimSuffix(originalBase, filepath.Ext(originalBase))
-		
+
 		// Look for the first major separator or quality indicator
 		fallbackPattern := regexp.MustCompile("(?i)^([^\\[\\(]*?)\\s*[\\[\\(]")
 		matches := fallbackPattern.FindStringSubmatch(originalBase)
@@ -1270,7 +1289,7 @@ func (t *TMDBService) cleanTitle(title string) string {
 					// If it's just a standalone year, stop
 					break
 				}
-				
+
 				titleWords = append(titleWords, word)
 				// Allow more words for complex titles with numbers
 				if len(titleWords) >= 6 {
@@ -1295,7 +1314,7 @@ func (t *TMDBService) cleanTitle(title string) string {
 		fallbackTitle = strings.ReplaceAll(fallbackTitle, "-", " ")
 		fallbackTitle = regexp.MustCompile("\\s+").ReplaceAllString(fallbackTitle, " ")
 		fallbackTitle = strings.TrimSpace(fallbackTitle)
-		
+
 		// If we have something reasonable, use it
 		if len(fallbackTitle) > 2 {
 			baseName = fallbackTitle
@@ -1356,13 +1375,13 @@ func (t *TMDBService) isValidTitle(title string) bool {
 	if title == "" || len(title) <= 2 {
 		return false
 	}
-	
+
 	// Check if title contains at least one letter
 	hasLetter := regexp.MustCompile(`[a-zA-Z]`).MatchString(title)
 	if !hasLetter {
 		return false
 	}
-	
+
 	// Check if title is mostly numbers (probably not a good title)
 	words := strings.Fields(title)
 	numberWords := 0
@@ -1371,25 +1390,25 @@ func (t *TMDBService) isValidTitle(title string) bool {
 			numberWords++
 		}
 	}
-	
+
 	// If more than half the words are numbers, it's probably not a good title
 	if len(words) > 0 && float64(numberWords)/float64(len(words)) > 0.5 {
 		return false
 	}
-	
+
 	// Check for common bad patterns
 	badPatterns := []string{
-		`^[0-9\s]+$`,           // Only numbers and spaces
-		`^[^a-zA-Z]*$`,         // No letters at all
-		`^\s*$`,                // Only whitespace
+		`^[0-9\s]+$`,   // Only numbers and spaces
+		`^[^a-zA-Z]*$`, // No letters at all
+		`^\s*$`,        // Only whitespace
 	}
-	
+
 	for _, pattern := range badPatterns {
 		if matched, _ := regexp.MatchString(pattern, title); matched {
 			return false
 		}
 	}
-	
+
 	return true
 }
 
@@ -1397,12 +1416,12 @@ func (t *TMDBService) isValidTitle(title string) bool {
 func (t *TMDBService) simpleCleanTitle(title string) string {
 	baseName := filepath.Base(title)
 	baseName = strings.TrimSuffix(baseName, filepath.Ext(baseName))
-	
+
 	// Replace separators with spaces
 	baseName = strings.ReplaceAll(baseName, ".", " ")
 	baseName = strings.ReplaceAll(baseName, "_", " ")
 	baseName = strings.ReplaceAll(baseName, "-", " ")
-	
+
 	// Extract year first before cutting
 	yearPattern := regexp.MustCompile(`\b(19|20)\d{2}\b`)
 	yearMatches := yearPattern.FindAllString(baseName, -1)
@@ -1410,20 +1429,20 @@ func (t *TMDBService) simpleCleanTitle(title string) string {
 	if len(yearMatches) > 0 {
 		extractedYear = yearMatches[len(yearMatches)-1]
 	}
-	
+
 	// Find the first occurrence of common quality indicators and cut there
 	cutPattern := regexp.MustCompile(`(?i)\s*(1080p|2160p|720p|4K|HD|BluRay|WEB|x264|x265|YIFY|YTS|RARBG)`)
 	cutIndex := cutPattern.FindStringIndex(baseName)
 	if cutIndex != nil {
 		baseName = baseName[:cutIndex[0]]
 	}
-	
+
 	// Keep year in the title for now (will be handled separately for TMDB search)
-	
+
 	// Clean up spaces
 	baseName = regexp.MustCompile(`\s+`).ReplaceAllString(baseName, " ")
 	baseName = strings.TrimSpace(baseName)
-	
+
 	// Title case
 	if baseName != "" {
 		words := strings.Fields(baseName)
@@ -1434,14 +1453,14 @@ func (t *TMDBService) simpleCleanTitle(title string) string {
 		}
 		baseName = strings.Join(words, " ")
 	}
-	
+
 	// Add year back if we found one and it's not already there
 	if extractedYear != "" && baseName != "" {
 		if !strings.Contains(baseName, extractedYear) {
 			baseName = baseName + " (" + extractedYear + ")"
 		}
 	}
-	
+
 	return baseName
 }
 
@@ -1545,49 +1564,49 @@ func (t *TMDBService) extractYear(title string) int {
 // detectQuality detects video quality from filename and path
 func (t *TMDBService) detectQuality(filePath string) string {
 	filename := strings.ToLower(filepath.Base(filePath))
-	
+
 	// 4K/UHD detection
 	if regexp.MustCompile(`\b(2160p|4K|UHD|4096x2160|3840x2160)\b`).MatchString(filename) {
 		return "4K"
 	}
-	
+
 	// 1440p/QHD detection
 	if regexp.MustCompile(`\b(1440p|QHD|2560x1440)\b`).MatchString(filename) {
 		return "QHD"
 	}
-	
+
 	// 1080p/Full HD detection
 	if regexp.MustCompile(`\b(1080p|FHD|1920x1080)\b`).MatchString(filename) {
 		return "Full HD"
 	}
-	
+
 	// 720p/HD detection
 	if regexp.MustCompile(`\b(720p|HD|1280x720)\b`).MatchString(filename) {
 		return "HD"
 	}
-	
+
 	// 480p/SD detection
 	if regexp.MustCompile(`\b(480p|SD|854x480|640x480)\b`).MatchString(filename) {
 		return "SD"
 	}
-	
+
 	// 360p detection
 	if regexp.MustCompile(`\b(360p|640x360)\b`).MatchString(filename) {
 		return "360p"
 	}
-	
+
 	// Check for BluRay/high quality sources
 	if regexp.MustCompile(`\b(BluRay|BRRip|BDRip)\b`).MatchString(filename) {
 		// If BluRay but no specific resolution, assume HD
 		return "HD"
 	}
-	
+
 	// Check for WEB sources
 	if regexp.MustCompile(`\b(WEBRip|WEB.DL|WEB)\b`).MatchString(filename) {
 		// If WEB but no specific resolution, assume HD
 		return "HD"
 	}
-	
+
 	// Default fallback
 	return "HD"
 }
@@ -1617,7 +1636,7 @@ func (t *TMDBService) GetCastImages(title string, year int) ([]CastMember, []Cre
 		if cast.ProfilePath != "" {
 			imageURL = "https://image.tmdb.org/t/p/w185" + cast.ProfilePath
 		}
-		
+
 		castMembers = append(castMembers, CastMember{
 			ID:        cast.ID,
 			Name:      cast.Name,
@@ -1625,7 +1644,7 @@ func (t *TMDBService) GetCastImages(title string, year int) ([]CastMember, []Cre
 			ImageURL:  imageURL,
 			Order:     cast.Order,
 		})
-		
+
 		// Limit to top 20 cast members to avoid too much data
 		if len(castMembers) >= 20 {
 			break
@@ -1637,7 +1656,7 @@ func (t *TMDBService) GetCastImages(title string, year int) ([]CastMember, []Cre
 	directorJobs := map[string]bool{"Director": true}
 	writerJobs := map[string]bool{"Writer": true, "Screenplay": true, "Story": true}
 	producerJobs := map[string]bool{"Producer": true, "Executive Producer": true}
-	
+
 	for _, crew := range details.Credits.Crew {
 		// Only include key crew roles
 		if directorJobs[crew.Job] || writerJobs[crew.Job] || producerJobs[crew.Job] {
@@ -1645,7 +1664,7 @@ func (t *TMDBService) GetCastImages(title string, year int) ([]CastMember, []Cre
 			if crew.ProfilePath != "" {
 				imageURL = "https://image.tmdb.org/t/p/w185" + crew.ProfilePath
 			}
-			
+
 			crewMembers = append(crewMembers, CrewMember{
 				ID:       crew.ID,
 				Name:     crew.Name,
@@ -1655,7 +1674,7 @@ func (t *TMDBService) GetCastImages(title string, year int) ([]CastMember, []Cre
 		}
 	}
 
-	log.Printf("✅ TMDB: Found %d cast members and %d crew members for '%s'", 
+	log.Printf("✅ TMDB: Found %d cast members and %d crew members for '%s'",
 		len(castMembers), len(crewMembers), title)
 
 	return castMembers, crewMembers, nil
@@ -1680,7 +1699,7 @@ func (t *TMDBService) GetCastImagesByTMDBID(tmdbID int) ([]CastMember, []CrewMem
 		if cast.ProfilePath != "" {
 			imageURL = "https://image.tmdb.org/t/p/w185" + cast.ProfilePath
 		}
-		
+
 		castMembers = append(castMembers, CastMember{
 			ID:        cast.ID,
 			Name:      cast.Name,
@@ -1688,7 +1707,7 @@ func (t *TMDBService) GetCastImagesByTMDBID(tmdbID int) ([]CastMember, []CrewMem
 			ImageURL:  imageURL,
 			Order:     cast.Order,
 		})
-		
+
 		// Limit to top 20 cast members
 		if len(castMembers) >= 20 {
 			break
@@ -1700,14 +1719,14 @@ func (t *TMDBService) GetCastImagesByTMDBID(tmdbID int) ([]CastMember, []CrewMem
 	directorJobs := map[string]bool{"Director": true}
 	writerJobs := map[string]bool{"Writer": true, "Screenplay": true, "Story": true}
 	producerJobs := map[string]bool{"Producer": true, "Executive Producer": true}
-	
+
 	for _, crew := range details.Credits.Crew {
 		if directorJobs[crew.Job] || writerJobs[crew.Job] || producerJobs[crew.Job] {
 			imageURL := ""
 			if crew.ProfilePath != "" {
 				imageURL = "https://image.tmdb.org/t/p/w185" + crew.ProfilePath
 			}
-			
+
 			crewMembers = append(crewMembers, CrewMember{
 				ID:       crew.ID,
 				Name:     crew.Name,
@@ -1775,11 +1794,11 @@ func (t *TMDBService) GetPersonImage(personName string) (string, error) {
 
 // UpcomingMoviesResponse represents the combined response for upcoming movies
 type UpcomingMoviesResponse struct {
-	TrendingDaily   []TMDBMovie `json:"trending_daily"`
-	TrendingWeekly  []TMDBMovie `json:"trending_weekly"`
-	NowPlaying      []TMDBMovie `json:"now_playing"`
-	Upcoming        []TMDBMovie `json:"upcoming"`
-	CachedAt        time.Time   `json:"cached_at"`
+	TrendingDaily  []TMDBMovie `json:"trending_daily"`
+	TrendingWeekly []TMDBMovie `json:"trending_weekly"`
+	NowPlaying     []TMDBMovie `json:"now_playing"`
+	Upcoming       []TMDBMovie `json:"upcoming"`
+	CachedAt       time.Time   `json:"cached_at"`
 }
 
 // GetUpcomingMovies fetches trending, now-playing, and upcoming movies from TMDB
@@ -1945,6 +1964,265 @@ func (t *TMDBService) fetchUpcomingMovies() ([]TMDBMovie, error) {
 	return searchResp.Results, nil
 }
 
+// GetNowPlayingMovies returns movies currently playing in theaters (public wrapper)
+func (t *TMDBService) GetNowPlayingMovies(page int) ([]TMDBMovie, error) {
+	if page <= 0 {
+		page = 1
+	}
+	
+	requestURL := fmt.Sprintf("%s/movie/now_playing", t.baseURL)
+	params := url.Values{}
+	params.Add("language", "en-US")
+	params.Add("page", strconv.Itoa(page))
+
+	req, err := http.NewRequest("GET", requestURL+"?"+params.Encode(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Authorization", "Bearer "+t.apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := t.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("TMDB API error: %d", resp.StatusCode)
+	}
+
+	var searchResp TMDBSearchResponse
+	if err := json.NewDecoder(resp.Body).Decode(&searchResp); err != nil {
+		return nil, err
+	}
+
+	log.Printf("✅ TMDB: Retrieved %d now playing movies (page %d)", len(searchResp.Results), page)
+	return searchResp.Results, nil
+}
+
+// GetUpcomingMoviesList returns upcoming movie releases (public wrapper)
+func (t *TMDBService) GetUpcomingMoviesList(page int) ([]TMDBMovie, error) {
+	if page <= 0 {
+		page = 1
+	}
+	
+	requestURL := fmt.Sprintf("%s/movie/upcoming", t.baseURL)
+	params := url.Values{}
+	params.Add("language", "en-US")
+	params.Add("page", strconv.Itoa(page))
+
+	req, err := http.NewRequest("GET", requestURL+"?"+params.Encode(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Authorization", "Bearer "+t.apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := t.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("TMDB API error: %d", resp.StatusCode)
+	}
+
+	var searchResp TMDBSearchResponse
+	if err := json.NewDecoder(resp.Body).Decode(&searchResp); err != nil {
+		return nil, err
+	}
+
+	log.Printf("✅ TMDB: Retrieved %d upcoming movies (page %d)", len(searchResp.Results), page)
+	return searchResp.Results, nil
+}
+
+// GetLatestMovie returns the most recently added movie to TMDB
+func (t *TMDBService) GetLatestMovie() (*TMDBMovieDetails, error) {
+	if t.apiKey == "" {
+		return nil, fmt.Errorf("TMDB API key not configured")
+	}
+
+	requestURL := fmt.Sprintf("%s/movie/latest", t.baseURL)
+
+	req, err := http.NewRequest("GET", requestURL, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Authorization", "Bearer "+t.apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := t.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("TMDB API error: %d", resp.StatusCode)
+	}
+
+	var movie TMDBMovieDetails
+	if err := json.NewDecoder(resp.Body).Decode(&movie); err != nil {
+		return nil, err
+	}
+
+	log.Printf("✅ TMDB: Retrieved latest movie: %s (ID: %d)", movie.Title, movie.ID)
+	return &movie, nil
+}
+
+// GetPopularMovies returns currently popular movies
+func (t *TMDBService) GetPopularMovies(page int) ([]TMDBMovie, error) {
+	if t.apiKey == "" {
+		return nil, fmt.Errorf("TMDB API key not configured")
+	}
+
+	if page <= 0 {
+		page = 1
+	}
+
+	requestURL := fmt.Sprintf("%s/movie/popular", t.baseURL)
+	params := url.Values{}
+	params.Add("language", "en-US")
+	params.Add("page", strconv.Itoa(page))
+
+	req, err := http.NewRequest("GET", requestURL+"?"+params.Encode(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Authorization", "Bearer "+t.apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := t.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("TMDB API error: %d", resp.StatusCode)
+	}
+
+	var searchResp TMDBSearchResponse
+	if err := json.NewDecoder(resp.Body).Decode(&searchResp); err != nil {
+		return nil, err
+	}
+
+	log.Printf("✅ TMDB: Retrieved %d popular movies (page %d)", len(searchResp.Results), page)
+	return searchResp.Results, nil
+}
+
+// DiscoverMovies provides advanced filtered/sorted movie discovery
+func (t *TMDBService) DiscoverMovies(params map[string]string) ([]TMDBMovie, error) {
+	if t.apiKey == "" {
+		return nil, fmt.Errorf("TMDB API key not configured")
+	}
+
+	requestURL := fmt.Sprintf("%s/discover/movie", t.baseURL)
+	urlParams := url.Values{}
+	
+	// Add all provided parameters
+	for key, value := range params {
+		urlParams.Add(key, value)
+	}
+
+	// Set default language if not provided
+	if _, ok := params["language"]; !ok {
+		urlParams.Add("language", "en-US")
+	}
+
+	// Set default page if not provided
+	if _, ok := params["page"]; !ok {
+		urlParams.Add("page", "1")
+	}
+
+	req, err := http.NewRequest("GET", requestURL+"?"+urlParams.Encode(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Authorization", "Bearer "+t.apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := t.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("TMDB API error: %d", resp.StatusCode)
+	}
+
+	var searchResp TMDBSearchResponse
+	if err := json.NewDecoder(resp.Body).Decode(&searchResp); err != nil {
+		return nil, err
+	}
+
+	log.Printf("✅ TMDB: Discovered %d movies with filters", len(searchResp.Results))
+	return searchResp.Results, nil
+}
+
+// TMDBImage represents a single image from TMDB
+type TMDBImage struct {
+	AspectRatio float64 `json:"aspect_ratio"`
+	FilePath    string  `json:"file_path"`
+	Height      int     `json:"height"`
+	ISO6391     string  `json:"iso_639_1"`
+	VoteAverage float64 `json:"vote_average"`
+	VoteCount   int     `json:"vote_count"`
+	Width       int     `json:"width"`
+}
+
+// TMDBImagesResponse represents the images response from TMDB
+type TMDBImagesResponse struct {
+	ID        int         `json:"id"`
+	Backdrops []TMDBImage `json:"backdrops"`
+	Logos     []TMDBImage `json:"logos"`
+	Posters   []TMDBImage `json:"posters"`
+}
+
+// GetMovieImages returns posters, backdrops, and logos for a movie
+func (t *TMDBService) GetMovieImages(movieID int) (*TMDBImagesResponse, error) {
+	if t.apiKey == "" {
+		return nil, fmt.Errorf("TMDB API key not configured")
+	}
+
+	requestURL := fmt.Sprintf("%s/movie/%d/images", t.baseURL, movieID)
+
+	req, err := http.NewRequest("GET", requestURL, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Authorization", "Bearer "+t.apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := t.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("TMDB API error: %d", resp.StatusCode)
+	}
+
+	var images TMDBImagesResponse
+	if err := json.NewDecoder(resp.Body).Decode(&images); err != nil {
+		return nil, err
+	}
+
+	log.Printf("✅ TMDB: Retrieved images for movie %d: %d backdrops, %d logos, %d posters",
+		movieID, len(images.Backdrops), len(images.Logos), len(images.Posters))
+	return &images, nil
+}
+
 // ConvertMovieDetailsToMetadata converts TMDB movie details to MediaMetadata format
 func (t *TMDBService) ConvertMovieDetailsToMetadata(details *TMDBMovieDetailsWithExtras) *interfaces.MediaMetadata {
 	if details == nil {
@@ -2018,7 +2296,7 @@ func (t *TMDBService) ConvertMovieDetailsToMetadata(details *TMDBMovieDetailsWit
 		// Look for official trailers first, then any trailers
 		var foundTrailer *TMDBVideo
 		var fallbackTrailer *TMDBVideo
-		
+
 		for _, video := range details.Videos.Results {
 			if video.Site == "YouTube" && video.Key != "" {
 				if video.Type == "Trailer" {
@@ -2036,7 +2314,7 @@ func (t *TMDBService) ConvertMovieDetailsToMetadata(details *TMDBMovieDetailsWit
 				}
 			}
 		}
-		
+
 		// Use the best trailer found
 		if foundTrailer != nil {
 			trailerURL = fmt.Sprintf("https://www.youtube.com/watch?v=%s", foundTrailer.Key)
@@ -2094,23 +2372,21 @@ func (t *TMDBService) ConvertMovieDetailsToMetadata(details *TMDBMovieDetailsWit
 	}
 }
 
-
-
 // TMDBSearchResult represents a unified search result for both movies and TV shows
 type TMDBSearchResult struct {
-	ID           int     `json:"id"`
-	Title        string  `json:"title"`        // For movies, this will be the title; for TV shows, this will be the name
-	OriginalTitle string `json:"original_title"`
-	Overview     string  `json:"overview"`
-	ReleaseDate  string  `json:"release_date"` // For movies: release_date, for TV: first_air_date
-	PosterPath   string  `json:"poster_path"`
-	BackdropPath string  `json:"backdrop_path"`
-	VoteAverage  float64 `json:"vote_average"`
-	VoteCount    int     `json:"vote_count"`
-	Popularity   float64 `json:"popularity"`
-	MediaType    string  `json:"media_type"`   // "movie" or "tv"
-	Adult        bool    `json:"adult"`
-	GenreIDs     []int   `json:"genre_ids"`
+	ID            int     `json:"id"`
+	Title         string  `json:"title"` // For movies, this will be the title; for TV shows, this will be the name
+	OriginalTitle string  `json:"original_title"`
+	Overview      string  `json:"overview"`
+	ReleaseDate   string  `json:"release_date"` // For movies: release_date, for TV: first_air_date
+	PosterPath    string  `json:"poster_path"`
+	BackdropPath  string  `json:"backdrop_path"`
+	VoteAverage   float64 `json:"vote_average"`
+	VoteCount     int     `json:"vote_count"`
+	Popularity    float64 `json:"popularity"`
+	MediaType     string  `json:"media_type"` // "movie" or "tv"
+	Adult         bool    `json:"adult"`
+	GenreIDs      []int   `json:"genre_ids"`
 }
 
 // TMDBMultiSearchResponse represents the response from TMDB's multi search endpoint
@@ -2123,30 +2399,30 @@ type TMDBMultiSearchResponse struct {
 
 // TMDBRawSearchResult represents the raw response from TMDB API before normalization
 type TMDBRawSearchResult struct {
-	ID               int     `json:"id"`
-	Title            string  `json:"title,omitempty"`            // Movies only
-	Name             string  `json:"name,omitempty"`             // TV shows only
-	OriginalTitle    string  `json:"original_title,omitempty"`   // Movies only
-	OriginalName     string  `json:"original_name,omitempty"`    // TV shows only
-	Overview         string  `json:"overview"`
-	ReleaseDate      string  `json:"release_date,omitempty"`     // Movies only
-	FirstAirDate     string  `json:"first_air_date,omitempty"`   // TV shows only
-	PosterPath       string  `json:"poster_path"`
-	BackdropPath     string  `json:"backdrop_path"`
-	VoteAverage      float64 `json:"vote_average"`
-	VoteCount        int     `json:"vote_count"`
-	Popularity       float64 `json:"popularity"`
-	MediaType        string  `json:"media_type"`
-	Adult            bool    `json:"adult"`
-	GenreIDs         []int   `json:"genre_ids"`
+	ID            int     `json:"id"`
+	Title         string  `json:"title,omitempty"`          // Movies only
+	Name          string  `json:"name,omitempty"`           // TV shows only
+	OriginalTitle string  `json:"original_title,omitempty"` // Movies only
+	OriginalName  string  `json:"original_name,omitempty"`  // TV shows only
+	Overview      string  `json:"overview"`
+	ReleaseDate   string  `json:"release_date,omitempty"`   // Movies only
+	FirstAirDate  string  `json:"first_air_date,omitempty"` // TV shows only
+	PosterPath    string  `json:"poster_path"`
+	BackdropPath  string  `json:"backdrop_path"`
+	VoteAverage   float64 `json:"vote_average"`
+	VoteCount     int     `json:"vote_count"`
+	Popularity    float64 `json:"popularity"`
+	MediaType     string  `json:"media_type"`
+	Adult         bool    `json:"adult"`
+	GenreIDs      []int   `json:"genre_ids"`
 }
 
 // TMDBRawMultiSearchResponse represents the raw response from TMDB's multi search endpoint
 type TMDBRawMultiSearchResponse struct {
-	Page         int                     `json:"page"`
-	Results      []TMDBRawSearchResult   `json:"results"`
-	TotalPages   int                     `json:"total_pages"`
-	TotalResults int                     `json:"total_results"`
+	Page         int                   `json:"page"`
+	Results      []TMDBRawSearchResult `json:"results"`
+	TotalPages   int                   `json:"total_pages"`
+	TotalResults int                   `json:"total_results"`
 }
 
 // SearchMulti searches for both movies and TV shows using TMDB's multi search endpoint
@@ -2237,7 +2513,7 @@ func (t *TMDBService) SearchMulti(query string, page int) (*TMDBMultiSearchRespo
 		TotalResults: len(normalizedResults), // Use filtered count
 	}
 
-	log.Printf("🔍 TMDB Multi Search for '%s': Found %d results (%d movies/TV shows)", 
+	log.Printf("🔍 TMDB Multi Search for '%s': Found %d results (%d movies/TV shows)",
 		query, len(normalizedResults), len(normalizedResults))
 
 	return searchResp, nil
@@ -2347,10 +2623,10 @@ type TMDBRelatedResponse struct {
 
 // TMDBTVRelatedResponse represents the response for similar/recommended TV content
 type TMDBTVRelatedResponse struct {
-	Page         int       `json:"page"`
-	Results      []TMDBTV  `json:"results"`
-	TotalPages   int       `json:"total_pages"`
-	TotalResults int       `json:"total_results"`
+	Page         int      `json:"page"`
+	Results      []TMDBTV `json:"results"`
+	TotalPages   int      `json:"total_pages"`
+	TotalResults int      `json:"total_results"`
 }
 
 // GetSimilarMovies fetches movies similar to the given movie ID
@@ -2522,7 +2798,8 @@ func (t *TMDBService) GetRecommendedTVShows(tvID int, page int) (*TMDBTVRelatedR
 }
 
 // GetRelatedMedia fetches both similar and recommended content for movies or TV shows
-func (t *TMDBService) GetRelatedMedia(mediaID int, mediaType string, limit int) ([]TMDBSearchResult, error) {
+// If releaseYear > 0, it will filter and prioritize results from around that year (±2 years)
+func (t *TMDBService) GetRelatedMedia(mediaID int, mediaType string, limit int, releaseYear int) ([]TMDBSearchResult, error) {
 	if t.apiKey == "" {
 		return nil, fmt.Errorf("TMDB API key not configured")
 	}
@@ -2532,7 +2809,7 @@ func (t *TMDBService) GetRelatedMedia(mediaID int, mediaType string, limit int) 
 	}
 
 	var allResults []TMDBSearchResult
-	
+
 	if mediaType == "movie" {
 		// Get similar movies
 		similar, err := t.GetSimilarMovies(mediaID, 1)
@@ -2542,19 +2819,19 @@ func (t *TMDBService) GetRelatedMedia(mediaID int, mediaType string, limit int) 
 					break
 				}
 				result := TMDBSearchResult{
-					ID:           movie.ID,
-					Title:        movie.Title,
+					ID:            movie.ID,
+					Title:         movie.Title,
 					OriginalTitle: movie.OriginalTitle,
-					Overview:     movie.Overview,
-					ReleaseDate:  movie.ReleaseDate,
-					PosterPath:   movie.PosterPath,
-					BackdropPath: movie.BackdropPath,
-					VoteAverage:  movie.VoteAverage,
-					VoteCount:    movie.VoteCount,
-					Popularity:   movie.Popularity,
-					MediaType:    "movie",
-					Adult:        movie.Adult,
-					GenreIDs:     movie.GenreIDs,
+					Overview:      movie.Overview,
+					ReleaseDate:   movie.ReleaseDate,
+					PosterPath:    movie.PosterPath,
+					BackdropPath:  movie.BackdropPath,
+					VoteAverage:   movie.VoteAverage,
+					VoteCount:     movie.VoteCount,
+					Popularity:    movie.Popularity,
+					MediaType:     "movie",
+					Adult:         movie.Adult,
+					GenreIDs:      movie.GenreIDs,
 				}
 				allResults = append(allResults, result)
 			}
@@ -2578,19 +2855,19 @@ func (t *TMDBService) GetRelatedMedia(mediaID int, mediaType string, limit int) 
 					}
 					if !exists {
 						result := TMDBSearchResult{
-							ID:           movie.ID,
-							Title:        movie.Title,
+							ID:            movie.ID,
+							Title:         movie.Title,
 							OriginalTitle: movie.OriginalTitle,
-							Overview:     movie.Overview,
-							ReleaseDate:  movie.ReleaseDate,
-							PosterPath:   movie.PosterPath,
-							BackdropPath: movie.BackdropPath,
-							VoteAverage:  movie.VoteAverage,
-							VoteCount:    movie.VoteCount,
-							Popularity:   movie.Popularity,
-							MediaType:    "movie",
-							Adult:        movie.Adult,
-							GenreIDs:     movie.GenreIDs,
+							Overview:      movie.Overview,
+							ReleaseDate:   movie.ReleaseDate,
+							PosterPath:    movie.PosterPath,
+							BackdropPath:  movie.BackdropPath,
+							VoteAverage:   movie.VoteAverage,
+							VoteCount:     movie.VoteCount,
+							Popularity:    movie.Popularity,
+							MediaType:     "movie",
+							Adult:         movie.Adult,
+							GenreIDs:      movie.GenreIDs,
 						}
 						allResults = append(allResults, result)
 					}
@@ -2606,19 +2883,19 @@ func (t *TMDBService) GetRelatedMedia(mediaID int, mediaType string, limit int) 
 					break
 				}
 				result := TMDBSearchResult{
-					ID:           tv.ID,
-					Title:        tv.Name,
+					ID:            tv.ID,
+					Title:         tv.Name,
 					OriginalTitle: tv.OriginalName,
-					Overview:     tv.Overview,
-					ReleaseDate:  tv.FirstAirDate,
-					PosterPath:   tv.PosterPath,
-					BackdropPath: tv.BackdropPath,
-					VoteAverage:  tv.VoteAverage,
-					VoteCount:    tv.VoteCount,
-					Popularity:   tv.Popularity,
-					MediaType:    "tv",
-					Adult:        tv.Adult,
-					GenreIDs:     tv.GenreIDs,
+					Overview:      tv.Overview,
+					ReleaseDate:   tv.FirstAirDate,
+					PosterPath:    tv.PosterPath,
+					BackdropPath:  tv.BackdropPath,
+					VoteAverage:   tv.VoteAverage,
+					VoteCount:     tv.VoteCount,
+					Popularity:    tv.Popularity,
+					MediaType:     "tv",
+					Adult:         tv.Adult,
+					GenreIDs:      tv.GenreIDs,
 				}
 				allResults = append(allResults, result)
 			}
@@ -2642,19 +2919,19 @@ func (t *TMDBService) GetRelatedMedia(mediaID int, mediaType string, limit int) 
 					}
 					if !exists {
 						result := TMDBSearchResult{
-							ID:           tv.ID,
-							Title:        tv.Name,
+							ID:            tv.ID,
+							Title:         tv.Name,
 							OriginalTitle: tv.OriginalName,
-							Overview:     tv.Overview,
-							ReleaseDate:  tv.FirstAirDate,
-							PosterPath:   tv.PosterPath,
-							BackdropPath: tv.BackdropPath,
-							VoteAverage:  tv.VoteAverage,
-							VoteCount:    tv.VoteCount,
-							Popularity:   tv.Popularity,
-							MediaType:    "tv",
-							Adult:        tv.Adult,
-							GenreIDs:     tv.GenreIDs,
+							Overview:      tv.Overview,
+							ReleaseDate:   tv.FirstAirDate,
+							PosterPath:    tv.PosterPath,
+							BackdropPath:  tv.BackdropPath,
+							VoteAverage:   tv.VoteAverage,
+							VoteCount:     tv.VoteCount,
+							Popularity:    tv.Popularity,
+							MediaType:     "tv",
+							Adult:         tv.Adult,
+							GenreIDs:      tv.GenreIDs,
 						}
 						allResults = append(allResults, result)
 					}
@@ -2663,7 +2940,86 @@ func (t *TMDBService) GetRelatedMedia(mediaID int, mediaType string, limit int) 
 		}
 	}
 
-	log.Printf("✅ TMDB: Found %d related %s items for ID %d", len(allResults), mediaType, mediaID)
+	// Apply year-based filtering and sorting if year is provided
+	if releaseYear > 0 {
+		log.Printf("🗓️ TMDB: Sorting related media by proximity to year %d", releaseYear)
+		
+		// Score results by year proximity but DON'T filter them out
+		type scoredResult struct {
+			result   TMDBSearchResult
+			yearDiff int // Absolute difference from target year
+		}
+		
+		var scored []scoredResult
+		for _, result := range allResults {
+			var resultYear int
+			if result.ReleaseDate != "" {
+				// Extract year from release date (format: YYYY-MM-DD)
+				if parsedTime, err := time.Parse("2006-01-02", result.ReleaseDate); err == nil {
+					resultYear = parsedTime.Year()
+				} else {
+					// Try parsing just the year
+					fmt.Sscanf(result.ReleaseDate[:4], "%d", &resultYear)
+				}
+			}
+			
+			yearDiff := 999 // Default high value for items without dates
+			if resultYear > 0 {
+				yearDiff = resultYear - releaseYear
+				if yearDiff < 0 {
+					yearDiff = -yearDiff // Absolute value
+				}
+			}
+			
+			scored = append(scored, scoredResult{
+				result:   result,
+				yearDiff: yearDiff,
+			})
+		}
+		
+		// Sort by year proximity (closest to target year first), then by popularity
+		sort.Slice(scored, func(i, j int) bool {
+			// Primary sort: year difference (smaller = closer)
+			if scored[i].yearDiff != scored[j].yearDiff {
+				return scored[i].yearDiff < scored[j].yearDiff
+			}
+			// Secondary sort: popularity (higher = better)
+			return scored[i].result.Popularity > scored[j].result.Popularity
+		})
+		
+		// Rebuild allResults from scored results
+		allResults = make([]TMDBSearchResult, 0, len(scored))
+		for _, s := range scored {
+			allResults = append(allResults, s.result)
+		}
+		
+		log.Printf("✅ TMDB: Found %d related %s items for ID %d (sorted by proximity to year %d)", 
+			len(allResults), mediaType, mediaID, releaseYear)
+	} else {
+		// Original behavior: Sort results by release date (most recent first)
+		sort.Slice(allResults, func(i, j int) bool {
+			dateI := allResults[i].ReleaseDate
+			dateJ := allResults[j].ReleaseDate
+
+			// Handle empty dates - push them to the end
+			if dateI == "" && dateJ == "" {
+				return false
+			}
+			if dateI == "" {
+				return false
+			}
+			if dateJ == "" {
+				return true
+			}
+
+			// Parse dates and compare (newer dates come first)
+			return dateI > dateJ
+		})
+		
+		log.Printf("✅ TMDB: Found %d related %s items for ID %d (sorted by release date)", 
+			len(allResults), mediaType, mediaID)
+	}
+
 	return allResults, nil
 }
 
@@ -2696,7 +3052,7 @@ func (t *TMDBService) buildImageURL(path, size string) string {
 // validateMetadata performs final validation on metadata before returning
 func (t *TMDBService) validateMetadata(metadata *interfaces.MediaMetadata, title string) {
 	issues := []string{}
-	
+
 	if metadata.PosterURL == "" {
 		issues = append(issues, "missing poster URL")
 	}
@@ -2712,7 +3068,7 @@ func (t *TMDBService) validateMetadata(metadata *interfaces.MediaMetadata, title
 	if metadata.Year == 0 {
 		issues = append(issues, "missing year")
 	}
-	
+
 	if len(issues) > 0 {
 		log.Printf("⚠️ Metadata validation for '%s': %s", title, strings.Join(issues, ", "))
 	} else {
@@ -2891,5 +3247,3 @@ func (t *TMDBService) fetchTrendingTVShows(timeWindow string) ([]TMDBTV, error) 
 
 	return searchResp.Results, nil
 }
-
-

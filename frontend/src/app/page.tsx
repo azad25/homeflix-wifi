@@ -115,13 +115,13 @@ export default function Home() {
             const ratingScoreB = (b.rating || 0) * 10;
             const yearScoreA = ((a.year || 0) >= currentYear - 2) ? 25 : ((a.year || 0) >= currentYear - 5) ? 15 : 0;
             const yearScoreB = ((b.year || 0) >= currentYear - 2) ? 25 : ((b.year || 0) >= currentYear - 5) ? 15 : 0;
-            const genreScoreA = (a.genres || []).some(g => 
+            const genreScoreA = (a.genres || []).some(g =>
               ['Action', 'Drama', 'Comedy', 'Sci-Fi'].includes(g.name)
             ) ? 10 : 0;
-            const genreScoreB = (b.genres || []).some(g => 
+            const genreScoreB = (b.genres || []).some(g =>
               ['Action', 'Drama', 'Comedy', 'Sci-Fi'].includes(g.name)
             ) ? 10 : 0;
-            
+
             const totalScoreA = viewScoreA + ratingScoreA + yearScoreA + genreScoreA;
             const totalScoreB = viewScoreB + ratingScoreB + yearScoreB + genreScoreB;
             return totalScoreB - totalScoreA;
@@ -132,16 +132,16 @@ export default function Home() {
 
       // Popular series (most viewed TV shows) - Group episodes into series
       const tvEpisodes = allMedia.filter((item: Media) => item.type === "episode");
-      
+
       // Build series groups from episodes (same logic as TV shows page)
       const seriesMap = new Map<string | number, any>();
       tvEpisodes.forEach((ep: Media) => {
         // Extract series ID - prefer series_id, fallback to extracting from title
         const sid = ep.series_id ?? ep.series?.id ?? extractSeriesIdFromTitle(ep.title) ?? ep.id;
-        
+
         // Clean series title - remove episode info and technical prefixes
         let seriesTitle = ep.series?.title || ep.title || 'Untitled Series';
-        
+
         // Remove episode patterns like "- S01E01", "S1E1", "Episode 1", etc.
         seriesTitle = seriesTitle
           .replace(/\s*-\s*S\d+E\d+.*$/i, '')
@@ -179,7 +179,7 @@ export default function Home() {
         group.episodes.push(ep);
         // Sum up view counts from all episodes for series popularity
         group.view_count += (ep.view_count || 0);
-        
+
         // Update rating to average of all episodes
         const totalRating = group.episodes.reduce((sum: number, episode: Media) => sum + (episode.rating || 0), 0);
         group.rating = totalRating / group.episodes.length;
@@ -194,7 +194,7 @@ export default function Home() {
           /^(.+?)\s*Season\s+\d+/i,
           /^(.+?)\s*Episode\s+\d+/i,
         ];
-        
+
         for (const pattern of patterns) {
           const match = title.match(pattern);
           if (match) {
@@ -208,7 +208,7 @@ export default function Home() {
       const popularSeries = Array.from(seriesMap.values())
         .sort((a, b) => (b.view_count || 0) - (a.view_count || 0))
         .slice(0, 20);
-      
+
       setPopularSeries(popularSeries);
 
       // Trending now - use enhanced API endpoint with mixed criteria (views, genres, latest year, high rating)
@@ -229,15 +229,15 @@ export default function Home() {
           .sort((a: Media, b: Media) => {
             const yearBoostA = ((a.year || 0) >= currentYear - 1) ? 50 : ((a.year || 0) >= currentYear - 3) ? 25 : 0;
             const yearBoostB = ((b.year || 0) >= currentYear - 1) ? 50 : ((b.year || 0) >= currentYear - 3) ? 25 : 0;
-            const genreBoostA = (a.genres || []).some(g => 
-              g.name.toLowerCase().includes('action') || 
-              g.name.toLowerCase().includes('sci-fi') || 
+            const genreBoostA = (a.genres || []).some(g =>
+              g.name.toLowerCase().includes('action') ||
+              g.name.toLowerCase().includes('sci-fi') ||
               g.name.toLowerCase().includes('science') ||
               g.name.toLowerCase().includes('thriller')
             ) ? 20 : 0;
-            const genreBoostB = (b.genres || []).some(g => 
-              g.name.toLowerCase().includes('action') || 
-              g.name.toLowerCase().includes('sci-fi') || 
+            const genreBoostB = (b.genres || []).some(g =>
+              g.name.toLowerCase().includes('action') ||
+              g.name.toLowerCase().includes('sci-fi') ||
               g.name.toLowerCase().includes('science') ||
               g.name.toLowerCase().includes('thriller')
             ) ? 20 : 0;
@@ -245,7 +245,7 @@ export default function Home() {
             const viewBoostB = (b.view_count || 0) * 0.2;
             const ratingBoostA = (a.rating || 0) * 8;
             const ratingBoostB = (b.rating || 0) * 8;
-            
+
             const scoreA = viewBoostA + ratingBoostA + yearBoostA + genreBoostA;
             const scoreB = viewBoostB + ratingBoostB + yearBoostB + genreBoostB;
             return scoreB - scoreA;
@@ -496,15 +496,18 @@ export default function Home() {
             />
           </div>
         ) : (
-          <div className="space-y-2 pb-32" style={{ overflow: 'visible', transformStyle: 'preserve-3d' }}>
-            {/* Continue Watching */}
-            <RecentlyWatched
-              onPlay={handlePlay}
-              onInfo={handleInfo}
-            />
+          <div className="space-y-2 pb-10" style={{ overflow: 'visible', transformStyle: 'preserve-3d' }}>
+
+            <div className="px-4 md:px-8">
+              {/* Continue Watching */}
+              <RecentlyWatched
+                onPlay={handlePlay}
+                onInfo={handleInfo}
+              />
+            </div>
 
             {/* TMDB Upcoming Movies - Now Playing in Theaters */}
-            <UpcomingMovies 
+            <UpcomingMovies
               showSection="now_playing"
               maxItems={15}
               className="px-4 md:px-8"
@@ -611,42 +614,42 @@ export default function Home() {
             )}
 
             {/* TMDB Coming Soon */}
-            <UpcomingMovies 
+            <UpcomingMovies
               showSection="upcoming"
               maxItems={12}
               className="px-4 md:px-8"
             />
 
             {/* TMDB Trending This Week */}
-            <UpcomingMovies 
+            <UpcomingMovies
               showSection="trending_weekly"
               maxItems={10}
               className="px-4 md:px-8"
             />
 
             {/* TMDB Trending Daily - Bottom Section */}
-            <UpcomingMovies 
+            <UpcomingMovies
               showSection="trending_daily"
               maxItems={15}
               className="px-4 md:px-8"
             />
 
             {/* TV Series - Airing Today */}
-            <UpcomingTVSeries 
+            <UpcomingTVSeries
               showSection="airing_today"
               maxItems={15}
               className="px-4 md:px-8"
             />
 
             {/* TV Series - On the Air */}
-            <UpcomingTVSeries 
+            <UpcomingTVSeries
               showSection="on_the_air"
               maxItems={12}
               className="px-4 md:px-8"
             />
 
             {/* TV Series - Trending Daily */}
-            <UpcomingTVSeries 
+            <UpcomingTVSeries
               showSection="trending_daily"
               maxItems={10}
               className="px-4 md:px-8"

@@ -272,12 +272,19 @@ const NetflixCard: React.FC<NetflixCardProps> = ({
         {/* Gradient Overlay */}
         <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
 
-        {/* Priority Genre Badge */}
-        {hasPriorityGenres(media) && (
-          <div className="absolute top-2 left-2 bg-red-600 text-white text-xs px-2 py-1 rounded-md font-semibold">
-            FEATURED
-          </div>
-        )}
+        {/* Top Left Badges */}
+        <div className="absolute top-2 left-2 flex flex-col gap-2 items-start z-20">
+          {media.quality && (
+            <div className="border border-white/50 text-white text-[10px] px-1.5 py-0.5 rounded font-medium backdrop-blur-sm shadow-sm">
+              {media.quality.includes('2160') || media.quality.toLowerCase().includes('4k') ? '4K' : 'HD'}
+            </div>
+          )}
+          {hasPriorityGenres(media) && (
+            <div className="bg-red-600 text-white text-xs px-2 py-1 rounded-md font-semibold shadow-sm">
+              FEATURED
+            </div>
+          )}
+        </div>
 
         {/* New Content Badge */}
         {isNewlyAdded(media) && (

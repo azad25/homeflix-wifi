@@ -281,7 +281,7 @@ const EnhancedMovieCard: React.FC<EnhancedMovieCardProps> = ({
 
           {/* Quality Badge - Top Right */}
           <div className="absolute top-3 right-3 z-10">
-            <span className={`${getQualityBadge().color} text-white text-xs px-2 py-1 rounded-md font-bold shadow-lg`}>
+            <span className="border border-white/50 text-white text-[10px] px-1.5 py-0.5 rounded font-medium backdrop-blur-sm shadow-lg">
               {getQualityBadge().text}
             </span>
           </div>

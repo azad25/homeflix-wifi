@@ -87,8 +87,7 @@ interface TorrentDashboardProps {
 const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
   const [activeTab, setActiveTab] = useState<'search' | 'downloads' | 'config'>('search');
   const [searchResults, setSearchResults] = useState<TorrentResult[]>([]);
-  const [allDownloads, setAllDownloads] = useState<DownloadInfo[]>([]); // All downloads from API
-  const [downloads, setDownloads] = useState<DownloadInfo[]>([]); // Filtered and paginated downloads
+  const [downloads, setDownloads] = useState<DownloadInfo[]>([]); // Server-side paginated downloads
   const [config, setConfig] = useState<TorrentConfig | null>(null);
   const [loading, setLoading] = useState(false);
   const [searchLoading, setSearchLoading] = useState(false);
@@ -124,46 +123,44 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
     }
   }, [mediaInfo]);
 
-  // Reset to page 1 when filters change
-  useEffect(() => {
+  // Fetch downloads function with useCallback to avoid stale closures
+  const fetchDownloads = React.useCallback(async () => {
+    try {
+      const apiUrl = getApiUrl();
+      const params = new URLSearchParams({
+        page: currentPage.toString(),
+        limit: itemsPerPage.toString(),
+        ...(downloadSearchQuery && { search: downloadSearchQuery }),
+        ...(statusFilter && { status: statusFilter })
+      });
+
+      const response = await fetch(`${apiUrl}/api/torrent/downloads?${params}`);
+      if (response.ok) {
+        const data = await response.json();
+        setDownloads(data.downloads || []);
+
+        // Update pagination info from backend response
+        if (data.pagination) {
+          setTotalCount(data.pagination.total_count);
+          setTotalPages(data.pagination.total_pages);
+          setHasNext(data.pagination.has_next);
+          setHasPrev(data.pagination.has_prev);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to fetch downloads:', err);
+    }
+  }, [currentPage, itemsPerPage, downloadSearchQuery, statusFilter]);
+
+  // Reset to page 1 when filters change (but not when page changes)
+  React.useEffect(() => {
     setCurrentPage(1);
   }, [downloadSearchQuery, statusFilter]);
 
-  // Client-side filtering and pagination
-  const filterAndPaginateDownloads = () => {
-    let filtered = allDownloads;
-
-    // Apply search filter
-    if (downloadSearchQuery.trim()) {
-      filtered = filtered.filter(download =>
-        download.name.toLowerCase().includes(downloadSearchQuery.toLowerCase())
-      );
-    }
-
-    // Apply status filter
-    if (statusFilter) {
-      filtered = filtered.filter(download => download.status === statusFilter);
-    }
-
-    // Calculate pagination
-    const totalCount = filtered.length;
-    const totalPages = Math.ceil(totalCount / itemsPerPage);
-    const startIndex = (currentPage - 1) * itemsPerPage;
-    const endIndex = startIndex + itemsPerPage;
-    const paginatedDownloads = filtered.slice(startIndex, endIndex);
-
-    // Update state
-    setDownloads(paginatedDownloads);
-    setTotalCount(totalCount);
-    setTotalPages(totalPages);
-    setHasNext(currentPage < totalPages);
-    setHasPrev(currentPage > 1);
-  };
-
-  // Effect to filter and paginate when filters or page changes
+  // Effect to fetch downloads when page changes or on initial load
   useEffect(() => {
-    filterAndPaginateDownloads();
-  }, [allDownloads, downloadSearchQuery, statusFilter, currentPage]);
+    fetchDownloads();
+  }, [fetchDownloads]);
 
   // Separate useEffect for polling to avoid recreating interval on every state change
   useEffect(() => {
@@ -175,7 +172,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
       fetchDownloads();
     }, 3000);
     return () => clearInterval(interval);
-  }, [activeTab]);
+  }, [activeTab, fetchDownloads]);
 
   const fetchConfig = async () => {
     try {
@@ -190,19 +187,6 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
     }
   };
 
-  const fetchDownloads = async () => {
-    try {
-      const apiUrl = getApiUrl();
-      // Fetch all downloads without pagination or filters
-      const response = await fetch(`${apiUrl}/api/torrent/downloads?limit=1000`);
-      if (response.ok) {
-        const data = await response.json();
-        setAllDownloads(data.downloads || []);
-      }
-    } catch (err) {
-      console.error('Failed to fetch downloads:', err);
-    }
-  };
 
   const searchTorrents = async (query?: string) => {
     const searchTerm = query || searchQuery;
@@ -238,14 +222,14 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
 
   const searchDownloads = () => {
     setCurrentPage(1);
-    // Filtering happens automatically via useEffect
+    // Filtering happens automatically via useEffect when currentPage changes
   };
 
   const clearDownloadSearch = () => {
     setDownloadSearchQuery('');
     setStatusFilter('');
     setCurrentPage(1);
-    // Filtering happens automatically via useEffect
+    // Filtering happens automatically via useEffect when state changes
   };
 
   const startDownload = async (result: TorrentResult) => {
@@ -840,7 +824,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
             )}
 
             {/* Pagination Controls */}
-            {totalPages > 1 && (
+            {totalCount > 0 && (
               <div className="flex items-center justify-between mt-6 pt-4 border-t border-gray-700">
                 <div className="text-sm text-gray-400">
                   Showing {((currentPage - 1) * itemsPerPage) + 1}-{Math.min(currentPage * itemsPerPage, totalCount)} of {totalCount} downloads

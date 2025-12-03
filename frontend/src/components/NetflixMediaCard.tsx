@@ -32,11 +32,11 @@ const NetflixMediaCard: React.FC<NetflixMediaCardProps> = ({
   const [fallbackError, setFallbackError] = useState(false);
   const [previewError, setPreviewError] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  
+
   const videoRef = useRef<HTMLVideoElement>(null);
   const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const previewTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  
+
   const { primarySrc, fallbackSrc } = useImageWithFallback(media.id, media.poster_url);
 
   // Load assets on mount
@@ -61,7 +61,7 @@ const NetflixMediaCard: React.FC<NetflixMediaCardProps> = ({
 
   const handleMouseEnter = () => {
     setIsHovered(true);
-    
+
     // Always try to show preview on hover if available
     if (previewUrl && !previewError) {
       // Delay preview to avoid triggering on quick hovers
@@ -83,7 +83,7 @@ const NetflixMediaCard: React.FC<NetflixMediaCardProps> = ({
   const handleMouseLeave = () => {
     setIsHovered(false);
     setShowPreview(false);
-    
+
     // Clear timeouts
     if (hoverTimeoutRef.current) {
       clearTimeout(hoverTimeoutRef.current);
@@ -91,7 +91,7 @@ const NetflixMediaCard: React.FC<NetflixMediaCardProps> = ({
     if (previewTimeoutRef.current) {
       clearTimeout(previewTimeoutRef.current);
     }
-    
+
     // Stop video
     if (videoRef.current) {
       videoRef.current.pause();
@@ -101,7 +101,7 @@ const NetflixMediaCard: React.FC<NetflixMediaCardProps> = ({
 
   const handleImageError = (event: React.SyntheticEvent<HTMLImageElement>) => {
     const img = event.currentTarget;
-    
+
     if (img.src === primarySrc && !imageError) {
       // First error: poster failed, try thumbnail
       setImageError(true);
@@ -135,10 +135,9 @@ const NetflixMediaCard: React.FC<NetflixMediaCardProps> = ({
   };
 
   return (
-    <div 
-      className={`group relative transition-all duration-300 ${
-        isHovered ? 'z-50 scale-110' : 'z-10'
-      }`}
+    <div
+      className={`group relative transition-all duration-300 ${isHovered ? 'z-50 scale-110' : 'z-10'
+        }`}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
     >
@@ -202,7 +201,7 @@ const NetflixMediaCard: React.FC<NetflixMediaCardProps> = ({
             >
               <Play className="w-4 h-4 fill-current" />
             </button>
-            
+
             {onAddToList && (
               <button
                 onClick={(e) => {
@@ -215,7 +214,7 @@ const NetflixMediaCard: React.FC<NetflixMediaCardProps> = ({
                 {isInList ? <Check className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
               </button>
             )}
-            
+
             <button
               onClick={(e) => {
                 e.stopPropagation();
@@ -238,7 +237,7 @@ const NetflixMediaCard: React.FC<NetflixMediaCardProps> = ({
 
         {/* Quality Badge */}
         {media.quality && (
-          <div className="absolute top-2 left-2 bg-blue-600 text-white text-xs px-2 py-1 rounded font-semibold">
+          <div className="absolute top-2 left-2 border border-white/50 text-white text-[10px] px-1.5 py-0.5 rounded font-medium backdrop-blur-sm">
             {media.quality.includes('2160') || media.quality.toLowerCase().includes('4k') ? '4K' : 'HD'}
           </div>
         )}
@@ -246,24 +245,22 @@ const NetflixMediaCard: React.FC<NetflixMediaCardProps> = ({
 
       {/* Title and Info (Netflix-style) */}
       <div className="mt-2 px-1">
-        <h3 
+        <h3
           className="text-white text-sm font-medium truncate group-hover:text-red-400 transition-colors cursor-pointer"
           onClick={() => onInfo(media)}
           title={media.title}
         >
           {media.title}
         </h3>
-        
+
         <div className="flex items-center justify-between mt-1">
           <p className="text-gray-400 text-xs capitalize">
             {media.type === 'episode' ? 'TV Series' : media.type}
           </p>
-          
-          {media.duration && (
-            <p className="text-gray-500 text-xs">
-              {formatDuration(media.duration)}
-            </p>
-          )}
+
+          <p className="text-gray-500 text-xs">
+            {media.year || (media.release_date ? new Date(media.release_date).getFullYear() : (media.created_at ? new Date(media.created_at).getFullYear() : ''))}
+          </p>
         </div>
 
         {/* Genres (shown on hover) */}
@@ -271,7 +268,7 @@ const NetflixMediaCard: React.FC<NetflixMediaCardProps> = ({
           <div className="mt-1 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
             <div className="flex flex-wrap gap-1">
               {media.genres.slice(0, 2).map((genre, index) => (
-                <span 
+                <span
                   key={index}
                   className="text-xs text-gray-400 bg-gray-800/50 px-2 py-1 rounded"
                 >

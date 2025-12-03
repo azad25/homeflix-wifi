@@ -33,6 +33,7 @@ export default function BrowsePage() {
   const [genres, setGenres] = useState<Genre[]>([]);
   const [selectedGenre, setSelectedGenre] = useState<string>("all");
   const [sortBy, setSortBy] = useState<string>("recent");
+  const [selectedYear, setSelectedYear] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [viewMode, setViewMode] = useState<string>("grid");
   const [selectedMedia, setSelectedMedia] = useState<Media | null>(null);
@@ -228,6 +229,12 @@ export default function BrowsePage() {
       }
     }
 
+    // Filter by year
+    if (selectedYear !== "all") {
+      const year = parseInt(selectedYear);
+      filtered = filtered.filter(media => media.year === year);
+    }
+
     // Sort media (only if not using search results, which are already relevance-sorted)
     if (!searchQuery.trim()) {
       switch (sortBy) {
@@ -260,7 +267,7 @@ export default function BrowsePage() {
     }
 
     setFilteredMedia(filtered);
-  }, [allMedia, selectedGenre, sortBy, searchQuery]);
+  }, [allMedia, selectedGenre, sortBy, searchQuery, selectedYear]);
 
   const loadMoreMedia = useCallback((page: number = currentPage) => {
     const startIndex = (page - 1) * ITEMS_PER_PAGE;
@@ -288,7 +295,7 @@ export default function BrowsePage() {
     }, searchQuery.trim() ? 300 : 0); // 300ms delay for search, immediate for other filters
 
     return () => clearTimeout(timeoutId);
-  }, [allMedia, selectedGenre, sortBy, searchQuery, filterAndSortMedia]);
+  }, [allMedia, selectedGenre, sortBy, searchQuery, selectedYear, filterAndSortMedia]);
 
   useEffect(() => {
     // Reset pagination when filters change
@@ -485,6 +492,20 @@ export default function BrowsePage() {
                 </select>
               </div>
 
+              {/* Year Filter */}
+              <div className="relative w-full sm:w-auto">
+                <select
+                  value={selectedYear}
+                  onChange={(e) => setSelectedYear(e.target.value)}
+                  className="w-full sm:w-auto bg-black/50 backdrop-blur-md border border-white/20 text-white px-4 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 text-sm"
+                >
+                  <option value="all">All Years</option>
+                  {Array.from({ length: 10 }, (_, i) => 2025 - i).map(year => (
+                    <option key={year} value={year}>{year}</option>
+                  ))}
+                </select>
+              </div>
+
               {/* View Mode Toggle */}
               <div className="flex bg-black/50 backdrop-blur-md border border-white/20 rounded-lg overflow-hidden">
                 <button
@@ -509,11 +530,12 @@ export default function BrowsePage() {
               <p className="text-gray-400 text-sm">
                 Showing {filteredMedia.length} {filteredMedia.length === 1 ? 'title' : 'titles'}
                 {selectedGenre !== "all" && ` in ${selectedGenre}`}
+                {selectedYear !== "all" && ` from ${selectedYear}`}
                 {searchQuery && <> matching &quot;{searchQuery}&quot;</>}
               </p>
 
               {/* Active Filters */}
-              {(selectedGenre !== "all" || searchQuery) && (
+              {(selectedGenre !== "all" || selectedYear !== "all" || searchQuery) && (
                 <div className="flex items-center gap-2">
                   {selectedGenre !== "all" && (
                     <span className="bg-red-600/20 text-red-400 px-2 py-1 rounded-full text-xs flex items-center gap-1">
@@ -521,6 +543,17 @@ export default function BrowsePage() {
                       <button
                         onClick={() => setSelectedGenre("all")}
                         className="hover:text-red-300 transition-colors"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </span>
+                  )}
+                  {selectedYear !== "all" && (
+                    <span className="bg-green-600/20 text-green-400 px-2 py-1 rounded-full text-xs flex items-center gap-1">
+                      {selectedYear}
+                      <button
+                        onClick={() => setSelectedYear("all")}
+                        className="hover:text-green-300 transition-colors"
                       >
                         <X className="w-3 h-3" />
                       </button>
@@ -600,6 +633,7 @@ export default function BrowsePage() {
                       onClick={() => {
                         setSearchQuery("");
                         setSelectedGenre("all");
+                        setSelectedYear("all");
                       }}
                       className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg font-semibold text-sm"
                     >

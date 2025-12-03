@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
-import { Play, Clock, MoreHorizontal, Info, Star, RotateCcw } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Play, Clock, MoreHorizontal, Info, Star, RotateCcw, ChevronLeft, ChevronRight } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Media } from '@/types/media';
 import { getApiUrl } from '@/lib/api';
@@ -78,7 +78,7 @@ const RecentlyWatchedCard: React.FC<RecentlyWatchedCardProps> = ({
     const hours = Math.floor(seconds / 3600);
     const minutes = Math.floor((seconds % 3600) / 60);
     const secs = seconds % 60;
-    
+
     if (hours > 0) {
       return `${hours}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
     }
@@ -160,13 +160,12 @@ const RecentlyWatchedCard: React.FC<RecentlyWatchedCardProps> = ({
             className="object-cover transition-transform duration-300 group-hover:scale-105"
             loading={index < 3 ? "eager" : "lazy"}
             priority={index < 3}
+            posterUrl={item.media.banner_path ? `${getApiUrl()}/api/admin/assets/${item.media.banner_path.split('/').pop()}` : null}
           />
 
           {/* Quality Badge */}
-          <div className="absolute top-3 right-3 z-10">
-            <span className={`${getQualityBadge().color} text-white text-xs px-2 py-1 rounded-md font-bold shadow-lg`}>
-              {getQualityBadge().text}
-            </span>
+          <div className="absolute top-3 right-3 z-10 border border-white/50 px-2 py-1 text-xs font-bold rounded text-white backdrop-blur-sm">
+            {getQualityBadge().text}
           </div>
 
           {/* Time Remaining Badge */}
@@ -224,7 +223,7 @@ const RecentlyWatchedCard: React.FC<RecentlyWatchedCardProps> = ({
                 <Clock className="w-4 h-4" />
                 <span>{formatLastWatched(item.last_watched_at)}</span>
               </div>
-              
+
               <span className="text-green-400 text-sm font-medium">
                 {Math.round(progressPercent)}% watched
               </span>
@@ -237,7 +236,7 @@ const RecentlyWatchedCard: React.FC<RecentlyWatchedCardProps> = ({
                   {getYear()}
                 </span>
               )}
-              
+
               {item.media.rating && (
                 <div className="flex items-center gap-1">
                   <Star className="w-3 h-3 text-yellow-400 fill-current" />
@@ -278,12 +277,56 @@ export const RecentlyWatched: React.FC<RecentlyWatchedProps> = ({
 }) => {
   const [recentItems, setRecentItems] = useState<RecentlyWatchedItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const [isHovered, setIsHovered] = useState(false);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     fetchRecentlyWatched();
   }, []);
 
-  const [error, setError] = useState<string | null>(null);
+  const updateScrollButtons = () => {
+    if (!scrollContainerRef.current) return;
+
+    const container = scrollContainerRef.current;
+    const maxScroll = container.scrollWidth - container.clientWidth;
+
+    setCanScrollLeft(container.scrollLeft > 10);
+    setCanScrollRight(container.scrollLeft < maxScroll - 10);
+  };
+
+  useEffect(() => {
+    // Initial check with slight delay to ensure DOM is ready
+    const timeout = setTimeout(() => {
+      updateScrollButtons();
+    }, 100);
+
+    const container = scrollContainerRef.current;
+    if (container) {
+      container.addEventListener('scroll', updateScrollButtons);
+      // Also check on resize
+      window.addEventListener('resize', updateScrollButtons);
+      return () => {
+        clearTimeout(timeout);
+        container.removeEventListener('scroll', updateScrollButtons);
+        window.removeEventListener('resize', updateScrollButtons);
+      };
+    }
+  }, [recentItems]);
+
+  const scrollLeft = () => {
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollBy({ left: -400, behavior: 'smooth' });
+    }
+  };
+
+  const scrollRight = () => {
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollBy({ left: 400, behavior: 'smooth' });
+    }
+  };
 
   const fetchRecentlyWatched = async () => {
     try {
@@ -295,7 +338,7 @@ export const RecentlyWatched: React.FC<RecentlyWatchedProps> = ({
           'X-User-ID': '1' // Default user for now
         }
       });
-      
+
       if (response.ok) {
         const data = await response.json();
         // Filter out invalid items and sort by last watched
@@ -333,7 +376,7 @@ export const RecentlyWatched: React.FC<RecentlyWatchedProps> = ({
     const hours = Math.floor(seconds / 3600);
     const minutes = Math.floor((seconds % 3600) / 60);
     const secs = seconds % 60;
-    
+
     if (hours > 0) {
       return `${hours}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
     }
@@ -423,8 +466,48 @@ export const RecentlyWatched: React.FC<RecentlyWatchedProps> = ({
         </button>
       </div>
 
-      <div className="relative">
-        <div className="flex gap-4 overflow-x-auto pb-4 px-4 md:px-0" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+      <div
+        className="relative"
+        onMouseEnter={() => setIsHovered(true)}
+        onMouseLeave={() => setIsHovered(false)}
+      >
+        {/* Previous Button */}
+        <AnimatePresence>
+          {isHovered && canScrollLeft && (
+            <motion.button
+              initial={{ opacity: 0, x: -10 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -10 }}
+              onClick={scrollLeft}
+              className="absolute left-0 top-1/2 -translate-y-1/2 z-[150] bg-black/95 hover:bg-red-600/90 text-white p-3 rounded-full shadow-2xl backdrop-blur-md transition-all hover:scale-110 border border-red-900/50"
+              style={{ marginLeft: '8px' }}
+            >
+              <ChevronLeft className="w-6 h-6" />
+            </motion.button>
+          )}
+        </AnimatePresence>
+
+        {/* Next Button */}
+        <AnimatePresence>
+          {isHovered && canScrollRight && (
+            <motion.button
+              initial={{ opacity: 0, x: 10 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: 10 }}
+              onClick={scrollRight}
+              className="absolute right-0 top-1/2 -translate-y-1/2 z-[150] bg-black/95 hover:bg-red-600/90 text-white p-3 rounded-full shadow-2xl backdrop-blur-md transition-all hover:scale-110 border border-red-900/50"
+              style={{ marginRight: '8px' }}
+            >
+              <ChevronRight className="w-6 h-6" />
+            </motion.button>
+          )}
+        </AnimatePresence>
+
+        <div
+          ref={scrollContainerRef}
+          className="flex gap-4 overflow-x-auto pb-4 px-4 md:px-0"
+          style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+        >
           <style jsx>{`
             div::-webkit-scrollbar {
               display: none;
