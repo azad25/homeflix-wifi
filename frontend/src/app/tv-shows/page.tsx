@@ -28,6 +28,9 @@ interface Series {
   thumbnail_path?: string;
   banner_path?: string;
   poster_path?: string;
+  backdrop_path?: string;
+  tmdb_backdrop_url?: string;
+  tmdb_poster_url?: string;
 }
 
 interface Season {
