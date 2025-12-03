@@ -134,7 +134,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
         ...(statusFilter && { status: statusFilter })
       });
 
-      const response = await fetch(`${apiUrl}/api/torrent/downloads?${params}`);
+      const response = await fetch(`${apiUrl}/api/torrents/downloads?${params}`);
       if (response.ok) {
         const data = await response.json();
         setDownloads(data.downloads || []);
@@ -177,7 +177,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
   const fetchConfig = async () => {
     try {
       const apiUrl = getApiUrl();
-      const response = await fetch(`${apiUrl}/api/torrent/config`);
+      const response = await fetch(`${apiUrl}/api/torrents/config`);
       if (response.ok) {
         const data = await response.json();
         setConfig(data);
@@ -204,7 +204,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
         ...(qualityFilter && { quality: qualityFilter })
       });
 
-      const response = await fetch(`${apiUrl}/api/torrent/search?${params}`);
+      const response = await fetch(`${apiUrl}/api/torrents/search?${params}`);
 
       if (!response.ok) {
         throw new Error(`Search failed: ${response.status}`);
@@ -236,7 +236,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
     setLoading(true);
     try {
       const apiUrl = getApiUrl();
-      const response = await fetch(`${apiUrl}/api/torrent/download`, {
+      const response = await fetch(`${apiUrl}/api/torrents/download`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -266,7 +266,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
     setOperationsInProgress(prev => new Set(prev).add(id));
     try {
       const apiUrl = getApiUrl();
-      const response = await fetch(`${apiUrl}/api/torrent/downloads/${id}/pause`, { method: 'POST' });
+      const response = await fetch(`${apiUrl}/api/torrents/downloads/${id}/pause`, { method: 'POST' });
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
         throw new Error(errorData.error || 'Failed to pause download');
@@ -288,7 +288,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
     setOperationsInProgress(prev => new Set(prev).add(id));
     try {
       const apiUrl = getApiUrl();
-      const response = await fetch(`${apiUrl}/api/torrent/downloads/${id}/resume`, { method: 'POST' });
+      const response = await fetch(`${apiUrl}/api/torrents/downloads/${id}/resume`, { method: 'POST' });
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
         throw new Error(errorData.error || 'Failed to resume download');
@@ -324,7 +324,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
 
     try {
       const apiUrl = getApiUrl();
-      const response = await fetch(`${apiUrl}/api/torrent/downloads/${id}`, {
+      const response = await fetch(`${apiUrl}/api/torrents/downloads/${id}`, {
         method: 'DELETE',
         headers: {
           'Content-Type': 'application/json'
@@ -367,7 +367,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
     setLoading(true);
     try {
       const apiUrl = getApiUrl();
-      const response = await fetch(`${apiUrl}/api/torrent/config`, {
+      const response = await fetch(`${apiUrl}/api/torrents/config`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newConfig)
@@ -400,7 +400,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
 
       // Then test the connection via backend
       const apiUrl = getApiUrl();
-      const response = await fetch(`${apiUrl}/api/torrent/test-connection`, {
+      const response = await fetch(`${apiUrl}/api/torrents/test-connection`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' }
       });

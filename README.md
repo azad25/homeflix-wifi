@@ -81,8 +81,8 @@ Transform your media collection into a professional streaming platform! HomeFlix
 
 ## 🚀 **Version 2.0 Changelog - Torrent Download System**
 ## ** Download Media Directly on homeflix **
-![Movie Discovery](/preview_21.png)
-![Movie Discovery](/preview_22.png)
+![Movie Discovery](/screenshots/preview_21.png)
+![Movie Discovery](/screenshots/preview_22.png)
 ### 🎬 **NEW: One-Click Movie Downloads**
 - **Direct TMDB Integration**: Download button on every movie page
 - **Automatic Search**: Finds best torrents from multiple sources
