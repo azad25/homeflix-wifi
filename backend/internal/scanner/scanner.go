@@ -37,6 +37,7 @@ type MediaScanner struct {
 	alacService           interfaces.ALACAudioServiceInterface
 	tmdbService           interfaces.TMDBServiceInterface
 	recommendationService interfaces.RecommendationServiceInterface
+	notificationService   interfaces.NotificationServiceInterface
 
 	// Scan statistics
 	startTime      time.Time
@@ -109,7 +110,7 @@ type FileMetadata struct {
 
 // FileInfo conversion not needed - using single type
 
-func NewMediaScanner(mediaPath string, mediaService interfaces.MediaServiceInterface, thumbnailService interfaces.ThumbnailServiceInterface, posterService interfaces.PosterServiceInterface, geminiService interfaces.GeminiServiceInterface, celeryService interfaces.CeleryServiceInterface, alacService interfaces.ALACAudioServiceInterface, tmdbService interfaces.TMDBServiceInterface, recommendationService interfaces.RecommendationServiceInterface) *MediaScanner {
+func NewMediaScanner(mediaPath string, mediaService interfaces.MediaServiceInterface, thumbnailService interfaces.ThumbnailServiceInterface, posterService interfaces.PosterServiceInterface, geminiService interfaces.GeminiServiceInterface, celeryService interfaces.CeleryServiceInterface, alacService interfaces.ALACAudioServiceInterface, tmdbService interfaces.TMDBServiceInterface, recommendationService interfaces.RecommendationServiceInterface, notificationService interfaces.NotificationServiceInterface) *MediaScanner {
 	return &MediaScanner{
 		mediaPath:             mediaPath,
 		mediaPaths:            []string{mediaPath}, // Initialize with primary path
@@ -121,6 +122,7 @@ func NewMediaScanner(mediaPath string, mediaService interfaces.MediaServiceInter
 		alacService:           alacService,
 		tmdbService:           tmdbService,
 		recommendationService: recommendationService,
+		notificationService:   notificationService,
 		maxGoroutines:         8, // Reduced for i5-4590 stability
 		maxWorkers:            1, // Single worker to prevent crashes
 		batchSize:             5, // Smaller batches for stability
@@ -2385,8 +2387,32 @@ func (s *MediaScanner) processVideoFile(path string, info os.FileInfo) error {
 			}
 
 			// Update media with all collected metadata
+			isNewMovie := media.ID == 0 && metadata.Type == "movie"
 			if err := s.GetMediaService().UpdateMedia(media); err != nil {
 				log.Printf("Warning: Failed to update media metadata for %s: %v", media.Title, err)
+			} else {
+				// Send notification for newly added movies
+				// After UpdateMedia, media.ID will be populated for new records
+				if isNewMovie && s.notificationService != nil && media.ID != 0 {
+					// Capture the media ID for the goroutine
+					movieID := media.ID
+					movieTitle := media.Title
+					
+					go func() {
+						defer func() {
+							if r := recover(); r != nil {
+								log.Printf("🚨 Recovered from panic sending new movie notification: %v", r)
+							}
+						}()
+						
+						// Send notification about this new movie
+						if err := s.notificationService.CreateNewMoviesNotification([]uint{movieID}, 1); err != nil {
+							log.Printf("⚠️ Failed to send new movie notification: %v", err)
+						} else {
+							log.Printf("🔔 Sent notification for new movie: %s (ID: %d)", movieTitle, movieID)
+						}
+					}()
+				}
 			}
 		}()
 	} else {

@@ -98,8 +98,32 @@ func main() {
 	// Integrate TMDB service with poster service for TMDB poster downloads
 	posterServiceAdapter.SetTMDBService(tmdbServiceAdapter)
 
+	// Initialize notification service with Redis
+	var notificationService *services.NotificationService
+	if redisURL != "" {
+		var err error
+		notificationService, err = services.NewNotificationService(redisURL, db, tmdbService)
+		if err != nil {
+			log.Printf("⚠️ Failed to initialize notification service: %v", err)
+			log.Printf("Notification system will be disabled")
+			notificationService = nil
+		} else {
+			log.Printf("✅ Notification service initialized successfully")
+			// Start background notification generation
+			notificationService.Start()
+			defer notificationService.Close()
+		}
+	} else {
+		log.Printf("⚠️ Redis URL not configured, notification system disabled")
+		notificationService = nil
+	}
+
+	// Create notification service adapter for scanner
+	notificationServiceAdapter := adapters.NewNotificationServiceAdapter(notificationService)
+
+
 	// Initialize media scanner with adapted services
-	mediaScanner := scanner.NewMediaScanner(cfg.MediaPath, mediaServiceAdapter, thumbnailServiceAdapter, posterServiceAdapter, geminiServiceAdapter, celeryServiceAdapter, alacServiceAdapter, tmdbServiceAdapter, recommendationServiceAdapter)
+	mediaScanner := scanner.NewMediaScanner(cfg.MediaPath, mediaServiceAdapter, thumbnailServiceAdapter, posterServiceAdapter, geminiServiceAdapter, celeryServiceAdapter, alacServiceAdapter, tmdbServiceAdapter, recommendationServiceAdapter, notificationServiceAdapter)
 
 	// Load media paths from database and configure scanner
 	loadMediaPathsFromDatabase(db, mediaScanner)
@@ -196,7 +220,8 @@ func main() {
 	newsService.Start()
 
 	// Initialize API routes
-	api.SetupRoutes(r, mediaService, streamService, thumbnailService, userService, recommendationService, playbackService, geminiService, celeryService, alacService, tmdbService, mediaScanner, watcherService, redisCache, transcodeService, newsService, posterService, openSubService, db)
+	api.SetupRoutes(r, mediaService, streamService, thumbnailService, userService, recommendationService, playbackService, geminiService, celeryService, alacService, tmdbService, mediaScanner, watcherService, redisCache, transcodeService, newsService, posterService, openSubService, notificationService, db)
+
 
 	// Start server with optimizations
 	port := os.Getenv("PORT")

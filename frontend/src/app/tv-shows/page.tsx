@@ -8,6 +8,7 @@ import Navbar from "@/components/Navbar";
 import VideoPlayer from '@/components/VideoPlayer';
 import RedLoader from '@/components/RedLoader';
 import { getApiUrl, fetchUniqueRecommendations, preloadAssets } from '@/lib/api';
+import RecentlyWatchedTVShows from '@/components/RecentlyWatchedTVShows';
 
 import { Media } from '@/types/media';
 import { ScrollXHero, ParallaxSection, ScrollReveal } from '@/components/scrollx';
@@ -474,6 +475,14 @@ export default function TVShowsPage() {
       <div className="relative bg-gradient-to-b from-red-900/20 via-black to-black" style={{ overflow: 'visible' }}>
         <div className="relative z-10 py-12" style={{ overflow: 'visible' }}>
 
+          {/* Recently Watched TV Shows */}
+          <div className="container mx-auto px-6 md:px-12 lg:px-16 mb-16">
+            <RecentlyWatchedTVShows
+              onPlay={handlePlay}
+              onInfo={handleInfo}
+            />
+          </div>
+
           {/* All TV Series */}
           {seriesList.length > 0 && (
             <ParallaxSection speed={0.3}>
@@ -490,7 +499,7 @@ export default function TVShowsPage() {
 
                         // Get first season with episodes
                         const firstSeasonWithEpisodes = series.seasons.find(season => season.episodes && season.episodes.length > 0);
-                        
+
                         if (firstSeasonWithEpisodes && firstSeasonWithEpisodes.episodes.length > 0) {
                           return firstSeasonWithEpisodes.episodes[0];
                         }
@@ -705,7 +714,7 @@ export default function TVShowsPage() {
 
                         // Get first season with episodes
                         const firstSeasonWithEpisodes = series.seasons.find(season => season.episodes && season.episodes.length > 0);
-                        
+
                         if (firstSeasonWithEpisodes && firstSeasonWithEpisodes.episodes.length > 0) {
                           return firstSeasonWithEpisodes.episodes[0];
                         }
@@ -796,7 +805,7 @@ export default function TVShowsPage() {
 
                         // Get first season with episodes
                         const firstSeasonWithEpisodes = series.seasons.find(season => season.episodes && season.episodes.length > 0);
-                        
+
                         if (firstSeasonWithEpisodes && firstSeasonWithEpisodes.episodes.length > 0) {
                           return firstSeasonWithEpisodes.episodes[0];
                         }
@@ -865,7 +874,7 @@ export default function TVShowsPage() {
 
                         // Get first season with episodes
                         const firstSeasonWithEpisodes = series.seasons.find(season => season.episodes && season.episodes.length > 0);
-                        
+
                         if (firstSeasonWithEpisodes && firstSeasonWithEpisodes.episodes.length > 0) {
                           return firstSeasonWithEpisodes.episodes[0];
                         }

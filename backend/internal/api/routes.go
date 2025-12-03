@@ -10,7 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamService *services.OptimizedStreamService, thumbnailService *services.ThumbnailService, userService *services.UserService, recommendationService *services.RecommendationService, playbackService *services.PlaybackService, geminiService *services.GeminiService, celeryService *services.CeleryService, alacService *services.ALACAudioService, tmdbService *services.TMDBService, mediaScanner *scanner.MediaScanner, watcherService *services.WatcherService, redisCache *services.RedisAssetCache, transcodeService *services.TranscodeService, newsService *services.NewsService, posterService *services.PosterService, openSubService *services.OpenSubtitlesService, db *gorm.DB) {
+func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamService *services.OptimizedStreamService, thumbnailService *services.ThumbnailService, userService *services.UserService, recommendationService *services.RecommendationService, playbackService *services.PlaybackService, geminiService *services.GeminiService, celeryService *services.CeleryService, alacService *services.ALACAudioService, tmdbService *services.TMDBService, mediaScanner *scanner.MediaScanner, watcherService *services.WatcherService, redisCache *services.RedisAssetCache, transcodeService *services.TranscodeService, newsService *services.NewsService, posterService *services.PosterService, openSubService *services.OpenSubtitlesService, notificationService *services.NotificationService, db *gorm.DB) {
 	api := r.Group("/api")
 	{
 		// Media routes
@@ -51,7 +51,6 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		scannerHandlers := handlers.NewScannerHandlers(mediaScanner)
 		watcherHandler := NewWatcherHandler(watcherService)
 		newsHandlers := handlers.NewNewsHandlers(newsService)
-		torrentHandler := torrentHandlers.NewTorrentHandler(db, mediaScanner)
 		mediaPathsHandler := torrentHandlers.NewMediaPathsHandler(db, mediaScanner)
 
 		// Initialize Redis asset handlers if Redis cache is available
@@ -322,17 +321,26 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		api.GET("/tmdb/tv/:id/similar", handlers.GetSimilarTVShows(tmdbService))
 		api.GET("/tmdb/tv/:id/recommendations", handlers.GetRecommendedTVShows(tmdbService))
 
-		// Torrent download endpoints
-		api.GET("/torrent/search", torrentHandler.SearchTorrents)
-		api.POST("/torrent/download", torrentHandler.StartDownload)
-		api.GET("/torrent/downloads", torrentHandler.GetDownloads)
-		api.GET("/torrent/downloads/:id", torrentHandler.GetDownload)
-		api.POST("/torrent/downloads/:id/pause", torrentHandler.PauseDownload)
-		api.POST("/torrent/downloads/:id/resume", torrentHandler.ResumeDownload)
-		api.DELETE("/torrent/downloads/:id", torrentHandler.RemoveDownload)
-		api.GET("/torrent/config", torrentHandler.GetConfig)
-		api.PUT("/torrent/config", torrentHandler.UpdateConfig)
-		api.POST("/torrent/test-connection", torrentHandler.TestConnection)
+	var torrentHandler *torrentHandlers.TorrentHandler
+	if notificationService != nil {
+		// Initialize torrent handler with notification service
+		torrentHandler = torrentHandlers.NewTorrentHandler(db, mediaScanner, notificationService)
+	} else {
+		// Initialize torrent handler without notification service
+		torrentHandler = torrentHandlers.NewTorrentHandler(db, mediaScanner, nil)
+	}
+
+	// Torrent download endpoints
+	api.GET("/torrents/search", torrentHandler.SearchTorrents)
+	api.POST("/torrents/download", torrentHandler.StartDownload)
+	api.GET("/torrents/downloads", torrentHandler.GetDownloads)
+	api.GET("/torrents/downloads/:id", torrentHandler.GetDownload)
+	api.POST("/torrents/downloads/:id/pause", torrentHandler.PauseDownload)
+	api.POST("/torrents/downloads/:id/resume", torrentHandler.ResumeDownload)
+	api.DELETE("/torrents/downloads/:id", torrentHandler.RemoveDownload)
+	api.GET("/torrents/config", torrentHandler.GetConfig)
+	api.PUT("/torrents/config", torrentHandler.UpdateConfig)
+	api.POST("/torrents/test-connection", torrentHandler.TestConnection)
 
 		// Media paths management endpoints
 		api.GET("/admin/media-paths", mediaPathsHandler.GetMediaPaths)
@@ -346,5 +354,10 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		api.GET("/admin/system/logs", handlers.GetServerLogs())
 		api.GET("/admin/system/logs/stream", handlers.StreamServerLogs())
 		api.GET("/admin/system/stats/stream", handlers.StreamSystemStats())
+
+		// Notification endpoints
+		api.GET("/notifications", handlers.GetNotifications(notificationService))
+		api.GET("/notifications/count", handlers.GetNotificationCount(notificationService))
+		api.POST("/notifications/:id/read", handlers.MarkNotificationAsRead(notificationService))
 	}
 }

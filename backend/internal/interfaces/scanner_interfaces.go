@@ -144,6 +144,13 @@ type RecommendationServiceInterface interface {
 	RefreshRecommendations() error
 }
 
+// NotificationServiceInterface defines the interface for notification operations
+type NotificationServiceInterface interface {
+	CreateNewMoviesNotification(movieIDs []uint, count int) error
+	CreateNewEpisodesNotification(seriesID uint, seriesName string, episodeIDs []uint, episodeCount int) error
+	CreateDownloadCompleteNotification(title string, mediaID uint) error
+}
+
 // MediaProcessorInterface defines the interface for processing media files
 type MediaProcessorInterface interface {
 	ProcessSingleFile(path string, info os.FileInfo) error

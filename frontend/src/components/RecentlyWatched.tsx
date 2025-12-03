@@ -341,10 +341,16 @@ export const RecentlyWatched: React.FC<RecentlyWatchedProps> = ({
 
       if (response.ok) {
         const data = await response.json();
-        // Filter out invalid items and sort by last watched
+        // Filter out invalid items and only show movies
         const validItems = (data || [])
           .filter((item: RecentlyWatchedItem) => {
-            return item.media && item.media.id && item.media.title;
+            // Only include movies, exclude episodes and TV series
+            return item.media &&
+              item.media.id &&
+              item.media.title &&
+              item.media.type !== 'episode' &&
+              item.media.type !== 'tv' &&
+              item.media.type !== 'series';
           })
           .sort((a: RecentlyWatchedItem, b: RecentlyWatchedItem) => {
             return new Date(b.last_watched_at).getTime() - new Date(a.last_watched_at).getTime();
@@ -352,7 +358,7 @@ export const RecentlyWatched: React.FC<RecentlyWatchedProps> = ({
           .slice(0, 10); // Limit to 10 items
 
         setRecentItems(validItems);
-        console.log(`✅ Loaded ${validItems.length} recently watched items`);
+        console.log(`✅ Loaded ${validItems.length} recently watched movies`);
       } else if (response.status === 404) {
         setRecentItems([]);
         console.log('📝 No recently watched data found');

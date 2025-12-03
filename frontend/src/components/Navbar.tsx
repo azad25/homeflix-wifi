@@ -7,6 +7,8 @@ import { usePathname } from "next/navigation";
 import NavigationLink from "./NavigationLink";
 import { useNavigate } from "@/hooks/useNavigate";
 import { getApiUrl } from "@/lib/api";
+import NotificationDropdown from "./NotificationDropdown";
+import { Notification, NotificationResponse, NotificationCountResponse } from "@/types/notifications";
 
 interface NavbarProps {
   onSearch?: (query: string) => void;
@@ -46,6 +48,12 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
   const searchInputRef = useRef<HTMLInputElement>(null);
   const suggestionsRef = useRef<HTMLDivElement>(null);
 
+  // Notification state
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [notificationCount, setNotificationCount] = useState(0);
+  const [isNotificationOpen, setIsNotificationOpen] = useState(false);
+  const notificationRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     const handleScroll = () => {
       setIsScrolled(window.scrollY > 50);
@@ -65,6 +73,56 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
         !searchInputRef.current.contains(event.target as Node)
       ) {
         setShowSuggestions(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  // Fetch notifications
+  const fetchNotifications = async () => {
+    try {
+      const apiUrl = getApiUrl();
+
+      // Fetch notifications
+      const response = await fetch(`${apiUrl}/api/notifications?limit=50`);
+      if (response.ok) {
+        const data: NotificationResponse = await response.json();
+        setNotifications(data.notifications || []);
+      }
+
+      // Fetch notification count separately
+      const countResponse = await fetch(`${apiUrl}/api/notifications/count`);
+      if (countResponse.ok) {
+        const countData: NotificationCountResponse = await countResponse.json();
+        setNotificationCount(countData.count || 0);
+      }
+    } catch (error) {
+      console.error("Failed to fetch notifications:", error);
+    }
+  };
+
+  // Fetch notifications on mount and periodically
+  useEffect(() => {
+    fetchNotifications();
+
+    // Refresh notifications every 2 minutes
+    const interval = setInterval(() => {
+      fetchNotifications();
+    }, 2 * 60 * 1000);
+
+    return () => clearInterval(interval);
+  }, []);
+
+  // Handle clicks outside notification dropdown
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        notificationRef.current &&
+        !notificationRef.current.contains(event.target as Node)
+      ) {
+        setIsNotificationOpen(false);
       }
     };
 
@@ -344,9 +402,25 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
             </div>
 
             {/* Notifications */}
-            <button className="text-white/80 hover:text-white transition-colors hidden md:block">
-              <Bell className="w-5 h-5" />
-            </button>
+            <div className="relative" ref={notificationRef}>
+              <button
+                onClick={() => setIsNotificationOpen(!isNotificationOpen)}
+                className="text-white/80 hover:text-white transition-colors hidden md:block relative"
+              >
+                <Bell className="w-5 h-5" />
+                {notificationCount > 0 && (
+                  <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-600 rounded-full border-2 border-black" />
+                )}
+              </button>
+              <NotificationDropdown
+                isOpen={isNotificationOpen}
+                onClose={() => setIsNotificationOpen(false)}
+                notifications={notifications}
+                onNotificationClick={(movieId) => {
+                  console.log("Navigate to movie:", movieId);
+                }}
+              />
+            </div>
 
             {/* Profile */}
             <div className="relative group">

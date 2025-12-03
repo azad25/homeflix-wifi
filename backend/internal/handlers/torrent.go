@@ -18,9 +18,10 @@ import (
 )
 
 type TorrentHandler struct {
-	db     *gorm.DB
-	client *torrent.TorrentClient
-	searcher *torrent.TorrentSearcher
+	db                  *gorm.DB
+	client              *torrent.TorrentClient
+	searcher            *torrent.TorrentSearcher
+	notificationService NotificationServiceInterface
 }
 
 // MediaScannerInterface defines the interface for triggering media scans
@@ -29,7 +30,12 @@ type MediaScannerInterface interface {
 	SetMediaPaths(paths []string)
 }
 
-func NewTorrentHandler(db *gorm.DB, mediaScanner MediaScannerInterface) *TorrentHandler {
+// NotificationServiceInterface defines the interface for sending notifications
+type NotificationServiceInterface interface {
+	CreateDownloadCompleteNotification(title string, mediaID uint) error
+}
+
+func NewTorrentHandler(db *gorm.DB, mediaScanner MediaScannerInterface, notificationService NotificationServiceInterface) *TorrentHandler {
 	// Get or create default config
 	var config models.TorrentConfig
 	if err := db.First(&config).Error; err != nil {
@@ -99,9 +105,10 @@ func NewTorrentHandler(db *gorm.DB, mediaScanner MediaScannerInterface) *Torrent
 	searcher := torrent.NewTorrentSearcher("", "", config.MinSeeders)
 
 	return &TorrentHandler{
-		db:       db,
-		client:   client,
-		searcher: searcher,
+		db:                  db,
+		client:              client,
+		searcher:            searcher,
+		notificationService: notificationService,
 	}
 }
 
@@ -224,6 +231,54 @@ func (h *TorrentHandler) GetDownloads(c *gin.Context) {
 		var completedAt *time.Time
 		if clientDownload.CompletedAt != nil {
 			completedAt = clientDownload.CompletedAt
+		}
+		
+		// Get current database record to check if status changed
+		var dbRecord models.TorrentDownload
+		if err := h.db.Where("torrent_id = ?", clientDownload.ID).First(&dbRecord).Error; err == nil {
+			// Check if download just completed
+			if dbRecord.Status != "completed" && clientDownload.Status == "completed" {
+				// Download just completed! Send notification
+				if h.notificationService != nil {
+					go func(name string, savePath string) {
+						defer func() {
+							if r := recover(); r != nil {
+								log.Printf("🚨 Recovered from panic sending download complete notification: %v", r)
+							}
+						}()
+						
+						// Try to find the media ID from database
+						// The scanner should have already scanned it
+						var media struct {
+							ID uint
+						}
+						
+						// Search for media file by path
+						if err := h.db.Raw(`
+							SELECT id 
+							FROM media 
+							WHERE file_path LIKE ? 
+							ORDER BY created_at DESC 
+							LIMIT 1
+						`, "%"+name+"%").Scan(&media).Error; err == nil && media.ID != 0 {
+							// Send notification with media ID
+							if err := h.notificationService.CreateDownloadCompleteNotification(name, media.ID); err != nil {
+								log.Printf("⚠️ Failed to send download complete notification: %v", err)
+							} else {
+								log.Printf("📥 Sent download complete notification for: %s (ID: %d)", name, media.ID)
+							}
+						} else {
+							// Send notification without media ID (media not scanned yet)
+							if err := h.notificationService.CreateDownloadCompleteNotification(name, 0); err != nil {
+								log.Printf("⚠️ Failed to send download complete notification: %v", err)
+							} else {
+								log.Printf("📥 Sent download complete notification for: %s (no media ID yet)", name)
+							}
+						}
+					}(clientDownload.Name, clientDownload.SavePath)
+				}
+				log.Printf("✅ Download completed: %s", clientDownload.Name)
+			}
 		}
 		
 		h.db.Model(&models.TorrentDownload{}).
