@@ -66,6 +66,7 @@ yarn-error.log*
 # Media files (you might want to track these, but excluding by default)
 /backend/thumbnails/
 /backend/posters/
+/backend/logos/
 
 # Logs
 logs/

@@ -191,6 +191,7 @@ const RelatedMedia: React.FC<RelatedMediaProps> = ({ mediaId, mediaType, release
 // Movie Images Gallery Component
 interface MovieImagesProps {
   movieId: number;
+  mediaType?: 'movie' | 'tv';
   className?: string;
 }
 
@@ -203,7 +204,7 @@ interface TMDBImage {
   vote_count: number;
 }
 
-const MovieImages: React.FC<MovieImagesProps> = ({ movieId, className = '' }) => {
+const MovieImages: React.FC<MovieImagesProps> = ({ movieId, mediaType = 'movie', className = '' }) => {
   const [images, setImages] = useState<{ backdrops: TMDBImage[]; posters: TMDBImage[]; logos: TMDBImage[] } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -214,16 +215,22 @@ const MovieImages: React.FC<MovieImagesProps> = ({ movieId, className = '' }) =>
     if (movieId) {
       fetchImages();
     }
-  }, [movieId]);
+  }, [movieId, mediaType]);
 
   const fetchImages = async () => {
     try {
       setLoading(true);
       const apiUrl = getApiUrl();
-      const response = await fetch(`${apiUrl}/api/tmdb/movie/${movieId}/images`);
+      const endpoint = mediaType === 'tv'
+        ? `${apiUrl}/api/tmdb/tv/${movieId}/images`
+        : `${apiUrl}/api/tmdb/movie/${movieId}/images`;
+      const response = await fetch(endpoint);
 
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        // Gracefully handle errors - just don't show images
+        setImages(null);
+        setError('Images not available');
+        return;
       }
 
       const data = await response.json();
@@ -813,6 +820,7 @@ const TMDBMoviePage: React.FC = () => {
     downloadId?: string;
     status?: string;
   }>({ isDownloading: false, progress: 0 });
+  const [logoUrl, setLogoUrl] = useState<string | null>(null);
 
   const movieId = params.id as string;
 
@@ -909,11 +917,43 @@ const TMDBMoviePage: React.FC = () => {
       }
 
       setError(null);
+
+      // Fetch logo from TMDB images API
+      fetchLogo(unifiedData.id, unifiedData.media_type);
     } catch (err) {
       console.error("Error fetching media details:", err);
       setError("Failed to load media details");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchLogo = async (tmdbId: number, mediaType: 'movie' | 'tv') => {
+    try {
+      const apiUrl = getApiUrl();
+      const endpoint = mediaType === 'movie'
+        ? `${apiUrl}/api/tmdb/movie/${tmdbId}/images`
+        : `${apiUrl}/api/tmdb/tv/${tmdbId}/images`;
+      const response = await fetch(endpoint);
+
+      if (!response.ok) return;
+
+      const data = await response.json();
+      const logos = data.logos || [];
+
+      // Find best English logo (highest vote_average)
+      let bestLogo = logos.find((l: any) => l.iso_639_1 === 'en');
+
+      // Fallback to any logo if no English
+      if (!bestLogo && logos.length > 0) {
+        bestLogo = logos[0];
+      }
+
+      if (bestLogo?.file_path) {
+        setLogoUrl(`https://image.tmdb.org/t/p/w500${bestLogo.file_path}`);
+      }
+    } catch (err) {
+      console.error('Error fetching logo:', err);
     }
   };
 
@@ -1469,7 +1509,23 @@ const TMDBMoviePage: React.FC = () => {
             {/* Movie Details */}
             <div className="flex-1 space-y-4 pb-4">
               <div>
-                <h1 className="text-3xl md:text-4xl font-bold mb-2 bg-gradient-to-r from-white to-gray-300 bg-clip-text text-transparent">
+                {/* Movie Title - Logo or Text */}
+                {logoUrl ? (
+                  <img
+                    src={logoUrl}
+                    alt={mediaDetails?.title}
+                    className="max-h-20 md:max-h-28 w-auto mb-3 drop-shadow-2xl"
+                    onError={(e) => {
+                      e.currentTarget.style.display = 'none';
+                      const fallback = e.currentTarget.nextElementSibling as HTMLElement;
+                      if (fallback) fallback.style.display = 'block';
+                    }}
+                  />
+                ) : null}
+                <h1
+                  className="text-3xl md:text-4xl font-bold mb-2 bg-gradient-to-r from-white to-gray-300 bg-clip-text text-transparent"
+                  style={{ display: logoUrl ? 'none' : 'block' }}
+                >
                   {mediaDetails?.title}
                 </h1>
 
@@ -1835,6 +1891,7 @@ const TMDBMoviePage: React.FC = () => {
 
           <MovieImages
             movieId={parseInt(movieId)}
+            mediaType={mediaDetails?.media_type}
             className="mb-8"
           />
 

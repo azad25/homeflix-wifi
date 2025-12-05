@@ -51,7 +51,7 @@ export default function TVSeriesPage() {
   const router = useRouter();
   const navigate = useNavigate();
   const [series, setSeries] = useState<Media | null>(null);
-  
+
   // Update page title when series is loaded
   usePageTitle(series?.title || 'TV Series');
   const [seasons, setSeasons] = useState<Season[]>([]);
@@ -317,34 +317,34 @@ export default function TVSeriesPage() {
 
   const getBackdropImageUrl = (media: Media) => {
     const apiUrl = getApiUrl();
-    
+
     // First try TMDB backdrop if available (high priority for backdrop)
     if (media.tmdb_backdrop_url) {
       return media.tmdb_backdrop_url;
     }
-    
+
     // Then try local banner
     if (media.banner_path) {
       return `${apiUrl}/api/admin/assets/${media.banner_path.split('/').pop()}`;
     }
-    
+
     // Fallback to thumbnail (not poster for backdrop)
     return `${apiUrl}/api/thumbnails/${media.id}`;
   };
 
   const getBackgroundVideoUrl = (media: Media) => {
     const apiUrl = getApiUrl();
-    
+
     // Then try local trailer
     if (media.trailer_path) {
       return `${apiUrl}/api/admin/assets/${media.trailer_path.split('/').pop()}`;
     }
-    
+
     // Then try preview clips
     if (media.preview_clip_path) {
       return `${apiUrl}/api/admin/assets/${media.preview_clip_path.split('/').pop()}`;
     }
-    
+
     // Fallback to preview clips endpoint
     return `${apiUrl}/api/preview-clips/${media.id}`;
   };
@@ -356,7 +356,7 @@ export default function TVSeriesPage() {
 
   const handleWatchTrailer = () => {
     if (!series?.tmdb_trailer_url) return;
-    
+
     const key = extractYouTubeKey(series.tmdb_trailer_url);
     if (key) {
       setTrailerKey(key);
@@ -571,7 +571,7 @@ export default function TVSeriesPage() {
                 }, 1000);
               }}
             />
-            
+
             {/* Show backdrop image when video is paused or not loaded */}
             {(!trailerLoaded || !trailerReady || !isVideoPlaying) && (
               <div
@@ -781,7 +781,23 @@ export default function TVSeriesPage() {
                   <span className="text-red-400 font-semibold text-sm">TV SERIES</span>
                 </div>
 
-                <h1 className="text-3xl md:text-4xl lg:text-5xl font-bold text-white mb-3 leading-tight bg-gradient-to-r from-white to-gray-300 bg-clip-text text-transparent">
+                {/* Series Title - Logo or Text */}
+                {series.logo_path ? (
+                  <img
+                    src={`${getApiUrl()}/api/${series.logo_path}`}
+                    alt={series.title}
+                    className="max-h-20 md:max-h-28 w-auto mb-3 drop-shadow-2xl"
+                    onError={(e) => {
+                      e.currentTarget.style.display = 'none';
+                      const fallback = e.currentTarget.nextElementSibling as HTMLElement;
+                      if (fallback) fallback.style.display = 'block';
+                    }}
+                  />
+                ) : null}
+                <h1
+                  className="text-3xl md:text-4xl lg:text-5xl font-bold text-white mb-3 leading-tight bg-gradient-to-r from-white to-gray-300 bg-clip-text text-transparent"
+                  style={{ display: series.logo_path ? 'none' : 'block' }}
+                >
                   {series.title}
                 </h1>
 

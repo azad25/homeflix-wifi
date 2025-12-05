@@ -101,6 +101,10 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		api.Static("/static/thumbnails", "./thumbnails")
 		api.Static("/static/previews", "./previews")
 		api.Static("/static/posters", "./posters")
+		api.Static("/logos", "./logos") // Serve logo files
+
+		// Logo scan endpoint
+		api.POST("/admin/scan/logos", handlers.ScanMovieLogos(mediaService, tmdbService))
 
 		// Thumbnail generation endpoint (always available)
 		api.POST("/thumbnails/:id", handlers.GenerateThumbnail(mediaService, thumbnailService))

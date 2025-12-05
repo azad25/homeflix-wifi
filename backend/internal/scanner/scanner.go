@@ -2345,12 +2345,42 @@ func (s *MediaScanner) processVideoFile(path string, info os.FileInfo) error {
 								log.Printf("🖼️ Set TMDB backdrop URL for %s: %s", media.Title, tmdbMetadata.BackdropURL)
 							}
 							if tmdbMetadata.PosterURL != "" {
-								// Store TMDB poster URL for reference (poster service handles actual downloads)
-								log.Printf("🎨 TMDB poster URL available for %s: %s", media.Title, tmdbMetadata.PosterURL)
+								// Download poster from TMDB
+								log.Printf("🎨 TMDB poster URL for %s: %s", media.Title, tmdbMetadata.PosterURL)
+								
+								// Download poster from TMDB
+								if s.GetPosterService() != nil {
+									log.Printf("📥 Downloading poster for %s", media.Title)
+									posterPath, posterErr := s.GetPosterService().DownloadPosterWithPath(media.Title, media.ID)
+									if posterErr != nil {
+										log.Printf("⚠️ Failed to download poster for %s: %v", media.Title, posterErr)
+									} else if posterPath != "" {
+										media.PosterPath = posterPath
+										log.Printf("✅ Downloaded and saved poster for: %s", media.Title)
+									}
+								}
 							}
 							if tmdbMetadata.TrailerURL != "" {
 								media.TMDBTrailerURL = tmdbMetadata.TrailerURL
 								log.Printf("🎬 Set TMDB trailer URL for %s: %s", media.Title, tmdbMetadata.TrailerURL)
+							}
+							
+							// Store TMDB ID for future reference and logo download
+							if tmdbMetadata.TMDBID > 0 {
+								media.TMDBID = tmdbMetadata.TMDBID
+								log.Printf("🆔 Set TMDB ID for %s: %d", media.Title, tmdbMetadata.TMDBID)
+								
+								// Download logo from TMDB
+								if s.GetTMDBService() != nil {
+									log.Printf("🏷️ Downloading logo for %s (TMDB ID: %d)", media.Title, tmdbMetadata.TMDBID)
+									logoPath, logoErr := s.GetTMDBService().DownloadMovieLogo(tmdbMetadata.TMDBID, media.ID, "./logos")
+									if logoErr != nil {
+										log.Printf("⚠️ Failed to download logo for %s: %v", media.Title, logoErr)
+									} else if logoPath != "" {
+										media.LogoPath = logoPath
+										log.Printf("✅ Downloaded and saved logo for: %s", media.Title)
+									}
+								}
 							}
 
 							// Update genres from TMDB if available
@@ -2539,7 +2569,7 @@ func (s *MediaScanner) processVideoFileWithPosterDownload(path string, info os.F
 			go func() {
 				defer func() {
 					if r := recover(); r != nil {
-						log.Printf("🚨 Recovered from panic in poster download for %s: %v", media.Title, r)
+						log.Printf("🚨 Recovered from panic in poster/logo download for %s: %v", media.Title, r)
 					}
 				}()
 				
@@ -2559,6 +2589,25 @@ func (s *MediaScanner) processVideoFileWithPosterDownload(path string, info os.F
 					}
 				} else {
 					log.Printf("ℹ️ No poster found for new media: %s", media.Title)
+				}
+				
+				// Also download logo if TMDB service is available and media has TMDB ID
+				if s.GetTMDBService() != nil && media.TMDBID > 0 {
+					log.Printf("🏷️ Downloading logo for new media: %s (TMDB ID: %d)", media.Title, media.TMDBID)
+					logoPath, logoErr := s.GetTMDBService().DownloadMovieLogo(media.TMDBID, media.ID, "./logos")
+					if logoErr != nil {
+						log.Printf("⚠️ Failed to download logo for new media %s: %v", media.Title, logoErr)
+					} else if logoPath != "" {
+						// Update media with logo path
+						media.LogoPath = logoPath
+						if updateErr := s.GetMediaService().UpdateMedia(media); updateErr != nil {
+							log.Printf("⚠️ Failed to update media with logo path: %v", updateErr)
+						} else {
+							log.Printf("✅ Downloaded and saved logo for new media: %s", media.Title)
+						}
+					} else {
+						log.Printf("ℹ️ No logo found for new media: %s", media.Title)
+					}
 				}
 			}()
 		}

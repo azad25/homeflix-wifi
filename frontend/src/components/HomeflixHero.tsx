@@ -607,7 +607,24 @@ const HomeflixHero: React.FC<HomeflixHeroProps> = ({
                                 transition={{ delay: 0.3 }}
                                 className="max-w-2xl"
                             >
-                                <h1 className="text-2xl md:text-4xl font-bold mb-1 text-shadow-lg">
+                                {/* Movie Title - Logo or Text */}
+                                {movie.logo_path ? (
+                                    <img
+                                        src={`${apiUrl}/api/${movie.logo_path}`}
+                                        alt={movie.title}
+                                        className="max-h-24 md:max-h-32 w-auto mb-2 drop-shadow-2xl"
+                                        onError={(e) => {
+                                            // Fallback to text if logo fails to load
+                                            e.currentTarget.style.display = 'none';
+                                            const fallback = e.currentTarget.nextElementSibling as HTMLElement;
+                                            if (fallback) fallback.style.display = 'block';
+                                        }}
+                                    />
+                                ) : null}
+                                <h1
+                                    className="text-2xl md:text-4xl font-bold mb-1 text-shadow-lg"
+                                    style={{ display: movie.logo_path ? 'none' : 'block' }}
+                                >
                                     {cleanMovieTitle ? cleanMovieTitle(movie.title) : movie.title}
                                 </h1>
 

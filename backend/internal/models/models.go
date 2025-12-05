@@ -82,6 +82,7 @@ type Media struct {
 	TMDBBackdropURL string `json:"tmdb_backdrop_url"` // TMDB backdrop image URL
 	TMDBTrailerURL  string `json:"tmdb_trailer_url"`  // TMDB trailer video URL
 	TMDBID          int    `json:"tmdb_id"`           // TMDB movie/TV ID for reference
+	LogoPath        string `json:"logo_path"`         // Local path to movie logo image
 	
 	// Series info (for episodes)
 	SeriesID      *uint   `json:"series_id,omitempty"`

@@ -44,6 +44,7 @@ type MediaMetadata struct {
 	Adult       bool     `json:"adult"`
 	Awards      []string `json:"awards"`
 	Certification string `json:"certification"`
+	TMDBID      int      `json:"tmdb_id"`
 }
 
 // JobStatus represents the status of a processing job
@@ -135,6 +136,7 @@ type TMDBServiceInterface interface {
 	RemoveYearFromTitle(title string) string
 	DownloadPoster(title string, mediaID uint, posterDir string) (string, error)
 	DownloadTVPoster(title string, seriesID uint, posterDir string) (string, error)
+	DownloadMovieLogo(tmdbID int, mediaID uint, logoDir string) (string, error)
 	GetPosterURL(posterPath string, size string) string
 	TestConnection() error
 }

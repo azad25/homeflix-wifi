@@ -61,11 +61,12 @@ export interface Media {
   trailer_path?: string;
   poster_path?: string;
   poster_url?: string | null; // For TMDB movies
-  
+
   // TMDB Integration fields for local media
   tmdb_backdrop_url?: string; // TMDB backdrop image URL
   tmdb_poster_url?: string;   // TMDB poster image URL (stored when downloading from TMDB)
   tmdb_trailer_url?: string;  // TMDB trailer video URL
+  logo_path?: string;         // Local path to movie logo image
 
   // Series info
   series_id?: number;

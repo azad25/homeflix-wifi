@@ -2404,7 +2404,23 @@ export default function MoviePage() {
             {/* Movie Details */}
             <div className="flex-1 space-y-4 pb-4">
               <div>
-                <h1 className="text-3xl md:text-4xl font-bold mb-2 bg-gradient-to-r from-white to-gray-300 bg-clip-text text-transparent">
+                {/* Movie Title - Logo or Text */}
+                {media.logo_path ? (
+                  <img
+                    src={`${getApiUrl()}/api/${media.logo_path}`}
+                    alt={media.title}
+                    className="max-h-20 md:max-h-28 w-auto mb-3 drop-shadow-2xl"
+                    onError={(e) => {
+                      e.currentTarget.style.display = 'none';
+                      const fallback = e.currentTarget.nextElementSibling as HTMLElement;
+                      if (fallback) fallback.style.display = 'block';
+                    }}
+                  />
+                ) : null}
+                <h1
+                  className="text-3xl md:text-4xl font-bold mb-2 bg-gradient-to-r from-white to-gray-300 bg-clip-text text-transparent"
+                  style={{ display: media.logo_path ? 'none' : 'block' }}
+                >
                   {media.title}
                 </h1>
 

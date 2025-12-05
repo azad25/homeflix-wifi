@@ -315,6 +315,18 @@ func UpdateMediaWithTMDB(mediaService *services.MediaService, tmdbService *servi
 			}
 		}
 		
+		// ENHANCED: Download and save logo from TMDB
+		if requestBody.TMDBId > 0 {
+			log.Printf("🏷️ Downloading logo from TMDB for: %s (TMDB ID: %d)", media.Title, requestBody.TMDBId)
+			logoPath, logoErr := tmdbService.DownloadMovieLogo(requestBody.TMDBId, media.ID, "./logos")
+			if logoErr != nil {
+				log.Printf("⚠️ Failed to download logo from TMDB: %v", logoErr)
+			} else if logoPath != "" {
+				log.Printf("✅ Logo downloaded and saved: %s", logoPath)
+				media.LogoPath = logoPath
+			}
+		}
+		
 		// Update runtime if available
 		if metadata.Runtime > 0 {
 			media.Duration = metadata.Runtime * 60 // Convert minutes to seconds

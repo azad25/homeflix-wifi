@@ -730,6 +730,7 @@ func (t *TMDBService) GenerateMediaMetadataWithOptions(filePath, title string, o
 		Popularity: details.Popularity,
 		VoteCount:  details.VoteCount,
 		Adult:      details.Adult,
+		TMDBID:     details.ID,
 	}
 
 	// Log enhanced metadata for debugging
@@ -2265,6 +2266,88 @@ func (t *TMDBService) GetMovieImages(movieID int) (*TMDBImagesResponse, error) {
 	log.Printf("✅ TMDB: Retrieved images for movie %d: %d backdrops, %d logos, %d posters",
 		movieID, len(images.Backdrops), len(images.Logos), len(images.Posters))
 	return &images, nil
+}
+
+// DownloadMovieLogo downloads the English logo for a movie by TMDB ID and saves it locally
+func (t *TMDBService) DownloadMovieLogo(tmdbID int, mediaID uint, logoDir string) (string, error) {
+	if t.apiKey == "" {
+		return "", fmt.Errorf("TMDB API key not configured")
+	}
+
+	log.Printf("🎨 TMDB: Downloading logo for TMDB ID %d (Media ID: %d)", tmdbID, mediaID)
+
+	// Get movie images
+	images, err := t.GetMovieImages(tmdbID)
+	if err != nil {
+		return "", fmt.Errorf("failed to get movie images: %v", err)
+	}
+
+	if len(images.Logos) == 0 {
+		return "", fmt.Errorf("no logos available for TMDB ID %d", tmdbID)
+	}
+
+	// Find the best English logo (highest vote_average)
+	var bestLogo *TMDBImage
+	var bestScore float64 = -1
+
+	// Only look for English logos (iso_639_1 == "en")
+	for i := range images.Logos {
+		logo := &images.Logos[i]
+		if logo.ISO6391 == "en" {
+			if logo.VoteAverage > bestScore {
+				bestScore = logo.VoteAverage
+				bestLogo = logo
+			}
+		}
+	}
+
+	if bestLogo == nil {
+		return "", fmt.Errorf("no English logo found for TMDB ID %d", tmdbID)
+	}
+
+	log.Printf("✅ TMDB: Found logo - Path: %s, Language: %s, Score: %.1f",
+		bestLogo.FilePath, bestLogo.ISO6391, bestLogo.VoteAverage)
+
+	// Create logo directory if it doesn't exist
+	if err := os.MkdirAll(logoDir, 0755); err != nil {
+		return "", fmt.Errorf("failed to create logo directory: %v", err)
+	}
+
+	// Generate filename using media ID
+	filename := fmt.Sprintf("%d.png", mediaID)
+	logoPath := filepath.Join(logoDir, filename)
+
+	// Construct full logo URL (using w500 for good quality)
+	logoURL := "https://image.tmdb.org/t/p/w500" + bestLogo.FilePath
+	log.Printf("📥 TMDB: Downloading logo from: %s", logoURL)
+
+	// Download the logo
+	resp, err := t.httpClient.Get(logoURL)
+	if err != nil {
+		return "", fmt.Errorf("failed to download logo: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("failed to download logo: HTTP %d", resp.StatusCode)
+	}
+
+	// Create the file
+	file, err := os.Create(logoPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to create logo file: %v", err)
+	}
+	defer file.Close()
+
+	// Copy data to file
+	bytesWritten, err := file.ReadFrom(resp.Body)
+	if err != nil {
+		os.Remove(logoPath)
+		return "", fmt.Errorf("failed to write logo data: %v", err)
+	}
+
+	log.Printf("✅ TMDB: Logo saved (%d bytes): %s", bytesWritten, logoPath)
+	return logoPath, nil
 }
 
 // ConvertMovieDetailsToMetadata converts TMDB movie details to MediaMetadata format

@@ -60,6 +60,7 @@ interface Video {
 
 interface MovieWithVideo extends Movie {
     videoKey?: string;
+    logoUrl?: string;
 }
 
 const TrailersPage = () => {
@@ -210,6 +211,9 @@ const TrailersPage = () => {
                             const videoResponse = await fetch(
                                 `${apiUrl}/api/tmdb-movie/${movie.id}?append_to_response=videos`
                             );
+                            let videoKey: string | undefined;
+                            let logoUrl: string | undefined;
+
                             if (videoResponse.ok) {
                                 const videoData = await videoResponse.json();
                                 // API wraps response in data object: { data: { videos: { results: [...] } } }
@@ -219,18 +223,45 @@ const TrailersPage = () => {
                                         v.site === "YouTube" &&
                                         (v.type === "Trailer" || v.type === "Teaser")
                                 );
-                                console.log(`Movie "${movie.title}" (${movie.id}):`, { hasTrailer: !!trailer?.key, key: trailer?.key });
-                                return { ...movie, videoKey: trailer?.key };
+                                videoKey = trailer?.key;
                             }
+
+                            // Fetch logo from TMDB images API
+                            try {
+                                const imagesResponse = await fetch(
+                                    `${apiUrl}/api/tmdb/movie/${movie.id}/images`
+                                );
+                                if (imagesResponse.ok) {
+                                    const imagesData = await imagesResponse.json();
+                                    const logos = imagesData.logos || [];
+                                    // Find best English logo
+                                    let bestLogo = logos.find((l: any) => l.iso_639_1 === 'en');
+                                    if (!bestLogo && logos.length > 0) {
+                                        bestLogo = logos[0];
+                                    }
+                                    if (bestLogo?.file_path) {
+                                        logoUrl = `https://image.tmdb.org/t/p/w500${bestLogo.file_path}`;
+                                    }
+                                }
+                            } catch (e) {
+                                // Ignore logo fetch errors
+                            }
+
+                            return { ...movie, videoKey, logoUrl };
                         } catch (error) {
-                            console.error(`Error fetching video for movie ${movie.id}:`, error);
+                            console.error(`Error fetching data for movie ${movie.id}:`, error);
                         }
                         return movie;
                     })
                 );
 
                 setMovies(moviesWithVideos);
-                console.log('Fetched movies with videos:', moviesWithVideos.map(m => ({ title: m.title, hasVideo: !!m.videoKey })));
+                console.log('Fetched movies with videos and logos:', moviesWithVideos.map(m => ({
+                    title: m.title,
+                    hasVideo: !!m.videoKey,
+                    hasLogo: !!m.logoUrl,
+                    logoUrl: m.logoUrl
+                })));
             }
         } catch (error) {
             console.error("Failed to fetch now-playing movies:", error);
@@ -339,7 +370,23 @@ const TrailersPage = () => {
                                     transition={{ delay: 0.5 }}
                                     className="max-w-2xl"
                                 >
-                                    <h1 className="text-2xl md:text-4xl font-bold mb-2 text-shadow-lg">
+                                    {/* Movie Title - Logo or Text */}
+                                    {movie.logoUrl ? (
+                                        <img
+                                            src={movie.logoUrl}
+                                            alt={movie.title}
+                                            className="max-h-16 md:max-h-24 w-auto mb-2 drop-shadow-2xl"
+                                            onError={(e) => {
+                                                e.currentTarget.style.display = 'none';
+                                                const fallback = e.currentTarget.nextElementSibling as HTMLElement;
+                                                if (fallback) fallback.style.display = 'block';
+                                            }}
+                                        />
+                                    ) : null}
+                                    <h1
+                                        className="text-2xl md:text-4xl font-bold mb-2 text-shadow-lg"
+                                        style={{ display: movie.logoUrl ? 'none' : 'block' }}
+                                    >
                                         {movie.title}
                                     </h1>
                                     {/* Genres */}
