@@ -122,7 +122,7 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({
                     </div>
 
                     {/* Notifications List */}
-                    <div className="flex-1">
+                    <div className="flex-1 overflow-y-auto">
                         {notifications.length === 0 ? (
                             <div className="p-8 text-center">
                                 <div className="w-16 h-16 bg-white/5 rounded-full flex items-center justify-center mx-auto mb-4">

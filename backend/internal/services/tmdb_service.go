@@ -2350,6 +2350,38 @@ func (t *TMDBService) DownloadMovieLogo(tmdbID int, mediaID uint, logoDir string
 	return logoPath, nil
 }
 
+// DownloadLogoByTitle searches TMDB for a movie by title and downloads its logo
+// This works similar to DownloadPoster - it searches by title first, then downloads
+func (t *TMDBService) DownloadLogoByTitle(title string, mediaID uint, logoDir string) (string, error) {
+	if t.apiKey == "" {
+		return "", fmt.Errorf("TMDB API key not configured")
+	}
+
+	log.Printf("🏷️ TMDB: Searching for logo for '%s'", title)
+
+	// Extract year from title for better search accuracy
+	year := t.extractYear(title)
+	cleanTitle := title
+	searchTitle := t.RemoveYearFromTitle(cleanTitle)
+
+	log.Printf("🔍 TMDB: Logo search params - Title: '%s', Year: %d", searchTitle, year)
+
+	// Search for the movie
+	movie, err := t.SearchMovie(searchTitle, year)
+	if err != nil {
+		// Try fallback search without year
+		movie, err = t.SearchMovie(searchTitle, 0)
+		if err != nil {
+			return "", fmt.Errorf("movie not found in TMDB: %v", err)
+		}
+	}
+
+	log.Printf("✅ TMDB: Found movie for logo - ID: %d, Title: '%s'", movie.ID, movie.Title)
+
+	// Now download the logo using the TMDB ID
+	return t.DownloadMovieLogo(movie.ID, mediaID, logoDir)
+}
+
 // ConvertMovieDetailsToMetadata converts TMDB movie details to MediaMetadata format
 func (t *TMDBService) ConvertMovieDetailsToMetadata(details *TMDBMovieDetailsWithExtras) *interfaces.MediaMetadata {
 	if details == nil {

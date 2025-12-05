@@ -108,6 +108,10 @@ func (a *TMDBServiceAdapter) DownloadMovieLogo(tmdbID int, mediaID uint, logoDir
 	return a.service.DownloadMovieLogo(tmdbID, mediaID, logoDir)
 }
 
+func (a *TMDBServiceAdapter) DownloadLogoByTitle(title string, mediaID uint, logoDir string) (string, error) {
+	return a.service.DownloadLogoByTitle(title, mediaID, logoDir)
+}
+
 func (a *TMDBServiceAdapter) GetPosterURL(posterPath string, size string) string {
 	return a.service.GetPosterURL(posterPath, size)
 }

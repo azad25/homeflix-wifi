@@ -2365,22 +2365,10 @@ func (s *MediaScanner) processVideoFile(path string, info os.FileInfo) error {
 								log.Printf("🎬 Set TMDB trailer URL for %s: %s", media.Title, tmdbMetadata.TrailerURL)
 							}
 							
-							// Store TMDB ID for future reference and logo download
+							// Store TMDB ID for future reference (logo download happens after media is saved)
 							if tmdbMetadata.TMDBID > 0 {
 								media.TMDBID = tmdbMetadata.TMDBID
 								log.Printf("🆔 Set TMDB ID for %s: %d", media.Title, tmdbMetadata.TMDBID)
-								
-								// Download logo from TMDB
-								if s.GetTMDBService() != nil {
-									log.Printf("🏷️ Downloading logo for %s (TMDB ID: %d)", media.Title, tmdbMetadata.TMDBID)
-									logoPath, logoErr := s.GetTMDBService().DownloadMovieLogo(tmdbMetadata.TMDBID, media.ID, "./logos")
-									if logoErr != nil {
-										log.Printf("⚠️ Failed to download logo for %s: %v", media.Title, logoErr)
-									} else if logoPath != "" {
-										media.LogoPath = logoPath
-										log.Printf("✅ Downloaded and saved logo for: %s", media.Title)
-									}
-								}
 							}
 
 							// Update genres from TMDB if available
@@ -2421,8 +2409,25 @@ func (s *MediaScanner) processVideoFile(path string, info os.FileInfo) error {
 			if err := s.GetMediaService().UpdateMedia(media); err != nil {
 				log.Printf("Warning: Failed to update media metadata for %s: %v", media.Title, err)
 			} else {
-				// Send notification for newly added movies
 				// After UpdateMedia, media.ID will be populated for new records
+				// Now download logo (uses title to search TMDB, like poster download)
+				if media.LogoPath == "" && s.GetTMDBService() != nil {
+					log.Printf("🏷️ Downloading logo for %s (Media ID: %d)", media.Title, media.ID)
+					logoPath, logoErr := s.GetTMDBService().DownloadLogoByTitle(media.Title, media.ID, "./logos")
+					if logoErr != nil {
+						log.Printf("⚠️ Failed to download logo for %s: %v", media.Title, logoErr)
+					} else if logoPath != "" {
+						media.LogoPath = logoPath
+						// Save logo path to database
+						if updateErr := s.GetMediaService().UpdateMedia(media); updateErr != nil {
+							log.Printf("⚠️ Failed to save logo path for %s: %v", media.Title, updateErr)
+						} else {
+							log.Printf("✅ Downloaded and saved logo for: %s", media.Title)
+						}
+					}
+				}
+				
+				// Send notification for newly added movies
 				if isNewMovie && s.notificationService != nil && media.ID != 0 {
 					// Capture the media ID for the goroutine
 					movieID := media.ID
@@ -2555,7 +2560,7 @@ func (s *MediaScanner) processVideoFileWithPosterDownload(path string, info os.F
 	
 	// If this is new media and poster service is available, download poster
 	if isNewMedia && s.GetPosterService() != nil {
-		log.Printf("🎨 New media detected by file watcher, downloading poster for: %s", filepath.Base(path))
+		log.Printf("🎨 New media detected by file watcher, downloading poster and logo for: %s", filepath.Base(path))
 		
 		// Get the media from database to get the ID and title
 		media, err := s.GetMediaService().GetMediaByPath(path)
@@ -2565,7 +2570,7 @@ func (s *MediaScanner) processVideoFileWithPosterDownload(path string, info os.F
 		}
 		
 		if media != nil {
-			// Download poster in a separate goroutine to avoid blocking
+			// Download poster and logo in a separate goroutine to avoid blocking
 			go func() {
 				defer func() {
 					if r := recover(); r != nil {
@@ -2573,41 +2578,52 @@ func (s *MediaScanner) processVideoFileWithPosterDownload(path string, info os.F
 					}
 				}()
 				
-				// Add a small delay to ensure the media is fully processed
-				time.Sleep(2 * time.Second)
+				// Wait longer to ensure TMDB metadata is fully saved (happens in background goroutine)
+				time.Sleep(4 * time.Second)
 				
-				posterPath, err := s.GetPosterService().DownloadPosterWithPath(media.Title, media.ID)
-				if err != nil {
-					log.Printf("❌ Failed to download poster for new media %s: %v", media.Title, err)
-				} else if posterPath != "" {
-					// Update media with poster path
-					media.PosterPath = posterPath
-					if updateErr := s.GetMediaService().UpdateMedia(media); updateErr != nil {
-						log.Printf("⚠️ Failed to update media with poster path: %v", updateErr)
-					} else {
-						log.Printf("✅ Downloaded and saved poster for new media: %s", media.Title)
-					}
-				} else {
-					log.Printf("ℹ️ No poster found for new media: %s", media.Title)
+				// Refresh media from database to get latest data including TMDB ID
+				refreshedMedia, refreshErr := s.GetMediaService().GetMediaByPath(path)
+				if refreshErr != nil {
+					log.Printf("⚠️ Failed to refresh media from database: %v", refreshErr)
+					return
+				}
+				if refreshedMedia == nil {
+					log.Printf("⚠️ Media not found in database after refresh")
+					return
 				}
 				
-				// Also download logo if TMDB service is available and media has TMDB ID
-				if s.GetTMDBService() != nil && media.TMDBID > 0 {
-					log.Printf("🏷️ Downloading logo for new media: %s (TMDB ID: %d)", media.Title, media.TMDBID)
-					logoPath, logoErr := s.GetTMDBService().DownloadMovieLogo(media.TMDBID, media.ID, "./logos")
+				log.Printf("📥 Downloading assets for new media: %s (TMDB ID: %d)", refreshedMedia.Title, refreshedMedia.TMDBID)
+				
+				// Download poster
+				posterPath, err := s.GetPosterService().DownloadPosterWithPath(refreshedMedia.Title, refreshedMedia.ID)
+				if err != nil {
+					log.Printf("❌ Failed to download poster for %s: %v", refreshedMedia.Title, err)
+				} else if posterPath != "" {
+					refreshedMedia.PosterPath = posterPath
+					log.Printf("✅ Downloaded poster for: %s", refreshedMedia.Title)
+				} else {
+					log.Printf("ℹ️ No poster found for: %s", refreshedMedia.Title)
+				}
+				
+				// Download logo (works like poster - searches TMDB by title)
+				if s.GetTMDBService() != nil {
+					log.Printf("🏷️ Downloading logo for: %s", refreshedMedia.Title)
+					logoPath, logoErr := s.GetTMDBService().DownloadLogoByTitle(refreshedMedia.Title, refreshedMedia.ID, "./logos")
 					if logoErr != nil {
-						log.Printf("⚠️ Failed to download logo for new media %s: %v", media.Title, logoErr)
+						log.Printf("⚠️ Failed to download logo for %s: %v", refreshedMedia.Title, logoErr)
 					} else if logoPath != "" {
-						// Update media with logo path
-						media.LogoPath = logoPath
-						if updateErr := s.GetMediaService().UpdateMedia(media); updateErr != nil {
-							log.Printf("⚠️ Failed to update media with logo path: %v", updateErr)
-						} else {
-							log.Printf("✅ Downloaded and saved logo for new media: %s", media.Title)
-						}
+						refreshedMedia.LogoPath = logoPath
+						log.Printf("✅ Downloaded logo for: %s", refreshedMedia.Title)
 					} else {
-						log.Printf("ℹ️ No logo found for new media: %s", media.Title)
+						log.Printf("ℹ️ No logo found for: %s", refreshedMedia.Title)
 					}
+				}
+				
+				// Save both poster and logo paths in a single update
+				if updateErr := s.GetMediaService().UpdateMedia(refreshedMedia); updateErr != nil {
+					log.Printf("⚠️ Failed to update media with asset paths: %v", updateErr)
+				} else {
+					log.Printf("✅ Saved asset paths for: %s", refreshedMedia.Title)
 				}
 			}()
 		}
