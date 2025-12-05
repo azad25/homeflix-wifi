@@ -122,7 +122,7 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({
                     </div>
 
                     {/* Notifications List */}
-                    <div className="overflow-y-auto flex-1">
+                    <div className="flex-1">
                         {notifications.length === 0 ? (
                             <div className="p-8 text-center">
                                 <div className="w-16 h-16 bg-white/5 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -157,8 +157,8 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({
                                                 {/* Movie suggestions */}
                                                 {notification.movie_ids &&
                                                     notification.movie_ids.length > 0 && (
-                                                        <div className="flex gap-2 overflow-x-auto pb-2">
-                                                            {notification.movie_ids.slice(0, 3).map((movieId, idx) => (
+                                                        <div className="flex gap-2 flex-wrap pb-2">
+                                                            {notification.movie_ids.slice(0, 4).map((movieId, idx) => (
                                                                 <button
                                                                     key={movieId}
                                                                     onClick={() => handleNotificationClick(notification, idx)}
@@ -174,13 +174,7 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({
                                                                     </div>
                                                                 </button>
                                                             ))}
-                                                            {notification.movie_ids.length > 3 && (
-                                                                <div className="flex-shrink-0 w-16 h-24 bg-white/5 rounded flex items-center justify-center">
-                                                                    <span className="text-white/60 text-xs">
-                                                                        +{notification.movie_ids.length - 3}
-                                                                    </span>
-                                                                </div>
-                                                            )}
+
                                                         </div>
                                                     )}
 

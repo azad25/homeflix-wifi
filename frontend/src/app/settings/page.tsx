@@ -164,7 +164,7 @@ function SettingsContent() {
       ]);
 
       console.log('📊 Fetched media:', { movies: media.length, series: series.length });
-      
+
       // Transform genres to genre_names for all media items
       const transformedMedia = media.map((m: any) => {
         if (m.genres && Array.isArray(m.genres)) {
@@ -176,7 +176,7 @@ function SettingsContent() {
         }
         return m;
       });
-      
+
       const transformedSeries = series.map((s: any) => {
         if (s.genres && Array.isArray(s.genres)) {
           const { genres, ...rest } = s;
@@ -187,7 +187,7 @@ function SettingsContent() {
         }
         return s;
       });
-      
+
       setMediaList(transformedMedia);
       setSeriesList(transformedSeries);
       setLoading(false);
@@ -203,17 +203,17 @@ function SettingsContent() {
               type: 'tv' as const,
               id: selectedMedia.id
             };
-            
+
             // Ensure genres is removed and genre_names is properly formatted
             if ((updatedMedia as any).genres) {
               delete (updatedMedia as any).genres;
             }
             if (updatedMedia.genre_names && Array.isArray(updatedMedia.genre_names)) {
-              updatedMedia.genre_names = updatedMedia.genre_names.map((g: any) => 
+              updatedMedia.genre_names = updatedMedia.genre_names.map((g: any) =>
                 typeof g === 'string' ? g : g?.name || String(g)
               );
             }
-            
+
             setSelectedMedia(updatedMedia);
             console.log('🔄 Updated selected TV series from fresh data');
           }
@@ -225,17 +225,17 @@ function SettingsContent() {
               isEditing: selectedMedia.isEditing,
               id: selectedMedia.id
             };
-            
+
             // Ensure genres is removed and genre_names is properly formatted
             if ((updatedMedia as any).genres) {
               delete (updatedMedia as any).genres;
             }
             if (updatedMedia.genre_names && Array.isArray(updatedMedia.genre_names)) {
-              updatedMedia.genre_names = updatedMedia.genre_names.map((g: any) => 
+              updatedMedia.genre_names = updatedMedia.genre_names.map((g: any) =>
                 typeof g === 'string' ? g : g?.name || String(g)
               );
             }
-            
+
             setSelectedMedia(updatedMedia);
             console.log('🔄 Updated selected movie from fresh data');
           }
@@ -419,7 +419,7 @@ function SettingsContent() {
             delete (cleanMedia as any).genres;
           }
           if (cleanMedia.genre_names && Array.isArray(cleanMedia.genre_names)) {
-            cleanMedia.genre_names = cleanMedia.genre_names.map((g: any) => 
+            cleanMedia.genre_names = cleanMedia.genre_names.map((g: any) =>
               typeof g === 'string' ? g : g?.name || String(g)
             );
           }
@@ -497,7 +497,7 @@ function SettingsContent() {
               series_title: series.title,
               air_date: episode.air_date,
               vote_count: episode.vote_count,
-              
+
               // Inherit series data
               country: series.country || '',
               language: series.language || '',
@@ -534,7 +534,7 @@ function SettingsContent() {
               series_id: series.id,
               series_title: series.title,
               air_date: season.air_date,
-              
+
               // Inherit series data
               country: series.country || '',
               language: series.language || '',
@@ -1071,7 +1071,7 @@ function SettingsContent() {
             delete (finalMedia as any).genres;
           }
           if (finalMedia.genre_names && Array.isArray(finalMedia.genre_names)) {
-            finalMedia.genre_names = finalMedia.genre_names.map((g: any) => 
+            finalMedia.genre_names = finalMedia.genre_names.map((g: any) =>
               typeof g === 'string' ? g : g?.name || String(g)
             );
           }
@@ -1123,15 +1123,15 @@ function SettingsContent() {
 
           // Preserve manually edited fields
           const finalMedia = { ...updatedData };
-          
+
           // Ensure genres is properly formatted as string array
           if (finalMedia.genres && Array.isArray(finalMedia.genres)) {
-            finalMedia.genre_names = finalMedia.genres.map((g: any) => 
+            finalMedia.genre_names = finalMedia.genres.map((g: any) =>
               typeof g === 'string' ? g : g.name || g
             );
             delete (finalMedia as any).genres;
           }
-          
+
           if (selectedMedia.isEditing && editingMedia) {
             (Object.keys(editingMedia) as Array<keyof Media>).forEach(key => {
               if (editingMedia[key] !== undefined && editingMedia[key] !== '') {
@@ -1220,15 +1220,15 @@ function SettingsContent() {
 
           // Preserve manually edited fields
           const finalSeriesData = { ...updatedData };
-          
+
           // Ensure genres is properly formatted as string array
           if (finalSeriesData.genres && Array.isArray(finalSeriesData.genres)) {
-            finalSeriesData.genre_names = finalSeriesData.genres.map((g: any) => 
+            finalSeriesData.genre_names = finalSeriesData.genres.map((g: any) =>
               typeof g === 'string' ? g : g.name || g
             );
             delete (finalSeriesData as any).genres;
           }
-          
+
           if (selectedMedia.isEditing && editingMedia) {
             (Object.keys(editingMedia) as Array<keyof Media>).forEach(key => {
               if (editingMedia[key] !== undefined && editingMedia[key] !== '') {
@@ -1259,7 +1259,7 @@ function SettingsContent() {
             delete (finalMedia as any).genres;
           }
           if (finalMedia.genre_names && Array.isArray(finalMedia.genre_names)) {
-            finalMedia.genre_names = finalMedia.genre_names.map((g: any) => 
+            finalMedia.genre_names = finalMedia.genre_names.map((g: any) =>
               typeof g === 'string' ? g : g?.name || String(g)
             );
           }
@@ -1294,15 +1294,15 @@ function SettingsContent() {
 
           // Preserve manually edited fields
           const finalMedia = { ...updatedData };
-          
+
           // Ensure genres is properly formatted as string array
           if (finalMedia.genres && Array.isArray(finalMedia.genres)) {
-            finalMedia.genre_names = finalMedia.genres.map((g: any) => 
+            finalMedia.genre_names = finalMedia.genres.map((g: any) =>
               typeof g === 'string' ? g : g.name || g
             );
             delete (finalMedia as any).genres;
           }
-          
+
           if (selectedMedia.isEditing && editingMedia) {
             (Object.keys(editingMedia) as Array<keyof Media>).forEach(key => {
               if (editingMedia[key] !== undefined && editingMedia[key] !== '') {
@@ -1850,13 +1850,13 @@ function SettingsContent() {
   // OpenSubtitles handlers
   const handleOpenSubtitlesSearch = async (standalone = false) => {
     if (!openSubtitlesQuery.trim()) return;
-    
+
     // For standalone search, we don't need selectedMedia
     if (!standalone && !selectedMedia) return;
 
     setOpenSubtitlesLoading(true);
     setOpenSubtitlesResults([]);
-    
+
     const searchContext = standalone ? 'standalone' : `for ${selectedMedia?.title}`;
     addTerminalOutput(`🔍 Searching OpenSubtitles ${searchContext}: ${openSubtitlesQuery} (${selectedLanguage})`);
 
@@ -1874,10 +1874,10 @@ function SettingsContent() {
       // Use different endpoint for standalone search
       const endpoint = standalone ? 'opensubtitles/search-standalone' : 'opensubtitles/search';
       const response = await fetch(`${getApiUrl()}/api/${endpoint}?${params}`);
-      
+
       if (response.ok) {
         const data = await response.json();
-        
+
         // Handle different response formats between standalone and media-specific search
         let results = [];
         if (standalone) {
@@ -1887,15 +1887,15 @@ function SettingsContent() {
           // Media-specific search returns the raw OpenSubtitles API response: { data: [...] }
           results = data.data || [];
         }
-        
+
         setOpenSubtitlesResults(results);
         addTerminalOutput(`✅ Found ${results.length} subtitle(s) for "${openSubtitlesQuery}"`);
-        
+
         if (results.length === 0) {
           addTerminalOutput(`💡 Try searching with just the movie title or different language`);
         } else {
           addTerminalOutput(`📊 Results include downloads, ratings, and file information`);
-          
+
           // Log the structure of the first result for debugging
           if (results.length > 0) {
             console.log('🔍 First result structure:', results[0]);
@@ -1919,30 +1919,30 @@ function SettingsContent() {
 
     // Handle both standalone and media-specific search result formats
     const isStandaloneFormat = subtitle.movie_title !== undefined;
-    
-    const fileId = isStandaloneFormat 
-      ? subtitle.file_id 
+
+    const fileId = isStandaloneFormat
+      ? subtitle.file_id
       : subtitle.attributes?.files?.[0]?.file_id;
-      
+
     if (!fileId) {
       addTerminalOutput(`❌ No file ID found for subtitle`);
       return;
     }
 
     setDownloadingSubtitle(fileId);
-    
-    const subtitleTitle = isStandaloneFormat 
+
+    const subtitleTitle = isStandaloneFormat
       ? (subtitle.movie_title || selectedMedia.title || 'Unknown')
       : (subtitle.attributes?.feature_details?.title || selectedMedia.title || 'Unknown');
-      
-    const language = isStandaloneFormat 
+
+    const language = isStandaloneFormat
       ? (subtitle.language || 'Unknown')
       : (subtitle.attributes?.language || 'Unknown');
-    
+
     addTerminalOutput(`⬇️ Downloading subtitle: ${subtitleTitle} (${language.toUpperCase()})`);
 
     try {
-      const fileName = isStandaloneFormat 
+      const fileName = isStandaloneFormat
         ? (subtitle.file_name || `${subtitleTitle}.srt`)
         : (subtitle.attributes?.files?.[0]?.file_name || `${subtitleTitle}.srt`);
 
@@ -1962,7 +1962,7 @@ function SettingsContent() {
         const result = await response.json();
         addTerminalOutput(`✅ Subtitle downloaded successfully: ${result.language}`);
         addTerminalOutput(`📁 Saved as: ${result.path}`);
-        
+
         if (result.remaining !== undefined) {
           addTerminalOutput(`📊 Remaining downloads today: ${result.remaining}`);
         }
@@ -1976,7 +1976,7 @@ function SettingsContent() {
 
         // Refresh the media list
         await fetchMediaList();
-        
+
       } else {
         const errorData = await response.json().catch(() => ({ error: response.statusText }));
         addTerminalOutput(`❌ Failed to download subtitle: ${errorData.error || response.statusText}`);
@@ -1992,54 +1992,54 @@ function SettingsContent() {
   const handleDownloadSubtitleAsFile = async (subtitle: any) => {
     // Handle both standalone and media-specific search result formats
     const isStandaloneFormat = subtitle.movie_title !== undefined;
-    
-    const fileId = isStandaloneFormat 
-      ? subtitle.file_id 
+
+    const fileId = isStandaloneFormat
+      ? subtitle.file_id
       : subtitle.attributes?.files?.[0]?.file_id;
-      
+
     if (!fileId) {
       addTerminalOutput(`❌ No file ID found for subtitle download`);
       return;
     }
 
-    const subtitleTitle = isStandaloneFormat 
+    const subtitleTitle = isStandaloneFormat
       ? (subtitle.movie_title || 'Unknown')
       : (subtitle.attributes?.feature_details?.title || 'Unknown');
-      
-    const language = isStandaloneFormat 
+
+    const language = isStandaloneFormat
       ? (subtitle.language || 'Unknown')
       : (subtitle.attributes?.language || 'Unknown');
-    
+
     addTerminalOutput(`⬇️ Downloading SRT file: ${subtitleTitle} (${language.toUpperCase()})`);
 
     try {
       const response = await fetch(`${getApiUrl()}/api/opensubtitles/download?file_id=${fileId}`);
-      
+
       if (response.ok) {
         const blob = await response.blob();
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        
+
         // Get filename from Content-Disposition header or use default
         const contentDisposition = response.headers.get('content-disposition');
-        let filename = isStandaloneFormat 
+        let filename = isStandaloneFormat
           ? (subtitle.file_name || `${subtitleTitle}_${language}.srt`)
           : (subtitle.attributes?.files?.[0]?.file_name || `${subtitleTitle}_${language}.srt`);
-          
+
         if (contentDisposition) {
           const filenameMatch = contentDisposition.match(/filename="?([^"]+)"?/);
           if (filenameMatch) {
             filename = filenameMatch[1];
           }
         }
-        
+
         a.download = filename;
         document.body.appendChild(a);
         a.click();
         window.URL.revokeObjectURL(url);
         document.body.removeChild(a);
-        
+
         addTerminalOutput(`✅ SRT file downloaded: ${filename}`);
       } else {
         const errorData = await response.json().catch(() => ({ error: response.statusText }));
@@ -2121,7 +2121,7 @@ function SettingsContent() {
 
     const handleClearAllSubtitles = async () => {
       if (subtitles.length === 0) return;
-      
+
       if (!confirm(`Are you sure you want to delete ALL ${subtitles.length} subtitle(s)? This action cannot be undone.`)) return;
 
       setClearingAll(true);
@@ -2154,7 +2154,7 @@ function SettingsContent() {
 
         // Update local state
         setSubtitles([]);
-        
+
         // Summary message
         if (deletedCount > 0) {
           addTerminalOutput(`✅ Successfully deleted ${deletedCount} subtitle(s)`);
@@ -2176,7 +2176,7 @@ function SettingsContent() {
     const handleDownloadSubtitle = async (subtitle: any) => {
       try {
         const response = await fetch(`${getApiUrl()}/api/media/${mediaId}/subtitles/${subtitle.id}/file`);
-        
+
         if (response.ok) {
           const blob = await response.blob();
           const url = window.URL.createObjectURL(blob);
@@ -2403,56 +2403,6 @@ function SettingsContent() {
               Media
             </MagneticButton>
             <MagneticButton
-              onClick={() => setActiveTab('scanning')}
-              className={`px-4 py-3 rounded-lg font-semibold transition-all duration-300 flex items-center gap-2 whitespace-nowrap ${activeTab === 'scanning'
-                ? 'bg-[#E50914] text-white shadow-lg shadow-red-500/25'
-                : 'bg-transparent text-white/70 hover:text-white hover:bg-white/10'
-                }`}
-            >
-              <Search className="w-4 h-4" />
-              Scanning
-            </MagneticButton>
-            <MagneticButton
-              onClick={() => setActiveTab('system')}
-              className={`px-4 py-3 rounded-lg font-semibold transition-all duration-300 flex items-center gap-2 whitespace-nowrap ${activeTab === 'system'
-                ? 'bg-[#E50914] text-white shadow-lg shadow-red-500/25'
-                : 'bg-transparent text-white/70 hover:text-white hover:bg-white/10'
-                }`}
-            >
-              <Server className="w-4 h-4" />
-              System
-            </MagneticButton>
-            <MagneticButton
-              onClick={() => setActiveTab('tasks')}
-              className={`px-4 py-3 rounded-lg font-semibold transition-all duration-300 flex items-center gap-2 whitespace-nowrap ${activeTab === 'tasks'
-                ? 'bg-[#E50914] text-white shadow-lg shadow-red-500/25'
-                : 'bg-transparent text-white/70 hover:text-white hover:bg-white/10'
-                }`}
-            >
-              <Activity className="w-4 h-4" />
-              Tasks
-            </MagneticButton>
-            <MagneticButton
-              onClick={() => setActiveTab('watcher')}
-              className={`px-4 py-3 rounded-lg font-semibold transition-all duration-300 flex items-center gap-2 whitespace-nowrap ${activeTab === 'watcher'
-                ? 'bg-[#E50914] text-white shadow-lg shadow-red-500/25'
-                : 'bg-transparent text-white/70 hover:text-white hover:bg-white/10'
-                }`}
-            >
-              <Monitor className="w-4 h-4" />
-              Watcher
-            </MagneticButton>
-            <MagneticButton
-              onClick={() => setActiveTab('analytics')}
-              className={`px-4 py-3 rounded-lg font-semibold transition-all duration-300 flex items-center gap-2 whitespace-nowrap ${activeTab === 'analytics'
-                ? 'bg-[#E50914] text-white shadow-lg shadow-red-500/25'
-                : 'bg-transparent text-white/70 hover:text-white hover:bg-white/10'
-                }`}
-            >
-              <BarChart3 className="w-4 h-4" />
-              Analytics
-            </MagneticButton>
-            <MagneticButton
               onClick={() => setActiveTab('torrent')}
               className={`px-4 py-3 rounded-lg font-semibold transition-all duration-300 flex items-center gap-2 whitespace-nowrap relative ${activeTab === 'torrent'
                 ? 'bg-[#E50914] text-white shadow-lg shadow-red-500/25'
@@ -2478,14 +2428,14 @@ function SettingsContent() {
               Paths
             </MagneticButton>
             <MagneticButton
-              onClick={() => setActiveTab('system-logs')}
-              className={`px-4 py-3 rounded-lg font-semibold transition-all duration-300 flex items-center gap-2 whitespace-nowrap ${activeTab === 'system-logs'
+              onClick={() => setActiveTab('system')}
+              className={`px-4 py-3 rounded-lg font-semibold transition-all duration-300 flex items-center gap-2 whitespace-nowrap ${activeTab === 'system'
                 ? 'bg-[#E50914] text-white shadow-lg shadow-red-500/25'
                 : 'bg-transparent text-white/70 hover:text-white hover:bg-white/10'
                 }`}
             >
               <Activity className="w-4 h-4" />
-              Logs
+              System
             </MagneticButton>
             <MagneticButton
               onClick={() => setActiveTab('subtitles')}
@@ -3391,149 +3341,149 @@ function SettingsContent() {
                           </div>
                         </div>
 
-            
+
                       </div>
 
                       {/* OpenSubtitles Integration */}
-                        {selectedMedia && (
-                          <div className="bg-white/5 backdrop-blur-sm rounded-lg p-6 border border-white/10 mt-6 w-full">
-                            <h4 className="text-white font-semibold mb-4 flex items-center">
-                              <Globe className="w-5 h-5 mr-2 text-[#E50914]" />
-                              OpenSubtitles Search
-                            </h4>
+                      {selectedMedia && (
+                        <div className="bg-white/5 backdrop-blur-sm rounded-lg p-6 border border-white/10 mt-6 w-full">
+                          <h4 className="text-white font-semibold mb-4 flex items-center">
+                            <Globe className="w-5 h-5 mr-2 text-[#E50914]" />
+                            OpenSubtitles Search
+                          </h4>
 
-                            <div className="space-y-4">
-                              {/* Search Form */}
-                              <div className="flex gap-3">
-                                <div className="flex-1">
-                                  <input
-                                    type="text"
-                                    placeholder={`Search subtitles for "${selectedMedia.title}"...`}
-                                    value={openSubtitlesQuery}
-                                    onChange={(e) => setOpenSubtitlesQuery(e.target.value)}
-                                    className="w-full bg-black/50 border border-white/20 rounded-lg px-4 py-2 text-white placeholder-white/50 focus:border-[#E50914] focus:outline-none transition-colors"
-                                    onKeyPress={(e) => {
-                                      if (e.key === 'Enter') {
-                                        handleOpenSubtitlesSearch();
-                                      }
-                                    }}
-                                  />
-                                </div>
-                                <select
-                                  value={selectedLanguage}
-                                  onChange={(e) => setSelectedLanguage(e.target.value)}
-                                  className="bg-black/50 border border-white/20 rounded-lg px-3 py-2 text-white focus:border-[#E50914] focus:outline-none transition-colors"
-                                >
-                                  <option value="en">English</option>
-                                  <option value="es">Spanish</option>
-                                  <option value="fr">French</option>
-                                  <option value="de">German</option>
-                                  <option value="it">Italian</option>
-                                  <option value="pt">Portuguese</option>
-                                  <option value="ru">Russian</option>
-                                  <option value="ja">Japanese</option>
-                                  <option value="ko">Korean</option>
-                                  <option value="zh">Chinese</option>
-                                  <option value="ar">Arabic</option>
-                                </select>
-                                <MagneticButton
-                                  onClick={() => handleOpenSubtitlesSearch()}
-                                  disabled={openSubtitlesLoading || !openSubtitlesQuery.trim()}
-                                  className="bg-[#E50914] hover:bg-[#E50914]/80 text-white px-6 py-2 rounded-lg flex items-center space-x-2 transition-colors"
-                                >
-                                  {openSubtitlesLoading ? (
-                                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                                  ) : (
-                                    <Search className="w-4 h-4" />
-                                  )}
-                                  <span>Search</span>
-                                </MagneticButton>
+                          <div className="space-y-4">
+                            {/* Search Form */}
+                            <div className="flex gap-3">
+                              <div className="flex-1">
+                                <input
+                                  type="text"
+                                  placeholder={`Search subtitles for "${selectedMedia.title}"...`}
+                                  value={openSubtitlesQuery}
+                                  onChange={(e) => setOpenSubtitlesQuery(e.target.value)}
+                                  className="w-full bg-black/50 border border-white/20 rounded-lg px-4 py-2 text-white placeholder-white/50 focus:border-[#E50914] focus:outline-none transition-colors"
+                                  onKeyPress={(e) => {
+                                    if (e.key === 'Enter') {
+                                      handleOpenSubtitlesSearch();
+                                    }
+                                  }}
+                                />
                               </div>
-
-                              {/* Auto-populate button */}
-                              <MagneticButton
-                                onClick={() => {
-                                  setOpenSubtitlesQuery(selectedMedia.title);
-                                  addTerminalOutput(`🎬 Auto-populated search with: ${selectedMedia.title}`);
-                                }}
-                                className="bg-blue-600/20 hover:bg-blue-600/40 text-blue-400 px-4 py-2 rounded-lg flex items-center space-x-2 text-sm"
+                              <select
+                                value={selectedLanguage}
+                                onChange={(e) => setSelectedLanguage(e.target.value)}
+                                className="bg-black/50 border border-white/20 rounded-lg px-3 py-2 text-white focus:border-[#E50914] focus:outline-none transition-colors"
                               >
-                                <Film className="w-4 h-4" />
-                                <span>Use Media Title</span>
+                                <option value="en">English</option>
+                                <option value="es">Spanish</option>
+                                <option value="fr">French</option>
+                                <option value="de">German</option>
+                                <option value="it">Italian</option>
+                                <option value="pt">Portuguese</option>
+                                <option value="ru">Russian</option>
+                                <option value="ja">Japanese</option>
+                                <option value="ko">Korean</option>
+                                <option value="zh">Chinese</option>
+                                <option value="ar">Arabic</option>
+                              </select>
+                              <MagneticButton
+                                onClick={() => handleOpenSubtitlesSearch()}
+                                disabled={openSubtitlesLoading || !openSubtitlesQuery.trim()}
+                                className="bg-[#E50914] hover:bg-[#E50914]/80 text-white px-6 py-2 rounded-lg flex items-center space-x-2 transition-colors"
+                              >
+                                {openSubtitlesLoading ? (
+                                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                                ) : (
+                                  <Search className="w-4 h-4" />
+                                )}
+                                <span>Search</span>
                               </MagneticButton>
+                            </div>
 
-                              {/* Search Results */}
-                              {openSubtitlesResults.length > 0 && (
-                                <div className="space-y-3 max-h-96 overflow-y-auto">
-                                  <h5 className="text-white/80 font-medium">Search Results ({openSubtitlesResults.length})</h5>
-                                  {openSubtitlesResults.map((subtitle, index) => (
-                                    <div key={index} className="bg-black/30 rounded-lg p-4 border border-white/10">
-                                      <div className="flex items-center justify-between">
-                                        <div className="flex-1">
-                                          <div className="flex items-center space-x-3 mb-2">
-                                            <span className="text-white font-medium">
-                                              {subtitle.attributes?.feature_details?.title || 'Unknown Title'}
-                                            </span>
-                                            <span className="text-white/60 text-sm">
-                                              ({subtitle.attributes?.feature_details?.year || 'Unknown Year'})
-                                            </span>
-                                            <span className="bg-[#E50914]/20 text-[#E50914] px-2 py-1 rounded text-xs">
-                                              {subtitle.attributes?.language?.toUpperCase() || 'Unknown'}
-                                            </span>
-                                          </div>
-                                          <div className="flex items-center space-x-4 text-sm text-white/60">
-                                            <span>📥 {subtitle.attributes?.download_count || 0} downloads</span>
-                                            <span>⭐ {subtitle.attributes?.ratings?.toFixed(1) || 'N/A'}</span>
-                                            {subtitle.attributes?.hearing_impaired && (
-                                              <span className="text-yellow-400">🔊 CC</span>
-                                            )}
-                                            {subtitle.attributes?.hd && (
-                                              <span className="text-blue-400">🎬 HD</span>
-                                            )}
-                                          </div>
-                                          {subtitle.attributes?.release && (
-                                            <p className="text-white/50 text-xs mt-1 truncate">
-                                              Release: {subtitle.attributes.release}
-                                            </p>
+                            {/* Auto-populate button */}
+                            <MagneticButton
+                              onClick={() => {
+                                setOpenSubtitlesQuery(selectedMedia.title);
+                                addTerminalOutput(`🎬 Auto-populated search with: ${selectedMedia.title}`);
+                              }}
+                              className="bg-blue-600/20 hover:bg-blue-600/40 text-blue-400 px-4 py-2 rounded-lg flex items-center space-x-2 text-sm"
+                            >
+                              <Film className="w-4 h-4" />
+                              <span>Use Media Title</span>
+                            </MagneticButton>
+
+                            {/* Search Results */}
+                            {openSubtitlesResults.length > 0 && (
+                              <div className="space-y-3 max-h-96 overflow-y-auto">
+                                <h5 className="text-white/80 font-medium">Search Results ({openSubtitlesResults.length})</h5>
+                                {openSubtitlesResults.map((subtitle, index) => (
+                                  <div key={index} className="bg-black/30 rounded-lg p-4 border border-white/10">
+                                    <div className="flex items-center justify-between">
+                                      <div className="flex-1">
+                                        <div className="flex items-center space-x-3 mb-2">
+                                          <span className="text-white font-medium">
+                                            {subtitle.attributes?.feature_details?.title || 'Unknown Title'}
+                                          </span>
+                                          <span className="text-white/60 text-sm">
+                                            ({subtitle.attributes?.feature_details?.year || 'Unknown Year'})
+                                          </span>
+                                          <span className="bg-[#E50914]/20 text-[#E50914] px-2 py-1 rounded text-xs">
+                                            {subtitle.attributes?.language?.toUpperCase() || 'Unknown'}
+                                          </span>
+                                        </div>
+                                        <div className="flex items-center space-x-4 text-sm text-white/60">
+                                          <span>📥 {subtitle.attributes?.download_count || 0} downloads</span>
+                                          <span>⭐ {subtitle.attributes?.ratings?.toFixed(1) || 'N/A'}</span>
+                                          {subtitle.attributes?.hearing_impaired && (
+                                            <span className="text-yellow-400">🔊 CC</span>
+                                          )}
+                                          {subtitle.attributes?.hd && (
+                                            <span className="text-blue-400">🎬 HD</span>
                                           )}
                                         </div>
-                                        <MagneticButton
-                                          onClick={() => handleDownloadOpenSubtitle(subtitle)}
-                                          disabled={downloadingSubtitle === (subtitle.attributes?.files?.[0]?.file_id || subtitle.file_id)}
-                                          className="bg-green-600/20 hover:bg-green-600/40 text-green-400 px-4 py-2 rounded-lg flex items-center space-x-2 ml-4"
-                                        >
-                                          {downloadingSubtitle === (subtitle.attributes?.files?.[0]?.file_id || subtitle.file_id) ? (
-                                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-green-400"></div>
-                                          ) : (
-                                            <Download className="w-4 h-4" />
-                                          )}
-                                          <span>Add</span>
-                                        </MagneticButton>
+                                        {subtitle.attributes?.release && (
+                                          <p className="text-white/50 text-xs mt-1 truncate">
+                                            Release: {subtitle.attributes.release}
+                                          </p>
+                                        )}
                                       </div>
+                                      <MagneticButton
+                                        onClick={() => handleDownloadOpenSubtitle(subtitle)}
+                                        disabled={downloadingSubtitle === (subtitle.attributes?.files?.[0]?.file_id || subtitle.file_id)}
+                                        className="bg-green-600/20 hover:bg-green-600/40 text-green-400 px-4 py-2 rounded-lg flex items-center space-x-2 ml-4"
+                                      >
+                                        {downloadingSubtitle === (subtitle.attributes?.files?.[0]?.file_id || subtitle.file_id) ? (
+                                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-green-400"></div>
+                                        ) : (
+                                          <Download className="w-4 h-4" />
+                                        )}
+                                        <span>Add</span>
+                                      </MagneticButton>
                                     </div>
-                                  ))}
-                                </div>
-                              )}
-
-                              {/* No results message */}
-                              {openSubtitlesResults.length === 0 && openSubtitlesQuery && !openSubtitlesLoading && (
-                                <div className="text-center py-8 text-white/60">
-                                  <Search className="w-12 h-12 mx-auto mb-3 opacity-50" />
-                                  <p>No subtitles found for "{openSubtitlesQuery}"</p>
-                                  <p className="text-sm mt-1">Try a different search term or language</p>
-                                </div>
-                              )}
-
-                              {/* Help text */}
-                              <div className="bg-blue-600/10 border border-blue-600/20 rounded-lg p-3">
-                                <p className="text-blue-300 text-sm">
-                                  💡 <strong>Tip:</strong> Click "Use Media Title" to auto-populate the search with the current media title, 
-                                  then click "Search" to find matching subtitles from OpenSubtitles.org
-                                </p>
+                                  </div>
+                                ))}
                               </div>
+                            )}
+
+                            {/* No results message */}
+                            {openSubtitlesResults.length === 0 && openSubtitlesQuery && !openSubtitlesLoading && (
+                              <div className="text-center py-8 text-white/60">
+                                <Search className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                                <p>No subtitles found for "{openSubtitlesQuery}"</p>
+                                <p className="text-sm mt-1">Try a different search term or language</p>
+                              </div>
+                            )}
+
+                            {/* Help text */}
+                            <div className="bg-blue-600/10 border border-blue-600/20 rounded-lg p-3">
+                              <p className="text-blue-300 text-sm">
+                                💡 <strong>Tip:</strong> Click "Use Media Title" to auto-populate the search with the current media title,
+                                then click "Search" to find matching subtitles from OpenSubtitles.org
+                              </p>
                             </div>
                           </div>
-                        )}
+                        </div>
+                      )}
 
                       {uploading && (
                         <motion.div
@@ -3566,401 +3516,400 @@ function SettingsContent() {
 
 
 
-        {/* Media Scanning Tab */}
-        {activeTab === 'scanning' && (
-          <div className="space-y-8">
-            <ScrollReveal>
-              <GlassCard className="p-6">
-                <h2 className="text-2xl font-semibold text-white mb-6 flex items-center">
-                  <Search className="w-6 h-6 mr-3 text-[#E50914]" />
-                  Media Library Scanning
-                </h2>
+        {/* System Tab (Combined Logs, Scanning, Analytics) */}
+        {activeTab === 'system' && (
+          <div className="space-y-12">
+            {/* System Logs Section */}
+            <SystemLogs onTerminalOutput={addTerminalOutput} />
 
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
-                  {/* Full Scan */}
-                  <div className="bg-white/5 rounded-lg p-6 border border-white/10">
-                    <div className="flex items-center mb-4">
-                      <FileSearch className="w-8 h-8 text-blue-500 mr-3" />
-                      <div>
-                        <h3 className="text-lg font-semibold text-white">Full Scan</h3>
-                        <p className="text-white/60 text-sm">Complete library scan</p>
+            {/* Scanning Section */}
+            <div className="space-y-8">
+              <ScrollReveal>
+                <GlassCard className="p-6">
+                  <h2 className="text-2xl font-semibold text-white mb-6 flex items-center">
+                    <Search className="w-6 h-6 mr-3 text-[#E50914]" />
+                    Media Library Scanning
+                  </h2>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
+                    {/* Full Scan */}
+                    <div className="bg-white/5 rounded-lg p-6 border border-white/10">
+                      <div className="flex items-center mb-4">
+                        <FileSearch className="w-8 h-8 text-blue-500 mr-3" />
+                        <div>
+                          <h3 className="text-lg font-semibold text-white">Full Scan</h3>
+                          <p className="text-white/60 text-sm">Complete library scan</p>
+                        </div>
                       </div>
+                      <p className="text-white/70 text-sm mb-4">
+                        Scans entire media directory for new files and updates metadata.
+                      </p>
+                      <MagneticButton
+                        onClick={() => triggerScan('full')}
+                        disabled={isScanning || actionLoading.full}
+                        className="w-full bg-blue-600/20 hover:bg-blue-600/40 text-blue-400 py-2 px-4 rounded-lg flex items-center justify-center space-x-2"
+                      >
+                        {actionLoading.full ? (
+                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-400"></div>
+                        ) : (
+                          <Search className="w-4 h-4" />
+                        )}
+                        <span>Start Full Scan</span>
+                      </MagneticButton>
                     </div>
-                    <p className="text-white/70 text-sm mb-4">
-                      Scans entire media directory for new files and updates metadata.
-                    </p>
-                    <MagneticButton
-                      onClick={() => triggerScan('full')}
-                      disabled={isScanning || actionLoading.full}
-                      className="w-full bg-blue-600/20 hover:bg-blue-600/40 text-blue-400 py-2 px-4 rounded-lg flex items-center justify-center space-x-2"
-                    >
-                      {actionLoading.full ? (
-                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-400"></div>
-                      ) : (
-                        <Search className="w-4 h-4" />
-                      )}
-                      <span>Start Full Scan</span>
-                    </MagneticButton>
+
+                    {/* Incremental Scan */}
+                    <div className="bg-white/5 rounded-lg p-6 border border-white/10">
+                      <div className="flex items-center mb-4">
+                        <Zap className="w-8 h-8 text-yellow-500 mr-3" />
+                        <div>
+                          <h3 className="text-lg font-semibold text-white">Incremental Scan</h3>
+                          <p className="text-white/60 text-sm">Quick update scan</p>
+                        </div>
+                      </div>
+                      <p className="text-white/70 text-sm mb-4">
+                        Fast scan for recently modified files only.
+                      </p>
+                      <MagneticButton
+                        onClick={() => triggerScan('incremental')}
+                        disabled={isScanning || actionLoading.incremental}
+                        className="w-full bg-yellow-600/20 hover:bg-yellow-600/40 text-yellow-400 py-2 px-4 rounded-lg flex items-center justify-center space-x-2"
+                      >
+                        {actionLoading.incremental ? (
+                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-yellow-400"></div>
+                        ) : (
+                          <Zap className="w-4 h-4" />
+                        )}
+                        <span>Quick Scan</span>
+                      </MagneticButton>
+                    </div>
+
+                    {/* Sync Scan */}
+                    <div className="bg-white/5 rounded-lg p-6 border border-white/10">
+                      <div className="flex items-center mb-4">
+                        <RefreshCw className="w-8 h-8 text-green-500 mr-3" />
+                        <div>
+                          <h3 className="text-lg font-semibold text-white">Sync & Clean</h3>
+                          <p className="text-white/60 text-sm">Database sync</p>
+                        </div>
+                      </div>
+                      <p className="text-white/70 text-sm mb-4">
+                        Synchronizes database with storage and removes invalid entries.
+                      </p>
+                      <MagneticButton
+                        onClick={() => triggerScan('database-sync')}
+                        disabled={isScanning || actionLoading['database-sync']}
+                        className="w-full bg-green-600/20 hover:bg-green-600/40 text-green-400 py-2 px-4 rounded-lg flex items-center justify-center space-x-2"
+                      >
+                        {actionLoading['database-sync'] ? (
+                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-green-400"></div>
+                        ) : (
+                          <RefreshCw className="w-4 h-4" />
+                        )}
+                        <span>Sync Database</span>
+                      </MagneticButton>
+                    </div>
+
+                    {/* Superfast Scan */}
+                    <div className="bg-white/5 rounded-lg p-6 border border-white/10">
+                      <div className="flex items-center mb-4">
+                        <Timer className="w-8 h-8 text-purple-500 mr-3" />
+                        <div>
+                          <h3 className="text-lg font-semibold text-white">Superfast Scan</h3>
+                          <p className="text-white/60 text-sm">Lightning quick</p>
+                        </div>
+                      </div>
+                      <p className="text-white/70 text-sm mb-4">
+                        Ultra-fast scan with minimal processing for quick updates.
+                      </p>
+                      <MagneticButton
+                        onClick={() => triggerScan('superfast')}
+                        disabled={isScanning || actionLoading.superfast}
+                        className="w-full bg-purple-600/20 hover:bg-purple-600/40 text-purple-400 py-2 px-4 rounded-lg flex items-center justify-center space-x-2"
+                      >
+                        {actionLoading.superfast ? (
+                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-purple-400"></div>
+                        ) : (
+                          <Timer className="w-4 h-4" />
+                        )}
+                        <span>Superfast Scan</span>
+                      </MagneticButton>
+                    </div>
+
+                    {/* Asset Regeneration */}
+                    <div className="bg-white/5 rounded-lg p-6 border border-white/10">
+                      <div className="flex items-center mb-4">
+                        <ImageIcon className="w-8 h-8 text-orange-500 mr-3" />
+                        <div>
+                          <h3 className="text-lg font-semibold text-white">Regenerate Assets</h3>
+                          <p className="text-white/60 text-sm">Thumbnails & previews</p>
+                        </div>
+                      </div>
+                      <p className="text-white/70 text-sm mb-4">
+                        Regenerates all thumbnails and preview clips for the entire library.
+                      </p>
+                      <MagneticButton
+                        onClick={regenerateAllAssets}
+                        disabled={isScanning || actionLoading.regenerateAll}
+                        className="w-full bg-orange-600/20 hover:bg-orange-600/40 text-orange-400 py-2 px-4 rounded-lg flex items-center justify-center space-x-2"
+                      >
+                        {actionLoading.regenerateAll ? (
+                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-orange-400"></div>
+                        ) : (
+                          <ImageIcon className="w-4 h-4" />
+                        )}
+                        <span>Regenerate All</span>
+                      </MagneticButton>
+                    </div>
+
+                    {/* Database Cleanup */}
+                    <div className="bg-white/5 rounded-lg p-6 border border-white/10">
+                      <div className="flex items-center mb-4">
+                        <Trash2 className="w-8 h-8 text-red-500 mr-3" />
+                        <div>
+                          <h3 className="text-lg font-semibold text-white">Cleanup Invalid</h3>
+                          <p className="text-white/60 text-sm">Remove orphaned data</p>
+                        </div>
+                      </div>
+                      <p className="text-white/70 text-sm mb-4">
+                        Removes invalid entries and orphaned data from the database.
+                      </p>
+                      <MagneticButton
+                        onClick={() => triggerScan('cleanup-invalid')}
+                        disabled={isScanning || actionLoading['cleanup-invalid']}
+                        className="w-full bg-red-600/20 hover:bg-red-600/40 text-red-400 py-2 px-4 rounded-lg flex items-center justify-center space-x-2"
+                      >
+                        {actionLoading['cleanup-invalid'] ? (
+                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-red-400"></div>
+                        ) : (
+                          <Trash2 className="w-4 h-4" />
+                        )}
+                        <span>Cleanup Database</span>
+                      </MagneticButton>
+                    </div>
                   </div>
 
-                  {/* Incremental Scan */}
+                  {/* Scan Statistics */}
                   <div className="bg-white/5 rounded-lg p-6 border border-white/10">
-                    <div className="flex items-center mb-4">
-                      <Zap className="w-8 h-8 text-yellow-500 mr-3" />
-                      <div>
-                        <h3 className="text-lg font-semibold text-white">Incremental Scan</h3>
-                        <p className="text-white/60 text-sm">Quick update scan</p>
-                      </div>
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className="text-lg font-semibold text-white flex items-center">
+                        <BarChart3 className="w-5 h-5 mr-2 text-[#E50914]" />
+                        Scan Statistics
+                      </h3>
+                      <MagneticButton
+                        onClick={fetchScanStats}
+                        className="bg-blue-600/20 hover:bg-blue-600/40 text-blue-400 px-3 py-1 rounded text-sm flex items-center space-x-1"
+                      >
+                        <RefreshCw className="w-3 h-3" />
+                        <span>Refresh</span>
+                      </MagneticButton>
                     </div>
-                    <p className="text-white/70 text-sm mb-4">
-                      Fast scan for recently modified files only.
-                    </p>
-                    <MagneticButton
-                      onClick={() => triggerScan('incremental')}
-                      disabled={isScanning || actionLoading.incremental}
-                      className="w-full bg-yellow-600/20 hover:bg-yellow-600/40 text-yellow-400 py-2 px-4 rounded-lg flex items-center justify-center space-x-2"
-                    >
-                      {actionLoading.incremental ? (
-                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-yellow-400"></div>
-                      ) : (
-                        <Zap className="w-4 h-4" />
-                      )}
-                      <span>Quick Scan</span>
-                    </MagneticButton>
-                  </div>
-
-                  {/* Sync Scan */}
-                  <div className="bg-white/5 rounded-lg p-6 border border-white/10">
-                    <div className="flex items-center mb-4">
-                      <RefreshCw className="w-8 h-8 text-green-500 mr-3" />
-                      <div>
-                        <h3 className="text-lg font-semibold text-white">Sync & Clean</h3>
-                        <p className="text-white/60 text-sm">Database sync</p>
+                    {scanStats ? (
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        <div className="text-center">
+                          <div className="text-2xl font-bold text-white">{scanStats.totalFiles || 0}</div>
+                          <div className="text-white/60 text-sm">Total Files</div>
+                        </div>
+                        <div className="text-center">
+                          <div className="text-2xl font-bold text-green-400">{scanStats.processed || 0}</div>
+                          <div className="text-white/60 text-sm">Processed</div>
+                        </div>
+                        <div className="text-center">
+                          <div className="text-2xl font-bold text-yellow-400">{scanStats.skipped || 0}</div>
+                          <div className="text-white/60 text-sm">Skipped</div>
+                        </div>
+                        <div className="text-center">
+                          <div className="text-2xl font-bold text-red-400">{scanStats.errors || 0}</div>
+                          <div className="text-white/60 text-sm">Errors</div>
+                        </div>
                       </div>
-                    </div>
-                    <p className="text-white/70 text-sm mb-4">
-                      Synchronizes database with storage and removes invalid entries.
-                    </p>
-                    <MagneticButton
-                      onClick={() => triggerScan('database-sync')}
-                      disabled={isScanning || actionLoading['database-sync']}
-                      className="w-full bg-green-600/20 hover:bg-green-600/40 text-green-400 py-2 px-4 rounded-lg flex items-center justify-center space-x-2"
-                    >
-                      {actionLoading['database-sync'] ? (
-                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-green-400"></div>
-                      ) : (
-                        <RefreshCw className="w-4 h-4" />
-                      )}
-                      <span>Sync Database</span>
-                    </MagneticButton>
-                  </div>
-
-                  {/* Superfast Scan */}
-                  <div className="bg-white/5 rounded-lg p-6 border border-white/10">
-                    <div className="flex items-center mb-4">
-                      <Timer className="w-8 h-8 text-purple-500 mr-3" />
-                      <div>
-                        <h3 className="text-lg font-semibold text-white">Superfast Scan</h3>
-                        <p className="text-white/60 text-sm">Lightning quick</p>
+                    ) : (
+                      <div className="text-center py-8">
+                        <div className="text-white/50">No scan statistics available</div>
+                        <div className="text-white/40 text-sm mt-2">Run a scan to see statistics</div>
                       </div>
-                    </div>
-                    <p className="text-white/70 text-sm mb-4">
-                      Ultra-fast scan with minimal processing for quick updates.
-                    </p>
-                    <MagneticButton
-                      onClick={() => triggerScan('superfast')}
-                      disabled={isScanning || actionLoading.superfast}
-                      className="w-full bg-purple-600/20 hover:bg-purple-600/40 text-purple-400 py-2 px-4 rounded-lg flex items-center justify-center space-x-2"
-                    >
-                      {actionLoading.superfast ? (
-                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-purple-400"></div>
-                      ) : (
-                        <Timer className="w-4 h-4" />
-                      )}
-                      <span>Superfast Scan</span>
-                    </MagneticButton>
+                    )}
                   </div>
+                </GlassCard>
+              </ScrollReveal>
 
-                  {/* Asset Regeneration */}
-                  <div className="bg-white/5 rounded-lg p-6 border border-white/10">
-                    <div className="flex items-center mb-4">
-                      <ImageIcon className="w-8 h-8 text-orange-500 mr-3" />
-                      <div>
-                        <h3 className="text-lg font-semibold text-white">Regenerate Assets</h3>
-                        <p className="text-white/60 text-sm">Thumbnails & previews</p>
-                      </div>
-                    </div>
-                    <p className="text-white/70 text-sm mb-4">
-                      Regenerates all thumbnails and preview clips for the entire library.
-                    </p>
-                    <MagneticButton
-                      onClick={regenerateAllAssets}
-                      disabled={isScanning || actionLoading.regenerateAll}
-                      className="w-full bg-orange-600/20 hover:bg-orange-600/40 text-orange-400 py-2 px-4 rounded-lg flex items-center justify-center space-x-2"
-                    >
-                      {actionLoading.regenerateAll ? (
-                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-orange-400"></div>
-                      ) : (
-                        <ImageIcon className="w-4 h-4" />
-                      )}
-                      <span>Regenerate All</span>
-                    </MagneticButton>
-                  </div>
-
-                  {/* Database Cleanup */}
-                  <div className="bg-white/5 rounded-lg p-6 border border-white/10">
-                    <div className="flex items-center mb-4">
-                      <Trash2 className="w-8 h-8 text-red-500 mr-3" />
-                      <div>
-                        <h3 className="text-lg font-semibold text-white">Cleanup Invalid</h3>
-                        <p className="text-white/60 text-sm">Remove orphaned data</p>
-                      </div>
-                    </div>
-                    <p className="text-white/70 text-sm mb-4">
-                      Removes invalid entries and orphaned data from the database.
-                    </p>
-                    <MagneticButton
-                      onClick={() => triggerScan('cleanup-invalid')}
-                      disabled={isScanning || actionLoading['cleanup-invalid']}
-                      className="w-full bg-red-600/20 hover:bg-red-600/40 text-red-400 py-2 px-4 rounded-lg flex items-center justify-center space-x-2"
-                    >
-                      {actionLoading['cleanup-invalid'] ? (
-                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-red-400"></div>
-                      ) : (
-                        <Trash2 className="w-4 h-4" />
-                      )}
-                      <span>Cleanup Database</span>
-                    </MagneticButton>
-                  </div>
-                </div>
-
-                {/* Scan Statistics */}
-                <div className="bg-white/5 rounded-lg p-6 border border-white/10">
+              {/* Terminal Output */}
+              <ScrollReveal delay={0.2}>
+                <GlassCard className="p-6">
                   <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-lg font-semibold text-white flex items-center">
-                      <BarChart3 className="w-5 h-5 mr-2 text-[#E50914]" />
-                      Scan Statistics
+                    <h3 className="text-xl font-semibold text-white flex items-center">
+                      <Monitor className="w-6 h-6 mr-3 text-[#E50914]" />
+                      Terminal Output
                     </h3>
                     <MagneticButton
-                      onClick={fetchScanStats}
-                      className="bg-blue-600/20 hover:bg-blue-600/40 text-blue-400 px-3 py-1 rounded text-sm flex items-center space-x-1"
+                      onClick={clearTerminalOutput}
+                      className="bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-lg flex items-center space-x-2"
                     >
-                      <RefreshCw className="w-3 h-3" />
-                      <span>Refresh</span>
+                      <Trash2 className="w-4 h-4" />
+                      <span>Clear</span>
                     </MagneticButton>
                   </div>
-                  {scanStats ? (
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                      <div className="text-center">
-                        <div className="text-2xl font-bold text-white">{scanStats.totalFiles || 0}</div>
-                        <div className="text-white/60 text-sm">Total Files</div>
-                      </div>
-                      <div className="text-center">
-                        <div className="text-2xl font-bold text-green-400">{scanStats.processed || 0}</div>
-                        <div className="text-white/60 text-sm">Processed</div>
-                      </div>
-                      <div className="text-center">
-                        <div className="text-2xl font-bold text-yellow-400">{scanStats.skipped || 0}</div>
-                        <div className="text-white/60 text-sm">Skipped</div>
-                      </div>
-                      <div className="text-center">
-                        <div className="text-2xl font-bold text-red-400">{scanStats.errors || 0}</div>
-                        <div className="text-white/60 text-sm">Errors</div>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="text-center py-8">
-                      <div className="text-white/50">No scan statistics available</div>
-                      <div className="text-white/40 text-sm mt-2">Run a scan to see statistics</div>
-                    </div>
-                  )}
-                </div>
-              </GlassCard>
-            </ScrollReveal>
-
-            {/* Terminal Output */}
-            <ScrollReveal delay={0.2}>
-              <GlassCard className="p-6">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-xl font-semibold text-white flex items-center">
-                    <Monitor className="w-6 h-6 mr-3 text-[#E50914]" />
-                    Terminal Output
-                  </h3>
-                  <MagneticButton
-                    onClick={clearTerminalOutput}
-                    className="bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-lg flex items-center space-x-2"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                    <span>Clear</span>
-                  </MagneticButton>
-                </div>
-                <div className="bg-black/50 rounded-lg p-4 h-64 overflow-y-auto font-mono text-sm">
-                  {terminalOutput.length === 0 ? (
-                    <div className="text-white/50 italic">No output yet. Start a scan to see live updates...</div>
-                  ) : (
-                    terminalOutput.map((line, index) => (
-                      <div key={index} className="text-green-400 mb-1">
-                        {line}
-                      </div>
-                    ))
-                  )}
-                </div>
-              </GlassCard>
-            </ScrollReveal>
-          </div>
-        )}
-
-        {/* Analytics Tab */}
-        {activeTab === 'analytics' && (
-          <div className="space-y-8">
-            <ScrollReveal>
-              <GlassCard className="p-6">
-                <h2 className="text-2xl font-semibold text-white mb-6 flex items-center">
-                  <BarChart3 className="w-6 h-6 mr-3 text-[#E50914]" />
-                  System Analytics
-                </h2>
-
-                {/* System Overview */}
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-                  <div className="bg-gradient-to-br from-blue-600/20 to-blue-800/20 rounded-lg p-6 border border-blue-500/20">
-                    <div className="flex items-center justify-between mb-4">
-                      <Database className="w-8 h-8 text-blue-400" />
-                      <div className="text-right">
-                        <div className="text-2xl font-bold text-white">{mediaList.length}</div>
-                        <div className="text-blue-400 text-sm">Total Media</div>
-                      </div>
-                    </div>
-                    <div className="text-white/70 text-sm">
-                      Movies: {mediaList.filter(m => m.type === 'movie').length}<br />
-                      TV Shows: {mediaList.filter(m => m.type === 'tv').length}
-                    </div>
-                  </div>
-
-                  <div className="bg-gradient-to-br from-green-600/20 to-green-800/20 rounded-lg p-6 border border-green-500/20">
-                    <div className="flex items-center justify-between mb-4">
-                      <HardDrive className="w-8 h-8 text-green-400" />
-                      <div className="text-right">
-                        <div className="text-2xl font-bold text-white">
-                          {systemStats?.cache?.totalSize ? `${(systemStats.cache.totalSize / (1024 ** 3)).toFixed(1)}GB` : 'N/A'}
+                  <div className="bg-black/50 rounded-lg p-4 h-64 overflow-y-auto font-mono text-sm">
+                    {terminalOutput.length === 0 ? (
+                      <div className="text-white/50 italic">No output yet. Start a scan to see live updates...</div>
+                    ) : (
+                      terminalOutput.map((line, index) => (
+                        <div key={index} className="text-green-400 mb-1">
+                          {line}
                         </div>
-                        <div className="text-green-400 text-sm">Cache Size</div>
-                      </div>
-                    </div>
-                    <div className="text-white/70 text-sm">
-                      Entries: {systemStats?.cache?.totalEntries || 0}<br />
-                      Hit Rate: {systemStats?.cache?.hitRate ? `${(systemStats.cache.hitRate * 100).toFixed(1)}%` : 'N/A'}
-                    </div>
+                      ))
+                    )}
                   </div>
+                </GlassCard>
+              </ScrollReveal>
+            </div>
 
-                  <div className="bg-gradient-to-br from-purple-600/20 to-purple-800/20 rounded-lg p-6 border border-purple-500/20">
-                    <div className="flex items-center justify-between mb-4">
-                      <Activity className="w-8 h-8 text-purple-400" />
-                      <div className="text-right">
-                        <div className="text-2xl font-bold text-white">
-                          {systemStats?.queues ? Object.keys(systemStats.queues).length : 0}
+            {/* Analytics Section */}
+            <div className="space-y-8">
+              <ScrollReveal>
+                <GlassCard className="p-6">
+                  <h2 className="text-2xl font-semibold text-white mb-6 flex items-center">
+                    <BarChart3 className="w-6 h-6 mr-3 text-[#E50914]" />
+                    System Analytics
+                  </h2>
+
+                  {/* System Overview */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                    <div className="bg-gradient-to-br from-blue-600/20 to-blue-800/20 rounded-lg p-6 border border-blue-500/20">
+                      <div className="flex items-center justify-between mb-4">
+                        <Database className="w-8 h-8 text-blue-400" />
+                        <div className="text-right">
+                          <div className="text-2xl font-bold text-white">{mediaList.length}</div>
+                          <div className="text-blue-400 text-sm">Total Media</div>
                         </div>
-                        <div className="text-purple-400 text-sm">Active Queues</div>
+                      </div>
+                      <div className="text-white/70 text-sm">
+                        Movies: {mediaList.filter(m => m.type === 'movie').length}<br />
+                        TV Shows: {mediaList.filter(m => m.type === 'tv').length}
                       </div>
                     </div>
-                    <div className="text-white/70 text-sm">
-                      Tasks: {systemStats?.queues ? Object.values(systemStats.queues).reduce((a: number, b: any) => a + (b?.length || 0), 0) : 0}<br />
-                      Workers: {systemStats?.queues ? Object.keys(systemStats.queues).filter((q: any) => systemStats.queues[q].active).length : 0}
-                    </div>
-                  </div>
 
-                  <div className="bg-gradient-to-br from-orange-600/20 to-orange-800/20 rounded-lg p-6 border border-orange-500/20">
-                    <div className="flex items-center justify-between mb-4">
-                      <Eye className="w-8 h-8 text-orange-400" />
-                      <div className="text-right">
-                        <div className="text-2xl font-bold text-white">
-                          {mediaList.reduce((total, media) => total + (media.view_count || 0), 0)}
+                    <div className="bg-gradient-to-br from-green-600/20 to-green-800/20 rounded-lg p-6 border border-green-500/20">
+                      <div className="flex items-center justify-between mb-4">
+                        <HardDrive className="w-8 h-8 text-green-400" />
+                        <div className="text-right">
+                          <div className="text-2xl font-bold text-white">
+                            {systemStats?.cache?.totalSize ? `${(systemStats.cache.totalSize / (1024 ** 3)).toFixed(1)}GB` : 'N/A'}
+                          </div>
+                          <div className="text-green-400 text-sm">Cache Size</div>
                         </div>
-                        <div className="text-orange-400 text-sm">Total Views</div>
+                      </div>
+                      <div className="text-white/70 text-sm">
+                        Entries: {systemStats?.cache?.totalEntries || 0}<br />
+                        Hit Rate: {systemStats?.cache?.hitRate ? `${(systemStats.cache.hitRate * 100).toFixed(1)}%` : 'N/A'}
                       </div>
                     </div>
-                    <div className="text-white/70 text-sm">
-                      Avg per media: {mediaList.length > 0 ? (mediaList.reduce((total, media) => total + (media.view_count || 0), 0) / mediaList.length).toFixed(1) : 0}<br />
-                      Most viewed: {Math.max(...mediaList.map(m => m.view_count || 0))}
+
+                    <div className="bg-gradient-to-br from-purple-600/20 to-purple-800/20 rounded-lg p-6 border border-purple-500/20">
+                      <div className="flex items-center justify-between mb-4">
+                        <Activity className="w-8 h-8 text-purple-400" />
+                        <div className="text-right">
+                          <div className="text-2xl font-bold text-white">
+                            {systemStats?.queues ? Object.keys(systemStats.queues).length : 0}
+                          </div>
+                          <div className="text-purple-400 text-sm">Active Queues</div>
+                        </div>
+                      </div>
+                      <div className="text-white/70 text-sm">
+                        Tasks: {systemStats?.queues ? Object.values(systemStats.queues).reduce((a: number, b: any) => a + (b?.length || 0), 0) : 0}<br />
+                        Workers: {systemStats?.queues ? Object.keys(systemStats.queues).filter((q: any) => systemStats.queues[q].active).length : 0}
+                      </div>
+                    </div>
+
+                    <div className="bg-gradient-to-br from-orange-600/20 to-orange-800/20 rounded-lg p-6 border border-orange-500/20">
+                      <div className="flex items-center justify-between mb-4">
+                        <Eye className="w-8 h-8 text-orange-400" />
+                        <div className="text-right">
+                          <div className="text-2xl font-bold text-white">
+                            {mediaList.reduce((total, media) => total + (media.view_count || 0), 0)}
+                          </div>
+                          <div className="text-orange-400 text-sm">Total Views</div>
+                        </div>
+                      </div>
+                      <div className="text-white/70 text-sm">
+                        Avg per media: {mediaList.length > 0 ? (mediaList.reduce((total, media) => total + (media.view_count || 0), 0) / mediaList.length).toFixed(1) : 0}<br />
+                        Most viewed: {Math.max(...mediaList.map(m => m.view_count || 0))}
+                      </div>
                     </div>
                   </div>
-                </div>
 
-                {/* Cache Management */}
-                <div className="bg-white/5 rounded-lg p-6 border border-white/10 mb-6">
-                  <h3 className="text-lg font-semibold text-white mb-4 flex items-center">
-                    <HardDrive className="w-5 h-5 mr-2 text-[#E50914]" />
-                    Cache Management
-                  </h3>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <MagneticButton
-                      onClick={clearCache}
-                      disabled={actionLoading.clearCache}
-                      className="bg-red-600/20 hover:bg-red-600/40 text-red-400 py-3 px-4 rounded-lg flex items-center justify-center space-x-2"
-                    >
-                      {actionLoading.clearCache ? (
-                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-red-400"></div>
-                      ) : (
-                        <Trash2 className="w-4 h-4" />
-                      )}
-                      <span>Clear All Cache</span>
-                    </MagneticButton>
-
-                    <MagneticButton
-                      onClick={fetchSystemStats}
-                      className="bg-blue-600/20 hover:bg-blue-600/40 text-blue-400 py-3 px-4 rounded-lg flex items-center justify-center space-x-2"
-                    >
-                      <RefreshCw className="w-4 h-4" />
-                      <span>Refresh Stats</span>
-                    </MagneticButton>
-
-                    <MagneticButton
-                      onClick={testAllEndpoints}
-                      disabled={actionLoading.testEndpoints}
-                      className="bg-green-600/20 hover:bg-green-600/40 text-green-400 py-3 px-4 rounded-lg flex items-center justify-center space-x-2"
-                    >
-                      {actionLoading.testEndpoints ? (
-                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-green-400"></div>
-                      ) : (
-                        <TrendingUp className="w-4 h-4" />
-                      )}
-                      <span>Test Endpoints</span>
-                    </MagneticButton>
-                  </div>
-                </div>
-
-                {/* Queue Status */}
-                {systemStats?.queues && (
-                  <div className="bg-white/5 rounded-lg p-6 border border-white/10">
+                  {/* Cache Management */}
+                  <div className="bg-white/5 rounded-lg p-6 border border-white/10 mb-6">
                     <h3 className="text-lg font-semibold text-white mb-4 flex items-center">
-                      <Activity className="w-5 h-5 mr-2 text-[#E50914]" />
-                      Task Queue Status
+                      <HardDrive className="w-5 h-5 mr-2 text-[#E50914]" />
+                      Cache Management
                     </h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                      {Object.entries(systemStats.queues).map(([queueName, queueInfo]: [string, any]) => (
-                        <div key={queueName} className="bg-black/30 rounded-lg p-4">
-                          <div className="flex items-center justify-between mb-2">
-                            <h4 className="font-medium text-white capitalize">{queueName.replace('_', ' ')}</h4>
-                            <div className={`w-2 h-2 rounded-full ${queueInfo.active ? 'bg-green-400' : 'bg-red-400'
-                              }`}></div>
-                          </div>
-                          <div className="text-sm text-white/70">
-                            <div>Tasks: {queueInfo.length || 0}</div>
-                            <div>Status: {queueInfo.active ? 'Active' : 'Inactive'}</div>
-                            <div>Priority: {queueInfo.priority || 'Normal'}</div>
-                          </div>
-                        </div>
-                      ))}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <MagneticButton
+                        onClick={clearCache}
+                        disabled={actionLoading.clearCache}
+                        className="bg-red-600/20 hover:bg-red-600/40 text-red-400 py-3 px-4 rounded-lg flex items-center justify-center space-x-2"
+                      >
+                        {actionLoading.clearCache ? (
+                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-red-400"></div>
+                        ) : (
+                          <Trash2 className="w-4 h-4" />
+                        )}
+                        <span>Clear All Cache</span>
+                      </MagneticButton>
+
+                      <MagneticButton
+                        onClick={fetchSystemStats}
+                        className="bg-blue-600/20 hover:bg-blue-600/40 text-blue-400 py-3 px-4 rounded-lg flex items-center justify-center space-x-2"
+                      >
+                        <RefreshCw className="w-4 h-4" />
+                        <span>Refresh Stats</span>
+                      </MagneticButton>
+
+                      <MagneticButton
+                        onClick={testAllEndpoints}
+                        disabled={actionLoading.testEndpoints}
+                        className="bg-green-600/20 hover:bg-green-600/40 text-green-400 py-3 px-4 rounded-lg flex items-center justify-center space-x-2"
+                      >
+                        {actionLoading.testEndpoints ? (
+                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-green-400"></div>
+                        ) : (
+                          <TrendingUp className="w-4 h-4" />
+                        )}
+                        <span>Test Endpoints</span>
+                      </MagneticButton>
                     </div>
                   </div>
-                )}
-              </GlassCard>
-            </ScrollReveal>
-          </div>
-        )}
 
-        {/* System Logs Tab */}
-        {activeTab === 'system-logs' && (
-          <SystemLogs onTerminalOutput={addTerminalOutput} />
+                  {/* Queue Status */}
+                  {systemStats?.queues && (
+                    <div className="bg-white/5 rounded-lg p-6 border border-white/10">
+                      <h3 className="text-lg font-semibold text-white mb-4 flex items-center">
+                        <Activity className="w-5 h-5 mr-2 text-[#E50914]" />
+                        Task Queue Status
+                      </h3>
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {Object.entries(systemStats.queues).map(([queueName, queueInfo]: [string, any]) => (
+                          <div key={queueName} className="bg-black/30 rounded-lg p-4">
+                            <div className="flex items-center justify-between mb-2">
+                              <h4 className="font-medium text-white capitalize">{queueName.replace('_', ' ')}</h4>
+                              <div className={`w-2 h-2 rounded-full ${queueInfo.active ? 'bg-green-400' : 'bg-red-400'
+                                }`}></div>
+                            </div>
+                            <div className="text-sm text-white/70">
+                              <div>Tasks: {queueInfo.length || 0}</div>
+                              <div>Status: {queueInfo.active ? 'Active' : 'Inactive'}</div>
+                              <div>Priority: {queueInfo.priority || 'Normal'}</div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </GlassCard>
+              </ScrollReveal>
+            </div>
+          </div>
         )}
 
         {/* Torrent Downloads Tab */}
@@ -4242,13 +4191,13 @@ function SettingsContent() {
                     {/* Search Results */}
                     <div className="space-y-4">
                       <h4 className="text-lg font-medium text-white">Search Results</h4>
-                      
+
                       {openSubtitlesResults.length > 0 ? (
                         <div className="space-y-3 max-h-96 overflow-y-auto">
                           {openSubtitlesResults.slice(0, 10).map((subtitle, index) => {
                             // Handle both standalone and media-specific search result formats
                             const isStandaloneFormat = subtitle.movie_title !== undefined;
-                            
+
                             const subtitleData = isStandaloneFormat ? {
                               // Standalone format (flattened)
                               title: subtitle.movie_title || 'Unknown Title',
@@ -4373,12 +4322,12 @@ function SettingsContent() {
                       <div className="bg-yellow-600/10 border border-yellow-600/20 rounded-lg p-4">
                         <h4 className="text-yellow-300 font-medium mb-2">📌 Select Media First</h4>
                         <p className="text-yellow-300/80 text-sm">
-                          To add subtitles to your media library, first select a media item from the "Media Library" tab. 
+                          To add subtitles to your media library, first select a media item from the "Media Library" tab.
                           You can still download SRT files directly to your computer without selecting media.
                         </p>
                       </div>
                     )}
-                    
+
                     <div className="bg-blue-600/10 border border-blue-600/20 rounded-lg p-4">
                       <h4 className="text-blue-300 font-medium mb-2">💡 How to use OpenSubtitles</h4>
                       <ul className="text-blue-300/80 text-sm space-y-1">
@@ -4458,7 +4407,7 @@ function SettingsContent() {
                     <Settings className="w-5 h-5 mr-2 text-[#E50914]" />
                     Configuration
                   </h3>
-                  
+
                   <div className="space-y-4">
                     <div className="bg-yellow-600/10 border border-yellow-600/20 rounded-lg p-4">
                       <h4 className="text-yellow-300 font-medium mb-2">⚙️ OpenSubtitles API Configuration</h4>

@@ -70,6 +70,13 @@ type TMDBMovie struct {
 	OriginalLanguage string  `json:"original_language"`
 }
 
+// TMDBMovieWithVideos includes video data for trailers
+type TMDBMovieWithVideos struct {
+	TMDBMovie
+	Videos TMDBVideos `json:"videos"`
+}
+
+
 type TMDBMovieDetails struct {
 	TMDBMovie
 	Tagline             string          `json:"tagline"`
@@ -2002,8 +2009,8 @@ func (t *TMDBService) GetNowPlayingMovies(page int) ([]TMDBMovie, error) {
 	return searchResp.Results, nil
 }
 
-// GetUpcomingMoviesList returns upcoming movie releases (public wrapper)
-func (t *TMDBService) GetUpcomingMoviesList(page int) ([]TMDBMovie, error) {
+// GetUpcomingMoviesList returns upcoming movie releases with video data
+func (t *TMDBService) GetUpcomingMoviesList(page int) ([]TMDBMovieWithVideos, error) {
 	if page <= 0 {
 		page = 1
 	}
@@ -2036,8 +2043,45 @@ func (t *TMDBService) GetUpcomingMoviesList(page int) ([]TMDBMovie, error) {
 		return nil, err
 	}
 
-	log.Printf("✅ TMDB: Retrieved %d upcoming movies (page %d)", len(searchResp.Results), page)
-	return searchResp.Results, nil
+	// Fetch video data for each movie
+	moviesWithVideos := make([]TMDBMovieWithVideos, 0, len(searchResp.Results))
+	for _, movie := range searchResp.Results {
+		// Fetch videos for this movie
+		videosURL := fmt.Sprintf("%s/movie/%d/videos", t.baseURL, movie.ID)
+		videoReq, err := http.NewRequest("GET", videosURL, nil)
+		if err != nil {
+			log.Printf("⚠️ Failed to create video request for movie %d: %v", movie.ID, err)
+			moviesWithVideos = append(moviesWithVideos, TMDBMovieWithVideos{TMDBMovie: movie})
+			continue
+		}
+
+		videoReq.Header.Set("Authorization", "Bearer "+t.apiKey)
+		videoReq.Header.Set("Content-Type", "application/json")
+
+		videoResp, err := t.httpClient.Do(videoReq)
+		if err != nil {
+			log.Printf("⚠️ Failed to fetch videos for movie %d: %v", movie.ID, err)
+			moviesWithVideos = append(moviesWithVideos, TMDBMovieWithVideos{TMDBMovie: movie})
+			continue
+		}
+
+		var videos TMDBVideos
+		if err := json.NewDecoder(videoResp.Body).Decode(&videos); err != nil {
+			log.Printf("⚠️ Failed to decode videos for movie %d: %v", movie.ID, err)
+			videoResp.Body.Close()
+			moviesWithVideos = append(moviesWithVideos, TMDBMovieWithVideos{TMDBMovie: movie})
+			continue
+		}
+		videoResp.Body.Close()
+
+		moviesWithVideos = append(moviesWithVideos, TMDBMovieWithVideos{
+			TMDBMovie: movie,
+			Videos:    videos,
+		})
+	}
+
+	log.Printf("✅ TMDB: Retrieved %d upcoming movies with videos (page %d)", len(moviesWithVideos), page)
+	return moviesWithVideos, nil
 }
 
 // GetLatestMovie returns the most recently added movie to TMDB

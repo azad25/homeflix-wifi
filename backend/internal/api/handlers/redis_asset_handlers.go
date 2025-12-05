@@ -756,7 +756,12 @@ func (h *RedisAssetHandlers) findPosterPathEnhanced(media *models.Media) string 
 
 func (h *RedisAssetHandlers) setOptimalHeaders(c *gin.Context, assetType string, metadata *services.AssetMetadata) {
 	// Set aggressive caching headers for instant loading
-	c.Header("Cache-Control", "public, max-age=86400, immutable") // 24 hour cache
+	// For previews, use longer cache since they're stable content
+	if assetType == "preview" {
+		c.Header("Cache-Control", "public, max-age=604800, immutable") // 7 days cache for previews
+	} else {
+		c.Header("Cache-Control", "public, max-age=86400, immutable") // 24 hour cache for images
+	}
 	c.Header("Accept-Ranges", "bytes")
 	c.Header("X-Content-Type-Options", "nosniff")
 
@@ -770,13 +775,20 @@ func (h *RedisAssetHandlers) setOptimalHeaders(c *gin.Context, assetType string,
 		}
 	case "preview":
 		c.Header("Content-Type", "video/mp4")
+		// Additional headers for efficient video streaming and preloading
+		c.Header("X-Content-Duration", "") // Browser will compute from metadata
+		c.Header("Content-Disposition", "inline")
+		// Enable efficient streaming
+		c.Header("Transfer-Encoding", "chunked")
 	}
 
 	// Add CORS headers for cross-origin requests
 	c.Header("Access-Control-Allow-Origin", "*")
-	c.Header("Access-Control-Allow-Headers", "Range")
-	c.Header("Access-Control-Expose-Headers", "Content-Range, Content-Length, Accept-Ranges")
+	c.Header("Access-Control-Allow-Headers", "Range, Content-Type")
+	c.Header("Access-Control-Expose-Headers", "Content-Range, Content-Length, Accept-Ranges, X-Cache")
+	c.Header("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
 }
+
 
 func (h *RedisAssetHandlers) serveAndCacheAsset(c *gin.Context, mediaID uint, assetType, filePath string) {
 	// Set headers

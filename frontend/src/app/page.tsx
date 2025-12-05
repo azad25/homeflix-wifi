@@ -14,6 +14,7 @@ import RecentlyWatched from '@/components/RecentlyWatched';
 import ContinueWatching from '@/components/ContinueWatching';
 import UpcomingMovies from '@/components/UpcomingMovies';
 import UpcomingTVSeries from '@/components/UpcomingTVSeries';
+import HomeflixHero from '@/components/HomeflixHero';
 
 export default function Home() {
   usePageTitle('Home');
@@ -470,8 +471,11 @@ export default function Home() {
     <div className="min-h-screen bg-black">
       <Navbar onSearch={handleSearch} />
 
-      {/* ScrollX Hero Section */}
-      {featuredMedia.length > 0 && (
+      {/* HomeflixHero Section - Mixed content for homepage */}
+      <HomeflixHero onPlay={handlePlay} onInfo={handleInfo} sortMode="mixed" />
+
+      {/* ScrollX Hero Section - Commented out */}
+      {/* {featuredMedia.length > 0 && (
         <ScrollXHero
           featuredMedia={featuredMedia}
           onPlay={handlePlay}
@@ -480,7 +484,7 @@ export default function Home() {
           refreshInterval={300000}
           contentFilter="movies-hd"
         />
-      )}
+      )} */}
 
       {/* Main Content - Netflix Style */}
       <div className="relative bg-black" style={{ overflow: 'visible', zIndex: 10 }}>

@@ -69,7 +69,29 @@ func NewTorrentHandler(db *gorm.DB, mediaScanner MediaScannerInterface, notifica
 		"max_open_files":       config.MaxOpenFiles,
 	}
 	
-	client, err := torrent.NewTorrentClient(config.DownloadPath, mediaScanner, performanceConfig)
+	// Create status callback to immediately persist status changes to database
+	// This is CRITICAL to prevent re-downloading completed torrents on server restart
+	statusCallback := func(torrentID string, status string, progress float64, size int64, downloaded int64, completedAt *time.Time) {
+		updates := map[string]interface{}{
+			"status":     status,
+			"progress":   progress,
+			"size":       size,
+			"downloaded": downloaded,
+		}
+		if completedAt != nil {
+			updates["completed_at"] = completedAt
+		}
+		
+		if err := db.Model(&models.TorrentDownload{}).
+			Where("torrent_id = ?", torrentID).
+			Updates(updates).Error; err != nil {
+			log.Printf("⚠️ Failed to persist torrent status to database: %v", err)
+		} else {
+			log.Printf("💾 Status persisted to DB: %s -> %s (%.1f%%)", torrentID[:8], status, progress)
+		}
+	}
+	
+	client, err := torrent.NewTorrentClient(config.DownloadPath, mediaScanner, statusCallback, performanceConfig)
 	if err != nil {
 		panic(fmt.Sprintf("Failed to initialize torrent client: %v", err))
 	}

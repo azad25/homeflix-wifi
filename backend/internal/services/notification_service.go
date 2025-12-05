@@ -218,6 +218,8 @@ func (ns *NotificationService) CreateRandomMovieSuggestion() error {
 		WHERE m.type = 'movie' 
 		AND m.poster_path IS NOT NULL
 		AND m.rating >= 6.0
+		AND m.file_path IS NOT NULL AND m.file_path != ''
+		AND m.duration > 3600
 	`
 	
 	// Exclude watched movies
@@ -259,6 +261,8 @@ func (ns *NotificationService) CreateRandomMovieSuggestion() error {
 			WHERE m.type = 'movie' 
 			AND m.poster_path IS NOT NULL
 			AND m.rating >= 7.0
+			AND m.file_path IS NOT NULL AND m.file_path != ''
+			AND m.duration > 3600
 		`
 		
 		if len(watchedIDs) > 0 {

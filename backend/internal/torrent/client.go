@@ -18,13 +18,18 @@ type MediaScannerInterface interface {
 	ScanMediaLibrary() error
 }
 
+// StatusCallback is called when a torrent's status changes
+// This allows immediate persistence to database
+type StatusCallback func(torrentID string, status string, progress float64, size int64, downloaded int64, completedAt *time.Time)
+
 type TorrentClient struct {
-	session      *torrent.Session
-	downloads    map[string]*DownloadInfo
-	torrents     map[string]*torrent.Torrent
-	mu           sync.RWMutex
-	downloadDir  string
-	mediaScanner MediaScannerInterface
+	session        *torrent.Session
+	downloads      map[string]*DownloadInfo
+	torrents       map[string]*torrent.Torrent
+	mu             sync.RWMutex
+	downloadDir    string
+	mediaScanner   MediaScannerInterface
+	statusCallback StatusCallback
 }
 
 type DownloadInfo struct {
@@ -45,7 +50,7 @@ type DownloadInfo struct {
 	SavePath    string    `json:"save_path"`
 }
 
-func NewTorrentClient(downloadDir string, mediaScanner MediaScannerInterface, performanceConfig ...map[string]int) (*TorrentClient, error) {
+func NewTorrentClient(downloadDir string, mediaScanner MediaScannerInterface, statusCallback StatusCallback, performanceConfig ...map[string]int) (*TorrentClient, error) {
 	// Ensure download directory exists
 	if err := os.MkdirAll(downloadDir, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create download directory: %v", err)
@@ -113,11 +118,12 @@ func NewTorrentClient(downloadDir string, mediaScanner MediaScannerInterface, pe
 	}
 
 	tc := &TorrentClient{
-		session:      session,
-		downloads:    make(map[string]*DownloadInfo),
-		torrents:     make(map[string]*torrent.Torrent),
-		downloadDir:  downloadDir,
-		mediaScanner: mediaScanner,
+		session:        session,
+		downloads:      make(map[string]*DownloadInfo),
+		torrents:       make(map[string]*torrent.Torrent),
+		downloadDir:    downloadDir,
+		mediaScanner:   mediaScanner,
+		statusCallback: statusCallback,
 	}
 
 	// Start monitoring goroutine
@@ -459,6 +465,13 @@ func (tc *TorrentClient) updateDownloadStats() {
 					downloadInfo.ETA = "Completed"
 					
 					log.Printf("🎉 Torrent completed: %s", downloadInfo.Name)
+					
+					// CRITICAL: Immediately persist completed status to database
+					// This prevents re-downloading on server restart
+					if tc.statusCallback != nil {
+						tc.statusCallback(downloadInfo.ID, "completed", 100, downloadInfo.Size, downloadInfo.Downloaded, downloadInfo.CompletedAt)
+						log.Printf("💾 Persisted completed status to database: %s", downloadInfo.Name)
+					}
 					
 					// Stop the torrent to prevent seeding
 					if err := t.Stop(); err != nil {

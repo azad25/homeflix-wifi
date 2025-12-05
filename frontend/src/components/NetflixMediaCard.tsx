@@ -264,13 +264,13 @@ const NetflixMediaCard: React.FC<NetflixMediaCardProps> = ({
         </div>
 
         {/* Genres (shown on hover) */}
-        {isHovered && media.genres && media.genres.length > 0 && (
-          <div className="mt-1 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+        {media.genres && media.genres.length > 0 && (
+          <div className="absolute left-0 right-0 px-1 mt-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none group-hover:pointer-events-auto">
             <div className="flex flex-wrap gap-1">
               {media.genres.slice(0, 2).map((genre, index) => (
                 <span
                   key={index}
-                  className="text-xs text-gray-400 bg-gray-800/50 px-2 py-1 rounded"
+                  className="text-xs text-gray-300 bg-gray-800/90 px-2 py-1 rounded backdrop-blur-md border border-white/10"
                 >
                   {genre.name}
                 </span>

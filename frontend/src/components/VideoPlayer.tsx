@@ -31,6 +31,7 @@ import { useChromecast, CastMedia } from '@/hooks/useChromecast';
 
 import { updatePlaybackProgress, getPlaybackProgress, trackView, initializePlaybackProgress } from '@/lib/playback';
 import NextEpisodePreview from './NextEpisodePreview';
+import NewMoviesPauseSection from './NewMoviesPauseSection';
 import { Media } from '@/types/media';
 
 interface VideoPlayerProps {
@@ -107,6 +108,10 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
   const [isCasting, setIsCasting] = useState(false);
   const [isTranscoded, setIsTranscoded] = useState(false);
   const [hasInitiallyLoaded, setHasInitiallyLoaded] = useState(false);
+  const [showIntroAnimation, setShowIntroAnimation] = useState(true);
+  const [isSeeking, setIsSeeking] = useState(false);
+  const [seekIndicator, setSeekIndicator] = useState<{ show: boolean; amount: number; direction: 'forward' | 'backward' }>({ show: false, amount: 0, direction: 'forward' });
+  const seekIndicatorTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [currentSubtitleText, setCurrentSubtitleText] = useState<string>('');
   const [audioIssueDetected, setAudioIssueDetected] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -584,6 +589,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
     if (isOpen) {
       // Disable page scroll when video player is open
       document.body.style.overflow = 'hidden';
+      // Show intro animation when player opens
+      setShowIntroAnimation(true);
     } else {
       // Re-enable page scroll when video player is closed
       document.body.style.overflow = 'auto';
@@ -594,6 +601,21 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
       document.body.style.overflow = 'auto';
     };
   }, [isOpen]);
+
+  // Hide intro animation after it completes AND video is ready
+  useEffect(() => {
+    if (showIntroAnimation && isOpen) {
+      // Only hide intro if video is loaded AND minimum animation time has passed
+      if (!isLoading && !isBuffering) {
+        // Add a minimum display time for the animation
+        const timer = setTimeout(() => {
+          setShowIntroAnimation(false);
+        }, 500); // Small delay after video is ready
+
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [showIntroAnimation, isOpen, isLoading, isBuffering]);
 
   // Handle forceStartFromBeginning flag changes
   useEffect(() => {
@@ -1858,6 +1880,15 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
     } catch (error) {
       setIsBuffering(false);
     }
+
+    // Show seek indicator with animation
+    if (seekIndicatorTimeoutRef.current) {
+      clearTimeout(seekIndicatorTimeoutRef.current);
+    }
+    setSeekIndicator({ show: true, amount: seconds, direction: 'forward' });
+    seekIndicatorTimeoutRef.current = setTimeout(() => {
+      setSeekIndicator(prev => ({ ...prev, show: false }));
+    }, 800);
   };
 
   const handleCancelNext = () => {
@@ -1902,6 +1933,15 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
     } catch (error) {
       setIsBuffering(false);
     }
+
+    // Show seek indicator with animation
+    if (seekIndicatorTimeoutRef.current) {
+      clearTimeout(seekIndicatorTimeoutRef.current);
+    }
+    setSeekIndicator({ show: true, amount: seconds, direction: 'backward' });
+    seekIndicatorTimeoutRef.current = setTimeout(() => {
+      setSeekIndicator(prev => ({ ...prev, show: false }));
+    }, 800);
   };
 
   const toggleFullscreen = () => {
@@ -3069,10 +3109,12 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
               }
             }}
             onSeeking={() => {
+              setIsSeeking(true);
               setIsBuffering(true);
             }}
 
             onSeeked={() => {
+              setIsSeeking(false);
               setIsBuffering(false);
               const video = videoRef.current;
               if (video) {
@@ -3225,18 +3267,360 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
               cursor: pointer;
               border: none;
             }
+
+            /* HOMEFLIX Intro Animation Styles */
+            @keyframes homeflix-bar-slide {
+              0% {
+                transform: translateX(-100%);
+                opacity: 0;
+              }
+              15% {
+                opacity: 1;
+              }
+              50% {
+                transform: translateX(0%);
+                opacity: 1;
+              }
+              85% {
+                opacity: 1;
+              }
+              100% {
+                transform: translateX(100%);
+                opacity: 0;
+              }
+            }
+
+            @keyframes homeflix-text-glow {
+              0% {
+                opacity: 0;
+                text-shadow: 0 0 0px transparent;
+                transform: scale(0.95);
+              }
+              30% {
+                opacity: 1;
+                text-shadow: 0 0 20px rgba(229, 9, 20, 0.5), 0 0 40px rgba(229, 9, 20, 0.3);
+              }
+              70% {
+                opacity: 1;
+                text-shadow: 0 0 40px rgba(229, 9, 20, 0.8), 0 0 80px rgba(229, 9, 20, 0.5);
+                transform: scale(1);
+              }
+              100% {
+                opacity: 0;
+                text-shadow: 0 0 60px rgba(229, 9, 20, 0.3);
+                transform: scale(1.02);
+              }
+            }
+
+            @keyframes homeflix-bar-glow {
+              0% {
+                box-shadow: 0 0 10px rgba(229, 9, 20, 0.3);
+              }
+              50% {
+                box-shadow: 0 0 30px rgba(229, 9, 20, 0.8), 0 0 60px rgba(229, 9, 20, 0.4);
+              }
+              100% {
+                box-shadow: 0 0 10px rgba(229, 9, 20, 0.3);
+              }
+            }
+
+            @keyframes homeflix-fade-out {
+              0% {
+                opacity: 1;
+              }
+              70% {
+                opacity: 1;
+              }
+              100% {
+                opacity: 0;
+              }
+            }
+
+            .homeflix-intro-container {
+              animation: homeflix-fade-out 3.5s ease-in-out forwards;
+            }
+
+            .homeflix-text {
+              animation: homeflix-text-glow 3s ease-in-out forwards;
+            }
+
+            .homeflix-bar {
+              animation: homeflix-bar-slide 2.5s ease-in-out forwards, homeflix-bar-glow 2.5s ease-in-out infinite;
+            }
+
+            .homeflix-bar-1 { animation-delay: 0s; }
+            .homeflix-bar-2 { animation-delay: 0.1s; }
+            .homeflix-bar-3 { animation-delay: 0.2s; }
+            .homeflix-bar-4 { animation-delay: 0.3s; }
+            .homeflix-bar-5 { animation-delay: 0.4s; }
+            .homeflix-bar-6 { animation-delay: 0.5s; }
+            .homeflix-bar-7 { animation-delay: 0.6s; }
+
+            /* Bar bounce animation for seeking/buffering */
+            @keyframes homeflix-bar-bounce {
+              0%, 100% {
+                transform: scaleY(0.4);
+                opacity: 0.5;
+              }
+              50% {
+                transform: scaleY(1);
+                opacity: 1;
+              }
+            }
+
+            /* Seek indicator animations */
+            @keyframes seek-indicator-pop {
+              0% {
+                transform: scale(0.5);
+                opacity: 0;
+              }
+              50% {
+                transform: scale(1.1);
+                opacity: 1;
+              }
+              100% {
+                transform: scale(1);
+                opacity: 1;
+              }
+            }
+
+            @keyframes seek-arrow-move {
+              0% {
+                transform: translateX(0);
+              }
+              50% {
+                transform: translateX(8px);
+              }
+              100% {
+                transform: translateX(0);
+              }
+            }
+
+            @keyframes seek-arrow-move-back {
+              0% {
+                transform: translateX(0);
+              }
+              50% {
+                transform: translateX(-8px);
+              }
+              100% {
+                transform: translateX(0);
+              }
+            }
           `}</style>
 
-          {/* Loading/Buffering Overlay */}
+          {/* Seek Indicator */}
           <AnimatePresence>
-            {(isLoading || isBuffering) && (
+            {seekIndicator.show && (
+              <motion.div
+                initial={{ opacity: 0, scale: 0.5 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.8 }}
+                transition={{ duration: 0.2 }}
+                className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-50 pointer-events-none"
+              >
+                <div
+                  className="flex items-center gap-3 bg-black/80 backdrop-blur-md px-6 py-4 rounded-2xl border border-white/10"
+                  style={{
+                    animation: 'seek-indicator-pop 0.3s ease-out',
+                  }}
+                >
+                  {/* Arrow icons */}
+                  <div
+                    className="flex items-center"
+                    style={{
+                      animation: seekIndicator.direction === 'forward'
+                        ? 'seek-arrow-move 0.4s ease-in-out infinite'
+                        : 'seek-arrow-move-back 0.4s ease-in-out infinite',
+                    }}
+                  >
+                    {seekIndicator.direction === 'forward' ? (
+                      <div className="flex">
+                        <RotateCw className="w-8 h-8 text-red-500" />
+                      </div>
+                    ) : (
+                      <div className="flex">
+                        <RotateCcw className="w-8 h-8 text-red-500" />
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Time amount */}
+                  <div className="flex flex-col items-start">
+                    <span
+                      className="text-3xl font-bold text-white"
+                      style={{
+                        fontFamily: "'Bebas Neue', 'Impact', sans-serif",
+                        letterSpacing: '0.05em',
+                      }}
+                    >
+                      {seekIndicator.direction === 'forward' ? '+' : '-'}{seekIndicator.amount}s
+                    </span>
+                    <span className="text-xs text-white/50 uppercase tracking-wider">
+                      {seekIndicator.direction === 'forward' ? 'Forward' : 'Rewind'}
+                    </span>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* HOMEFLIX Intro Animation */}
+          <AnimatePresence>
+            {showIntroAnimation && (
+              <motion.div
+                initial={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.5 }}
+                className="absolute inset-0 z-[60] bg-black flex items-center justify-center homeflix-intro-container"
+              >
+                {/* Animated Bars Container */}
+                <div className="absolute inset-0 flex items-center justify-center overflow-hidden">
+                  {/* Multiple animated bars moving towards center */}
+                  {[...Array(7)].map((_, index) => (
+                    <div
+                      key={index}
+                      className={`homeflix-bar homeflix-bar-${index + 1} absolute h-1 rounded-full`}
+                      style={{
+                        width: `${60 + index * 15}px`,
+                        background: `linear-gradient(90deg, transparent, #E50914 40%, #E50914 60%, transparent)`,
+                        top: `${35 + index * 5}%`,
+                        left: 0,
+                        right: 0,
+                        margin: 'auto',
+                        opacity: 0.9 - index * 0.1,
+                      }}
+                    />
+                  ))}
+                </div>
+
+                {/* HOMEFLIX Text */}
+                <div className="relative z-10 homeflix-text flex flex-col items-center">
+                  <h1
+                    className="text-6xl md:text-8xl lg:text-9xl font-bold tracking-widest"
+                    style={{
+                      fontFamily: "'Bebas Neue', 'Impact', sans-serif",
+                      color: '#E50914',
+                      letterSpacing: '0.2em',
+                    }}
+                  >
+                    HOMEFLIX
+                  </h1>
+
+                  {/* Loading indicator below text */}
+                  {(isLoading || isBuffering) && (
+                    <div className="mt-8 flex flex-col items-center">
+                      <div className="flex gap-1">
+                        {[...Array(3)].map((_, i) => (
+                          <div
+                            key={i}
+                            className="w-2 h-2 rounded-full bg-red-600"
+                            style={{
+                              animation: 'pulse 1.2s ease-in-out infinite',
+                              animationDelay: `${i * 0.2}s`,
+                            }}
+                          />
+                        ))}
+                      </div>
+                      <p className="text-white/50 text-sm mt-3 tracking-wider">Loading...</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Additional decorative bars behind text */}
+                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                  <div
+                    className="absolute w-full h-[2px] bg-gradient-to-r from-transparent via-red-600/50 to-transparent"
+                    style={{
+                      animation: 'homeflix-bar-slide 2s ease-in-out forwards',
+                      animationDelay: '0.3s',
+                    }}
+                  />
+                  <div
+                    className="absolute w-full h-[1px] bg-gradient-to-r from-transparent via-red-500/30 to-transparent"
+                    style={{
+                      animation: 'homeflix-bar-slide 2s ease-in-out forwards',
+                      animationDelay: '0.5s',
+                      top: '45%',
+                    }}
+                  />
+                  <div
+                    className="absolute w-full h-[1px] bg-gradient-to-r from-transparent via-red-500/30 to-transparent"
+                    style={{
+                      animation: 'homeflix-bar-slide 2s ease-in-out forwards',
+                      animationDelay: '0.5s',
+                      bottom: '45%',
+                    }}
+                  />
+                </div>
+
+                {/* Skip button */}
+                <button
+                  onClick={() => setShowIntroAnimation(false)}
+                  className="absolute bottom-10 right-10 text-white/60 hover:text-white text-sm transition-colors z-20"
+                  type="button"
+                >
+                  Skip Intro
+                </button>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* HOMEFLIX Seeking/Buffering Overlay */}
+          <AnimatePresence>
+            {(isLoading || isBuffering || isSeeking) && !showIntroAnimation && (
               <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                className="absolute inset-0 flex items-center justify-center bg-black/30 backdrop-blur-sm z-40"
+                transition={{ duration: 0.2 }}
+                className="absolute inset-0 flex items-center justify-center bg-black/60 backdrop-blur-sm z-40"
               >
-                <RedLoader size="large" />
+                {/* HOMEFLIX branded seeking screen */}
+                <div className="flex flex-col items-center">
+                  {/* HOMEFLIX Logo */}
+                  <h2
+                    className="text-4xl md:text-5xl font-bold tracking-widest mb-6"
+                    style={{
+                      fontFamily: "'Bebas Neue', 'Impact', sans-serif",
+                      color: '#E50914',
+                      letterSpacing: '0.15em',
+                      textShadow: '0 0 20px rgba(229, 9, 20, 0.5)',
+                    }}
+                  >
+                    HOMEFLIX
+                  </h2>
+
+                  {/* Animated loading bars */}
+                  <div className="flex gap-1 mb-4">
+                    {[...Array(5)].map((_, i) => (
+                      <div
+                        key={i}
+                        className="w-1.5 bg-red-600 rounded-full"
+                        style={{
+                          height: '24px',
+                          animation: 'homeflix-bar-bounce 1s ease-in-out infinite',
+                          animationDelay: `${i * 0.1}s`,
+                        }}
+                      />
+                    ))}
+                  </div>
+
+                  {/* Status text */}
+                  <p className="text-white/60 text-sm tracking-wider">
+                    {isSeeking ? 'Seeking...' : isLoading ? 'Loading...' : 'Buffering...'}
+                  </p>
+                </div>
+
+                {/* Close button */}
+                <button
+                  onClick={handleClose}
+                  className="absolute top-8 right-8 text-white hover:text-red-500 transition-colors p-3 bg-black/50 rounded-full hover:bg-black/70 border border-white/20 hover:border-red-500/50 z-50"
+                  type="button"
+                  aria-label="Close"
+                >
+                  <X className="w-6 h-6" />
+                </button>
               </motion.div>
             )}
           </AnimatePresence>
@@ -3975,13 +4359,21 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                   <X className="w-5 h-5" />
                 </motion.button>
 
+                {/* New Movies Section */}
+                <NewMoviesPauseSection
+                  currentMediaId={media.id}
+                  currentTime={currentTime}
+                  duration={duration}
+                  onClose={handleClose}
+                />
+
                 {/* Resume Hint */}
                 <motion.div
                   initial={{ y: 30, opacity: 0 }}
                   animate={{ y: 0, opacity: 1 }}
                   exit={{ y: 30, opacity: 0 }}
                   transition={{ delay: 0.35, duration: 0.3 }}
-                  className="absolute bottom-12 text-red-100 text-sm font-bold text-center"
+                  className="absolute bottom-4 text-red-100 text-sm font-bold text-center"
                 >
                   <p><span className="font-bold text-[#C0392B]">HOMEFLIX</span> Studios</p>
                 </motion.div>

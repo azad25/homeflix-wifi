@@ -4,11 +4,11 @@ import React, { useState, useEffect } from 'react';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { motion } from 'framer-motion';
 import { Media } from '@/types/media';
-import { ScrollXHero } from '@/components/scrollx';
+import HomeflixHero from '@/components/HomeflixHero';
 import { NewContentSection } from '@/components/sections/NewContentSection';
 import { PopularContentSection } from '@/components/sections/PopularContentSection';
 import { TrendingSection } from '@/components/sections/TrendingSection';
-import { apiCall, preloadAssets } from '@/lib/api';
+import { apiCall, getApiUrl, preloadAssets } from '@/lib/api';
 import Navbar from '@/components/Navbar';
 import RedLoader from '@/components/RedLoader';
 import UpcomingMovies from '@/components/UpcomingMovies';
@@ -33,39 +33,51 @@ const NewPopularPage: React.FC = () => {
         setIsLoading(true);
         setError(null);
 
-        // Fetch content using enhanced recommendation APIs (no episodes included)
+        // Fetch all movies from the library (similar to browse page)
+        const apiUrl = getApiUrl();
+        const moviesResponse = await fetch(`${apiUrl}/api/media/movies`);
+
+        if (!moviesResponse.ok) {
+          throw new Error('Failed to fetch movies');
+        }
+
+        const allMovies: Media[] = await moviesResponse.json();
+
+        // Sort by ID descending to get the latest added movies first
+        const sortedByRecent = [...allMovies].sort((a, b) => b.id - a.id);
+
+        // Get only the latest 6 movies for the hero slider
+        const latestMovies = sortedByRecent.slice(0, 6);
+
+        // Also fetch recommendation data for the content sections
         const [
-          recentMovies,
           popularMovies,
           trendingMovies
         ] = await Promise.all([
-          apiCall('/api/recommendations/recent?limit=20'),
           apiCall('/api/recommendations/popular?limit=20'),
           apiCall('/api/recommendations/trending?limit=20')
         ]);
 
-        // Ensure we have content
-        if (!recentMovies?.length && !popularMovies?.length && !trendingMovies?.length) {
-          throw new Error('No content available');
-        }
+        // Filter to only include movies (exclude TV shows and episodes)
+        const filterMoviesOnly = (items: Media[]) => items.filter(item =>
+          item.type === 'movie'
+        );
 
-        // Get featured content (mix of trending and popular for hero section)
-        const featured = [
-          ...(trendingMovies?.slice(0, 3) || []),
-          ...(popularMovies?.slice(0, 2) || [])
-        ].slice(0, 5);
+        const popularMoviesFiltered = filterMoviesOnly(popularMovies || []);
+        const trendingMoviesFiltered = filterMoviesOnly(trendingMovies || []);
 
-        setFeaturedMedia(featured);
-        setNewContent(recentMovies || []);
-        setPopularContent(popularMovies || []);
-        setTrendingContent(trendingMovies || []);
+        // Set featured media to only the latest 6 movies from library
+        setFeaturedMedia(latestMovies);
+        setNewContent(sortedByRecent.slice(0, 20)); // Latest 20 movies for "New Releases" section
+        setPopularContent(popularMoviesFiltered);
+        setTrendingContent(trendingMoviesFiltered);
 
         // Preload assets for better performance (poster first, then thumbnail, then preview)
         const allContentForPreload = [
-          ...featured,
-          ...(recentMovies?.slice(0, 10) || []),
-          ...(popularMovies?.slice(0, 10) || []),
-          ...(trendingMovies?.slice(0, 10) || [])
+          ...latestMovies,
+          ...sortedByRecent.slice(0, 10),
+          ...(popularMoviesFiltered?.slice(0, 10) || []),
+          ...(trendingMoviesFiltered?.slice(0, 10) || [])
         ];
 
         if (allContentForPreload.length > 0) {
@@ -119,15 +131,13 @@ const NewPopularPage: React.FC = () => {
   return (
     <div className="min-h-screen bg-black overflow-visible">
       <Navbar />
-      
+
       {/* Hero Section */}
       {featuredMedia.length > 0 && (
-        <ScrollXHero
-          featuredMedia={featuredMedia}
+        <HomeflixHero
           onPlay={handlePlay}
           onInfo={handleInfo}
           contentFilter="movies-hd"
-          enableRecommendations={true}
         />
       )}
 
@@ -140,60 +150,60 @@ const NewPopularPage: React.FC = () => {
           className="space-y-12 pb-20 overflow-visible"
         >
           {/* New Releases Section */}
-          <NewContentSection 
+          <NewContentSection
             media={newContent}
             onMediaClick={handlePlay}
           />
 
           {/* Popular Content Section */}
-          <PopularContentSection 
+          <PopularContentSection
             media={popularContent}
             onMediaClick={handlePlay}
           />
 
           {/* Trending Section */}
-          <TrendingSection 
+          <TrendingSection
             media={trendingContent}
             onMediaClick={handlePlay}
           />
 
           {/* TMDB Now Playing in Theaters */}
-          <UpcomingMovies 
+          <UpcomingMovies
             showSection="now_playing"
             maxItems={15}
             className="px-4 md:px-8"
           />
 
           {/* TMDB Coming Soon */}
-          <UpcomingMovies 
+          <UpcomingMovies
             showSection="upcoming"
             maxItems={12}
             className="px-4 md:px-8"
           />
 
           {/* TMDB Trending Weekly */}
-          <UpcomingMovies 
+          <UpcomingMovies
             showSection="trending_weekly"
             maxItems={10}
             className="px-4 md:px-8"
           />
 
           {/* TV Series - Airing Today */}
-          <UpcomingTVSeries 
+          <UpcomingTVSeries
             showSection="airing_today"
             maxItems={15}
             className="px-4 md:px-8"
           />
 
           {/* TV Series - On the Air */}
-          <UpcomingTVSeries 
+          <UpcomingTVSeries
             showSection="on_the_air"
             maxItems={12}
             className="px-4 md:px-8"
           />
 
           {/* TV Series - Trending Daily */}
-          <UpcomingTVSeries 
+          <UpcomingTVSeries
             showSection="trending_daily"
             maxItems={10}
             className="px-4 md:px-8"

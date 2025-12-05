@@ -9,6 +9,8 @@ import { useNavigate } from "@/hooks/useNavigate";
 import { getApiUrl } from "@/lib/api";
 import NotificationDropdown from "./NotificationDropdown";
 import { Notification, NotificationResponse, NotificationCountResponse } from "@/types/notifications";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 
 interface NavbarProps {
   onSearch?: (query: string) => void;
@@ -219,7 +221,7 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
   const navItems = [
     { name: "Movies", href: "/movies" },
     { name: "TV Shows", href: "/tv-shows" },
-    { name: "Now Playing", href: "/now-playing" },
+    { name: "Trailers", href: "/trailers" },
     { name: "New & Popular", href: "/new-popular" },
     { name: "My List", href: "/my-list" },
     { name: "Browse", href: "/browse" },
@@ -394,18 +396,26 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
               ) : (
                 <button
                   onClick={() => setIsSearchOpen(true)}
-                  className="text-white/80 hover:text-white transition-colors"
+                  className="text-white/80 hover:text-white transition-colors flex items-center justify-center"
                 >
                   <Search className="w-5 h-5" />
                 </button>
               )}
             </div>
 
+            {/*linked to /now-playing*/}
+            <NavigationLink
+              href="/now-playing"
+              className="text-white/80 hover:text-white transition-colors flex items-center justify-center"
+            >
+              <Tv className="w-5 h-5" />
+            </NavigationLink>
+
             {/* Notifications */}
             <div className="relative" ref={notificationRef}>
               <button
                 onClick={() => setIsNotificationOpen(!isNotificationOpen)}
-                className="text-white/80 hover:text-white transition-colors hidden md:block relative"
+                className="text-white/80 hover:text-white transition-colors hidden md:block relative flex items-center justify-center"
               >
                 <Bell className="w-5 h-5" />
                 {notificationCount > 0 && (
@@ -421,6 +431,7 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
                 }}
               />
             </div>
+
 
             {/* Profile */}
             <div className="relative group">

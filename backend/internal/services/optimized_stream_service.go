@@ -1279,8 +1279,8 @@ func (s *NetflixStreamService) createChromeCompatibleCachedVersion(filePath stri
 // Legacy methods removed - now using mandatory seekability verification
 
 func (s *NetflixStreamService) streamDirectlyWithSeeking(w http.ResponseWriter, r *http.Request, filePath string) error {
-	// Open file for streaming
-	file, err := os.Open(filePath)
+	// Open file for streaming with optimized flags
+	file, err := os.OpenFile(filePath, os.O_RDONLY, 0)
 	if err != nil {
 		return fmt.Errorf("failed to open file: %v", err)
 	}
@@ -1292,30 +1292,57 @@ func (s *NetflixStreamService) streamDirectlyWithSeeking(w http.ResponseWriter, 
 		return fmt.Errorf("failed to stat file: %v", err)
 	}
 	fileSize := stat.Size()
+	modTime := stat.ModTime()
 
-	// WiFi-optimized headers for faster initial response
+	// CRITICAL: Set optimal headers for Chrome seeking BEFORE any content
 	contentType := utils.GetVideoContentType(filePath)
 	headers := w.Header()
+	
+	// Core streaming headers - Chrome needs these for seeking
 	headers.Set("Content-Type", contentType)
 	headers.Set("Accept-Ranges", "bytes")
 	headers.Set("Content-Length", fmt.Sprintf("%d", fileSize))
+	
+	// CRITICAL: Last-Modified and ETag for Chrome seeking
+	headers.Set("Last-Modified", modTime.UTC().Format(http.TimeFormat))
+	headers.Set("ETag", fmt.Sprintf(`"%x-%x"`, modTime.Unix(), fileSize))
+	
+	// Connection keep-alive for WiFi performance
 	headers.Set("Connection", "keep-alive")
-	headers.Set("Keep-Alive", "timeout=30, max=100")
-	headers.Set("Cache-Control", "public, max-age=3600") // Allow caching for WiFi
+	headers.Set("Keep-Alive", "timeout=120, max=1000")
+	
+	// Caching headers for faster repeated access
+	headers.Set("Cache-Control", "public, max-age=604800, immutable") // 7 days cache
+	
+	// Chrome-specific optimization headers
 	headers.Set("X-Seekable", "true")
+	headers.Set("X-Content-Duration", "") // Browser will compute from metadata
 	headers.Set("X-WiFi-Optimized", "true")
+	
+	// CORS headers for cross-origin requests
+	headers.Set("Access-Control-Allow-Origin", "*")
+	headers.Set("Access-Control-Allow-Headers", "Range, Content-Type")
+	headers.Set("Access-Control-Expose-Headers", "Content-Range, Content-Length, Accept-Ranges, X-Seekable")
+	headers.Set("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
 
-	log.Printf("📺 WiFi-optimized streaming: %s (%d MB)", filepath.Base(filePath), fileSize/(1024*1024))
+	log.Printf("📺 Optimized streaming: %s (%d MB)", filepath.Base(filePath), fileSize/(1024*1024))
 
-	// Handle range requests (seeking) - critical for WiFi performance
+	// Handle OPTIONS preflight for CORS
+	if r.Method == "OPTIONS" {
+		w.WriteHeader(http.StatusNoContent)
+		return nil
+	}
+
+	// Handle range requests (seeking) - critical for Chrome performance
 	rangeHeader := r.Header.Get("Range")
 	if rangeHeader != "" {
 		return s.handleWiFiOptimizedRangeRequest(w, r, file, fileSize, rangeHeader)
 	}
 
-	// For WiFi devices, always start with initial chunk streaming for faster playback start
+	// For full file requests, stream with WiFi optimization
 	return s.streamFileWithWiFiOptimization(w, r, file, fileSize)
 }
+
 
 func (s *NetflixStreamService) streamWithMandatoryTranscoding(w http.ResponseWriter, r *http.Request, filePath string) error {
 	log.Printf("🔄 MANDATORY TRANSCODING: Ensuring seekability for %s", filepath.Base(filePath))
@@ -1607,14 +1634,14 @@ func (s *NetflixStreamService) handleWiFiOptimizedRangeRequest(w http.ResponseWr
 
 	ranges, err := parseRangeHeader(rangeHeader, fileSize)
 	if err != nil {
-		w.WriteHeader(http.StatusRequestedRangeNotSatisfiable)
 		w.Header().Set("Content-Range", fmt.Sprintf("bytes */%d", fileSize))
+		w.WriteHeader(http.StatusRequestedRangeNotSatisfiable)
 		return fmt.Errorf("invalid range header: %v", err)
 	}
 
 	if len(ranges) != 1 {
-		w.WriteHeader(http.StatusRequestedRangeNotSatisfiable)
 		w.Header().Set("Content-Range", fmt.Sprintf("bytes */%d", fileSize))
+		w.WriteHeader(http.StatusRequestedRangeNotSatisfiable)
 		return fmt.Errorf("multiple ranges not supported")
 	}
 
@@ -1624,18 +1651,23 @@ func (s *NetflixStreamService) handleWiFiOptimizedRangeRequest(w http.ResponseWr
 
 	// Validate range bounds
 	if start < 0 || start >= fileSize || end >= fileSize || start > end {
-		w.WriteHeader(http.StatusRequestedRangeNotSatisfiable)
 		w.Header().Set("Content-Range", fmt.Sprintf("bytes */%d", fileSize))
+		w.WriteHeader(http.StatusRequestedRangeNotSatisfiable)
 		return fmt.Errorf("invalid range bounds: %d-%d for file size %d", start, end, fileSize)
 	}
 
 	// INSTANT SEEKING: Check seek cache first for immediate response
 	seekCacheKey := fmt.Sprintf("seek:%s:%d-%d", file.Name(), start, end)
 	if cached := s.l1Cache.Get(seekCacheKey); cached != nil {
-		// INSTANT seek response from cache
-		w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, fileSize))
-		w.Header().Set("Content-Length", fmt.Sprintf("%d", contentLength))
-		w.Header().Set("X-Seek-Cache", "HIT-INSTANT")
+		// INSTANT seek response from cache - set headers BEFORE WriteHeader
+		headers := w.Header()
+		headers.Set("Content-Type", utils.GetVideoContentType(file.Name()))
+		headers.Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, fileSize))
+		headers.Set("Content-Length", fmt.Sprintf("%d", contentLength))
+		headers.Set("Accept-Ranges", "bytes")
+		headers.Set("X-Seek-Cache", "HIT-INSTANT")
+		headers.Set("Cache-Control", "public, max-age=604800, immutable")
+		headers.Set("Connection", "keep-alive")
 		w.WriteHeader(http.StatusPartialContent)
 
 		_, err := w.Write(cached.data)
@@ -1645,13 +1677,21 @@ func (s *NetflixStreamService) handleWiFiOptimizedRangeRequest(w http.ResponseWr
 		return err
 	}
 
-	// WiFi-optimized headers for range requests
-	w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, fileSize))
-	w.Header().Set("Content-Length", fmt.Sprintf("%d", contentLength))
-	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("Keep-Alive", "timeout=30, max=100")
-	w.Header().Set("Cache-Control", "public, max-age=3600") // Allow caching
-	w.Header().Set("X-WiFi-Range-Optimized", "true")
+	// Set headers BEFORE WriteHeader for Chrome compatibility
+	headers := w.Header()
+	headers.Set("Content-Type", utils.GetVideoContentType(file.Name()))
+	headers.Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, fileSize))
+	headers.Set("Content-Length", fmt.Sprintf("%d", contentLength))
+	headers.Set("Accept-Ranges", "bytes")
+	headers.Set("Connection", "keep-alive")
+	headers.Set("Keep-Alive", "timeout=120, max=1000")
+	headers.Set("Cache-Control", "public, max-age=604800, immutable") // Long cache for seeked ranges
+	headers.Set("X-WiFi-Range-Optimized", "true")
+	
+	// CORS headers for cross-origin seeking
+	headers.Set("Access-Control-Allow-Origin", "*")
+	headers.Set("Access-Control-Expose-Headers", "Content-Range, Content-Length, Accept-Ranges")
+	
 	w.WriteHeader(http.StatusPartialContent)
 
 	// Seek to start position
@@ -1663,6 +1703,7 @@ func (s *NetflixStreamService) handleWiFiOptimizedRangeRequest(w http.ResponseWr
 	// WiFi-optimized range streaming with immediate response + caching
 	return s.streamWiFiOptimizedRangeWithCaching(w, file, contentLength, seekCacheKey, start, end)
 }
+
 
 func (s *NetflixStreamService) handleRangeRequest(w http.ResponseWriter, r *http.Request, file *os.File, fileSize int64, rangeHeader string) error {
 	// Use WiFi-optimized range handler

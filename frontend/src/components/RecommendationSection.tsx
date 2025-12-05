@@ -638,14 +638,8 @@ const RecommendationSection: React.FC<RecommendationSectionProps> = ({
                   sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
                 />
               ) : (
-                /* Fallback placeholder when both poster and thumbnail fail */
-                <div className="absolute inset-0 bg-gray-800 flex items-center justify-center">
-                  <div className="text-white text-center">
-                    <div className="text-3xl mb-2">🎬</div>
-                    <div className="text-sm font-medium line-clamp-2 px-2">{media.title}</div>
-                    <div className="text-xs text-gray-400 mt-1">No Image</div>
-                  </div>
-                </div>
+                /* Fallback: solid black background when both poster and thumbnail fail */
+                <div className="absolute inset-0 bg-black" />
               )}
 
               {/* Preview Video - Only load when actually showing */}

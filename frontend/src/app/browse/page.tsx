@@ -12,10 +12,10 @@ import RedLoader from "../../components/RedLoader";
 import { getApiUrl, fetchUniqueRecommendations, preloadAssets, smartSearch, fetchMediaByGenre } from "../../lib/api";
 import NetflixMediaCard from "../../components/NetflixMediaCard";
 import {
-  ScrollXHero,
   MagneticButton,
   FloatingElement
 } from '@/components/scrollx';
+import LocalMoviesHeroSlider from "@/components/LocalMoviesHeroSlider";
 
 interface Genre {
   id: number;
@@ -341,14 +341,10 @@ export default function BrowsePage() {
       <Navbar onSearch={handleSearch} />
 
       {/* Hero Section */}
-      {featuredMedia.length > 0 && (
-        <ScrollXHero
-          featuredMedia={featuredMedia}
-          onPlay={handlePlay}
-          onInfo={handleInfo}
-          contentFilter="movies-hd"
-        />
-      )}
+      <LocalMoviesHeroSlider
+        onPlay={handlePlay}
+        onInfo={handleInfo}
+      />
 
 
       {/* Main Content with Responsive Layout */}
