@@ -142,7 +142,13 @@ const HomeflixHero: React.FC<HomeflixHeroProps> = ({
                     );
                     // Must have file_path for preview clips
                     const hasFilePath = !!media.file_path;
-                    return isMovie && (hasHDQuality || !media.quality) && hasFilePath;
+                    // Must have poster (poster_path or tmdb_poster_url)
+                    const hasPoster = !!(media.poster_path || media.tmdb_poster_url);
+                    // Must have backdrop (tmdb_backdrop_url, banner_path, or thumbnail_path)
+                    const hasBackdrop = !!(media.tmdb_backdrop_url || media.banner_path || media.thumbnail_path);
+                    // Must have minimum 1 hour (60 minutes) duration
+                    const hasMinDuration = media.duration && media.duration >= 60;
+                    return isMovie && (hasHDQuality || !media.quality) && hasFilePath && hasPoster && hasBackdrop && hasMinDuration;
                 });
             } else if (contentFilter === 'tv-series') {
                 filteredMedia = allMovies.filter((media: Media) => {
@@ -336,7 +342,13 @@ const HomeflixHero: React.FC<HomeflixHeroProps> = ({
                                     media.quality.toLowerCase().includes('2160p')
                                 );
                                 const hasFilePath = !!media.file_path;
-                                return isMovie && (hasHDQuality || !media.quality) && hasFilePath;
+                                // Must have poster (poster_path or tmdb_poster_url)
+                                const hasPoster = !!(media.poster_path || media.tmdb_poster_url);
+                                // Must have backdrop (tmdb_backdrop_url, banner_path, or thumbnail_path)
+                                const hasBackdrop = !!(media.tmdb_backdrop_url || media.banner_path || media.thumbnail_path);
+                                // Must have minimum 1 hour (60 minutes) duration
+                                const hasMinDuration = media.duration && media.duration >= 60;
+                                return isMovie && (hasHDQuality || !media.quality) && hasFilePath && hasPoster && hasBackdrop && hasMinDuration;
                             });
                         }
 
