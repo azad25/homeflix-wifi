@@ -10,7 +10,7 @@ Transform your media collection into a professional streaming platform! HomeFlix
 
 **Download movies directly from TMDB pages with one click!** HomeFlix includes a complete torrent download system with real-time progress tracking, automatic library integration, and professional UI.
 
-![HomeFlix Interface](/screenshots/preview_0.png)
+![HomeFlix Interface](/screenshots/preview_home.png)
 ![HomeFlix Interface](/screenshots/preview-2.png)
 ![HomeFlix Interface](/screenshots/preview-4.png)
 ![TMDB Movie Details](/screenshots/preview_25.png)
