@@ -288,10 +288,28 @@ func (ns *NotificationService) CreateRandomMovieSuggestion() error {
 		return nil
 	}
 
-	// Extract movie IDs
-	movieIDs := make([]uint, len(movies))
-	for i, movie := range movies {
-		movieIDs[i] = movie.ID
+	// Validate each movie ID exists and has required data
+	var validMovieIDs []uint
+	for _, movie := range movies {
+		// Verify the movie still exists and has valid paths
+		var validCount int64
+		ns.db.Raw(`
+			SELECT COUNT(*) FROM media 
+			WHERE id = ? 
+			AND file_path IS NOT NULL AND file_path != '' 
+			AND poster_path IS NOT NULL AND poster_path != ''
+		`, movie.ID).Scan(&validCount)
+		
+		if validCount > 0 {
+			validMovieIDs = append(validMovieIDs, movie.ID)
+		} else {
+			log.Printf("⚠️ Skipping invalid media ID %d (%s) from recommendations", movie.ID, movie.Title)
+		}
+	}
+	
+	if len(validMovieIDs) == 0 {
+		log.Printf("⚠️ All recommended movies were invalid, skipping notification")
+		return nil
 	}
 
 	// Create notification
@@ -300,7 +318,7 @@ func (ns *NotificationService) CreateRandomMovieSuggestion() error {
 		Type:      NotificationTypeMovieSuggestion,
 		Title:     "Recommended Movies for You",
 		Message:   "Based on your watch history, you might enjoy these!",
-		MovieIDs:  movieIDs,
+		MovieIDs:  validMovieIDs,
 		Timestamp: time.Now().Unix(),
 		Read:      false,
 	}
@@ -309,7 +327,7 @@ func (ns *NotificationService) CreateRandomMovieSuggestion() error {
 		return err
 	}
 
-	log.Printf("🎬 Created intelligent movie suggestion with %d movies (based on watch history & ratings)", len(movies))
+	log.Printf("🎬 Created intelligent movie suggestion with %d valid movies (based on watch history & ratings)", len(validMovieIDs))
 	return nil
 }
 

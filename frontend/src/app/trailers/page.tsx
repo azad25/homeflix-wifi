@@ -140,9 +140,14 @@ const TrailersPage = () => {
                     controls: 0,
                     showinfo: 0,
                     rel: 0,
-                    iv_load_policy: 3,
+                    iv_load_policy: 3, // Hide annotations
                     modestbranding: 1,
                     playsinline: 1,
+                    disablekb: 1, // Disable keyboard controls
+                    fs: 0, // Disable fullscreen button
+                    cc_load_policy: 0, // Don't load captions
+                    cc_lang_pref: '', // No caption language preference
+                    enablejsapi: 1, // Enable JS API
                     origin: window.location.origin,
                 },
                 events: {
@@ -344,16 +349,19 @@ const TrailersPage = () => {
                                         exit={{ opacity: 0 }}
                                         transition={{ duration: 0.5 }}
                                         className="absolute inset-0 z-10 flex items-center justify-center overflow-hidden pointer-events-none"
+                                        style={{
+                                            clipPath: 'inset(0)',
+                                        }}
                                     >
-                                        <div className="relative w-full h-full">
+                                        <div className="relative w-full h-full overflow-hidden">
                                             <div
                                                 id={`yt-player-${movie.id}`}
                                                 className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2"
                                                 style={{
-                                                    width: '100vw',
-                                                    height: '100vh',
-                                                    minWidth: '177.77vh',
-                                                    minHeight: '56.25vw',
+                                                    width: '120vw',
+                                                    height: '120vh',
+                                                    minWidth: '200vh',
+                                                    minHeight: '70vw',
                                                     pointerEvents: 'none'
                                                 }}
                                             />

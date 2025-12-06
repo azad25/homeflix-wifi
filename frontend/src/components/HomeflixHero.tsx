@@ -9,6 +9,14 @@ import { getApiUrl } from "@/lib/api";
 import { Media } from "@/types/media";
 import { cleanMovieTitle } from "@/lib/titleUtils";
 
+// Declare global YouTube types
+declare global {
+    interface Window {
+        YT: any;
+        onYouTubeIframeAPIReady: () => void;
+    }
+}
+
 interface HomeflixHeroProps {
     onPlay: (media: Media) => void;
     onInfo: (media: Media) => void;
@@ -37,10 +45,14 @@ const HomeflixHero: React.FC<HomeflixHeroProps> = ({
     const [isLoadingNewContent, setIsLoadingNewContent] = useState(false);
     const [previousMediaIds, setPreviousMediaIds] = useState<Set<number>>(new Set());
     const [currentPlayCount, setCurrentPlayCount] = useState(0); // Track how many times current video has played
+    const [useYouTubeFallback, setUseYouTubeFallback] = useState(false); // Use YouTube trailer as fallback
+    const [ytReady, setYtReady] = useState(false); // YouTube API ready state
 
     const mainSliderRef = useRef<Splide>(null);
     const thumbsSliderRef = useRef<Splide>(null);
     const videoRef = useRef<HTMLVideoElement>(null);
+    const ytPlayerRef = useRef<any>(null); // YouTube player reference
+    const videoLoadTimeoutRef = useRef<NodeJS.Timeout | null>(null); // Timeout for video loading
     const preloadedVideos = useRef<Map<number, HTMLVideoElement>>(new Map());
     const preloadedUrls = useRef<Map<number, string>>(new Map());
     const prefetchedMovies = useRef<Media[] | null>(null); // Store prefetched next batch
@@ -73,6 +85,42 @@ const HomeflixHero: React.FC<HomeflixHeroProps> = ({
         const savedMutedState = audioPreferences.getGlobalAudioPreference();
         setIsMuted(savedMutedState);
     }, [audioPreferences]);
+
+    // Video load timeout - if video doesn't load within this time, use YouTube fallback or advance
+    // First slide uses shorter timeout for instant playback experience
+    const FIRST_SLIDE_TIMEOUT_MS = 1000; // 1 second for first video - instant playback
+    const SUBSEQUENT_SLIDE_TIMEOUT_MS = 5000; // 5 seconds for other slides
+
+    // Load YouTube IFrame API for fallback trailers
+    useEffect(() => {
+        if (window.YT && window.YT.Player) {
+            setYtReady(true);
+            return;
+        }
+
+        const tag = document.createElement('script');
+        tag.src = 'https://www.youtube.com/iframe_api';
+        const firstScriptTag = document.getElementsByTagName('script')[0];
+        firstScriptTag.parentNode?.insertBefore(tag, firstScriptTag);
+
+        window.onYouTubeIframeAPIReady = () => {
+            setYtReady(true);
+        };
+    }, []);
+
+    // Extract YouTube video key from URL
+    const extractYouTubeKey = useCallback((url: string): string | null => {
+        if (!url) return null;
+        const patterns = [
+            /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([^&?\s]+)/,
+            /^([a-zA-Z0-9_-]{11})$/
+        ];
+        for (const pattern of patterns) {
+            const match = url.match(pattern);
+            if (match) return match[1];
+        }
+        return null;
+    }, []);
 
     // Get preview clip URL with cache headers
     const getPreviewClipUrl = useCallback((movie: Media): string => {
@@ -424,6 +472,13 @@ const HomeflixHero: React.FC<HomeflixHeroProps> = ({
         // Ignore events from non-active slides to prevent race conditions
         if (index !== activeSlideIndex) return;
 
+        // Clear the timeout since video loaded successfully
+        if (videoLoadTimeoutRef.current) {
+            clearTimeout(videoLoadTimeoutRef.current);
+            videoLoadTimeoutRef.current = null;
+        }
+        setUseYouTubeFallback(false); // Video loaded, no need for fallback
+
         setVideoLoaded(true);
         if (videoRef.current) {
             const video = videoRef.current;
@@ -439,41 +494,213 @@ const HomeflixHero: React.FC<HomeflixHeroProps> = ({
                     setIsPlaying(true);
                 }).catch(() => {
                     console.error('Video playback failed completely');
+                    // Switch to YouTube fallback or advance
+                    const currentMovie = movies[activeSlideIndex];
+                    if (currentMovie?.tmdb_trailer_url && extractYouTubeKey(currentMovie.tmdb_trailer_url)) {
+                        console.log('⚠️ Video playback failed, switching to YouTube fallback');
+                        setUseYouTubeFallback(true);
+                    } else {
+                        console.log('⚠️ No YouTube fallback available, advancing to next slide');
+                        goToNextSlide();
+                    }
                 });
             });
         }
-    }, [activeSlideIndex, isMuted]);
+    }, [activeSlideIndex, isMuted, movies, extractYouTubeKey, goToNextSlide]);
 
-    // Load and play video for current slide - use preloaded video
+    // Load and play video for current slide - use preloaded video with timeout
     useEffect(() => {
-        if (movies.length === 0 || !videoRef.current) return;
+        if (movies.length === 0) return;
 
         const currentMovie = movies[activeSlideIndex];
-        if (!currentMovie?.file_path) return;
 
-        const video = videoRef.current;
-
-        // Check if video is already ready (race condition protection)
-        if (video.readyState >= 3) {
-            setVideoLoaded(true);
-            setIsPlaying(!video.paused);
-        } else {
-            setVideoLoaded(false);
-            setIsPlaying(false);
+        // Clear previous timeout
+        if (videoLoadTimeoutRef.current) {
+            clearTimeout(videoLoadTimeoutRef.current);
+            videoLoadTimeoutRef.current = null;
         }
 
-        setCurrentPlayCount(0); // Reset play count on slide change
+        // Reset states on slide change - keep video hidden during transition
+        setVideoLoaded(false); // Hide video immediately
+        setIsPlaying(false);
+        setCurrentPlayCount(0);
+
+        // Delay resetting YouTube fallback to prevent flash of preview video
+        // This ensures smooth transition from YouTube to next slide
+        setTimeout(() => {
+            setUseYouTubeFallback(false);
+        }, 100);
+
+        // Destroy previous YouTube player if exists
+        if (ytPlayerRef.current) {
+            try {
+                ytPlayerRef.current.destroy();
+            } catch (e) {
+                // Ignore
+            }
+            ytPlayerRef.current = null;
+        }
+
+        if (!currentMovie?.file_path) {
+            // No local file, use YouTube directly
+            const youtubeKey = currentMovie?.tmdb_trailer_url
+                ? extractYouTubeKey(currentMovie.tmdb_trailer_url)
+                : null;
+            if (youtubeKey) {
+                console.log(`📺 No local file, using YouTube trailer for: ${currentMovie.title}`);
+                setUseYouTubeFallback(true);
+            } else {
+                console.log(`⚠️ No video source for: ${currentMovie?.title}, advancing...`);
+                // Give it a moment then advance
+                setTimeout(() => goToNextSlide(), 1000);
+            }
+            return;
+        }
+
+        // Set timeout for video loading - 1 second for first slide, 5 seconds for subsequent
+        const timeoutMs = activeSlideIndex === 0 && cycleCount === 0
+            ? FIRST_SLIDE_TIMEOUT_MS
+            : SUBSEQUENT_SLIDE_TIMEOUT_MS;
+        console.log(`⏱️ Setting ${timeoutMs}ms timeout for video load`);
+
+        videoLoadTimeoutRef.current = setTimeout(() => {
+            console.log(`⏰ Video load timeout reached for: ${currentMovie.title}`);
+            const youtubeKey = currentMovie?.tmdb_trailer_url
+                ? extractYouTubeKey(currentMovie.tmdb_trailer_url)
+                : null;
+            if (youtubeKey) {
+                console.log('📺 Switching to YouTube fallback');
+                setUseYouTubeFallback(true);
+            } else {
+                console.log('⏩ No YouTube fallback, advancing to next slide');
+                goToNextSlide();
+            }
+        }, timeoutMs);
+
+        // Check if video is already ready
+        if (videoRef.current) {
+            const video = videoRef.current;
+            if (video.readyState >= 3) {
+                setVideoLoaded(true);
+                setIsPlaying(!video.paused);
+                if (videoLoadTimeoutRef.current) {
+                    clearTimeout(videoLoadTimeoutRef.current);
+                    videoLoadTimeoutRef.current = null;
+                }
+            }
+        }
 
         console.log(`🎥 Loading video for slide ${activeSlideIndex}: ${currentMovie.title}`);
-    }, [activeSlideIndex, movies]);
 
-    // Handle mute toggle
+        // Cleanup on unmount or slide change
+        return () => {
+            if (videoLoadTimeoutRef.current) {
+                clearTimeout(videoLoadTimeoutRef.current);
+                videoLoadTimeoutRef.current = null;
+            }
+        };
+    }, [activeSlideIndex, movies, extractYouTubeKey, goToNextSlide, cycleCount, FIRST_SLIDE_TIMEOUT_MS, SUBSEQUENT_SLIDE_TIMEOUT_MS]);
+
+    // Handle mute toggle - also control YouTube player
     useEffect(() => {
         if (videoRef.current) {
             videoRef.current.muted = isMuted;
             videoRef.current.volume = isMuted ? 0 : 0.5;
         }
+        // Also update YouTube player if active
+        if (ytPlayerRef.current && ytPlayerRef.current.isMuted) {
+            try {
+                if (isMuted) {
+                    ytPlayerRef.current.mute();
+                } else {
+                    ytPlayerRef.current.unMute();
+                }
+            } catch (e) {
+                // Player might not be ready
+            }
+        }
     }, [isMuted]);
+
+    // Initialize YouTube player when fallback is triggered
+    useEffect(() => {
+        if (!useYouTubeFallback || !ytReady || movies.length === 0) return;
+
+        const currentMovie = movies[activeSlideIndex];
+        const videoKey = currentMovie?.tmdb_trailer_url
+            ? extractYouTubeKey(currentMovie.tmdb_trailer_url)
+            : null;
+
+        if (!videoKey) return;
+
+        // Destroy previous player
+        if (ytPlayerRef.current) {
+            try {
+                ytPlayerRef.current.destroy();
+            } catch (e) {
+                // Ignore
+            }
+            ytPlayerRef.current = null;
+        }
+
+        const timer = setTimeout(() => {
+            const containerId = `yt-player-hero-${currentMovie.id}`;
+            const container = document.getElementById(containerId);
+            if (!container) return;
+
+            console.log(`📺 Initializing YouTube player for: ${currentMovie.title}`);
+
+            ytPlayerRef.current = new window.YT.Player(containerId, {
+                videoId: videoKey,
+                playerVars: {
+                    autoplay: 1,
+                    mute: isMuted ? 1 : 0,
+                    controls: 0,
+                    showinfo: 0,
+                    rel: 0,
+                    iv_load_policy: 3, // Hide annotations
+                    modestbranding: 1,
+                    playsinline: 1,
+                    disablekb: 1, // Disable keyboard controls
+                    fs: 0, // Disable fullscreen button
+                    cc_load_policy: 0, // Don't load captions
+                    cc_lang_pref: '', // No caption language preference
+                    enablejsapi: 1, // Enable JS API
+                    origin: window.location.origin,
+                },
+                events: {
+                    onStateChange: (event: any) => {
+                        if (event.data === 0) {
+                            // Video ended
+                            const newPlayCount = currentPlayCount + 1;
+                            console.log(`📺 YouTube video ended. Play count: ${newPlayCount}/${playCountPerSlide}`);
+                            if (newPlayCount >= playCountPerSlide) {
+                                goToNextSlide();
+                            } else {
+                                setCurrentPlayCount(newPlayCount);
+                                event.target.seekTo(0);
+                                event.target.playVideo();
+                            }
+                        }
+                    },
+                    onReady: (event: any) => {
+                        if (!isMuted) {
+                            event.target.unMute();
+                        }
+                        event.target.playVideo();
+                    },
+                    onError: (event: any) => {
+                        console.error('YouTube player error:', event.data);
+                        // Advance to next slide on YouTube error
+                        goToNextSlide();
+                    },
+                },
+            });
+        }, 100);
+
+        return () => {
+            clearTimeout(timer);
+        };
+    }, [useYouTubeFallback, ytReady, activeSlideIndex, movies, isMuted, extractYouTubeKey, currentPlayCount, playCountPerSlide, goToNextSlide]);
 
     // Sync thumbnail slider with main slider
     useEffect(() => {
@@ -497,7 +724,7 @@ const HomeflixHero: React.FC<HomeflixHeroProps> = ({
         }
     };
 
-    // Cleanup preloaded videos on unmount
+    // Cleanup preloaded videos, YouTube player, and timeout on unmount
     useEffect(() => {
         return () => {
             preloadedVideos.current.forEach((video) => {
@@ -507,6 +734,22 @@ const HomeflixHero: React.FC<HomeflixHeroProps> = ({
             });
             preloadedVideos.current.clear();
             preloadedUrls.current.clear();
+
+            // Cleanup YouTube player
+            if (ytPlayerRef.current) {
+                try {
+                    ytPlayerRef.current.destroy();
+                } catch (e) {
+                    // Ignore
+                }
+                ytPlayerRef.current = null;
+            }
+
+            // Clear video load timeout
+            if (videoLoadTimeoutRef.current) {
+                clearTimeout(videoLoadTimeoutRef.current);
+                videoLoadTimeoutRef.current = null;
+            }
         };
     }, []);
 
@@ -567,9 +810,9 @@ const HomeflixHero: React.FC<HomeflixHeroProps> = ({
                             <div className="absolute inset-0 bg-gradient-to-r from-black via-black/30 to-transparent" />
                         </div>
 
-                        {/* Video Overlay - shows preview clip */}
+                        {/* Video Overlay - shows preview clip or YouTube fallback */}
                         <AnimatePresence mode="wait">
-                            {index === activeSlideIndex && (
+                            {index === activeSlideIndex && !useYouTubeFallback && (
                                 <motion.div
                                     key={`video-overlay-${movie.id}`}
                                     initial={{ opacity: 0 }}
@@ -590,9 +833,50 @@ const HomeflixHero: React.FC<HomeflixHeroProps> = ({
                                         onEnded={handleVideoEnded}
                                         onError={(e) => {
                                             console.warn('Preview clip failed to load', e);
-                                            setVideoLoaded(false);
+                                            // Switch to YouTube fallback or advance
+                                            const youtubeKey = movie.tmdb_trailer_url
+                                                ? extractYouTubeKey(movie.tmdb_trailer_url)
+                                                : null;
+                                            if (youtubeKey) {
+                                                console.log('📺 Video error, switching to YouTube fallback');
+                                                setUseYouTubeFallback(true);
+                                            } else {
+                                                console.log('⚠️ No YouTube fallback, advancing to next slide');
+                                                goToNextSlide();
+                                            }
                                         }}
                                     />
+                                </motion.div>
+                            )}
+                        </AnimatePresence>
+
+                        {/* YouTube Fallback Player */}
+                        <AnimatePresence mode="wait">
+                            {index === activeSlideIndex && useYouTubeFallback && extractYouTubeKey(movie.tmdb_trailer_url || '') && (
+                                <motion.div
+                                    key={`youtube-fallback-${movie.id}`}
+                                    initial={{ opacity: 0 }}
+                                    animate={{ opacity: 1 }}
+                                    exit={{ opacity: 0 }}
+                                    transition={{ duration: 0.5 }}
+                                    className="absolute inset-0 z-10 flex items-center justify-center overflow-hidden pointer-events-none"
+                                    style={{
+                                        clipPath: 'inset(0)',
+                                    }}
+                                >
+                                    <div className="relative w-full h-full overflow-hidden">
+                                        <div
+                                            id={`yt-player-hero-${movie.id}`}
+                                            className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2"
+                                            style={{
+                                                width: '120vw',
+                                                height: '120vh',
+                                                minWidth: '200vh',
+                                                minHeight: '70vw',
+                                                pointerEvents: 'none'
+                                            }}
+                                        />
+                                    </div>
                                 </motion.div>
                             )}
                         </AnimatePresence>
@@ -628,23 +912,31 @@ const HomeflixHero: React.FC<HomeflixHeroProps> = ({
                                     {cleanMovieTitle ? cleanMovieTitle(movie.title) : movie.title}
                                 </h1>
 
-                                {getGenreNames(movie) && (
-                                    <p className="text-sm md:text-base text-red-400 font-medium mb-2">
-                                        {getGenreNames(movie)}
-                                    </p>
+                                {/* Genre Tags */}
+                                {movie.genres && movie.genres.length > 0 && (
+                                    <div className="flex flex-wrap gap-1 mb-3">
+                                        {movie.genres.slice(0, 4).map((genre) => (
+                                            <span
+                                                key={genre.id}
+                                                className="text-white/90 text-xs font-medium bg-black/40 backdrop-blur-sm px-2 py-1 rounded-full border border-white/30"
+                                            >
+                                                {genre.name}
+                                            </span>
+                                        ))}
+                                    </div>
                                 )}
 
                                 <div className="flex items-center gap-3 text-sm text-gray-300 mb-3">
                                     {movie.year && <span>{movie.year}</span>}
-                                    {movie.quality && (
-                                        <span className="px-2 py-0.5 border border-gray-400 rounded text-xs font-bold">
-                                            {movie.quality.toLowerCase().includes('4k') || movie.quality.toLowerCase().includes('2160p') ? '4K' : 'HD'}
-                                        </span>
-                                    )}
                                     {movie.rating && (
                                         <span className="flex items-center gap-1">
                                             <span className="text-yellow-400">★</span>
                                             {movie.rating.toFixed(1)}
+                                        </span>
+                                    )}
+                                    {movie.quality && (
+                                        <span className="px-2 py-0.5 border border-gray-400 rounded text-xs font-bold">
+                                            {movie.quality.toLowerCase().includes('4k') || movie.quality.toLowerCase().includes('2160p') ? '4K' : 'HD'}
                                         </span>
                                     )}
                                 </div>

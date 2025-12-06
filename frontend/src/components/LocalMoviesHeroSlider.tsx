@@ -222,9 +222,14 @@ const LocalMoviesHeroSlider: React.FC<LocalMoviesHeroSliderProps> = ({
                     controls: 0,
                     showinfo: 0,
                     rel: 0,
-                    iv_load_policy: 3,
+                    iv_load_policy: 3, // Hide annotations
                     modestbranding: 1,
                     playsinline: 1,
+                    disablekb: 1, // Disable keyboard controls
+                    fs: 0, // Disable fullscreen button
+                    cc_load_policy: 0, // Don't load captions
+                    cc_lang_pref: '', // No caption language preference
+                    enablejsapi: 1, // Enable JS API
                     origin: window.location.origin,
                 },
                 events: {
@@ -339,16 +344,20 @@ const LocalMoviesHeroSlider: React.FC<LocalMoviesHeroSliderProps> = ({
                                         exit={{ opacity: 0 }}
                                         transition={{ duration: 0.5 }}
                                         className="absolute inset-0 z-10 flex items-center justify-center overflow-hidden pointer-events-none"
+                                        style={{
+                                            // Scale up to hide YouTube end screen annotations at edges
+                                            clipPath: 'inset(0)',
+                                        }}
                                     >
-                                        <div className="relative w-full h-full">
+                                        <div className="relative w-full h-full overflow-hidden">
                                             <div
                                                 id={`yt-player-local-${movie.id}`}
                                                 className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2"
                                                 style={{
-                                                    width: '100vw',
-                                                    height: '100vh',
-                                                    minWidth: '177.77vh',
-                                                    minHeight: '56.25vw',
+                                                    width: '120vw', // Scale up to crop edges
+                                                    height: '120vh',
+                                                    minWidth: '200vh',
+                                                    minHeight: '70vw',
                                                     pointerEvents: 'none'
                                                 }}
                                             />
@@ -385,23 +394,31 @@ const LocalMoviesHeroSlider: React.FC<LocalMoviesHeroSliderProps> = ({
                                         {movie.title}
                                     </h1>
 
-                                    {getGenreNames(movie) && (
-                                        <p className="text-sm md:text-base text-red-400 font-medium mb-2">
-                                            {getGenreNames(movie)}
-                                        </p>
+                                    {/* Genre Tags */}
+                                    {movie.genres && movie.genres.length > 0 && (
+                                        <div className="flex flex-wrap gap-1 mb-3">
+                                            {movie.genres.slice(0, 4).map((genre) => (
+                                                <span
+                                                    key={genre.id}
+                                                    className="text-white/90 text-xs font-medium bg-black/40 backdrop-blur-sm px-2 py-1 rounded-full border border-white/30"
+                                                >
+                                                    {genre.name}
+                                                </span>
+                                            ))}
+                                        </div>
                                     )}
 
                                     <div className="flex items-center gap-3 text-sm text-gray-300 mb-3">
                                         {movie.year && <span>{movie.year}</span>}
-                                        {movie.quality && (
-                                            <span className="px-2 py-0.5 border border-gray-400 rounded text-xs font-bold">
-                                                {movie.quality.toLowerCase().includes('4k') || movie.quality.toLowerCase().includes('2160p') ? '4K' : 'HD'}
-                                            </span>
-                                        )}
                                         {movie.rating && (
                                             <span className="flex items-center gap-1">
                                                 <span className="text-yellow-400">★</span>
                                                 {movie.rating.toFixed(1)}
+                                            </span>
+                                        )}
+                                        {movie.quality && (
+                                            <span className="px-2 py-0.5 border border-gray-400 rounded text-xs font-bold">
+                                                {movie.quality.toLowerCase().includes('4k') || movie.quality.toLowerCase().includes('2160p') ? '4K' : 'HD'}
                                             </span>
                                         )}
                                     </div>

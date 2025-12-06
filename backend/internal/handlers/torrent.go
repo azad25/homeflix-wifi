@@ -69,9 +69,19 @@ func NewTorrentHandler(db *gorm.DB, mediaScanner MediaScannerInterface, notifica
 		"max_open_files":       config.MaxOpenFiles,
 	}
 	
+	// Create a pointer to hold the notification service that will be set after handler creation
+	var notificationServicePtr *NotificationServiceInterface
+	
 	// Create status callback to immediately persist status changes to database
 	// This is CRITICAL to prevent re-downloading completed torrents on server restart
 	statusCallback := func(torrentID string, status string, progress float64, size int64, downloaded int64, completedAt *time.Time) {
+		// First, check the previous status before updating
+		var prevRecord models.TorrentDownload
+		wasCompleted := false
+		if err := db.Where("torrent_id = ?", torrentID).First(&prevRecord).Error; err == nil {
+			wasCompleted = prevRecord.Status == "completed"
+		}
+		
 		updates := map[string]interface{}{
 			"status":     status,
 			"progress":   progress,
@@ -88,6 +98,44 @@ func NewTorrentHandler(db *gorm.DB, mediaScanner MediaScannerInterface, notifica
 			log.Printf("⚠️ Failed to persist torrent status to database: %v", err)
 		} else {
 			log.Printf("💾 Status persisted to DB: %s -> %s (%.1f%%)", torrentID[:8], status, progress)
+		}
+		
+		// If status just changed to completed, send notification
+		if status == "completed" && !wasCompleted && notificationServicePtr != nil && *notificationServicePtr != nil {
+			go func(id string, name string) {
+				defer func() {
+					if r := recover(); r != nil {
+						log.Printf("🚨 Recovered from panic sending download complete notification: %v", r)
+					}
+				}()
+				
+				// Try to find the media ID from database
+				var media struct {
+					ID uint
+				}
+				
+				// Search for media file by name
+				if err := db.Raw(`
+					SELECT id 
+					FROM media 
+					WHERE file_path LIKE ? 
+					ORDER BY created_at DESC 
+					LIMIT 1
+				`, "%"+name+"%").Scan(&media).Error; err == nil && media.ID != 0 {
+					if err := (*notificationServicePtr).CreateDownloadCompleteNotification(name, media.ID); err != nil {
+						log.Printf("⚠️ Failed to send download complete notification: %v", err)
+					} else {
+						log.Printf("📥 Sent download complete notification for: %s (ID: %d)", name, media.ID)
+					}
+				} else {
+					// Send notification without media ID (media not scanned yet)
+					if err := (*notificationServicePtr).CreateDownloadCompleteNotification(name, 0); err != nil {
+						log.Printf("⚠️ Failed to send download complete notification: %v", err)
+					} else {
+						log.Printf("📥 Sent download complete notification for: %s (no media ID yet)", name)
+					}
+				}
+			}(torrentID, prevRecord.Name)
 		}
 	}
 	
@@ -126,6 +174,9 @@ func NewTorrentHandler(db *gorm.DB, mediaScanner MediaScannerInterface, notifica
 	// Initialize searcher
 	searcher := torrent.NewTorrentSearcher("", "", config.MinSeeders)
 
+	// Set the notification service pointer so the status callback can use it
+	notificationServicePtr = &notificationService
+	
 	return &TorrentHandler{
 		db:                  db,
 		client:              client,
