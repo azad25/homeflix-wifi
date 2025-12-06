@@ -32,6 +32,7 @@ const LocalMoviesHeroSlider: React.FC<LocalMoviesHeroSliderProps> = ({
     const [activeSlideIndex, setActiveSlideIndex] = useState(0);
     const [isMuted, setIsMuted] = useState(false);
     const [ytReady, setYtReady] = useState(false);
+    const [videoReady, setVideoReady] = useState(false); // Track when video is actually playing
     const [myList, setMyList] = useState<Set<number>>(new Set());
     const mainSliderRef = useRef<Splide>(null);
     const thumbsSliderRef = useRef<Splide>(null);
@@ -230,11 +231,16 @@ const LocalMoviesHeroSlider: React.FC<LocalMoviesHeroSliderProps> = ({
                     cc_load_policy: 0, // Don't load captions
                     cc_lang_pref: '', // No caption language preference
                     enablejsapi: 1, // Enable JS API
+                    start: 5, // Start 5 seconds in to skip intro
                     origin: window.location.origin,
                 },
                 events: {
                     onStateChange: (event: any) => {
-                        if (event.data === 0) {
+                        // 1 = playing, 0 = ended
+                        if (event.data === 1) {
+                            setVideoReady(true); // Video is now actually playing
+                        } else if (event.data === 0) {
+                            setVideoReady(false);
                             goToNextSlide();
                         }
                     },
@@ -242,7 +248,29 @@ const LocalMoviesHeroSlider: React.FC<LocalMoviesHeroSliderProps> = ({
                         if (!isMuted) {
                             event.target.unMute();
                         }
+                        event.target.seekTo(5, true); // Explicitly seek to 5s with allowSeekAhead
                         event.target.playVideo();
+
+                        // Set up interval to end video 3 seconds early
+                        const checkEndTime = setInterval(() => {
+                            try {
+                                const player = event.target;
+                                const duration = player.getDuration();
+                                const currentTime = player.getCurrentTime();
+
+                                // End 3 seconds before actual end
+                                if (duration > 0 && currentTime >= duration - 5) {
+                                    clearInterval(checkEndTime);
+                                    goToNextSlide();
+                                }
+                            } catch (e) {
+                                // Player might be destroyed
+                                clearInterval(checkEndTime);
+                            }
+                        }, 500);
+
+                        // Store interval ref for cleanup
+                        (event.target as any)._endCheckInterval = checkEndTime;
                     },
                 },
             });
@@ -277,6 +305,7 @@ const LocalMoviesHeroSlider: React.FC<LocalMoviesHeroSliderProps> = ({
 
     const handleSlideChange = (splide: any) => {
         setActiveSlideIndex(splide.index);
+        setVideoReady(false); // Reset video ready state to show backdrop while loading
     };
 
     const toggleMute = (e: React.MouseEvent) => {
@@ -340,7 +369,7 @@ const LocalMoviesHeroSlider: React.FC<LocalMoviesHeroSliderProps> = ({
                                     <motion.div
                                         key={`video-${movie.id}`}
                                         initial={{ opacity: 0 }}
-                                        animate={{ opacity: 1 }}
+                                        animate={{ opacity: videoReady ? 1 : 0 }}
                                         exit={{ opacity: 0 }}
                                         transition={{ duration: 0.5 }}
                                         className="absolute inset-0 z-10 flex items-center justify-center overflow-hidden pointer-events-none"

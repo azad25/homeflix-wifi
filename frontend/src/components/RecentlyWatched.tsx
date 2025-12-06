@@ -461,7 +461,7 @@ export const RecentlyWatched: React.FC<RecentlyWatchedProps> = ({
     <div className="mb-12">
       <div className="flex items-center justify-between mb-6 px-4 md:px-0">
         <h2 className="text-white text-xl font-semibold">
-          Recently Watched
+          Continue Watching
         </h2>
         <button
           onClick={fetchRecentlyWatched}

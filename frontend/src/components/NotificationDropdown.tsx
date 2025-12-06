@@ -88,16 +88,20 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({
         } else if (notification.movie_ids && notification.movie_ids.length > 0) {
             // Local movie - navigate to local movie page
             const movieId = index !== undefined ? notification.movie_ids[index] : notification.movie_ids[0];
-            onNotificationClick(movieId);
-            navigate.push(`/movie/${movieId}`);
+            // Don't navigate if movieId is 0 (media not scanned yet)
+            if (movieId && movieId > 0) {
+                onNotificationClick(movieId);
+                navigate.push(`/movie/${movieId}`);
+            }
         }
         onClose();
     };
 
     const getPosterUrl = (movieId: number) => {
+        // Return black placeholder if poster not found
         return (
             moviePosters[movieId] ||
-            "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDgiIGhlaWdodD0iNjQiIHZpZXdCb3g9IjAgMCA0OCA2NCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjQ4IiBoZWlnaHQ9IjY0IiBmaWxsPSIjMzc0MTUxIi8+CjxwYXRoIGQ9Ik0yNCAzMkMzMC42Mjc0IDMyIDM2IDI2LjYyNzQgMzYgMjBDMzYgMTMuMzcyNiAzMC42Mjc0IDggMjQgOEMxNy4zNzI2IDggMTIgMTMuMzcyNiAxMiAyMEMxMiAyNi42Mjc0IDE3LjM3MjYgMzIgMjQgMzJaIiBmaWxsPSIjNkI3Mjg4Ii8+CjxwYXRoIGQ9Ik0xMiA0NEMxMiAzNi4yNjggMTguMjY4IDMwIDI2IDMwSDIyQzI5LjczMiAzMCAzNiAzNi4yNjggMzYgNDRWNTZIMTJWNDRaIiBmaWxsPSIjNkI3Mjg4Ii8+Cjwvc3ZnPgo="
+            "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDgiIGhlaWdodD0iNjQiIHZpZXdCb3g9IjAgMCA0OCA2NCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iNDgiIGhlaWdodD0iNjQiIGZpbGw9IiMwMDAwMDAiLz48L3N2Zz4="
         );
     };
 
@@ -154,11 +158,11 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({
                                                     {notification.message}
                                                 </p>
 
-                                                {/* Movie suggestions */}
+                                                {/* Movie suggestions - filter out invalid IDs (0) */}
                                                 {notification.movie_ids &&
-                                                    notification.movie_ids.length > 0 && (
+                                                    notification.movie_ids.filter(id => id > 0).length > 0 && (
                                                         <div className="flex gap-2 flex-wrap pb-2">
-                                                            {notification.movie_ids.slice(0, 4).map((movieId, idx) => (
+                                                            {notification.movie_ids.filter(id => id > 0).slice(0, 4).map((movieId, idx) => (
                                                                 <button
                                                                     key={movieId}
                                                                     onClick={() => handleNotificationClick(notification, idx)}

@@ -2180,11 +2180,15 @@ export default function MoviePage() {
           >
             <iframe
               ref={trailerRef}
-              src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=0&controls=0&showinfo=0&rel=0&iv_load_policy=3&modestbranding=1&enablejsapi=1&loop=1&playlist=${trailerKey}&origin=${typeof window !== 'undefined' ? window.location.origin : ''}&vq=hd1080&hd=1&quality=hd1080`}
-              className={`w-full h-full transition-opacity duration-500 ${trailerLoaded && trailerReady ? 'opacity-100' : 'opacity-0'}`}
+              src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=0&controls=0&showinfo=0&rel=0&iv_load_policy=3&modestbranding=1&enablejsapi=1&loop=1&playlist=${trailerKey}&disablekb=1&fs=0&cc_load_policy=0&start=5&origin=${typeof window !== 'undefined' ? window.location.origin : ''}&vq=hd1080&hd=1&quality=hd1080`}
+              className={`absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 transition-opacity duration-500 ${trailerLoaded && trailerReady ? 'opacity-100' : 'opacity-0'}`}
               allow="autoplay; encrypted-media"
               allowFullScreen
               style={{
+                width: '120vw',
+                height: '120vh',
+                minWidth: '200vh',
+                minHeight: '70vw',
                 pointerEvents: 'none',
                 border: 'none',
                 outline: 'none'
@@ -2197,6 +2201,7 @@ export default function MoviePage() {
                     trailerRef.current.contentWindow?.postMessage('{"event":"listening","id":"trailer"}', '*');
                     // Force unmute and play
                     trailerRef.current.contentWindow?.postMessage('{"event":"command","func":"unMute","args":""}', '*');
+                    trailerRef.current.contentWindow?.postMessage('{"event":"command","func":"seekTo","args":[3, true]}', '*');
                     trailerRef.current.contentWindow?.postMessage('{"event":"command","func":"playVideo","args":""}', '*');
                     setIsVideoPlaying(true);
                     setIsMuted(false);

@@ -605,7 +605,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
   // Hide intro animation after it completes AND video is ready
   useEffect(() => {
     if (showIntroAnimation && isOpen) {
-      // Only hide intro if video is loaded AND minimum animation time has passed
+      // Wait for loading and buffering to finish before hiding intro
       if (!isLoading && !isBuffering) {
         // Add a minimum display time for the animation
         const timer = setTimeout(() => {
@@ -3522,7 +3522,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                           />
                         ))}
                       </div>
-                      <p className="text-white/50 text-sm mt-3 tracking-wider">Loading...</p>
                     </div>
                   )}
                 </div>
@@ -3607,9 +3606,9 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                   </div>
 
                   {/* Status text */}
-                  <p className="text-white/60 text-sm tracking-wider">
+                  {/* <p className="text-white/60 text-sm tracking-wider">
                     {isSeeking ? 'Seeking...' : isLoading ? 'Loading...' : 'Buffering...'}
-                  </p>
+                  </p> */}
                 </div>
 
                 {/* Close button */}
@@ -4289,12 +4288,12 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                         animate={{ y: 0, opacity: 1 }}
                         exit={{ y: 20, opacity: 0 }}
                         transition={{ delay: 0.3, duration: 0.3 }}
-                        className="w-full h-1 bg-white/20 rounded-full mb-8"
+                        className="w-full max-w-lg h-1 bg-white/20 rounded-full mb-8 overflow-hidden"
                       >
                         <motion.div
                           className="h-full bg-[#C0392B] rounded-full"
                           initial={{ width: 0 }}
-                          animate={{ width: `${(currentTime / duration) * 100}%` }}
+                          animate={{ width: `${Math.min((currentTime / duration) * 100, 100)}%` }}
                           transition={{ duration: 0.5 }}
                         />
                       </motion.div>

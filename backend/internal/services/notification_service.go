@@ -501,6 +501,13 @@ func (ns *NotificationService) CreateWatchAgainSuggestion() error {
 
 // CreateDownloadCompleteNotification creates a notification when a download finishes
 func (ns *NotificationService) CreateDownloadCompleteNotification(title string, mediaID uint) error {
+	// Skip creating notification if mediaID is 0 (media not scanned yet)
+	// This prevents showing invalid/broken links in the notification dropdown
+	if mediaID == 0 {
+		log.Printf("⚠️ Skipping download notification for %s - media not scanned yet (ID: 0)", title)
+		return nil
+	}
+
 	notification := Notification{
 		ID:        fmt.Sprintf("notif_%d", time.Now().UnixNano()),
 		Type:      NotificationTypeDownload,
@@ -515,7 +522,7 @@ func (ns *NotificationService) CreateDownloadCompleteNotification(title string, 
 		return err
 	}
 
-	log.Printf("⬇️ Created download complete notification for %s", title)
+	log.Printf("⬇️ Created download complete notification for %s (ID: %d)", title, mediaID)
 	return nil
 }
 

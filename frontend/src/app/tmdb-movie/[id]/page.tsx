@@ -1416,14 +1416,18 @@ const TMDBMoviePage: React.FC = () => {
 
         {/* HD Trailer Video - Only show when playing */}
         {trailerKey && isPlaying && (
-          <div className="absolute inset-0">
+          <div className="absolute inset-0 overflow-hidden">
             <iframe
               ref={videoRef}
-              src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=0&controls=0&showinfo=0&rel=0&iv_load_policy=3&modestbranding=1&enablejsapi=1&loop=1&playlist=${trailerKey}&origin=${typeof window !== 'undefined' ? window.location.origin : ''}&vq=hd1080&hd=1&quality=hd1080`}
-              className="w-full h-full"
+              src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=0&controls=0&showinfo=0&rel=0&iv_load_policy=3&modestbranding=1&enablejsapi=1&loop=1&playlist=${trailerKey}&disablekb=1&fs=0&cc_load_policy=0&start=5&origin=${typeof window !== 'undefined' ? window.location.origin : ''}&vq=hd1080&hd=1&quality=hd1080`}
+              className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2"
               allow="autoplay; encrypted-media"
               allowFullScreen
               style={{
+                width: '120vw',
+                height: '120vh',
+                minWidth: '200vh',
+                minHeight: '70vw',
                 pointerEvents: 'none',
                 border: 'none',
                 outline: 'none'

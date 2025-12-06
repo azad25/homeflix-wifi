@@ -583,12 +583,12 @@ export default function BrowsePage() {
               <div>
                 {filteredMedia.length > 0 ? (
                   <div className={viewMode === "grid"
-                    ? "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2 sm:gap-3"
+                    ? "grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8 gap-2 sm:gap-3"
                     : "space-y-3"
                   }>
                     {displayedMedia.map((media, index) => (
                       <div key={media.id} className="group">
-                        <div className="transform transition-transform hover:scale-105">
+                        <div>
                           <NetflixMediaCard
                             media={media}
                             onPlay={handlePlay}

@@ -70,6 +70,7 @@ const TrailersPage = () => {
     const [isMuted, setIsMuted] = useState(false);
     const [isPlaying, setIsPlaying] = useState(true);
     const [ytReady, setYtReady] = useState(false);
+    const [videoReady, setVideoReady] = useState(false); // Track when video is actually playing
     const mainSliderRef = useRef<Splide>(null);
     const thumbsSliderRef = useRef<Splide>(null);
     const playerRef = useRef<any>(null);
@@ -148,13 +149,17 @@ const TrailersPage = () => {
                     cc_load_policy: 0, // Don't load captions
                     cc_lang_pref: '', // No caption language preference
                     enablejsapi: 1, // Enable JS API
+                    start: 5, // Start 5 seconds in to skip intro
                     origin: window.location.origin,
                 },
                 events: {
                     onStateChange: (event: any) => {
-                        // 0 = ended
-                        if (event.data === 0) {
+                        // 1 = playing, 0 = ended
+                        if (event.data === 1) {
+                            setVideoReady(true); // Video is now actually playing
+                        } else if (event.data === 0) {
                             console.log('Video ended, advancing to next slide');
+                            setVideoReady(false);
                             goToNextSlide();
                         }
                     },
@@ -163,7 +168,30 @@ const TrailersPage = () => {
                         if (!isMuted) {
                             event.target.unMute();
                         }
+                        event.target.seekTo(5, true); // Explicitly seek to 5s with allowSeekAhead
                         event.target.playVideo();
+
+                        // Set up interval to end video 3 seconds early
+                        const checkEndTime = setInterval(() => {
+                            try {
+                                const player = event.target;
+                                const duration = player.getDuration();
+                                const currentTime = player.getCurrentTime();
+
+                                // End 3 seconds before actual end
+                                if (duration > 0 && currentTime >= duration - 5) {
+                                    clearInterval(checkEndTime);
+                                    console.log('Video ending early, advancing to next slide');
+                                    goToNextSlide();
+                                }
+                            } catch (e) {
+                                // Player might be destroyed
+                                clearInterval(checkEndTime);
+                            }
+                        }, 500);
+
+                        // Store interval ref for cleanup
+                        (event.target as any)._endCheckInterval = checkEndTime;
                     },
                 },
             });
@@ -283,6 +311,7 @@ const TrailersPage = () => {
     const handleSlideChange = (splide: any) => {
         setActiveSlideIndex(splide.index);
         setIsPlaying(true); // Reset to playing when slide changes
+        setVideoReady(false); // Reset video ready state to show backdrop while loading
         // Keep mute state as is (user preference)
     };
 
@@ -339,13 +368,13 @@ const TrailersPage = () => {
                                 <div className="absolute inset-0 bg-gradient-to-r from-black via-black/30 to-transparent" />
                             </div>
 
-                            {/* Video Player (YouTube) - With fade transition */}
+                            {/* Video Player (YouTube) - With fade transition, only show when video is playing */}
                             <AnimatePresence mode="wait">
                                 {movie.videoKey && index === activeSlideIndex && (
                                     <motion.div
                                         key={`video-${movie.id}`}
                                         initial={{ opacity: 0 }}
-                                        animate={{ opacity: 1 }}
+                                        animate={{ opacity: videoReady ? 1 : 0 }}
                                         exit={{ opacity: 0 }}
                                         transition={{ duration: 0.5 }}
                                         className="absolute inset-0 z-10 flex items-center justify-center overflow-hidden pointer-events-none"
@@ -472,6 +501,18 @@ const TrailersPage = () => {
                 >
                     {movies.map((movie) => (
                         <SplideSlide key={movie.id} className="cursor-pointer opacity-50 hover:opacity-100 transition-opacity [&.is-active]:opacity-100 [&.is-active]:border-2 [&.is-active]:border-red-600 rounded overflow-hidden">
+                            <style>{`
+                                .thumbnail-slider,
+                                .thumbnail-slider .splide__track,
+                                .thumbnail-slider .splide__list,
+                                .thumbnail-slider .splide__slide {
+                                    overflow: visible !important;
+                                }
+                                .thumbnail-slider .splide__slide.is-active {
+                                    border: 2px solid #f71616ff !important;
+                                    border-radius: 0.25rem !important;
+                                }
+                            `}</style>
                             <img
                                 src={getImageUrl(movie.backdrop_path || movie.poster_path, "w300")}
                                 alt={movie.title}

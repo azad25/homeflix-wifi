@@ -47,6 +47,7 @@ const HomeflixHero: React.FC<HomeflixHeroProps> = ({
     const [currentPlayCount, setCurrentPlayCount] = useState(0); // Track how many times current video has played
     const [useYouTubeFallback, setUseYouTubeFallback] = useState(false); // Use YouTube trailer as fallback
     const [ytReady, setYtReady] = useState(false); // YouTube API ready state
+    const [ytVideoReady, setYtVideoReady] = useState(false); // Track when YouTube video is actually playing
 
     const mainSliderRef = useRef<Splide>(null);
     const thumbsSliderRef = useRef<Splide>(null);
@@ -483,7 +484,7 @@ const HomeflixHero: React.FC<HomeflixHeroProps> = ({
         if (videoRef.current) {
             const video = videoRef.current;
             video.muted = isMuted;
-            video.volume = isMuted ? 0 : 0.5;
+            video.volume = isMuted ? 0 : 1.0;
             video.play().then(() => {
                 setIsPlaying(true);
             }).catch((error) => {
@@ -529,6 +530,7 @@ const HomeflixHero: React.FC<HomeflixHeroProps> = ({
         // This ensures smooth transition from YouTube to next slide
         setTimeout(() => {
             setUseYouTubeFallback(false);
+            setYtVideoReady(false); // Reset YouTube video ready state
         }, 100);
 
         // Destroy previous YouTube player if exists
@@ -605,7 +607,7 @@ const HomeflixHero: React.FC<HomeflixHeroProps> = ({
     useEffect(() => {
         if (videoRef.current) {
             videoRef.current.muted = isMuted;
-            videoRef.current.volume = isMuted ? 0 : 0.5;
+            videoRef.current.volume = isMuted ? 0 : 1.0;
         }
         // Also update YouTube player if active
         if (ytPlayerRef.current && ytPlayerRef.current.isMuted) {
@@ -665,19 +667,24 @@ const HomeflixHero: React.FC<HomeflixHeroProps> = ({
                     cc_load_policy: 0, // Don't load captions
                     cc_lang_pref: '', // No caption language preference
                     enablejsapi: 1, // Enable JS API
+                    start: 5, // Start 5 seconds in to skip intro
                     origin: window.location.origin,
                 },
                 events: {
                     onStateChange: (event: any) => {
-                        if (event.data === 0) {
+                        // 1 = playing, 0 = ended
+                        if (event.data === 1) {
+                            setYtVideoReady(true); // YouTube video is now playing
+                        } else if (event.data === 0) {
                             // Video ended
+                            setYtVideoReady(false);
                             const newPlayCount = currentPlayCount + 1;
                             console.log(`📺 YouTube video ended. Play count: ${newPlayCount}/${playCountPerSlide}`);
                             if (newPlayCount >= playCountPerSlide) {
                                 goToNextSlide();
                             } else {
                                 setCurrentPlayCount(newPlayCount);
-                                event.target.seekTo(0);
+                                event.target.seekTo(5); // Seek to 5 seconds for replay
                                 event.target.playVideo();
                             }
                         }
@@ -686,7 +693,37 @@ const HomeflixHero: React.FC<HomeflixHeroProps> = ({
                         if (!isMuted) {
                             event.target.unMute();
                         }
+                        event.target.seekTo(5, true); // Explicitly seek to 5s with allowSeekAhead
                         event.target.playVideo();
+
+                        // Set up interval to end video 3 seconds early
+                        const checkEndTime = setInterval(() => {
+                            try {
+                                const player = event.target;
+                                const duration = player.getDuration();
+                                const currentTime = player.getCurrentTime();
+
+                                // End 3 seconds before actual end
+                                if (duration > 0 && currentTime >= duration - 5) {
+                                    clearInterval(checkEndTime);
+                                    const newPlayCount = currentPlayCount + 1;
+                                    console.log(`📺 YouTube video ending early. Play count: ${newPlayCount}/${playCountPerSlide}`);
+                                    if (newPlayCount >= playCountPerSlide) {
+                                        goToNextSlide();
+                                    } else {
+                                        setCurrentPlayCount(newPlayCount);
+                                        player.seekTo(5);
+                                        player.playVideo();
+                                    }
+                                }
+                            } catch (e) {
+                                // Player might be destroyed
+                                clearInterval(checkEndTime);
+                            }
+                        }, 500);
+
+                        // Store interval ref for cleanup
+                        (event.target as any)._endCheckInterval = checkEndTime;
                     },
                     onError: (event: any) => {
                         console.error('YouTube player error:', event.data);
@@ -850,13 +887,13 @@ const HomeflixHero: React.FC<HomeflixHeroProps> = ({
                             )}
                         </AnimatePresence>
 
-                        {/* YouTube Fallback Player */}
+                        {/* YouTube Fallback Player - Only show when video is playing */}
                         <AnimatePresence mode="wait">
                             {index === activeSlideIndex && useYouTubeFallback && extractYouTubeKey(movie.tmdb_trailer_url || '') && (
                                 <motion.div
                                     key={`youtube-fallback-${movie.id}`}
                                     initial={{ opacity: 0 }}
-                                    animate={{ opacity: 1 }}
+                                    animate={{ opacity: ytVideoReady ? 1 : 0 }}
                                     exit={{ opacity: 0 }}
                                     transition={{ duration: 0.5 }}
                                     className="absolute inset-0 z-10 flex items-center justify-center overflow-hidden pointer-events-none"
