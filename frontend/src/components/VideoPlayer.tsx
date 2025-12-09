@@ -602,20 +602,20 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
     };
   }, [isOpen]);
 
-  // Hide intro animation after it completes AND video is ready
+  // Hide intro animation after it completes AND video is actually playing
   useEffect(() => {
     if (showIntroAnimation && isOpen) {
-      // Wait for loading and buffering to finish before hiding intro
-      if (!isLoading && !isBuffering) {
+      // Wait for video to actually start playing before hiding intro
+      if (isPlaying) {
         // Add a minimum display time for the animation
         const timer = setTimeout(() => {
           setShowIntroAnimation(false);
-        }, 500); // Small delay after video is ready
+        }, 500); // Small delay after video starts playing
 
         return () => clearTimeout(timer);
       }
     }
-  }, [showIntroAnimation, isOpen, isLoading, isBuffering]);
+  }, [showIntroAnimation, isOpen, isPlaying]);
 
   // Handle forceStartFromBeginning flag changes
   useEffect(() => {
@@ -3291,23 +3291,14 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
             }
 
             @keyframes homeflix-text-glow {
-              0% {
-                opacity: 0;
-                text-shadow: 0 0 0px transparent;
-                transform: scale(0.95);
-              }
-              30% {
+              0%, 100% {
                 opacity: 1;
                 text-shadow: 0 0 20px rgba(229, 9, 20, 0.5), 0 0 40px rgba(229, 9, 20, 0.3);
-              }
-              70% {
-                opacity: 1;
-                text-shadow: 0 0 40px rgba(229, 9, 20, 0.8), 0 0 80px rgba(229, 9, 20, 0.5);
                 transform: scale(1);
               }
-              100% {
-                opacity: 0;
-                text-shadow: 0 0 60px rgba(229, 9, 20, 0.3);
+              50% {
+                opacity: 1;
+                text-shadow: 0 0 60px rgba(229, 9, 20, 1), 0 0 100px rgba(229, 9, 20, 0.6);
                 transform: scale(1.02);
               }
             }
@@ -3337,15 +3328,15 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
             }
 
             .homeflix-intro-container {
-              animation: homeflix-fade-out 3.5s ease-in-out forwards;
+              /* No fade-out animation - keep visible until video plays */
             }
 
             .homeflix-text {
-              animation: homeflix-text-glow 3s ease-in-out forwards;
+              animation: homeflix-text-glow 2s ease-in-out infinite;
             }
 
             .homeflix-bar {
-              animation: homeflix-bar-slide 2.5s ease-in-out forwards, homeflix-bar-glow 2.5s ease-in-out infinite;
+              animation: homeflix-bar-slide 2.5s ease-in-out infinite, homeflix-bar-glow 2.5s ease-in-out infinite;
             }
 
             .homeflix-bar-1 { animation-delay: 0s; }
@@ -3506,24 +3497,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                   >
                     HOMEFLIX
                   </h1>
-
-                  {/* Loading indicator below text */}
-                  {(isLoading || isBuffering) && (
-                    <div className="mt-8 flex flex-col items-center">
-                      <div className="flex gap-1">
-                        {[...Array(3)].map((_, i) => (
-                          <div
-                            key={i}
-                            className="w-2 h-2 rounded-full bg-red-600"
-                            style={{
-                              animation: 'pulse 1.2s ease-in-out infinite',
-                              animationDelay: `${i * 0.2}s`,
-                            }}
-                          />
-                        ))}
-                      </div>
-                    </div>
-                  )}
                 </div>
 
                 {/* Additional decorative bars behind text */}
@@ -4358,13 +4331,15 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                   <X className="w-5 h-5" />
                 </motion.button>
 
-                {/* New Movies Section */}
-                <NewMoviesPauseSection
-                  currentMediaId={media.id}
-                  currentTime={currentTime}
-                  duration={duration}
-                  onClose={handleClose}
-                />
+                {/* New Movies Section - Hidden on mobile */}
+                {!isMobile && (
+                  <NewMoviesPauseSection
+                    currentMediaId={media.id}
+                    currentTime={currentTime}
+                    duration={duration}
+                    onClose={handleClose}
+                  />
+                )}
 
                 {/* Resume Hint */}
                 <motion.div

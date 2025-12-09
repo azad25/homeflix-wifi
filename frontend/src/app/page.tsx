@@ -131,84 +131,40 @@ export default function Home() {
       }
       setPopularMovies(popularMovies);
 
-      // Popular series (most viewed TV shows) - Group episodes into series
-      const tvEpisodes = allMedia.filter((item: Media) => item.type === "episode");
-
-      // Build series groups from episodes (same logic as TV shows page)
-      const seriesMap = new Map<string | number, any>();
-      tvEpisodes.forEach((ep: Media) => {
-        // Extract series ID - prefer series_id, fallback to extracting from title
-        const sid = ep.series_id ?? ep.series?.id ?? extractSeriesIdFromTitle(ep.title) ?? ep.id;
-
-        // Clean series title - remove episode info and technical prefixes
-        let seriesTitle = ep.series?.title || ep.title || 'Untitled Series';
-
-        // Remove episode patterns like "- S01E01", "S1E1", "Episode 1", etc.
-        seriesTitle = seriesTitle
-          .replace(/\s*-\s*S\d+E\d+.*$/i, '')
-          .replace(/\s*S\d+E\d+.*$/i, '')
-          .replace(/\s*Season\s+\d+.*$/i, '')
-          .replace(/\s*Episode\s+\d+.*$/i, '')
-          .replace(/\s*Ep\s*\d+.*$/i, '')
-          .replace(/\s*\d+x\d+.*$/i, '')
-          .trim();
-
-        if (!seriesMap.has(sid)) {
-          seriesMap.set(sid, {
-            id: sid,
-            title: seriesTitle,
-            description: ep.series?.description || ep.description || '',
-            rating: ep.rating || 0,
-            type: 'series',
-            series_id: sid,
-            genres: ep.genres || [],
-            episodes: [],
-            thumbnail_path: ep.thumbnail_path,
-            banner_path: ep.banner_path,
-            // Use proper poster URLs for series - prioritize TMDB poster, then series poster endpoint
-            poster_path: (ep.series as any)?.tmdb_poster_url || ep.tmdb_poster_url || ep.series?.poster_path || undefined,
-            tmdb_poster_url: (ep.series as any)?.tmdb_poster_url || ep.tmdb_poster_url,
-            poster_url: (ep.series as any)?.tmdb_poster_url || ep.tmdb_poster_url,
-            view_count: 0,
-            // Add these fields to make it more compatible with Media interface
-            file_path: undefined,
-            duration: undefined
-          });
+      // Popular series (most viewed TV shows) - Fetch directly from series API
+      let popularSeries: Media[] = [];
+      try {
+        const seriesResponse = await fetch(`${getApiUrl()}/api/series`);
+        if (seriesResponse.ok) {
+          const seriesData = await seriesResponse.json();
+          // Map series data to Media format and sort by rating/popularity
+          popularSeries = seriesData
+            .map((series: any) => ({
+              id: series.id,
+              title: series.title,
+              description: series.description,
+              rating: series.rating || 0,
+              type: 'series' as const,
+              series_id: series.id,
+              genres: series.genre_names ? series.genre_names.map((name: string, idx: number) => ({ id: idx, name })) : [],
+              thumbnail_path: series.backdrop_path || series.tmdb_backdrop_url,
+              banner_path: series.backdrop_path || series.tmdb_backdrop_url,
+              poster_path: series.poster_path,
+              tmdb_poster_url: series.tmdb_poster_url,
+              poster_url: series.tmdb_poster_url,
+              tmdb_backdrop_url: series.tmdb_backdrop_url,
+              view_count: series.total_episodes || 0, // Use episode count as proxy for popularity
+              file_path: undefined,
+              duration: undefined,
+              year: series.release_date ? new Date(series.release_date).getFullYear() : undefined
+            }))
+            .sort((a: Media, b: Media) => (b.rating || 0) - (a.rating || 0))
+            .slice(0, 20);
+          console.log(`✅ Got ${popularSeries.length} TV series from series API`);
         }
-
-        const group = seriesMap.get(sid)!;
-        group.episodes.push(ep);
-        // Sum up view counts from all episodes for series popularity
-        group.view_count += (ep.view_count || 0);
-
-        // Update rating to average of all episodes
-        const totalRating = group.episodes.reduce((sum: number, episode: Media) => sum + (episode.rating || 0), 0);
-        group.rating = totalRating / group.episodes.length;
-      });
-
-      // Helper function to extract series ID from title patterns
-      function extractSeriesIdFromTitle(title: string): string | null {
-        // Try to extract series name from common patterns
-        const patterns = [
-          /^(.+?)\s*-\s*S\d+E\d+/i,
-          /^(.+?)\s*S\d+E\d+/i,
-          /^(.+?)\s*Season\s+\d+/i,
-          /^(.+?)\s*Episode\s+\d+/i,
-        ];
-
-        for (const pattern of patterns) {
-          const match = title.match(pattern);
-          if (match) {
-            return match[1].trim();
-          }
-        }
-        return null;
+      } catch (error) {
+        console.error("Error fetching series:", error);
       }
-
-      // Convert to array and sort by total view count
-      const popularSeries = Array.from(seriesMap.values())
-        .sort((a, b) => (b.view_count || 0) - (a.view_count || 0))
-        .slice(0, 20);
 
       setPopularSeries(popularSeries);
 

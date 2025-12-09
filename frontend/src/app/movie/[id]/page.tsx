@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useParams, useRouter, usePathname } from "next/navigation";
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { ArrowLeft, Play, Plus, Check, Share, Download, Info, Star, Clock, Calendar, Globe, Users, Award, Film, Tv, User, Mic, ChevronDown, ChevronUp, Volume2, VolumeX, Users as Cast, User as Director, X, Pause } from "lucide-react";
@@ -62,85 +62,13 @@ const LocalRelatedMedia: React.FC<LocalRelatedMediaProps> = ({ currentMedia, cla
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
+  const fetchedRef = useRef<number | null>(null); // Track fetched media ID to prevent duplicate fetches
+  const abortControllerRef = useRef<AbortController | null>(null);
 
-  useEffect(() => {
-    if (currentMedia) {
-      fetchRelatedMedia();
-    }
-  }, [currentMedia]);
-
-  const fetchRelatedMedia = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-
-      if (!currentMedia?.id) {
-        setRelatedMedia([]);
-        return;
-      }
-
-      const apiUrl = getApiUrl();
-      if (!apiUrl) {
-        throw new Error('API URL not available');
-      }
-
-      // Get all movies and filter for similar ones
-      const response = await fetch(`${apiUrl}/api/media/movies`);
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const allMovies = await response.json();
-
-      if (!Array.isArray(allMovies)) {
-        console.warn('Expected array of movies, got:', typeof allMovies);
-        setRelatedMedia([]);
-        return;
-      }
-
-      // Filter out current movie and find similar ones
-      const otherMovies = allMovies.filter((movie: LocalMediaItem) =>
-        movie && movie.id && movie.id !== currentMedia.id
-      );
-
-      // Simple similarity algorithm based on genres, year, and rating
-      const similarMovies = otherMovies
-        .map((movie: LocalMediaItem) => {
-          try {
-            return {
-              ...movie,
-              similarity: calculateSimilarity(currentMedia, movie)
-            };
-          } catch (error) {
-            console.error('Error calculating similarity for movie:', movie?.id, error);
-            return {
-              ...movie,
-              similarity: 0
-            };
-          }
-        })
-        .filter((movie: any) => movie && movie.similarity > 0.1) // Only include movies with some similarity
-        .sort((a: any, b: any) => (b.similarity || 0) - (a.similarity || 0)) // Sort by similarity score
-        .slice(0, 12); // Limit to 12 movies
-
-      setRelatedMedia(similarMovies);
-      setError(null);
-    } catch (err) {
-      console.error('Error fetching related media:', err);
-      setError('Failed to load related content');
-      setRelatedMedia([]);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Simple similarity calculation based on genres, year, and rating
-  const calculateSimilarity = (movie1: Media, movie2: LocalMediaItem): number => {
+  // Memoize similarity calculation function
+  const calculateSimilarityMemo = useCallback((movie1: Media, movie2: LocalMediaItem): number => {
     let score = 0;
-
     try {
-      // Genre similarity (most important factor)
       if (movie1?.genres && movie2?.genres && Array.isArray(movie1.genres) && Array.isArray(movie2.genres)) {
         const genres1 = movie1.genres
           .map(g => {
@@ -149,38 +77,99 @@ const LocalRelatedMedia: React.FC<LocalRelatedMediaProps> = ({ currentMedia, cla
             return null;
           })
           .filter(Boolean) as string[];
-
-        const genres2 = movie2.genres
-          .map(g => g?.name)
-          .filter(Boolean) as string[];
-
+        const genres2 = movie2.genres.map(g => g?.name).filter(Boolean) as string[];
         if (genres1.length > 0 && genres2.length > 0) {
           const commonGenres = genres1.filter(g => genres2.includes(g));
           const genreSimilarity = commonGenres.length / Math.max(genres1.length, genres2.length, 1);
-          score += genreSimilarity * 0.6; // 60% weight for genres
+          score += genreSimilarity * 0.6;
         }
       }
-
-      // Year similarity (movies from similar time periods)
       if (movie1?.year && movie2?.year && typeof movie1.year === 'number' && typeof movie2.year === 'number') {
         const yearDiff = Math.abs(movie1.year - movie2.year);
-        const yearSimilarity = Math.max(0, 1 - yearDiff / 20); // Similar if within 20 years
-        score += yearSimilarity * 0.2; // 20% weight for year
+        const yearSimilarity = Math.max(0, 1 - yearDiff / 20);
+        score += yearSimilarity * 0.2;
       }
-
-      // Rating similarity (movies with similar ratings)
       if (movie1?.rating && movie2?.rating && typeof movie1.rating === 'number' && typeof movie2.rating === 'number') {
         const ratingDiff = Math.abs(movie1.rating - movie2.rating);
-        const ratingSimilarity = Math.max(0, 1 - ratingDiff / 5); // Similar if within 5 rating points
-        score += ratingSimilarity * 0.2; // 20% weight for rating
+        const ratingSimilarity = Math.max(0, 1 - ratingDiff / 5);
+        score += ratingSimilarity * 0.2;
       }
     } catch (error) {
-      console.error('Error calculating similarity:', error);
       return 0;
     }
+    return Math.max(0, Math.min(1, score));
+  }, []);
 
-    return Math.max(0, Math.min(1, score)); // Ensure score is between 0 and 1
-  };
+  useEffect(() => {
+    // Skip if already fetched for this media ID
+    if (!currentMedia?.id || fetchedRef.current === currentMedia.id) {
+      if (!currentMedia?.id) setLoading(false);
+      return;
+    }
+
+    // Cancel any pending request
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
+    const fetchRelatedMedia = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+
+        const apiUrl = getApiUrl();
+        if (!apiUrl) throw new Error('API URL not available');
+
+        const response = await fetch(`${apiUrl}/api/media/movies`, {
+          signal: controller.signal
+        });
+
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+
+        const allMovies = await response.json();
+        if (!Array.isArray(allMovies)) {
+          setRelatedMedia([]);
+          return;
+        }
+
+        const otherMovies = allMovies.filter((movie: LocalMediaItem) =>
+          movie && movie.id && movie.id !== currentMedia.id
+        );
+
+        const similarMovies = otherMovies
+          .map((movie: LocalMediaItem) => ({
+            ...movie,
+            similarity: calculateSimilarityMemo(currentMedia, movie)
+          }))
+          .filter((movie: any) => movie && movie.similarity > 0.1)
+          .sort((a: any, b: any) => (b.similarity || 0) - (a.similarity || 0))
+          .slice(0, 12);
+
+        setRelatedMedia(similarMovies);
+        fetchedRef.current = currentMedia.id; // Mark as fetched
+        setError(null);
+      } catch (err: any) {
+        if (err.name !== 'AbortError') {
+          console.error('Error fetching related media:', err);
+          setError('Failed to load related content');
+          setRelatedMedia([]);
+        }
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchRelatedMedia();
+
+    return () => {
+      controller.abort();
+    };
+  }, [currentMedia?.id, calculateSimilarityMemo]);
+
+  // Note: Similarity calculation moved to memoized callback above
 
   const getPosterUrl = (movie: LocalMediaItem) => {
     try {
@@ -763,126 +752,39 @@ export default function MoviePage() {
     };
   }, [isPlayerOpen]);
 
-  // Smart background video control - event-driven with adaptive polling
+  // Stop background video when player or trailer is active (event-driven, no polling)
   useEffect(() => {
     if (!isPlayerOpen && !isShowingTrailer) return;
 
     const video = videoRef.current;
     if (!video) return;
 
-    let intervalId: NodeJS.Timeout | null = null;
-    let isVideoStopped = false;
-    let consecutiveStoppedChecks = 0;
-    let currentPollingInterval = 2000; // Start with 2 seconds
-
-    // Performance optimization: record when we stop the video
-    const recordStopTime = () => {
-      performanceOptimizationRef.current.lastStopTime = Date.now();
+    // Stop video immediately when player opens
+    const stopAndHide = () => {
+      video.pause();
+      video.muted = true;
+      video.volume = 0;
+      video.currentTime = 0;
+      video.removeAttribute('autoplay');
+      video.removeAttribute('loop');
+      video.style.display = 'none';
+      video.style.visibility = 'hidden';
+      video.style.opacity = '0';
+      setIsVideoPlaying(false);
+      setIsMuted(true);
     };
-
-    // Initial aggressive stop
-    const forceStop = () => {
-      if (video && (!video.paused || video.volume > 0 || !video.muted)) {
-        video.pause();
-        video.muted = true;
-        video.volume = 0;
-        video.currentTime = 0;
-
-        // Remove autoplay and loop to prevent restart
-        video.removeAttribute('autoplay');
-        video.removeAttribute('loop');
-
-        setIsVideoPlaying(false);
-        setIsMuted(true);
-
-        // Hide video completely
-        video.style.display = 'none';
-        video.style.visibility = 'hidden';
-        video.style.opacity = '0';
-
-        isVideoStopped = true;
-        recordStopTime();
-      }
-    };
-
-    // Event listeners for video state changes
-    const handleVideoPlay = () => {
-      if (isPlayerOpen || isShowingTrailer) {
-        forceStop();
-      }
-    };
-
-    const handleVideoVolumeChange = () => {
-      if ((isPlayerOpen || isShowingTrailer) && video.volume > 0) {
-        forceStop();
-      }
-    };
-
-    const handleVideoTimeUpdate = () => {
-      if ((isPlayerOpen || isShowingTrailer) && !video.paused) {
-        forceStop();
-      }
-    };
-
-    // Add event listeners
-    video.addEventListener('play', handleVideoPlay);
-    video.addEventListener('playing', handleVideoPlay);
-    video.addEventListener('volumechange', handleVideoVolumeChange);
-    video.addEventListener('timeupdate', handleVideoTimeUpdate);
-    video.addEventListener('loadstart', handleVideoPlay);
-    video.addEventListener('canplay', handleVideoPlay);
 
     // Initial stop
-    forceStop();
+    stopAndHide();
 
-    // Adaptive polling - reduces frequency over time when video stays stopped
-    const startAdaptivePolling = () => {
-      const poll = () => {
-        // Skip polling if page is hidden or in low power mode
-        if (performanceOptimizationRef.current.isInLowPowerMode || document.hidden) {
-          return;
-        }
-
-        if (!isVideoStopped && video && (!video.paused || video.volume > 0 || !video.muted)) {
-          forceStop();
-          consecutiveStoppedChecks = 0;
-          currentPollingInterval = 2000; // Reset to frequent polling
-        } else {
-          consecutiveStoppedChecks++;
-
-          // Gradually increase polling interval when video stays stopped
-          if (consecutiveStoppedChecks > 5) {
-            currentPollingInterval = Math.min(10000, currentPollingInterval * 1.5); // Max 10 seconds
-          }
-
-          // After 30 seconds of being stopped, reduce polling to minimum
-          const timeSinceStop = Date.now() - performanceOptimizationRef.current.lastStopTime;
-          if (timeSinceStop > 30000) {
-            currentPollingInterval = 30000; // Check only every 30 seconds
-          }
-        }
-
-        // Schedule next poll with adaptive interval
-        if (intervalId) clearTimeout(intervalId);
-        intervalId = setTimeout(poll, currentPollingInterval);
-      };
-
-      // Start polling after initial delay
-      intervalId = setTimeout(poll, 1000);
-    };
-
-    startAdaptivePolling();
+    // Event listener to catch any attempts to play while player is open
+    const handlePlay = () => stopAndHide();
+    video.addEventListener('play', handlePlay);
+    video.addEventListener('playing', handlePlay);
 
     return () => {
-      // Cleanup
-      if (intervalId) clearTimeout(intervalId);
-
-      video.removeEventListener('play', handleVideoPlay);
-      video.removeEventListener('playing', handleVideoPlay);
-      video.removeEventListener('volumechange', handleVideoVolumeChange);
-      video.removeEventListener('timeupdate', handleVideoTimeUpdate);
-      video.removeEventListener('loadstart', handleVideoPlay);
-      video.removeEventListener('canplay', handleVideoPlay);
+      video.removeEventListener('play', handlePlay);
+      video.removeEventListener('playing', handlePlay);
     };
   }, [isPlayerOpen, isShowingTrailer]);
 
@@ -926,28 +828,7 @@ export default function MoviePage() {
     }
   }, [media, loading, isPlayerOpen, isShowingTrailer]);
 
-  // Additional trigger when video becomes loaded - with proper guards
-  useEffect(() => {
-    if (isVideoLoaded && !isVideoPlaying && !isPlayerOpen && !isShowingTrailer) {
-      const video = videoRef.current;
-      if (video) {
-        video.loop = true;
-        video.muted = false;
-        video.volume = 1.0;
-        video.play().then(() => {
-          setIsVideoPlaying(true);
-          setIsMuted(false);
-          setForceShowBackdrop(false); // Reset backdrop force when video plays
-        }).catch(() => {
-          video.muted = true;
-          setIsMuted(true);
-          video.play().catch(() => {
-            console.warn('Failed to play loaded video');
-          });
-        });
-      }
-    }
-  }, [isVideoLoaded, isVideoPlaying, isPlayerOpen, isShowingTrailer]);
+  // Note: Removed duplicate video play effect - video already plays via onLoadedData and onCanPlay handlers
 
   // Cookie-based playback progress management
   const savePlaybackProgress = (mediaId: string, currentTime: number, duration: number) => {
@@ -1496,16 +1377,15 @@ export default function MoviePage() {
     setIsPlayerOpen(false);
     setForceStartFromBeginning(false);
 
-    // Immediately update states to show backdrop
+    // Show backdrop instead of auto-restarting video to prevent unnecessary API calls
     setIsVideoPlaying(false);
     setIsMuted(true);
     setIsVideoLoaded(false);
-    setForceShowBackdrop(true); // Force backdrop to show
+    setForceShowBackdrop(true);
 
-    // Ensure backdrop image shows when player closes
+    // Stop background video but DON'T reload sources to avoid API calls
     const video = videoRef.current;
-    if (video && media) {
-      // Stop and hide video completely to show backdrop
+    if (video) {
       video.pause();
       video.muted = true;
       video.volume = 0;
@@ -1513,43 +1393,12 @@ export default function MoviePage() {
       video.style.display = 'none';
       video.style.visibility = 'hidden';
       video.style.opacity = '0';
-
-      // Clear any existing sources
-      const sources = video.querySelectorAll('source');
-      sources.forEach(source => source.remove());
-      video.src = '';
-      video.load();
     }
 
-    // Reset forceShowBackdrop after 3 seconds and restore video sources
+    // Reset backdrop state after delay (user can manually unmute to restart video)
     setTimeout(() => {
       setForceShowBackdrop(false);
-
-      // Restore video sources after player closes
-      const video = videoRef.current;
-      if (video && media && !isPlayerOpen && !isShowingTrailer) {
-        // Re-add video sources
-        const source1 = document.createElement('source');
-        source1.src = `${getBackgroundVideoUrl(media)}?audio=aac&quality=medium`;
-        source1.type = 'video/mp4';
-        video.appendChild(source1);
-
-        const source2 = document.createElement('source');
-        source2.src = getBackgroundVideoUrl(media);
-        source2.type = 'video/mp4';
-        video.appendChild(source2);
-
-        const source3 = document.createElement('source');
-        source3.src = getAssetUrl('preview', media.id, false) as string;
-        source3.type = 'video/mp4';
-        video.appendChild(source3);
-
-        // Restore video attributes
-        video.setAttribute('autoplay', 'true');
-        video.setAttribute('loop', 'true');
-        video.load();
-      }
-    }, 3000);
+    }, 1000);
   };
 
   // Handle cast button click

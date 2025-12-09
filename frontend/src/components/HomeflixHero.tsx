@@ -8,6 +8,7 @@ import { Play, Volume2, VolumeX, Plus, Check } from "lucide-react";
 import { getApiUrl } from "@/lib/api";
 import { Media } from "@/types/media";
 import { cleanMovieTitle } from "@/lib/titleUtils";
+import { addToWishlist, removeFromWishlist, isInWishlist, getWishlist } from '@/lib/wishlist';
 
 // Declare global YouTube types
 declare global {
@@ -256,39 +257,31 @@ const HomeflixHero: React.FC<HomeflixHeroProps> = ({
         loadMyList();
     }, []);
 
-    const loadMyList = async () => {
-        try {
-            const response = await fetch(`${apiUrl}/api/mylist`);
-            if (response.ok) {
-                const data = await response.json();
-                const mediaIds = new Set<number>(data.map((item: Media) => item.id));
-                setMyList(mediaIds);
-            }
-        } catch (error) {
-            console.error("Error loading my list:", error);
-        }
+    const loadMyList = () => {
+        const wishlistIds = getWishlist();
+        setMyList(new Set(wishlistIds));
     };
 
-    const toggleMyList = async (movie: Media) => {
+    const toggleMyList = (movie: Media) => {
         const isInList = myList.has(movie.id);
-        try {
-            if (isInList) {
-                await fetch(`${apiUrl}/api/mylist/${movie.id}`, { method: "DELETE" });
-                setMyList((prev) => {
-                    const newSet = new Set(prev);
+        let success = false;
+
+        if (isInList) {
+            success = removeFromWishlist(movie.id);
+        } else {
+            success = addToWishlist(movie.id);
+        }
+
+        if (success) {
+            setMyList((prev) => {
+                const newSet = new Set(prev);
+                if (isInList) {
                     newSet.delete(movie.id);
-                    return newSet;
-                });
-            } else {
-                await fetch(`${apiUrl}/api/mylist`, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ media_id: movie.id }),
-                });
-                setMyList((prev) => new Set(prev).add(movie.id));
-            }
-        } catch (error) {
-            console.error("Error toggling my list:", error);
+                } else {
+                    newSet.add(movie.id);
+                }
+                return newSet;
+            });
         }
     };
 
