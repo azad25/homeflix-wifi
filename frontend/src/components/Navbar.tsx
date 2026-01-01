@@ -221,6 +221,7 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
   const navItems = [
     { name: "Movies", href: "/movies" },
     { name: "TV Shows", href: "/tv-shows" },
+    { name: "Music", href: "/music" },
     { name: "Trailers", href: "/trailers" },
     { name: "New & Popular", href: "/new-popular" },
     { name: "My List", href: "/my-list" },

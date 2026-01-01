@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -505,12 +506,77 @@ func getProcessStats() (ProcessStats, error) {
 		}
 
 		// Count open file descriptors
-		if files, err := os.ReadDir("/proc/self/fd"); err == nil {
+		if files, err := filepath.Glob("/proc/self/fd/*"); err == nil {
 			stats.OpenFiles = len(files)
+		}
+		
+		// Calculate process CPU percentage
+		if cpu, err := getProcessCPUUsage(); err == nil {
+			stats.CPUPercent = cpu
 		}
 	}
 
 	return stats, nil
+}
+
+// getProcessCPUUsage calculates process CPU usage percentage
+func getProcessCPUUsage() (float64, error) {
+	// Read stats twice with a small interval
+	p1, s1, err := readProcessAndSystemTimes()
+	if err != nil {
+		return 0, err
+	}
+
+	time.Sleep(100 * time.Millisecond)
+
+	p2, s2, err := readProcessAndSystemTimes()
+	if err != nil {
+		return 0, err
+	}
+
+	// Calculate usage
+	pDelta := p2 - p1
+	sDelta := s2 - s1
+
+	if sDelta == 0 {
+		return 0, nil
+	}
+	
+	usage := 100.0 * (float64(pDelta) / float64(sDelta)) * float64(runtime.NumCPU())
+	return usage, nil
+}
+
+func readProcessAndSystemTimes() (uint64, uint64, error) {
+	// Read process stats
+	pData, err := os.ReadFile("/proc/self/stat")
+	if err != nil {
+		return 0, 0, err
+	}
+	pFields := strings.Fields(string(pData))
+	if len(pFields) < 15 {
+		return 0, 0, fmt.Errorf("invalid /proc/self/stat")
+	}
+	utime, _ := strconv.ParseUint(pFields[13], 10, 64)
+	stime, _ := strconv.ParseUint(pFields[14], 10, 64)
+	pTime := utime + stime
+
+	// Read system stats
+	sData, err := os.ReadFile("/proc/stat")
+	if err != nil {
+		return 0, 0, err
+	}
+	sLines := strings.Split(string(sData), "\n")
+	if len(sLines) == 0 {
+		return 0, 0, fmt.Errorf("empty /proc/stat")
+	}
+	sFields := strings.Fields(sLines[0])
+	var sTime uint64
+	for i := 1; i < len(sFields) && i <= 8; i++ {
+		val, _ := strconv.ParseUint(sFields[i], 10, 64)
+		sTime += val
+	}
+
+	return pTime, sTime, nil
 }
 
 // streamLogs streams server logs in real-time

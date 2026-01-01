@@ -138,6 +138,8 @@ type TMDBServiceInterface interface {
 	DownloadTVPoster(title string, seriesID uint, posterDir string) (string, error)
 	DownloadMovieLogo(tmdbID int, mediaID uint, logoDir string) (string, error)
 	DownloadLogoByTitle(title string, mediaID uint, logoDir string) (string, error)
+	DownloadMovieBackdrop(tmdbID int, mediaID uint, backdropDir string) (string, error)
+	DownloadBackdropByTitle(title string, mediaID uint, backdropDir string) (string, error)
 	GetPosterURL(posterPath string, size string) string
 	TestConnection() error
 }

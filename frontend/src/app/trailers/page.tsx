@@ -149,7 +149,7 @@ const TrailersPage = () => {
                     cc_load_policy: 0, // Don't load captions
                     cc_lang_pref: '', // No caption language preference
                     enablejsapi: 1, // Enable JS API
-                    start: 5, // Start 5 seconds in to skip intro
+                    start: 10, // Start 10 seconds in to skip intro
                     origin: window.location.origin,
                 },
                 events: {
@@ -168,7 +168,7 @@ const TrailersPage = () => {
                         if (!isMuted) {
                             event.target.unMute();
                         }
-                        event.target.seekTo(5, true); // Explicitly seek to 5s with allowSeekAhead
+                        event.target.seekTo(10, true); // Explicitly seek to 10s with allowSeekAhead
                         event.target.playVideo();
 
                         // Set up interval to end video 3 seconds early
@@ -178,8 +178,8 @@ const TrailersPage = () => {
                                 const duration = player.getDuration();
                                 const currentTime = player.getCurrentTime();
 
-                                // End 3 seconds before actual end
-                                if (duration > 0 && currentTime >= duration - 5) {
+                                // End 15 seconds before actual end
+                                if (duration > 0 && currentTime >= duration - 15) {
                                     clearInterval(checkEndTime);
                                     console.log('Video ending early, advancing to next slide');
                                     goToNextSlide();
@@ -231,8 +231,7 @@ const TrailersPage = () => {
     const fetchUpcomingMovies = async () => {
         try {
             const apiUrl = getApiUrl();
-            const response = await fetch(`${apiUrl}/api/tmdb/movie/now-playing?page=1`);
-            console.log('API URL:', `${apiUrl}/api/tmdb/movie/now-playing?page=1`);
+            const response = await fetch(`${apiUrl}/api/tmdb/movie/upcoming?page=1`);
             if (response.ok) {
                 const data = await response.json();
                 const results = data.results.slice(0, 10);

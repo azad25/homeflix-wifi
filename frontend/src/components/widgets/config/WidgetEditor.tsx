@@ -1,0 +1,640 @@
+"use client";
+
+import React, { useState, useEffect } from 'react';
+import { motion } from 'framer-motion';
+import { Save, X, Search, Palette, Settings, Layers } from 'lucide-react';
+import { Widget, WidgetType, LayoutType, DataSourceType, ContentType, ColorScheme } from '@/types/widgets';
+
+interface WidgetEditorProps {
+  widget: Widget;
+  onSave: (widget: Partial<Widget>) => void;
+  onCancel: () => void;
+  onOpenContentSelector: () => void;
+  selectedContent: any[];
+  selectedGenres: number[]; 
+}
+
+const widgetTypes: { value: WidgetType; label: string; description: string; icon: string }[] = [
+  { value: 'featured-banner', label: 'Featured Banner', description: 'Large hero banner with featured content', icon: '🎬' },
+  { value: 'half-banner', label: 'Half Banner', description: 'Half-width banner for secondary content', icon: '📱' },
+  { value: 'backdrop-slideshow', label: 'Backdrop Slideshow', description: 'Full-width slideshow with backdrop images', icon: '🖼️' },
+  { value: 'trending-slideshow', label: 'Trending Slideshow', description: 'Horizontal scrolling content row', icon: '🔥' },
+  { value: 'movie-grid', label: 'Movie Grid', description: 'Grid layout for multiple items', icon: '📱' },
+  { value: 'homeflix-grid', label: 'Homeflix Grid', description: 'Netflix-style grid with backdrop and logo', icon: '🎯' },
+  { value: 'genre-based', label: 'Genre Based', description: 'Content filtered by specific genre', icon: '🎭' },
+  { value: 'coming-soon', label: 'Coming Soon', description: 'Upcoming releases banner', icon: '⏰' },
+  { value: 'new-releases', label: 'New Releases', description: 'Recently added content', icon: '🆕' },
+  { value: 'popular', label: 'Popular', description: 'Most popular content', icon: '⭐' },
+  { value: 'recently-added', label: 'Recently Added', description: 'Latest additions', icon: '📅' },
+  { value: 'recently-watched', label: 'Recently Watched', description: 'User\'s viewing history', icon: '👁️' },
+  { value: 'continue-watching', label: 'Continue Watching', description: 'Resume watching progress', icon: '▶️' },
+  { value: 'trailer', label: 'Trailer Widget', description: 'Video trailers and previews', icon: '🎥' },
+  { value: 'notifications', label: 'Notifications', description: 'Display system notifications and alerts', icon: '🔔' }
+];
+
+const layouts: { value: LayoutType; label: string; description: string; icon: string }[] = [
+  { value: 'full', label: 'Full Width', description: 'Takes full container width', icon: '━━━' },
+  { value: 'half', label: 'Half Width', description: 'Takes half container width', icon: '━━' },
+  { value: 'third', label: 'Third Width', description: 'Takes one-third container width', icon: '━' }
+];
+
+const dataSources: { value: DataSourceType; label: string; description: string; color: string }[] = [
+  { value: 'local', label: 'Local Media', description: 'Use local media library', color: 'from-green-500/20 to-green-600/20 border-green-400/30' },
+  { value: 'tmdb', label: 'TMDB API', description: 'The Movie Database API', color: 'from-blue-500/20 to-blue-600/20 border-blue-400/30' },
+  { value: 'trending', label: 'Trending', description: 'Trending content', color: 'from-orange-500/20 to-orange-600/20 border-orange-400/30' },
+  { value: 'popular', label: 'Popular', description: 'Popular content', color: 'from-purple-500/20 to-purple-600/20 border-purple-400/30' },
+  { value: 'recent', label: 'Recent', description: 'Recently added content', color: 'from-cyan-500/20 to-cyan-600/20 border-cyan-400/30' },
+  { value: 'now-playing', label: 'Now Playing', description: 'Currently in theaters', color: 'from-red-500/20 to-red-600/20 border-red-400/30' },
+  { value: 'upcoming', label: 'Upcoming', description: 'Coming soon releases', color: 'from-yellow-500/20 to-yellow-600/20 border-yellow-400/30' },
+  { value: 'top-rated', label: 'Top Rated', description: 'Highest rated content', color: 'from-pink-500/20 to-pink-600/20 border-pink-400/30' }
+];
+
+const contentTypes: { value: ContentType; label: string; icon: string }[] = [
+  { value: 'mixed', label: 'Mixed Content', icon: '🎭' },
+  { value: 'movies', label: 'Movies Only', icon: '🎬' },
+  { value: 'tv-shows', label: 'TV Shows Only', icon: '📺' }
+];
+
+const colorSchemes: { value: ColorScheme; label: string; preview: string }[] = [
+  { value: 'auto', label: 'Auto', preview: 'bg-gradient-to-r from-blue-500/20 to-purple-500/20' },
+  { value: 'dark', label: 'Dark', preview: 'bg-gradient-to-r from-gray-800/50 to-gray-900/50' },
+  { value: 'light', label: 'Light', preview: 'bg-gradient-to-r from-gray-100/20 to-gray-200/20' },
+  { value: 'custom', label: 'Custom', preview: 'bg-gradient-to-r from-red-500/20 to-blue-500/20' }
+];
+
+export default function WidgetEditor({
+  widget,
+  onSave,
+  onCancel,
+  onOpenContentSelector,
+  selectedContent,
+  selectedGenres
+}: WidgetEditorProps) {
+  const [formData, setFormData] = useState(widget);
+  const [config, setConfig] = useState(() => {
+    try {
+      return JSON.parse(widget.config || '{}');
+    } catch {
+      return {};
+    }
+  });
+
+  useEffect(() => {
+    setFormData(widget);
+    try {
+      setConfig(JSON.parse(widget.config || '{}'));
+    } catch {
+      setConfig({});
+    }
+  }, [widget]);
+
+  const handleSave = () => {
+    const updatedConfig = {
+      ...config,
+      selectedContent,
+      selectedGenres
+    };
+
+    onSave({
+      ...formData,
+      config: JSON.stringify(updatedConfig)
+    });
+  };
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 bg-black/60 backdrop-blur-md z-60 flex items-center justify-center p-4"
+      onClick={onCancel}
+    >
+      <motion.div
+        initial={{ scale: 0.9, opacity: 0, y: 20 }}
+        animate={{ scale: 1, opacity: 1, y: 0 }}
+        exit={{ scale: 0.9, opacity: 0, y: 20 }}
+        className="w-full max-w-4xl max-h-[90vh] overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Glassmorphism Container */}
+        <div className="bg-black/40 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl">
+          {/* Header */}
+          <div className="flex items-center justify-between p-6 border-b border-white/10">
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 bg-gradient-to-br from-red-500/20 to-red-600/20 backdrop-blur-sm border border-white/10 rounded-xl flex items-center justify-center">
+                <Settings className="w-6 h-6 text-red-200" />
+              </div>
+              <div>
+                <h3 className="text-xl font-bold text-white">
+                  {widget.id ? 'Edit Widget' : 'Create Widget'}
+                </h3>
+                <p className="text-white/60 text-sm">
+                  Configure widget settings and content
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={onCancel}
+              className="p-2 text-white/60 hover:text-white hover:bg-white/10 backdrop-blur-sm border border-white/10 rounded-xl transition-all duration-200"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+
+          {/* Content */}
+          <div className="p-6 overflow-y-auto max-h-[calc(90vh-200px)] space-y-8">
+            {/* Basic Settings */}
+            <div className="space-y-6">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-8 h-8 bg-gradient-to-br from-red-500/20 to-red-600/20 backdrop-blur-sm border border-red-400/30 rounded-lg flex items-center justify-center">
+                  <Settings className="w-4 h-4 text-red-200" />
+                </div>
+                <h4 className="text-lg font-semibold text-white">Basic Settings</h4>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <label className="block text-sm font-medium text-white/80 mb-3">Widget Name</label>
+                  <input
+                    type="text"
+                    value={formData.name}
+                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                    className="w-full bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl px-4 py-3 text-white placeholder-white/40 focus:border-blue-400/50 focus:outline-none transition-colors"
+                    placeholder="Enter widget name"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-white/80 mb-3">Max Items</label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="50"
+                    value={formData.maxItems}
+                    onChange={(e) => setFormData({ ...formData, maxItems: parseInt(e.target.value) })}
+                    className="w-full bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl px-4 py-3 text-white placeholder-white/40 focus:border-blue-400/50 focus:outline-none transition-colors"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Widget Type */}
+            <div className="space-y-4">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-8 h-8 bg-gradient-to-br from-red-600/20 to-red-700/20 backdrop-blur-sm border border-red-500/30 rounded-lg flex items-center justify-center">
+                  <Layers className="w-4 h-4 text-red-200" />
+                </div>
+                <h4 className="text-lg font-semibold text-white">Widget Type</h4>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                {widgetTypes.map((type) => (
+                  <button
+                    key={type.value}
+                    onClick={() => setFormData({ ...formData, type: type.value })}
+                    className={`p-4 rounded-xl border transition-all duration-200 text-left hover:scale-105 ${
+                      formData.type === type.value
+                        ? 'bg-red-500/20 border-red-400/50 shadow-lg shadow-red-500/10'
+                        : 'bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3 mb-2">
+                      <span className="text-2xl">{type.icon}</span>
+                      <span className="font-medium text-white">{type.label}</span>
+                    </div>
+                    <p className="text-xs text-white/60">{type.description}</p>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Layout */}
+            <div className="space-y-4">
+              <h4 className="text-lg font-semibold text-white">Layout</h4>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                {layouts.map((layout) => (
+                  <button
+                    key={layout.value}
+                    onClick={() => setFormData({ ...formData, layout: layout.value })}
+                    className={`p-4 rounded-xl border transition-all duration-200 text-left hover:scale-105 ${
+                      formData.layout === layout.value
+                        ? 'bg-red-500/20 border-red-400/50 shadow-lg shadow-red-500/10'
+                        : 'bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3 mb-2">
+                      <span className="font-mono text-white/80">{layout.icon}</span>
+                      <span className="font-medium text-white">{layout.label}</span>
+                    </div>
+                    <p className="text-xs text-white/60">{layout.description}</p>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Data Source */}
+            <div className="space-y-4">
+              <h4 className="text-lg font-semibold text-white">Data Source</h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+                {dataSources.map((source) => (
+                  <button
+                    key={source.value}
+                    onClick={() => setFormData({ ...formData, dataSource: source.value })}
+                    className={`p-4 rounded-xl border transition-all duration-200 text-left hover:scale-105 ${
+                      formData.dataSource === source.value
+                        ? `bg-gradient-to-br ${source.color} shadow-lg`
+                        : 'bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20'
+                    }`}
+                  >
+                    <div className="font-medium text-white mb-1">{source.label}</div>
+                    <p className="text-xs text-white/60">{source.description}</p>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Content Type */}
+            <div className="space-y-4">
+              <h4 className="text-lg font-semibold text-white">Content Type</h4>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                {contentTypes.map((type) => (
+                  <button
+                    key={type.value}
+                    onClick={() => setFormData({ ...formData, contentType: type.value })}
+                    className={`p-4 rounded-xl border transition-all duration-200 text-left hover:scale-105 ${
+                      formData.contentType === type.value
+                        ? 'bg-red-500/20 border-red-400/50 shadow-lg shadow-red-500/10'
+                        : 'bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <span className="text-xl">{type.icon}</span>
+                      <span className="font-medium text-white">{type.label}</span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Content Selection */}
+            <div className="space-y-4">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-8 h-8 bg-gradient-to-br from-red-700/20 to-red-800/20 backdrop-blur-sm border border-red-600/30 rounded-lg flex items-center justify-center">
+                  <Search className="w-4 h-4 text-red-200" />
+                </div>
+                <h4 className="text-lg font-semibold text-white">Content & Genres</h4>
+              </div>
+
+              <button
+                onClick={onOpenContentSelector}
+                className="w-full p-4 bg-gradient-to-r from-red-500/20 to-red-600/20 hover:from-red-500/30 hover:to-red-600/30 backdrop-blur-sm border border-red-400/30 rounded-xl transition-all duration-200 hover:scale-105"
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <Search className="w-5 h-5 text-red-200" />
+                    <div className="text-left">
+                      <div className="font-medium text-white">Select Content & Genres</div>
+                      <div className="text-sm text-white/60">
+                        {selectedContent.length > 0 || selectedGenres.length > 0
+                          ? `${selectedContent.length} items, ${selectedGenres.length} genres selected`
+                          : 'Choose specific content and filter by genres'
+                        }
+                      </div>
+                    </div>
+                  </div>
+                  <div className="text-red-200">→</div>
+                </div>
+              </button>
+            </div>
+
+            {/* Widget Options */}
+            <div className="space-y-4">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-8 h-8 bg-gradient-to-br from-red-800/20 to-red-900/20 backdrop-blur-sm border border-red-700/30 rounded-lg flex items-center justify-center">
+                  <Palette className="w-4 h-4 text-red-200" />
+                </div>
+                <h4 className="text-lg font-semibold text-white">Widget Options</h4>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <label className="block text-sm font-medium text-white/80 mb-3">Custom Title (Optional)</label>
+                  <input
+                    type="text"
+                    value={config.title || ''}
+                    onChange={(e) => setConfig({ ...config, title: e.target.value })}
+                    className="w-full bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl px-4 py-3 text-white placeholder-white/40 focus:border-blue-400/50 focus:outline-none transition-colors"
+                    placeholder="Custom widget title"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-white/80 mb-3">Scroll Interval (seconds)</label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="30"
+                    value={config.scrollInterval || 5}
+                    onChange={(e) => setConfig({ ...config, scrollInterval: parseInt(e.target.value) })}
+                    className="w-full bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl px-4 py-3 text-white placeholder-white/40 focus:border-blue-400/50 focus:outline-none transition-colors"
+                  />
+                </div>
+              </div>
+
+              {/* Toggle Options */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                {[
+                  { key: 'autoScroll', label: 'Auto Scroll' },
+                  { key: 'showRating', label: 'Show Rating' },
+                  { key: 'showDescription', label: 'Show Description' },
+                  { key: 'showLogo', label: 'Show Logo' },
+                  ...(formData.type === 'homeflix-grid' ? [{ key: 'showYear', label: 'Show Year' }] : [])
+                ].map(({ key, label }) => (
+                  <label key={key} className="flex items-center gap-3 p-3 bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl hover:bg-white/10 transition-colors cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={config[key] !== false}
+                      onChange={(e) => setConfig({ ...config, [key]: e.target.checked })}
+                      className="w-4 h-4 text-red-500 bg-white/10 border-white/20 rounded focus:ring-red-500 focus:ring-2"
+                    />
+                    <span className="text-sm text-white/80">{label}</span>
+                  </label>
+                ))}
+              </div>
+
+              {/* Homeflix Grid Specific Options */}
+              {formData.type === 'homeflix-grid' && (
+                <div className="space-y-6 mt-8 p-6 bg-gradient-to-br from-blue-500/10 to-blue-600/10 backdrop-blur-sm border border-blue-400/20 rounded-xl">
+                  <h5 className="text-lg font-semibold text-white flex items-center gap-2">
+                    🎯 Homeflix Grid Settings
+                  </h5>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                      <label className="block text-sm font-medium text-white/80 mb-3">Card Width (px)</label>
+                      <input
+                        type="number"
+                        min="200"
+                        max="400"
+                        value={config.cardWidth || 280}
+                        onChange={(e) => setConfig({ ...config, cardWidth: parseInt(e.target.value) })}
+                        className="w-full bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl px-4 py-3 text-white placeholder-white/40 focus:border-blue-400/50 focus:outline-none transition-colors"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-white/80 mb-3">Cards Per Scroll</label>
+                      <input
+                        type="number"
+                        min="1"
+                        max="8"
+                        value={config.cardsPerScroll || 4}
+                        onChange={(e) => setConfig({ ...config, cardsPerScroll: parseInt(e.target.value) })}
+                        className="w-full bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl px-4 py-3 text-white placeholder-white/40 focus:border-blue-400/50 focus:outline-none transition-colors"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-white/80 mb-3">Image Priority</label>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                      {[
+                        { value: 'backdrop', label: 'Backdrop First', description: 'Use backdrop, fallback to poster' },
+                        { value: 'poster', label: 'Poster First', description: 'Use poster, fallback to backdrop' },
+                        { value: 'backdrop-only', label: 'Backdrop Only', description: 'Only use backdrop images' }
+                      ].map((priority) => (
+                        <button
+                          key={priority.value}
+                          onClick={() => setConfig({ ...config, imagePriority: priority.value })}
+                          className={`p-3 rounded-xl border transition-all duration-200 text-left hover:scale-105 ${
+                            config.imagePriority === priority.value
+                              ? 'bg-blue-500/20 border-blue-400/50 shadow-lg shadow-blue-500/10'
+                              : 'bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20'
+                          }`}
+                        >
+                          <div className="font-medium text-white mb-1">{priority.label}</div>
+                          <p className="text-xs text-white/60">{priority.description}</p>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <label className="flex items-center gap-3 p-3 bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl hover:bg-white/10 transition-colors cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={config.showLogo !== false}
+                        onChange={(e) => setConfig({ ...config, showLogo: e.target.checked })}
+                        className="w-4 h-4 text-blue-500 bg-white/10 border-white/20 rounded focus:ring-blue-500 focus:ring-2"
+                      />
+                      <span className="text-sm text-white/80">Show Movie Logos</span>
+                    </label>
+                    <label className="flex items-center gap-3 p-3 bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl hover:bg-white/10 transition-colors cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={config.hoverEffects !== false}
+                        onChange={(e) => setConfig({ ...config, hoverEffects: e.target.checked })}
+                        className="w-4 h-4 text-blue-500 bg-white/10 border-white/20 rounded focus:ring-blue-500 focus:ring-2"
+                      />
+                      <span className="text-sm text-white/80">Hover Effects</span>
+                    </label>
+                  </div>
+                </div>
+              )}
+
+              {/* Trailer Widget Specific Options */}
+              {formData.type === 'trailer' && (
+                <div className="space-y-6 mt-8 p-6 bg-gradient-to-br from-red-500/10 to-red-600/10 backdrop-blur-sm border border-red-400/20 rounded-xl">
+                  <h5 className="text-lg font-semibold text-white flex items-center gap-2">
+                    🎥 Trailer Widget Settings
+                  </h5>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                      <label className="block text-sm font-medium text-white/80 mb-3">Auto Play Trailers</label>
+                      <label className="flex items-center gap-3 p-3 bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl hover:bg-white/10 transition-colors cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={config.autoPlay !== false}
+                          onChange={(e) => setConfig({ ...config, autoPlay: e.target.checked })}
+                          className="w-4 h-4 text-red-500 bg-white/10 border-white/20 rounded focus:ring-red-500 focus:ring-2"
+                        />
+                        <span className="text-sm text-white/80">Auto-play video trailers</span>
+                      </label>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-white/80 mb-3">Video Quality</label>
+                      <div className="grid grid-cols-1 gap-2">
+                        {[
+                          { value: 'hd720', label: '720p HD' },
+                          { value: 'hd1080', label: '1080p Full HD' },
+                          { value: 'auto', label: 'Auto Quality' }
+                        ].map((quality) => (
+                          <button
+                            key={quality.value}
+                            onClick={() => setConfig({ ...config, videoQuality: quality.value })}
+                            className={`p-2 rounded-lg border transition-all duration-200 text-left text-sm ${
+                              config.videoQuality === quality.value
+                                ? 'bg-red-500/20 border-red-400/50 text-white'
+                                : 'bg-white/5 border-white/10 hover:bg-white/10 text-white/80'
+                            }`}
+                          >
+                            {quality.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <label className="flex items-center gap-3 p-3 bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl hover:bg-white/10 transition-colors cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={config.showTrailerBadge !== false}
+                        onChange={(e) => setConfig({ ...config, showTrailerBadge: e.target.checked })}
+                        className="w-4 h-4 text-red-500 bg-white/10 border-white/20 rounded focus:ring-red-500 focus:ring-2"
+                      />
+                      <span className="text-sm text-white/80">Show Trailer Badge</span>
+                    </label>
+                    <label className="flex items-center gap-3 p-3 bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl hover:bg-white/10 transition-colors cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={config.showVideoControls !== false}
+                        onChange={(e) => setConfig({ ...config, showVideoControls: e.target.checked })}
+                        className="w-4 h-4 text-red-500 bg-white/10 border-white/20 rounded focus:ring-red-500 focus:ring-2"
+                      />
+                      <span className="text-sm text-white/80">Video Controls</span>
+                    </label>
+                    <label className="flex items-center gap-3 p-3 bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl hover:bg-white/10 transition-colors cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={config.showThumbnails !== false}
+                        onChange={(e) => setConfig({ ...config, showThumbnails: e.target.checked })}
+                        className="w-4 h-4 text-red-500 bg-white/10 border-white/20 rounded focus:ring-red-500 focus:ring-2"
+                      />
+                      <span className="text-sm text-white/80">Show Thumbnails</span>
+                    </label>
+                    <label className="flex items-center gap-3 p-3 bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl hover:bg-white/10 transition-colors cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={config.openInYouTube !== false}
+                        onChange={(e) => setConfig({ ...config, openInYouTube: e.target.checked })}
+                        className="w-4 h-4 text-red-500 bg-white/10 border-white/20 rounded focus:ring-red-500 focus:ring-2"
+                      />
+                      <span className="text-sm text-white/80">YouTube Link</span>
+                    </label>
+                  </div>
+                </div>
+              )}
+
+              {/* Notification Widget Specific Options */}
+              {formData.type === 'notifications' && (
+                <div className="space-y-6 mt-8 p-6 bg-gradient-to-br from-red-500/10 to-red-600/10 backdrop-blur-sm border border-red-400/20 rounded-xl">
+                  <h5 className="text-lg font-semibold text-white flex items-center gap-2">
+                    🔔 Notification Settings
+                  </h5>
+                  
+                  {/* Highlight Style */}
+                  <div>
+                    <label className="block text-sm font-medium text-white/80 mb-3">Display Style</label>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                      {[
+                        { value: 'banner', label: 'Banner', description: 'Full-width hero style' },
+                        { value: 'card', label: 'Card', description: 'Individual cards' },
+                        { value: 'minimal', label: 'Minimal', description: 'Simple list style' }
+                      ].map((style) => (
+                        <button
+                          key={style.value}
+                          onClick={() => setConfig({ ...config, highlightStyle: style.value })}
+                          className={`p-3 rounded-xl border transition-all duration-200 text-left hover:scale-105 ${
+                            config.highlightStyle === style.value
+                              ? 'bg-red-500/20 border-red-400/50 shadow-lg shadow-red-500/10'
+                              : 'bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20'
+                          }`}
+                        >
+                          <div className="font-medium text-white mb-1">{style.label}</div>
+                          <p className="text-xs text-white/60">{style.description}</p>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Notification Types */}
+                  <div>
+                    <label className="block text-sm font-medium text-white/80 mb-3">Notification Types</label>
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                      {[
+                        { value: 'tmdb_upcoming', label: 'TMDB Upcoming' },
+                        { value: 'tmdb_now_playing', label: 'TMDB Now Playing' },
+                        { value: 'new_episodes', label: 'New Episodes' },
+                        { value: 'movie_suggestion', label: 'Movie Suggestions' },
+                        { value: 'watch_again', label: 'Watch Again' }
+                      ].map((type) => (
+                        <label key={type.value} className="flex items-center gap-3 p-3 bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl hover:bg-white/10 transition-colors cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={config.notificationTypes?.includes(type.value) || false}
+                            onChange={(e) => {
+                              const currentTypes = config.notificationTypes || [];
+                              if (e.target.checked) {
+                                setConfig({ ...config, notificationTypes: [...currentTypes, type.value] });
+                              } else {
+                                setConfig({ ...config, notificationTypes: currentTypes.filter((t: string) => t !== type.value) });
+                              }
+                            }}
+                            className="w-4 h-4 text-red-500 bg-white/10 border-white/20 rounded focus:ring-red-500 focus:ring-2"
+                          />
+                          <span className="text-sm text-white/80">{type.label}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Notification Display Options */}
+                  <div className="grid grid-cols-2 gap-4">
+                    <label className="flex items-center gap-3 p-3 bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl hover:bg-white/10 transition-colors cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={config.showNotificationIcon !== false}
+                        onChange={(e) => setConfig({ ...config, showNotificationIcon: e.target.checked })}
+                        className="w-4 h-4 text-red-500 bg-white/10 border-white/20 rounded focus:ring-red-500 focus:ring-2"
+                      />
+                      <span className="text-sm text-white/80">Show Icons</span>
+                    </label>
+                    <label className="flex items-center gap-3 p-3 bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl hover:bg-white/10 transition-colors cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={config.showTimestamp !== false}
+                        onChange={(e) => setConfig({ ...config, showTimestamp: e.target.checked })}
+                        className="w-4 h-4 text-red-500 bg-white/10 border-white/20 rounded focus:ring-red-500 focus:ring-2"
+                      />
+                      <span className="text-sm text-white/80">Show Timestamps</span>
+                    </label>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Footer */}
+          <div className="flex items-center justify-end gap-3 p-6 border-t border-white/10">
+            <button
+              onClick={onCancel}
+              className="px-6 py-3 text-white/60 hover:text-white hover:bg-white/10 backdrop-blur-sm border border-white/10 rounded-xl transition-all duration-200"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleSave}
+              className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-red-500/20 to-red-600/20 hover:from-red-500/30 hover:to-red-600/30 backdrop-blur-sm border border-red-400/30 text-red-200 rounded-xl transition-all duration-200 hover:scale-105"
+            >
+              <Save className="w-4 h-4" />
+              Save Widget
+            </button>
+          </div>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}

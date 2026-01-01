@@ -2410,7 +2410,7 @@ func (s *MediaScanner) processVideoFile(path string, info os.FileInfo) error {
 				log.Printf("Warning: Failed to update media metadata for %s: %v", media.Title, err)
 			} else {
 				// After UpdateMedia, media.ID will be populated for new records
-				// Now download logo (uses title to search TMDB, like poster download)
+				// Now download logo and backdrop (uses title to search TMDB, like poster download)
 				if media.LogoPath == "" && s.GetTMDBService() != nil {
 					log.Printf("🏷️ Downloading logo for %s (Media ID: %d)", media.Title, media.ID)
 					logoPath, logoErr := s.GetTMDBService().DownloadLogoByTitle(media.Title, media.ID, "./logos")
@@ -2418,12 +2418,32 @@ func (s *MediaScanner) processVideoFile(path string, info os.FileInfo) error {
 						log.Printf("⚠️ Failed to download logo for %s: %v", media.Title, logoErr)
 					} else if logoPath != "" {
 						media.LogoPath = logoPath
-						// Save logo path to database
-						if updateErr := s.GetMediaService().UpdateMedia(media); updateErr != nil {
-							log.Printf("⚠️ Failed to save logo path for %s: %v", media.Title, updateErr)
-						} else {
-							log.Printf("✅ Downloaded and saved logo for: %s", media.Title)
-						}
+						log.Printf("✅ Downloaded logo for: %s", media.Title)
+					}
+				}
+				
+				// Download backdrop if not already present
+				if media.BackdropPath == "" && s.GetTMDBService() != nil {
+					log.Printf("🖼️ Downloading backdrop for %s (Media ID: %d)", media.Title, media.ID)
+					backdropPath, backdropErr := s.GetTMDBService().DownloadBackdropByTitle(media.Title, media.ID, "./backdrops")
+					if backdropErr != nil {
+						log.Printf("⚠️ Failed to download backdrop for %s: %v", media.Title, backdropErr)
+						// If download failed but we have TMDB backdrop URL, keep it
+						// (tmdb_backdrop_url should already be set from TMDB metadata)
+					} else if backdropPath != "" {
+						media.BackdropPath = backdropPath
+						// Set tmdb_backdrop_url to local API endpoint since we have local backdrop
+						media.TMDBBackdropURL = fmt.Sprintf("/api/backdrops/%d", media.ID)
+						log.Printf("✅ Downloaded backdrop for: %s, set tmdb_backdrop_url to local endpoint", media.Title)
+					}
+				}
+				
+				// Save logo and backdrop paths to database
+				if media.LogoPath != "" || media.BackdropPath != "" {
+					if updateErr := s.GetMediaService().UpdateMedia(media); updateErr != nil {
+						log.Printf("⚠️ Failed to save asset paths for %s: %v", media.Title, updateErr)
+					} else {
+						log.Printf("✅ Saved asset paths for: %s", media.Title)
 					}
 				}
 				
@@ -2619,7 +2639,24 @@ func (s *MediaScanner) processVideoFileWithPosterDownload(path string, info os.F
 					}
 				}
 				
-				// Save both poster and logo paths in a single update
+				// Download backdrop (works like poster and logo - searches TMDB by title)
+				if s.GetTMDBService() != nil {
+					log.Printf("🖼️ Downloading backdrop for: %s", refreshedMedia.Title)
+					backdropPath, backdropErr := s.GetTMDBService().DownloadBackdropByTitle(refreshedMedia.Title, refreshedMedia.ID, "./backdrops")
+					if backdropErr != nil {
+						log.Printf("⚠️ Failed to download backdrop for %s: %v", refreshedMedia.Title, backdropErr)
+						// If download failed but we have TMDB backdrop URL, keep it
+					} else if backdropPath != "" {
+						refreshedMedia.BackdropPath = backdropPath
+						// Set tmdb_backdrop_url to local API endpoint since we have local backdrop
+						refreshedMedia.TMDBBackdropURL = fmt.Sprintf("/api/backdrops/%d", refreshedMedia.ID)
+						log.Printf("✅ Downloaded backdrop for: %s, set tmdb_backdrop_url to local endpoint", refreshedMedia.Title)
+					} else {
+						log.Printf("ℹ️ No backdrop found for: %s", refreshedMedia.Title)
+					}
+				}
+				
+				// Save poster, logo, and backdrop paths in a single update
 				if updateErr := s.GetMediaService().UpdateMedia(refreshedMedia); updateErr != nil {
 					log.Printf("⚠️ Failed to update media with asset paths: %v", updateErr)
 				} else {

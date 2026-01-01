@@ -53,6 +53,15 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		newsHandlers := handlers.NewNewsHandlers(newsService)
 		mediaPathsHandler := torrentHandlers.NewMediaPathsHandler(db, mediaScanner)
 
+		// Initialize widget service and handler
+		widgetService := services.NewWidgetService(db, mediaService, tmdbService, notificationService)
+		widgetService.InitializeWidgets() // Run migration and seeding
+		widgetHandler := handlers.NewWidgetHandler(widgetService, mediaService, tmdbService)
+
+		// Initialize collection service and handler
+		collectionService := services.NewCollectionService(db)
+		collectionHandler := handlers.NewCollectionHandlers(collectionService)
+
 		// Initialize Redis asset handlers if Redis cache is available
 		var redisAssetHandlers *handlers.RedisAssetHandlers
 		if redisCache != nil {
@@ -80,31 +89,42 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 			api.GET("/thumbnails/:id", redisAssetHandlers.GetThumbnailCachedWithFallback(mediaService, thumbnailService))
 			api.GET("/previews/:id", redisAssetHandlers.GetPreviewCachedWithFallback(mediaService, thumbnailService))
 			api.GET("/posters/:id", redisAssetHandlers.GetPosterCachedWithFallback(mediaService))
+			api.GET("/backdrops/:id", handlers.GetBackdropWithAutoDownload(mediaService, tmdbService))
 
 			// Alternative asset serving endpoints (Redis-cached)
 			api.GET("/assets/thumbnails/:id", redisAssetHandlers.GetThumbnailCachedWithFallback(mediaService, thumbnailService))
 			api.GET("/assets/previews/:id", redisAssetHandlers.GetPreviewCachedWithFallback(mediaService, thumbnailService))
 			api.GET("/assets/posters/:id", redisAssetHandlers.GetPosterCachedWithFallback(mediaService))
+			api.GET("/assets/backdrops/:id", handlers.GetBackdropWithAutoDownload(mediaService, tmdbService))
 		} else {
 			// Fallback to enhanced handlers when Redis is not available
 			api.GET("/thumbnails/:id", handlers.GetThumbnailEnhanced(mediaService, thumbnailService))
 			api.GET("/previews/:id", handlers.GetPreviewEnhanced(mediaService, thumbnailService))
 			api.GET("/posters/:id", handlers.GetPosterWithAutoDownload(mediaService, posterService))
+			api.GET("/backdrops/:id", handlers.GetBackdropWithAutoDownload(mediaService, tmdbService))
 
 			// Alternative asset serving endpoints (enhanced handlers)
 			api.GET("/assets/thumbnails/:id", handlers.GetThumbnailEnhanced(mediaService, thumbnailService))
 			api.GET("/assets/previews/:id", handlers.GetPreviewEnhanced(mediaService, thumbnailService))
 			api.GET("/assets/posters/:id", handlers.GetPosterWithAutoDownload(mediaService, posterService))
+			api.GET("/assets/backdrops/:id", handlers.GetBackdropWithAutoDownload(mediaService, tmdbService))
 		}
 
 		// Direct static file serving as fallback (for debugging)
 		api.Static("/static/thumbnails", "./thumbnails")
 		api.Static("/static/previews", "./previews")
 		api.Static("/static/posters", "./posters")
+		api.Static("/static/backdrops", "./backdrops") // Serve backdrop files
 		api.Static("/logos", "./logos") // Serve logo files
 
 		// Logo scan endpoint
 		api.POST("/admin/scan/logos", handlers.ScanMovieLogos(mediaService, tmdbService))
+		
+		// Backdrop scan endpoint
+		api.POST("/admin/scan/backdrops", handlers.ScanMovieBackdrops(mediaService, tmdbService))
+		
+		// Backdrop URL migration endpoint
+		api.POST("/admin/migrate/backdrop-urls", handlers.MigrateBackdropURLs(mediaService))
 
 		// Thumbnail generation endpoint (always available)
 		api.POST("/thumbnails/:id", handlers.GenerateThumbnail(mediaService, thumbnailService))
@@ -195,11 +215,7 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		// Recommendation tracking
 		api.POST("/recommendations/track-click/:id", handlers.TrackRecommendationClick(recommendationService))
 
-		// My List
-		api.POST("/mylist/:id", handlers.AddToMyList(playbackService))
-		api.DELETE("/mylist/:id", handlers.RemoveFromMyList(playbackService))
-		api.GET("/mylist", handlers.GetMyList(playbackService))
-		api.GET("/mylist/check/:id", handlers.CheckMyList(playbackService))
+
 
 		// Admin utilities
 		api.POST("/admin/update-genres", handlers.UpdateAllMediaGenres(mediaService))
@@ -358,6 +374,51 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		api.GET("/admin/system/logs", handlers.GetServerLogs())
 		api.GET("/admin/system/logs/stream", handlers.StreamServerLogs())
 		api.GET("/admin/system/stats/stream", handlers.StreamSystemStats())
+
+		// Widget management endpoints
+		api.GET("/widgets", widgetHandler.GetAllWidgets)
+		api.GET("/widgets/status", widgetHandler.GetWidgetStatus)
+		api.GET("/widgets/meta", widgetHandler.GetWidgetMeta)
+		api.GET("/widgets/types", widgetHandler.GetWidgetTypes)
+		api.GET("/widgets/pages", widgetHandler.GetWidgetPages)
+		api.GET("/widgets/layouts", widgetHandler.GetWidgetLayouts)
+		api.GET("/widgets/data-sources", widgetHandler.GetWidgetDataSources)
+		api.GET("/widgets/content-types", widgetHandler.GetWidgetContentTypes)
+		api.GET("/widgets/page/:page", widgetHandler.GetWidgetsByPage)
+		api.GET("/widgets/page/:page/with-data", widgetHandler.GetWidgetsWithDataByPage)
+		api.GET("/widgets/:id", widgetHandler.GetWidgetByID)
+		api.POST("/widgets", widgetHandler.CreateWidget)
+		api.PUT("/widgets/:id", widgetHandler.UpdateWidget)
+		api.DELETE("/widgets/:id", widgetHandler.DeleteWidget)
+		api.PUT("/widgets/reorder", widgetHandler.ReorderWidgets)
+		api.POST("/widgets/:id/toggle", widgetHandler.ToggleWidget)
+		api.POST("/widgets/:id/duplicate", widgetHandler.DuplicateWidget)
+
+		// TMDB genre endpoints for widget configuration
+		api.GET("/tmdb/genres/movie", widgetHandler.GetTMDBGenres)
+		api.GET("/tmdb/genres/tv", widgetHandler.GetTMDBGenres)
+
+		// Collection management endpoints
+		api.GET("/collections", collectionHandler.GetUserCollections)
+		api.GET("/collections/public", collectionHandler.GetPublicCollections)
+		api.GET("/collections/search", collectionHandler.SearchCollections)
+		api.GET("/collections/:id", collectionHandler.GetCollection)
+		api.GET("/collections/:id/items", collectionHandler.GetCollectionItems)
+		api.GET("/collections/:id/stats", collectionHandler.GetCollectionStats)
+		api.GET("/collections/:id/export", collectionHandler.ExportCollection)
+		api.POST("/collections", collectionHandler.CreateCollection)
+		api.POST("/collections/import", collectionHandler.ImportCollection)
+		api.POST("/collections/:id/items", collectionHandler.AddItemToCollection)
+		api.POST("/collections/:id/items/bulk", collectionHandler.AddMultipleItemsToCollection)
+		api.PUT("/collections/:id", collectionHandler.UpdateCollection)
+		api.DELETE("/collections/:id", collectionHandler.DeleteCollection)
+		api.DELETE("/collections/:id/items/:mediaId", collectionHandler.RemoveItemFromCollection)
+
+		// My List endpoints (enhanced)
+		api.GET("/mylist", collectionHandler.GetMyList)
+		api.GET("/mylist/check/:id", collectionHandler.CheckMyList)
+		api.POST("/mylist/:id", collectionHandler.AddToMyList)
+		api.DELETE("/mylist/:id", collectionHandler.RemoveFromMyList)
 
 		// Notification endpoints
 		api.GET("/notifications", handlers.GetNotifications(notificationService))

@@ -1,358 +1,182 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { usePageTitle } from '@/hooks/usePageTitle';
-import { Film, Tv, Star, Clock } from "lucide-react";
 import { useNavigate } from '@/hooks/useNavigate';
 import Navbar from "@/components/Navbar";
 import VideoPlayer from '@/components/VideoPlayer';
 import RedLoader from '@/components/RedLoader';
-import { getApiUrl, fetchUniqueRecommendations, preloadAssets } from '@/lib/api';
+import { preloadAssets } from '@/lib/api';
 import { Media } from '@/types/media';
-import { ScrollXHero, EnhancedHorizontalRow } from '@/components/scrollx';
+import { EnhancedHorizontalRow } from '@/components/scrollx';
 import RecentlyWatched from '@/components/RecentlyWatched';
-import ContinueWatching from '@/components/ContinueWatching';
 import UpcomingMovies from '@/components/UpcomingMovies';
 import UpcomingTVSeries from '@/components/UpcomingTVSeries';
 import HomeflixHero from '@/components/HomeflixHero';
+import { WidgetRenderer, WidgetManagementButton } from '@/components/widgets';
+import BackendWidgetRenderer from '@/components/widgets/BackendWidgetRenderer';
+import ErrorBoundary from "@/components/ErrorBoundary";
+import {
+  useMedia,
+  useSeries,
+  useUniqueRecommendations,
+  useTrendingRecommendations,
+  usePopularRecommendations,
+  useSciFiRecommendations,
+  usePreloadData,
+  useSearch
+} from '@/lib/swr-api';
+
+// Memoized components for better performance
+const MemoizedEnhancedHorizontalRow = React.memo(EnhancedHorizontalRow);
+const MemoizedRecentlyWatched = React.memo(RecentlyWatched);
+const MemoizedUpcomingMovies = React.memo(UpcomingMovies);
+const MemoizedUpcomingTVSeries = React.memo(UpcomingTVSeries);
+const MemoizedHomeflixHero = React.memo(HomeflixHero);
+const MemoizedWidgetRenderer = React.memo(WidgetRenderer);
 
 export default function Home() {
   usePageTitle('Home');
   const navigate = useNavigate();
-  const [featuredMedia, setFeaturedMedia] = useState<Media[]>([]);
-  const [recentMovies, setRecentMovies] = useState<Media[]>([]);
-  const [popularMovies, setPopularMovies] = useState<Media[]>([]);
-  const [popularSeries, setPopularSeries] = useState<Media[]>([]);
-  const [trendingNow, setTrendingNow] = useState<Media[]>([]);
-  const [actionMovies, setActionMovies] = useState<Media[]>([]);
-  const [comedyMovies, setComedyMovies] = useState<Media[]>([]);
-  const [dramaMovies, setDramaMovies] = useState<Media[]>([]);
-  const [horrorMovies, setHorrorMovies] = useState<Media[]>([]);
-  const [scifiMovies, setScifiMovies] = useState<Media[]>([]);
-  const [searchResults, setSearchResults] = useState<Media[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
   const [selectedMedia, setSelectedMedia] = useState<Media | null>(null);
   const [isPlayerOpen, setIsPlayerOpen] = useState(false);
-  const [loading, setLoading] = useState(true);
+
+  // Use SWR hooks for data fetching with caching - all with fallback data
+  const { data: allMedia = [], isLoading: mediaLoading } = useMedia({ fallbackData: [] });
+  const { data: seriesData = [] } = useSeries({ fallbackData: [] });
+  const { data: uniqueRecommendations = [] } = useUniqueRecommendations('mixed', 20, { fallbackData: [] });
+  const { data: trendingNow = [] } = useTrendingRecommendations(20, { fallbackData: [] });
+  const { data: popularMovies = [] } = usePopularRecommendations(20, { fallbackData: [] });
+  const { data: scifiMovies = [] } = useSciFiRecommendations(20, { fallbackData: [] });
+  const { data: searchResults = [] } = useSearch(searchQuery.trim() ? searchQuery : '', { fallbackData: [] });
+
+  // Preload data for better performance - memoized to prevent re-renders
+  const { preloadHomeData } = usePreloadData();
 
   useEffect(() => {
-    fetchInitialData();
+    preloadHomeData();
+  }, [preloadHomeData]);
 
-    // Set up auto-refresh every 5 minutes for recommendations
-    const interval = setInterval(() => {
-      fetchInitialData();
-    }, 5 * 60 * 1000); // 5 minutes in milliseconds
-
-    return () => clearInterval(interval);
-  }, []);
-
-  const fetchInitialData = async () => {
-    try {
-      const { getApiUrl, API_ENDPOINTS, apiCall } = await import('../lib/api');
-
-      // Fetch all media
-      const allMedia = await apiCall(API_ENDPOINTS.media);
-
-      // Get unique MOVIE recommendations for hero section (HOME page shows movies only)
-      let highQualityMedia: Media[] = [];
-      try {
-        console.log('🎬 Fetching unique movie recommendations for home page...');
-        const recommendations = await fetchUniqueRecommendations('mixed', 20);
-        // Filter for movies only in hero section
-        highQualityMedia = recommendations.filter((item: Media) => item.type === 'movie');
-        console.log(`✅ Got ${highQualityMedia.length} unique movie recommendations for home page`);
-      } catch (error) {
-        console.warn('⚠️ Enhanced recommendations failed, using fallback');
-        // Fallback to high-rated movies only
-        highQualityMedia = allMedia
-          .filter((item: Media) => item.type === 'movie' && (item.rating || 0) >= 6.0)
-          .slice(0, 10);
-      }
-
-      // If not enough movie recommendations, fallback to all movies
-      if (highQualityMedia.length < 5) {
-        highQualityMedia = allMedia
-          .filter((item: Media) => item.type === 'movie')
-          .sort((a: Media, b: Media) => (b.rating || 0) - (a.rating || 0))
-          .slice(0, 10);
-      }
-
-      // Filter for movies only and prioritize higher rated content
-      const movieRecommendations = highQualityMedia.filter((item: Media) => item.type === 'movie');
-      const featuredSelection = movieRecommendations
-        .sort((a: Media, b: Media) => (b.rating || 0) - (a.rating || 0))
-        .slice(0, 5);
-
-      // Fallback to movies from allMedia if not enough recommendations
-      const fallbackMovies = allMedia.filter((item: Media) => item.type === 'movie').slice(0, 5);
-      setFeaturedMedia(featuredSelection.length > 0 ? featuredSelection : fallbackMovies);
-
-      // Recent movies (latest by ID)
-      const recentMovies = allMedia
-        .filter((item: Media) => item.type === "movie")
-        .sort((a: Media, b: Media) => b.id - a.id)
-        .slice(0, 20);
-      setRecentMovies(recentMovies);
-
-      // Popular movies - use enhanced API endpoint with mixed criteria (views, rating, year, genres)
-      let popularMovies: Media[] = [];
-      try {
-        const popularResponse = await fetch(`${getApiUrl()}/api/recommendations/popular?limit=20`);
-        if (popularResponse.ok) {
-          popularMovies = await popularResponse.json();
-          console.log(`✅ Got ${popularMovies.length} enhanced popular movies with mixed criteria`);
-        } else {
-          throw new Error('Popular API failed');
-        }
-      } catch (error) {
-        console.warn('⚠️ Enhanced popular movies failed, using fallback');
-        // Fallback to mixed criteria sorting (views, rating, year, genres)
-        popularMovies = allMedia
-          .filter((item: Media) => item.type === "movie")
-          .sort((a: Media, b: Media) => {
-            const currentYear = new Date().getFullYear();
-            const viewScoreA = (a.view_count || 0) * 0.4;
-            const viewScoreB = (b.view_count || 0) * 0.4;
-            const ratingScoreA = (a.rating || 0) * 10;
-            const ratingScoreB = (b.rating || 0) * 10;
-            const yearScoreA = ((a.year || 0) >= currentYear - 2) ? 25 : ((a.year || 0) >= currentYear - 5) ? 15 : 0;
-            const yearScoreB = ((b.year || 0) >= currentYear - 2) ? 25 : ((b.year || 0) >= currentYear - 5) ? 15 : 0;
-            const genreScoreA = (a.genres || []).some(g =>
-              ['Action', 'Drama', 'Comedy', 'Sci-Fi'].includes(g.name)
-            ) ? 10 : 0;
-            const genreScoreB = (b.genres || []).some(g =>
-              ['Action', 'Drama', 'Comedy', 'Sci-Fi'].includes(g.name)
-            ) ? 10 : 0;
-
-            const totalScoreA = viewScoreA + ratingScoreA + yearScoreA + genreScoreA;
-            const totalScoreB = viewScoreB + ratingScoreB + yearScoreB + genreScoreB;
-            return totalScoreB - totalScoreA;
-          })
-          .slice(0, 20);
-      }
-      setPopularMovies(popularMovies);
-
-      // Popular series (most viewed TV shows) - Fetch directly from series API
-      let popularSeries: Media[] = [];
-      try {
-        const seriesResponse = await fetch(`${getApiUrl()}/api/series`);
-        if (seriesResponse.ok) {
-          const seriesData = await seriesResponse.json();
-          // Map series data to Media format and sort by rating/popularity
-          popularSeries = seriesData
-            .map((series: any) => ({
-              id: series.id,
-              title: series.title,
-              description: series.description,
-              rating: series.rating || 0,
-              type: 'series' as const,
-              series_id: series.id,
-              genres: series.genre_names ? series.genre_names.map((name: string, idx: number) => ({ id: idx, name })) : [],
-              thumbnail_path: series.backdrop_path || series.tmdb_backdrop_url,
-              banner_path: series.backdrop_path || series.tmdb_backdrop_url,
-              poster_path: series.poster_path,
-              tmdb_poster_url: series.tmdb_poster_url,
-              poster_url: series.tmdb_poster_url,
-              tmdb_backdrop_url: series.tmdb_backdrop_url,
-              view_count: series.total_episodes || 0, // Use episode count as proxy for popularity
-              file_path: undefined,
-              duration: undefined,
-              year: series.release_date ? new Date(series.release_date).getFullYear() : undefined
-            }))
-            .sort((a: Media, b: Media) => (b.rating || 0) - (a.rating || 0))
-            .slice(0, 20);
-          console.log(`✅ Got ${popularSeries.length} TV series from series API`);
-        }
-      } catch (error) {
-        console.error("Error fetching series:", error);
-      }
-
-      setPopularSeries(popularSeries);
-
-      // Trending now - use enhanced API endpoint with mixed criteria (views, genres, latest year, high rating)
-      let trendingNow: Media[] = [];
-      try {
-        const trendingResponse = await fetch(`${getApiUrl()}/api/recommendations/trending?limit=20`);
-        if (trendingResponse.ok) {
-          trendingNow = await trendingResponse.json();
-          console.log(`✅ Got ${trendingNow.length} enhanced trending movies with mixed criteria`);
-        } else {
-          throw new Error('Trending API failed');
-        }
-      } catch (error) {
-        console.warn('⚠️ Enhanced trending failed, using fallback');
-        // Fallback to mixed criteria sorting (views, genres, latest year, high rating)
-        const currentYear = new Date().getFullYear();
-        trendingNow = allMedia
-          .sort((a: Media, b: Media) => {
-            const yearBoostA = ((a.year || 0) >= currentYear - 1) ? 50 : ((a.year || 0) >= currentYear - 3) ? 25 : 0;
-            const yearBoostB = ((b.year || 0) >= currentYear - 1) ? 50 : ((b.year || 0) >= currentYear - 3) ? 25 : 0;
-            const genreBoostA = (a.genres || []).some(g =>
-              g.name.toLowerCase().includes('action') ||
-              g.name.toLowerCase().includes('sci-fi') ||
-              g.name.toLowerCase().includes('science') ||
-              g.name.toLowerCase().includes('thriller')
-            ) ? 20 : 0;
-            const genreBoostB = (b.genres || []).some(g =>
-              g.name.toLowerCase().includes('action') ||
-              g.name.toLowerCase().includes('sci-fi') ||
-              g.name.toLowerCase().includes('science') ||
-              g.name.toLowerCase().includes('thriller')
-            ) ? 20 : 0;
-            const viewBoostA = (a.view_count || 0) * 0.2;
-            const viewBoostB = (b.view_count || 0) * 0.2;
-            const ratingBoostA = (a.rating || 0) * 8;
-            const ratingBoostB = (b.rating || 0) * 8;
-
-            const scoreA = viewBoostA + ratingBoostA + yearBoostA + genreBoostA;
-            const scoreB = viewBoostB + ratingBoostB + yearBoostB + genreBoostB;
-            return scoreB - scoreA;
-          })
-          .slice(0, 20);
-      }
-      setTrendingNow(trendingNow);
-
-      // Genre-based collections
-      const actionMovies = allMedia
-        .filter((item: Media) =>
-          item.type === "movie" &&
-          (item.genres || []).some(genre => genre.name.toLowerCase().includes('action'))
-        )
-        .sort((a: Media, b: Media) => (b.rating || 0) - (a.rating || 0))
-        .slice(0, 20);
-      setActionMovies(actionMovies);
-
-      const comedyMovies = allMedia
-        .filter((item: Media) =>
-          item.type === "movie" &&
-          (item.genres || []).some(genre => genre.name.toLowerCase().includes('comedy'))
-        )
-        .sort((a: Media, b: Media) => (b.rating || 0) - (a.rating || 0))
-        .slice(0, 20);
-      setComedyMovies(comedyMovies);
-
-      const dramaMovies = allMedia
-        .filter((item: Media) =>
-          item.type === "movie" &&
-          (item.genres || []).some(genre => genre.name.toLowerCase().includes('drama'))
-        )
-        .sort((a: Media, b: Media) => (b.rating || 0) - (a.rating || 0))
-        .slice(0, 20);
-      setDramaMovies(dramaMovies);
-
-      const horrorMovies = allMedia
-        .filter((item: Media) =>
-          item.type === "movie" &&
-          (item.genres || []).some(genre =>
-            genre.name.toLowerCase().includes('horror') ||
-            genre.name.toLowerCase().includes('thriller')
-          )
-        )
-        .sort((a: Media, b: Media) => (b.rating || 0) - (a.rating || 0))
-        .slice(0, 20);
-      setHorrorMovies(horrorMovies);
-
-      // Sci-Fi Movies - use enhanced API endpoint
-      let scifiMovies: Media[] = [];
-      try {
-        const scifiResponse = await fetch(`${getApiUrl()}/api/recommendations/scifi?limit=20`);
-        if (scifiResponse.ok) {
-          scifiMovies = await scifiResponse.json();
-          console.log(`✅ Got ${scifiMovies.length} enhanced sci-fi movies`);
-        } else {
-          throw new Error('Sci-Fi API failed');
-        }
-      } catch (error) {
-        console.warn('⚠️ Enhanced sci-fi failed, using fallback');
-        // Fallback to local filtering
-        scifiMovies = allMedia
-          .filter((item: Media) =>
-            item.type === "movie" &&
-            (item.genres || []).some(genre =>
-              genre.name.toLowerCase().includes('sci-fi') ||
-              genre.name.toLowerCase().includes('science fiction') ||
-              genre.name.toLowerCase().includes('science') ||
-              genre.name.toLowerCase().includes('fantasy')
-            )
-          )
-          .sort((a: Media, b: Media) => (b.rating || 0) - (a.rating || 0))
-          .slice(0, 20);
-      }
-      setScifiMovies(scifiMovies);
-
-      // Preload assets for better performance (poster first, then thumbnail, then preview)
-      const allContentForPreload = [
-        ...featuredSelection,
-        ...recentMovies.slice(0, 10),
-        ...popularMovies.slice(0, 10),
-        ...trendingNow.slice(0, 10),
-        ...scifiMovies.slice(0, 10)
-      ];
-
-      if (allContentForPreload.length > 0) {
-        preloadAssets(allContentForPreload, ['thumbnail', 'preview']);
-      }
-
-      setLoading(false);
-    } catch (error) {
-      console.error("Error fetching data:", error);
-      setLoading(false);
+  // Memoized data processing with stable dependencies
+  const featuredMedia = useMemo(() => {
+    if (uniqueRecommendations.length > 0) {
+      return uniqueRecommendations.filter((item: Media) => item.type === 'movie').slice(0, 5);
     }
-  };
+    return allMedia.filter((item: Media) => item.type === 'movie')
+      .sort((a: Media, b: Media) => (b.rating || 0) - (a.rating || 0))
+      .slice(0, 5);
+  }, [uniqueRecommendations, allMedia]);
 
-  const setMockData = () => {
-    const mockMediaList: Media[] = [
-      {
-        id: 1,
-        title: "Epic Adventure",
-        description: "Experience the ultimate entertainment with this amazing content. Watch now and immerse yourself in a world of endless possibilities.",
-        type: "movie",
-        rating: 8.5,
-        duration: 7200,
-        genres: [{ name: "Action" }, { name: "Adventure" }, { name: "Sci-Fi" }],
-        view_count: 1250,
-      },
-      {
-        id: 2,
-        title: "Thrilling Drama",
-        description: "A captivating story that will keep you on the edge of your seat from start to finish.",
-        type: "movie",
-        rating: 9.1,
-        duration: 6900,
-        genres: [{ name: "Drama" }, { name: "Thriller" }, { name: "Mystery" }],
-        view_count: 2100,
-      },
-      {
-        id: 3,
-        title: "Comedy Gold",
-        description: "Laugh out loud with this hilarious comedy that brings joy and entertainment to your screen.",
-        type: "movie",
-        rating: 7.8,
-        duration: 5400,
-        genres: [{ name: "Comedy" }, { name: "Romance" }, { name: "Family" }],
-        view_count: 890,
-      }
+  const recentMovies = useMemo(() => {
+    return allMedia
+      .filter((item: Media) => item.type === "movie")
+      .sort((a: Media, b: Media) => b.id - a.id)
+      .slice(0, 20);
+  }, [allMedia]);
+
+  const popularSeries = useMemo(() => {
+    return seriesData
+      .map((series: any) => ({
+        id: series.id,
+        title: series.title,
+        description: series.description,
+        rating: series.rating || 0,
+        type: 'series' as const,
+        series_id: series.id,
+        genres: series.genre_names ? series.genre_names.map((name: string, idx: number) => ({ id: idx, name })) : [],
+        thumbnail_path: series.backdrop_path || series.tmdb_backdrop_url,
+        banner_path: series.backdrop_path || series.tmdb_backdrop_url,
+        poster_path: series.poster_path,
+        tmdb_poster_url: series.tmdb_poster_url,
+        poster_url: series.tmdb_poster_url,
+        tmdb_backdrop_url: series.tmdb_backdrop_url,
+        view_count: series.total_episodes || 0,
+        file_path: undefined,
+        duration: undefined,
+        year: series.release_date ? new Date(series.release_date).getFullYear() : undefined
+      }))
+      .sort((a: Media, b: Media) => (b.rating || 0) - (a.rating || 0))
+      .slice(0, 20);
+  }, [seriesData]);
+
+  // Genre-based collections with memoization and stable sorting
+  const genreMovies = useMemo(() => {
+    const filterByGenre = (genreName: string) => 
+      allMedia
+        .filter((item: Media) =>
+          item.type === "movie" &&
+          (item.genres || []).some(genre => genre.name.toLowerCase().includes(genreName.toLowerCase()))
+        )
+        .sort((a: Media, b: Media) => (b.rating || 0) - (a.rating || 0))
+        .slice(0, 20);
+
+    return {
+      action: filterByGenre('action'),
+      comedy: filterByGenre('comedy'),
+      drama: filterByGenre('drama'),
+      horror: filterByGenre('horror') || filterByGenre('thriller'),
+    };
+  }, [allMedia]);
+
+  // Memoize combined media array to prevent widget re-renders
+  const combinedMedia = useMemo(() => {
+    if (allMedia.length === 0) return [];
+    
+    return [
+      ...recentMovies,
+      ...popularMovies,
+      ...trendingNow,
+      ...genreMovies.action,
+      ...genreMovies.comedy,
+      ...genreMovies.drama,
+      ...genreMovies.horror,
+      ...scifiMovies
+    ];
+  }, [
+    allMedia.length,
+    recentMovies,
+    popularMovies,
+    trendingNow,
+    genreMovies.action,
+    genreMovies.comedy,
+    genreMovies.drama,
+    genreMovies.horror,
+    scifiMovies
+  ]);
+
+  // Optimized asset preloading
+  useEffect(() => {
+    if (allMedia.length === 0) return;
+    
+    const allContentForPreload = [
+      ...featuredMedia.slice(0, 3), // Reduce preload count
+      ...recentMovies.slice(0, 5),
+      ...popularMovies.slice(0, 5),
+      ...trendingNow.slice(0, 5),
     ];
 
-    setFeaturedMedia(mockMediaList);
-    setRecentMovies(mockMediaList);
-    setPopularSeries(mockMediaList);
-  };
-
-  const handleSearch = async (query: string) => {
-    try {
-      const apiUrl = getApiUrl();
-      const response = await fetch(`${apiUrl}/api/search?q=${encodeURIComponent(query)}`);
-      const data = await response.json();
-      setSearchResults(data.media || []);
-    } catch (error) {
-      console.error("Error searching:", error);
+    if (allContentForPreload.length > 0) {
+      // Use requestIdleCallback for non-blocking preload
+      if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
+        window.requestIdleCallback(() => {
+          preloadAssets(allContentForPreload, ['thumbnail']);
+        });
+      } else {
+        setTimeout(() => {
+          preloadAssets(allContentForPreload, ['thumbnail']);
+        }, 100);
+      }
     }
-  };
+  }, [allMedia.length, featuredMedia, recentMovies, popularMovies, trendingNow]);
 
-  const handlePlay = (media: Media, startTime?: number) => {
-    // Check if this is a series object (has episodes array)
+  // Memoized event handlers
+  const handleSearch = useCallback((query: string) => {
+    setSearchQuery(query);
+  }, []);
+
+  const handlePlay = useCallback((media: Media) => {
     if (media.type === 'series' && (media as any).episodes && (media as any).episodes.length > 0) {
-      // Play the first episode of the series
       const firstEpisode = (media as any).episodes[0];
       setSelectedMedia({
         id: firstEpisode.id,
@@ -363,59 +187,30 @@ export default function Home() {
         series_id: media.series_id || media.id
       } as Media);
     } else {
-      // Regular media (movie or episode)
       setSelectedMedia(media);
     }
     setIsPlayerOpen(true);
-  };
+  }, []);
 
-  const handleInfo = (media: Media) => {
-    // Route to appropriate page based on media type
+  const handleInfo = useCallback((media: Media) => {
     if (media.type === 'episode' || media.type === 'tv' || media.type === 'series') {
-      // If it's an episode, try to get the series ID, otherwise use the media ID
       const seriesId = media.series_id || media.id;
       navigate.push(`/tv-series/${seriesId}`);
     } else {
       navigate.push(`/movie/${media.id}`);
     }
-  };
+  }, [navigate]);
 
-  const parallaxCards = [
-    {
-      id: 1,
-      title: "Endless Entertainment",
-      description: "Discover thousands of movies and TV shows from your personal collection",
-      icon: <Film />,
-      variant: "default" as const,
-      background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
-    },
-    {
-      id: 2,
-      title: "Smart Organization",
-      description: "Automatically categorized by genre, year, and rating for easy browsing",
-      icon: <Star />,
-      variant: "outline" as const,
-      background: "linear-gradient(135deg, #f093fb 0%, #f5576c 100%)",
-    },
-    {
-      id: 3,
-      title: "High Quality Streaming",
-      description: "Enjoy your content in the highest quality with adaptive streaming",
-      icon: <Tv />,
-      variant: "secondary" as const,
-      background: "linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)",
-    },
-    {
-      id: 4,
-      title: "Watch Anywhere",
-      description: "Stream your personal library on any device, anytime, anywhere",
-      icon: <Clock />,
-      variant: "ghost" as const,
-      background: "linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)",
-    },
-  ];
+  const handleClosePlayer = useCallback(() => {
+    setIsPlayerOpen(false);
+  }, []);
 
-  if (loading) {
+  const handlePlayNext = useCallback((nextMedia: Media) => {
+    setSelectedMedia(nextMedia);
+  }, []);
+
+  // Show minimal loading only for critical data
+  if (mediaLoading && allMedia.length === 0) {
     return (
       <div className="min-h-screen bg-black flex items-center justify-center">
         <RedLoader size="large" />
@@ -428,25 +223,21 @@ export default function Home() {
       <Navbar onSearch={handleSearch} />
 
       {/* HomeflixHero Section - Mixed content for homepage */}
-      <HomeflixHero onPlay={handlePlay} onInfo={handleInfo} sortMode="mixed" />
+      <MemoizedHomeflixHero onPlay={handlePlay} onInfo={handleInfo} sortMode="mixed" />
 
-      {/* ScrollX Hero Section - Commented out */}
-      {/* {featuredMedia.length > 0 && (
-        <ScrollXHero
-          featuredMedia={featuredMedia}
-          onPlay={handlePlay}
-          onInfo={handleInfo}
-          enableRecommendations={true}
-          refreshInterval={300000}
-          contentFilter="movies-hd"
+      {/* Widget System Integration - Backend Data */}
+      <ErrorBoundary>
+        <BackendWidgetRenderer 
+          page="home" 
+          className="py-8"
         />
-      )} */}
+      </ErrorBoundary>
 
       {/* Main Content - Netflix Style */}
       <div className="relative bg-black" style={{ overflow: 'visible', zIndex: 10 }}>
         {searchResults.length > 0 ? (
           <div className="py-12" style={{ overflow: 'visible' }}>
-            <EnhancedHorizontalRow
+            <MemoizedEnhancedHorizontalRow
               title="Search Results"
               media={searchResults}
               onPlay={handlePlay}
@@ -460,14 +251,14 @@ export default function Home() {
 
             <div className="px-4 md:px-8">
               {/* Continue Watching */}
-              <RecentlyWatched
+              <MemoizedRecentlyWatched
                 onPlay={handlePlay}
                 onInfo={handleInfo}
               />
             </div>
 
             {/* TMDB Upcoming Movies - Now Playing in Theaters */}
-            <UpcomingMovies
+            <MemoizedUpcomingMovies
               showSection="now_playing"
               maxItems={15}
               className="px-4 md:px-8"
@@ -475,7 +266,7 @@ export default function Home() {
 
             {/* Trending Now */}
             {trendingNow.length > 0 && (
-              <EnhancedHorizontalRow
+              <MemoizedEnhancedHorizontalRow
                 title="Trending Now"
                 media={trendingNow}
                 onPlay={handlePlay}
@@ -487,7 +278,7 @@ export default function Home() {
 
             {/* Popular Movies */}
             {popularMovies.length > 0 && (
-              <EnhancedHorizontalRow
+              <MemoizedEnhancedHorizontalRow
                 title="Popular Movies"
                 media={popularMovies}
                 onPlay={handlePlay}
@@ -498,7 +289,7 @@ export default function Home() {
 
             {/* Popular TV Shows */}
             {popularSeries.length > 0 && (
-              <EnhancedHorizontalRow
+              <MemoizedEnhancedHorizontalRow
                 title="Popular TV Shows"
                 media={popularSeries}
                 onPlay={handlePlay}
@@ -508,10 +299,10 @@ export default function Home() {
             )}
 
             {/* Action Movies */}
-            {actionMovies.length > 0 && (
-              <EnhancedHorizontalRow
+            {genreMovies.action.length > 0 && (
+              <MemoizedEnhancedHorizontalRow
                 title="Action & Adventure"
-                media={actionMovies}
+                media={genreMovies.action}
                 onPlay={handlePlay}
                 onInfo={handleInfo}
                 size="medium"
@@ -519,10 +310,10 @@ export default function Home() {
             )}
 
             {/* Comedy Movies */}
-            {comedyMovies.length > 0 && (
-              <EnhancedHorizontalRow
+            {genreMovies.comedy.length > 0 && (
+              <MemoizedEnhancedHorizontalRow
                 title="Comedy Movies"
-                media={comedyMovies}
+                media={genreMovies.comedy}
                 onPlay={handlePlay}
                 onInfo={handleInfo}
                 size="medium"
@@ -530,10 +321,10 @@ export default function Home() {
             )}
 
             {/* Drama Movies */}
-            {dramaMovies.length > 0 && (
-              <EnhancedHorizontalRow
+            {genreMovies.drama.length > 0 && (
+              <MemoizedEnhancedHorizontalRow
                 title="Drama Movies"
-                media={dramaMovies}
+                media={genreMovies.drama}
                 onPlay={handlePlay}
                 onInfo={handleInfo}
                 size="medium"
@@ -541,10 +332,10 @@ export default function Home() {
             )}
 
             {/* Horror & Thriller */}
-            {horrorMovies.length > 0 && (
-              <EnhancedHorizontalRow
+            {genreMovies.horror.length > 0 && (
+              <MemoizedEnhancedHorizontalRow
                 title="Horror & Thriller"
-                media={horrorMovies}
+                media={genreMovies.horror}
                 onPlay={handlePlay}
                 onInfo={handleInfo}
                 size="medium"
@@ -553,7 +344,7 @@ export default function Home() {
 
             {/* Sci-Fi Movies - Enhanced API */}
             {scifiMovies.length > 0 && (
-              <EnhancedHorizontalRow
+              <MemoizedEnhancedHorizontalRow
                 title="Sci-Fi & Fantasy"
                 media={scifiMovies}
                 onPlay={handlePlay}
@@ -564,7 +355,7 @@ export default function Home() {
 
             {/* Recently Added */}
             {recentMovies.length > 0 && (
-              <EnhancedHorizontalRow
+              <MemoizedEnhancedHorizontalRow
                 title="Recently Added"
                 media={recentMovies}
                 onPlay={handlePlay}
@@ -574,42 +365,42 @@ export default function Home() {
             )}
 
             {/* TMDB Coming Soon */}
-            <UpcomingMovies
+            <MemoizedUpcomingMovies
               showSection="upcoming"
               maxItems={12}
               className="px-4 md:px-8"
             />
 
             {/* TMDB Trending This Week */}
-            <UpcomingMovies
+            <MemoizedUpcomingMovies
               showSection="trending_weekly"
               maxItems={10}
               className="px-4 md:px-8"
             />
 
             {/* TMDB Trending Daily - Bottom Section */}
-            <UpcomingMovies
+            <MemoizedUpcomingMovies
               showSection="trending_daily"
               maxItems={15}
               className="px-4 md:px-8"
             />
 
             {/* TV Series - Airing Today */}
-            <UpcomingTVSeries
+            <MemoizedUpcomingTVSeries
               showSection="airing_today"
               maxItems={15}
               className="px-4 md:px-8"
             />
 
             {/* TV Series - On the Air */}
-            <UpcomingTVSeries
+            <MemoizedUpcomingTVSeries
               showSection="on_the_air"
               maxItems={12}
               className="px-4 md:px-8"
             />
 
             {/* TV Series - Trending Daily */}
-            <UpcomingTVSeries
+            <MemoizedUpcomingTVSeries
               showSection="trending_daily"
               maxItems={10}
               className="px-4 md:px-8"
@@ -623,15 +414,14 @@ export default function Home() {
         <VideoPlayer
           media={selectedMedia}
           isOpen={isPlayerOpen}
-          onClose={() => setIsPlayerOpen(false)}
+          onClose={handleClosePlayer}
           startTime={0}
-          onPlayNext={(nextMedia) => {
-            console.log('Playing next episode:', nextMedia.title);
-            setSelectedMedia(nextMedia);
-            // Keep player open and switch to next episode
-          }}
+          onPlayNext={handlePlayNext}
         />
       )}
+
+      {/* Widget Management Button (Development Only) */}
+      <WidgetManagementButton page="home" showPerformance={true} />
     </div>
   );
 }

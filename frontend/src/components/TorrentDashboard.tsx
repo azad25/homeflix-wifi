@@ -72,6 +72,9 @@ interface TorrentConfig {
   port_range_start: number;
   port_range_end: number;
   max_open_files: number;
+  // Speed limit settings
+  download_speed_limit: number; // KB/s, 0 = unlimited
+  upload_speed_limit: number; // KB/s, 0 = unlimited
 }
 
 interface MediaInfo {
@@ -1104,6 +1107,112 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
                   Higher peer connections = faster downloads but more CPU/memory usage.
                   Restart required after changing these settings.
                 </p>
+              </div>
+            </div>
+
+            {/* Speed Limit Settings Section */}
+            <div className="col-span-full">
+              <h3 className="text-lg font-medium text-white mb-4 flex items-center gap-2">
+                <Download className="w-5 h-5 text-green-400" />
+                Speed Limits (Bandwidth Control)
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 bg-gray-800 rounded-lg">
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                    Download Speed Limit (KB/s)
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="1000000"
+                    value={config.download_speed_limit || 0}
+                    onChange={(e) => setConfig({ ...config, download_speed_limit: parseInt(e.target.value) || 0 })}
+                    className="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:border-green-500"
+                    placeholder="0 = Unlimited"
+                  />
+                  <p className="text-xs text-gray-400 mt-1">
+                    0 = Unlimited | 1024 KB/s = 1 MB/s | 10240 KB/s = 10 MB/s
+                  </p>
+                  {config.download_speed_limit > 0 && (
+                    <p className="text-xs text-green-400 mt-1">
+                      Current limit: {(config.download_speed_limit / 1024).toFixed(1)} MB/s
+                    </p>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                    Upload Speed Limit (KB/s)
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="1000000"
+                    value={config.upload_speed_limit || 0}
+                    onChange={(e) => setConfig({ ...config, upload_speed_limit: parseInt(e.target.value) || 0 })}
+                    className="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:border-green-500"
+                    placeholder="0 = Unlimited"
+                  />
+                  <p className="text-xs text-gray-400 mt-1">
+                    0 = Unlimited | 512 KB/s = 0.5 MB/s | 1024 KB/s = 1 MB/s
+                  </p>
+                  {config.upload_speed_limit > 0 && (
+                    <p className="text-xs text-green-400 mt-1">
+                      Current limit: {(config.upload_speed_limit / 1024).toFixed(1)} MB/s
+                    </p>
+                  )}
+                </div>
+
+                {/* Quick Speed Presets */}
+                <div className="col-span-full">
+                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                    Quick Speed Presets
+                  </label>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      onClick={() => setConfig({ ...config, download_speed_limit: 0, upload_speed_limit: 0 })}
+                      className="px-3 py-1 bg-green-600 hover:bg-green-700 text-white rounded text-xs transition-colors"
+                    >
+                      Unlimited
+                    </button>
+                    <button
+                      onClick={() => setConfig({ ...config, download_speed_limit: 5120, upload_speed_limit: 1024 })}
+                      className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs transition-colors"
+                    >
+                      5MB/s ↓ 1MB/s ↑
+                    </button>
+                    <button
+                      onClick={() => setConfig({ ...config, download_speed_limit: 10240, upload_speed_limit: 2048 })}
+                      className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs transition-colors"
+                    >
+                      10MB/s ↓ 2MB/s ↑
+                    </button>
+                    <button
+                      onClick={() => setConfig({ ...config, download_speed_limit: 20480, upload_speed_limit: 5120 })}
+                      className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs transition-colors"
+                    >
+                      20MB/s ↓ 5MB/s ↑
+                    </button>
+                    <button
+                      onClick={() => setConfig({ ...config, download_speed_limit: 51200, upload_speed_limit: 10240 })}
+                      className="px-3 py-1 bg-purple-600 hover:bg-purple-700 text-white rounded text-xs transition-colors"
+                    >
+                      50MB/s ↓ 10MB/s ↑
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-3 p-3 bg-green-900/30 border border-green-500/30 rounded-lg">
+                <p className="text-sm text-green-200">
+                  <strong>🚀 Speed Control:</strong> Speed limits are saved in configuration but not actively enforced by the torrent client.
+                  The Rain torrent library doesn't support runtime speed limiting. Consider using external tools:
+                </p>
+                <ul className="text-xs text-green-300 mt-2 ml-4 space-y-1">
+                  <li>• Linux: <code>tc</code> (traffic control) for network interface limiting</li>
+                  <li>• Router: QoS settings for device-level bandwidth control</li>
+                  <li>• Network: Bandwidth limiting at switch/firewall level</li>
+                </ul>
               </div>
             </div>
 

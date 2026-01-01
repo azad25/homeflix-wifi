@@ -17,14 +17,14 @@ export const ScrollReveal: React.FC<ScrollRevealProps> = ({
   children,
   direction = 'up',
   delay = 0,
-  duration = 0.6,
-  distance = 50,
+  duration = 0.3,
+  distance = 20,
   className = '',
   style,
   once = true
 }) => {
   const ref = useRef(null);
-  const isInView = useInView(ref, { once, margin: "-100px" });
+  const isInView = useInView(ref, { once, margin: "-50px" });
 
   const getInitialPosition = () => {
     switch (direction) {
@@ -68,7 +68,7 @@ export const ScrollReveal: React.FC<ScrollRevealProps> = ({
       transition={{
         duration,
         delay,
-        ease: [0.25, 0.46, 0.45, 0.94]
+        ease: "easeOut"
       }}
     >
       {children}

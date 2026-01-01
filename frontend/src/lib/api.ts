@@ -8,9 +8,20 @@ export const getApiUrl = () => {
     return dockerApiUrl || 'http://localhost:8252';
   }
 
-  // Client-side: use external hostname with backend port
-  const hostname = window.location.hostname;
-  return `http://${hostname}:8252`;
+  // Client-side: Always use localhost for development to avoid CORS issues
+  // This works because both frontend and backend are on the same machine
+  const apiUrl = 'http://localhost:8252';
+  
+  // Debug logging
+  console.log('getApiUrl called:', {
+    windowHostname: window.location.hostname,
+    windowPort: window.location.port,
+    dockerApiUrl,
+    finalUrl: apiUrl,
+    windowLocation: window.location.href
+  });
+  
+  return apiUrl;
 };
 
 export const getApiHost = () => {
@@ -191,9 +202,16 @@ let sessionId: string | null = null;
 export const getSessionId = (): string => {
   if (!sessionId) {
     // Generate session ID based on browser fingerprint and timestamp
-    const fingerprint = navigator.userAgent + screen.width + screen.height + new Date().getTimezoneOffset();
-    const timestamp = Date.now();
-    sessionId = btoa(fingerprint + timestamp).replace(/[^a-zA-Z0-9]/g, '').substring(0, 16);
+    // Check if we're in a browser environment
+    if (typeof window !== 'undefined' && typeof navigator !== 'undefined') {
+      const fingerprint = navigator.userAgent + screen.width + screen.height + new Date().getTimezoneOffset();
+      const timestamp = Date.now();
+      sessionId = btoa(fingerprint + timestamp).replace(/[^a-zA-Z0-9]/g, '').substring(0, 16);
+    } else {
+      // Fallback for server-side rendering
+      const timestamp = Date.now();
+      sessionId = btoa('server-' + timestamp).replace(/[^a-zA-Z0-9]/g, '').substring(0, 16);
+    }
   }
   return sessionId;
 };

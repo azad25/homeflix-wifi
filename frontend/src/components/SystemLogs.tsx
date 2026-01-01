@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { Activity, HardDrive, Server, TrendingUp, Timer, FileSearch, Trash2, RefreshCw, Search, X, Cpu, Monitor, MemoryStick, Database, Wifi, Info, Zap } from 'lucide-react';
 import { GlassCard, ScrollReveal, MagneticButton } from '@/components/scrollx';
 import { getApiUrl } from '@/lib/api';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 interface SystemStats {
   cpu?: {
@@ -99,6 +100,7 @@ interface SystemLogsProps {
 
 export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
   const [systemStats, setSystemStats] = useState<SystemStats | null>(null);
+  const [statsHistory, setStatsHistory] = useState<any[]>([]);
   const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null);
   const [serverLogs, setServerLogs] = useState<LogEntry[]>([]);
   const [isLogsConnected, setIsLogsConnected] = useState(false);
@@ -118,11 +120,11 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
   useEffect(() => {
     // Clear any existing logs first
     setServerLogs([]);
-    
+
     // Load initial data first
     fetchInitialLogs();
     fetchSystemInfo();
-    
+
     // Try WebSocket connections
     connectToSystemLogs();
     connectToSystemStats();
@@ -149,7 +151,7 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
     try {
       const apiUrl = getApiUrl().replace('http', 'ws');
       const ws = new WebSocket(`${apiUrl}/api/admin/system/logs/stream`);
-      
+
       ws.onopen = () => {
         setIsLogsConnected(true);
         addTerminalOutput('🔗 Connected to real-time server logs');
@@ -193,7 +195,7 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
     try {
       const apiUrl = getApiUrl().replace('http', 'ws');
       const ws = new WebSocket(`${apiUrl}/api/admin/system/stats/stream`);
-      
+
       ws.onopen = () => {
         setIsStatsConnected(true);
         addTerminalOutput('📊 Connected to real-time system stats');
@@ -203,6 +205,18 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
         try {
           const stats = JSON.parse(event.data);
           setSystemStats(stats);
+
+          setStatsHistory(prev => {
+            const newHistory = [...prev, {
+              timestamp: new Date().toLocaleTimeString(),
+              cpu: stats.cpu?.usage || 0,
+              memory: stats.memory?.used_percent || 0,
+              disk: stats.disk?.used_percent || 0,
+              process: stats.process?.cpu_percent || 0,
+            }];
+            // Keep last 60 data points (approx 2 minutes of history with 2s interval)
+            return newHistory.slice(-60);
+          });
         } catch (error) {
           console.error('Error parsing system stats:', error);
         }
@@ -252,7 +266,7 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
       // Add timestamp to prevent caching
       const timestamp = Date.now();
       const randomParam = Math.random();
-      
+
       // Try multiple URLs in case of hostname issues
       const apiUrl = getApiUrl();
       const urls = [
@@ -260,11 +274,11 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
         `http://localhost:8252/api/admin/system/logs?lines=100&t=${timestamp}&r=${randomParam}`,
         `http://127.0.0.1:8252/api/admin/system/logs?lines=100&t=${timestamp}&r=${randomParam}`
       ];
-      
-      
+
+
       let response;
       let lastError;
-      
+
       for (const url of urls) {
         try {
           response = await fetch(url, {
@@ -275,7 +289,7 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
               'Expires': '0'
             }
           });
-          
+
           if (response.ok) {
             break; // Success, exit the loop
           } else {
@@ -286,11 +300,11 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
           continue; // Try next URL
         }
       }
-      
+
       if (response && response.ok) {
         const data = await response.json();
         const newLogs = data.logs || [];
-        
+
         // Always update logs and timestamp
         setServerLogs(newLogs);
         setLastLogUpdate(new Date());
@@ -310,6 +324,17 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
       if (response.ok) {
         const data = await response.json();
         setSystemStats(data);
+
+        setStatsHistory(prev => {
+          const newHistory = [...prev, {
+            timestamp: new Date().toLocaleTimeString(),
+            cpu: data.cpu?.usage || 0,
+            memory: data.memory?.used_percent || 0,
+            disk: data.disk?.used_percent || 0,
+            process: data.process?.cpu_percent || 0,
+          }];
+          return newHistory.slice(-60);
+        });
       }
     } catch (error) {
       console.warn('Failed to fetch system stats:', error);
@@ -332,7 +357,7 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
   // Filter logs based on search text
   const filteredLogs = serverLogs.filter(log => {
     if (!filterText.trim()) return true;
-    
+
     const searchText = filterText.toLowerCase();
     return (
       log.message?.toLowerCase().includes(searchText) ||
@@ -383,7 +408,7 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
           {systemStats && (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
               {/* CPU Stats */}
-              <div className="bg-gradient-to-br from-blue-600/20 to-blue-800/20 rounded-lg p-4 border border-blue-500/20">
+              <div className="bg-gradient-to-br from-blue-600/20 to-blue-800/20 rounded-lg p-4 border border-blue-500/20 h-64 flex flex-col">
                 <div className="flex items-center justify-between mb-2">
                   <div className="text-blue-400 text-sm font-medium">CPU Usage</div>
                   <Activity className="w-5 h-5 text-blue-400" />
@@ -391,19 +416,34 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
                 <div className="text-2xl font-bold text-white mb-1">
                   {systemStats.cpu?.usage?.toFixed(1) || '0.0'}%
                 </div>
-                <div className="text-white/60 text-xs">
+                <div className="text-white/60 text-xs mb-4">
                   {systemStats.cpu?.cores || 0} cores • Load: {systemStats.cpu?.load_avg_1?.toFixed(2) || '0.00'}
                 </div>
-                <div className="mt-2 bg-black/30 rounded-full h-2 overflow-hidden">
-                  <div 
-                    className="bg-blue-400 h-full transition-all duration-500"
-                    style={{ width: `${Math.min(systemStats.cpu?.usage || 0, 100)}%` }}
-                  ></div>
+                <div className="flex-1 min-h-0">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={statsHistory}>
+                      <defs>
+                        <linearGradient id="colorCpu" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.8} />
+                          <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" vertical={false} />
+                      <XAxis dataKey="timestamp" hide />
+                      <YAxis domain={[0, 100]} hide />
+                      <Tooltip
+                        contentStyle={{ backgroundColor: 'rgba(0,0,0,0.8)', border: 'none', color: '#fff' }}
+                        itemStyle={{ color: '#60a5fa' }}
+                        labelStyle={{ display: 'none' }}
+                      />
+                      <Area type="monotone" dataKey="cpu" stroke="#3b82f6" fillOpacity={1} fill="url(#colorCpu)" />
+                    </AreaChart>
+                  </ResponsiveContainer>
                 </div>
               </div>
 
               {/* Memory Stats */}
-              <div className="bg-gradient-to-br from-green-600/20 to-green-800/20 rounded-lg p-4 border border-green-500/20">
+              <div className="bg-gradient-to-br from-green-600/20 to-green-800/20 rounded-lg p-4 border border-green-500/20 h-64 flex flex-col">
                 <div className="flex items-center justify-between mb-2">
                   <div className="text-green-400 text-sm font-medium">Memory</div>
                   <HardDrive className="w-5 h-5 text-green-400" />
@@ -411,19 +451,34 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
                 <div className="text-2xl font-bold text-white mb-1">
                   {systemStats.memory?.used_percent?.toFixed(1) || '0.0'}%
                 </div>
-                <div className="text-white/60 text-xs">
+                <div className="text-white/60 text-xs mb-4">
                   {((systemStats.memory?.used || 0) / (1024 ** 3)).toFixed(1)}GB / {((systemStats.memory?.total || 0) / (1024 ** 3)).toFixed(1)}GB
                 </div>
-                <div className="mt-2 bg-black/30 rounded-full h-2 overflow-hidden">
-                  <div 
-                    className="bg-green-400 h-full transition-all duration-500"
-                    style={{ width: `${Math.min(systemStats.memory?.used_percent || 0, 100)}%` }}
-                  ></div>
+                <div className="flex-1 min-h-0">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={statsHistory}>
+                      <defs>
+                        <linearGradient id="colorMemory" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#22c55e" stopOpacity={0.8} />
+                          <stop offset="95%" stopColor="#22c55e" stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" vertical={false} />
+                      <XAxis dataKey="timestamp" hide />
+                      <YAxis domain={[0, 100]} hide />
+                      <Tooltip
+                        contentStyle={{ backgroundColor: 'rgba(0,0,0,0.8)', border: 'none', color: '#fff' }}
+                        itemStyle={{ color: '#4ade80' }}
+                        labelStyle={{ display: 'none' }}
+                      />
+                      <Area type="monotone" dataKey="memory" stroke="#22c55e" fillOpacity={1} fill="url(#colorMemory)" />
+                    </AreaChart>
+                  </ResponsiveContainer>
                 </div>
               </div>
 
               {/* Disk Stats */}
-              <div className="bg-gradient-to-br from-purple-600/20 to-purple-800/20 rounded-lg p-4 border border-purple-500/20">
+              <div className="bg-gradient-to-br from-purple-600/20 to-purple-800/20 rounded-lg p-4 border border-purple-500/20 h-64 flex flex-col">
                 <div className="flex items-center justify-between mb-2">
                   <div className="text-purple-400 text-sm font-medium">Disk Usage</div>
                   <HardDrive className="w-5 h-5 text-purple-400" />
@@ -431,31 +486,64 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
                 <div className="text-2xl font-bold text-white mb-1">
                   {systemStats.disk?.used_percent?.toFixed(1) || '0.0'}%
                 </div>
-                <div className="text-white/60 text-xs">
+                <div className="text-white/60 text-xs mb-4">
                   {((systemStats.disk?.used || 0) / (1024 ** 3)).toFixed(1)}GB / {((systemStats.disk?.total || 0) / (1024 ** 3)).toFixed(1)}GB
                 </div>
-                <div className="mt-2 bg-black/30 rounded-full h-2 overflow-hidden">
-                  <div 
-                    className="bg-purple-400 h-full transition-all duration-500"
-                    style={{ width: `${Math.min(systemStats.disk?.used_percent || 0, 100)}%` }}
-                  ></div>
+                <div className="flex-1 min-h-0">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={statsHistory}>
+                      <defs>
+                        <linearGradient id="colorDisk" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#a855f7" stopOpacity={0.8} />
+                          <stop offset="95%" stopColor="#a855f7" stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" vertical={false} />
+                      <XAxis dataKey="timestamp" hide />
+                      <YAxis domain={[0, 100]} hide />
+                      <Tooltip
+                        contentStyle={{ backgroundColor: 'rgba(0,0,0,0.8)', border: 'none', color: '#fff' }}
+                        itemStyle={{ color: '#c084fc' }}
+                        labelStyle={{ display: 'none' }}
+                      />
+                      <Area type="monotone" dataKey="disk" stroke="#a855f7" fillOpacity={1} fill="url(#colorDisk)" />
+                    </AreaChart>
+                  </ResponsiveContainer>
                 </div>
               </div>
 
               {/* Process Stats */}
-              <div className="bg-gradient-to-br from-orange-600/20 to-orange-800/20 rounded-lg p-4 border border-orange-500/20">
+              <div className="bg-gradient-to-br from-orange-600/20 to-orange-800/20 rounded-lg p-4 border border-orange-500/20 h-64 flex flex-col">
                 <div className="flex items-center justify-between mb-2">
-                  <div className="text-orange-400 text-sm font-medium">Process</div>
+                  <div className="text-orange-400 text-sm font-medium">Process CPU</div>
                   <Server className="w-5 h-5 text-orange-400" />
                 </div>
                 <div className="text-2xl font-bold text-white mb-1">
-                  {systemStats.process?.memory_mb?.toFixed(0) || '0'}MB
+                  {systemStats.process?.cpu_percent?.toFixed(1) || '0.0'}%
                 </div>
-                <div className="text-white/60 text-xs">
+                <div className="text-white/60 text-xs mb-4">
                   PID: {systemStats.process?.pid || 'N/A'} • Threads: {systemStats.process?.threads || 0}
                 </div>
-                <div className="text-white/50 text-xs mt-1">
-                  CPU: {systemStats.process?.cpu_percent?.toFixed(1) || '0.0'}% • Files: {systemStats.process?.open_files || 0}
+                <div className="flex-1 min-h-0">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={statsHistory}>
+                      <defs>
+                        <linearGradient id="colorProcess" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#f97316" stopOpacity={0.8} />
+                          <stop offset="95%" stopColor="#f97316" stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" vertical={false} />
+                      <XAxis dataKey="timestamp" hide />
+                      <YAxis domain={[0, 20]} hide /> {/* Process CPU often low, so set lower max for clearer graph */}
+                      <Tooltip
+                        contentStyle={{ backgroundColor: 'rgba(0,0,0,0.8)', border: 'none', color: '#fff' }}
+                        itemStyle={{ color: '#fb923c' }}
+                        labelStyle={{ display: 'none' }}
+                      />
+                      <Area type="monotone" dataKey="process" stroke="#f97316" fillOpacity={1} fill="url(#colorProcess)" />
+                    </AreaChart>
+                  </ResponsiveContainer>
                 </div>
               </div>
             </div>
@@ -749,13 +837,13 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
                   addTerminalOutput('🚀 Force refreshing logs...');
                   setServerLogs([]);
                   setLastLogUpdate(null);
-                  
+
                   // Force fetch with new timestamp
                   const timestamp = Date.now();
                   const randomParam = Math.random();
                   const apiUrl = getApiUrl();
                   const url = `${apiUrl}/api/admin/system/logs?lines=50&t=${timestamp}&r=${randomParam}&force=true`;
-                  
+
                   try {
                     const response = await fetch(url, {
                       method: 'GET',
@@ -765,7 +853,7 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
                         'Expires': '0'
                       }
                     });
-                    
+
                     if (response.ok) {
                       const data = await response.json();
                       setServerLogs(data.logs || []);
@@ -819,24 +907,22 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
             ) : (
               <div className="space-y-1">
                 {filteredLogs.map((log, index) => (
-                  <div 
-                    key={index} 
-                    className={`flex items-start space-x-3 py-1 px-2 rounded hover:bg-white/5 transition-colors ${
-                      log.level === 'ERROR' || log.level === 'FATAL' ? 'bg-red-500/10' :
-                      log.level === 'WARN' ? 'bg-yellow-500/10' :
-                      log.level === 'DEBUG' ? 'bg-blue-500/10' :
-                      ''
-                    }`}
+                  <div
+                    key={index}
+                    className={`flex items-start space-x-3 py-1 px-2 rounded hover:bg-white/5 transition-colors ${log.level === 'ERROR' || log.level === 'FATAL' ? 'bg-red-500/10' :
+                        log.level === 'WARN' ? 'bg-yellow-500/10' :
+                          log.level === 'DEBUG' ? 'bg-blue-500/10' :
+                            ''
+                      }`}
                   >
                     <span className="text-white/40 text-xs whitespace-nowrap">
                       {log.timestamp ? new Date(log.timestamp).toLocaleTimeString() : '--:--:--'}
                     </span>
-                    <span className={`text-xs font-bold whitespace-nowrap ${
-                      log.level === 'ERROR' || log.level === 'FATAL' ? 'text-red-400' :
-                      log.level === 'WARN' ? 'text-yellow-400' :
-                      log.level === 'DEBUG' ? 'text-blue-400' :
-                      'text-green-400'
-                    }`}>
+                    <span className={`text-xs font-bold whitespace-nowrap ${log.level === 'ERROR' || log.level === 'FATAL' ? 'text-red-400' :
+                        log.level === 'WARN' ? 'text-yellow-400' :
+                          log.level === 'DEBUG' ? 'text-blue-400' :
+                            'text-green-400'
+                      }`}>
                       {log.level || 'INFO'}
                     </span>
                     <span className="text-cyan-400 text-xs whitespace-nowrap">

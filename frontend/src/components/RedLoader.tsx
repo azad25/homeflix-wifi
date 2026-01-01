@@ -1,7 +1,6 @@
 "use client";
 
 import React from 'react';
-import { motion } from 'framer-motion';
 
 interface RedLoaderProps {
   size?: 'small' | 'medium' | 'large';
@@ -30,27 +29,19 @@ const RedLoader: React.FC<RedLoaderProps> = ({
 
   return (
     <div className={`flex flex-col items-center justify-center ${className}`}>
-      <motion.div
-        className={`${sizeClasses[size]} border-red-600/30 border-t-red-600 rounded-full`}
-        animate={{ rotate: 360 }}
-        transition={{
-          duration: 1,
-          repeat: Infinity,
-          ease: "linear"
-        }}
+      <div
+        className={`${sizeClasses[size]} border-red-600/30 border-t-red-600 rounded-full animate-spin`}
         style={{
-          boxShadow: '0 0 20px rgba(239, 68, 68, 0.3)'
+          boxShadow: '0 0 20px rgba(239, 68, 68, 0.3)',
+          animation: 'spin 1s linear infinite'
         }}
       />
       {showText && (
-        <motion.span 
-          className={`text-white/80 mt-2 ${textSizeClasses[size]}`}
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.2 }}
+        <span 
+          className={`text-white/80 mt-2 ${textSizeClasses[size]} animate-pulse`}
         >
           {text}
-        </motion.span>
+        </span>
       )}
     </div>
   );

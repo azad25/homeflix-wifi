@@ -128,6 +128,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
     textStroke: false,
     position: 'bottom' as 'bottom' | 'top' | 'center'
   });
+  const [hoverTime, setHoverTime] = useState<number | null>(null);
+  const [hoverPosition, setHoverPosition] = useState<number>(0);
 
   // Chrome audio context activation helper
   const activateAudioContext = useCallback(async () => {
@@ -2184,6 +2186,36 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
     document.addEventListener('touchend', handleEnd);
   };
 
+  const handleProgressHover = (e: React.MouseEvent<HTMLDivElement>) => {
+    const progressBar = e.currentTarget;
+    const rect = progressBar.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const percentage = Math.max(0, Math.min(1, x / rect.width));
+
+    // Calculate time based on duration
+    let targetDuration = duration;
+
+    if (isCasting && castState.isConnected) {
+      targetDuration = castState.duration;
+    } else if (!targetDuration || targetDuration === 0) {
+      // Fallbacks matching other handlers
+      const video = videoRef.current;
+      if (video) {
+        if (video.duration && video.duration > 0 && isFinite(video.duration)) {
+          targetDuration = video.duration;
+        } else if (video.seekable && video.seekable.length > 0) {
+          targetDuration = video.seekable.end(video.seekable.length - 1);
+        } else {
+          targetDuration = Math.max(video.currentTime * 3, 3600);
+        }
+      }
+    }
+
+    const time = percentage * targetDuration;
+    setHoverPosition(percentage * 100);
+    setHoverTime(time);
+  };
+
   // Chrome audio context activation on user interaction
   useEffect(() => {
     const activateOnInteraction = async () => {
@@ -3811,23 +3843,24 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
 
                 {/* Bottom Controls */}
                 <div className="absolute bottom-0 left-0 right-0 p-10 pointer-events-auto z-50">
-                  {/* Progress Bar */}
-                  <div className="mb-4 group">
-                    <div
-                      className="progress-container relative w-full h-1 bg-white/30 rounded-lg cursor-pointer group-hover:h-2 transition-all duration-200 my-1 overflow-hidden"
-                      onClick={(e) => {
-                        // Only handle click if not dragging
-
-                        if (!isDragging) {
-                          handleProgressClick(e);
-                        }
-                      }}
-                      onMouseDown={handleSeekStart}
-                      onTouchStart={handleSeekStart}
-                    >
+                  <div
+                    className="progress-container relative w-full h-1 cursor-pointer group-hover:h-2 transition-all duration-200 mb-4"
+                    onClick={(e) => {
+                      // Only handle click if not dragging
+                      if (!isDragging) {
+                        handleProgressClick(e);
+                      }
+                    }}
+                    onMouseDown={handleSeekStart}
+                    onTouchStart={handleSeekStart}
+                    onMouseMove={handleProgressHover}
+                    onMouseLeave={() => setHoverTime(null)}
+                  >
+                    {/* Bar Background & Clipping Wrapper */}
+                    <div className="absolute inset-0 w-full h-full bg-white/30 rounded-lg overflow-hidden pointer-events-none">
                       {/* Buffered Progress */}
                       <div
-                        className="absolute top-0 left-0 h-full bg-white/20 rounded-lg pointer-events-none"
+                        className="absolute top-0 left-0 h-full bg-white/20"
                         style={{
                           width: videoRef.current?.buffered && videoRef.current.buffered.length > 0 && duration > 0
                             ? `${(videoRef.current.buffered.end(videoRef.current.buffered.length - 1) / duration) * 100}%`
@@ -3837,8 +3870,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
 
                       {/* Progress Fill */}
                       <div
-                        className={`absolute top-0 left-0 h-full bg-red-600 rounded-lg transition-all pointer-events-none ${isDragging ? 'duration-0' : 'duration-200'
-                          }`}
+                        className={`absolute top-0 left-0 h-full bg-red-600 transition-all ${isDragging ? 'duration-0' : 'duration-200'}`}
                         style={{
                           width: `${(() => {
                             if (isCasting && castState.isConnected) {
@@ -3862,89 +3894,85 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                           })()}%`
                         }}
                       />
+                    </div>
 
-                      {/* Progress Handle */}
+                    {/* Progress Handle */}
+                    <div
+                      className={`absolute top-1/2 transform -translate-y-1/2 -translate-x-1/2 w-3 h-3 bg-red-600 rounded-full transition-all duration-200 pointer-events-none ${isDragging || isBuffering ? 'opacity-100 scale-125' : 'opacity-0 group-hover:opacity-100'
+                        }`}
+                      style={{
+                        left: `${(() => {
+                          if (isCasting && castState.isConnected) {
+                            return castState.duration > 0 ? (castState.currentTime / castState.duration) * 100 : 0;
+                          }
+
+                          // For local video
+                          if (duration > 0) {
+                            return Math.min((currentTime / duration) * 100, 100);
+                          }
+
+                          // For videos without duration, use seekable range
+                          const video = videoRef.current;
+                          if (video && video.seekable && video.seekable.length > 0) {
+                            const seekableEnd = video.seekable.end(video.seekable.length - 1);
+                            return seekableEnd > 0 ? Math.min((currentTime / seekableEnd) * 100, 100) : 0;
+                          }
+
+                          // Fallback: no progress without duration
+                          return 0;
+                        })()}%`
+                      }}
+                    />
+
+                    {/* Buffering indicator */}
+                    {isBuffering && (
                       <div
-                        className={`absolute top-1/2 transform -translate-y-1/2 -translate-x-1/2 w-3 h-3 bg-red-600 rounded-full transition-all duration-200 pointer-events-none ${isDragging || isBuffering ? 'opacity-100 scale-125' : 'opacity-0 group-hover:opacity-100'
-                          }`}
+                        className="absolute top-1/2 transform -translate-y-1/2 -translate-x-1/2 w-4 h-4 border-2 border-white/30 border-t-red-600 rounded-full animate-spin pointer-events-none"
                         style={{
                           left: `${(() => {
-                            if (isCasting && castState.isConnected) {
-                              return castState.duration > 0 ? (castState.currentTime / castState.duration) * 100 : 0;
-                            }
-
-                            // For local video
                             if (duration > 0) {
                               return Math.min((currentTime / duration) * 100, 100);
                             }
 
-                            // For videos without duration, use seekable range
                             const video = videoRef.current;
                             if (video && video.seekable && video.seekable.length > 0) {
                               const seekableEnd = video.seekable.end(video.seekable.length - 1);
                               return seekableEnd > 0 ? Math.min((currentTime / seekableEnd) * 100, 100) : 0;
                             }
 
-                            // Fallback: no progress without duration
-                            return 0;
+                            return currentTime > 0 ? Math.min((currentTime / 300) * 100, 75) : 0;
                           })()}%`
                         }}
                       />
+                    )}
 
-                      {/* Buffering indicator */}
-                      {isBuffering && (
-                        <div
-                          className="absolute top-1/2 transform -translate-y-1/2 -translate-x-1/2 w-4 h-4 border-2 border-white/30 border-t-red-600 rounded-full animate-spin pointer-events-none"
-                          style={{
-                            left: `${(() => {
-                              if (duration > 0) {
-                                return Math.min((currentTime / duration) * 100, 100);
-                              }
-
-                              const video = videoRef.current;
-                              if (video && video.seekable && video.seekable.length > 0) {
-                                const seekableEnd = video.seekable.end(video.seekable.length - 1);
-                                return seekableEnd > 0 ? Math.min((currentTime / seekableEnd) * 100, 100) : 0;
-                              }
-
-                              return currentTime > 0 ? Math.min((currentTime / 300) * 100, 75) : 0;
-                            })()}%`
-                          }}
-                        />
-                      )}
-                    </div>
-
-                    {/* Time tooltip on hover */}
-                    <div className="relative">
-                      <div className="absolute bottom-2 left-0 right-0 pointer-events-none">
-                        <div
-                          className={`absolute bg-black/80 text-white text-xs px-2 py-1 rounded transition-opacity duration-200 transform -translate-x-1/2 ${isDragging ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
-                            }`}
-                          style={{
-                            left: `${(() => {
-                              if (isCasting && castState.isConnected) {
-                                return castState.duration > 0 ? (castState.currentTime / castState.duration) * 100 : 0;
-                              }
-
-                              if (duration > 0) {
-                                return Math.min((currentTime / duration) * 100, 100);
-                              }
-
-                              const video = videoRef.current;
-                              if (video && video.seekable && video.seekable.length > 0) {
-                                const seekableEnd = video.seekable.end(video.seekable.length - 1);
-                                return seekableEnd > 0 ? Math.min((currentTime / seekableEnd) * 100, 100) : 0;
-                              }
-
-                              return currentTime > 0 ? Math.min((currentTime / 300) * 100, 75) : 0;
-                            })()}%`
-                          }}
-                        >
-                          {formatTime(isCasting && castState.isConnected ? castState.currentTime : currentTime)}
+                    {/* Hover Preview Tooltip */}
+                    {hoverTime !== null && (
+                      <div
+                        className="absolute bottom-5 transform -translate-x-1/2 flex flex-col items-center z-50 pointer-events-none"
+                        style={{ left: `${hoverPosition}%` }}
+                      >
+                        {/* Thumbnail Preview */}
+                        <div className="mb-2 w-40 aspect-video bg-black rounded-lg overflow-hidden relative shadow-2xl border-2 border-white/20">
+                          <img
+                            src={`${getApiUrl()}/api/thumbnails/${media.id}`}
+                            alt="Preview"
+                            className="w-full h-full object-cover opacity-90"
+                          />
+                          <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent"></div>
+                          <div className="absolute bottom-1 w-full text-center">
+                            <span className="text-white text-xs font-bold tracking-wider text-shadow-md">
+                              {formatTime(hoverTime)}
+                            </span>
+                          </div>
                         </div>
+
+                        {/* Connector */}
+                        <div className="w-0.5 h-3 bg-white/50"></div>
                       </div>
-                    </div>
+                    )}
                   </div>
+
 
                   {/* Control Buttons */}
                   <div className="flex items-center justify-between">
@@ -4134,15 +4162,17 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
           </AnimatePresence>
 
           {/* Next Episode Preview */}
-          {nextEpisode && (
-            <NextEpisodePreview
-              nextEpisode={nextEpisode}
-              currentTime={currentTime}
-              duration={duration}
-              onPlayNext={handlePlayNext}
-              onCancel={handleCancelNext}
-            />
-          )}
+          {
+            nextEpisode && (
+              <NextEpisodePreview
+                nextEpisode={nextEpisode}
+                currentTime={currentTime}
+                duration={duration}
+                onPlayNext={handlePlayNext}
+                onCancel={handleCancelNext}
+              />
+            )
+          }
 
           {/* Settings Panel */}
           <VideoPlayerSettings
@@ -4286,16 +4316,42 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                     </motion.div>
                   </motion.div>
 
-                  {/* Right Play Icon */}
+                  {/* Right Play Icon and Poster */}
                   <motion.div
                     initial={{ scale: 0.8, opacity: 0 }}
                     animate={{ scale: 1, opacity: 1 }}
                     exit={{ scale: 0.8, opacity: 0 }}
                     transition={{ delay: 0.1, duration: 0.3 }}
-                    className="flex-shrink-0 flex justify-center"
+                    className="flex-shrink-0 flex items-center justify-center gap-6"
                   >
+                    {/* Poster Image (Desktop) */}
+                    <div className="relative group cursor-pointer hidden md:block"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const video = videoRef.current;
+                        if (video && video.paused) {
+                          video.play().catch(() => { });
+                        }
+                      }}
+                    >
+                      <img
+                        src={media.poster_url || media.tmdb_poster_url || `${getApiUrl()}/api/posters/${media.id}`}
+                        alt={media.title}
+                        className="w-48 h-72 object-cover rounded-xl shadow-2xl transition-transform duration-300 group-hover:scale-105"
+                        onError={(e) => {
+                          const target = e.target as HTMLImageElement;
+                          target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjQ1MCIgdmlld0JveD0iMCAwIDMwMCA0NTAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIzMDAiIGhlaWdodD0iNDUwIiBmaWxsPSIjMzc0MTUxIi8+CjxwYXRoIGQ9Ik0xNTAgMjAwQzE4Ny4yNzkgMjAwIDIxOCAxNjkuMjc5IDIxOCAxMzJDMjE4IDk0LjcyMDggMTg3LjI3OSA2NCAxNTAgNjRDMTEyLjcyMSA2NCA4MiA5NC43MjA4IDgyIDEzMkM4MiAxNjkuMjc5IDExMi43MjEgMjAwIDE1MCAyMDBaIiBmaWxsPSIjNkI3Mjg4Ii8+CjxwYXRoIGQ9Ik04MiAyNzZDODIgMjM4LjY4IDExMi42OCAyMDggMTUwIDIwOEgxNTBDMTg3LjMyIDIwOCAyMTggMjM4LjY4IDIxOCAyNzZWMzUwSDgyVjI3NloiIGZpbGw9IiM2QjcyODgiLz4KPHN2Zz4K';
+                        }}
+                      />
+                      {/* Play overlay on poster hover */}
+                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-xl flex items-center justify-center">
+                        <Play className="w-12 h-12 fill-white text-white" />
+                      </div>
+                    </div>
+
+                    {/* Mobile Play Button */}
                     <motion.div
-                      className="bg-[#C0392B]/20 rounded-full p-6 backdrop-blur-sm hover:bg-[#C0392B]/30 transition-colors duration-200 cursor-pointer"
+                      className="bg-[#C0392B]/20 rounded-full p-6 backdrop-blur-sm hover:bg-[#C0392B]/30 transition-colors duration-200 cursor-pointer md:hidden"
                       whileHover={{ scale: 1.05 }}
                       whileTap={{ scale: 0.95 }}
                       onClick={(e) => {
@@ -4312,44 +4368,45 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                       <Play className="w-16 h-16 fill-current text-[#C0392B]" />
                     </motion.div>
                   </motion.div>
-                </motion.div>
 
-                {/* Close Button */}
-                <motion.button
-                  initial={{ opacity: 0, scale: 0.8 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.8 }}
-                  transition={{ delay: 0.2, duration: 0.3 }}
-                  onClick={(e) => {
-                    e.stopPropagation();
 
-                    handleClose();
-                  }}
-                  className="absolute top-6 right-6 bg-black/50 hover:bg-black/70 text-white rounded-full p-3 transition-all duration-200 hover:scale-110 border border-white/20 hover:border-red-500/50"
-                  title="Close Player (Esc)"
-                >
-                  <X className="w-5 h-5" />
-                </motion.button>
+                  {/* Close Button */}
+                  <motion.button
+                    initial={{ opacity: 0, scale: 0.8 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.8 }}
+                    transition={{ delay: 0.2, duration: 0.3 }}
+                    onClick={(e) => {
+                      e.stopPropagation();
 
-                {/* New Movies Section - Hidden on mobile */}
-                {!isMobile && (
-                  <NewMoviesPauseSection
-                    currentMediaId={media.id}
-                    currentTime={currentTime}
-                    duration={duration}
-                    onClose={handleClose}
-                  />
-                )}
+                      handleClose();
+                    }}
+                    className="absolute top-6 right-6 bg-black/50 hover:bg-black/70 text-white rounded-full p-3 transition-all duration-200 hover:scale-110 border border-white/20 hover:border-red-500/50"
+                    title="Close Player (Esc)"
+                  >
+                    <X className="w-5 h-5" />
+                  </motion.button>
 
-                {/* Resume Hint */}
-                <motion.div
-                  initial={{ y: 30, opacity: 0 }}
-                  animate={{ y: 0, opacity: 1 }}
-                  exit={{ y: 30, opacity: 0 }}
-                  transition={{ delay: 0.35, duration: 0.3 }}
-                  className="absolute bottom-4 text-red-100 text-sm font-bold text-center"
-                >
-                  <p><span className="font-bold text-[#C0392B]">HOMEFLIX</span> Studios</p>
+                  {/* New Movies Section - Hidden on mobile */}
+                  {!isMobile && (
+                    <NewMoviesPauseSection
+                      currentMediaId={media.id}
+                      currentTime={currentTime}
+                      duration={duration}
+                      onClose={handleClose}
+                    />
+                  )}
+
+                  {/* Resume Hint */}
+                  <motion.div
+                    initial={{ y: 30, opacity: 0 }}
+                    animate={{ y: 0, opacity: 1 }}
+                    exit={{ y: 30, opacity: 0 }}
+                    transition={{ delay: 0.35, duration: 0.3 }}
+                    className="absolute bottom-4 text-red-100 text-sm font-bold text-center"
+                  >
+                    <p><span className="font-bold text-[#C0392B]">HOMEFLIX</span> Studios</p>
+                  </motion.div>
                 </motion.div>
               </motion.div>
             )}

@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, Suspense } from 'react';
 import { usePageTitle } from '@/hooks/usePageTitle';
-import { Settings, Database, Upload, Trash2, Video, ImageIcon, Folder, File, Play, Info, Edit3, RefreshCw, Save, X, Star, Clock, Globe, Eye, Zap, Search, Server, Activity, HardDrive, Monitor, BarChart3, TrendingUp, FileSearch, Timer, Download, Film } from 'lucide-react';
+import { Settings, Database, Upload, Trash2, Video, ImageIcon, Folder, File, Play, Info, Edit3, RefreshCw, Save, X, Star, Clock, Globe, Eye, Zap, Search, Server, Activity, HardDrive, Monitor, BarChart3, TrendingUp, FileSearch, Timer, Download, Film, Layout } from 'lucide-react';
 import Image from 'next/image';
 import Navbar from '@/components/Navbar';
 import { getApiUrl } from '@/lib/api';
@@ -14,6 +14,8 @@ import RedLoader from '@/components/RedLoader';
 import TorrentDashboard from '@/components/TorrentDashboard';
 import TMDBSearchModal from '@/components/TMDBSearchModal';
 import SystemLogs from '@/components/SystemLogs';
+import WidgetManager from '@/components/settings/WidgetManager';
+import EnhancedWidgetManager from '@/components/settings/EnhancedWidgetManager';
 import { useSearchParams } from 'next/navigation';
 interface MediaAssets {
   id?: number;
@@ -653,6 +655,33 @@ function SettingsContent() {
     }
   };
 
+  // Handle auto-selection of media from URL params
+  useEffect(() => {
+    const mediaParam = searchParams.get('media');
+    if (mediaParam && (mediaList.length > 0 || seriesList.length > 0) && !selectedMedia) {
+      try {
+        const mediaInfo = JSON.parse(mediaParam);
+        if (mediaInfo.id) {
+          const id = typeof mediaInfo.id === 'string' ? parseInt(mediaInfo.id) : mediaInfo.id;
+          const type = mediaInfo.type || 'movie';
+          
+          let foundMedia;
+          if (type === 'tv') {
+            foundMedia = seriesList.find(s => s.id === id);
+          } else {
+            foundMedia = mediaList.find(m => m.id === id);
+          }
+
+          if (foundMedia) {
+             handleMediaSelect(foundMedia);
+          }
+        }
+      } catch (e) {
+        console.error("Error parsing media param for selection", e);
+      }
+    }
+  }, [mediaList, seriesList, searchParams]);
+
   const handleEditToggle = () => {
     if (selectedMedia) {
       if (selectedMedia.isEditing) {
@@ -683,6 +712,7 @@ function SettingsContent() {
           certification: selectedMedia.certification || '',
           runtime: selectedMedia.runtime || undefined,
           genre_names: selectedMedia.genre_names || [],
+          tmdb_trailer_url: selectedMedia.tmdb_trailer_url || '',
           // TV-specific fields
           ...(selectedMedia.type === 'tv' && {
             seasons: (selectedMedia as any).seasons || undefined,
@@ -2448,6 +2478,16 @@ function SettingsContent() {
               Subtitles
             </MagneticButton>
             <MagneticButton
+              onClick={() => setActiveTab('widgets')}
+              className={`px-4 py-3 rounded-lg font-semibold transition-all duration-300 flex items-center gap-2 whitespace-nowrap ${activeTab === 'widgets'
+                ? 'bg-[#E50914] text-white shadow-lg shadow-red-500/25'
+                : 'bg-transparent text-white/70 hover:text-white hover:bg-white/10'
+                }`}
+            >
+              <Layout className="w-4 h-4" />
+              Widgets
+            </MagneticButton>
+            <MagneticButton
               onClick={() => setActiveTab('general')}
               className={`px-4 py-3 rounded-lg font-semibold transition-all duration-300 flex items-center gap-2 whitespace-nowrap ${activeTab === 'general'
                 ? 'bg-[#E50914] text-white shadow-lg shadow-red-500/25'
@@ -3035,6 +3075,66 @@ function SettingsContent() {
                               )}
                             </div>
 
+                            {/* YouTube Trailer URL */}
+                            <div>
+                              <label className="block text-sm font-medium text-white/70 mb-1">YouTube Trailer URL</label>
+                              {selectedMedia.isEditing ? (
+                                <div className="space-y-2">
+                                  <input
+                                    type="url"
+                                    value={(editingMedia as any).tmdb_trailer_url || ''}
+                                    onChange={(e) => handleInputChange('tmdb_trailer_url', e.target.value)}
+                                    className="w-full bg-black/50 border border-white/20 rounded-lg px-4 py-2 text-white"
+                                    placeholder="https://www.youtube.com/watch?v=... or https://youtu.be/..."
+                                  />
+                                  {(editingMedia as any).tmdb_trailer_url && (
+                                    <div className="text-xs">
+                                      {(() => {
+                                        const url = (editingMedia as any).tmdb_trailer_url;
+                                        const patterns = [
+                                          /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([^&?\s]+)/,
+                                          /^([a-zA-Z0-9_-]{11})$/
+                                        ];
+                                        let isValid = false;
+                                        for (const pattern of patterns) {
+                                          if (url.match(pattern)) {
+                                            isValid = true;
+                                            break;
+                                          }
+                                        }
+                                        return isValid ? (
+                                          <span className="text-green-400 flex items-center gap-1">
+                                            <Video className="w-3 h-3" />
+                                            Valid YouTube URL
+                                          </span>
+                                        ) : (
+                                          <span className="text-yellow-400">
+                                            ⚠️ Please enter a valid YouTube URL
+                                          </span>
+                                        );
+                                      })()}
+                                    </div>
+                                  )}
+                                </div>
+                              ) : (
+                                <div className="bg-white/5 rounded-lg px-4 py-2">
+                                  {selectedMedia.tmdb_trailer_url ? (
+                                    <a
+                                      href={selectedMedia.tmdb_trailer_url}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="text-[#E50914] hover:text-[#E50914]/80 flex items-center gap-2 transition-colors"
+                                    >
+                                      <Video className="w-4 h-4" />
+                                      Watch Trailer
+                                    </a>
+                                  ) : (
+                                    <span className="text-white/60">No trailer URL</span>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+
                             {/* TV Show Specific Fields */}
                             {selectedMedia.type === 'tv' && (
                               <div className="grid grid-cols-2 gap-3">
@@ -3137,6 +3237,24 @@ function SettingsContent() {
                                   <span className="text-white flex items-center">
                                     <Eye className="w-4 h-4 mr-1" />
                                     {selectedMedia.view_count || 0}
+                                  </span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span className="text-white/60">YouTube Trailer:</span>
+                                  <span className="text-white">
+                                    {selectedMedia.tmdb_trailer_url ? (
+                                      <a
+                                        href={selectedMedia.tmdb_trailer_url}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="text-[#E50914] hover:text-[#E50914]/80 flex items-center gap-1 transition-colors"
+                                      >
+                                        <Video className="w-3 h-3" />
+                                        Available
+                                      </a>
+                                    ) : (
+                                      'Not Available'
+                                    )}
                                   </span>
                                 </div>
                               </div>
@@ -4426,6 +4544,15 @@ function SettingsContent() {
                   </div>
                 </div>
               </div>
+            </GlassCard>
+          </ScrollReveal>
+        )}
+
+        {/* Widgets Management Tab */}
+        {activeTab === 'widgets' && (
+          <ScrollReveal>
+            <GlassCard className="p-8">
+              <EnhancedWidgetManager />
             </GlassCard>
           </ScrollReveal>
         )}

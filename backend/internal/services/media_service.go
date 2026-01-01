@@ -962,11 +962,11 @@ func (s *MediaService) GetPopularMedia() ([]models.Media, error) {
 	return media, err
 }
 
-// GetTVShows returns media of type "episode" (TV show episodes)
+// GetTVShows returns media of type "episode", "tv", or "series" (TV show content)
 func (s *MediaService) GetTVShows() ([]models.Media, error) {
 	var media []models.Media
 	err := s.db.Preload("Genres").Preload("Series").Preload("Subtitles").
-		Where("type = ?", "episode").Order("created_at DESC").Find(&media).Error
+		Where("type IN (?)", []string{"tv", "series", "episode"}).Order("created_at DESC").Find(&media).Error
 
 	// Add fallback thumbnail paths for media without thumbnails
 	for i := range media {

@@ -16,6 +16,7 @@ import {
   FloatingElement
 } from '@/components/scrollx';
 import LocalMoviesHeroSlider from "@/components/LocalMoviesHeroSlider";
+import { BackendWidgetRenderer } from '@/components/widgets';
 
 interface Genre {
   id: number;
@@ -300,10 +301,14 @@ export default function BrowsePage() {
   useEffect(() => {
     // Reset pagination when filters change
     setCurrentPage(1);
-    setDisplayedMedia([]);
-    setHasMore(true);
-    loadMoreMedia(1);
-  }, [filteredMedia, loadMoreMedia]);
+
+    // Initialize displayed media directly to avoid dependency cycle
+    const initialItems = filteredMedia.slice(0, ITEMS_PER_PAGE);
+    setDisplayedMedia(initialItems);
+    setHasMore(filteredMedia.length > ITEMS_PER_PAGE);
+
+    // Don't call loadMoreMedia here to avoid dependency cycle
+  }, [filteredMedia, ITEMS_PER_PAGE]);
 
   const handlePlay = (media: Media) => {
     setSelectedMedia(media);
@@ -346,6 +351,11 @@ export default function BrowsePage() {
         onInfo={handleInfo}
       />
 
+      {/* Widget System Integration - Full viewport width */}
+      <BackendWidgetRenderer 
+        page="browse" 
+        className="py-8"
+      />
 
       {/* Main Content with Responsive Layout */}
       <div className="relative bg-gradient-to-b from-red-900/20 via-black to-black min-h-screen">
@@ -583,7 +593,7 @@ export default function BrowsePage() {
               <div>
                 {filteredMedia.length > 0 ? (
                   <div className={viewMode === "grid"
-                    ? "grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8 gap-2 sm:gap-3"
+                    ? "grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-8 xl:grid-cols-10 2xl:grid-cols-12 gap-1.5 sm:gap-2"
                     : "space-y-3"
                   }>
                     {displayedMedia.map((media, index) => (
@@ -595,6 +605,7 @@ export default function BrowsePage() {
                             onInfo={handleInfo}
                             priority={index < 15 ? 'high' : 'normal'}
                             showPreviewOnHover={false}
+                            disableHover={true}
                           />
                         </div>
                       </div>

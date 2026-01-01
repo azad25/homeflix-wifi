@@ -11,6 +11,8 @@ import RedLoader from '@/components/RedLoader';
 import { getApiUrl, fetchUniqueRecommendations, preloadAssets } from '@/lib/api';
 import { ScrollXHero, EnhancedHorizontalRow, ParallaxSection, GradientBackground, ScrollReveal } from '@/components/scrollx';
 import RecentlyWatched from '@/components/RecentlyWatched';
+import { WidgetRenderer, WidgetManagementButton } from '@/components/widgets';
+import BackendWidgetRenderer from '@/components/widgets/BackendWidgetRenderer';
 
 export default function MoviesPage() {
   usePageTitle('Movies');
@@ -218,6 +220,12 @@ export default function MoviesPage() {
         />
       )}
 
+      {/* Widget System Integration */}
+      <BackendWidgetRenderer 
+        page="movies" 
+        className="relative z-10 py-8"
+      />
+
       {/* Main Content with Parallax Background */}
       <div className="relative bg-gradient-to-b from-red-900/20 via-black to-black" style={{ overflow: 'visible', zIndex: 10 }}>
         <div className="relative z-10 py-8" style={{ overflow: 'visible', transformStyle: 'preserve-3d' }}>
@@ -231,7 +239,7 @@ export default function MoviesPage() {
 
           {/* Popular Movies */}
           <ParallaxSection speed={0.4}>
-            <ScrollReveal direction="up" delay={0.4}>
+            <ScrollReveal direction="up" delay={0.1}>
               <EnhancedHorizontalRow
                 title="Popular Movies"
                 media={popularMovies}
@@ -244,7 +252,7 @@ export default function MoviesPage() {
 
           {/* Recent Movies */}
           <ParallaxSection speed={0.5}>
-            <ScrollReveal direction="up" delay={0.6}>
+            <ScrollReveal direction="up" delay={0.2}>
               <EnhancedHorizontalRow
                 title="Recently Added"
                 media={recentMovies}
@@ -258,7 +266,7 @@ export default function MoviesPage() {
           {/* Action Movies */}
           {actionMovies.length > 0 && (
             <ParallaxSection speed={0.6}>
-              <ScrollReveal direction="up" delay={0.8}>
+              <ScrollReveal direction="up" delay={0.3}>
                 <EnhancedHorizontalRow
                   title="Action & Adventure"
                   media={actionMovies}
@@ -273,7 +281,7 @@ export default function MoviesPage() {
           {/* Comedy Movies */}
           {comedyMovies.length > 0 && (
             <ParallaxSection speed={0.7}>
-              <ScrollReveal direction="up" delay={1.0}>
+              <ScrollReveal direction="up" delay={0.4}>
                 <EnhancedHorizontalRow
                   title="Comedy Movies"
                   media={comedyMovies}
@@ -288,7 +296,7 @@ export default function MoviesPage() {
           {/* Drama Movies */}
           {dramaMovies.length > 0 && (
             <ParallaxSection speed={0.8}>
-              <ScrollReveal direction="up" delay={1.2}>
+              <ScrollReveal direction="up" delay={0.5}>
                 <EnhancedHorizontalRow
                   title="Drama Movies"
                   media={dramaMovies}
@@ -303,7 +311,7 @@ export default function MoviesPage() {
           {/* Sci-Fi Movies */}
           {sciFiMovies.length > 0 && (
             <ParallaxSection speed={0.9}>
-              <ScrollReveal direction="up" delay={1.4}>
+              <ScrollReveal direction="up" delay={0.6}>
                 <EnhancedHorizontalRow
                   title="Sci-Fi & Fantasy"
                   media={sciFiMovies}
@@ -318,7 +326,7 @@ export default function MoviesPage() {
           {/* Horror Movies */}
           {horrorMovies.length > 0 && (
             <ParallaxSection speed={1.0}>
-              <ScrollReveal direction="up" delay={1.6}>
+              <ScrollReveal direction="up" delay={0.7}>
                 <EnhancedHorizontalRow
                   title="Horror & Thriller"
                   media={horrorMovies}

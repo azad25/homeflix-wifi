@@ -14,6 +14,7 @@ import (
 	"homeflix-backend/internal/config"
 	"homeflix-backend/internal/database"
 	"homeflix-backend/internal/models"
+	"homeflix-backend/internal/music"
 	"homeflix-backend/internal/scanner"
 	"homeflix-backend/internal/services"
 
@@ -37,6 +38,24 @@ func main() {
 	if err != nil {
 		log.Fatal("Failed to initialize database:", err)
 	}
+
+	// Auto-migrate music tables
+	if err := db.AutoMigrate(&music.Track{}, &music.Playlist{}, &music.PlaylistTrack{}, &music.UserLike{}, &music.RecentlyPlayed{}, &music.SearchHistory{}); err != nil {
+		log.Printf("Failed to migrate music tables: %v", err)
+	}
+
+	// Auto-migrate collection tables
+	if err := models.MigrateCollectionTables(db); err != nil {
+		log.Printf("Failed to migrate collection tables: %v", err)
+	}
+
+	// Initialize music service
+	youtubeAPIKey := os.Getenv("YOUTUBE_API_KEY")
+	if youtubeAPIKey == "" {
+		log.Println("⚠️ YOUTUBE_API_KEY not set - music features will be limited")
+	}
+	musicService := music.NewService(db, youtubeAPIKey)
+	musicHandler := music.NewHandler(musicService)
 
 	// Initialize services
 	mediaService := services.NewMediaService(db)
@@ -221,6 +240,26 @@ func main() {
 
 	// Initialize API routes
 	api.SetupRoutes(r, mediaService, streamService, thumbnailService, userService, recommendationService, playbackService, geminiService, celeryService, alacService, tmdbService, mediaScanner, watcherService, redisCache, transcodeService, newsService, posterService, openSubService, notificationService, db)
+
+	// Setup music API routes
+	musicRoutes := r.Group("/api/music")
+	{
+		musicRoutes.GET("/search", musicHandler.SearchTracks)
+		musicRoutes.GET("/trending", musicHandler.GetTrendingTracks)
+		musicRoutes.GET("/charts", musicHandler.GetTopCharts)
+		musicRoutes.GET("/new-releases", musicHandler.GetNewReleases)
+		musicRoutes.GET("/genre/:genre", musicHandler.GetGenreMusic)
+		musicRoutes.GET("/mood/:mood", musicHandler.GetMoodMusic)
+		musicRoutes.POST("/playlists", musicHandler.CreatePlaylist)
+		musicRoutes.GET("/playlists", musicHandler.GetPlaylists)
+		musicRoutes.GET("/playlists/:id", musicHandler.GetPlaylist)
+		musicRoutes.POST("/playlists/:id/tracks", musicHandler.AddTrackToPlaylist)
+		musicRoutes.POST("/tracks/:id/like", musicHandler.LikeTrack)
+		musicRoutes.GET("/tracks/liked", musicHandler.GetLikedTracks)
+		musicRoutes.POST("/tracks/:id/play", musicHandler.PlayTrack)
+		musicRoutes.GET("/tracks/recent", musicHandler.GetRecentlyPlayed)
+		musicRoutes.GET("/tracks/:youtube_id/stream", musicHandler.GetTrackStream)
+	}
 
 
 	// Start server with optimizations

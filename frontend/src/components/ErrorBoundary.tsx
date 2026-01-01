@@ -1,71 +1,45 @@
 "use client";
 
-import React, { Component, ErrorInfo, ReactNode } from "react";
-import { Tv, RefreshCw } from "lucide-react";
+import React from 'react';
 
-interface Props {
-  children: ReactNode;
-}
-
-interface State {
+interface ErrorBoundaryState {
   hasError: boolean;
   error?: Error;
-  errorInfo?: ErrorInfo;
 }
 
-class ErrorBoundary extends Component<Props, State> {
-  private reloadTimeout?: NodeJS.Timeout;
+interface ErrorBoundaryProps {
+  children: React.ReactNode;
+  fallback?: React.ReactNode;
+}
 
-  constructor(props: Props) {
+class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  constructor(props: ErrorBoundaryProps) {
     super(props);
     this.state = { hasError: false };
   }
 
-  static getDerivedStateFromError(error: Error): State {
+  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
     return { hasError: true, error };
   }
 
-  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    console.error('ErrorBoundary caught an error:', error, errorInfo);
-    this.setState({ error, errorInfo });
-
-    // Auto-reload after 10 seconds for TV channel stability
-    this.reloadTimeout = setTimeout(() => {
-      window.location.reload();
-    }, 10000);
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    console.error('Error Boundary caught an error:', error, errorInfo);
   }
-
-  componentWillUnmount() {
-    if (this.reloadTimeout) {
-      clearTimeout(this.reloadTimeout);
-    }
-  }
-
-  handleReload = () => {
-    window.location.reload();
-  };
 
   render() {
     if (this.state.hasError) {
-      return (
-        <div className="h-screen bg-black flex items-center justify-center">
-          <div className="text-center text-white">
-            <div className="text-red-500 text-6xl mb-6">
-              <Tv />
-            </div>
-            <h1 className="text-2xl font-bold mb-4">HomeFlix TV</h1>
-            <p className="text-lg mb-6">Technical difficulties detected</p>
-            <p className="text-sm text-gray-400 mb-8">
-              Automatically reloading in a few seconds...
-            </p>
-            <button
-              onClick={this.handleReload}
-              className="bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-lg transition-colors flex items-center gap-2 mx-auto"
-            >
-              <RefreshCw className="w-5 h-5" />
-              Reload Now
-            </button>
-          </div>
+      return this.props.fallback || (
+        <div className="w-full p-4 bg-red-900/20 rounded-lg">
+          <h2 className="text-red-400 text-lg font-semibold mb-2">Something went wrong</h2>
+          <p className="text-red-300 text-sm">
+            {this.state.error?.message || 'An unexpected error occurred'}
+          </p>
+          <button 
+            onClick={() => this.setState({ hasError: false })}
+            className="mt-2 px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
+          >
+            Try Again
+          </button>
         </div>
       );
     }

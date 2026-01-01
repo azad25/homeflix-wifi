@@ -9,6 +9,8 @@ import { getApiUrl } from "@/lib/api";
 import { Media } from "@/types/media";
 import { cleanMovieTitle } from "@/lib/titleUtils";
 import { addToWishlist, removeFromWishlist, isInWishlist, getWishlist } from '@/lib/wishlist';
+import { useMyList } from '@/hooks/useMyList';
+import MyListTooltip from '@/components/ui/MyListTooltip';
 
 // Declare global YouTube types
 declare global {
@@ -41,7 +43,6 @@ const HomeflixHero: React.FC<HomeflixHeroProps> = ({
     const [isMuted, setIsMuted] = useState(false);
     const [isPlaying, setIsPlaying] = useState(false);
     const [videoLoaded, setVideoLoaded] = useState(false);
-    const [myList, setMyList] = useState<Set<number>>(new Set());
     const [cycleCount, setCycleCount] = useState(0);
     const [isLoadingNewContent, setIsLoadingNewContent] = useState(false);
     const [previousMediaIds, setPreviousMediaIds] = useState<Set<number>>(new Set());
@@ -49,6 +50,14 @@ const HomeflixHero: React.FC<HomeflixHeroProps> = ({
     const [useYouTubeFallback, setUseYouTubeFallback] = useState(false); // Use YouTube trailer as fallback
     const [ytReady, setYtReady] = useState(false); // YouTube API ready state
     const [ytVideoReady, setYtVideoReady] = useState(false); // Track when YouTube video is actually playing
+
+    // Use the new backend-connected My List hook
+    const { myList, collections, isInMyList, toggleMyList: toggleMyListHook, addToCollection } = useMyList();
+
+    // Wrapper function to handle the movie parameter
+    const toggleMyList = useCallback((movie: Media) => {
+        toggleMyListHook(movie.id);
+    }, [toggleMyListHook]);
 
     const mainSliderRef = useRef<Splide>(null);
     const thumbsSliderRef = useRef<Splide>(null);
@@ -254,36 +263,11 @@ const HomeflixHero: React.FC<HomeflixHeroProps> = ({
     // Initial fetch
     useEffect(() => {
         fetchMoviesWithPreviews(0);
-        loadMyList();
     }, []);
 
-    const loadMyList = () => {
-        const wishlistIds = getWishlist();
-        setMyList(new Set(wishlistIds));
-    };
-
-    const toggleMyList = (movie: Media) => {
-        const isInList = myList.has(movie.id);
-        let success = false;
-
-        if (isInList) {
-            success = removeFromWishlist(movie.id);
-        } else {
-            success = addToWishlist(movie.id);
-        }
-
-        if (success) {
-            setMyList((prev) => {
-                const newSet = new Set(prev);
-                if (isInList) {
-                    newSet.delete(movie.id);
-                } else {
-                    newSet.add(movie.id);
-                }
-                return newSet;
-            });
-        }
-    };
+    // Remove old functions - now using the hook
+    // const loadMyList = () => { ... }
+    // const toggleMyList = (movie: Media) => { ... }
 
     const getBackdropUrl = (movie: Media): string => {
         if (movie.tmdb_backdrop_url) return movie.tmdb_backdrop_url;
@@ -660,7 +644,7 @@ const HomeflixHero: React.FC<HomeflixHeroProps> = ({
                     cc_load_policy: 0, // Don't load captions
                     cc_lang_pref: '', // No caption language preference
                     enablejsapi: 1, // Enable JS API
-                    start: 5, // Start 5 seconds in to skip intro
+                    start: 10, // Start 10 seconds in to skip intro
                     origin: window.location.origin,
                 },
                 events: {
@@ -677,7 +661,7 @@ const HomeflixHero: React.FC<HomeflixHeroProps> = ({
                                 goToNextSlide();
                             } else {
                                 setCurrentPlayCount(newPlayCount);
-                                event.target.seekTo(5); // Seek to 5 seconds for replay
+                                event.target.seekTo(10); // Seek to 10 seconds for replay
                                 event.target.playVideo();
                             }
                         }
@@ -686,7 +670,7 @@ const HomeflixHero: React.FC<HomeflixHeroProps> = ({
                         if (!isMuted) {
                             event.target.unMute();
                         }
-                        event.target.seekTo(5, true); // Explicitly seek to 5s with allowSeekAhead
+                        event.target.seekTo(10, true); // Explicitly seek to 10s with allowSeekAhead
                         event.target.playVideo();
 
                         // Set up interval to end video 3 seconds early
@@ -696,16 +680,15 @@ const HomeflixHero: React.FC<HomeflixHeroProps> = ({
                                 const duration = player.getDuration();
                                 const currentTime = player.getCurrentTime();
 
-                                // End 3 seconds before actual end
-                                if (duration > 0 && currentTime >= duration - 5) {
+                                // End 10 seconds before actual end
+                                if (duration > 0 && currentTime >= duration - 15) {
                                     clearInterval(checkEndTime);
                                     const newPlayCount = currentPlayCount + 1;
-                                    console.log(`📺 YouTube video ending early. Play count: ${newPlayCount}/${playCountPerSlide}`);
                                     if (newPlayCount >= playCountPerSlide) {
                                         goToNextSlide();
                                     } else {
                                         setCurrentPlayCount(newPlayCount);
-                                        player.seekTo(5);
+                                        player.seekTo(15);
                                         player.playVideo();
                                     }
                                 }
@@ -983,16 +966,21 @@ const HomeflixHero: React.FC<HomeflixHeroProps> = ({
                                         <Play className="w-5 h-5 fill-black" />
                                         Play
                                     </button>
-                                    <button
-                                        onClick={() => toggleMyList(movie)}
-                                        className="p-3 rounded-full border border-white/30 bg-black/30 backdrop-blur-sm hover:bg-white/10 transition-colors"
+                                    <MyListTooltip
+                                        media={movie}
+                                        isInMyList={isInMyList(movie.id)}
+                                        collections={collections}
+                                        onToggleMyList={() => toggleMyList(movie)}
+                                        onAddToCollection={(collectionId) => addToCollection(collectionId, movie.id)}
                                     >
-                                        {myList.has(movie.id) ? (
-                                            <Check className="w-5 h-5" />
-                                        ) : (
-                                            <Plus className="w-5 h-5" />
-                                        )}
-                                    </button>
+                                        <button className="p-3 rounded-full border border-white/30 bg-black/30 backdrop-blur-sm hover:bg-white/10 transition-colors">
+                                            {isInMyList(movie.id) ? (
+                                                <Check className="w-5 h-5" />
+                                            ) : (
+                                                <Plus className="w-5 h-5" />
+                                            )}
+                                        </button>
+                                    </MyListTooltip>
                                     <button
                                         onClick={toggleMute}
                                         className="p-3 rounded-full border border-white/30 bg-black/30 backdrop-blur-sm hover:bg-white/10 transition-colors"

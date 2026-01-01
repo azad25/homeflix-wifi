@@ -12,6 +12,8 @@ import RecentlyWatchedTVShows from '@/components/RecentlyWatchedTVShows';
 
 import { Media } from '@/types/media';
 import { ScrollXHero, ParallaxSection, ScrollReveal } from '@/components/scrollx';
+import { WidgetRenderer } from '@/components/widgets';
+import BackendWidgetRenderer from '@/components/widgets/BackendWidgetRenderer';
 
 
 interface Series {
@@ -506,6 +508,12 @@ export default function TVShowsPage() {
           </div>
         )
       )}
+
+      {/* Widget System Integration */}
+      <BackendWidgetRenderer 
+        page="tv-shows" 
+        className="relative z-10 py-8"
+      />
 
       {/* Main Content with Parallax Background */}
       <div className="relative bg-gradient-to-b from-red-900/20 via-black to-black" style={{ overflow: 'visible' }}>

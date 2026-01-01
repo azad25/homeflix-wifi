@@ -44,6 +44,11 @@ type TorrentConfig struct {
 	PortRangeEnd       int `json:"port_range_end" gorm:"default:50100"`      // Ending port for torrent client
 	MaxOpenFiles       int `json:"max_open_files" gorm:"default:1024"`       // Max open file handles
 	
+	// Speed Limits (in KB/s) - Note: Rain library doesn't support runtime speed limits
+	// These are stored for future use or external bandwidth management
+	DownloadSpeedLimit int64 `json:"download_speed_limit" gorm:"default:0"` // 0 = unlimited
+	UploadSpeedLimit   int64 `json:"upload_speed_limit" gorm:"default:0"`   // 0 = unlimited
+
 	CreatedAt       time.Time `json:"created_at"`
 	UpdatedAt       time.Time `json:"updated_at"`
 }

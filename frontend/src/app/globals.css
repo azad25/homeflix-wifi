@@ -110,3 +110,136 @@ input[type="range"]::-moz-range-track {
 .animate-pulse {
   animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
+
+/* Equalizer animation */
+@keyframes equalizer {
+  0%, 100% {
+    height: 4px;
+  }
+  50% {
+    height: 20px;
+  }
+}
+
+@keyframes equalizer-alt {
+  0%, 100% {
+    height: 8px;
+  }
+  25% {
+    height: 24px;
+  }
+  75% {
+    height: 12px;
+  }
+}
+
+.equalizer-bar {
+  animation: equalizer 0.8s ease-in-out infinite;
+}
+
+.equalizer-bar:nth-child(2) {
+  animation: equalizer-alt 1.2s ease-in-out infinite;
+  animation-delay: 0.1s;
+}
+
+.equalizer-bar:nth-child(3) {
+  animation: equalizer 0.9s ease-in-out infinite;
+  animation-delay: 0.2s;
+}
+
+.equalizer-bar:nth-child(4) {
+  animation: equalizer-alt 1.1s ease-in-out infinite;
+  animation-delay: 0.3s;
+}
+
+.equalizer-bar:nth-child(5) {
+  animation: equalizer 1.0s ease-in-out infinite;
+  animation-delay: 0.4s;
+}
+
+/* Red gradient backgrounds */
+.bg-red-gradient {
+  background: linear-gradient(135deg, #dc2626 0%, #991b1b 50%, #7f1d1d 100%);
+}
+
+.bg-red-gradient-dark {
+  background: linear-gradient(135deg, #7f1d1d 0%, #450a0a 50%, #1c0000 100%);
+}
+
+/* Netflix-style hover effects */
+.netflix-hover {
+  transition: all 0.2s ease-in-out;
+}
+
+.netflix-hover:hover {
+  transform: scale(1.05);
+  z-index: 10;
+}
+
+/* Netflix-style card shadows */
+.netflix-card {
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+  transition: box-shadow 0.2s ease-in-out;
+}
+
+.netflix-card:hover {
+  box-shadow: 0 8px 30px rgba(229, 9, 20, 0.4);
+}
+
+/* Netflix-style text shadows */
+.netflix-text-shadow {
+  text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.8);
+}
+
+/* Full viewport width containers */
+.full-viewport {
+  width: 100vw;
+  margin-left: calc(-50vw + 50%);
+}
+
+/* Netflix-style button animations */
+.netflix-button {
+  transition: all 0.2s ease-in-out;
+}
+
+.netflix-button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.netflix-button:active {
+  transform: translateY(0);
+}
+
+/* Netflix-style backdrop blur */
+.netflix-backdrop {
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+/* Widget spacing improvements */
+.widget-container {
+  padding: 0;
+  margin: 0;
+  width: 100%;
+}
+
+.widget-content {
+  padding-left: max(4vw, 24px);
+  padding-right: max(4vw, 24px);
+}
+
+/* Responsive widget spacing */
+@media (max-width: 640px) {
+  .widget-content {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+}
+
+@media (min-width: 1920px) {
+  .widget-content {
+    padding-left: 60px;
+    padding-right: 60px;
+  }
+}

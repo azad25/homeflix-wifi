@@ -597,3 +597,27 @@ func (tc *TorrentClient) triggerMediaScan(download *DownloadInfo) {
 		log.Printf("✅ Media scan triggered successfully for: %s", download.Name)
 	}
 }
+
+// SetSpeedLimits stores speed limit configuration for future use
+// Note: Rain torrent library doesn't support runtime speed limits
+// These settings are stored in the database for potential future implementation
+// or external bandwidth management tools
+func (tc *TorrentClient) SetSpeedLimits(downloadLimit, uploadLimit int64) {
+	tc.mu.Lock()
+	defer tc.mu.Unlock()
+
+	log.Printf("⚡ Speed limits configured (stored for future use) - Download: %s/s, Upload: %s/s", 
+		formatSpeed(downloadLimit), formatSpeed(uploadLimit))
+	
+	// Note: Rain library doesn't support runtime speed limiting
+	// These values would need to be:
+	// 1. Stored in database configuration
+	// 2. Applied via external tools like tc (traffic control) on Linux
+	// 3. Or implemented at the application level by throttling read/write operations
+	
+	log.Printf("💡 Note: Rain torrent library doesn't support runtime speed limits")
+	log.Printf("   Consider using external bandwidth management tools like:")
+	log.Printf("   • Linux tc (traffic control)")
+	log.Printf("   • Router QoS settings")
+	log.Printf("   • Network-level bandwidth limiting")
+}

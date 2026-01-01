@@ -1972,8 +1972,8 @@ func (t *TMDBService) fetchUpcomingMovies() ([]TMDBMovie, error) {
 	return searchResp.Results, nil
 }
 
-// GetNowPlayingMovies returns movies currently playing in theaters (public wrapper)
-func (t *TMDBService) GetNowPlayingMovies(page int) ([]TMDBMovie, error) {
+// GetNowPlayingMovies returns movies currently playing in theaters with video data
+func (t *TMDBService) GetNowPlayingMovies(page int) ([]TMDBMovieWithVideos, error) {
 	if page <= 0 {
 		page = 1
 	}
@@ -2006,8 +2006,46 @@ func (t *TMDBService) GetNowPlayingMovies(page int) ([]TMDBMovie, error) {
 		return nil, err
 	}
 
-	log.Printf("✅ TMDB: Retrieved %d now playing movies (page %d)", len(searchResp.Results), page)
-	return searchResp.Results, nil
+	// Fetch video data for each movie
+	moviesWithVideos := make([]TMDBMovieWithVideos, 0, len(searchResp.Results))
+
+	for _, movie := range searchResp.Results {
+		// Fetch videos for this movie
+		videoURL := fmt.Sprintf("%s/movie/%d/videos", t.baseURL)
+		videoReq, err := http.NewRequest("GET", videoURL+"?language=en-US", nil)
+		if err != nil {
+			log.Printf("⚠️ Failed to create video request for movie %d: %v", movie.ID, err)
+			moviesWithVideos = append(moviesWithVideos, TMDBMovieWithVideos{TMDBMovie: movie})
+			continue
+		}
+
+		videoReq.Header.Set("Authorization", "Bearer "+t.apiKey)
+		videoReq.Header.Set("Content-Type", "application/json")
+
+		videoResp, err := t.httpClient.Do(videoReq)
+		if err != nil {
+			log.Printf("⚠️ Failed to fetch videos for movie %d: %v", movie.ID, err)
+			moviesWithVideos = append(moviesWithVideos, TMDBMovieWithVideos{TMDBMovie: movie})
+			continue
+		}
+
+		var videos TMDBVideos
+		if err := json.NewDecoder(videoResp.Body).Decode(&videos); err != nil {
+			log.Printf("⚠️ Failed to decode videos for movie %d: %v", movie.ID, err)
+			videoResp.Body.Close()
+			moviesWithVideos = append(moviesWithVideos, TMDBMovieWithVideos{TMDBMovie: movie})
+			continue
+		}
+		videoResp.Body.Close()
+
+		moviesWithVideos = append(moviesWithVideos, TMDBMovieWithVideos{
+			TMDBMovie: movie,
+			Videos:    videos,
+		})
+	}
+
+	log.Printf("✅ TMDB: Retrieved %d now playing movies with video data (page %d)", len(moviesWithVideos), page)
+	return moviesWithVideos, nil
 }
 
 // GetUpcomingMoviesList returns upcoming movie releases with video data
@@ -2348,6 +2386,135 @@ func (t *TMDBService) DownloadMovieLogo(tmdbID int, mediaID uint, logoDir string
 
 	log.Printf("✅ TMDB: Logo saved (%d bytes): %s", bytesWritten, logoPath)
 	return logoPath, nil
+}
+
+// DownloadMovieBackdrop downloads the best backdrop for a movie by TMDB ID and saves it locally
+func (t *TMDBService) DownloadMovieBackdrop(tmdbID int, mediaID uint, backdropDir string) (string, error) {
+	if t.apiKey == "" {
+		return "", fmt.Errorf("TMDB API key not configured")
+	}
+
+	log.Printf("🖼️ TMDB: Downloading backdrop for TMDB ID %d (Media ID: %d)", tmdbID, mediaID)
+
+	// Get movie images
+	images, err := t.GetMovieImages(tmdbID)
+	if err != nil {
+		return "", fmt.Errorf("failed to get movie images: %v", err)
+	}
+
+	if len(images.Backdrops) == 0 {
+		return "", fmt.Errorf("no backdrops available for TMDB ID %d", tmdbID)
+	}
+
+	// Find the best backdrop (highest vote_average and good aspect ratio)
+	var bestBackdrop *TMDBImage
+	var bestScore float64 = -1
+
+	for i := range images.Backdrops {
+		backdrop := &images.Backdrops[i]
+		// Prefer backdrops with good aspect ratio (around 16:9) and high votes
+		aspectRatioScore := 1.0
+		if backdrop.AspectRatio > 0 {
+			// 16:9 aspect ratio is ~1.778, give bonus for close ratios
+			idealRatio := 1.778
+			ratioDiff := backdrop.AspectRatio - idealRatio
+			if ratioDiff < 0 {
+				ratioDiff = -ratioDiff
+			}
+			aspectRatioScore = 1.0 - (ratioDiff / idealRatio)
+			if aspectRatioScore < 0 {
+				aspectRatioScore = 0
+			}
+		}
+		
+		// Combined score: vote average + aspect ratio bonus
+		combinedScore := backdrop.VoteAverage + (aspectRatioScore * 2.0)
+		
+		if combinedScore > bestScore {
+			bestScore = combinedScore
+			bestBackdrop = backdrop
+		}
+	}
+
+	if bestBackdrop == nil {
+		return "", fmt.Errorf("no suitable backdrop found for TMDB ID %d", tmdbID)
+	}
+
+	log.Printf("✅ TMDB: Found backdrop - Path: %s, Score: %.1f, Aspect Ratio: %.2f",
+		bestBackdrop.FilePath, bestBackdrop.VoteAverage, bestBackdrop.AspectRatio)
+
+	// Create backdrop directory if it doesn't exist
+	if err := os.MkdirAll(backdropDir, 0755); err != nil {
+		return "", fmt.Errorf("failed to create backdrop directory: %v", err)
+	}
+
+	// Generate filename using media ID
+	filename := fmt.Sprintf("%d.jpg", mediaID)
+	backdropPath := filepath.Join(backdropDir, filename)
+
+	// Construct full backdrop URL (using w1280 for high quality)
+	backdropURL := "https://image.tmdb.org/t/p/w1280" + bestBackdrop.FilePath
+	log.Printf("📥 TMDB: Downloading backdrop from: %s", backdropURL)
+
+	// Download the backdrop
+	resp, err := t.httpClient.Get(backdropURL)
+	if err != nil {
+		return "", fmt.Errorf("failed to download backdrop: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("failed to download backdrop: HTTP %d", resp.StatusCode)
+	}
+
+	// Create the file
+	file, err := os.Create(backdropPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to create backdrop file: %v", err)
+	}
+	defer file.Close()
+
+	// Copy data to file
+	bytesWritten, err := file.ReadFrom(resp.Body)
+	if err != nil {
+		os.Remove(backdropPath)
+		return "", fmt.Errorf("failed to write backdrop data: %v", err)
+	}
+
+	log.Printf("✅ TMDB: Backdrop saved (%d bytes): %s", bytesWritten, backdropPath)
+	return backdropPath, nil
+}
+
+// DownloadBackdropByTitle searches TMDB for a movie by title and downloads its backdrop
+// This works similar to DownloadPoster and DownloadLogoByTitle
+func (t *TMDBService) DownloadBackdropByTitle(title string, mediaID uint, backdropDir string) (string, error) {
+	if t.apiKey == "" {
+		return "", fmt.Errorf("TMDB API key not configured")
+	}
+
+	log.Printf("🖼️ TMDB: Searching for backdrop for '%s'", title)
+
+	// Extract year from title for better search accuracy
+	year := t.extractYear(title)
+	cleanTitle := title
+	searchTitle := t.RemoveYearFromTitle(cleanTitle)
+
+	log.Printf("🔍 TMDB: Backdrop search params - Title: '%s', Year: %d", searchTitle, year)
+
+	// Search for the movie
+	movie, err := t.SearchMovie(searchTitle, year)
+	if err != nil {
+		// Try fallback search without year
+		movie, err = t.SearchMovie(searchTitle, 0)
+		if err != nil {
+			return "", fmt.Errorf("movie not found in TMDB: %v", err)
+		}
+	}
+
+	log.Printf("✅ TMDB: Found movie for backdrop - ID: %d, Title: '%s'", movie.ID, movie.Title)
+
+	// Now download the backdrop using the TMDB ID
+	return t.DownloadMovieBackdrop(movie.ID, mediaID, backdropDir)
 }
 
 // DownloadLogoByTitle searches TMDB for a movie by title and downloads its logo
@@ -2772,6 +2939,242 @@ func (t *TMDBService) SearchTVOnly(query string, page int) (*TMDBTVSearchRespons
 	return &searchResp, nil
 }
 
+// GetRelatedMedia fetches both similar and recommended content for movies or TV shows
+// If releaseYear > 0, it will filter and prioritize results from around that year (±2 years)
+func (t *TMDBService) GetRelatedMedia(mediaID int, mediaType string, limit int, releaseYear int) ([]TMDBSearchResult, error) {
+	if t.apiKey == "" {
+		return nil, fmt.Errorf("TMDB API key not configured")
+	}
+
+	if limit <= 0 {
+		limit = 20
+	}
+
+	var allResults []TMDBSearchResult
+
+	if mediaType == "movie" {
+		// Get similar movies
+		similar, err := t.GetSimilarMovies(mediaID, 1)
+		if err == nil && similar != nil {
+			for _, movie := range similar.Results {
+				if len(allResults) >= limit {
+					break
+				}
+				result := TMDBSearchResult{
+					ID:            movie.ID,
+					Title:         movie.Title,
+					OriginalTitle: movie.OriginalTitle,
+					Overview:      movie.Overview,
+					ReleaseDate:   movie.ReleaseDate,
+					PosterPath:    movie.PosterPath,
+					BackdropPath:  movie.BackdropPath,
+					VoteAverage:   movie.VoteAverage,
+					VoteCount:     movie.VoteCount,
+					Popularity:    movie.Popularity,
+					MediaType:     "movie",
+					Adult:         movie.Adult,
+					GenreIDs:      movie.GenreIDs,
+				}
+				allResults = append(allResults, result)
+			}
+		}
+
+		// Get recommended movies if we need more
+		if len(allResults) < limit {
+			recommended, err := t.GetRecommendedMovies(mediaID, 1)
+			if err == nil && recommended != nil {
+				for _, movie := range recommended.Results {
+					if len(allResults) >= limit {
+						break
+					}
+					// Check if already exists
+					exists := false
+					for _, existing := range allResults {
+						if existing.ID == movie.ID {
+							exists = true
+							break
+						}
+					}
+					if !exists {
+						result := TMDBSearchResult{
+							ID:            movie.ID,
+							Title:         movie.Title,
+							OriginalTitle: movie.OriginalTitle,
+							Overview:      movie.Overview,
+							ReleaseDate:   movie.ReleaseDate,
+							PosterPath:    movie.PosterPath,
+							BackdropPath:  movie.BackdropPath,
+							VoteAverage:   movie.VoteAverage,
+							VoteCount:     movie.VoteCount,
+							Popularity:    movie.Popularity,
+							MediaType:     "movie",
+							Adult:         movie.Adult,
+							GenreIDs:      movie.GenreIDs,
+						}
+						allResults = append(allResults, result)
+					}
+				}
+			}
+		}
+	} else if mediaType == "tv" {
+		// Get similar TV shows
+		similar, err := t.GetSimilarTVShows(mediaID, 1)
+		if err == nil && similar != nil {
+			for _, tv := range similar.Results {
+				if len(allResults) >= limit {
+					break
+				}
+				result := TMDBSearchResult{
+					ID:            tv.ID,
+					Title:         tv.Name,
+					OriginalTitle: tv.OriginalName,
+					Overview:      tv.Overview,
+					ReleaseDate:   tv.FirstAirDate,
+					PosterPath:    tv.PosterPath,
+					BackdropPath:  tv.BackdropPath,
+					VoteAverage:   tv.VoteAverage,
+					VoteCount:     tv.VoteCount,
+					Popularity:    tv.Popularity,
+					MediaType:     "tv",
+					Adult:         tv.Adult,
+					GenreIDs:      tv.GenreIDs,
+				}
+				allResults = append(allResults, result)
+			}
+		}
+
+		// Get recommended TV shows if we need more
+		if len(allResults) < limit {
+			recommended, err := t.GetRecommendedTVShows(mediaID, 1)
+			if err == nil && recommended != nil {
+				for _, tv := range recommended.Results {
+					if len(allResults) >= limit {
+						break
+					}
+					// Check if already exists
+					exists := false
+					for _, existing := range allResults {
+						if existing.ID == tv.ID {
+							exists = true
+							break
+						}
+					}
+					if !exists {
+						result := TMDBSearchResult{
+							ID:            tv.ID,
+							Title:         tv.Name,
+							OriginalTitle: tv.OriginalName,
+							Overview:      tv.Overview,
+							ReleaseDate:   tv.FirstAirDate,
+							PosterPath:    tv.PosterPath,
+							BackdropPath:  tv.BackdropPath,
+							VoteAverage:   tv.VoteAverage,
+							VoteCount:     tv.VoteCount,
+							Popularity:    tv.Popularity,
+							MediaType:     "tv",
+							Adult:         tv.Adult,
+							GenreIDs:      tv.GenreIDs,
+						}
+						allResults = append(allResults, result)
+					}
+				}
+			}
+		}
+	}
+
+	// Apply year-based filtering and sorting if year is provided
+	if releaseYear > 0 {
+		log.Printf("🗓️ TMDB: Sorting related media by proximity to year %d", releaseYear)
+		
+		// Score results by year proximity but DON'T filter them out
+		type scoredResult struct {
+			result   TMDBSearchResult
+			yearDiff int // Absolute difference from target year
+		}
+		
+		var scored []scoredResult
+		for _, result := range allResults {
+			var resultYear int
+			if result.ReleaseDate != "" {
+				// Extract year from release date (format: YYYY-MM-DD)
+				if parsedTime, err := time.Parse("2006-01-02", result.ReleaseDate); err == nil {
+					resultYear = parsedTime.Year()
+				} else {
+					// Try parsing just the year
+					fmt.Sscanf(result.ReleaseDate[:4], "%d", &resultYear)
+				}
+			}
+			
+			yearDiff := releaseYear - resultYear
+			if yearDiff < 0 {
+				yearDiff = -yearDiff
+			}
+			
+			scored = append(scored, scoredResult{
+				result:   result,
+				yearDiff: yearDiff,
+			})
+		}
+		
+		// Sort by year proximity (smaller difference = better)
+		sort.Slice(scored, func(i, j int) bool {
+			return scored[i].yearDiff < scored[j].yearDiff
+		})
+		
+		// Extract sorted results
+		allResults = make([]TMDBSearchResult, len(scored))
+		for i, s := range scored {
+			allResults[i] = s.result
+		}
+	}
+
+	return allResults, nil
+}
+
+// buildImageURL builds a full TMDB image URL with validation
+func (t *TMDBService) buildImageURL(path, size string) string {
+	if path == "" {
+		return ""
+	}
+	
+	// Ensure path starts with /
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+	
+	return fmt.Sprintf("https://image.tmdb.org/t/p/%s%s", size, path)
+}
+
+// validateMetadata validates metadata before returning
+func (t *TMDBService) validateMetadata(metadata *interfaces.MediaMetadata, originalTitle string) {
+	if metadata.Title == "" {
+		log.Printf("⚠️ Empty title in metadata for '%s'", originalTitle)
+		metadata.Title = originalTitle
+	}
+	
+	if metadata.Year == 0 {
+		log.Printf("⚠️ No year in metadata for '%s'", metadata.Title)
+	}
+	
+	if metadata.Rating == 0 {
+		log.Printf("⚠️ No rating in metadata for '%s'", metadata.Title)
+	}
+	
+	if len(metadata.Genres) == 0 {
+		log.Printf("⚠️ No genres in metadata for '%s'", metadata.Title)
+	}
+}
+
+// contains checks if a slice contains a string
+func contains(slice []string, item string) bool {
+	for _, s := range slice {
+		if s == item {
+			return true
+		}
+	}
+	return false
+}
+
 // TMDBRelatedResponse represents the response for similar/recommended content
 type TMDBRelatedResponse struct {
 	Page         int         `json:"page"`
@@ -2956,285 +3359,6 @@ func (t *TMDBService) GetRecommendedTVShows(tvID int, page int) (*TMDBTVRelatedR
 	return &relatedResp, nil
 }
 
-// GetRelatedMedia fetches both similar and recommended content for movies or TV shows
-// If releaseYear > 0, it will filter and prioritize results from around that year (±2 years)
-func (t *TMDBService) GetRelatedMedia(mediaID int, mediaType string, limit int, releaseYear int) ([]TMDBSearchResult, error) {
-	if t.apiKey == "" {
-		return nil, fmt.Errorf("TMDB API key not configured")
-	}
-
-	if limit <= 0 {
-		limit = 20
-	}
-
-	var allResults []TMDBSearchResult
-
-	if mediaType == "movie" {
-		// Get similar movies
-		similar, err := t.GetSimilarMovies(mediaID, 1)
-		if err == nil && similar != nil {
-			for _, movie := range similar.Results {
-				if len(allResults) >= limit {
-					break
-				}
-				result := TMDBSearchResult{
-					ID:            movie.ID,
-					Title:         movie.Title,
-					OriginalTitle: movie.OriginalTitle,
-					Overview:      movie.Overview,
-					ReleaseDate:   movie.ReleaseDate,
-					PosterPath:    movie.PosterPath,
-					BackdropPath:  movie.BackdropPath,
-					VoteAverage:   movie.VoteAverage,
-					VoteCount:     movie.VoteCount,
-					Popularity:    movie.Popularity,
-					MediaType:     "movie",
-					Adult:         movie.Adult,
-					GenreIDs:      movie.GenreIDs,
-				}
-				allResults = append(allResults, result)
-			}
-		}
-
-		// Get recommended movies if we need more
-		if len(allResults) < limit {
-			recommended, err := t.GetRecommendedMovies(mediaID, 1)
-			if err == nil && recommended != nil {
-				for _, movie := range recommended.Results {
-					if len(allResults) >= limit {
-						break
-					}
-					// Check if already exists
-					exists := false
-					for _, existing := range allResults {
-						if existing.ID == movie.ID {
-							exists = true
-							break
-						}
-					}
-					if !exists {
-						result := TMDBSearchResult{
-							ID:            movie.ID,
-							Title:         movie.Title,
-							OriginalTitle: movie.OriginalTitle,
-							Overview:      movie.Overview,
-							ReleaseDate:   movie.ReleaseDate,
-							PosterPath:    movie.PosterPath,
-							BackdropPath:  movie.BackdropPath,
-							VoteAverage:   movie.VoteAverage,
-							VoteCount:     movie.VoteCount,
-							Popularity:    movie.Popularity,
-							MediaType:     "movie",
-							Adult:         movie.Adult,
-							GenreIDs:      movie.GenreIDs,
-						}
-						allResults = append(allResults, result)
-					}
-				}
-			}
-		}
-	} else if mediaType == "tv" {
-		// Get similar TV shows
-		similar, err := t.GetSimilarTVShows(mediaID, 1)
-		if err == nil && similar != nil {
-			for _, tv := range similar.Results {
-				if len(allResults) >= limit {
-					break
-				}
-				result := TMDBSearchResult{
-					ID:            tv.ID,
-					Title:         tv.Name,
-					OriginalTitle: tv.OriginalName,
-					Overview:      tv.Overview,
-					ReleaseDate:   tv.FirstAirDate,
-					PosterPath:    tv.PosterPath,
-					BackdropPath:  tv.BackdropPath,
-					VoteAverage:   tv.VoteAverage,
-					VoteCount:     tv.VoteCount,
-					Popularity:    tv.Popularity,
-					MediaType:     "tv",
-					Adult:         tv.Adult,
-					GenreIDs:      tv.GenreIDs,
-				}
-				allResults = append(allResults, result)
-			}
-		}
-
-		// Get recommended TV shows if we need more
-		if len(allResults) < limit {
-			recommended, err := t.GetRecommendedTVShows(mediaID, 1)
-			if err == nil && recommended != nil {
-				for _, tv := range recommended.Results {
-					if len(allResults) >= limit {
-						break
-					}
-					// Check if already exists
-					exists := false
-					for _, existing := range allResults {
-						if existing.ID == tv.ID {
-							exists = true
-							break
-						}
-					}
-					if !exists {
-						result := TMDBSearchResult{
-							ID:            tv.ID,
-							Title:         tv.Name,
-							OriginalTitle: tv.OriginalName,
-							Overview:      tv.Overview,
-							ReleaseDate:   tv.FirstAirDate,
-							PosterPath:    tv.PosterPath,
-							BackdropPath:  tv.BackdropPath,
-							VoteAverage:   tv.VoteAverage,
-							VoteCount:     tv.VoteCount,
-							Popularity:    tv.Popularity,
-							MediaType:     "tv",
-							Adult:         tv.Adult,
-							GenreIDs:      tv.GenreIDs,
-						}
-						allResults = append(allResults, result)
-					}
-				}
-			}
-		}
-	}
-
-	// Apply year-based filtering and sorting if year is provided
-	if releaseYear > 0 {
-		log.Printf("🗓️ TMDB: Sorting related media by proximity to year %d", releaseYear)
-		
-		// Score results by year proximity but DON'T filter them out
-		type scoredResult struct {
-			result   TMDBSearchResult
-			yearDiff int // Absolute difference from target year
-		}
-		
-		var scored []scoredResult
-		for _, result := range allResults {
-			var resultYear int
-			if result.ReleaseDate != "" {
-				// Extract year from release date (format: YYYY-MM-DD)
-				if parsedTime, err := time.Parse("2006-01-02", result.ReleaseDate); err == nil {
-					resultYear = parsedTime.Year()
-				} else {
-					// Try parsing just the year
-					fmt.Sscanf(result.ReleaseDate[:4], "%d", &resultYear)
-				}
-			}
-			
-			yearDiff := 999 // Default high value for items without dates
-			if resultYear > 0 {
-				yearDiff = resultYear - releaseYear
-				if yearDiff < 0 {
-					yearDiff = -yearDiff // Absolute value
-				}
-			}
-			
-			scored = append(scored, scoredResult{
-				result:   result,
-				yearDiff: yearDiff,
-			})
-		}
-		
-		// Sort by year proximity (closest to target year first), then by popularity
-		sort.Slice(scored, func(i, j int) bool {
-			// Primary sort: year difference (smaller = closer)
-			if scored[i].yearDiff != scored[j].yearDiff {
-				return scored[i].yearDiff < scored[j].yearDiff
-			}
-			// Secondary sort: popularity (higher = better)
-			return scored[i].result.Popularity > scored[j].result.Popularity
-		})
-		
-		// Rebuild allResults from scored results
-		allResults = make([]TMDBSearchResult, 0, len(scored))
-		for _, s := range scored {
-			allResults = append(allResults, s.result)
-		}
-		
-		log.Printf("✅ TMDB: Found %d related %s items for ID %d (sorted by proximity to year %d)", 
-			len(allResults), mediaType, mediaID, releaseYear)
-	} else {
-		// Original behavior: Sort results by release date (most recent first)
-		sort.Slice(allResults, func(i, j int) bool {
-			dateI := allResults[i].ReleaseDate
-			dateJ := allResults[j].ReleaseDate
-
-			// Handle empty dates - push them to the end
-			if dateI == "" && dateJ == "" {
-				return false
-			}
-			if dateI == "" {
-				return false
-			}
-			if dateJ == "" {
-				return true
-			}
-
-			// Parse dates and compare (newer dates come first)
-			return dateI > dateJ
-		})
-		
-		log.Printf("✅ TMDB: Found %d related %s items for ID %d (sorted by release date)", 
-			len(allResults), mediaType, mediaID)
-	}
-
-	return allResults, nil
-}
-
-// contains checks if a slice contains a string
-func contains(slice []string, item string) bool {
-	for _, s := range slice {
-		if s == item {
-			return true
-		}
-	}
-	return false
-}
-
-// validateImagePath checks if an image path is valid and non-empty
-func (t *TMDBService) validateImagePath(path string) bool {
-	return path != "" && len(strings.TrimSpace(path)) > 0 && strings.HasPrefix(path, "/")
-}
-
-// buildImageURL safely constructs TMDB image URLs with validation
-func (t *TMDBService) buildImageURL(path, size string) string {
-	if !t.validateImagePath(path) {
-		return ""
-	}
-	if size == "" {
-		size = "w500" // default size
-	}
-	return "https://image.tmdb.org/t/p/" + size + path
-}
-
-// validateMetadata performs final validation on metadata before returning
-func (t *TMDBService) validateMetadata(metadata *interfaces.MediaMetadata, title string) {
-	issues := []string{}
-
-	if metadata.PosterURL == "" {
-		issues = append(issues, "missing poster URL")
-	}
-	if metadata.BackdropURL == "" {
-		issues = append(issues, "missing backdrop URL")
-	}
-	if metadata.TrailerURL == "" {
-		issues = append(issues, "missing trailer URL")
-	}
-	if metadata.Title == "" {
-		issues = append(issues, "missing title")
-	}
-	if metadata.Year == 0 {
-		issues = append(issues, "missing year")
-	}
-
-	if len(issues) > 0 {
-		log.Printf("⚠️ Metadata validation for '%s': %s", title, strings.Join(issues, ", "))
-	} else {
-		log.Printf("✅ Metadata validation passed for '%s'", title)
-	}
-}
-
 // UpcomingTVSeriesResponse represents the combined response for TV series
 type UpcomingTVSeriesResponse struct {
 	AiringToday    []TMDBTV  `json:"airing_today"`
@@ -3406,3 +3530,147 @@ func (t *TMDBService) fetchTrendingTVShows(timeWindow string) ([]TMDBTV, error) 
 
 	return searchResp.Results, nil
 }
+
+// GetTVImages returns posters, backdrops, and logos for a TV show
+func (t *TMDBService) GetTVImages(tvID int) (*TMDBImagesResponse, error) {
+	if t.apiKey == "" {
+		return nil, fmt.Errorf("TMDB API key not configured")
+	}
+
+	requestURL := fmt.Sprintf("%s/tv/%d/images", t.baseURL, tvID)
+
+	req, err := http.NewRequest("GET", requestURL, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Authorization", "Bearer "+t.apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := t.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("TMDB API error: %d", resp.StatusCode)
+	}
+
+	var images TMDBImagesResponse
+	if err := json.NewDecoder(resp.Body).Decode(&images); err != nil {
+		return nil, err
+	}
+
+	log.Printf("✅ TMDB: Retrieved images for TV %d: %d backdrops, %d logos, %d posters",
+		tvID, len(images.Backdrops), len(images.Logos), len(images.Posters))
+	return &images, nil
+}
+
+// DownloadTVLogo downloads the English logo for a TV show by TMDB ID and saves it locally
+func (t *TMDBService) DownloadTVLogo(tmdbID int, seriesID uint, logoDir string) (string, error) {
+	if t.apiKey == "" {
+		return "", fmt.Errorf("TMDB API key not configured")
+	}
+
+	log.Printf("🎨 TMDB: Downloading TV logo for TMDB ID %d (Series ID: %d)", tmdbID, seriesID)
+
+	// Get TV images
+	images, err := t.GetTVImages(tmdbID)
+	if err != nil {
+		return "", fmt.Errorf("failed to get TV images: %v", err)
+	}
+
+	if len(images.Logos) == 0 {
+		return "", fmt.Errorf("no logos available for TMDB TV ID %d", tmdbID)
+	}
+
+	// Find the best English logo (highest vote_average)
+	var bestLogo *TMDBImage
+	var bestScore float64 = -1
+
+	// Only look for English logos (iso_639_1 == "en")
+	for i := range images.Logos {
+		logo := &images.Logos[i]
+		if logo.ISO6391 == "en" {
+			if logo.VoteAverage > bestScore {
+				bestScore = logo.VoteAverage
+				bestLogo = logo
+			}
+		}
+	}
+
+	if bestLogo == nil {
+		return "", fmt.Errorf("no English logo found for TMDB TV ID %d", tmdbID)
+	}
+
+	log.Printf("✅ TMDB: Found TV logo - Path: %s, Language: %s, Score: %.1f",
+		bestLogo.FilePath, bestLogo.ISO6391, bestLogo.VoteAverage)
+
+	// Create logo directory if it doesn't exist
+	if err := os.MkdirAll(logoDir, 0755); err != nil {
+		return "", fmt.Errorf("failed to create logo directory: %v", err)
+	}
+
+	// Generate filename using series ID with tv_ prefix to distinguish from movies
+	filename := fmt.Sprintf("tv_%d.png", seriesID)
+	logoPath := filepath.Join(logoDir, filename)
+
+	// Construct full logo URL (using w500 for good quality)
+	logoURL := "https://image.tmdb.org/t/p/w500" + bestLogo.FilePath
+	log.Printf("📥 TMDB: Downloading TV logo from: %s", logoURL)
+
+	// Download the logo
+	resp, err := t.httpClient.Get(logoURL)
+	if err != nil {
+		return "", fmt.Errorf("failed to download TV logo: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("failed to download TV logo: HTTP %d", resp.StatusCode)
+	}
+
+	// Create the file
+	file, err := os.Create(logoPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to create TV logo file: %v", err)
+	}
+	defer file.Close()
+
+	// Copy data to file
+	bytesWritten, err := file.ReadFrom(resp.Body)
+	if err != nil {
+		os.Remove(logoPath)
+		return "", fmt.Errorf("failed to write TV logo data: %v", err)
+	}
+
+	log.Printf("✅ TMDB: TV logo saved (%d bytes): %s", bytesWritten, logoPath)
+	return logoPath, nil
+}
+
+// DownloadTVLogoByTitle searches TMDB for a TV show by title and downloads its logo
+func (t *TMDBService) DownloadTVLogoByTitle(title string, seriesID uint, logoDir string) (string, error) {
+	if t.apiKey == "" {
+		return "", fmt.Errorf("TMDB API key not configured")
+	}
+
+	log.Printf("🔍 TMDB: Searching for TV show '%s' to download logo", title)
+
+	// Search for the TV show
+	results, err := t.SearchTVOnly(title, 1)
+	if err != nil {
+		return "", fmt.Errorf("failed to search TV show: %v", err)
+	}
+
+	if len(results.Results) == 0 {
+		return "", fmt.Errorf("no TV shows found for title '%s'", title)
+	}
+
+	// Use the first result
+	tv := results.Results[0]
+	log.Printf("✅ TMDB: Found TV show '%s' (ID: %d) for logo download", tv.Name, tv.ID)
+
+	return t.DownloadTVLogo(tv.ID, seriesID, logoDir)
+}
+

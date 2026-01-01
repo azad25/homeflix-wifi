@@ -15,6 +15,7 @@ import UpcomingMovies from '@/components/UpcomingMovies';
 import UpcomingTVSeries from '@/components/UpcomingTVSeries';
 import { useRouter } from 'next/navigation';
 import { useNavigate } from '@/hooks/useNavigate';
+import BackendWidgetRenderer from '@/components/widgets/BackendWidgetRenderer';
 
 const NewPopularPage: React.FC = () => {
   usePageTitle('New & Popular');
@@ -140,6 +141,12 @@ const NewPopularPage: React.FC = () => {
           contentFilter="movies-hd"
         />
       )}
+
+      {/* Widget System Integration - Backend Data */}
+      <BackendWidgetRenderer 
+        page="new-popular" 
+        className="relative z-10 py-8"
+      />
 
       {/* Content Sections */}
       <div className="relative z-10 -mt-32 overflow-visible">

@@ -76,6 +76,7 @@ type Media struct {
 	PreviewClipPath string `json:"preview_clip_path"` // Short video clip for hover preview
 	PosterPath      string `json:"poster_path"`       // HD movie poster
 	BannerPath      string `json:"banner_path"`       // HD banner for hero section
+	BackdropPath    string `json:"backdrop_path"`     // Local path to backdrop image
 	TrailerPath     string `json:"trailer_path"`      // Trailer video file
 	
 	// TMDB Integration fields for local media
@@ -162,6 +163,8 @@ type Series struct {
 	TMDBBackdropURL string `json:"tmdb_backdrop_url"` // TMDB backdrop image URL
 	TMDBPosterURL   string `json:"tmdb_poster_url"`   // TMDB poster image URL
 	TMDBTrailerURL  string `json:"tmdb_trailer_url"`  // TMDB YouTube trailer URL
+	LogoPath        string `json:"logo_path"`         // Local path to TV series logo image
+	TMDBID          int    `json:"tmdb_id"`           // TMDB TV series ID for reference
 }
 
 // AfterFind hook to populate GenreNames from Genres relationship
