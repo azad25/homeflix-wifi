@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"homeflix-backend/internal/models"
 
@@ -171,10 +172,101 @@ func (s *WidgetService) ToggleWidget(id uint, enabled bool) error {
 func (s *WidgetService) GetWidgetConfig(widget *models.Widget) (*models.WidgetConfig, error) {
 	var config models.WidgetConfig
 	if widget.Config == "" {
+		fmt.Printf("🔧 Widget %s has empty config, using defaults\n", widget.Name)
 		return &config, nil
 	}
-	err := json.Unmarshal([]byte(widget.Config), &config)
-	return &config, err
+	
+	fmt.Printf("🔧 Parsing config for widget %s: %s\n", widget.Name, widget.Config)
+	
+	// First unmarshal to get the raw config
+	var rawConfig map[string]interface{}
+	if err := json.Unmarshal([]byte(widget.Config), &rawConfig); err != nil {
+		fmt.Printf("❌ Error parsing raw config for widget %s: %v\n", widget.Name, err)
+		return &config, err
+	}
+	
+	fmt.Printf("🔧 Raw config for widget %s: %+v\n", widget.Name, rawConfig)
+	
+	// Now unmarshal to the proper struct
+	if err := json.Unmarshal([]byte(widget.Config), &config); err != nil {
+		fmt.Printf("❌ Error parsing structured config for widget %s: %v\n", widget.Name, err)
+		return &config, err
+	}
+	
+	fmt.Printf("🔧 Structured config for widget %s: GenreFilter=%v, SelectedGenres=%v\n", 
+		widget.Name, config.GenreFilter, rawConfig["selectedGenres"])
+	
+	// Handle conversion from selectedGenres (IDs) to genreFilter (names) if needed
+	if len(config.GenreFilter) == 0 {
+		if selectedGenres, ok := rawConfig["selectedGenres"].([]interface{}); ok && len(selectedGenres) > 0 {
+			fmt.Printf("🔧 Converting selectedGenres to genreFilter for widget %s\n", widget.Name)
+			
+			// Convert interface{} slice to int slice
+			var genreIDs []int
+			for _, id := range selectedGenres {
+				if idFloat, ok := id.(float64); ok {
+					genreIDs = append(genreIDs, int(idFloat))
+				}
+			}
+			
+			fmt.Printf("🔧 Extracted genre IDs: %v\n", genreIDs)
+			
+			// Convert genre IDs to names using TMDB service
+			if len(genreIDs) > 0 && s.tmdbService != nil {
+				genreNames := s.convertGenreIDsToNames(genreIDs)
+				config.GenreFilter = genreNames
+				fmt.Printf("🔧 Converted genre IDs %v to names %v\n", genreIDs, genreNames)
+			}
+		}
+	}
+	
+	fmt.Printf("🔧 Final config for widget %s: GenreFilter=%v\n", widget.Name, config.GenreFilter)
+	
+	return &config, nil
+}
+
+// convertGenreIDsToNames converts TMDB genre IDs to genre names
+func (s *WidgetService) convertGenreIDsToNames(genreIDs []int) []string {
+	// TMDB genre mapping - this should ideally come from TMDB API but we'll use a static map for now
+	genreMap := map[int]string{
+		28:    "Action",
+		12:    "Adventure", 
+		16:    "Animation",
+		35:    "Comedy",
+		80:    "Crime",
+		99:    "Documentary",
+		18:    "Drama",
+		10751: "Family",
+		14:    "Fantasy",
+		36:    "History",
+		27:    "Horror",
+		10402: "Music",
+		9648:  "Mystery",
+		10749: "Romance",
+		878:   "Science Fiction",
+		10770: "TV Movie",
+		53:    "Thriller",
+		10752: "War",
+		37:    "Western",
+		// TV genres
+		10759: "Action & Adventure",
+		10762: "Kids",
+		10763: "News",
+		10764: "Reality",
+		10765: "Sci-Fi & Fantasy",
+		10766: "Soap",
+		10767: "Talk",
+		10768: "War & Politics",
+	}
+	
+	var genreNames []string
+	for _, id := range genreIDs {
+		if name, exists := genreMap[id]; exists {
+			genreNames = append(genreNames, name)
+		}
+	}
+	
+	return genreNames
 }
 
 // SetWidgetConfig serializes a WidgetConfig to JSON and stores it
@@ -506,12 +598,15 @@ func (s *WidgetService) getWidgetDataFromCache(widget models.Widget, cache *Data
 	// Get data from cache based on data source
 	switch widget.DataSource {
 	case models.WidgetDataSourceLocal, models.WidgetDataSourceRecent:
+		fmt.Printf("🔧 Widget %s using local data source: %s\n", widget.Name, widget.DataSource)
 		sourceData = s.getLocalDataFromCache(widget, cache)
 	case models.WidgetDataSourceTMDB, models.WidgetDataSourceTrending, 
 		 models.WidgetDataSourcePopular, models.WidgetDataSourceNowPlaying, 
 		 models.WidgetDataSourceUpcoming:
+		fmt.Printf("🔧 Widget %s using TMDB data source: %s\n", widget.Name, widget.DataSource)
 		sourceData = s.getTMDBDataFromCache(widget, cache)
 	default:
+		fmt.Printf("🔧 Widget %s using default local data source (fallback)\n", widget.Name)
 		sourceData = s.getLocalDataFromCache(widget, cache)
 	}
 
@@ -533,13 +628,19 @@ func (s *WidgetService) getWidgetDataFromCache(widget models.Widget, cache *Data
 func (s *WidgetService) getLocalDataFromCache(widget models.Widget, cache *DataCache) []models.MediaItem {
 	var sourceMedia []models.Media
 
+	fmt.Printf("🔧 Getting local data for widget %s (content_type: %s, data_source: %s)\n", 
+		widget.Name, widget.ContentType, widget.DataSource)
+
 	switch widget.ContentType {
 	case models.WidgetContentTypeMovies:
 		sourceMedia = cache.LocalMovies
+		fmt.Printf("   Using LocalMovies cache: %d items\n", len(sourceMedia))
 	case models.WidgetContentTypeTVShows:
 		sourceMedia = cache.LocalTVShows
+		fmt.Printf("   Using LocalTVShows cache: %d items\n", len(sourceMedia))
 	default:
 		sourceMedia = cache.LocalAllMedia
+		fmt.Printf("   Using LocalAllMedia cache: %d items\n", len(sourceMedia))
 	}
 
 	// Convert to MediaItem format
@@ -558,6 +659,7 @@ func (s *WidgetService) getLocalDataFromCache(widget models.Widget, cache *DataC
 			BackdropPath:    media.BackdropPath,
 			LogoPath:        media.LogoPath,
 			TMDBBackdropURL: media.TMDBBackdropURL,
+			TMDBTrailerURL:  media.TMDBTrailerURL, // Copy trailer URL from local media
 			TMDBID:          media.TMDBID,
 		}
 
@@ -579,33 +681,82 @@ func (s *WidgetService) getLocalDataFromCache(widget models.Widget, cache *DataC
 
 // getTMDBDataFromCache gets TMDB data from cache
 func (s *WidgetService) getTMDBDataFromCache(widget models.Widget, cache *DataCache) []models.MediaItem {
+	var sourceData []models.MediaItem
+	
 	// For TV shows content type, use TV shows data
 	if widget.ContentType == models.WidgetContentTypeTVShows {
 		switch widget.DataSource {
 		case models.WidgetDataSourceTrending:
-			return cache.TMDBTVTrending
+			sourceData = cache.TMDBTVTrending
 		case models.WidgetDataSourcePopular, models.WidgetDataSourceTMDB:
-			return cache.TMDBTVPopular
+			sourceData = cache.TMDBTVPopular
 		case models.WidgetDataSourceTopRated:
-			return cache.TMDBTVTopRated
+			sourceData = cache.TMDBTVTopRated
 		default:
-			return cache.TMDBTVPopular
+			sourceData = cache.TMDBTVPopular
+		}
+	} else {
+		// For movies or mixed content, use movie data
+		switch widget.DataSource {
+		case models.WidgetDataSourceTrending:
+			sourceData = cache.TMDBTrending
+		case models.WidgetDataSourcePopular:
+			sourceData = cache.TMDBPopular
+		case models.WidgetDataSourceUpcoming:
+			sourceData = cache.TMDBUpcoming
+		case models.WidgetDataSourceNowPlaying:
+			sourceData = cache.TMDBNowPlaying
+		default:
+			sourceData = cache.TMDBPopular
 		}
 	}
 	
-	// For movies or mixed content, use movie data
-	switch widget.DataSource {
-	case models.WidgetDataSourceTrending:
-		return cache.TMDBTrending
-	case models.WidgetDataSourcePopular:
-		return cache.TMDBPopular
-	case models.WidgetDataSourceUpcoming:
-		return cache.TMDBUpcoming
-	case models.WidgetDataSourceNowPlaying:
-		return cache.TMDBNowPlaying
-	default:
-		return cache.TMDBPopular
+	// For trailer widgets, enrich the data with trailer URLs efficiently
+	if widget.Type == models.WidgetTypeTrailer && len(sourceData) > 0 {
+		fmt.Printf("🎬 Enriching cached data with trailer URLs for widget %s\n", widget.Name)
+		
+		// Limit to widget.MaxItems to avoid unnecessary API calls
+		itemsToEnrich := sourceData
+		if len(sourceData) > widget.MaxItems {
+			itemsToEnrich = sourceData[:widget.MaxItems]
+		}
+		
+		enrichedData := make([]models.MediaItem, len(itemsToEnrich))
+		
+		// Process items with rate limiting to respect TMDB API limits
+		for i, item := range itemsToEnrich {
+			if item.TMDBID > 0 {
+				// Determine media type based on item type
+				mediaType := "movie"
+				if item.Type == "tv" {
+					mediaType = "tv"
+				}
+				enrichedData[i] = s.enrichMediaItemWithTrailer(item, mediaType)
+				
+				// Add small delay between API calls to respect rate limits (40 requests per 10 seconds)
+				if i < len(itemsToEnrich)-1 {
+					time.Sleep(250 * time.Millisecond) // 4 requests per second max
+				}
+			} else {
+				enrichedData[i] = item
+			}
+		}
+		
+		// Filter to only return items with trailer URLs
+		var validTrailers []models.MediaItem
+		for _, item := range enrichedData {
+			if item.TMDBTrailerURL != "" {
+				validTrailers = append(validTrailers, item)
+			}
+		}
+		
+		fmt.Printf("🎬 Found %d items with trailers out of %d processed for widget %s\n", 
+			len(validTrailers), len(itemsToEnrich), widget.Name)
+		
+		return validTrailers
 	}
+	
+	return sourceData
 }
 
 // applyWidgetFilters applies filters to widget data
@@ -631,21 +782,30 @@ func (s *WidgetService) applyWidgetFilters(data []models.MediaItem, widget model
 		filteredData = filtered
 	}
 
-	// Apply genre filter
+	// Apply genre filter - handle both genreFilter (names) and selectedGenres (IDs)
 	if len(config.GenreFilter) > 0 {
+		fmt.Printf("🔧 Applying genre filter for widget %s: %v\n", widget.Name, config.GenreFilter)
 		var filtered []models.MediaItem
 		for _, item := range filteredData {
+			// Check if item has any of the filtered genres
+			hasMatchingGenre := false
 			for _, genre := range item.GenreNames {
 				for _, filterGenre := range config.GenreFilter {
 					if strings.EqualFold(genre, filterGenre) {
-						filtered = append(filtered, item)
-						goto nextItem
+						hasMatchingGenre = true
+						break
 					}
 				}
+				if hasMatchingGenre {
+					break
+				}
 			}
-			nextItem:
+			if hasMatchingGenre {
+				filtered = append(filtered, item)
+			}
 		}
 		filteredData = filtered
+		fmt.Printf("🔧 Genre filter applied: %d items remaining\n", len(filteredData))
 	}
 
 	// Apply year filter
@@ -673,10 +833,28 @@ func (s *WidgetService) applyWidgetFilters(data []models.MediaItem, widget model
 	return filteredData
 }
 
-// sortWidgetData sorts widget data based on data source
+// sortWidgetData sorts widget data based on data source and widget type
 func (s *WidgetService) sortWidgetData(data []models.MediaItem, widget models.Widget) []models.MediaItem {
 	sortedData := make([]models.MediaItem, len(data))
 	copy(sortedData, data)
+
+	// Special handling for genre-based widgets - sort by latest content (year and added date)
+	if widget.Type == models.WidgetTypeGenreBased {
+		fmt.Printf("🔧 Sorting genre-based widget %s data by latest content (ID DESC, Year DESC)\n", widget.Name)
+		sort.Slice(sortedData, func(i, j int) bool {
+			// First sort by ID (higher ID = more recently added to database)
+			if sortedData[i].ID != sortedData[j].ID {
+				return sortedData[i].ID > sortedData[j].ID
+			}
+			// Then by year (newer content first)
+			if sortedData[i].Year != sortedData[j].Year {
+				return sortedData[i].Year > sortedData[j].Year
+			}
+			// Finally by rating as tiebreaker
+			return sortedData[i].Rating > sortedData[j].Rating
+		})
+		return sortedData
+	}
 
 	switch widget.DataSource {
 	case models.WidgetDataSourceTrending:
@@ -694,7 +872,12 @@ func (s *WidgetService) sortWidgetData(data []models.MediaItem, widget models.Wi
 			return sortedData[i].ViewCount > sortedData[j].ViewCount
 		})
 	case models.WidgetDataSourceRecent:
+		// Sort by ID (higher ID = more recently added) and then by year
+		fmt.Printf("🔧 Sorting widget %s data by recent (ID DESC, Year DESC)\n", widget.Name)
 		sort.Slice(sortedData, func(i, j int) bool {
+			if sortedData[i].ID != sortedData[j].ID {
+				return sortedData[i].ID > sortedData[j].ID
+			}
 			return sortedData[i].Year > sortedData[j].Year
 		})
 	default:
@@ -983,18 +1166,28 @@ func (s *WidgetService) getLocalMediaData(widget *models.Widget, config *models.
 	
 	// Filter by genre if specified
 	if len(config.GenreFilter) > 0 {
+		fmt.Printf("🔧 Applying genre filter for widget %s: %v\n", widget.Name, config.GenreFilter)
 		var filteredMedia []models.Media
 		for _, media := range allMedia {
+			// Check if media has any of the filtered genres
+			hasMatchingGenre := false
 			for _, genre := range media.Genres {
 				for _, filterGenre := range config.GenreFilter {
 					if strings.EqualFold(genre.Name, filterGenre) {
-						filteredMedia = append(filteredMedia, media)
+						hasMatchingGenre = true
 						break
 					}
 				}
+				if hasMatchingGenre {
+					break
+				}
+			}
+			if hasMatchingGenre {
+				filteredMedia = append(filteredMedia, media)
 			}
 		}
 		allMedia = filteredMedia
+		fmt.Printf("🔧 Genre filter applied: %d items remaining\n", len(allMedia))
 	}
 	
 	// Apply other filters
@@ -1037,7 +1230,7 @@ func (s *WidgetService) getLocalMediaData(widget *models.Widget, config *models.
 			return allMedia[i].ViewCount > allMedia[j].ViewCount
 		})
 	case models.WidgetDataSourceRecent:
-		// Sort by creation date
+		// Sort by creation date (most recent first)
 		sort.Slice(allMedia, func(i, j int) bool {
 			return allMedia[i].CreatedAt.After(allMedia[j].CreatedAt)
 		})
@@ -1135,7 +1328,8 @@ func (s *WidgetService) getLocalMediaDataDirect(widget *models.Widget, config *m
 	case models.WidgetDataSourcePopular:
 		query = query.Order("rating DESC, view_count DESC, year DESC")
 	case models.WidgetDataSourceRecent:
-		query = query.Order("created_at DESC")
+		// Sort by ID (higher ID = more recently added) and creation date
+		query = query.Order("id DESC, created_at DESC")
 	default:
 		query = query.Order("year DESC, rating DESC, created_at DESC")
 	}
@@ -1200,6 +1394,9 @@ func (s *WidgetService) getTMDBData(widget *models.Widget, config *models.Widget
 	fmt.Printf("🎬 Fetching TMDB data for widget %s (data_source: %s, content_type: %s)\n", 
 		widget.Name, widget.DataSource, widget.ContentType)
 	
+	// For trailer widgets, we need to fetch data with video information
+	isTrailerWidget := widget.Type == models.WidgetTypeTrailer
+	
 	switch widget.DataSource {
 	case models.WidgetDataSourceTrending:
 		// Get trending content based on content type
@@ -1213,6 +1410,10 @@ func (s *WidgetService) getTMDBData(widget *models.Widget, config *models.Widget
 						break
 					}
 					item := s.convertTMDBTVToMediaItem(tvShow)
+					// For trailer widgets, try to fetch video data
+					if isTrailerWidget {
+						item = s.enrichMediaItemWithTrailer(item, "tv")
+					}
 					mediaItems = append(mediaItems, item)
 				}
 			} else {
@@ -1230,6 +1431,10 @@ func (s *WidgetService) getTMDBData(widget *models.Widget, config *models.Widget
 						break
 					}
 					item := s.convertTMDBMovieToMediaItem(movie)
+					// For trailer widgets, try to fetch video data
+					if isTrailerWidget {
+						item = s.enrichMediaItemWithTrailer(item, "movie")
+					}
 					mediaItems = append(mediaItems, item)
 				}
 			}
@@ -1242,6 +1447,10 @@ func (s *WidgetService) getTMDBData(widget *models.Widget, config *models.Widget
 						break
 					}
 					item := s.convertTMDBTVToMediaItem(tvShow)
+					// For trailer widgets, try to fetch video data
+					if isTrailerWidget {
+						item = s.enrichMediaItemWithTrailer(item, "tv")
+					}
 					mediaItems = append(mediaItems, item)
 				}
 			}
@@ -1255,6 +1464,10 @@ func (s *WidgetService) getTMDBData(widget *models.Widget, config *models.Widget
 						break
 					}
 					item := s.convertTMDBMovieToMediaItem(movie)
+					// For trailer widgets, try to fetch video data
+					if isTrailerWidget {
+						item = s.enrichMediaItemWithTrailer(item, "movie")
+					}
 					mediaItems = append(mediaItems, item)
 				}
 			} else {
@@ -1272,6 +1485,10 @@ func (s *WidgetService) getTMDBData(widget *models.Widget, config *models.Widget
 						break
 					}
 					item := s.convertTMDBTVToMediaItem(tvShow)
+					// For trailer widgets, try to fetch video data
+					if isTrailerWidget {
+						item = s.enrichMediaItemWithTrailer(item, "tv")
+					}
 					mediaItems = append(mediaItems, item)
 				}
 			} else {
@@ -1289,6 +1506,10 @@ func (s *WidgetService) getTMDBData(widget *models.Widget, config *models.Widget
 						break
 					}
 					item := s.convertTMDBMovieToMediaItem(movie)
+					// For trailer widgets, try to fetch video data
+					if isTrailerWidget {
+						item = s.enrichMediaItemWithTrailer(item, "movie")
+					}
 					mediaItems = append(mediaItems, item)
 				}
 			}
@@ -1301,6 +1522,10 @@ func (s *WidgetService) getTMDBData(widget *models.Widget, config *models.Widget
 						break
 					}
 					item := s.convertTMDBTVToMediaItem(tvShow)
+					// For trailer widgets, try to fetch video data
+					if isTrailerWidget {
+						item = s.enrichMediaItemWithTrailer(item, "tv")
+					}
 					mediaItems = append(mediaItems, item)
 				}
 			}
@@ -1313,6 +1538,10 @@ func (s *WidgetService) getTMDBData(widget *models.Widget, config *models.Widget
 						break
 					}
 					item := s.convertTMDBMovieToMediaItem(movie)
+					// For trailer widgets, try to fetch video data
+					if isTrailerWidget {
+						item = s.enrichMediaItemWithTrailer(item, "movie")
+					}
 					mediaItems = append(mediaItems, item)
 				}
 			} else {
@@ -1330,6 +1559,10 @@ func (s *WidgetService) getTMDBData(widget *models.Widget, config *models.Widget
 						break
 					}
 					item := s.convertTMDBTVToMediaItem(tvShow)
+					// For trailer widgets, try to fetch video data
+					if isTrailerWidget {
+						item = s.enrichMediaItemWithTrailer(item, "tv")
+					}
 					mediaItems = append(mediaItems, item)
 				}
 			} else {
@@ -1349,6 +1582,10 @@ func (s *WidgetService) getTMDBData(widget *models.Widget, config *models.Widget
 						break
 					}
 					item := s.convertTMDBMovieWithVideosToMediaItem(movie)
+					// For trailer widgets, try to fetch video data
+					if isTrailerWidget {
+						item = s.enrichMediaItemWithTrailer(item, "movie")
+					}
 					mediaItems = append(mediaItems, item)
 				}
 			}
@@ -1361,6 +1598,10 @@ func (s *WidgetService) getTMDBData(widget *models.Widget, config *models.Widget
 						break
 					}
 					item := s.convertTMDBTVToMediaItem(tvShow)
+					// For trailer widgets, try to fetch video data
+					if isTrailerWidget {
+						item = s.enrichMediaItemWithTrailer(item, "tv")
+					}
 					mediaItems = append(mediaItems, item)
 				}
 			}
@@ -1373,6 +1614,10 @@ func (s *WidgetService) getTMDBData(widget *models.Widget, config *models.Widget
 						break
 					}
 					item := s.convertTMDBMovieWithVideosToMediaItem(movie)
+					// For trailer widgets, try to fetch video data
+					if isTrailerWidget {
+						item = s.enrichMediaItemWithTrailer(item, "movie")
+					}
 					mediaItems = append(mediaItems, item)
 				}
 			} else {
@@ -1390,6 +1635,10 @@ func (s *WidgetService) getTMDBData(widget *models.Widget, config *models.Widget
 						break
 					}
 					item := s.convertTMDBTVToMediaItem(tvShow)
+					// For trailer widgets, try to fetch video data
+					if isTrailerWidget {
+						item = s.enrichMediaItemWithTrailer(item, "tv")
+					}
 					mediaItems = append(mediaItems, item)
 				}
 			} else {
@@ -1407,6 +1656,10 @@ func (s *WidgetService) getTMDBData(widget *models.Widget, config *models.Widget
 						break
 					}
 					item := s.convertTMDBMovieWithVideosToMediaItem(movie)
+					// For trailer widgets, try to fetch video data
+					if isTrailerWidget {
+						item = s.enrichMediaItemWithTrailer(item, "movie")
+					}
 					mediaItems = append(mediaItems, item)
 				}
 			}
@@ -1419,6 +1672,10 @@ func (s *WidgetService) getTMDBData(widget *models.Widget, config *models.Widget
 						break
 					}
 					item := s.convertTMDBTVToMediaItem(tvShow)
+					// For trailer widgets, try to fetch video data
+					if isTrailerWidget {
+						item = s.enrichMediaItemWithTrailer(item, "tv")
+					}
 					mediaItems = append(mediaItems, item)
 				}
 			}
@@ -1431,6 +1688,10 @@ func (s *WidgetService) getTMDBData(widget *models.Widget, config *models.Widget
 						break
 					}
 					item := s.convertTMDBMovieWithVideosToMediaItem(movie)
+					// For trailer widgets, try to fetch video data
+					if isTrailerWidget {
+						item = s.enrichMediaItemWithTrailer(item, "movie")
+					}
 					mediaItems = append(mediaItems, item)
 				}
 			} else {
@@ -1438,9 +1699,76 @@ func (s *WidgetService) getTMDBData(widget *models.Widget, config *models.Widget
 			}
 		}
 	default:
-		// For other TMDB sources, fall back to local data
-		fmt.Printf("🔄 Unknown TMDB data source %s, falling back to local data\n", widget.DataSource)
-		return s.getLocalMediaData(widget, config)
+		// For other TMDB sources, fall back to popular movies/TV shows
+		fmt.Printf("🔄 Using default TMDB data source (popular) for widget %s\n", widget.Name)
+		if widget.ContentType == models.WidgetContentTypeTVShows {
+			// Get on the air TV shows as default TV content
+			if upcomingTVSeries, err := s.tmdbService.GetUpcomingTVSeries(); err == nil && upcomingTVSeries != nil {
+				fmt.Printf("🔥 Found %d default TV shows from TMDB\n", len(upcomingTVSeries.OnTheAir))
+				for i, tvShow := range upcomingTVSeries.OnTheAir {
+					if i >= widget.MaxItems {
+						break
+					}
+					item := s.convertTMDBTVToMediaItem(tvShow)
+					// For trailer widgets, try to fetch video data
+					if isTrailerWidget {
+						item = s.enrichMediaItemWithTrailer(item, "tv")
+					}
+					mediaItems = append(mediaItems, item)
+				}
+			}
+		} else if widget.ContentType == models.WidgetContentTypeMixed {
+			// Get both popular movies and TV shows for mixed content
+			halfItems := widget.MaxItems / 2
+			
+			// Get popular movies
+			if popularMovies, err := s.tmdbService.GetPopularMovies(1); err == nil {
+				fmt.Printf("🔥 Found %d default movies from TMDB\n", len(popularMovies))
+				for i, movie := range popularMovies {
+					if i >= halfItems {
+						break
+					}
+					item := s.convertTMDBMovieToMediaItem(movie)
+					// For trailer widgets, try to fetch video data
+					if isTrailerWidget {
+						item = s.enrichMediaItemWithTrailer(item, "movie")
+					}
+					mediaItems = append(mediaItems, item)
+				}
+			}
+			
+			// Get popular TV shows
+			if upcomingTVSeries, err := s.tmdbService.GetUpcomingTVSeries(); err == nil && upcomingTVSeries != nil {
+				fmt.Printf("🔥 Found %d default TV shows from TMDB\n", len(upcomingTVSeries.OnTheAir))
+				for i, tvShow := range upcomingTVSeries.OnTheAir {
+					if i >= halfItems {
+						break
+					}
+					item := s.convertTMDBTVToMediaItem(tvShow)
+					// For trailer widgets, try to fetch video data
+					if isTrailerWidget {
+						item = s.enrichMediaItemWithTrailer(item, "tv")
+					}
+					mediaItems = append(mediaItems, item)
+				}
+			}
+		} else {
+			// Get popular movies from TMDB (default for movies only)
+			if popularMovies, err := s.tmdbService.GetPopularMovies(1); err == nil {
+				fmt.Printf("🔥 Found %d default movies from TMDB\n", len(popularMovies))
+				for i, movie := range popularMovies {
+					if i >= widget.MaxItems {
+						break
+					}
+					item := s.convertTMDBMovieToMediaItem(movie)
+					// For trailer widgets, try to fetch video data
+					if isTrailerWidget {
+						item = s.enrichMediaItemWithTrailer(item, "movie")
+					}
+					mediaItems = append(mediaItems, item)
+				}
+			}
+		}
 	}
 	
 	// If no TMDB data found, fall back to local data
@@ -1540,4 +1868,79 @@ func (s *WidgetService) buildTMDBImageURL(path, size string) string {
 		return ""
 	}
 	return fmt.Sprintf("https://image.tmdb.org/t/p/%s%s", size, path)
+}
+
+// enrichMediaItemWithTrailer fetches video data for a media item and adds trailer URL
+func (s *WidgetService) enrichMediaItemWithTrailer(item models.MediaItem, mediaType string) models.MediaItem {
+	if s.tmdbService == nil || item.TMDBID == 0 {
+		return item
+	}
+	
+	// Try to get video data from TMDB
+	var trailerURL string
+	
+	if mediaType == "movie" {
+		if movieDetails, err := s.tmdbService.GetMovieDetailsWithExtras(item.TMDBID); err == nil {
+			// Look for YouTube trailers (prioritize official trailers)
+			for _, video := range movieDetails.Videos.Results {
+				if video.Site == "YouTube" && video.Type == "Trailer" && video.Key != "" {
+					// Prefer official trailers
+					if video.Official {
+						trailerURL = fmt.Sprintf("https://www.youtube.com/watch?v=%s", video.Key)
+						break
+					} else if trailerURL == "" {
+						// Use non-official as fallback
+						trailerURL = fmt.Sprintf("https://www.youtube.com/watch?v=%s", video.Key)
+					}
+				}
+			}
+			// If no trailer found, try teasers
+			if trailerURL == "" {
+				for _, video := range movieDetails.Videos.Results {
+					if video.Site == "YouTube" && video.Type == "Teaser" && video.Key != "" {
+						trailerURL = fmt.Sprintf("https://www.youtube.com/watch?v=%s", video.Key)
+						break
+					}
+				}
+			}
+		} else {
+			fmt.Printf("⚠️ Failed to get movie details for TMDB ID %d: %v\n", item.TMDBID, err)
+		}
+	} else if mediaType == "tv" {
+		if tvDetails, err := s.tmdbService.GetTVDetails(item.TMDBID); err == nil {
+			// Look for YouTube trailers (prioritize official trailers)
+			for _, video := range tvDetails.Videos.Results {
+				if video.Site == "YouTube" && video.Type == "Trailer" && video.Key != "" {
+					// Prefer official trailers
+					if video.Official {
+						trailerURL = fmt.Sprintf("https://www.youtube.com/watch?v=%s", video.Key)
+						break
+					} else if trailerURL == "" {
+						// Use non-official as fallback
+						trailerURL = fmt.Sprintf("https://www.youtube.com/watch?v=%s", video.Key)
+					}
+				}
+			}
+			// If no trailer found, try teasers
+			if trailerURL == "" {
+				for _, video := range tvDetails.Videos.Results {
+					if video.Site == "YouTube" && video.Type == "Teaser" && video.Key != "" {
+						trailerURL = fmt.Sprintf("https://www.youtube.com/watch?v=%s", video.Key)
+						break
+					}
+				}
+			}
+		} else {
+			fmt.Printf("⚠️ Failed to get TV details for TMDB ID %d: %v\n", item.TMDBID, err)
+		}
+	}
+	
+	if trailerURL != "" {
+		item.TMDBTrailerURL = trailerURL
+		fmt.Printf("🎬 Found trailer for %s (ID: %d): %s\n", item.Title, item.TMDBID, trailerURL)
+	} else {
+		fmt.Printf("⚠️ No trailer found for %s (ID: %d)\n", item.Title, item.TMDBID)
+	}
+	
+	return item
 }

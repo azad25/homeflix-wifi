@@ -8,6 +8,7 @@ import {
     Search, Star, Calendar, Filter
 } from 'lucide-react';
 import { Widget, WidgetType, PageType, LayoutType, WidgetMeta, DataSourceType, ContentType } from '@/types/widgets';
+import { NotificationType } from '@/types/notifications';
 import { getApiUrl } from '@/lib/api';
 
 interface Genre {
@@ -34,6 +35,76 @@ interface TMDBSearchResult {
 interface WidgetManagerProps {
     className?: string;
 }
+
+// Notification types with descriptions
+const NOTIFICATION_TYPES = [
+    { 
+        value: 'new_movies' as NotificationType, 
+        label: 'New Movies', 
+        description: 'Newly added movies to library',
+        category: 'Library Updates'
+    },
+    { 
+        value: 'new_episodes' as NotificationType, 
+        label: 'New Episodes', 
+        description: 'New TV show episodes',
+        category: 'Library Updates'
+    },
+    { 
+        value: 'movie_suggestion' as NotificationType, 
+        label: 'Movie Suggestions', 
+        description: 'Multiple movie recommendations',
+        category: 'Recommendations'
+    },
+    { 
+        value: 'single_movie_suggestion' as NotificationType, 
+        label: 'Single Movie Pick', 
+        description: 'Perfect movie match for you',
+        category: 'Recommendations'
+    },
+    { 
+        value: 'watch_again' as NotificationType, 
+        label: 'Watch Again', 
+        description: 'Continue watching suggestions',
+        category: 'Recommendations'
+    },
+    { 
+        value: 'download_complete' as NotificationType, 
+        label: 'Download Complete', 
+        description: 'Finished downloads',
+        category: 'System'
+    },
+    { 
+        value: 'tmdb_upcoming' as NotificationType, 
+        label: 'TMDB Upcoming', 
+        description: 'Coming soon to theaters',
+        category: 'TMDB Updates'
+    },
+    { 
+        value: 'tmdb_now_playing' as NotificationType, 
+        label: 'TMDB Now Playing', 
+        description: 'Currently in theaters',
+        category: 'TMDB Updates'
+    },
+    { 
+        value: 'tmdb_trending' as NotificationType, 
+        label: 'TMDB Trending', 
+        description: 'Trending worldwide movies',
+        category: 'TMDB Updates'
+    },
+    { 
+        value: 'tmdb_upcoming_tv' as NotificationType, 
+        label: 'Upcoming TV', 
+        description: 'New TV episodes coming',
+        category: 'TMDB Updates'
+    },
+    { 
+        value: 'tmdb_now_airing_tv' as NotificationType, 
+        label: 'Now Airing TV', 
+        description: 'Currently airing TV shows',
+        category: 'TMDB Updates'
+    },
+] as const;
 
 const pageIcons: Record<string, React.ReactNode> = {
     home: <Monitor className="w-4 h-4" />,
@@ -62,6 +133,10 @@ export default function WidgetManager({ className = '' }: WidgetManagerProps) {
     const [contentSelectionMode, setContentSelectionMode] = useState<'search' | 'genres' | 'featured'>('search');
     const [featuredContent, setFeaturedContent] = useState<TMDBSearchResult[]>([]);
     const [selectedContent, setSelectedContent] = useState<TMDBSearchResult[]>([]);
+    const [editingSelectedContent, setEditingSelectedContent] = useState<TMDBSearchResult[]>([]);
+    const [editingSelectedGenres, setEditingSelectedGenres] = useState<number[]>([]);
+
+    // Widget editing state
 
     const apiUrl = getApiUrl();
 
@@ -226,12 +301,35 @@ export default function WidgetManager({ className = '' }: WidgetManagerProps) {
 
         setSaveStatus('saving');
         try {
+            // Parse existing config and add selected content/genres
+            let config: any = {};
+            try {
+                config = JSON.parse(newWidget.config || '{}');
+            } catch (e) {
+                config = {};
+            }
+
+            // Add selected content and genres to config
+            if (selectedContent.length > 0) {
+                config.selectedContent = selectedContent;
+            }
+            if (selectedGenres.length > 0) {
+                config.selectedGenres = selectedGenres;
+                // Also add genreFilter for backend compatibility
+                const genreNames = selectedGenres.map(id => {
+                    const genre = genres.find(g => g.id === id);
+                    return genre ? genre.name : '';
+                }).filter(name => name);
+                config.genreFilter = genreNames;
+            }
+
             const response = await fetch(`${apiUrl}/api/widgets`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     ...newWidget,
-                    page: selectedPage
+                    page: selectedPage,
+                    config: JSON.stringify(config)
                 })
             });
 
@@ -250,6 +348,8 @@ export default function WidgetManager({ className = '' }: WidgetManagerProps) {
                     layout: 'full' as LayoutType,
                     colorScheme: 'auto'
                 });
+                setSelectedContent([]);
+                setSelectedGenres([]);
                 setIsAddingNew(false);
                 setSaveStatus('saved');
                 setTimeout(() => setSaveStatus('idle'), 2000);
@@ -260,6 +360,12 @@ export default function WidgetManager({ className = '' }: WidgetManagerProps) {
             console.error('Failed to create widget:', error);
             setSaveStatus('error');
         }
+    };
+
+    const handleCancelEdit = () => {
+        setEditingWidget(null);
+        setEditingSelectedContent([]);
+        setEditingSelectedGenres([]);
     };
 
     const handleUpdateWidget = async (id: number, updates: Partial<Widget>) => {
@@ -409,6 +515,7 @@ export default function WidgetManager({ className = '' }: WidgetManagerProps) {
                                     {widgetMeta?.types?.map((type: any) => (
                                         <option key={type.type} value={type.type}>{type.name}</option>
                                     ))}
+                                    <option value="notifications">Notifications</option>
                                 </select>
                             </div>
                             <div>
@@ -464,7 +571,7 @@ export default function WidgetManager({ className = '' }: WidgetManagerProps) {
                         </div>
                         
                         {/* Content Selection Button for New Widget */}
-                        {(newWidget.dataSource === 'tmdb' || newWidget.dataSource === 'local') && (
+                        {(newWidget.dataSource === 'tmdb' || newWidget.dataSource === 'local') && newWidget.type !== 'notifications' && (
                             <div className="mt-4">
                                 <button
                                     type="button"
@@ -482,8 +589,140 @@ export default function WidgetManager({ className = '' }: WidgetManagerProps) {
                             </div>
                         )}
                         
+                        {/* Notification Widget Settings */}
+                        {newWidget.type === 'notifications' && (
+                            <div className="mt-4 p-4 bg-gray-700 rounded-lg">
+                                <h4 className="text-sm font-medium text-gray-300 mb-3 flex items-center gap-2">
+                                    <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>
+                                    Notification Widget Settings
+                                </h4>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-300 mb-2">Display Style</label>
+                                        <select
+                                            value={JSON.parse(newWidget.config || '{}').highlightStyle || 'banner'}
+                                            onChange={(e) => {
+                                                const config = JSON.parse(newWidget.config || '{}');
+                                                config.highlightStyle = e.target.value;
+                                                setNewWidget(prev => ({ ...prev, config: JSON.stringify(config) }));
+                                            }}
+                                            className="w-full px-3 py-2 bg-gray-600 border border-gray-500 rounded-md text-white"
+                                        >
+                                            <option value="banner">Enhanced Banner (Recommended)</option>
+                                            <option value="card">Card List</option>
+                                            <option value="minimal">Minimal List</option>
+                                        </select>
+                                        <p className="text-xs text-gray-400 mt-1">Banner style provides cinematic experience with trailers</p>
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-300 mb-2">Auto Scroll</label>
+                                        <select
+                                            value={JSON.parse(newWidget.config || '{}').autoScroll !== false ? 'true' : 'false'}
+                                            onChange={(e) => {
+                                                const config = JSON.parse(newWidget.config || '{}');
+                                                config.autoScroll = e.target.value === 'true';
+                                                setNewWidget(prev => ({ ...prev, config: JSON.stringify(config) }));
+                                            }}
+                                            className="w-full px-3 py-2 bg-gray-600 border border-gray-500 rounded-md text-white"
+                                        >
+                                            <option value="true">Enabled (10s intervals)</option>
+                                            <option value="false">Disabled</option>
+                                        </select>
+                                        <p className="text-xs text-gray-400 mt-1">Automatically cycle through notifications</p>
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-300 mb-2">Show Timestamps</label>
+                                        <select
+                                            value={JSON.parse(newWidget.config || '{}').showTimestamp !== false ? 'true' : 'false'}
+                                            onChange={(e) => {
+                                                const config = JSON.parse(newWidget.config || '{}');
+                                                config.showTimestamp = e.target.value === 'true';
+                                                setNewWidget(prev => ({ ...prev, config: JSON.stringify(config) }));
+                                            }}
+                                            className="w-full px-3 py-2 bg-gray-600 border border-gray-500 rounded-md text-white"
+                                        >
+                                            <option value="true">Show (e.g., "2h ago")</option>
+                                            <option value="false">Hide</option>
+                                        </select>
+                                        <p className="text-xs text-gray-400 mt-1">Display when notification was created</p>
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-300 mb-2">Show Icons</label>
+                                        <select
+                                            value={JSON.parse(newWidget.config || '{}').showNotificationIcon !== false ? 'true' : 'false'}
+                                            onChange={(e) => {
+                                                const config = JSON.parse(newWidget.config || '{}');
+                                                config.showNotificationIcon = e.target.value === 'true';
+                                                setNewWidget(prev => ({ ...prev, config: JSON.stringify(config) }));
+                                            }}
+                                            className="w-full px-3 py-2 bg-gray-600 border border-gray-500 rounded-md text-white"
+                                        >
+                                            <option value="true">Show Type Icons</option>
+                                            <option value="false">Hide Icons</option>
+                                        </select>
+                                        <p className="text-xs text-gray-400 mt-1">Display notification type icons</p>
+                                    </div>
+                                </div>
+                                <div className="mt-4">
+                                    <label className="block text-sm font-medium text-gray-300 mb-2">Notification Types</label>
+                                    <div className="grid grid-cols-1 gap-2">
+                                        {NOTIFICATION_TYPES.map((type) => {
+                                            const config = JSON.parse(newWidget.config || '{}');
+                                            const notificationTypes = config.notificationTypes || [];
+                                            const isChecked = notificationTypes.includes(type.value);
+                                            
+                                            return (
+                                                <div key={type.value} className="group">
+                                                    <label className="flex items-start space-x-3 text-sm p-3 rounded-lg hover:bg-gray-600 transition-colors cursor-pointer border border-gray-600 hover:border-gray-500">
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={isChecked}
+                                                            onChange={(e) => {
+                                                                const config = JSON.parse(newWidget.config || '{}');
+                                                                let notificationTypes = config.notificationTypes || [];
+                                                                
+                                                                if (e.target.checked) {
+                                                                    notificationTypes = [...notificationTypes, type.value];
+                                                                } else {
+                                                                    notificationTypes = notificationTypes.filter((t: string) => t !== type.value);
+                                                                }
+                                                                
+                                                                config.notificationTypes = notificationTypes;
+                                                                setNewWidget(prev => ({ ...prev, config: JSON.stringify(config) }));
+                                                            }}
+                                                            className="mt-0.5 rounded border-gray-500 bg-gray-600 text-red-600 focus:ring-red-500"
+                                                        />
+                                                        <div className="flex-1">
+                                                            <div className="flex items-center gap-2">
+                                                                <span className="text-gray-300 font-medium">{type.label}</span>
+                                                                <span className="px-2 py-0.5 bg-gray-600 text-gray-300 text-xs rounded-full">
+                                                                    {type.category}
+                                                                </span>
+                                                            </div>
+                                                            <p className="text-xs text-gray-400 mt-0.5">{type.description}</p>
+                                                        </div>
+                                                    </label>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                    <div className="mt-3 p-3 bg-gray-600 rounded-lg">
+                                        <p className="text-xs text-gray-300 mb-2">
+                                            💡 <strong>Configuration Tips:</strong>
+                                        </p>
+                                        <ul className="text-xs text-gray-400 space-y-1">
+                                            <li>• Leave empty to show all notification types</li>
+                                            <li>• Select specific types to filter content</li>
+                                            <li>• TMDB types require API key configuration</li>
+                                            <li>• Library types show local content updates</li>
+                                        </ul>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                        
                         {/* Content Selection Button */}
-                        {(newWidget.dataSource === 'tmdb' || newWidget.dataSource === 'local') && (
+                        {(newWidget.dataSource === 'tmdb' || newWidget.dataSource === 'local') && newWidget.type !== 'notifications' && (
                             <div className="mt-4">
                                 <button
                                     type="button"
@@ -543,13 +782,33 @@ export default function WidgetManager({ className = '' }: WidgetManagerProps) {
                         widget={widget}
                         widgetMeta={widgetMeta}
                         isEditing={editingWidget === widget.id}
-                        onEdit={() => setEditingWidget(widget.id)}
+                        onEdit={() => {
+                            setEditingWidget(widget.id);
+                            // Initialize editing state with current widget config
+                            try {
+                                const config = JSON.parse(widget.config || '{}');
+                                setEditingSelectedContent(config.selectedContent || []);
+                                setEditingSelectedGenres(config.selectedGenres || []);
+                            } catch (e) {
+                                setEditingSelectedContent([]);
+                                setEditingSelectedGenres([]);
+                            }
+                        }}
                         onSave={(updates) => handleUpdateWidget(widget.id, updates)}
-                        onCancel={() => setEditingWidget(null)}
+                        onCancel={handleCancelEdit}
                         onDelete={() => handleDeleteWidget(widget.id)}
                         onToggle={(enabled) => handleToggleWidget(widget.id, enabled)}
                         onDuplicate={() => handleDuplicateWidget(widget.id)}
                         saveStatus={saveStatus}
+                        editingSelectedContent={editingSelectedContent}
+                        setEditingSelectedContent={setEditingSelectedContent}
+                        editingSelectedGenres={editingSelectedGenres}
+                        setEditingSelectedGenres={setEditingSelectedGenres}
+                        selectedContent={selectedContent}
+                        setSelectedContent={setSelectedContent}
+                        selectedGenres={selectedGenres}
+                        setSelectedGenres={setSelectedGenres}
+                        setShowContentSelector={setShowContentSelector}
                     />
                 ))}
             </div>
@@ -787,7 +1046,14 @@ export default function WidgetManager({ className = '' }: WidgetManagerProps) {
                                         Clear All
                                     </button>
                                     <button
-                                        onClick={() => setShowContentSelector(false)}
+                                        onClick={() => {
+                                            // If we're editing a widget, save to editing state
+                                            if (editingWidget !== null) {
+                                                setEditingSelectedContent(selectedContent);
+                                                setEditingSelectedGenres(selectedGenres);
+                                            }
+                                            setShowContentSelector(false);
+                                        }}
                                         className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-500"
                                     >
                                         Apply Selection
@@ -892,29 +1158,88 @@ interface WidgetCardProps {
     onToggle: (enabled: boolean) => void;
     onDuplicate: () => void;
     saveStatus: 'idle' | 'saving' | 'saved' | 'error';
+    editingSelectedContent: TMDBSearchResult[];
+    setEditingSelectedContent: (content: TMDBSearchResult[]) => void;
+    editingSelectedGenres: number[];
+    setEditingSelectedGenres: (genres: number[]) => void;
+    selectedContent: TMDBSearchResult[];
+    setSelectedContent: (content: TMDBSearchResult[]) => void;
+    selectedGenres: number[];
+    setSelectedGenres: (genres: number[]) => void;
+    setShowContentSelector: (show: boolean) => void;
 }
 
-function WidgetCard({ widget, widgetMeta, isEditing, onEdit, onSave, onCancel, onDelete, onToggle, onDuplicate, saveStatus }: WidgetCardProps) {
+function WidgetCard({ 
+    widget, 
+    widgetMeta, 
+    isEditing, 
+    onEdit, 
+    onSave, 
+    onCancel, 
+    onDelete, 
+    onToggle, 
+    onDuplicate, 
+    saveStatus,
+    editingSelectedContent,
+    setEditingSelectedContent,
+    editingSelectedGenres,
+    setEditingSelectedGenres,
+    selectedContent,
+    setSelectedContent,
+    selectedGenres,
+    setSelectedGenres,
+    setShowContentSelector
+}: WidgetCardProps) {
     const [editForm, setEditForm] = useState<Partial<Widget>>(widget);
-    const [showContentSelector, setShowContentSelector] = useState(false);
-    const [selectedContent, setSelectedContent] = useState<TMDBSearchResult[]>([]);
 
     useEffect(() => {
         if (isEditing) {
+            setEditForm(widget);
+            console.log('Widget editing mode activated for:', widget.name);
+        } else {
+            // Reset form when not editing
             setEditForm(widget);
         }
     }, [isEditing, widget]);
 
     const handleSave = () => {
-        // Include selected content in the widget config
-        const updatedConfig = {
-            ...JSON.parse(editForm.config || '{}'),
-            selectedContent: selectedContent,
-        };
+        // Parse existing config and add selected content/genres
+        let config: any = {};
+        try {
+            config = JSON.parse(editForm.config || '{}');
+        } catch (e) {
+            config = {};
+        }
+
+        // Add selected content and genres to config
+        if (editingSelectedContent.length > 0) {
+            config.selectedContent = editingSelectedContent;
+        }
+        if (editingSelectedGenres.length > 0) {
+            config.selectedGenres = editingSelectedGenres;
+            // Also add genreFilter for backend compatibility
+            const genreNames = editingSelectedGenres.map(id => {
+                // You'll need to get genres from parent component or fetch them
+                // For now, we'll use a basic mapping
+                const genreMap: { [key: number]: string } = {
+                    28: "Action", 12: "Adventure", 16: "Animation", 35: "Comedy", 
+                    80: "Crime", 99: "Documentary", 18: "Drama", 10751: "Family",
+                    14: "Fantasy", 36: "History", 27: "Horror", 10402: "Music",
+                    9648: "Mystery", 10749: "Romance", 878: "Science Fiction",
+                    10770: "TV Movie", 53: "Thriller", 10752: "War", 37: "Western",
+                    // TV genres
+                    10759: "Action & Adventure", 10762: "Kids", 10763: "News",
+                    10764: "Reality", 10765: "Sci-Fi & Fantasy", 10766: "Soap",
+                    10767: "Talk", 10768: "War & Politics"
+                };
+                return genreMap[id] || '';
+            }).filter(name => name);
+            config.genreFilter = genreNames;
+        }
         
         onSave({
             ...editForm,
-            config: JSON.stringify(updatedConfig)
+            config: JSON.stringify(config)
         });
     };
 
@@ -999,6 +1324,163 @@ function WidgetCard({ widget, widgetMeta, isEditing, onEdit, onSave, onCancel, o
                         />
                     </div>
                 </div>
+                
+                {/* Notification Widget Settings for Edit Form */}
+                {editForm.type === 'notifications' && (
+                    <div className="mt-4 p-4 bg-gray-700 rounded-lg">
+                        <h4 className="text-sm font-medium text-gray-300 mb-3 flex items-center gap-2">
+                            <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>
+                            Notification Widget Settings
+                        </h4>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-300 mb-2">Display Style</label>
+                                <select
+                                    value={JSON.parse(editForm.config || '{}').highlightStyle || 'banner'}
+                                    onChange={(e) => {
+                                        const config = JSON.parse(editForm.config || '{}');
+                                        config.highlightStyle = e.target.value;
+                                        setEditForm(prev => ({ ...prev, config: JSON.stringify(config) }));
+                                    }}
+                                    className="w-full px-3 py-2 bg-gray-600 border border-gray-500 rounded-md text-white"
+                                >
+                                    <option value="banner">Enhanced Banner (Recommended)</option>
+                                    <option value="card">Card List</option>
+                                    <option value="minimal">Minimal List</option>
+                                </select>
+                                <p className="text-xs text-gray-400 mt-1">Banner style provides cinematic experience with trailers</p>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-300 mb-2">Auto Scroll</label>
+                                <select
+                                    value={JSON.parse(editForm.config || '{}').autoScroll !== false ? 'true' : 'false'}
+                                    onChange={(e) => {
+                                        const config = JSON.parse(editForm.config || '{}');
+                                        config.autoScroll = e.target.value === 'true';
+                                        setEditForm(prev => ({ ...prev, config: JSON.stringify(config) }));
+                                    }}
+                                    className="w-full px-3 py-2 bg-gray-600 border border-gray-500 rounded-md text-white"
+                                >
+                                    <option value="true">Enabled (10s intervals)</option>
+                                    <option value="false">Disabled</option>
+                                </select>
+                                <p className="text-xs text-gray-400 mt-1">Automatically cycle through notifications</p>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-300 mb-2">Show Timestamps</label>
+                                <select
+                                    value={JSON.parse(editForm.config || '{}').showTimestamp !== false ? 'true' : 'false'}
+                                    onChange={(e) => {
+                                        const config = JSON.parse(editForm.config || '{}');
+                                        config.showTimestamp = e.target.value === 'true';
+                                        setEditForm(prev => ({ ...prev, config: JSON.stringify(config) }));
+                                    }}
+                                    className="w-full px-3 py-2 bg-gray-600 border border-gray-500 rounded-md text-white"
+                                >
+                                    <option value="true">Show (e.g., "2h ago")</option>
+                                    <option value="false">Hide</option>
+                                </select>
+                                <p className="text-xs text-gray-400 mt-1">Display when notification was created</p>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-300 mb-2">Show Icons</label>
+                                <select
+                                    value={JSON.parse(editForm.config || '{}').showNotificationIcon !== false ? 'true' : 'false'}
+                                    onChange={(e) => {
+                                        const config = JSON.parse(editForm.config || '{}');
+                                        config.showNotificationIcon = e.target.value === 'true';
+                                        setEditForm(prev => ({ ...prev, config: JSON.stringify(config) }));
+                                    }}
+                                    className="w-full px-3 py-2 bg-gray-600 border border-gray-500 rounded-md text-white"
+                                >
+                                    <option value="true">Show Type Icons</option>
+                                    <option value="false">Hide Icons</option>
+                                </select>
+                                <p className="text-xs text-gray-400 mt-1">Display notification type icons</p>
+                            </div>
+                        </div>
+                        <div className="mt-4">
+                            <label className="block text-sm font-medium text-gray-300 mb-2">Notification Types</label>
+                            <div className="grid grid-cols-1 gap-2">
+                                {NOTIFICATION_TYPES.map((type) => {
+                                    const config = JSON.parse(editForm.config || '{}');
+                                    const notificationTypes = config.notificationTypes || [];
+                                    const isChecked = notificationTypes.includes(type.value);
+                                    
+                                    return (
+                                        <div key={type.value} className="group">
+                                            <label className="flex items-start space-x-3 text-sm p-3 rounded-lg hover:bg-gray-600 transition-colors cursor-pointer border border-gray-600 hover:border-gray-500">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={isChecked}
+                                                    onChange={(e) => {
+                                                        const config = JSON.parse(editForm.config || '{}');
+                                                        let notificationTypes = config.notificationTypes || [];
+                                                        
+                                                        if (e.target.checked) {
+                                                            notificationTypes = [...notificationTypes, type.value];
+                                                        } else {
+                                                            notificationTypes = notificationTypes.filter((t: string) => t !== type.value);
+                                                        }
+                                                        
+                                                        config.notificationTypes = notificationTypes;
+                                                        setEditForm(prev => ({ ...prev, config: JSON.stringify(config) }));
+                                                    }}
+                                                    className="mt-0.5 rounded border-gray-500 bg-gray-600 text-red-600 focus:ring-red-500"
+                                                />
+                                                <div className="flex-1">
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="text-gray-300 font-medium">{type.label}</span>
+                                                        <span className="px-2 py-0.5 bg-gray-600 text-gray-300 text-xs rounded-full">
+                                                            {type.category}
+                                                        </span>
+                                                    </div>
+                                                    <p className="text-xs text-gray-400 mt-0.5">{type.description}</p>
+                                                </div>
+                                            </label>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                            <div className="mt-3 p-3 bg-gray-600 rounded-lg">
+                                <p className="text-xs text-gray-300 mb-2">
+                                    💡 <strong>Configuration Tips:</strong>
+                                </p>
+                                <ul className="text-xs text-gray-400 space-y-1">
+                                    <li>• Leave empty to show all notification types</li>
+                                    <li>• Select specific types to filter content</li>
+                                    <li>• TMDB types require API key configuration</li>
+                                    <li>• Library types show local content updates</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                )}
+                
+                {/* Content Selection Button for Edit Form */}
+                {(editForm.dataSource === 'tmdb' || editForm.dataSource === 'local') && editForm.type !== 'notifications' && (
+                    <div className="mt-4">
+                        <button
+                            type="button"
+                            onClick={() => {
+                                // Set the current editing state to the modal state
+                                setSelectedContent(editingSelectedContent);
+                                setSelectedGenres(editingSelectedGenres);
+                                setShowContentSelector(true);
+                            }}
+                            className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-500"
+                        >
+                            <Search className="w-4 h-4 mr-2" />
+                            Select Content & Genres
+                        </button>
+                        {(editingSelectedContent.length > 0 || editingSelectedGenres.length > 0) && (
+                            <p className="text-sm text-gray-400 mt-2">
+                                {editingSelectedContent.length} items, {editingSelectedGenres.length} genres selected
+                            </p>
+                        )}
+                    </div>
+                )}
+                
                 <div className="flex justify-end space-x-2 mt-4">
                     <button
                         onClick={onCancel}
@@ -1032,9 +1514,16 @@ function WidgetCard({ widget, widgetMeta, isEditing, onEdit, onSave, onCancel, o
                         <h3 className="text-lg font-semibold text-white">{widget.name}</h3>
                         <div className="flex items-center space-x-2 text-sm text-gray-400">
                             <span className="bg-gray-700 px-2 py-1 rounded">{widget.type}</span>
-                            <span className="bg-blue-600 px-2 py-1 rounded">{widget.dataSource}</span>
-                            <span className="bg-green-600 px-2 py-1 rounded">{widget.contentType}</span>
+                            {widget.type !== 'notifications' && (
+                                <>
+                                    <span className="bg-blue-600 px-2 py-1 rounded">{widget.dataSource}</span>
+                                    <span className="bg-green-600 px-2 py-1 rounded">{widget.contentType}</span>
+                                </>
+                            )}
                             <span className="bg-purple-600 px-2 py-1 rounded">{widget.layout}</span>
+                            {widget.type === 'notifications' && (
+                                <span className="bg-red-600 px-2 py-1 rounded">Live Updates</span>
+                            )}
                         </div>
                     </div>
                 </div>

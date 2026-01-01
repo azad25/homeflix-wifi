@@ -31,14 +31,34 @@ export default function EnhancedWidgetConfigPanel({
   const [showPerformance, setShowPerformance] = useState(false);
   const [selectedContent, setSelectedContent] = useState<any[]>([]);
   const [selectedGenres, setSelectedGenres] = useState<number[]>([]);
+  const [genres, setGenres] = useState<{ id: number; name: string }[]>([]);
 
   const apiUrl = getApiUrl();
 
   useEffect(() => {
     if (isOpen) {
       fetchWidgets();
+      fetchGenres();
     }
   }, [isOpen, page]);
+
+  const fetchGenres = async () => {
+    try {
+      const [movieGenres, tvGenres] = await Promise.all([
+        fetch(`${apiUrl}/api/tmdb/genres/movie`).then(r => r.ok ? r.json() : { genres: [] }),
+        fetch(`${apiUrl}/api/tmdb/genres/tv`).then(r => r.ok ? r.json() : { genres: [] })
+      ]);
+      
+      const allGenres = [...movieGenres.genres, ...tvGenres.genres];
+      const uniqueGenres = allGenres.filter((genre, index, self) => 
+        index === self.findIndex(g => g.id === genre.id)
+      );
+      
+      setGenres(uniqueGenres);
+    } catch (error) {
+      console.error('Error fetching genres:', error);
+    }
+  };
 
   const fetchWidgets = async () => {
     try {
@@ -128,7 +148,30 @@ export default function EnhancedWidgetConfigPanel({
     }
   };
 
-  const createNewWidget = () => {
+  const createNewWidget = async () => {
+    // Convert selectedGenres (IDs) to genre names for backend compatibility
+    let genreNames: string[] = [];
+    if (selectedGenres.length > 0) {
+      try {
+        // Fetch TMDB genres to get names from IDs
+        const [movieGenres, tvGenres] = await Promise.all([
+          fetch(`${apiUrl}/api/tmdb/genres/movie`).then(r => r.ok ? r.json() : { genres: [] }),
+          fetch(`${apiUrl}/api/tmdb/genres/tv`).then(r => r.ok ? r.json() : { genres: [] })
+        ]);
+        
+        const allGenres = [...movieGenres.genres, ...tvGenres.genres];
+        const uniqueGenres = allGenres.filter((genre, index, self) => 
+          index === self.findIndex(g => g.id === genre.id)
+        );
+        
+        genreNames = selectedGenres
+          .map(id => uniqueGenres.find(g => g.id === id)?.name)
+          .filter(name => name) as string[];
+      } catch (error) {
+        console.error('Error converting genre IDs to names:', error);
+      }
+    }
+
     const newWidget: Partial<Widget> = {
       name: 'New Widget',
       type: 'homeflix-grid',
@@ -137,15 +180,35 @@ export default function EnhancedWidgetConfigPanel({
       enabled: true,
       config: JSON.stringify({
         selectedContent,
-        selectedGenres
+        selectedGenres,
+        genreFilter: genreNames // Add genreFilter for backend compatibility
       }),
       contentType: 'mixed',
-      dataSource: 'tmdb',
+      dataSource: genreNames.length > 0 ? 'local' : 'tmdb', // Use local data source for genre filtering
       maxItems: 10,
       layout: 'full',
       colorScheme: 'auto'
     };
     setEditingWidget(newWidget as Widget);
+  };
+
+  const handleGenreToggle = (genreId: number) => {
+    setSelectedGenres(prev => 
+      prev.includes(genreId) 
+        ? prev.filter(id => id !== genreId)
+        : [...prev, genreId]
+    );
+  };
+
+  const handleContentToggle = (content: any) => {
+    setSelectedContent(prev => {
+      const exists = prev.find(item => item.id === content.id);
+      if (exists) {
+        return prev.filter(item => item.id !== content.id);
+      } else {
+        return [...prev, content];
+      }
+    });
   };
 
   if (!isOpen) return null;
@@ -265,6 +328,9 @@ export default function EnhancedWidgetConfigPanel({
             onOpenContentSelector={() => setShowContentSelector(true)}
             selectedContent={selectedContent}
             selectedGenres={selectedGenres}
+            genres={genres}
+            onGenreToggle={handleGenreToggle}
+            onContentToggle={handleContentToggle}
           />
         )}
 

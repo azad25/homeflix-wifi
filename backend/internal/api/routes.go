@@ -361,6 +361,7 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 	api.GET("/torrents/config", torrentHandler.GetConfig)
 	api.PUT("/torrents/config", torrentHandler.UpdateConfig)
 	api.POST("/torrents/test-connection", torrentHandler.TestConnection)
+	api.GET("/torrents/bandwidth-stats", torrentHandler.GetBandwidthStats)
 
 		// Media paths management endpoints
 		api.GET("/admin/media-paths", mediaPathsHandler.GetMediaPaths)

@@ -175,29 +175,38 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
     return [
       {
         id: 'sample_1',
-        type: 'tmdb_now_playing',
-        title: 'Trending Now',
-        message: 'Discover the hottest movies everyone is talking about!',
+        type: 'tmdb_trending',
+        title: 'Trending Worldwide',
+        message: 'These movies are breaking records and getting amazing reviews!',
         timestamp: Date.now() / 1000 - 1800,
-        tmdb_ids: [550], // Fight Club
+        tmdb_ids: [550, 13, 680], // Multiple trending movies
         read: false
       },
       {
         id: 'sample_2',
-        type: 'movie_suggestion',
-        title: 'Recommended for You',
-        message: 'Based on your viewing history, you might enjoy these selections.',
+        type: 'single_movie_suggestion',
+        title: 'Perfect Match for You',
+        message: 'Based on your viewing history, this movie is exactly what you need.',
         timestamp: Date.now() / 1000 - 3600,
-        tmdb_ids: [13, 680, 155, 122, 424], // Multiple popular movies
+        tmdb_ids: [155], // The Dark Knight
         read: false
       },
       {
         id: 'sample_3',
         type: 'tmdb_upcoming',
-        title: 'Coming Soon',
-        message: 'Get ready for these upcoming blockbusters!',
+        title: 'Coming Soon to Theaters',
+        message: 'Get ready for these highly anticipated blockbusters!',
         timestamp: Date.now() / 1000 - 7200,
-        tmdb_ids: [1003579], // Avatar: Fire and Ash
+        tmdb_ids: [1003579, 1022789], // Multiple upcoming movies
+        read: false
+      },
+      {
+        id: 'sample_4',
+        type: 'tmdb_now_airing_tv',
+        title: 'Now Airing',
+        message: 'These popular series are currently airing new episodes!',
+        timestamp: Date.now() / 1000 - 10800,
+        tmdb_ids: [1399, 94605], // Game of Thrones, Arcane
         read: false
       }
     ];
@@ -249,7 +258,7 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
           setCurrentIndex((prev) => (prev + 1) % notifications.length);
           setImageLoaded(false);
           setVideoReady(false);
-        }, 5000); // Changed to 3 seconds as requested
+        }, 10000); // Changed to 3 seconds as requested
       }
     }
     return () => {
@@ -414,14 +423,21 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
       
       switch (notification.type) {
         case 'tmdb_now_playing':
+        case 'tmdb_trending':
           priority = hoursSinceCreated < 24 ? 'high' : 'medium';
           category = 'trending';
           break;
         case 'tmdb_upcoming':
+        case 'tmdb_upcoming_tv':
           priority = 'medium';
           category = 'new';
           break;
+        case 'tmdb_now_airing_tv':
+          priority = hoursSinceCreated < 12 ? 'high' : 'medium';
+          category = 'trending';
+          break;
         case 'movie_suggestion':
+        case 'single_movie_suggestion':
           priority = 'medium';
           category = 'recommended';
           break;
@@ -567,10 +583,19 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
   };
 
   const handleNotificationClick = (notification: EnhancedNotification, index?: number) => {
-    if (notification.type === 'tmdb_upcoming' || notification.type === 'tmdb_now_playing') {
+    if (notification.type === 'tmdb_upcoming' || 
+        notification.type === 'tmdb_now_playing' || 
+        notification.type === 'tmdb_trending' ||
+        notification.type === 'tmdb_upcoming_tv' ||
+        notification.type === 'tmdb_now_airing_tv') {
       if (notification.tmdb_ids && notification.tmdb_ids.length > 0) {
         const tmdbId = index !== undefined ? notification.tmdb_ids[index] : notification.tmdb_ids[0];
-        navigate.push(`/tmdb-movie/${tmdbId}`);
+        // Check if it's a TV series notification
+        if (notification.type === 'tmdb_upcoming_tv' || notification.type === 'tmdb_now_airing_tv') {
+          navigate.push(`/tmdb-tv/${tmdbId}`);
+        } else {
+          navigate.push(`/tmdb-movie/${tmdbId}`);
+        }
       }
     } else if (notification.type === 'new_episodes' && notification.series_id) {
       navigate.push(`/tv-series/${notification.series_id}`);
@@ -590,13 +615,19 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
 
     switch (type) {
       case 'tmdb_upcoming':
+      case 'tmdb_upcoming_tv':
         return <Calendar {...iconProps} />;
       case 'tmdb_now_playing':
+      case 'tmdb_now_airing_tv':
         return <Sparkles {...iconProps} />;
+      case 'tmdb_trending':
+        return <TrendingUp {...iconProps} />;
       case 'new_episodes':
         return <Tv {...iconProps} />;
       case 'movie_suggestion':
         return <Award {...iconProps} />;
+      case 'single_movie_suggestion':
+        return <Star {...iconProps} />;
       case 'watch_again':
         return <Eye {...iconProps} />;
       default:
@@ -664,7 +695,11 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
   }, [notifications.length]);
 
   const getBackdropUrl = (notification: EnhancedNotification) => {
-    if (notification.type === 'tmdb_upcoming' || notification.type === 'tmdb_now_playing') {
+    if (notification.type === 'tmdb_upcoming' || 
+        notification.type === 'tmdb_now_playing' || 
+        notification.type === 'tmdb_trending' ||
+        notification.type === 'tmdb_upcoming_tv' ||
+        notification.type === 'tmdb_now_airing_tv') {
       if (notification.tmdb_ids && notification.tmdb_ids.length > 0) {
         const tmdbId = notification.tmdb_ids[0];
         const movieDetails = tmdbDetails[`tmdb_${tmdbId}`];
@@ -688,7 +723,11 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
   };
 
   const getLogoUrl = (notification: EnhancedNotification) => {
-    if (notification.type === 'tmdb_upcoming' || notification.type === 'tmdb_now_playing') {
+    if (notification.type === 'tmdb_upcoming' || 
+        notification.type === 'tmdb_now_playing' || 
+        notification.type === 'tmdb_trending' ||
+        notification.type === 'tmdb_upcoming_tv' ||
+        notification.type === 'tmdb_now_airing_tv') {
       if (notification.tmdb_ids && notification.tmdb_ids.length > 0) {
         const tmdbId = notification.tmdb_ids[0];
         const movieDetails = tmdbDetails[`tmdb_${tmdbId}`];
@@ -707,7 +746,11 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
   };
 
   const getPosterUrl = (notification: EnhancedNotification) => {
-    if (notification.type === 'tmdb_upcoming' || notification.type === 'tmdb_now_playing') {
+    if (notification.type === 'tmdb_upcoming' || 
+        notification.type === 'tmdb_now_playing' || 
+        notification.type === 'tmdb_trending' ||
+        notification.type === 'tmdb_upcoming_tv' ||
+        notification.type === 'tmdb_now_airing_tv') {
       if (notification.tmdb_ids && notification.tmdb_ids.length > 0) {
         const tmdbId = notification.tmdb_ids[0];
         const movieDetails = tmdbDetails[`tmdb_${tmdbId}`];
@@ -730,7 +773,11 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
   };
 
   const getMovieDetails = (notification: EnhancedNotification) => {
-    if (notification.type === 'tmdb_upcoming' || notification.type === 'tmdb_now_playing') {
+    if (notification.type === 'tmdb_upcoming' || 
+        notification.type === 'tmdb_now_playing' || 
+        notification.type === 'tmdb_trending' ||
+        notification.type === 'tmdb_upcoming_tv' ||
+        notification.type === 'tmdb_now_airing_tv') {
       if (notification.tmdb_ids && notification.tmdb_ids.length > 0) {
         const tmdbId = notification.tmdb_ids[0];
         return tmdbDetails[`tmdb_${tmdbId}`];
@@ -745,7 +792,11 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
   const getAllMovieDetails = (notification: EnhancedNotification) => {
     const details = [];
     
-    if (notification.type === 'tmdb_upcoming' || notification.type === 'tmdb_now_playing') {
+    if (notification.type === 'tmdb_upcoming' || 
+        notification.type === 'tmdb_now_playing' || 
+        notification.type === 'tmdb_trending' ||
+        notification.type === 'tmdb_upcoming_tv' ||
+        notification.type === 'tmdb_now_airing_tv') {
       if (notification.tmdb_ids) {
         for (const tmdbId of notification.tmdb_ids) {
           const movieDetail = tmdbDetails[`tmdb_${tmdbId}`];
@@ -767,7 +818,11 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
   };
 
   const getTrailerKey = (notification: EnhancedNotification) => {
-    if (notification.type === 'tmdb_upcoming' || notification.type === 'tmdb_now_playing') {
+    if (notification.type === 'tmdb_upcoming' || 
+        notification.type === 'tmdb_now_playing' || 
+        notification.type === 'tmdb_trending' ||
+        notification.type === 'tmdb_upcoming_tv' ||
+        notification.type === 'tmdb_now_airing_tv') {
       if (notification.tmdb_ids && notification.tmdb_ids.length > 0) {
         const tmdbId = notification.tmdb_ids[0];
         const movieDetails = tmdbDetails[`tmdb_${tmdbId}`];
@@ -788,7 +843,11 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
   };
 
   const getThemeColors = (notification: EnhancedNotification) => {
-    if ((notification.type === 'tmdb_upcoming' || notification.type === 'tmdb_now_playing') && 
+    if ((notification.type === 'tmdb_upcoming' || 
+         notification.type === 'tmdb_now_playing' || 
+         notification.type === 'tmdb_trending' ||
+         notification.type === 'tmdb_upcoming_tv' ||
+         notification.type === 'tmdb_now_airing_tv') && 
         notification.tmdb_ids && notification.tmdb_ids.length > 0) {
       const tmdbId = notification.tmdb_ids[0];
       const movieDetails = tmdbDetails[`tmdb_${tmdbId}`];

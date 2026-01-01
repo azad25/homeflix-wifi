@@ -77,6 +77,16 @@ interface TorrentConfig {
   upload_speed_limit: number; // KB/s, 0 = unlimited
 }
 
+interface BandwidthStats {
+  total_download_rate: number;
+  total_upload_rate: number;
+  active_downloads: number;
+  download_limit: number;
+  upload_limit: number;
+  download_limit_str: string;
+  upload_limit_str: string;
+}
+
 interface MediaInfo {
   tmdb_id: number;
   title: string;
@@ -92,6 +102,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
   const [searchResults, setSearchResults] = useState<TorrentResult[]>([]);
   const [downloads, setDownloads] = useState<DownloadInfo[]>([]); // Server-side paginated downloads
   const [config, setConfig] = useState<TorrentConfig | null>(null);
+  const [bandwidthStats, setBandwidthStats] = useState<BandwidthStats | null>(null);
   const [loading, setLoading] = useState(false);
   const [searchLoading, setSearchLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -116,6 +127,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
   useEffect(() => {
     fetchConfig();
     fetchDownloads();
+    fetchBandwidthStats();
 
     // Auto-search if media info is provided
     if (mediaInfo) {
@@ -171,8 +183,9 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
     if (activeTab !== 'downloads') return;
 
     const interval = setInterval(() => {
-      // Refresh all downloads data
+      // Refresh all downloads data and bandwidth stats
       fetchDownloads();
+      fetchBandwidthStats();
     }, 3000);
     return () => clearInterval(interval);
   }, [activeTab, fetchDownloads]);
@@ -187,6 +200,19 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
       }
     } catch (err) {
       console.error('Failed to fetch config:', err);
+    }
+  };
+
+  const fetchBandwidthStats = async () => {
+    try {
+      const apiUrl = getApiUrl();
+      const response = await fetch(`${apiUrl}/api/torrents/bandwidth-stats`);
+      if (response.ok) {
+        const data = await response.json();
+        setBandwidthStats(data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch bandwidth stats:', err);
     }
   };
 
@@ -730,6 +756,90 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
                 </button>
               )}
             </div>
+
+            {/* Bandwidth Stats Display */}
+            {bandwidthStats && (
+              <div className="mb-6 p-4 bg-gray-800 rounded-lg border border-gray-700">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-lg font-medium text-white flex items-center gap-2">
+                    <RefreshCw className="w-5 h-5 text-blue-400" />
+                    Bandwidth Usage
+                  </h3>
+                  <div className="text-sm text-gray-400">
+                    {bandwidthStats.active_downloads} active download{bandwidthStats.active_downloads !== 1 ? 's' : ''}
+                  </div>
+                </div>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-gray-300 flex items-center gap-1">
+                        <Download className="w-4 h-4 text-green-400" />
+                        Download Speed
+                      </span>
+                      <span className="text-sm font-medium text-white">
+                        {formatSpeed(bandwidthStats.total_download_rate)}
+                      </span>
+                    </div>
+                    {bandwidthStats.download_limit > 0 && (
+                      <div className="w-full bg-gray-700 rounded-full h-2">
+                        <div
+                          className={`h-2 rounded-full transition-all duration-300 ${
+                            bandwidthStats.total_download_rate > bandwidthStats.download_limit
+                              ? 'bg-red-500'
+                              : 'bg-green-500'
+                          }`}
+                          style={{
+                            width: `${Math.min(100, (bandwidthStats.total_download_rate / bandwidthStats.download_limit) * 100)}%`
+                          }}
+                        />
+                      </div>
+                    )}
+                    <div className="text-xs text-gray-400">
+                      Limit: {bandwidthStats.download_limit > 0 ? bandwidthStats.download_limit_str : 'Unlimited'}
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-gray-300 flex items-center gap-1">
+                        <Upload className="w-4 h-4 text-blue-400" />
+                        Upload Speed
+                      </span>
+                      <span className="text-sm font-medium text-white">
+                        {formatSpeed(bandwidthStats.total_upload_rate)}
+                      </span>
+                    </div>
+                    {bandwidthStats.upload_limit > 0 && (
+                      <div className="w-full bg-gray-700 rounded-full h-2">
+                        <div
+                          className={`h-2 rounded-full transition-all duration-300 ${
+                            bandwidthStats.total_upload_rate > bandwidthStats.upload_limit
+                              ? 'bg-red-500'
+                              : 'bg-blue-500'
+                          }`}
+                          style={{
+                            width: `${Math.min(100, (bandwidthStats.total_upload_rate / bandwidthStats.upload_limit) * 100)}%`
+                          }}
+                        />
+                      </div>
+                    )}
+                    <div className="text-xs text-gray-400">
+                      Limit: {bandwidthStats.upload_limit > 0 ? bandwidthStats.upload_limit_str : 'Unlimited'}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Throttling Warning */}
+                {((bandwidthStats.download_limit > 0 && bandwidthStats.total_download_rate > bandwidthStats.download_limit) ||
+                  (bandwidthStats.upload_limit > 0 && bandwidthStats.total_upload_rate > bandwidthStats.upload_limit)) && (
+                  <div className="mt-3 p-2 bg-red-900/30 border border-red-500/30 rounded text-sm text-red-200 flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4" />
+                    <span>Bandwidth limit exceeded - throttling may be active</span>
+                  </div>
+                )}
+              </div>
+            )}
 
             {downloads.map((download) => (
               <div key={download.id} className="bg-gray-800 rounded-lg p-4">

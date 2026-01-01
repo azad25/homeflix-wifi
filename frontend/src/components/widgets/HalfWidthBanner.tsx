@@ -34,6 +34,7 @@ export default function HalfWidthBanner({
     const [imageLoaded, setImageLoaded] = useState(false);
     const [isHovering, setIsHovering] = useState(false);
     const [currentIndex, setCurrentIndex] = useState(0);
+    const [tmdbLogos, setTmdbLogos] = useState<Record<number, string>>({});
 
     const apiUrl = getApiUrl();
 
@@ -41,6 +42,38 @@ export default function HalfWidthBanner({
     const mediaArray = Array.isArray(media) ? media : [media];
     const currentMedia = mediaArray[currentIndex];
     const isMultipleMedia = mediaArray.length > 1;
+
+    // Fetch TMDB logo if needed
+    useEffect(() => {
+        const fetchTMDBLogo = async (tmdbId: number) => {
+            if (tmdbLogos[tmdbId]) return; // Already fetched
+            
+            try {
+                const response = await fetch(`${apiUrl}/api/tmdb/movie/${tmdbId}/images`);
+                if (response.ok) {
+                    const imagesData = await response.json();
+                    const logo = imagesData.logos?.find((logo: any) => 
+                        logo.iso_639_1 === 'en' || logo.iso_639_1 === null
+                    );
+                    if (logo) {
+                        setTmdbLogos(prev => ({
+                            ...prev,
+                            [tmdbId]: `https://image.tmdb.org/t/p/w500${logo.file_path}`
+                        }));
+                    }
+                }
+            } catch (error) {
+                console.log('Failed to fetch TMDB logo for', tmdbId);
+            }
+        };
+
+        // Fetch logos for TMDB content that doesn't have logo_path
+        mediaArray.forEach(m => {
+            if (m.tmdb_id && !m.logo_path) {
+                fetchTMDBLogo(m.tmdb_id);
+            }
+        });
+    }, [mediaArray, apiUrl, tmdbLogos]);
 
     // Auto-scroll for multiple media
     useEffect(() => {
@@ -67,6 +100,19 @@ export default function HalfWidthBanner({
     };
 
     const getLogoUrl = () => {
+        // For TMDB content, check if we have TMDB logo data
+        if (currentMedia.tmdb_id) {
+            // First check if we fetched a logo from TMDB images API
+            if (tmdbLogos[currentMedia.tmdb_id]) {
+                return tmdbLogos[currentMedia.tmdb_id];
+            }
+            // If logo_path exists and starts with '/', it's a TMDB logo path
+            if (currentMedia.logo_path && currentMedia.logo_path.startsWith('/')) {
+                return `https://image.tmdb.org/t/p/w500${currentMedia.logo_path}`;
+            }
+        }
+        
+        // Handle local logo paths
         if (currentMedia.logo_path) {
             // Check if logo_path is already a full URL (TMDB logo)
             if (currentMedia.logo_path.startsWith('http')) {
@@ -223,12 +269,14 @@ export default function HalfWidthBanner({
 
                             {/* Meta info */}
                             <div className="flex items-center gap-3 mb-3 text-sm">
-                                {currentMedia.rating && currentMedia.rating > 0 && (
+                                {currentMedia.rating ? (
                                     <div className="flex items-center gap-1">
                                         <Star className="w-4 h-4 fill-yellow-400 text-yellow-400" />
-                                        <span className="font-semibold">{currentMedia.rating.toFixed(1)}</span>
+                                        <span className="font-semibold">
+                                            {currentMedia.rating > 0 ? currentMedia.rating.toFixed(1) : ''}
+                                        </span>
                                     </div>
-                                )}
+                                ) : null}
                                 {currentMedia.year && (
                                     <div className="flex items-center gap-1 text-white/70">
                                         <Calendar className="w-3 h-3" />

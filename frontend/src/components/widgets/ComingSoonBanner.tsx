@@ -45,9 +45,42 @@ export default function ComingSoonBanner({
     const [notifyEnabled, setNotifyEnabled] = useState<Set<number>>(new Set());
     const [isInMyList, setIsInMyList] = useState<Set<number>>(new Set());
     const [imageLoaded, setImageLoaded] = useState(false);
+    const [tmdbLogos, setTmdbLogos] = useState<Record<number, string>>({});
 
     const apiUrl = getApiUrl();
     const currentMovie = movies[currentIndex];
+
+    // Fetch TMDB logo if needed
+    useEffect(() => {
+        const fetchTMDBLogo = async (tmdbId: number) => {
+            if (tmdbLogos[tmdbId]) return; // Already fetched
+            
+            try {
+                const response = await fetch(`${apiUrl}/api/tmdb/movie/${tmdbId}/images`);
+                if (response.ok) {
+                    const imagesData = await response.json();
+                    const logo = imagesData.logos?.find((logo: any) => 
+                        logo.iso_639_1 === 'en' || logo.iso_639_1 === null
+                    );
+                    if (logo) {
+                        setTmdbLogos(prev => ({
+                            ...prev,
+                            [tmdbId]: `https://image.tmdb.org/t/p/w500${logo.file_path}`
+                        }));
+                    }
+                }
+            } catch (error) {
+                console.log('Failed to fetch TMDB logo for', tmdbId);
+            }
+        };
+
+        // Fetch logos for TMDB content that doesn't have logo_path
+        movies.forEach(m => {
+            if (m.tmdb_id && !m.logo_path) {
+                fetchTMDBLogo(m.tmdb_id);
+            }
+        });
+    }, [movies, apiUrl, tmdbLogos]);
 
     // Auto-scroll
     useEffect(() => {
@@ -180,36 +213,36 @@ export default function ComingSoonBanner({
             {/* Enhanced Content */}
             <div className="absolute bottom-0 left-0 right-0 p-6 md:p-8 lg:p-12 z-10">
                 <div className="flex flex-col lg:flex-row gap-6 items-end">
-                    {/* Enhanced Poster */}
-                    <motion.div
-                        initial={{ opacity: 0, y: 50, scale: 0.9 }}
-                        animate={{ opacity: 1, y: 0, scale: 1 }}
-                        transition={{ duration: 0.8, delay: 0.2 }}
-                        className="hidden md:block flex-shrink-0"
-                    >
-                        <div className="relative w-32 lg:w-40 rounded-xl overflow-hidden shadow-2xl border-2 border-white/20 group">
-                            <img
-                                src={posterUrl}
-                                alt={currentMovie.title}
-                                className="w-full h-auto transition-transform duration-300 group-hover:scale-105"
-                            />
-                            {/* Poster Overlay */}
-                            <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-                            <div className="absolute bottom-3 left-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-                                <div className="text-center">
-                                    <button 
-                                        className="w-10 h-10 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center hover:bg-white/30 transition-colors"
-                                        onClick={() => navigate.push(`/tmdb-movie/${currentMovie.id}`)}
-                                    >
-                                        <Play className="w-4 h-4 text-white fill-current ml-0.5" />
-                                    </button>
+                        {/* Enhanced Poster */}
+                        <motion.div
+                            initial={{ opacity: 0, y: 50, scale: 0.9 }}
+                            animate={{ opacity: 1, y: 0, scale: 1 }}
+                            transition={{ duration: 0.8, delay: 0.2 }}
+                            className="hidden md:block flex-shrink-0"
+                        >
+                            <div className="relative w-32 lg:w-40 rounded-xl overflow-hidden shadow-2xl border-2 border-white/20 group">
+                                <img
+                                    src={posterUrl}
+                                    alt={currentMovie.title}
+                                    className="w-full h-auto transition-transform duration-300 group-hover:scale-105"
+                                />
+                                {/* Poster Overlay */}
+                                <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+                                <div className="absolute bottom-3 left-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                                    <div className="text-center">
+                                        <button 
+                                            className="w-10 h-10 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center hover:bg-white/30 transition-colors"
+                                            onClick={() => navigate.push(`/tmdb-movie/${currentMovie.id}`)}
+                                        >
+                                            <Play className="w-4 h-4 text-white fill-current ml-0.5" />
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
-                        </div>
-                    </motion.div>
+                        </motion.div>
 
-                    {/* Enhanced Info */}
-                    <div className="flex-1 max-w-2xl">
+                        {/* Enhanced Info */}
+                        <div className="flex-1 max-w-2xl">
                         <AnimatePresence mode="wait">
                             <motion.div
                                 key={currentIndex}
@@ -219,12 +252,21 @@ export default function ComingSoonBanner({
                                 transition={{ duration: 0.8, ease: "easeOut" }}
                             >
                                 {/* Enhanced Title - Logo or Text */}
-                                {currentMovie.logo_path ? (
+                                {(currentMovie.logo_path || tmdbLogos[currentMovie.tmdb_id || 0]) ? (
                                     <img
-                                        src={currentMovie.logo_path.startsWith('http') ? 
-                                            currentMovie.logo_path : 
-                                            `${apiUrl}/api/logos/${currentMovie.logo_path.includes('/') ? 
-                                                currentMovie.logo_path.split('/').pop() : currentMovie.logo_path}`}
+                                        src={
+                                            // First check if we fetched a logo from TMDB images API
+                                            tmdbLogos[currentMovie.tmdb_id || 0] ||
+                                            // For TMDB content, check if logo_path starts with '/' (TMDB logo path)
+                                            (currentMovie.tmdb_id && currentMovie.logo_path?.startsWith('/') ? 
+                                                `https://image.tmdb.org/t/p/w500${currentMovie.logo_path}` :
+                                            // Check if logo_path is already a full URL
+                                            currentMovie.logo_path?.startsWith('http') ? 
+                                                currentMovie.logo_path : 
+                                            // Handle local logo paths
+                                            `${apiUrl}/api/logos/${currentMovie.logo_path?.includes('/') ? 
+                                                currentMovie.logo_path.split('/').pop() : currentMovie.logo_path}`)
+                                        }
                                         alt={currentMovie.title}
                                         className="max-h-16 md:max-h-20 lg:max-h-24 w-auto mb-4 drop-shadow-2xl"
                                         onError={(e) => {
@@ -238,7 +280,7 @@ export default function ComingSoonBanner({
                                 <h2 
                                     className="text-2xl md:text-3xl lg:text-4xl font-bold mb-4 leading-tight"
                                     style={{
-                                        display: currentMovie.logo_path ? 'none' : 'block',
+                                        display: (currentMovie.logo_path || tmdbLogos[currentMovie.tmdb_id || 0]) ? 'none' : 'block',
                                         textShadow: `0 0 40px ${colors.primary}60, 0 4px 20px rgba(0,0,0,0.8)`,
                                         background: `linear-gradient(135deg, ${colors.primary} 0%, ${colors.accent} 100%)`,
                                         WebkitBackgroundClip: 'text',
@@ -281,13 +323,15 @@ export default function ComingSoonBanner({
 
                                 {/* Enhanced Rating & Genres */}
                                 <div className="flex flex-wrap items-center gap-3 mb-4">
-                                    {rating > 0 && (
+                                    {rating ? (
                                         <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-yellow-500/20 border border-yellow-400/30">
                                             <Star className="w-3.5 h-3.5 fill-yellow-400 text-yellow-400" />
-                                            <span className="font-semibold text-yellow-300 text-sm">{rating.toFixed(1)}</span>
+                                            <span className="font-semibold text-yellow-300 text-sm">
+                                                {rating > 0 ? rating.toFixed(1) : ''}
+                                            </span>
                                             <span className="text-yellow-200/80 text-xs">Expected</span>
                                         </div>
-                                    )}
+                                    ) : null}
                                     
                                     {currentMovie.genre_names && currentMovie.genre_names.length > 0 && (
                                         <div className="flex flex-wrap gap-1.5">

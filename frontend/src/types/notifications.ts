@@ -2,10 +2,14 @@ export type NotificationType =
     | 'new_movies'
     | 'new_episodes'
     | 'movie_suggestion'
+    | 'single_movie_suggestion'
     | 'watch_again'
     | 'download_complete'
     | 'tmdb_upcoming'
-    | 'tmdb_now_playing';
+    | 'tmdb_now_playing'
+    | 'tmdb_trending'
+    | 'tmdb_upcoming_tv'
+    | 'tmdb_now_airing_tv';
 
 export interface Notification {
     id: string;

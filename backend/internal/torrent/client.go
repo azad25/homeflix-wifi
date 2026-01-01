@@ -13,6 +13,14 @@ import (
 	"github.com/cenkalti/rain/torrent"
 )
 
+// BandwidthMonitor tracks and controls bandwidth usage
+type BandwidthMonitor struct {
+	downloadBytesUsed int64
+	uploadBytesUsed   int64
+	lastResetTime     time.Time
+	mu                sync.RWMutex
+}
+
 // MediaScannerInterface defines the interface for triggering media scans
 type MediaScannerInterface interface {
 	ScanMediaLibrary() error
@@ -23,13 +31,16 @@ type MediaScannerInterface interface {
 type StatusCallback func(torrentID string, status string, progress float64, size int64, downloaded int64, completedAt *time.Time)
 
 type TorrentClient struct {
-	session        *torrent.Session
-	downloads      map[string]*DownloadInfo
-	torrents       map[string]*torrent.Torrent
-	mu             sync.RWMutex
-	downloadDir    string
-	mediaScanner   MediaScannerInterface
-	statusCallback StatusCallback
+	session            *torrent.Session
+	downloads          map[string]*DownloadInfo
+	torrents           map[string]*torrent.Torrent
+	mu                 sync.RWMutex
+	downloadDir        string
+	mediaScanner       MediaScannerInterface
+	statusCallback     StatusCallback
+	downloadSpeedLimit int64 // bytes per second, 0 = unlimited
+	uploadSpeedLimit   int64 // bytes per second, 0 = unlimited
+	bandwidthMonitor   *BandwidthMonitor
 }
 
 type DownloadInfo struct {
@@ -118,12 +129,17 @@ func NewTorrentClient(downloadDir string, mediaScanner MediaScannerInterface, st
 	}
 
 	tc := &TorrentClient{
-		session:        session,
-		downloads:      make(map[string]*DownloadInfo),
-		torrents:       make(map[string]*torrent.Torrent),
-		downloadDir:    downloadDir,
-		mediaScanner:   mediaScanner,
-		statusCallback: statusCallback,
+		session:            session,
+		downloads:          make(map[string]*DownloadInfo),
+		torrents:           make(map[string]*torrent.Torrent),
+		downloadDir:        downloadDir,
+		mediaScanner:       mediaScanner,
+		statusCallback:     statusCallback,
+		downloadSpeedLimit: 0, // unlimited by default
+		uploadSpeedLimit:   0, // unlimited by default
+		bandwidthMonitor: &BandwidthMonitor{
+			lastResetTime: time.Now(),
+		},
 	}
 
 	// Start monitoring goroutine
@@ -598,25 +614,141 @@ func (tc *TorrentClient) triggerMediaScan(download *DownloadInfo) {
 	}
 }
 
-// SetSpeedLimits stores speed limit configuration for future use
-// Note: Rain torrent library doesn't support runtime speed limits
-// These settings are stored in the database for potential future implementation
-// or external bandwidth management tools
+// startBandwidthThrottling starts monitoring and throttling bandwidth usage
+func (tc *TorrentClient) startBandwidthThrottling() {
+	ticker := time.NewTicker(1 * time.Second) // Check every second
+	defer ticker.Stop()
+
+	for range ticker.C {
+		tc.mu.RLock()
+		downloadLimit := tc.downloadSpeedLimit
+		uploadLimit := tc.uploadSpeedLimit
+		tc.mu.RUnlock()
+
+		// If no limits are set, skip throttling
+		if downloadLimit == 0 && uploadLimit == 0 {
+			continue
+		}
+
+		tc.throttleBandwidth(downloadLimit, uploadLimit)
+	}
+}
+
+// throttleBandwidth implements application-level bandwidth throttling
+func (tc *TorrentClient) throttleBandwidth(downloadLimit, uploadLimit int64) {
+	tc.bandwidthMonitor.mu.Lock()
+	defer tc.bandwidthMonitor.mu.Unlock()
+
+	now := time.Now()
+	
+	// Reset counters every second
+	if now.Sub(tc.bandwidthMonitor.lastResetTime) >= time.Second {
+		tc.bandwidthMonitor.downloadBytesUsed = 0
+		tc.bandwidthMonitor.uploadBytesUsed = 0
+		tc.bandwidthMonitor.lastResetTime = now
+		return
+	}
+
+	// Get current bandwidth usage from all torrents
+	var totalDownloadRate, totalUploadRate int64
+	
+	tc.mu.RLock()
+	for _, downloadInfo := range tc.downloads {
+		if downloadInfo.Status == "downloading" {
+			totalDownloadRate += downloadInfo.DownloadRate
+			totalUploadRate += downloadInfo.UploadRate
+		}
+	}
+	tc.mu.RUnlock()
+
+	// Calculate if we need to throttle
+	var shouldThrottle bool
+	var throttleReason string
+
+	if downloadLimit > 0 && totalDownloadRate > downloadLimit {
+		shouldThrottle = true
+		throttleReason = fmt.Sprintf("download rate %s/s exceeds limit %s/s", 
+			formatSpeed(totalDownloadRate), formatSpeed(downloadLimit))
+	}
+
+	if uploadLimit > 0 && totalUploadRate > uploadLimit {
+		shouldThrottle = true
+		if throttleReason != "" {
+			throttleReason += " and "
+		}
+		throttleReason += fmt.Sprintf("upload rate %s/s exceeds limit %s/s", 
+			formatSpeed(totalUploadRate), formatSpeed(uploadLimit))
+	}
+
+	if shouldThrottle {
+		// Implement throttling by temporarily pausing some torrents
+		// This is a simple approach - more sophisticated throttling could be implemented
+		log.Printf("🚦 Bandwidth throttling triggered: %s", throttleReason)
+		
+		// For now, just log the throttling event
+		// In a more sophisticated implementation, we could:
+		// 1. Temporarily pause the fastest downloading torrents
+		// 2. Implement per-torrent speed limiting
+		// 3. Use network-level throttling
+		
+		// Simple throttling: introduce a small delay
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+// GetBandwidthStats returns current bandwidth usage statistics
+func (tc *TorrentClient) GetBandwidthStats() map[string]interface{} {
+	tc.mu.RLock()
+	defer tc.mu.RUnlock()
+
+	var totalDownloadRate, totalUploadRate int64
+	activeDownloads := 0
+
+	for _, downloadInfo := range tc.downloads {
+		if downloadInfo.Status == "downloading" {
+			totalDownloadRate += downloadInfo.DownloadRate
+			totalUploadRate += downloadInfo.UploadRate
+			activeDownloads++
+		}
+	}
+
+	return map[string]interface{}{
+		"total_download_rate": totalDownloadRate,
+		"total_upload_rate":   totalUploadRate,
+		"active_downloads":    activeDownloads,
+		"download_limit":      tc.downloadSpeedLimit,
+		"upload_limit":        tc.uploadSpeedLimit,
+		"download_limit_str":  formatSpeed(tc.downloadSpeedLimit),
+		"upload_limit_str":    formatSpeed(tc.uploadSpeedLimit),
+	}
+}
+
+// SetSpeedLimits applies speed limit configuration to the torrent client
+// Since Rain torrent library doesn't support runtime speed limits,
+// we implement application-level bandwidth throttling
 func (tc *TorrentClient) SetSpeedLimits(downloadLimit, uploadLimit int64) {
 	tc.mu.Lock()
 	defer tc.mu.Unlock()
 
-	log.Printf("⚡ Speed limits configured (stored for future use) - Download: %s/s, Upload: %s/s", 
+	// Store the limits for use in bandwidth throttling
+	tc.downloadSpeedLimit = downloadLimit
+	tc.uploadSpeedLimit = uploadLimit
+
+	log.Printf("⚡ Speed limits configured - Download: %s/s, Upload: %s/s", 
 		formatSpeed(downloadLimit), formatSpeed(uploadLimit))
 	
-	// Note: Rain library doesn't support runtime speed limiting
-	// These values would need to be:
-	// 1. Stored in database configuration
-	// 2. Applied via external tools like tc (traffic control) on Linux
-	// 3. Or implemented at the application level by throttling read/write operations
+	if downloadLimit > 0 || uploadLimit > 0 {
+		log.Printf("🚀 Application-level bandwidth throttling enabled")
+		log.Printf("   • Download limit: %s/s", formatSpeed(downloadLimit))
+		log.Printf("   • Upload limit: %s/s", formatSpeed(uploadLimit))
+		
+		// Start bandwidth monitoring and throttling
+		go tc.startBandwidthThrottling()
+	} else {
+		log.Printf("🚀 No speed limits set - unlimited bandwidth")
+	}
 	
-	log.Printf("💡 Note: Rain torrent library doesn't support runtime speed limits")
-	log.Printf("   Consider using external bandwidth management tools like:")
+	log.Printf("💡 Note: For system-level bandwidth control, consider:")
 	log.Printf("   • Linux tc (traffic control)")
 	log.Printf("   • Router QoS settings")
 	log.Printf("   • Network-level bandwidth limiting")

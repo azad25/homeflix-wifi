@@ -2,6 +2,8 @@ import { Track, Playlist, RecentlyPlayed } from '@/types/music';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8252';
 
+console.log('MusicAPI initialized with API_BASE:', API_BASE);
+
 // Mock data for fallback when API is unavailable
 const mockTracks: Track[] = [
   {
@@ -78,8 +80,11 @@ const mockTracks: Track[] = [
 
 export class MusicAPI {
   private static async request<T>(endpoint: string, options?: RequestInit): Promise<T> {
+    const url = `${API_BASE}/api/music${endpoint}`;
+    console.log('Making request to:', url);
+    
     try {
-      const response = await fetch(`${API_BASE}/api/music${endpoint}`, {
+      const response = await fetch(url, {
         headers: {
           'Content-Type': 'application/json',
           'X-User-ID': 'default-user',
@@ -88,12 +93,20 @@ export class MusicAPI {
         ...options,
       });
 
+      console.log('Response status:', response.status);
+
       if (!response.ok) {
-        console.warn(`Music API error: ${response.status} - falling back to mock data`);
+        if (response.status === 500) {
+          console.warn(`Music API error: ${response.status} - YouTube API may not be configured`);
+        } else {
+          console.warn(`Music API error: ${response.status} - falling back to mock data`);
+        }
         throw new Error(`API Error: ${response.status}`);
       }
 
-      return response.json();
+      const data = await response.json();
+      console.log('Response data:', data);
+      return data;
     } catch (error) {
       console.warn('Music API request failed, using mock data:', error);
       // Return mock data structure
@@ -103,9 +116,12 @@ export class MusicAPI {
 
   static async searchTracks(query: string, limit = 25): Promise<Track[]> {
     try {
+      console.log(`Searching for: "${query}" with limit: ${limit}`);
       const response = await this.request<{ tracks: Track[] }>(`/search?q=${encodeURIComponent(query)}&limit=${limit}`);
+      console.log('Search API response:', response);
       return response.tracks;
     } catch (error) {
+      console.error('Search API error:', error);
       // Return filtered mock data for search
       const filtered = mockTracks.filter(track => 
         track.title.toLowerCase().includes(query.toLowerCase()) ||

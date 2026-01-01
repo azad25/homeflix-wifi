@@ -27,12 +27,22 @@ export default function MusicPage() {
   const [loading, setLoading] = useState(true);
   const [searchLoading, setSearchLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<'home' | 'dashboard' | 'trending' | 'search' | 'liked' | 'recent' | 'playlists'>('home');
+  const [searchTimeout, setSearchTimeout] = useState<NodeJS.Timeout | null>(null);
 
   const { playTrack, state } = useMusicPlayer();
 
   useEffect(() => {
     loadInitialData();
   }, []);
+
+  // Cleanup search timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (searchTimeout) {
+        clearTimeout(searchTimeout);
+      }
+    };
+  }, [searchTimeout]);
 
   const loadInitialData = async () => {
     try {
@@ -58,19 +68,46 @@ export default function MusicPage() {
   const handleSearch = async (query: string) => {
     if (!query.trim()) {
       setSearchResults([]);
+      setActiveTab('home');
       return;
     }
 
     try {
       setSearchLoading(true);
+      console.log('Searching for:', query);
       const results = await MusicAPI.searchTracks(query, 25);
+      console.log('Search results:', results);
       setSearchResults(results);
       setActiveTab('search');
     } catch (error) {
       console.error('Search failed:', error);
+      setSearchResults([]);
     } finally {
       setSearchLoading(false);
     }
+  };
+
+  const handleSearchInput = (query: string) => {
+    setSearchQuery(query);
+    
+    // Clear existing timeout
+    if (searchTimeout) {
+      clearTimeout(searchTimeout);
+    }
+    
+    // If query is empty, clear results immediately
+    if (!query.trim()) {
+      setSearchResults([]);
+      setActiveTab('home');
+      return;
+    }
+    
+    // Set new timeout for debounced search
+    const timeout = setTimeout(() => {
+      handleSearch(query);
+    }, 300); // Reduced to 300ms for faster response
+    
+    setSearchTimeout(timeout);
   };
 
   const handlePlayTrack = (track: Track, queue?: Track[]) => {
@@ -189,12 +226,20 @@ export default function MusicPage() {
                 type="text"
                 placeholder="Search for songs, artists..."
                 value={searchQuery}
-                onChange={(e) => {
-                  setSearchQuery(e.target.value);
-                  handleSearch(e.target.value);
+                onChange={(e) => handleSearchInput(e.target.value)}
+                onKeyPress={(e) => {
+                  if (e.key === 'Enter') {
+                    handleSearch(searchQuery);
+                  }
                 }}
-                className="w-full pl-12 pr-4 py-4 bg-gradient-to-r from-gray-900/80 to-red-900/20 text-white rounded-xl border border-red-800/30 focus:border-red-500 focus:outline-none focus:ring-2 focus:ring-red-500/20 backdrop-blur-sm transition-all"
+                className="w-full pl-12 pr-20 py-4 bg-gradient-to-r from-gray-900/80 to-red-900/20 text-white rounded-xl border border-red-800/30 focus:border-red-500 focus:outline-none focus:ring-2 focus:ring-red-500/20 backdrop-blur-sm transition-all"
               />
+              <button
+                onClick={() => handleSearch(searchQuery)}
+                className="absolute right-2 top-1/2 transform -translate-y-1/2 bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg transition-colors"
+              >
+                Search
+              </button>
             </div>
           </div>
 
@@ -231,6 +276,26 @@ export default function MusicPage() {
 
           {/* Content */}
           <div className="space-y-10">
+            {/* YouTube API Warning */}
+            {activeTab === 'search' && searchResults.length === 0 && searchQuery && !searchLoading && (
+              <div className="bg-gradient-to-r from-yellow-900/20 to-red-900/20 border border-yellow-500/30 rounded-xl p-6 mb-6">
+                <div className="flex items-center gap-4">
+                  <div className="text-yellow-400">
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.728-.833-2.498 0L4.316 15.5c-.77.833.192 2.5 1.732 2.5z" />
+                    </svg>
+                  </div>
+                  <div>
+                    <h3 className="text-yellow-400 font-semibold">YouTube API Not Configured</h3>
+                    <p className="text-yellow-200 text-sm mt-1">
+                      To show real YouTube content, configure the YOUTUBE_API_KEY in your environment. 
+                      <br />See YOUTUBE_API_SETUP.md for instructions.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {activeTab === 'home' && <MusicHome />}
 
             {activeTab === 'dashboard' && <MusicDashboard />}
@@ -244,6 +309,7 @@ export default function MusicPage() {
                 {searchLoading ? (
                   <div className="flex items-center justify-center h-32">
                     <RedLoader />
+                    <span className="ml-4 text-red-300">Searching for "{searchQuery}"...</span>
                   </div>
                 ) : searchResults.length > 0 ? (
                   <TrackList tracks={searchResults} title={`Search Results for "${searchQuery}"`} />
@@ -251,6 +317,7 @@ export default function MusicPage() {
                   <div className="text-center text-red-300 py-16">
                     <Search size={64} className="mx-auto mb-6 opacity-50" />
                     <p className="text-xl">No results found for "{searchQuery}"</p>
+                    <p className="text-sm mt-2 opacity-75">Try searching for different keywords or check your spelling</p>
                   </div>
                 ) : (
                   <MusicSuggestions />

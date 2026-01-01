@@ -100,25 +100,25 @@ export default function EnhancedWidgetManager({ className = '' }: EnhancedWidget
             }}
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
-            className="group relative p-6 bg-white/5 hover:bg-white/10 backdrop-blur-sm border border-white/10 hover:border-red-400/30 rounded-2xl transition-all duration-200 text-left"
+            className="group relative p-6 bg-white/10 hover:bg-white/15 backdrop-blur-sm border border-white/20 hover:border-red-400/40 rounded-2xl transition-all duration-200 text-left"
           >
             {/* Background gradient */}
-            <div className="absolute inset-0 bg-gradient-to-br from-red-500/5 to-red-600/5 rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+            <div className="absolute inset-0 bg-gradient-to-br from-red-500/10 to-red-600/10 rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
             
             <div className="relative">
               {/* Icon */}
-              <div className="w-12 h-12 bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-sm border border-white/10 group-hover:border-red-400/30 rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition-all duration-200">
-                <div className="text-white group-hover:text-red-200 transition-colors">
+              <div className="w-12 h-12 bg-gradient-to-br from-white/15 to-white/10 backdrop-blur-sm border border-white/20 group-hover:border-red-400/40 rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition-all duration-200">
+                <div className="text-white/90 group-hover:text-red-200 transition-colors">
                   {page.icon}
                 </div>
               </div>
               
               {/* Content */}
               <div className="space-y-2">
-                <h3 className="text-lg font-semibold text-white group-hover:text-red-200 transition-colors">
+                <h3 className="text-lg font-semibold text-white/95 group-hover:text-red-200 transition-colors">
                   {page.name}
                 </h3>
-                <p className="text-sm text-white/60 group-hover:text-white/80 transition-colors">
+                <p className="text-sm text-white/75 group-hover:text-white/90 transition-colors">
                   {page.description}
                 </p>
               </div>
@@ -187,8 +187,8 @@ export default function EnhancedWidgetManager({ className = '' }: EnhancedWidget
       </div>
 
       {/* Features Overview */}
-      <div className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-2xl p-6">
-        <h3 className="text-lg font-semibold text-white mb-4">Enhanced Widget System Features</h3>
+      <div className="bg-white/10 backdrop-blur-sm border border-white/20 rounded-2xl p-6">
+        <h3 className="text-lg font-semibold text-white/95 mb-4">Enhanced Widget System Features</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           {[
             {
@@ -213,15 +213,41 @@ export default function EnhancedWidgetManager({ className = '' }: EnhancedWidget
             }
           ].map((feature, index) => (
             <div key={index} className="text-center group">
-              <div className="w-10 h-10 bg-white/10 hover:bg-red-500/20 backdrop-blur-sm border border-white/10 hover:border-red-400/30 rounded-xl flex items-center justify-center mx-auto mb-3 transition-all duration-200">
-                <div className="text-white group-hover:text-red-200 transition-colors">
+              <div className="w-10 h-10 bg-white/15 hover:bg-red-500/20 backdrop-blur-sm border border-white/20 hover:border-red-400/30 rounded-xl flex items-center justify-center mx-auto mb-3 transition-all duration-200">
+                <div className="text-white/90 group-hover:text-red-200 transition-colors">
                   {feature.icon}
                 </div>
               </div>
-              <h4 className="font-medium text-white mb-1">{feature.title}</h4>
-              <p className="text-xs text-white/60">{feature.description}</p>
+              <h4 className="font-medium text-white/95 mb-1">{feature.title}</h4>
+              <p className="text-xs text-white/75">{feature.description}</p>
             </div>
           ))}
+        </div>
+        
+        {/* New Notification Widget Feature */}
+        <div className="mt-6 p-4 bg-gradient-to-r from-red-500/10 to-red-600/10 border border-red-400/20 rounded-xl">
+          <div className="flex items-center gap-3 mb-2">
+            <div className="w-8 h-8 bg-red-500/20 backdrop-blur-sm border border-red-400/30 rounded-lg flex items-center justify-center">
+              <Sparkles className="w-4 h-4 text-red-200" />
+            </div>
+            <h4 className="font-semibold text-red-200">New: Smart Notification Widget</h4>
+          </div>
+          <p className="text-sm text-red-200/80 mb-3">
+            Display real-time notifications for new content, TMDB updates, trending movies, and personalized recommendations with beautiful cinematic presentation.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {[
+              'TMDB Integration',
+              'Auto-scroll',
+              'Trailer Playback',
+              'Smart Curation',
+              'Multiple Types'
+            ].map((tag) => (
+              <span key={tag} className="px-2 py-1 bg-red-500/20 border border-red-400/30 rounded text-xs text-red-200">
+                {tag}
+              </span>
+            ))}
+          </div>
         </div>
       </div>
 

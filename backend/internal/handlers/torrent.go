@@ -1002,7 +1002,7 @@ func (h *TorrentHandler) UpdateConfig(c *gin.Context) {
 		return
 	}
 
-	// Update config
+	// Update all config fields
 	config.JackettURL = req.JackettURL
 	config.JackettAPIKey = req.JackettAPIKey
 	config.DownloadPath = req.DownloadPath
@@ -1010,10 +1010,35 @@ func (h *TorrentHandler) UpdateConfig(c *gin.Context) {
 	config.MaxDownloads = req.MaxDownloads
 	config.AutoDownload = req.AutoDownload
 	config.PreferredQuality = req.PreferredQuality
+	config.EnabledSources = req.EnabledSources
+	config.UseProxy = req.UseProxy
+	config.ProxyURL = req.ProxyURL
+	
+	// Update performance settings
+	config.MaxPeerConnections = req.MaxPeerConnections
+	config.MaxPeerAccepts = req.MaxPeerAccepts
+	config.PortRangeStart = req.PortRangeStart
+	config.PortRangeEnd = req.PortRangeEnd
+	config.MaxOpenFiles = req.MaxOpenFiles
+	
+	// Update speed limit settings
+	config.DownloadSpeedLimit = req.DownloadSpeedLimit
+	config.UploadSpeedLimit = req.UploadSpeedLimit
 
 	if err := h.db.Save(&config).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update config"})
 		return
+	}
+
+	// Apply speed limits to the torrent client
+	// Convert KB/s to bytes/s for the client
+	downloadLimitBytes := config.DownloadSpeedLimit * 1024
+	uploadLimitBytes := config.UploadSpeedLimit * 1024
+	
+	if h.client != nil {
+		h.client.SetSpeedLimits(downloadLimitBytes, uploadLimitBytes)
+		log.Printf("⚡ Applied speed limits to torrent client - Download: %d KB/s, Upload: %d KB/s", 
+			config.DownloadSpeedLimit, config.UploadSpeedLimit)
 	}
 
 	c.JSON(http.StatusOK, config)
@@ -1060,4 +1085,15 @@ func (h *TorrentHandler) TestConnection(c *gin.Context) {
 		"indexers_found": len(results), // This might not be accurate but gives an idea
 		"test_results": len(results),
 	})
+}
+
+// Get bandwidth statistics
+func (h *TorrentHandler) GetBandwidthStats(c *gin.Context) {
+	if h.client == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Torrent client not available"})
+		return
+	}
+
+	stats := h.client.GetBandwidthStats()
+	c.JSON(http.StatusOK, stats)
 }

@@ -164,6 +164,8 @@ func (h *WidgetHandler) CreateWidget(c *gin.Context) {
 		return
 	}
 
+	fmt.Printf("🔧 Creating widget with input: %+v\n", input)
+
 	// Build widget from input
 	widget := models.Widget{
 		Name:    getString(input, "name"),
@@ -173,6 +175,8 @@ func (h *WidgetHandler) CreateWidget(c *gin.Context) {
 		Config:  getString(input, "config"),
 		Layout:  getString(input, "layout", "full"),
 	}
+
+	fmt.Printf("🔧 Widget config string: %s\n", widget.Config)
 
 	// Handle camelCase fields
 	if v, ok := input["contentType"]; ok {
@@ -211,14 +215,18 @@ func (h *WidgetHandler) CreateWidget(c *gin.Context) {
 		widget.Position = int(v.(float64))
 	}
 
+	fmt.Printf("🔧 Final widget before creation: %+v\n", widget)
+
 	if err := h.service.CreateWidget(&widget); err != nil {
+		fmt.Printf("❌ Error creating widget: %v\n", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
 	// Clear cache after widget creation
-	h.ClearWidgetCache("")
+	h.ClearWidgetCache("") // Clear all cache since widget affects page data
 
+	fmt.Printf("✅ Widget created successfully: ID=%d, Name=%s\n", widget.ID, widget.Name)
 	c.JSON(http.StatusCreated, widget)
 }
 
@@ -285,7 +293,7 @@ func (h *WidgetHandler) UpdateWidget(c *gin.Context) {
 	}
 
 	// Clear cache after widget update
-	h.ClearWidgetCache("")
+	h.ClearWidgetCache("") // Clear all cache since widget affects page data
 
 	// Return the updated widget
 	widget, _ := h.service.GetWidgetByID(uint(id))
@@ -490,4 +498,17 @@ func (h *WidgetHandler) GetWidgetStatus(c *gin.Context) {
 		"tv_widgets": len(tvWidgets),
 		"widgets": allWidgets,
 	})
+}
+
+// ClearCache manually clears widget cache for debugging
+func (h *WidgetHandler) ClearCache(c *gin.Context) {
+	page := c.Query("page") // Optional page parameter
+	h.ClearWidgetCache(page)
+	
+	message := "All widget cache cleared"
+	if page != "" {
+		message = fmt.Sprintf("Widget cache cleared for page: %s", page)
+	}
+	
+	c.JSON(http.StatusOK, gin.H{"message": message})
 }

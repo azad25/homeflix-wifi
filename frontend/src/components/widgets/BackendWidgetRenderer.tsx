@@ -20,6 +20,7 @@ import HomeflixGrid from './HomeflixGrid';
 interface BackendWidgetRendererProps {
     page: string;
     className?: string;
+    onRefresh?: () => void; // Callback for when widgets are refreshed
 }
 
 interface WidgetWithData {
@@ -53,6 +54,7 @@ interface MediaItem {
     logo_path?: string;
     tmdb_poster_url?: string;
     tmdb_backdrop_url?: string;
+    tmdb_trailer_url?: string; // ← MISSING FIELD ADDED!
     tmdb_id?: number;
     popularity?: number;
     vote_count?: number;
@@ -88,6 +90,7 @@ const convertToFrontendMedia = (items: MediaItem[]) => {
         logo_path: item.logo_path,
         tmdb_poster_url: item.tmdb_poster_url,
         tmdb_backdrop_url: item.tmdb_backdrop_url,
+        tmdb_trailer_url: item.tmdb_trailer_url, // ← MISSING FIELD ADDED!
         tmdb_id: item.tmdb_id,
         popularity: item.popularity || 0,
         vote_count: item.vote_count || 0,
@@ -121,6 +124,7 @@ const parseConfig = (configStr: string) => {
 export default function BackendWidgetRenderer({
     page,
     className = '',
+    onRefresh,
 }: BackendWidgetRendererProps) {
     const [widgets, setWidgets] = useState<WidgetWithData[]>([]);
     const [loading, setLoading] = useState(true);
@@ -130,7 +134,9 @@ export default function BackendWidgetRenderer({
     useEffect(() => {
         const fetchWidgets = async () => {
             const apiUrl = getApiUrl();
-            const url = `${apiUrl}/api/widgets/page/${page}/with-data`;
+            // Add timestamp to bust cache when needed
+            const timestamp = Date.now();
+            const url = `${apiUrl}/api/widgets/page/${page}/with-data?t=${timestamp}`;
             
             console.log('BackendWidgetRenderer: Fetching widgets from:', url);
             
@@ -143,8 +149,8 @@ export default function BackendWidgetRenderer({
                         'Content-Type': 'application/json',
                         'X-User-ID': '1',
                     },
-                    // Add caching for better performance
-                    cache: 'default',
+                    // Use no-cache for fresh data
+                    cache: 'no-cache',
                 });
                 
                 console.log('BackendWidgetRenderer: Response status:', response.status);
@@ -157,8 +163,19 @@ export default function BackendWidgetRenderer({
                 console.log('BackendWidgetRenderer: Received', Array.isArray(data) ? data.length : 0, 'widgets');
                 
                 if (Array.isArray(data)) {
-                    console.log('BackendWidgetRenderer: Received widgets:', data.map(w => ({ id: w.id, name: w.name, type: w.type })));
+                    console.log('BackendWidgetRenderer: Received widgets:', data.map(w => ({ 
+                        id: w.id, 
+                        name: w.name, 
+                        type: w.type, 
+                        data_source: w.data_source,
+                        data_count: w.data?.length || 0 
+                    })));
                     setWidgets(data);
+                    
+                    // Call refresh callback if provided
+                    if (onRefresh) {
+                        onRefresh();
+                    }
                 } else {
                     console.warn('BackendWidgetRenderer: Data is not an array:', data);
                     setWidgets([]);
@@ -185,6 +202,7 @@ export default function BackendWidgetRenderer({
 
             console.log(`Rendering widget ${widgetWithData.name}:`, {
                 type: widgetWithData.type,
+                dataSource: widgetWithData.data_source,
                 dataCount: media.length,
                 config: config,
                 hasSelectedContent: config.selectedContent && config.selectedContent.length > 0,
@@ -203,8 +221,11 @@ export default function BackendWidgetRenderer({
                 'continue-watching'
             ].includes(widgetWithData.type);
 
-            // Skip if no data and not a special widget type
-            if (media.length === 0 && !shouldRenderWithoutData) {
+            // For widgets with "recent" data source, always try to render
+            const isRecentDataSource = widgetWithData.data_source === 'recent';
+
+            // Skip if no data and not a special widget type or recent data source
+            if (media.length === 0 && !shouldRenderWithoutData && !isRecentDataSource) {
                 console.log(`Skipping widget ${widgetWithData.name} - no data and not a special type`);
                 return null;
             }
@@ -367,7 +388,7 @@ export default function BackendWidgetRenderer({
                         <NotificationWidget
                             key={widgetWithData.id}
                             widget={notificationWidget}
-                            className="w-full"
+                            className="w-full h-full"
                         />
                     );
 
@@ -474,7 +495,7 @@ export default function BackendWidgetRenderer({
 
     return (
         <div className={`w-full ${className}`}>
-            <div className="w-full space-y-8">
+            <div className="w-full space-y-8 mb-12">
                 {renderedWidgets}
             </div>
             <WidgetPerformanceMonitor

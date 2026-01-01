@@ -139,9 +139,11 @@ const nextConfig = {
   },
 
   env: {
-    NEXT_PUBLIC_API_URL: process.env.NODE_ENV === 'production' 
-      ? 'http://172.20.0.1:8252' 
-      : 'http://localhost:8252',
+    NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || (
+      process.env.NODE_ENV === 'production' 
+        ? 'http://172.20.0.1:8252' 
+        : 'http://localhost:8252'
+    ),
   },
 };
 

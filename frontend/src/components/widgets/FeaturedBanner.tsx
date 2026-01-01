@@ -35,8 +35,42 @@ export default function FeaturedBanner({
     const [imageLoaded, setImageLoaded] = useState(false);
     const autoScrollRef = useRef<NodeJS.Timeout | null>(null);
 
+    const [tmdbLogos, setTmdbLogos] = useState<Record<number, string>>({});
+
     const currentMedia = media[currentIndex];
     const apiUrl = getApiUrl();
+
+    // Fetch TMDB logo if needed
+    useEffect(() => {
+        const fetchTMDBLogo = async (tmdbId: number) => {
+            if (tmdbLogos[tmdbId]) return; // Already fetched
+            
+            try {
+                const response = await fetch(`${apiUrl}/api/tmdb/movie/${tmdbId}/images`);
+                if (response.ok) {
+                    const imagesData = await response.json();
+                    const logo = imagesData.logos?.find((logo: any) => 
+                        logo.iso_639_1 === 'en' || logo.iso_639_1 === null
+                    );
+                    if (logo) {
+                        setTmdbLogos(prev => ({
+                            ...prev,
+                            [tmdbId]: `https://image.tmdb.org/t/p/w500${logo.file_path}`
+                        }));
+                    }
+                }
+            } catch (error) {
+                console.log('Failed to fetch TMDB logo for', tmdbId);
+            }
+        };
+
+        // Fetch logos for TMDB content that doesn't have logo_path
+        media.forEach(m => {
+            if (m.tmdb_id && !m.logo_path) {
+                fetchTMDBLogo(m.tmdb_id);
+            }
+        });
+    }, [media, apiUrl, tmdbLogos]);
 
     // Update colors based on current media's genre
     useEffect(() => {
@@ -126,6 +160,19 @@ export default function FeaturedBanner({
     };
 
     const getLogoUrl = (m: Media) => {
+        // For TMDB content, check if we have TMDB logo data
+        if (m.tmdb_id) {
+            // First check if we fetched a logo from TMDB images API
+            if (tmdbLogos[m.tmdb_id]) {
+                return tmdbLogos[m.tmdb_id];
+            }
+            // If logo_path exists and starts with '/', it's a TMDB logo path
+            if (m.logo_path && m.logo_path.startsWith('/')) {
+                return `https://image.tmdb.org/t/p/w500${m.logo_path}`;
+            }
+        }
+        
+        // Handle local logo paths
         if (m.logo_path) {
             // Check if logo_path is already a full URL (TMDB logo)
             if (m.logo_path.startsWith('http')) {
@@ -176,7 +223,7 @@ export default function FeaturedBanner({
                 style={{ background: colors.background }}
             />
 
-            {/* Backdrop image */}
+            {/* Backdrop image - positioned on the right 70% */}
             <AnimatePresence mode="wait">
                 <motion.div
                     key={currentIndex}
@@ -184,7 +231,7 @@ export default function FeaturedBanner({
                     animate={{ opacity: imageLoaded ? 1 : 0, scale: 1 }}
                     exit={{ opacity: 0 }}
                     transition={{ duration: 0.8 }}
-                    className="absolute inset-0"
+                    className="absolute top-0 right-0 w-[70%] h-full"
                 >
                     <img
                         src={getBackdropUrl(currentMedia)}
@@ -199,9 +246,9 @@ export default function FeaturedBanner({
                 </motion.div>
             </AnimatePresence>
 
-            {/* Gradient overlays */}
-            <div className="absolute inset-0 bg-gradient-to-r from-black/90 via-black/50 to-transparent" />
-            <div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-transparent" />
+            {/* Black overlay that fades into the image */}
+            <div className="absolute inset-0 bg-gradient-to-r from-black via-black/80 to-transparent" />
+            <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
             <div
                 className="absolute bottom-0 left-0 right-0 h-48"
                 style={{
@@ -209,10 +256,10 @@ export default function FeaturedBanner({
                 }}
             />
 
-            {/* Content */}
+            {/* Content - positioned on the left side */}
             <div className="absolute inset-0 flex items-center z-10">
-                <div className="w-full px-4 md:px-12 lg:px-16">
-                    <div className="max-w-2xl">
+                <div className="w-[50%] px-4 md:px-12 lg:px-16">
+                    <div className="max-w-full">
                         {/* Logo as Title with Title as Fallback */}
                         <AnimatePresence mode="wait">
                             <motion.div
@@ -253,10 +300,12 @@ export default function FeaturedBanner({
                         transition={{ delay: 0.4 }}
                         className="flex items-center gap-4 mb-4 text-sm md:text-base"
                     >
-                        {showRating && currentMedia.rating && currentMedia.rating > 0 && (
+                        {showRating && (
                             <div className="flex items-center gap-1">
                                 <Star className="w-5 h-5 fill-yellow-400 text-yellow-400" />
-                                <span className="font-semibold">{currentMedia.rating.toFixed(1)}</span>
+                                <span className="font-semibold">
+                                    {currentMedia.rating && currentMedia.rating > 0 ? currentMedia.rating.toFixed(1) : ''}
+                                </span>
                             </div>
                         )}
                         {currentMedia.year && (

@@ -41,10 +41,43 @@ export default function BackdropSlideshow({
     const [isInMyList, setIsInMyList] = useState<Record<number, boolean>>({});
     const [isMuted, setIsMuted] = useState(true);
     const [showTrailer, setShowTrailer] = useState(false);
+    const [tmdbLogos, setTmdbLogos] = useState<Record<number, string>>({});
     const autoScrollRef = useRef<NodeJS.Timeout | null>(null);
 
     const apiUrl = getApiUrl();
     const currentMedia = media[currentIndex];
+
+    // Fetch TMDB logo if needed
+    useEffect(() => {
+        const fetchTMDBLogo = async (tmdbId: number) => {
+            if (tmdbLogos[tmdbId]) return; // Already fetched
+            
+            try {
+                const response = await fetch(`${apiUrl}/api/tmdb/movie/${tmdbId}/images`);
+                if (response.ok) {
+                    const imagesData = await response.json();
+                    const logo = imagesData.logos?.find((logo: any) => 
+                        logo.iso_639_1 === 'en' || logo.iso_639_1 === null
+                    );
+                    if (logo) {
+                        setTmdbLogos(prev => ({
+                            ...prev,
+                            [tmdbId]: `https://image.tmdb.org/t/p/w500${logo.file_path}`
+                        }));
+                    }
+                }
+            } catch (error) {
+                console.log('Failed to fetch TMDB logo for', tmdbId);
+            }
+        };
+
+        // Fetch logos for TMDB content that doesn't have logo_path
+        media.forEach(m => {
+            if (m.tmdb_id && !m.logo_path) {
+                fetchTMDBLogo(m.tmdb_id);
+            }
+        });
+    }, [media, apiUrl, tmdbLogos]);
 
     useEffect(() => {
         if (currentMedia) {
@@ -131,13 +164,19 @@ export default function BackdropSlideshow({
     };
 
     const getLogoUrl = (m: Media) => {
-        // Priority: TMDB logo > local logo
+        // For TMDB content, check if we have TMDB logo data
         if (m.tmdb_id) {
-            // For TMDB content, we'll fetch the logo from TMDB images API
-            // This would need to be implemented as a separate API call
-            // For now, fall back to local logo handling
+            // First check if we fetched a logo from TMDB images API
+            if (tmdbLogos[m.tmdb_id]) {
+                return tmdbLogos[m.tmdb_id];
+            }
+            // If logo_path exists and starts with '/', it's a TMDB logo path
+            if (m.logo_path && m.logo_path.startsWith('/')) {
+                return `https://image.tmdb.org/t/p/w500${m.logo_path}`;
+            }
         }
         
+        // Handle local logo paths
         if (m.logo_path) {
             // Check if logo_path is already a full URL (TMDB logo)
             if (m.logo_path.startsWith('http')) {
@@ -209,7 +248,7 @@ export default function BackdropSlideshow({
                 <div className="px-3 py-1 bg-black/80 backdrop-blur-sm rounded-lg border border-white/20">
                     <span className="text-white text-sm font-bold">4K</span>
                 </div>
-                {currentMedia.rating && currentMedia.rating > 0 && (
+                {currentMedia.rating ? (
                     <div 
                         className="flex items-center gap-2 px-3 py-1 rounded-full backdrop-blur-md border"
                         style={{
@@ -219,10 +258,10 @@ export default function BackdropSlideshow({
                     >
                         <Star className="w-4 h-4 text-yellow-400 fill-current" />
                         <span className="text-white text-sm font-semibold">
-                            {currentMedia.rating.toFixed(1)}
+                            {currentMedia.rating > 0 ? currentMedia.rating.toFixed(1) : ''}
                         </span>
                     </div>
-                )}
+                ) : null}
             </div>
 
             {/* Audio Controls */}

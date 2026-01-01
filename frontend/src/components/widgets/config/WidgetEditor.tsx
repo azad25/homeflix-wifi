@@ -11,7 +11,15 @@ interface WidgetEditorProps {
   onCancel: () => void;
   onOpenContentSelector: () => void;
   selectedContent: any[];
-  selectedGenres: number[]; 
+  selectedGenres: number[];
+  genres: Genre[];
+  onGenreToggle: (genreId: number) => void;
+  onContentToggle: (content: any) => void;
+}
+
+interface Genre {
+  id: number;
+  name: string;
 }
 
 const widgetTypes: { value: WidgetType; label: string; description: string; icon: string }[] = [
@@ -68,7 +76,10 @@ export default function WidgetEditor({
   onCancel,
   onOpenContentSelector,
   selectedContent,
-  selectedGenres
+  selectedGenres,
+  genres,
+  onGenreToggle,
+  onContentToggle
 }: WidgetEditorProps) {
   const [formData, setFormData] = useState(widget);
   const [config, setConfig] = useState(() => {
@@ -89,11 +100,29 @@ export default function WidgetEditor({
   }, [widget]);
 
   const handleSave = () => {
-    const updatedConfig = {
+    const updatedConfig: any = {
       ...config,
       selectedContent,
       selectedGenres
     };
+
+    // Add genreFilter for backend compatibility
+    if (selectedGenres.length > 0) {
+      const genreMap: { [key: number]: string } = {
+        28: "Action", 12: "Adventure", 16: "Animation", 35: "Comedy", 
+        80: "Crime", 99: "Documentary", 18: "Drama", 10751: "Family",
+        14: "Fantasy", 36: "History", 27: "Horror", 10402: "Music",
+        9648: "Mystery", 10749: "Romance", 878: "Science Fiction",
+        10770: "TV Movie", 53: "Thriller", 10752: "War", 37: "Western",
+        // TV genres
+        10759: "Action & Adventure", 10762: "Kids", 10763: "News",
+        10764: "Reality", 10765: "Sci-Fi & Fantasy", 10766: "Soap",
+        10767: "Talk", 10768: "War & Politics"
+      };
+      
+      const genreNames = selectedGenres.map(id => genreMap[id] || '').filter(name => name);
+      updatedConfig.genreFilter = genreNames;
+    }
 
     onSave({
       ...formData,
@@ -285,6 +314,35 @@ export default function WidgetEditor({
                 <h4 className="text-lg font-semibold text-white">Content & Genres</h4>
               </div>
 
+              {/* Genre Selection */}
+              {(formData.type === 'genre-based' || formData.dataSource === 'local' || formData.dataSource === 'tmdb') && (
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-white/80 mb-3">Select Genres</label>
+                    <div className="flex flex-wrap gap-2 max-h-40 overflow-y-auto p-4 bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl">
+                      {genres.map((genre) => (
+                        <button
+                          key={genre.id}
+                          onClick={() => onGenreToggle(genre.id)}
+                          className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                            selectedGenres.includes(genre.id)
+                              ? 'bg-blue-600 text-white'
+                              : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                          }`}
+                        >
+                          {genre.name}
+                        </button>
+                      ))}
+                    </div>
+                    {selectedGenres.length > 0 && (
+                      <div className="mt-2 text-sm text-white/60">
+                        Selected: {selectedGenres.map(id => genres.find(g => g.id === id)?.name).filter(Boolean).join(', ')}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
               <button
                 onClick={onOpenContentSelector}
                 className="w-full p-4 bg-gradient-to-r from-red-500/20 to-red-600/20 hover:from-red-500/30 hover:to-red-600/30 backdrop-blur-sm border border-red-400/30 rounded-xl transition-all duration-200 hover:scale-105"
@@ -293,11 +351,11 @@ export default function WidgetEditor({
                   <div className="flex items-center gap-3">
                     <Search className="w-5 h-5 text-red-200" />
                     <div className="text-left">
-                      <div className="font-medium text-white">Select Content & Genres</div>
+                      <div className="font-medium text-white">Advanced Content Selection</div>
                       <div className="text-sm text-white/60">
                         {selectedContent.length > 0 || selectedGenres.length > 0
                           ? `${selectedContent.length} items, ${selectedGenres.length} genres selected`
-                          : 'Choose specific content and filter by genres'
+                          : 'Search and select specific content'
                         }
                       </div>
                     </div>
