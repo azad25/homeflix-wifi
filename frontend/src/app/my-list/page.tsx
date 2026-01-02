@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { usePageTitle } from '@/hooks/usePageTitle';
-import { Play, Info, Trash2, Heart, Film, Tv, Download, CheckCircle, Pause, AlertCircle } from 'lucide-react';
+import { Play, Info, Trash2, Heart, Film, Tv, Download, CheckCircle, Pause, AlertCircle, FolderOpen, Plus, Grid3X3 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import Navbar from "@/components/Navbar";
@@ -17,6 +17,7 @@ import { Button } from '@/components/ui/button';
 import { removeFromWishlist, fetchWishlistMedia } from '@/lib/wishlist';
 import { useNavigate } from "@/hooks/useNavigate";
 import { WidgetRenderer } from '@/components/widgets';
+import { useMyList } from '@/hooks/useMyList';
 
 interface DownloadInfo {
   id: string;
@@ -42,7 +43,30 @@ interface DownloadingMedia extends Media {
   downloadInfo: DownloadInfo;
 }
 
-type TabType = 'watchlist' | 'downloads';
+interface Collection {
+  id: number;
+  name: string;
+  description: string;
+  user_id: number;
+  is_public: boolean;
+  cover_image: string;
+  tags: string;
+  item_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+interface CollectionItem {
+  id: number;
+  collection_id: number;
+  media_id: number;
+  position: number;
+  notes: string;
+  added_at: string;
+  media: Media;
+}
+
+type TabType = 'watchlist' | 'downloads' | 'collections';
 
 export default function MyListPage() {
   usePageTitle('My List');
@@ -58,9 +82,17 @@ export default function MyListPage() {
   const [isPlayerOpen, setIsPlayerOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [downloadingMedia, setDownloadingMedia] = useState<DownloadingMedia[]>([]);
+  const [userCollections, setUserCollections] = useState<Collection[]>([]);
+  const [selectedCollection, setSelectedCollection] = useState<Collection | null>(null);
+  const [collectionItems, setCollectionItems] = useState<CollectionItem[]>([]);
+  const [collectionsLoading, setCollectionsLoading] = useState(false);
+
+  // Use the My List hook for collections
+  const { collections, fetchCollections } = useMyList();
 
   useEffect(() => {
     fetchWatchlist();
+    fetchUserCollections();
   }, []);
 
   // Fetch downloads when watchlist changes
@@ -98,10 +130,57 @@ export default function MyListPage() {
     }
   };
 
+  const fetchUserCollections = async () => {
+    try {
+      const apiUrl = getApiUrl();
+      const response = await fetch(`${apiUrl}/api/collections`, {
+        headers: {
+          'X-User-ID': '1'
+        }
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setUserCollections(data || []);
+      } else {
+        console.error("Failed to fetch collections");
+        setUserCollections([]);
+      }
+    } catch (error) {
+      console.error("Error fetching collections:", error);
+      setUserCollections([]);
+    }
+  };
+
+  const fetchCollectionItems = async (collectionId: number) => {
+    try {
+      setCollectionsLoading(true);
+      const apiUrl = getApiUrl();
+      const response = await fetch(`${apiUrl}/api/collections/${collectionId}/items`, {
+        headers: {
+          'X-User-ID': '1'
+        }
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setCollectionItems(data || []);
+      } else {
+        console.error("Failed to fetch collection items");
+        setCollectionItems([]);
+      }
+    } catch (error) {
+      console.error("Error fetching collection items:", error);
+      setCollectionItems([]);
+    } finally {
+      setCollectionsLoading(false);
+    }
+  };
+
   const fetchDownloads = async () => {
     try {
       const apiUrl = getApiUrl();
-      const response = await fetch(`${apiUrl}/api/torrent/downloads?limit=100`);
+      const response = await fetch(`${apiUrl}/api/torrents/downloads?limit=100`);
       if (response.ok) {
         const data = await response.json();
         const downloads = data.downloads || [];
@@ -389,6 +468,20 @@ export default function MyListPage() {
                 {downloadingMedia.length}
               </span>
             )}
+          </button>
+          <button
+            onClick={() => setActiveTab('collections')}
+            className={`flex items-center gap-2 px-6 py-3 text-sm font-medium transition-all border-b-2 -mb-[2px] ${
+              activeTab === 'collections'
+                ? 'text-white border-red-500'
+                : 'text-gray-400 border-transparent hover:text-white'
+            }`}
+          >
+            <FolderOpen className="w-4 h-4" />
+            Collections
+            <span className="ml-1 bg-gray-700 text-gray-300 px-2 py-0.5 rounded-full text-xs">
+              {userCollections.length}
+            </span>
           </button>
         </div>
 

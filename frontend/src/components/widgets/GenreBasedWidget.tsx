@@ -90,6 +90,24 @@ export default function GenreBasedWidget({
         });
     };
 
+    const handleCardClick = (item: Media) => {
+        // Check if it's TMDB content (has tmdb_id) or local content
+        if (item.tmdb_id) {
+            // Navigate to TMDB movie page with proper media type detection
+            const mediaType = item.type === 'tv' || item.type === 'series' || item.type === 'episode' ? 'tv' : 'movie';
+            navigate.push(`/tmdb-movie/${item.tmdb_id}?type=${mediaType}`);
+        } else {
+            // Navigate to local content pages
+            if (item.type === 'episode' || item.type === 'tv' || item.type === 'series') {
+                const seriesId = item.series_id || item.id;
+                navigate.push(`/tv-series/${seriesId}`);
+            } else {
+                // Local movie - navigate to local movie page
+                navigate.push(`/movie/${item.id}`);
+            }
+        }
+    };
+
     if (!displayMedia.length) return null;
 
     return (
@@ -179,7 +197,7 @@ export default function GenreBasedWidget({
                             className="flex-shrink-0 relative group cursor-pointer"
                             onMouseEnter={() => setHoveredId(item.id)}
                             onMouseLeave={() => setHoveredId(null)}
-                            onClick={() => navigate.push(`/movie/${item.id}`)}
+                            onClick={() => handleCardClick(item)}
                             whileHover={{ scale: 1.05, y: -5 }}
                             transition={{ duration: 0.2 }}
                             style={{ width: '160px' }}
@@ -241,11 +259,11 @@ export default function GenreBasedWidget({
                                                     style={{ backgroundColor: colors.primary }}
                                                     onClick={(e) => {
                                                         e.stopPropagation();
-                                                        navigate.push(`/movie/${item.id}`);
+                                                        handleCardClick(item);
                                                     }}
                                                 >
                                                     <Play className="w-3 h-3 fill-current" />
-                                                    Play
+                                                    {item.tmdb_id ? 'View' : 'Play'}
                                                 </button>
                                                 <button
                                                     onClick={(e) => toggleMyList(e, item.id)}

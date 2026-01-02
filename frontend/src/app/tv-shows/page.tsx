@@ -12,7 +12,6 @@ import RecentlyWatchedTVShows from '@/components/RecentlyWatchedTVShows';
 
 import { Media } from '@/types/media';
 import { ScrollXHero, ParallaxSection, ScrollReveal } from '@/components/scrollx';
-import { WidgetRenderer } from '@/components/widgets';
 import BackendWidgetRenderer from '@/components/widgets/BackendWidgetRenderer';
 
 

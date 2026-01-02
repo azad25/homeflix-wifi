@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Play, Info, Plus, Check, ChevronLeft, ChevronRight, Star, Calendar } from 'lucide-react';
+import { Play, Info, Plus, Check, ChevronLeft, ChevronRight, Star, Calendar, Clock, Flame, Zap, Crown, Heart, Sparkles, Award, TrendingUp, Eye, ThumbsUp, Gift, Rocket, Target, Shield, Diamond } from 'lucide-react';
 import { Media } from '@/types/media';
 import { getApiUrl, preloadAssets } from '@/lib/api';
 import { getColorPaletteByGenre, DominantColors } from '@/types/widgets';
@@ -16,6 +16,7 @@ interface FeaturedBannerProps {
     showDescription?: boolean;
     showRating?: boolean;
     className?: string;
+    config?: any; // Add config prop for tags and headings
 }
 
 export default function FeaturedBanner({
@@ -26,6 +27,7 @@ export default function FeaturedBanner({
     showDescription = true,
     showRating = true,
     className = '',
+    config = {},
 }: FeaturedBannerProps) {
     const navigate = useNavigate();
     const [currentIndex, setCurrentIndex] = useState(0);
@@ -119,11 +121,12 @@ export default function FeaturedBanner({
                 const mediaType = currentMedia.type === 'tv' || currentMedia.type === 'series' || currentMedia.type === 'episode' ? 'tv' : 'movie';
                 navigate.push(`/tmdb-movie/${currentMedia.tmdb_id}?type=${mediaType}`);
             } else {
-                // Navigate to local movie page
+                // Navigate to local content pages
                 if (currentMedia.type === 'episode' || currentMedia.type === 'tv' || currentMedia.type === 'series') {
                     const seriesId = currentMedia.series_id || currentMedia.id;
                     navigate.push(`/tv-series/${seriesId}`);
                 } else {
+                    // Local movie - navigate to local movie page
                     navigate.push(`/movie/${currentMedia.id}`);
                 }
             }
@@ -138,11 +141,12 @@ export default function FeaturedBanner({
                 const mediaType = currentMedia.type === 'tv' || currentMedia.type === 'series' || currentMedia.type === 'episode' ? 'tv' : 'movie';
                 navigate.push(`/tmdb-movie/${currentMedia.tmdb_id}?type=${mediaType}`);
             } else {
-                // Navigate to local movie page
+                // Navigate to local content pages
                 if (currentMedia.type === 'episode' || currentMedia.type === 'tv' || currentMedia.type === 'series') {
                     const seriesId = currentMedia.series_id || currentMedia.id;
                     navigate.push(`/tv-series/${seriesId}`);
                 } else {
+                    // Local movie - navigate to local movie page
                     navigate.push(`/movie/${currentMedia.id}`);
                 }
             }
@@ -211,12 +215,73 @@ export default function FeaturedBanner({
         );
     }
 
+    // Icon mapping for tags
+    const getTagIcon = (iconName: string) => {
+        const iconMap: { [key: string]: React.ComponentType<any> } = {
+            'Star': Star,
+            'Fire': Flame,
+            'Lightning': Zap,
+            'Crown': Crown,
+            'Heart': Heart,
+            'Sparkles': Sparkles,
+            'Award': Award,
+            'Trending': TrendingUp,
+            'Clock': Clock,
+            'Calendar': Calendar,
+            'Play': Play,
+            'Eye': Eye,
+            'Thumbs Up': ThumbsUp,
+            'Gift': Gift,
+            'Rocket': Rocket,
+            'Target': Target,
+            'Shield': Shield,
+            'Diamond': Diamond
+        };
+        return iconMap[iconName] || Sparkles; // Default to Sparkles if icon not found
+    };
+
+    const TagIcon = getTagIcon(config.tagIcon || 'Sparkles');
+
     return (
         <div
             className={`relative w-full h-full overflow-hidden rounded-xl ${className}`}
             onMouseEnter={() => setIsHovering(true)}
             onMouseLeave={() => setIsHovering(false)}
         >
+            {/* Custom Tag/Heading */}
+            {config.showTag && config.tagText && (
+                <div className="absolute top-6 left-6 z-30">
+                    <div 
+                        className="flex items-center gap-2 px-4 py-2 rounded-full backdrop-blur-md border font-semibold text-sm shadow-lg"
+                        style={{
+                            backgroundColor: config.tagColor || `${colors.primary}30`,
+                            borderColor: config.tagColor ? `${config.tagColor}60` : `${colors.primary}50`,
+                            color: 'white',
+                            boxShadow: `0 0 20px ${config.tagColor || colors.primary}40, 0 4px 12px rgba(0,0,0,0.3)`,
+                            textShadow: '0 1px 2px rgba(0,0,0,0.8)'
+                        }}
+                    >
+                        <TagIcon className="w-4 h-4 drop-shadow-sm" />
+                        <span className="uppercase tracking-wider font-bold text-xs">
+                            {config.tagText}
+                        </span>
+                    </div>
+                </div>
+            )}
+
+            {config.showHeading && config.headingText && (
+                <div className="absolute top-6 left-6 z-30" style={{ marginTop: config.showTag && config.tagText ? '60px' : '0' }}>
+                    <h3 
+                        className="text-2xl md:text-3xl font-bold text-white"
+                        style={{
+                            textShadow: `0 0 20px ${colors.primary}60, 0 2px 10px rgba(0,0,0,0.8)`
+                        }}
+                    >
+                        {config.headingText}
+                    </h3>
+                </div>
+            )}
+
             {/* Dynamic gradient background based on genre colors */}
             <div
                 className="absolute inset-0 transition-all duration-1000"

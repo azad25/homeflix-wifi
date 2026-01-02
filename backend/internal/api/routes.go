@@ -54,7 +54,7 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		mediaPathsHandler := torrentHandlers.NewMediaPathsHandler(db, mediaScanner)
 
 		// Initialize widget service and handler
-		widgetService := services.NewWidgetService(db, mediaService, tmdbService, notificationService)
+		widgetService := services.NewWidgetService(db, mediaService, tmdbService, notificationService, playbackService)
 		widgetService.InitializeWidgets() // Run migration and seeding
 		widgetHandler := handlers.NewWidgetHandler(widgetService, mediaService, tmdbService)
 

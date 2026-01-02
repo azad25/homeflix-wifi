@@ -97,16 +97,39 @@ export default function RecentlyWatchedWidget({
     if (onPlay) {
       onPlay(item.media, item.progress_seconds);
     } else {
-      navigate.push(`/movie/${item.media.id}`);
+      // Check if it's TMDB content (has tmdb_id) or local content
+      if (item.media.tmdb_id) {
+        // Navigate to TMDB movie page with proper media type detection
+        const mediaType = item.media.type === 'tv' || item.media.type === 'series' || item.media.type === 'episode' ? 'tv' : 'movie';
+        navigate.push(`/tmdb-movie/${item.media.tmdb_id}?type=${mediaType}`);
+      } else {
+        // Navigate to local content pages
+        if (item.media.type === 'episode' || item.media.type === 'tv' || item.media.type === 'series') {
+          const seriesId = item.media.series_id || item.media.id;
+          navigate.push(`/tv-series/${seriesId}`);
+        } else {
+          // Local movie - navigate to local movie page
+          navigate.push(`/movie/${item.media.id}`);
+        }
+      }
     }
   };
 
   const handleInfo = (media: Media) => {
-    if (media.type === 'episode' || media.type === 'tv' || media.type === 'series') {
-      const seriesId = media.series_id || media.id;
-      navigate.push(`/tv-series/${seriesId}`);
+    // Check if it's TMDB content (has tmdb_id) or local content
+    if (media.tmdb_id) {
+      // Navigate to TMDB movie page with proper media type detection
+      const mediaType = media.type === 'tv' || media.type === 'series' || media.type === 'episode' ? 'tv' : 'movie';
+      navigate.push(`/tmdb-movie/${media.tmdb_id}?type=${mediaType}`);
     } else {
-      navigate.push(`/movie/${media.id}`);
+      // Navigate to local content pages
+      if (media.type === 'episode' || media.type === 'tv' || media.type === 'series') {
+        const seriesId = media.series_id || media.id;
+        navigate.push(`/tv-series/${seriesId}`);
+      } else {
+        // Local movie - navigate to local movie page
+        navigate.push(`/movie/${media.id}`);
+      }
     }
   };
 

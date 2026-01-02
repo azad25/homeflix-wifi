@@ -20,15 +20,17 @@ type WidgetService struct {
 	mediaService        *MediaService
 	tmdbService         *TMDBService
 	notificationService *NotificationService
+	playbackService     *PlaybackService
 }
 
 // NewWidgetService creates a new widget service instance
-func NewWidgetService(db *gorm.DB, mediaService *MediaService, tmdbService *TMDBService, notificationService *NotificationService) *WidgetService {
+func NewWidgetService(db *gorm.DB, mediaService *MediaService, tmdbService *TMDBService, notificationService *NotificationService, playbackService *PlaybackService) *WidgetService {
 	return &WidgetService{
 		db:                  db,
 		mediaService:        mediaService,
 		tmdbService:         tmdbService,
 		notificationService: notificationService,
+		playbackService:     playbackService,
 	}
 }
 
@@ -329,6 +331,7 @@ func (s *WidgetService) GetWidgetDataSources() []map[string]string {
 		{"source": models.WidgetDataSourceTrending, "name": "Trending", "description": "Trending content"},
 		{"source": models.WidgetDataSourcePopular, "name": "Popular", "description": "Popular content"},
 		{"source": models.WidgetDataSourceRecent, "name": "Recent", "description": "Recently added content"},
+		{"source": models.WidgetDataSourceRecentlyPlayed, "name": "Recently Played", "description": "Continue watching / recently played content"},
 		{"source": models.WidgetDataSourceNowPlaying, "name": "Now Playing", "description": "Currently in theaters"},
 		{"source": models.WidgetDataSourceUpcoming, "name": "Upcoming", "description": "Coming soon releases"},
 		{"source": models.WidgetDataSourceTopRated, "name": "Top Rated", "description": "Highest rated content"},
@@ -414,7 +417,7 @@ func (s *WidgetService) prefetchWidgetData(widgets []models.Widget) *DataCache {
 	
 	for _, widget := range widgets {
 		switch widget.DataSource {
-		case models.WidgetDataSourceLocal, models.WidgetDataSourceRecent:
+		case models.WidgetDataSourceLocal, models.WidgetDataSourceRecent, models.WidgetDataSourceRecentlyPlayed:
 			needsLocal = true
 		case models.WidgetDataSourceTMDB, models.WidgetDataSourceTrending, 
 			 models.WidgetDataSourcePopular, models.WidgetDataSourceNowPlaying, 
@@ -579,6 +582,33 @@ func (s *WidgetService) getWidgetDataFromCache(widget models.Widget, cache *Data
 		return []models.MediaItem{}
 	}
 
+	// For trailer widgets, bypass cache and use direct data fetching to ensure trailer URLs are populated
+	if widget.Type == models.WidgetTypeTrailer {
+		fmt.Printf("🎬 Trailer widget %s: bypassing cache for real-time trailer URL enrichment\n", widget.Name)
+		
+		config, err := s.GetWidgetConfig(&widget)
+		if err != nil {
+			fmt.Printf("⚠️ Error parsing widget config for %s: %v\n", widget.Name, err)
+			config = &models.WidgetConfig{}
+		}
+
+		// Use direct data fetching instead of cache
+		if widget.DataSource == models.WidgetDataSourceLocal || 
+		   widget.DataSource == models.WidgetDataSourceRecent || 
+		   widget.DataSource == models.WidgetDataSourceRecentlyPlayed {
+			if data, err := s.getLocalMediaData(&widget, config); err == nil {
+				return data
+			}
+		} else {
+			if data, err := s.getTMDBData(&widget, config); err == nil {
+				return data
+			}
+		}
+		
+		// Fallback to empty if direct fetching fails
+		return []models.MediaItem{}
+	}
+
 	config, err := s.GetWidgetConfig(&widget)
 	if err != nil {
 		fmt.Printf("⚠️ Error parsing widget config for %s: %v\n", widget.Name, err)
@@ -597,7 +627,7 @@ func (s *WidgetService) getWidgetDataFromCache(widget models.Widget, cache *Data
 
 	// Get data from cache based on data source
 	switch widget.DataSource {
-	case models.WidgetDataSourceLocal, models.WidgetDataSourceRecent:
+	case models.WidgetDataSourceLocal, models.WidgetDataSourceRecent, models.WidgetDataSourceRecentlyPlayed:
 		fmt.Printf("🔧 Widget %s using local data source: %s\n", widget.Name, widget.DataSource)
 		sourceData = s.getLocalDataFromCache(widget, cache)
 	case models.WidgetDataSourceTMDB, models.WidgetDataSourceTrending, 
@@ -631,6 +661,58 @@ func (s *WidgetService) getLocalDataFromCache(widget models.Widget, cache *DataC
 	fmt.Printf("🔧 Getting local data for widget %s (content_type: %s, data_source: %s)\n", 
 		widget.Name, widget.ContentType, widget.DataSource)
 
+	// Handle recently-played data source specially
+	if widget.DataSource == models.WidgetDataSourceRecentlyPlayed {
+		fmt.Printf("🔧 Using playback service for recently played items in cache method for widget %s\n", widget.Name)
+		if s.playbackService != nil {
+			recentlyWatched, err := s.playbackService.GetRecentlyWatchedWithProgress("1", widget.MaxItems)
+			if err != nil {
+				fmt.Printf("⚠️ Error getting recently watched from playback service: %v\n", err)
+				return []models.MediaItem{}
+			}
+			
+			// Convert playback progress items to media items directly
+			var mediaItems []models.MediaItem
+			for _, progress := range recentlyWatched {
+				item := models.MediaItem{
+					ID:              progress.Media.ID,
+					Title:           progress.Media.Title,
+					Description:     progress.Media.Description,
+					Type:            progress.Media.Type,
+					Rating:          progress.Media.Rating,
+					Year:            progress.Media.Year,
+					Duration:        progress.Media.Duration,
+					ThumbnailPath:   progress.Media.ThumbnailPath,
+					PosterPath:      progress.Media.PosterPath,
+					BackdropPath:    progress.Media.BackdropPath,
+					LogoPath:        progress.Media.LogoPath,
+					TMDBBackdropURL: progress.Media.TMDBBackdropURL,
+					TMDBID:          progress.Media.TMDBID,
+					ViewCount:       progress.Media.ViewCount,
+					LastViewed:      &progress.LastWatched,
+				}
+				
+				// Handle SeriesID pointer
+				if progress.Media.SeriesID != nil {
+					item.SeriesID = *progress.Media.SeriesID
+				}
+				
+				// Convert genres
+				for _, genre := range progress.Media.Genres {
+					item.GenreNames = append(item.GenreNames, genre.Name)
+				}
+				
+				mediaItems = append(mediaItems, item)
+			}
+			
+			fmt.Printf("🔧 Found %d recently played items from playback service for widget %s\n", len(mediaItems), widget.Name)
+			return mediaItems
+		} else {
+			fmt.Printf("⚠️ Playback service not available for widget %s\n", widget.Name)
+			return []models.MediaItem{}
+		}
+	}
+
 	switch widget.ContentType {
 	case models.WidgetContentTypeMovies:
 		sourceMedia = cache.LocalMovies
@@ -661,6 +743,8 @@ func (s *WidgetService) getLocalDataFromCache(widget models.Widget, cache *DataC
 			TMDBBackdropURL: media.TMDBBackdropURL,
 			TMDBTrailerURL:  media.TMDBTrailerURL, // Copy trailer URL from local media
 			TMDBID:          media.TMDBID,
+			ViewCount:       media.ViewCount,
+			LastViewed:      media.LastViewed,
 		}
 
 		// Handle SeriesID pointer
@@ -674,6 +758,40 @@ func (s *WidgetService) getLocalDataFromCache(widget models.Widget, cache *DataC
 		}
 
 		mediaItems = append(mediaItems, item)
+	}
+
+	// For trailer widgets, enrich local media with trailer URLs if they don't have them
+	if widget.Type == models.WidgetTypeTrailer && s.tmdbService != nil {
+		fmt.Printf("🎬 Enriching local media with trailer URLs for trailer widget %s\n", widget.Name)
+		
+		var enrichedItems []models.MediaItem
+		for _, item := range mediaItems {
+			// Only enrich if we don't have a trailer URL but have a TMDB ID
+			if item.TMDBTrailerURL == "" && item.TMDBID > 0 {
+				mediaType := "movie"
+				if item.Type == "tv" || item.Type == "episode" || item.Type == "series" {
+					mediaType = "tv"
+				}
+				enrichedItem := s.enrichMediaItemWithTrailer(item, mediaType)
+				
+				// Only include items that have trailer URLs after enrichment
+				if enrichedItem.TMDBTrailerURL != "" {
+					enrichedItems = append(enrichedItems, enrichedItem)
+				}
+				
+				// Add small delay to respect TMDB API rate limits
+				time.Sleep(250 * time.Millisecond)
+			} else if item.TMDBTrailerURL != "" {
+				// Already has trailer URL, include it
+				enrichedItems = append(enrichedItems, item)
+			}
+			// Skip items without TMDB ID or trailer URL for trailer widgets
+		}
+		
+		fmt.Printf("🎬 Trailer widget %s: %d items with trailers out of %d local items\n", 
+			widget.Name, len(enrichedItems), len(mediaItems))
+		
+		return enrichedItems
 	}
 
 	return mediaItems
@@ -880,6 +998,24 @@ func (s *WidgetService) sortWidgetData(data []models.MediaItem, widget models.Wi
 			}
 			return sortedData[i].Year > sortedData[j].Year
 		})
+	case models.WidgetDataSourceRecentlyPlayed:
+		// Sort by last viewed time (most recently played first)
+		fmt.Printf("🔧 Sorting widget %s data by recently played (LastViewed DESC)\n", widget.Name)
+		sort.Slice(sortedData, func(i, j int) bool {
+			// If both have last viewed times, compare them
+			if sortedData[i].LastViewed != nil && sortedData[j].LastViewed != nil {
+				return sortedData[i].LastViewed.After(*sortedData[j].LastViewed)
+			}
+			// If only one has last viewed time, it comes first
+			if sortedData[i].LastViewed != nil {
+				return true
+			}
+			if sortedData[j].LastViewed != nil {
+				return false
+			}
+			// If neither has last viewed time, sort by view count
+			return sortedData[i].ViewCount > sortedData[j].ViewCount
+		})
 	default:
 		sort.Slice(sortedData, func(i, j int) bool {
 			if sortedData[i].Year != sortedData[j].Year {
@@ -946,7 +1082,7 @@ func (s *WidgetService) GetWidgetData(widget *models.Widget) ([]models.MediaItem
 
 	// Determine data source and fetch accordingly
 	switch widget.DataSource {
-	case models.WidgetDataSourceLocal:
+	case models.WidgetDataSourceLocal, models.WidgetDataSourceRecent, models.WidgetDataSourceRecentlyPlayed:
 		return s.getLocalMediaData(widget, config)
 	case models.WidgetDataSourceTMDB, models.WidgetDataSourceTrending, models.WidgetDataSourcePopular, 
 		 models.WidgetDataSourceNowPlaying, models.WidgetDataSourceUpcoming, models.WidgetDataSourceTopRated:
@@ -1211,6 +1347,43 @@ func (s *WidgetService) getLocalMediaData(widget *models.Widget, config *models.
 		allMedia = filteredMedia
 	}
 	
+	// Filter for recently played items if using recently-played data source
+	if widget.DataSource == models.WidgetDataSourceRecentlyPlayed {
+		fmt.Printf("🔧 Using playback service for recently played items for widget %s\n", widget.Name)
+		// Use the playback service to get recently watched items
+		if s.playbackService != nil {
+			recentlyWatched, err := s.playbackService.GetRecentlyWatchedWithProgress("1", widget.MaxItems)
+			if err != nil {
+				fmt.Printf("⚠️ Error getting recently watched from playback service: %v\n", err)
+				// Fall back to empty list if playback service fails
+				allMedia = []models.Media{}
+			} else {
+				// Convert playback progress items to media items
+				var recentlyPlayedMedia []models.Media
+				for _, progress := range recentlyWatched {
+					// Update the media with playback info
+					media := progress.Media
+					media.ViewCount = int(progress.Position) // Store position as view count for sorting
+					media.LastViewed = &progress.LastWatched
+					recentlyPlayedMedia = append(recentlyPlayedMedia, media)
+				}
+				allMedia = recentlyPlayedMedia
+				fmt.Printf("🔧 Found %d recently played items from playback service for widget %s\n", len(allMedia), widget.Name)
+			}
+		} else {
+			fmt.Printf("⚠️ Playback service not available for widget %s, using fallback filtering\n", widget.Name)
+			// Fallback to the previous filtering logic if playback service is not available
+			var recentlyPlayedMedia []models.Media
+			for _, media := range allMedia {
+				if media.LastViewed != nil && media.ViewCount > 0 {
+					recentlyPlayedMedia = append(recentlyPlayedMedia, media)
+				}
+			}
+			allMedia = recentlyPlayedMedia
+			fmt.Printf("🔧 Found %d recently played items using fallback for widget %s\n", len(allMedia), widget.Name)
+		}
+	}
+	
 	// Sort based on data source
 	switch widget.DataSource {
 	case models.WidgetDataSourceTrending:
@@ -1233,6 +1406,23 @@ func (s *WidgetService) getLocalMediaData(widget *models.Widget, config *models.
 		// Sort by creation date (most recent first)
 		sort.Slice(allMedia, func(i, j int) bool {
 			return allMedia[i].CreatedAt.After(allMedia[j].CreatedAt)
+		})
+	case models.WidgetDataSourceRecentlyPlayed:
+		// Sort by last viewed time (most recently played first)
+		sort.Slice(allMedia, func(i, j int) bool {
+			// If both have last viewed times, compare them
+			if allMedia[i].LastViewed != nil && allMedia[j].LastViewed != nil {
+				return allMedia[i].LastViewed.After(*allMedia[j].LastViewed)
+			}
+			// If only one has last viewed time, it comes first
+			if allMedia[i].LastViewed != nil {
+				return true
+			}
+			if allMedia[j].LastViewed != nil {
+				return false
+			}
+			// If neither has last viewed time, sort by view count
+			return allMedia[i].ViewCount > allMedia[j].ViewCount
 		})
 	default:
 		// Default: sort by year desc, then rating desc
@@ -1265,8 +1455,10 @@ func (s *WidgetService) getLocalMediaData(widget *models.Widget, config *models.
 			LogoPath:        media.LogoPath,
 			TMDBPosterURL:   "", // Media model doesn't have this field
 			TMDBBackdropURL: media.TMDBBackdropURL,
+			TMDBTrailerURL:  media.TMDBTrailerURL, // Copy trailer URL from local media
 			TMDBID:          media.TMDBID,
-			ViewCount:       0, // Media model doesn't have this field
+			ViewCount:       media.ViewCount,
+			LastViewed:      media.LastViewed,
 			SeriesID:        0, // Handle pointer properly
 		}
 		
@@ -1281,6 +1473,40 @@ func (s *WidgetService) getLocalMediaData(widget *models.Widget, config *models.
 		}
 		
 		mediaItems = append(mediaItems, item)
+	}
+
+	// For trailer widgets, enrich local media with trailer URLs if they don't have them
+	if widget.Type == models.WidgetTypeTrailer && s.tmdbService != nil {
+		fmt.Printf("🎬 Enriching local media with trailer URLs for trailer widget %s\n", widget.Name)
+		
+		var enrichedItems []models.MediaItem
+		for _, item := range mediaItems {
+			// Only enrich if we don't have a trailer URL but have a TMDB ID
+			if item.TMDBTrailerURL == "" && item.TMDBID > 0 {
+				mediaType := "movie"
+				if item.Type == "tv" || item.Type == "episode" || item.Type == "series" {
+					mediaType = "tv"
+				}
+				enrichedItem := s.enrichMediaItemWithTrailer(item, mediaType)
+				
+				// Only include items that have trailer URLs after enrichment
+				if enrichedItem.TMDBTrailerURL != "" {
+					enrichedItems = append(enrichedItems, enrichedItem)
+				}
+				
+				// Add small delay to respect TMDB API rate limits
+				time.Sleep(250 * time.Millisecond)
+			} else if item.TMDBTrailerURL != "" {
+				// Already has trailer URL, include it
+				enrichedItems = append(enrichedItems, item)
+			}
+			// Skip items without TMDB ID or trailer URL for trailer widgets
+		}
+		
+		fmt.Printf("🎬 Trailer widget %s: %d items with trailers out of %d local items\n", 
+			widget.Name, len(enrichedItems), len(mediaItems))
+		
+		return enrichedItems, nil
 	}
 	
 	fmt.Printf("✅ Widget %s: Found %d media items (content_type: %s, data_source: %s)\n", 
@@ -1321,6 +1547,58 @@ func (s *WidgetService) getLocalMediaDataDirect(widget *models.Widget, config *m
 		query = query.Where("rating >= ?", config.RatingFilter)
 	}
 	
+	// Filter for recently played items if using recently-played data source
+	if widget.DataSource == models.WidgetDataSourceRecentlyPlayed {
+		if s.playbackService != nil {
+			// Use playback service to get recently watched items instead of database query
+			fmt.Printf("🔧 Using playback service for recently played items in direct query for widget %s\n", widget.Name)
+			recentlyWatched, err := s.playbackService.GetRecentlyWatchedWithProgress("1", widget.MaxItems)
+			if err != nil {
+				fmt.Printf("⚠️ Error getting recently watched from playback service: %v\n", err)
+				return []models.MediaItem{}, err
+			}
+			
+			// Convert playback progress items to media items
+			for _, progress := range recentlyWatched {
+				item := models.MediaItem{
+					ID:              progress.Media.ID,
+					Title:           progress.Media.Title,
+					Description:     progress.Media.Description,
+					Type:            progress.Media.Type,
+					Rating:          progress.Media.Rating,
+					Year:            progress.Media.Year,
+					Duration:        progress.Media.Duration,
+					ThumbnailPath:   progress.Media.ThumbnailPath,
+					PosterPath:      progress.Media.PosterPath,
+					BackdropPath:    progress.Media.BackdropPath,
+					LogoPath:        progress.Media.LogoPath,
+					TMDBBackdropURL: progress.Media.TMDBBackdropURL,
+					TMDBID:          progress.Media.TMDBID,
+					ViewCount:       progress.Media.ViewCount,
+					LastViewed:      &progress.LastWatched,
+				}
+				
+				// Handle SeriesID pointer
+				if progress.Media.SeriesID != nil {
+					item.SeriesID = *progress.Media.SeriesID
+				}
+				
+				// Convert genres
+				for _, genre := range progress.Media.Genres {
+					item.GenreNames = append(item.GenreNames, genre.Name)
+				}
+				
+				mediaItems = append(mediaItems, item)
+			}
+			
+			fmt.Printf("✅ Widget %s (direct): Found %d recently played items from playback service\n", widget.Name, len(mediaItems))
+			return mediaItems, nil
+		} else {
+			// Fallback to database query if playback service is not available
+			query = query.Where("last_viewed IS NOT NULL AND view_count > 0")
+		}
+	}
+	
 	// Order based on data source
 	switch widget.DataSource {
 	case models.WidgetDataSourceTrending:
@@ -1330,6 +1608,9 @@ func (s *WidgetService) getLocalMediaDataDirect(widget *models.Widget, config *m
 	case models.WidgetDataSourceRecent:
 		// Sort by ID (higher ID = more recently added) and creation date
 		query = query.Order("id DESC, created_at DESC")
+	case models.WidgetDataSourceRecentlyPlayed:
+		// Sort by last viewed time (most recently played first), then by view count
+		query = query.Order("last_viewed DESC, view_count DESC")
 	default:
 		query = query.Order("year DESC, rating DESC, created_at DESC")
 	}
@@ -1359,8 +1640,10 @@ func (s *WidgetService) getLocalMediaDataDirect(widget *models.Widget, config *m
 			LogoPath:        result.LogoPath,
 			TMDBPosterURL:   "", // Media model doesn't have this field
 			TMDBBackdropURL: result.TMDBBackdropURL,
+			TMDBTrailerURL:  result.TMDBTrailerURL, // Copy trailer URL from local media
 			TMDBID:          result.TMDBID,
-			ViewCount:       0, // Media model doesn't have this field
+			ViewCount:       result.ViewCount,
+			LastViewed:      result.LastViewed,
 			SeriesID:        0, // Handle pointer properly
 		}
 		
@@ -1375,6 +1658,40 @@ func (s *WidgetService) getLocalMediaDataDirect(widget *models.Widget, config *m
 		}
 		
 		mediaItems = append(mediaItems, item)
+	}
+
+	// For trailer widgets, enrich local media with trailer URLs if they don't have them
+	if widget.Type == models.WidgetTypeTrailer && s.tmdbService != nil {
+		fmt.Printf("🎬 Enriching local media with trailer URLs for trailer widget %s (direct)\n", widget.Name)
+		
+		var enrichedItems []models.MediaItem
+		for _, item := range mediaItems {
+			// Only enrich if we don't have a trailer URL but have a TMDB ID
+			if item.TMDBTrailerURL == "" && item.TMDBID > 0 {
+				mediaType := "movie"
+				if item.Type == "tv" || item.Type == "episode" || item.Type == "series" {
+					mediaType = "tv"
+				}
+				enrichedItem := s.enrichMediaItemWithTrailer(item, mediaType)
+				
+				// Only include items that have trailer URLs after enrichment
+				if enrichedItem.TMDBTrailerURL != "" {
+					enrichedItems = append(enrichedItems, enrichedItem)
+				}
+				
+				// Add small delay to respect TMDB API rate limits
+				time.Sleep(250 * time.Millisecond)
+			} else if item.TMDBTrailerURL != "" {
+				// Already has trailer URL, include it
+				enrichedItems = append(enrichedItems, item)
+			}
+			// Skip items without TMDB ID or trailer URL for trailer widgets
+		}
+		
+		fmt.Printf("🎬 Trailer widget %s (direct): %d items with trailers out of %d local items\n", 
+			widget.Name, len(enrichedItems), len(mediaItems))
+		
+		return enrichedItems, nil
 	}
 	
 	fmt.Printf("✅ Widget %s (direct): Found %d media items\n", widget.Name, len(mediaItems))

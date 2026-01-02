@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Play, Info, Star, ChevronLeft, ChevronRight, Plus, Check, Calendar, Clock, Volume2, VolumeX, Maximize2 } from 'lucide-react';
+import { Play, Info, Star, ChevronLeft, ChevronRight, Plus, Check, Calendar, Clock, Volume2, VolumeX, Maximize2, Flame, Zap, Crown, Heart, Sparkles, Award, TrendingUp, Eye, ThumbsUp, Gift, Rocket, Target, Shield, Diamond } from 'lucide-react';
 import { Media } from '@/types/media';
 import { getApiUrl, preloadAssets } from '@/lib/api';
 import { getColorPaletteByGenre, DominantColors } from '@/types/widgets';
@@ -16,6 +16,7 @@ interface BackdropSlideshowProps {
     showInfo?: boolean;
     height?: 'full' | 'large' | 'medium';
     className?: string;
+    config?: any; // Add config prop for tags and headings
 }
 
 const heightClasses = {
@@ -32,6 +33,7 @@ export default function BackdropSlideshow({
     showInfo = true,
     height = 'large',
     className = '',
+    config = {},
 }: BackdropSlideshowProps) {
     const navigate = useNavigate();
     const [currentIndex, setCurrentIndex] = useState(0);
@@ -131,11 +133,12 @@ export default function BackdropSlideshow({
             const mediaType = media.type === 'tv' || media.type === 'series' || media.type === 'episode' ? 'tv' : 'movie';
             navigate.push(`/tmdb-movie/${media.tmdb_id}?type=${mediaType}`);
         } else {
-            // Navigate to local movie page
+            // Navigate to local content pages
             if (media.type === 'episode' || media.type === 'tv' || media.type === 'series') {
                 const seriesId = media.series_id || media.id;
                 navigate.push(`/tv-series/${seriesId}`);
             } else {
+                // Local movie - navigate to local movie page
                 navigate.push(`/movie/${media.id}`);
             }
         }
@@ -195,18 +198,46 @@ export default function BackdropSlideshow({
 
     if (!currentMedia) return null;
 
+    // Icon mapping for tags
+    const getTagIcon = (iconName: string) => {
+        const iconMap: { [key: string]: React.ComponentType<any> } = {
+            'Star': Star,
+            'Fire': Flame,
+            'Lightning': Zap,
+            'Crown': Crown,
+            'Heart': Heart,
+            'Sparkles': Sparkles,
+            'Award': Award,
+            'Trending': TrendingUp,
+            'Clock': Clock,
+            'Calendar': Calendar,
+            'Play': Play,
+            'Eye': Eye,
+            'Thumbs Up': ThumbsUp,
+            'Gift': Gift,
+            'Rocket': Rocket,
+            'Target': Target,
+            'Shield': Shield,
+            'Diamond': Diamond
+        };
+        return iconMap[iconName] || Sparkles; // Default to Sparkles if icon not found
+    };
+
+    const TagIcon = getTagIcon(config.tagIcon || 'Sparkles');
+
     return (
         <div
-            className={`relative w-full ${heightClasses[height]} overflow-hidden rounded-2xl ${className}`}
+            className={`relative w-full ${heightClasses[height]} overflow-hidden rounded-2xl ${className} cursor-pointer group`}
             onMouseEnter={() => setIsHovering(true)}
             onMouseLeave={() => setIsHovering(false)}
+            onClick={() => handleCardClick(currentMedia)}
         >
             {/* Enhanced Backdrop Images */}
             <AnimatePresence mode="wait">
                 <motion.div
                     key={currentIndex}
                     initial={{ opacity: 0, scale: 1.1 }}
-                    animate={{ opacity: imageLoaded ? 1 : 0, scale: 1 }}
+                    animate={{ opacity: imageLoaded ? 1 : 0, scale: isHovering ? 1.02 : 1 }}
                     exit={{ opacity: 0, scale: 0.95 }}
                     transition={{ duration: 1.2, ease: "easeOut" }}
                     className="absolute inset-0"
@@ -214,7 +245,7 @@ export default function BackdropSlideshow({
                     <img
                         src={getBackdropUrl(currentMedia)}
                         alt={currentMedia.title}
-                        className="w-full h-full object-cover"
+                        className="w-full h-full object-cover transition-transform duration-300"
                         onLoad={() => setImageLoaded(true)}
                         onError={(e) => {
                             const target = e.target as HTMLImageElement;
@@ -243,49 +274,62 @@ export default function BackdropSlideshow({
                 }}
             />
 
-            {/* Quality and Rating Badges */}
-            <div className="absolute top-6 left-6 flex items-center gap-3 z-20">
-                <div className="px-3 py-1 bg-black/80 backdrop-blur-sm rounded-lg border border-white/20">
-                    <span className="text-white text-sm font-bold">4K</span>
-                </div>
-                {currentMedia.rating ? (
-                    <div 
-                        className="flex items-center gap-2 px-3 py-1 rounded-full backdrop-blur-md border"
-                        style={{
-                            backgroundColor: `${colors.primary}30`,
-                            borderColor: `${colors.primary}50`
-                        }}
-                    >
-                        <Star className="w-4 h-4 text-yellow-400 fill-current" />
-                        <span className="text-white text-sm font-semibold">
-                            {currentMedia.rating > 0 ? currentMedia.rating.toFixed(1) : ''}
-                        </span>
-                    </div>
-                ) : null}
+            {/* Hover overlay for clickable indication */}
+            <div 
+                className={`absolute inset-0 bg-white/5 transition-opacity duration-300 ${
+                    isHovering ? 'opacity-100' : 'opacity-0'
+                }`} 
+            />
+
+            {/* Play icon overlay on hover */}
+            <div 
+                className={`absolute inset-0 flex items-center justify-center transition-opacity duration-300 z-10 ${
+                    isHovering ? 'opacity-100' : 'opacity-0'
+                }`}
+            >
+                <motion.div
+                    initial={{ scale: 0.8 }}
+                    animate={{ scale: isHovering ? 1 : 0.8 }}
+                    transition={{ duration: 0.3 }}
+                    className="w-20 h-20 bg-white/20 backdrop-blur-md rounded-full flex items-center justify-center border border-white/30"
+                >
+                    <Play className="w-8 h-8 text-white fill-current ml-1" />
+                </motion.div>
             </div>
 
-            {/* Audio Controls */}
-            <div className="absolute top-6 right-6 flex items-center gap-3 z-20">
-                <motion.button
-                    whileHover={{ scale: 1.1 }}
-                    whileTap={{ scale: 0.95 }}
-                    onClick={() => setIsMuted(!isMuted)}
-                    className="p-3 bg-black/50 backdrop-blur-md rounded-full border border-white/20 hover:bg-black/70 transition-all"
-                >
-                    {isMuted ? 
-                        <VolumeX className="w-5 h-5 text-white" /> : 
-                        <Volume2 className="w-5 h-5 text-white" />
-                    }
-                </motion.button>
-                <motion.button
-                    whileHover={{ scale: 1.1 }}
-                    whileTap={{ scale: 0.95 }}
-                    onClick={() => setShowTrailer(!showTrailer)}
-                    className="p-3 bg-black/50 backdrop-blur-md rounded-full border border-white/20 hover:bg-black/70 transition-all"
-                >
-                    <Maximize2 className="w-5 h-5 text-white" />
-                </motion.button>
-            </div>
+            {/* Custom Tag/Heading */}
+            {config.showTag && config.tagText && (
+                <div className="absolute top-6 left-6 z-20">
+                    <div 
+                        className="flex items-center gap-2 px-4 py-2 rounded-full backdrop-blur-md border font-semibold text-sm shadow-lg"
+                        style={{
+                            backgroundColor: config.tagColor || `${colors.primary}30`,
+                            borderColor: config.tagColor ? `${config.tagColor}60` : `${colors.primary}50`,
+                            color: 'white',
+                            boxShadow: `0 0 20px ${config.tagColor || colors.primary}40, 0 4px 12px rgba(0,0,0,0.3)`,
+                            textShadow: '0 1px 2px rgba(0,0,0,0.8)'
+                        }}
+                    >
+                        <TagIcon className="w-4 h-4 drop-shadow-sm" />
+                        <span className="uppercase tracking-wider font-bold text-xs">
+                            {config.tagText}
+                        </span>
+                    </div>
+                </div>
+            )}
+
+            {config.showHeading && config.headingText && (
+                <div className="absolute top-6 left-6 z-20" style={{ marginTop: config.showTag && config.tagText ? '60px' : '0' }}>
+                    <h3 
+                        className="text-2xl md:text-3xl font-bold text-white"
+                        style={{
+                            textShadow: `0 0 20px ${colors.primary}60, 0 2px 10px rgba(0,0,0,0.8)`
+                        }}
+                    >
+                        {config.headingText}
+                    </h3>
+                </div>
+            )}
 
             {/* Enhanced Content */}
             <div className="absolute bottom-0 left-0 right-0 p-8 md:p-12 lg:p-16 z-10">
@@ -298,13 +342,13 @@ export default function BackdropSlideshow({
                         transition={{ duration: 0.8, ease: "easeOut" }}
                         className="max-w-3xl"
                     >
-                        {/* Enhanced Logo/Title Section - Prioritize Logo over Title */}
+                        {/* Enhanced Logo/Title Section - Reduced Logo Size */}
                         <div className="mb-6">
                             {showLogo && getLogoUrl(currentMedia) ? (
                                 <img
                                     src={getLogoUrl(currentMedia)!}
                                     alt={`${currentMedia.title} logo`}
-                                    className="max-h-20 md:max-h-24 lg:max-h-32 w-auto mb-4 drop-shadow-2xl"
+                                    className="max-h-12 md:max-h-16 lg:max-h-20 w-auto mb-4 drop-shadow-2xl"
                                     style={{ filter: 'drop-shadow(0 0 30px rgba(0,0,0,0.8))' }}
                                     onError={(e) => {
                                         const target = e.target as HTMLImageElement;
@@ -334,7 +378,7 @@ export default function BackdropSlideshow({
 
                         {showInfo && (
                             <>
-                                {/* Enhanced Meta Information */}
+                                {/* Enhanced Meta Information - Rating beside Year */}
                                 <div className="flex flex-wrap items-center gap-4 mb-4 text-sm md:text-base">
                                     {(currentMedia.year || currentMedia.release_date) && (
                                         <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 backdrop-blur-sm border border-white/20">
@@ -344,20 +388,27 @@ export default function BackdropSlideshow({
                                             </span>
                                         </div>
                                     )}
-                                    
-                                    {(currentMedia.duration || currentMedia.runtime) && (
-                                        <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 backdrop-blur-sm border border-white/20">
-                                            <Clock className="w-4 h-4 text-white/80" />
-                                            <span className="text-white font-medium">
-                                                {Math.floor((currentMedia.duration || currentMedia.runtime!) / 3600)}h {Math.floor(((currentMedia.duration || currentMedia.runtime!) % 3600) / 60)}m
+
+                                    {/* Rating Badge */}
+                                    {currentMedia.rating && currentMedia.rating > 0 && (
+                                        <div className="flex items-center gap-1">
+                                            <Star className="w-4 h-4 fill-yellow-400 text-yellow-400" />
+                                            <span className="font-semibold">
+                                                {currentMedia.rating.toFixed(1)}
                                             </span>
                                         </div>
                                     )}
+                                    
+                                    {(currentMedia.duration || currentMedia.runtime) && (
+                                        <span className="text-white/70">
+                                            {Math.floor((currentMedia.duration || currentMedia.runtime!) / 3600)}h {Math.floor(((currentMedia.duration || currentMedia.runtime!) % 3600) / 60)}m
+                                        </span>
+                                    )}
 
                                     {currentMedia.certification && (
-                                        <div className="px-3 py-1 rounded border border-white/30 bg-white/10 backdrop-blur-sm">
-                                            <span className="text-white text-sm font-bold">{currentMedia.certification}</span>
-                                        </div>
+                                        <span className="px-2 py-0.5 border border-white/30 rounded text-xs font-medium">
+                                            {currentMedia.certification}
+                                        </span>
                                     )}
                                 </div>
 
@@ -367,11 +418,10 @@ export default function BackdropSlideshow({
                                         {(currentMedia.genre_names || currentMedia.genres?.map(g => g.name) || []).slice(0, 4).map((genre, idx) => (
                                             <span
                                                 key={idx}
-                                                className="px-3 py-1 rounded-full text-sm font-medium backdrop-blur-sm border"
+                                                className="px-3 py-1 rounded-full text-sm font-medium"
                                                 style={{
-                                                    backgroundColor: `${colors.primary}20`,
-                                                    borderColor: `${colors.primary}40`,
-                                                    color: colors.accent
+                                                    backgroundColor: `${colors.primary}30`,
+                                                    border: `1px solid ${colors.primary}50`,
                                                 }}
                                             >
                                                 {genre}
@@ -387,37 +437,15 @@ export default function BackdropSlideshow({
                                     </p>
                                 )}
 
-                                {/* Enhanced Action Buttons */}
+                                {/* Enhanced Action Buttons - Only Add to List */}
                                 <div className="flex items-center gap-4">
-                                    <motion.button
-                                        whileHover={{ scale: 1.05 }}
-                                        whileTap={{ scale: 0.95 }}
-                                        onClick={() => handleCardClick(currentMedia)}
-                                        className="flex items-center gap-3 px-8 py-4 bg-white text-black font-bold rounded-lg hover:bg-white/90 transition-all shadow-2xl"
-                                    >
-                                        <Play className="w-5 h-5 fill-current" />
-                                        {currentMedia.tmdb_id ? 'View Details' : 'Play'}
-                                    </motion.button>
-                                    
-                                    <motion.button
-                                        whileHover={{ scale: 1.05 }}
-                                        whileTap={{ scale: 0.95 }}
-                                        onClick={() => handleCardClick(currentMedia)}
-                                        className="flex items-center gap-3 px-6 py-4 backdrop-blur-md border font-semibold rounded-lg transition-all"
-                                        style={{ 
-                                            backgroundColor: `${colors.primary}20`,
-                                            borderColor: `${colors.primary}50`,
-                                            color: 'white'
-                                        }}
-                                    >
-                                        <Info className="w-5 h-5" />
-                                        More Info
-                                    </motion.button>
-                                    
                                     <motion.button
                                         whileHover={{ scale: 1.1 }}
                                         whileTap={{ scale: 0.95 }}
-                                        onClick={() => toggleMyList(currentMedia.id)}
+                                        onClick={(e) => {
+                                            e.stopPropagation(); // Prevent triggering the main click
+                                            toggleMyList(currentMedia.id);
+                                        }}
                                         className="p-4 backdrop-blur-md rounded-full border transition-all"
                                         style={{ 
                                             backgroundColor: isInMyList[currentMedia.id] ? `${colors.primary}40` : `${colors.primary}20`,
@@ -440,7 +468,10 @@ export default function BackdropSlideshow({
             {media.length > 1 && (
                 <>
                     <motion.button
-                        onClick={handlePrevious}
+                        onClick={(e) => {
+                            e.stopPropagation(); // Prevent triggering the main click
+                            handlePrevious();
+                        }}
                         className="absolute left-6 top-1/2 -translate-y-1/2 p-4 backdrop-blur-md rounded-full border transition-all z-20"
                         style={{ 
                             backgroundColor: `${colors.primary}20`,
@@ -453,7 +484,10 @@ export default function BackdropSlideshow({
                         <ChevronLeft className="w-6 h-6 text-white" />
                     </motion.button>
                     <motion.button
-                        onClick={handleNext}
+                        onClick={(e) => {
+                            e.stopPropagation(); // Prevent triggering the main click
+                            handleNext();
+                        }}
                         className="absolute right-6 top-1/2 -translate-y-1/2 p-4 backdrop-blur-md rounded-full border transition-all z-20"
                         style={{ 
                             backgroundColor: `${colors.primary}20`,
@@ -474,7 +508,8 @@ export default function BackdropSlideshow({
                     {media.slice(0, 8).map((item, idx) => (
                         <motion.button
                             key={idx}
-                            onClick={() => {
+                            onClick={(e) => {
+                                e.stopPropagation(); // Prevent triggering the main click
                                 setCurrentIndex(idx);
                                 setImageLoaded(false);
                             }}

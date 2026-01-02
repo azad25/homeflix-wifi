@@ -2,8 +2,9 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Save, X, Search, Palette, Settings, Layers } from 'lucide-react';
+import { Save, X, Search, Palette, Settings, Layers, Star, Flame, Zap, Crown, Heart, Sparkles, Award, TrendingUp, Clock, Calendar, Play, Eye, ThumbsUp, Gift, Rocket, Target, Shield, Diamond } from 'lucide-react';
 import { Widget, WidgetType, LayoutType, DataSourceType, ContentType, ColorScheme } from '@/types/widgets';
+import { getApiUrl } from '@/lib/api';
 
 interface WidgetEditorProps {
   widget: Widget;
@@ -46,16 +47,7 @@ const layouts: { value: LayoutType; label: string; description: string; icon: st
   { value: 'third', label: 'Third Width', description: 'Takes one-third container width', icon: '━' }
 ];
 
-const dataSources: { value: DataSourceType; label: string; description: string; color: string }[] = [
-  { value: 'local', label: 'Local Media', description: 'Use local media library', color: 'from-green-500/20 to-green-600/20 border-green-400/30' },
-  { value: 'tmdb', label: 'TMDB API', description: 'The Movie Database API', color: 'from-blue-500/20 to-blue-600/20 border-blue-400/30' },
-  { value: 'trending', label: 'Trending', description: 'Trending content', color: 'from-orange-500/20 to-orange-600/20 border-orange-400/30' },
-  { value: 'popular', label: 'Popular', description: 'Popular content', color: 'from-purple-500/20 to-purple-600/20 border-purple-400/30' },
-  { value: 'recent', label: 'Recent', description: 'Recently added content', color: 'from-cyan-500/20 to-cyan-600/20 border-cyan-400/30' },
-  { value: 'now-playing', label: 'Now Playing', description: 'Currently in theaters', color: 'from-red-500/20 to-red-600/20 border-red-400/30' },
-  { value: 'upcoming', label: 'Upcoming', description: 'Coming soon releases', color: 'from-yellow-500/20 to-yellow-600/20 border-yellow-400/30' },
-  { value: 'top-rated', label: 'Top Rated', description: 'Highest rated content', color: 'from-pink-500/20 to-pink-600/20 border-pink-400/30' }
-];
+
 
 const contentTypes: { value: ContentType; label: string; icon: string }[] = [
   { value: 'mixed', label: 'Mixed Content', icon: '🎭' },
@@ -89,6 +81,60 @@ export default function WidgetEditor({
       return {};
     }
   });
+  const [dataSources, setDataSources] = useState<{ value: DataSourceType; label: string; description: string; color: string }[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const apiUrl = getApiUrl();
+
+  // Fetch data sources from API
+  useEffect(() => {
+    const fetchDataSources = async () => {
+      console.log('🔧 Fetching data sources from API:', `${apiUrl}/api/widgets/data-sources`);
+      try {
+        const response = await fetch(`${apiUrl}/api/widgets/data-sources`);
+        console.log('🔧 API response status:', response.status);
+        if (response.ok) {
+          const sources = await response.json();
+          console.log('🔧 Received data sources:', sources);
+          const formattedSources = sources.map((source: any) => ({
+            value: source.source as DataSourceType,
+            label: source.name,
+            description: source.description,
+            color: getColorForDataSource(source.source)
+          }));
+          console.log('🔧 Formatted data sources:', formattedSources);
+          setDataSources(formattedSources);
+        }
+      } catch (error) {
+        console.error('❌ Error fetching data sources:', error);
+        // Fallback to hardcoded sources if API fails
+        setDataSources([
+          { value: 'local', label: 'Local Media', description: 'Use local media library', color: 'from-green-500/20 to-green-600/20 border-green-400/30' },
+          { value: 'tmdb', label: 'TMDB API', description: 'The Movie Database API', color: 'from-blue-500/20 to-blue-600/20 border-blue-400/30' }
+        ]);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchDataSources();
+  }, [apiUrl]);
+
+  // Helper function to assign colors to data sources
+  const getColorForDataSource = (source: string): string => {
+    const colorMap: { [key: string]: string } = {
+      'local': 'from-green-500/20 to-green-600/20 border-green-400/30',
+      'tmdb': 'from-blue-500/20 to-blue-600/20 border-blue-400/30',
+      'trending': 'from-orange-500/20 to-orange-600/20 border-orange-400/30',
+      'popular': 'from-purple-500/20 to-purple-600/20 border-purple-400/30',
+      'recent': 'from-cyan-500/20 to-cyan-600/20 border-cyan-400/30',
+      'recently-played': 'from-yellow-500/20 to-yellow-600/20 border-yellow-400/30',
+      'now-playing': 'from-red-500/20 to-red-600/20 border-red-400/30',
+      'upcoming': 'from-indigo-500/20 to-indigo-600/20 border-indigo-400/30',
+      'top-rated': 'from-pink-500/20 to-pink-600/20 border-pink-400/30'
+    };
+    return colorMap[source] || 'from-gray-500/20 to-gray-600/20 border-gray-400/30';
+  };
 
   useEffect(() => {
     setFormData(widget);
@@ -264,22 +310,29 @@ export default function WidgetEditor({
             {/* Data Source */}
             <div className="space-y-4">
               <h4 className="text-lg font-semibold text-white">Data Source</h4>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
-                {dataSources.map((source) => (
-                  <button
-                    key={source.value}
-                    onClick={() => setFormData({ ...formData, dataSource: source.value })}
-                    className={`p-4 rounded-xl border transition-all duration-200 text-left hover:scale-105 ${
-                      formData.dataSource === source.value
-                        ? `bg-gradient-to-br ${source.color} shadow-lg`
-                        : 'bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20'
-                    }`}
-                  >
-                    <div className="font-medium text-white mb-1">{source.label}</div>
-                    <p className="text-xs text-white/60">{source.description}</p>
-                  </button>
-                ))}
-              </div>
+              {loading ? (
+                <div className="flex items-center justify-center py-8">
+                  <div className="w-6 h-6 border-2 border-white/20 border-t-red-400 rounded-full animate-spin"></div>
+                  <span className="ml-2 text-white/60">Loading data sources...</span>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+                  {dataSources.map((source) => (
+                    <button
+                      key={source.value}
+                      onClick={() => setFormData({ ...formData, dataSource: source.value })}
+                      className={`p-4 rounded-xl border transition-all duration-200 text-left hover:scale-105 ${
+                        formData.dataSource === source.value
+                          ? `bg-gradient-to-br ${source.color} shadow-lg`
+                          : 'bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20'
+                      }`}
+                    >
+                      <div className="font-medium text-white mb-1">{source.label}</div>
+                      <p className="text-xs text-white/60">{source.description}</p>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* Content Type */}
@@ -396,6 +449,136 @@ export default function WidgetEditor({
                     onChange={(e) => setConfig({ ...config, scrollInterval: parseInt(e.target.value) })}
                     className="w-full bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl px-4 py-3 text-white placeholder-white/40 focus:border-blue-400/50 focus:outline-none transition-colors"
                   />
+                </div>
+              </div>
+
+              {/* Tag and Heading Options */}
+              <div className="space-y-6 mt-8 p-6 bg-gradient-to-br from-purple-500/10 to-purple-600/10 backdrop-blur-sm border border-purple-400/20 rounded-xl">
+                <h5 className="text-lg font-semibold text-white flex items-center gap-2">
+                  🏷️ Tags & Headings
+                </h5>
+                
+                {/* Tag Options */}
+                <div className="space-y-4">
+                  <div className="flex items-center gap-3">
+                    <label className="flex items-center gap-3 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={config.showTag || false}
+                        onChange={(e) => setConfig({ ...config, showTag: e.target.checked })}
+                        className="w-4 h-4 text-purple-500 bg-white/10 border-white/20 rounded focus:ring-purple-500 focus:ring-2"
+                      />
+                      <span className="text-sm text-white/80 font-medium">Show Tag</span>
+                    </label>
+                  </div>
+                  
+                  {config.showTag && (
+                    <div className="grid grid-cols-1 gap-4 ml-7">
+                      <div>
+                        <label className="block text-sm font-medium text-white/80 mb-2">Tag Text</label>
+                        <input
+                          type="text"
+                          value={config.tagText || ''}
+                          onChange={(e) => setConfig({ ...config, tagText: e.target.value })}
+                          className="w-full bg-white/5 backdrop-blur-sm border border-white/10 rounded-lg px-3 py-2 text-white placeholder-white/40 focus:border-purple-400/50 focus:outline-none transition-colors"
+                          placeholder="e.g., NEW, TRENDING, FEATURED"
+                        />
+                      </div>
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-white/80 mb-2">Tag Icon</label>
+                        <div className="grid grid-cols-6 gap-2">
+                          {[
+                            { icon: Star, name: 'Star' },
+                            { icon: Flame, name: 'Fire' },
+                            { icon: Zap, name: 'Lightning' },
+                            { icon: Crown, name: 'Crown' },
+                            { icon: Heart, name: 'Heart' },
+                            { icon: Sparkles, name: 'Sparkles' },
+                            { icon: Award, name: 'Award' },
+                            { icon: TrendingUp, name: 'Trending' },
+                            { icon: Clock, name: 'Clock' },
+                            { icon: Calendar, name: 'Calendar' },
+                            { icon: Play, name: 'Play' },
+                            { icon: Eye, name: 'Eye' },
+                            { icon: ThumbsUp, name: 'Thumbs Up' },
+                            { icon: Gift, name: 'Gift' },
+                            { icon: Rocket, name: 'Rocket' },
+                            { icon: Target, name: 'Target' },
+                            { icon: Shield, name: 'Shield' },
+                            { icon: Diamond, name: 'Diamond' }
+                          ].map((iconOption) => {
+                            const IconComponent = iconOption.icon;
+                            return (
+                              <button
+                                key={iconOption.name}
+                                onClick={() => setConfig({ ...config, tagIcon: iconOption.name })}
+                                className={`w-10 h-10 rounded-lg border-2 transition-all flex items-center justify-center ${
+                                  config.tagIcon === iconOption.name ? 'border-purple-400 bg-purple-500/20 scale-110' : 'border-white/20 hover:border-white/40'
+                                }`}
+                                title={iconOption.name}
+                              >
+                                <IconComponent className="w-4 h-4 text-white" />
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-white/80 mb-2">Tag Color</label>
+                        <div className="flex gap-2">
+                          {[
+                            { color: '#ef4444', name: 'Red' },
+                            { color: '#f97316', name: 'Orange' },
+                            { color: '#eab308', name: 'Yellow' },
+                            { color: '#22c55e', name: 'Green' },
+                            { color: '#3b82f6', name: 'Blue' },
+                            { color: '#8b5cf6', name: 'Purple' },
+                            { color: '#ec4899', name: 'Pink' }
+                          ].map((colorOption) => (
+                            <button
+                              key={colorOption.color}
+                              onClick={() => setConfig({ ...config, tagColor: colorOption.color })}
+                              className={`w-8 h-8 rounded-lg border-2 transition-all ${
+                                config.tagColor === colorOption.color ? 'border-white scale-110' : 'border-white/20'
+                              }`}
+                              style={{ backgroundColor: colorOption.color }}
+                              title={colorOption.name}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Heading Options */}
+                <div className="space-y-4">
+                  <div className="flex items-center gap-3">
+                    <label className="flex items-center gap-3 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={config.showHeading || false}
+                        onChange={(e) => setConfig({ ...config, showHeading: e.target.checked })}
+                        className="w-4 h-4 text-purple-500 bg-white/10 border-white/20 rounded focus:ring-purple-500 focus:ring-2"
+                      />
+                      <span className="text-sm text-white/80 font-medium">Show Heading</span>
+                    </label>
+                  </div>
+                  
+                  {config.showHeading && (
+                    <div className="ml-7">
+                      <label className="block text-sm font-medium text-white/80 mb-2">Heading Text</label>
+                      <input
+                        type="text"
+                        value={config.headingText || ''}
+                        onChange={(e) => setConfig({ ...config, headingText: e.target.value })}
+                        className="w-full bg-white/5 backdrop-blur-sm border border-white/10 rounded-lg px-3 py-2 text-white placeholder-white/40 focus:border-purple-400/50 focus:outline-none transition-colors"
+                        placeholder="e.g., Latest Movies, Popular Shows"
+                      />
+                    </div>
+                  )}
                 </div>
               </div>
 

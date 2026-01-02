@@ -120,6 +120,8 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
         <p>Widget ID: {widget.id}</p>
         <p>Widget Name: {widget.name}</p>
         <p>Config: {JSON.stringify(config)}</p>
+        <p>Loading: {loading.toString()}</p>
+        <p>Notifications: {notifications.length}</p>
       </div>
     );
   }
@@ -592,9 +594,9 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
         const tmdbId = index !== undefined ? notification.tmdb_ids[index] : notification.tmdb_ids[0];
         // Check if it's a TV series notification
         if (notification.type === 'tmdb_upcoming_tv' || notification.type === 'tmdb_now_airing_tv') {
-          navigate.push(`/tmdb-tv/${tmdbId}`);
+          navigate.push(`/tmdb-movie/${tmdbId}?type=tv`);
         } else {
-          navigate.push(`/tmdb-movie/${tmdbId}`);
+          navigate.push(`/tmdb-movie/${tmdbId}?type=movie`);
         }
       }
     } else if (notification.type === 'new_episodes' && notification.series_id) {
@@ -949,9 +951,9 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
                 </div>
               </div>
               <div className="space-y-2">
-                <h3 className="text-xl font-semibold text-white">Loading Notifications...</h3>
+                <h3 className="text-xl font-semibold text-white">No Notifications</h3>
                 <p className="text-gray-400 max-w-sm">
-                  Fetching the latest updates for you.
+                  No new updates available at the moment.
                 </p>
               </div>
             </div>

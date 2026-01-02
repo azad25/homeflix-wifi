@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Play, Info, Volume2, VolumeX, ExternalLink, ChevronLeft, ChevronRight, Star, Calendar, Plus, Check } from 'lucide-react';
+import { Play, Info, Volume2, VolumeX, ExternalLink, ChevronLeft, ChevronRight, Star, Calendar, Plus, Check, Flame, Zap, Crown, Heart, Sparkles, Award, TrendingUp, Clock, Eye, ThumbsUp, Gift, Rocket, Target, Shield, Diamond } from 'lucide-react';
 import { Media } from '@/types/media';
 import { getApiUrl } from '@/lib/api';
 import { useNavigate } from '@/hooks/useNavigate';
@@ -25,6 +25,7 @@ interface TrailerWidgetProps {
     className?: string;
     autoScroll?: boolean;
     scrollInterval?: number;
+    config?: any; // Add config prop for tags and headings
 }
 
 interface TrailerData {
@@ -63,6 +64,7 @@ export default function TrailerWidget({
     className = '',
     autoScroll = true,
     scrollInterval = 8,
+    config = {},
 }: TrailerWidgetProps) {
     const navigate = useNavigate();
     const { isInMyList, toggleMyList } = useMyList();
@@ -594,6 +596,33 @@ export default function TrailerWidget({
         );
     }
 
+    // Icon mapping for tags
+    const getTagIcon = (iconName: string) => {
+        const iconMap: { [key: string]: React.ComponentType<any> } = {
+            'Star': Star,
+            'Fire': Flame,
+            'Lightning': Zap,
+            'Crown': Crown,
+            'Heart': Heart,
+            'Sparkles': Sparkles,
+            'Award': Award,
+            'Trending': TrendingUp,
+            'Clock': Clock,
+            'Calendar': Calendar,
+            'Play': Play,
+            'Eye': Eye,
+            'Thumbs Up': ThumbsUp,
+            'Gift': Gift,
+            'Rocket': Rocket,
+            'Target': Target,
+            'Shield': Shield,
+            'Diamond': Diamond
+        };
+        return iconMap[iconName] || Sparkles; // Default to Sparkles if icon not found
+    };
+
+    const TagIcon = getTagIcon(config.tagIcon || 'Sparkles');
+
     return (
         <div
             className={`relative w-full h-[400px] md:h-[500px] lg:h-[600px] xl:h-[700px] overflow-hidden rounded-xl ${className}`}
@@ -654,6 +683,40 @@ export default function TrailerWidget({
             {/* Gradient overlays */}
             <div className="absolute inset-0 bg-gradient-to-r from-black/90 via-black/50 to-transparent" />
             <div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-transparent" />
+
+            {/* Custom Tag/Heading */}
+            {config.showTag && config.tagText && (
+                <div className="absolute top-6 left-6 z-30">
+                    <div 
+                        className="flex items-center gap-2 px-4 py-2 rounded-full backdrop-blur-md border font-semibold text-sm shadow-lg"
+                        style={{
+                            backgroundColor: config.tagColor || '#ef444430',
+                            borderColor: config.tagColor ? `${config.tagColor}60` : '#ef444450',
+                            color: 'white',
+                            boxShadow: `0 0 20px ${config.tagColor || '#ef4444'}40, 0 4px 12px rgba(0,0,0,0.3)`,
+                            textShadow: '0 1px 2px rgba(0,0,0,0.8)'
+                        }}
+                    >
+                        <TagIcon className="w-4 h-4 drop-shadow-sm" />
+                        <span className="uppercase tracking-wider font-bold text-xs">
+                            {config.tagText}
+                        </span>
+                    </div>
+                </div>
+            )}
+
+            {config.showHeading && config.headingText && (
+                <div className="absolute top-6 left-6 z-30" style={{ marginTop: config.showTag && config.tagText ? '60px' : '0' }}>
+                    <h3 
+                        className="text-2xl md:text-3xl font-bold text-white"
+                        style={{
+                            textShadow: '0 0 20px rgba(239, 68, 68, 0.6), 0 2px 10px rgba(0,0,0,0.8)'
+                        }}
+                    >
+                        {config.headingText}
+                    </h3>
+                </div>
+            )}
 
             {/* Navigation arrows */}
             {trailers.length > 1 && (
@@ -794,23 +857,6 @@ export default function TrailerWidget({
                             transition={{ delay: 0.7 }}
                             className="flex items-center gap-2 md:gap-3"
                         >
-                            <button
-                                onClick={handlePlay}
-                                className="bg-white text-black px-4 md:px-8 py-2 md:py-3 rounded-md font-bold text-sm md:text-lg hover:bg-white/90 transition-all duration-300 flex items-center gap-1 md:gap-2"
-                            >
-                                <Play className="w-4 h-4 md:w-6 md:h-6 fill-current" />
-                                Play
-                            </button>
-
-                            <button
-                                onClick={handleMoreInfo}
-                                className="bg-white/20 text-white px-4 md:px-8 py-2 md:py-3 rounded-md font-bold text-sm md:text-lg hover:bg-white/30 transition-all duration-300 flex items-center gap-1 md:gap-2 border border-white/30"
-                            >
-                                <Info className="w-4 h-4 md:w-6 md:h-6" />
-                                <span className="hidden sm:inline">More Info</span>
-                                <span className="sm:hidden">Info</span>
-                            </button>
-
                             <button
                                 onClick={() => toggleMyList(currentTrailer.media.id)}
                                 className="bg-white/20 text-white p-2 md:p-3 rounded-full hover:bg-white/30 transition-all duration-300 border border-white/30"

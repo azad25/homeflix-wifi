@@ -76,11 +76,12 @@ export default function TrendingSlideshow({
             const mediaType = item.type === 'tv' || item.type === 'series' || item.type === 'episode' ? 'tv' : 'movie';
             navigate.push(`/tmdb-movie/${item.tmdb_id}?type=${mediaType}`);
         } else {
-            // Navigate to local movie page
+            // Navigate to local content pages
             if (item.type === 'episode' || item.type === 'tv' || item.type === 'series') {
                 const seriesId = item.series_id || item.id;
                 navigate.push(`/tv-series/${seriesId}`);
             } else {
+                // Local movie - navigate to local movie page
                 navigate.push(`/movie/${item.id}`);
             }
         }

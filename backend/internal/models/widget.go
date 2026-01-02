@@ -28,36 +28,37 @@ type Widget struct {
 
 // MediaItem represents a media item for widget data
 type MediaItem struct {
-	ID                uint     `json:"id"`
-	Title             string   `json:"title"`
-	Description       string   `json:"description,omitempty"`
-	Type              string   `json:"type"` // movie, tv, episode, series
-	Rating            float64  `json:"rating,omitempty"`
-	Year              int      `json:"year,omitempty"`
-	Duration          int      `json:"duration,omitempty"` // in seconds
-	GenreNames        []string `json:"genre_names,omitempty"`
-	ThumbnailPath     string   `json:"thumbnail_path,omitempty"`
-	PosterPath        string   `json:"poster_path,omitempty"`
-	BackdropPath      string   `json:"backdrop_path,omitempty"`
-	LogoPath          string   `json:"logo_path,omitempty"`
-	TMDBPosterURL     string   `json:"tmdb_poster_url,omitempty"`
-	TMDBBackdropURL   string   `json:"tmdb_backdrop_url,omitempty"`
-	TMDBTrailerURL    string   `json:"tmdb_trailer_url,omitempty"`
-	TMDBID            int      `json:"tmdb_id,omitempty"`
-	Popularity        float64  `json:"popularity,omitempty"`
-	VoteCount         int      `json:"vote_count,omitempty"`
-	Adult             bool     `json:"adult,omitempty"`
-	OriginalLanguage  string   `json:"original_language,omitempty"`
-	OriginalTitle     string   `json:"original_title,omitempty"`
-	Video             bool     `json:"video,omitempty"`
-	ViewCount         int      `json:"view_count,omitempty"`
-	SeriesID          uint     `json:"series_id,omitempty"`
-	ReleaseDate       string   `json:"release_date,omitempty"`
-	FirstAirDate      string   `json:"first_air_date,omitempty"`
-	Runtime           int      `json:"runtime,omitempty"` // in minutes
-	Certification     string   `json:"certification,omitempty"`
-	Tagline           string   `json:"tagline,omitempty"`
-	Genres            []Genre  `json:"genres,omitempty"`
+	ID                uint       `json:"id"`
+	Title             string     `json:"title"`
+	Description       string     `json:"description,omitempty"`
+	Type              string     `json:"type"` // movie, tv, episode, series
+	Rating            float64    `json:"rating,omitempty"`
+	Year              int        `json:"year,omitempty"`
+	Duration          int        `json:"duration,omitempty"` // in seconds
+	GenreNames        []string   `json:"genre_names,omitempty"`
+	ThumbnailPath     string     `json:"thumbnail_path,omitempty"`
+	PosterPath        string     `json:"poster_path,omitempty"`
+	BackdropPath      string     `json:"backdrop_path,omitempty"`
+	LogoPath          string     `json:"logo_path,omitempty"`
+	TMDBPosterURL     string     `json:"tmdb_poster_url,omitempty"`
+	TMDBBackdropURL   string     `json:"tmdb_backdrop_url,omitempty"`
+	TMDBTrailerURL    string     `json:"tmdb_trailer_url,omitempty"`
+	TMDBID            int        `json:"tmdb_id,omitempty"`
+	Popularity        float64    `json:"popularity,omitempty"`
+	VoteCount         int        `json:"vote_count,omitempty"`
+	Adult             bool       `json:"adult,omitempty"`
+	OriginalLanguage  string     `json:"original_language,omitempty"`
+	OriginalTitle     string     `json:"original_title,omitempty"`
+	Video             bool       `json:"video,omitempty"`
+	ViewCount         int        `json:"view_count,omitempty"`
+	LastViewed        *time.Time `json:"last_viewed,omitempty"`
+	SeriesID          uint       `json:"series_id,omitempty"`
+	ReleaseDate       string     `json:"release_date,omitempty"`
+	FirstAirDate      string     `json:"first_air_date,omitempty"`
+	Runtime           int        `json:"runtime,omitempty"` // in minutes
+	Certification     string     `json:"certification,omitempty"`
+	Tagline           string     `json:"tagline,omitempty"`
+	Genres            []Genre    `json:"genres,omitempty"`
 	// Notification data for notification widgets
 	NotificationData  interface{} `json:"notification_data,omitempty"`
 }
@@ -98,6 +99,13 @@ type WidgetConfig struct {
 	ShowTimestamp     bool                 `json:"show_timestamp,omitempty"`
 	ShowNotificationIcon bool              `json:"show_notification_icon,omitempty"`
 	HighlightStyle    string               `json:"highlight_style,omitempty"` // banner, card, minimal
+	// Tag and heading options
+	ShowTag           bool                 `json:"showTag,omitempty"`
+	TagText           string               `json:"tagText,omitempty"`
+	TagColor          string               `json:"tagColor,omitempty"`
+	TagIcon           string               `json:"tagIcon,omitempty"`
+	ShowHeading       bool                 `json:"showHeading,omitempty"`
+	HeadingText       string               `json:"headingText,omitempty"`
 }
 
 // Widget types
@@ -140,14 +148,15 @@ const (
 
 // Widget data sources
 const (
-	WidgetDataSourceLocal      = "local"
-	WidgetDataSourceTMDB       = "tmdb"
-	WidgetDataSourceTrending   = "trending"
-	WidgetDataSourcePopular    = "popular"
-	WidgetDataSourceRecent     = "recent"
-	WidgetDataSourceNowPlaying = "now-playing"
-	WidgetDataSourceUpcoming   = "upcoming"
-	WidgetDataSourceTopRated   = "top-rated"
+	WidgetDataSourceLocal         = "local"
+	WidgetDataSourceTMDB          = "tmdb"
+	WidgetDataSourceTrending      = "trending"
+	WidgetDataSourcePopular       = "popular"
+	WidgetDataSourceRecent        = "recent"
+	WidgetDataSourceNowPlaying    = "now-playing"
+	WidgetDataSourceUpcoming      = "upcoming"
+	WidgetDataSourceTopRated      = "top-rated"
+	WidgetDataSourceRecentlyPlayed = "recently-played"
 )
 
 // Widget content types
@@ -229,6 +238,18 @@ func SeedDefaultWidgets(db *gorm.DB) error {
 			MaxItems:    15,
 			Layout:      WidgetLayoutFull,
 			Config:      `{"show_logo":true,"auto_scroll":true}`,
+		},
+		{
+			Name:        "Latest Updates",
+			Type:        WidgetTypeNotifications,
+			Page:        WidgetPageHome,
+			Position:    5,
+			Enabled:     true,
+			ContentType: "mixed",
+			DataSource:  "local",
+			MaxItems:    3,
+			Layout:      WidgetLayoutFull,
+			Config:      `{"show_logo":true,"show_description":true,"show_timestamp":true,"show_notification_icon":true,"highlight_style":"banner","auto_scroll":true,"scroll_interval":10}`,
 		},
 		// Movies page widgets
 		{

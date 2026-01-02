@@ -242,6 +242,7 @@ export default function BackendWidgetRenderer({
                             showLogo={config.showLogo !== false}
                             showDescription={config.showDescription !== false}
                             showRating={config.showRating !== false}
+                            config={config}
                         />
                     );
 
@@ -265,6 +266,7 @@ export default function BackendWidgetRenderer({
                             scrollInterval={config.scrollInterval || 10}
                             showLogo={config.showLogo !== false}
                             showInfo={config.showDescription !== false}
+                            config={config}
                         />
                     );
 
@@ -287,6 +289,7 @@ export default function BackendWidgetRenderer({
                             movies={media}
                             autoScroll={config.autoScroll !== false}
                             scrollInterval={config.scrollInterval || 8}
+                            config={config}
                         />
                     ) : null;
 
@@ -342,6 +345,7 @@ export default function BackendWidgetRenderer({
                             showInfo={config.showDescription !== false}
                             autoScroll={config.autoScroll !== false}
                             scrollInterval={config.scrollInterval || 8}
+                            config={config}
                         />
                     );
 
@@ -420,10 +424,10 @@ export default function BackendWidgetRenderer({
                     j++;
                 }
                 elements.push(
-                    <div key={`third-group-${i}`} className="w-full">
+                    <div key={`third-group-${i}`} className="w-full mb-8">
                         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 w-full px-4 md:px-8">
                             {thirdWidgets.map(w => (
-                                <div key={w.id} className="w-full min-h-0">
+                                <div key={w.id} className="w-full min-h-0 relative">
                                     {renderWidget(w)}
                                 </div>
                             ))}
@@ -435,28 +439,32 @@ export default function BackendWidgetRenderer({
                 const nextWidget = widgets[i + 1];
                 if (nextWidget && nextWidget.layout === 'half') {
                     elements.push(
-                        <div key={`half-pair-${widget.id}`} className="w-full">
+                        <div key={`half-pair-${widget.id}`} className="w-full mb-8">
                             <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 w-full px-4 md:px-8">
-                                <div className="w-full min-h-0">{renderWidget(widget)}</div>
-                                <div className="w-full min-h-0">{renderWidget(nextWidget)}</div>
+                                <div className="w-full min-h-0 relative">{renderWidget(widget)}</div>
+                                <div className="w-full min-h-0 relative">{renderWidget(nextWidget)}</div>
                             </div>
                         </div>
                     );
                     i += 2;
                 } else {
                     elements.push(
-                        <div key={widget.id} className="w-full">
-                            <div className="max-w-4xl mx-auto px-4 md:px-8">{renderWidget(widget)}</div>
+                        <div key={widget.id} className="w-full mb-8">
+                            <div className="max-w-4xl mx-auto px-4 md:px-8 relative">{renderWidget(widget)}</div>
                         </div>
                     );
                     i++;
                 }
             } else {
-                // Full width widgets - provide height for widgets that need it
+                // Full width widgets - provide proper spacing and containment
                 const needsHeight = ['notifications', 'featured-banner', 'backdrop-slideshow', 'trailer'].includes(widget.type);
-                const heightClass = needsHeight ? 'min-h-[400px] h-[400px] md:min-h-[600px] md:h-[600px]' : '';
+                const heightClass = needsHeight ? 'min-h-[400px] md:min-h-[600px]' : '';
+                const marginClass = widget.type === 'featured-banner' ? 'mb-12' : 'mb-8';
+                
                 elements.push(
-                    <div key={widget.id} className={`w-full ${heightClass}`}>{renderWidget(widget)}</div>
+                    <div key={widget.id} className={`w-full ${heightClass} ${marginClass} relative overflow-hidden`}>
+                        {renderWidget(widget)}
+                    </div>
                 );
                 i++;
             }
@@ -495,7 +503,7 @@ export default function BackendWidgetRenderer({
 
     return (
         <div className={`w-full ${className}`}>
-            <div className="w-full space-y-8 mb-12">
+            <div className="w-full space-y-0">
                 {renderedWidgets}
             </div>
             <WidgetPerformanceMonitor

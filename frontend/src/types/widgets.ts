@@ -21,7 +21,7 @@ export type PageType = 'home' | 'movies' | 'tv-shows' | 'browse' | 'new-popular'
 
 export type LayoutType = 'full' | 'half' | 'third';
 
-export type DataSourceType = 'local' | 'tmdb' | 'trending' | 'popular' | 'recent' | 'recommendations' | 'now-playing' | 'upcoming' | 'top-rated';
+export type DataSourceType = 'local' | 'tmdb' | 'trending' | 'popular' | 'recent' | 'recently-played' | 'recommendations' | 'now-playing' | 'upcoming' | 'top-rated';
 
 export type ContentType = 'movies' | 'tv-shows' | 'mixed' | 'tmdb';
 

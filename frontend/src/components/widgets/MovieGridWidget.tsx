@@ -80,7 +80,21 @@ export default function MovieGridWidget({
     };
 
     const handleCardClick = (item: Media) => {
-        navigate.push(`/movie/${item.id}`);
+        // Check if it's TMDB content (has tmdb_id) or local content
+        if (item.tmdb_id) {
+            // Navigate to TMDB movie page with proper media type detection
+            const mediaType = item.type === 'tv' || item.type === 'series' || item.type === 'episode' ? 'tv' : 'movie';
+            navigate.push(`/tmdb-movie/${item.tmdb_id}?type=${mediaType}`);
+        } else {
+            // Navigate to local content pages
+            if (item.type === 'episode' || item.type === 'tv' || item.type === 'series') {
+                const seriesId = item.series_id || item.id;
+                navigate.push(`/tv-series/${seriesId}`);
+            } else {
+                // Local movie - navigate to local movie page
+                navigate.push(`/movie/${item.id}`);
+            }
+        }
     };
 
     const getImageUrl = (item: Media, type: 'poster' | 'backdrop' = 'poster') => {
@@ -314,11 +328,11 @@ export default function MovieGridWidget({
                                                     className="flex-1 flex items-center justify-center gap-1 py-2 bg-white text-black rounded-lg text-xs font-bold hover:bg-white/90 transition-colors"
                                                     onClick={(e) => {
                                                         e.stopPropagation();
-                                                        navigate.push(`/movie/${item.id}`);
+                                                        handleCardClick(item);
                                                     }}
                                                 >
                                                     <Play className="w-3 h-3 fill-current" />
-                                                    Play
+                                                    {item.tmdb_id ? 'View' : 'Play'}
                                                 </motion.button>
                                                 
                                                 <motion.button
@@ -341,7 +355,7 @@ export default function MovieGridWidget({
                                                     whileTap={{ scale: 0.95 }}
                                                     onClick={(e) => {
                                                         e.stopPropagation();
-                                                        navigate.push(`/movie/${item.id}`);
+                                                        handleCardClick(item);
                                                     }}
                                                     className="p-2 rounded-full backdrop-blur-md border border-white/30 hover:border-white/50 transition-colors bg-white/10"
                                                 >

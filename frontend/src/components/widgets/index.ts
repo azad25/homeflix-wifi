@@ -14,11 +14,10 @@ export { default as YouTubeTrailerWidget } from './YouTubeTrailerWidget';
 export { default as NotificationWidget } from './NotificationWidget';
 
 // Widget system components
-export { default as WidgetRenderer } from './WidgetRenderer';
 export { default as BackendWidgetRenderer } from './BackendWidgetRenderer';
 export { default as ImprovedWidgetRenderer } from './ImprovedWidgetRenderer';
+export { default as WidgetRenderer } from './ImprovedWidgetRenderer'; // Alias for backward compatibility
 export { default as AsyncWidgetLoader } from './AsyncWidgetLoader';
-export { default as WidgetConfigPanel } from './WidgetConfigPanel';
 export { default as EnhancedWidgetConfigPanel } from './EnhancedWidgetConfigPanel';
 export { default as WidgetPerformanceDashboard } from './WidgetPerformanceDashboard';
 export { default as WidgetManagementButton } from './WidgetManagementButton';

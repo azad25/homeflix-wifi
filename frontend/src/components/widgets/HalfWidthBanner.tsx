@@ -145,11 +145,12 @@ export default function HalfWidthBanner({
             const mediaType = currentMedia.type === 'tv' || currentMedia.type === 'series' || currentMedia.type === 'episode' ? 'tv' : 'movie';
             navigate.push(`/tmdb-movie/${currentMedia.tmdb_id}?type=${mediaType}`);
         } else {
-            // Navigate to local movie page
+            // Navigate to local content pages
             if (currentMedia.type === 'episode' || currentMedia.type === 'tv' || currentMedia.type === 'series') {
                 const seriesId = currentMedia.series_id || currentMedia.id;
                 navigate.push(`/tv-series/${seriesId}`);
             } else {
+                // Local movie - navigate to local movie page
                 navigate.push(`/movie/${currentMedia.id}`);
             }
         }
@@ -331,11 +332,12 @@ export default function HalfWidthBanner({
                                         const mediaType = currentMedia.type === 'tv' || currentMedia.type === 'series' || currentMedia.type === 'episode' ? 'tv' : 'movie';
                                         navigate.push(`/tmdb-movie/${currentMedia.tmdb_id}?type=${mediaType}`);
                                     } else {
-                                        // Navigate to local movie page
+                                        // Navigate to local content pages
                                         if (currentMedia.type === 'episode' || currentMedia.type === 'tv' || currentMedia.type === 'series') {
                                             const seriesId = currentMedia.series_id || currentMedia.id;
                                             navigate.push(`/tv-series/${seriesId}`);
                                         } else {
+                                            // Local movie - navigate to local movie page
                                             navigate.push(`/movie/${currentMedia.id}`);
                                         }
                                     }
