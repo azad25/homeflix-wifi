@@ -8,13 +8,13 @@ export const getApiUrl = () => {
     return dockerApiUrl || 'http://localhost:8252';
   }
 
-  // Client-side: Always use localhost for development to avoid CORS issues
-  // This works because both frontend and backend are on the same machine
-  const apiUrl = 'http://localhost:8252';
+  // Client-side: Use the same hostname as the frontend for network access
+  const hostname = window.location.hostname;
+  const apiUrl = `http://${hostname}:8252`;
   
   // Debug logging
   console.log('getApiUrl called:', {
-    windowHostname: window.location.hostname,
+    windowHostname: hostname,
     windowPort: window.location.port,
     dockerApiUrl,
     finalUrl: apiUrl,
