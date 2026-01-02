@@ -576,6 +576,134 @@ export default function MyListPage() {
             )}
           </>
         )}
+
+        {activeTab === 'collections' && (
+          <>
+            {userCollections.length > 0 ? (
+              <div className="space-y-6">
+                {/* Collections Grid */}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                  {userCollections.map((collection) => (
+                    <div
+                      key={collection.id}
+                      className="bg-gray-800 rounded-lg p-6 hover:bg-gray-700 transition-all duration-300 cursor-pointer group"
+                      onClick={() => {
+                        setSelectedCollection(collection);
+                        fetchCollectionItems(collection.id);
+                      }}
+                    >
+                      <div className="flex items-start justify-between mb-4">
+                        <div className="flex-1">
+                          <h3 className="text-white font-semibold text-lg mb-2 group-hover:text-red-400 transition-colors">
+                            {collection.name}
+                          </h3>
+                          {collection.description && (
+                            <p className="text-gray-400 text-sm line-clamp-2 mb-3">
+                              {collection.description}
+                            </p>
+                          )}
+                        </div>
+                        <FolderOpen className="w-6 h-6 text-gray-400 group-hover:text-red-400 transition-colors" />
+                      </div>
+                      
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-gray-400">
+                          {collection.item_count} {collection.item_count === 1 ? 'item' : 'items'}
+                        </span>
+                        <span className="text-gray-500">
+                          {collection.is_public ? 'Public' : 'Private'}
+                        </span>
+                      </div>
+                      
+                      {collection.tags && (
+                        <div className="mt-3 flex flex-wrap gap-1">
+                          {collection.tags.split(',').slice(0, 3).map((tag, index) => (
+                            <span
+                              key={index}
+                              className="px-2 py-1 bg-gray-700 text-gray-300 text-xs rounded-full"
+                            >
+                              {tag.trim()}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                {/* Selected Collection Items */}
+                {selectedCollection && (
+                  <div className="mt-8">
+                    <div className="flex items-center justify-between mb-6">
+                      <div>
+                        <h2 className="text-2xl font-bold text-white mb-2">
+                          {selectedCollection.name}
+                        </h2>
+                        {selectedCollection.description && (
+                          <p className="text-gray-400">{selectedCollection.description}</p>
+                        )}
+                      </div>
+                      <Button
+                        onClick={() => setSelectedCollection(null)}
+                        className="bg-gray-700 hover:bg-gray-600 text-white"
+                      >
+                        Close
+                      </Button>
+                    </div>
+
+                    {collectionsLoading ? (
+                      <div className="flex items-center justify-center py-16">
+                        <RedLoader size="medium" />
+                      </div>
+                    ) : collectionItems.length > 0 ? (
+                      <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-7 lg:grid-cols-9 xl:grid-cols-12 2xl:grid-cols-15 gap-1.5">
+                        {collectionItems.map((item, index) => (
+                          <div key={item.id} className="relative">
+                            <NetflixMediaCard
+                              media={item.media}
+                              onPlay={handlePlay}
+                              onInfo={handleInfo}
+                              onAddToList={() => {}}
+                              isInList={false}
+                              priority={index < 12 ? 'high' : 'normal'}
+                              showPreviewOnHover={true}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-center py-16">
+                        <Grid3X3 className="w-16 h-16 text-gray-600 mx-auto mb-4" />
+                        <h3 className="text-xl text-white mb-2">Collection is empty</h3>
+                        <p className="text-gray-400">
+                          This collection doesn't have any items yet
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="text-center py-16">
+                <FolderOpen className="w-16 h-16 text-gray-600 mx-auto mb-4" />
+                <h3 className="text-xl text-white mb-2">No collections yet</h3>
+                <p className="text-gray-400 mb-6">
+                  Create collections to organize your favorite movies and TV shows
+                </p>
+                <MagneticButton
+                  onClick={() => {
+                    // TODO: Add create collection functionality
+                    console.log('Create collection clicked');
+                  }}
+                  className="bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-lg font-semibold"
+                >
+                  <Plus className="w-4 h-4 mr-2" />
+                  Create Collection
+                </MagneticButton>
+              </div>
+            )}
+          </>
+        )}
       </div>
 
       {selectedMedia && (

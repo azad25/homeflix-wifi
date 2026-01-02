@@ -252,7 +252,7 @@ function SettingsContent() {
   const fetchActiveDownloads = async () => {
     try {
       const apiUrl = getApiUrl();
-      const response = await fetch(`${apiUrl}/api/torrent/downloads`);
+      const response = await fetch(`${apiUrl}/api/torrents/downloads`);
       if (response.ok) {
         const data = await response.json();
         const downloads = data.downloads || [];

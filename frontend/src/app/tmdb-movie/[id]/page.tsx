@@ -1212,7 +1212,7 @@ const TMDBMoviePage: React.FC = () => {
   const checkDownloadStatus = async () => {
     try {
       const apiUrl = getApiUrl();
-      const response = await fetch(`${apiUrl}/api/torrent/downloads`);
+      const response = await fetch(`${apiUrl}/api/torrents/downloads`);
       if (response.ok) {
         const data = await response.json();
         const downloads = data.downloads || [];
@@ -1277,7 +1277,7 @@ const TMDBMoviePage: React.FC = () => {
         type: mediaDetails?.media_type || 'movie'
       });
       
-      const response = await fetch(`${apiUrl}/api/torrent/search?${searchParams.toString()}`);
+      const response = await fetch(`${apiUrl}/api/torrents/search?${searchParams.toString()}`);
       
       if (response.ok) {
         const data = await response.json();
@@ -1287,7 +1287,7 @@ const TMDBMoviePage: React.FC = () => {
           // Auto-select the best torrent (first one, as they're sorted by quality/seeders)
           const bestTorrent = torrents[0];
           
-          const downloadResponse = await fetch(`${apiUrl}/api/torrent/download`, {
+          const downloadResponse = await fetch(`${apiUrl}/api/torrents/download`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
