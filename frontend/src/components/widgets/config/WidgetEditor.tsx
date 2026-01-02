@@ -806,13 +806,18 @@ export default function WidgetEditor({
                     <label className="block text-sm font-medium text-white/80 mb-3">Notification Types</label>
                     <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                       {[
-                        { value: 'tmdb_upcoming', label: 'TMDB Upcoming' },
-                        { value: 'tmdb_now_playing', label: 'TMDB Now Playing' },
-                        { value: 'new_episodes', label: 'New Episodes' },
-                        { value: 'movie_suggestion', label: 'Movie Suggestions' },
-                        { value: 'watch_again', label: 'Watch Again' }
+                        { value: 'movie_suggestion', label: 'Movie Suggestions', description: 'Multi-movie recommendations' },
+                        { value: 'single_movie_suggestion', label: 'Single Movie', description: 'Perfect match recommendations' },
+                        { value: 'watch_again', label: 'Watch Again', description: 'Continue watching content' },
+                        { value: 'tmdb_upcoming', label: 'TMDB Upcoming', description: 'Upcoming movie releases' },
+                        { value: 'tmdb_now_playing', label: 'TMDB Now Playing', description: 'Currently in theaters' },
+                        { value: 'tmdb_trending', label: 'TMDB Trending', description: 'Trending movies worldwide' },
+                        { value: 'tmdb_upcoming_tv', label: 'Upcoming TV', description: 'Upcoming TV series' },
+                        { value: 'tmdb_now_airing_tv', label: 'Now Airing TV', description: 'Currently airing series' },
+                        { value: 'new_episodes', label: 'New Episodes', description: 'New TV episodes available' },
+                        { value: 'new_movies', label: 'New Movies', description: 'Recently added movies' }
                       ].map((type) => (
-                        <label key={type.value} className="flex items-center gap-3 p-3 bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl hover:bg-white/10 transition-colors cursor-pointer">
+                        <label key={type.value} className="flex items-start gap-3 p-3 bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl hover:bg-white/10 transition-colors cursor-pointer">
                           <input
                             type="checkbox"
                             checked={config.notificationTypes?.includes(type.value) || false}
@@ -824,11 +829,37 @@ export default function WidgetEditor({
                                 setConfig({ ...config, notificationTypes: currentTypes.filter((t: string) => t !== type.value) });
                               }
                             }}
-                            className="w-4 h-4 text-red-500 bg-white/10 border-white/20 rounded focus:ring-red-500 focus:ring-2"
+                            className="w-4 h-4 text-red-500 bg-white/10 border-white/20 rounded focus:ring-red-500 focus:ring-2 mt-0.5"
                           />
-                          <span className="text-sm text-white/80">{type.label}</span>
+                          <div className="flex-1">
+                            <span className="text-sm text-white/80 font-medium block">{type.label}</span>
+                            <span className="text-xs text-white/50">{type.description}</span>
+                          </div>
                         </label>
                       ))}
+                    </div>
+                    
+                    {/* Select All / None buttons */}
+                    <div className="flex gap-2 mt-3">
+                      <button
+                        onClick={() => setConfig({ 
+                          ...config, 
+                          notificationTypes: [
+                            'movie_suggestion', 'single_movie_suggestion', 'watch_again',
+                            'tmdb_upcoming', 'tmdb_now_playing', 'tmdb_trending',
+                            'tmdb_upcoming_tv', 'tmdb_now_airing_tv', 'new_episodes', 'new_movies'
+                          ]
+                        })}
+                        className="px-3 py-1 text-xs bg-red-500/20 hover:bg-red-500/30 border border-red-400/30 text-red-200 rounded-lg transition-colors"
+                      >
+                        Select All
+                      </button>
+                      <button
+                        onClick={() => setConfig({ ...config, notificationTypes: [] })}
+                        className="px-3 py-1 text-xs bg-white/5 hover:bg-white/10 border border-white/10 text-white/60 rounded-lg transition-colors"
+                      >
+                        Clear All
+                      </button>
                     </div>
                   </div>
 

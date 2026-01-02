@@ -122,12 +122,24 @@ const fetcher = async (url: string) => {
       return [];
     }
     
-    console.error('SWR Fetcher: Error for', fullUrl, error);
+    // Handle network errors more gracefully
+    if (error instanceof TypeError && error.message === 'Failed to fetch') {
+      console.warn('SWR Fetcher: Network error for', fullUrl, '- likely server unavailable');
+      // For widgets, return empty array instead of throwing to prevent crashes
+      if (url.includes('/widgets')) {
+        return [];
+      }
+      // For optional endpoints, return empty array instead of throwing
+      if (url.includes('/mylist')) {
+        return [];
+      }
+    } else {
+      console.error('SWR Fetcher: Error for', fullUrl, error);
+    }
     
-    // For widgets, throw error to trigger SWR error handling
+    // For widgets, return empty array to prevent crashes
     if (url.includes('/widgets')) {
-      console.error('Widget fetch failed, throwing error');
-      throw error;
+      return [];
     }
     
     // For optional endpoints, return empty array instead of throwing

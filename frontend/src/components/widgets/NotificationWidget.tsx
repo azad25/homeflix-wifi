@@ -76,23 +76,45 @@ interface TMDBMovieDetails {
 interface EnhancedNotification extends Notification {
   priority?: 'high' | 'medium' | 'low';
   category?: 'trending' | 'new' | 'recommended' | 'watchlist';
-  enhanced_data?: {
-    backdrop_url?: string;
-    logo_url?: string;
-    trailer_key?: string;
-    cast?: string[];
-    director?: string;
-    rating?: number;
-    genre_colors?: DominantColors;
-  };
+  // Backend-provided enhanced data (snake_case from API)
+  backdrop_url?: string;
+  poster_url?: string;
+  logo_url?: string;
+  trailer_key?: string;
+  rating?: number;
+  release_date?: string;
+  runtime?: number;
+  genres?: string[];
+  overview?: string;
+  tagline?: string;
+  language?: string;
+  popularity?: number;
+  companies?: string[];
+  media_details?: {
+    id: number;
+    title: string;
+    poster_url: string;
+    backdrop_url: string;
+    rating: number;
+    year: number;
+    runtime: number;
+    genres: string[];
+    overview: string;
+    source_type: string;
+    source_id: string;
+  }[];
 }
 
 const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, className = '' }) => {
+  const navigate = useNavigate();
+  const config = parseWidgetConfig(widget.config);
+  const apiUrl = getApiUrl();
+
   console.log('🔔 NotificationWidget mounted with widget:', widget);
   console.log('🔔 NotificationWidget className:', className);
+  console.log('🔔 API URL:', apiUrl);
   
   const [notifications, setNotifications] = useState<EnhancedNotification[]>([]);
-  const [tmdbDetails, setTmdbDetails] = useState<Record<string, TMDBMovieDetails>>({});
   const [loading, setLoading] = useState(true);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isHovering, setIsHovering] = useState(false);
@@ -104,27 +126,9 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
   const [videoReady, setVideoReady] = useState(false);
   const autoScrollRef = useRef<NodeJS.Timeout | null>(null);
   const playerRef = useRef<any>(null);
-  
-  const navigate = useNavigate();
-  const config = parseWidgetConfig(widget.config);
-  const apiUrl = getApiUrl();
 
   // DEBUG: Add visible test element
   console.log('🔔 NotificationWidget rendering - config:', config);
-
-  // Early return for testing
-  if (false) {
-    return (
-      <div className={`bg-red-500 text-white p-4 m-4 rounded ${className}`}>
-        <h2>🔔 NOTIFICATION WIDGET TEST</h2>
-        <p>Widget ID: {widget.id}</p>
-        <p>Widget Name: {widget.name}</p>
-        <p>Config: {JSON.stringify(config)}</p>
-        <p>Loading: {loading.toString()}</p>
-        <p>Notifications: {notifications.length}</p>
-      </div>
-    );
-  }
 
   // Create sample notifications when API doesn't return any
   const createSampleNotifications = async (): Promise<Notification[]> => {
@@ -260,7 +264,7 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
           setCurrentIndex((prev) => (prev + 1) % notifications.length);
           setImageLoaded(false);
           setVideoReady(false);
-        }, 10000); // Changed to 3 seconds as requested
+        }, 3000); // 3 seconds as requested
       }
     }
     return () => {
@@ -386,17 +390,12 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
         console.log('Final notifications to display:', filteredNotifications);
         setNotifications(filteredNotifications);
         
-        if (filteredNotifications.length > 0) {
-          await fetchTMDBDetails(filteredNotifications);
-          await fetchLocalMediaDetails(filteredNotifications);
-        }
+        // No need to fetch additional data - backend provides everything
       } else {
         console.log('API response not ok, status:', response.status, 'creating sample notifications');
         const sampleNotifications = await createSampleNotifications();
         const enhancedSample = await enhanceNotifications(sampleNotifications);
         setNotifications(enhancedSample);
-        await fetchTMDBDetails(enhancedSample);
-        await fetchLocalMediaDetails(enhancedSample);
       }
     } catch (error) {
       console.error('Failed to fetch notifications:', error);
@@ -406,8 +405,6 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
         const sampleNotifications = await createSampleNotifications();
         const enhancedSample = await enhanceNotifications(sampleNotifications);
         setNotifications(enhancedSample);
-        await fetchTMDBDetails(enhancedSample);
-        await fetchLocalMediaDetails(enhancedSample);
       } catch (sampleError) {
         console.error('Failed to create sample notifications:', sampleError);
       }
@@ -451,6 +448,10 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
           priority = hoursSinceCreated < 12 ? 'high' : 'medium';
           category = 'new';
           break;
+        case 'new_movies':
+          priority = hoursSinceCreated < 24 ? 'high' : 'medium';
+          category = 'new';
+          break;
         default:
           priority = 'medium';
           category = 'new';
@@ -475,112 +476,45 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
     );
   };
 
-  const fetchTMDBDetails = async (notifications: EnhancedNotification[]) => {
-    const tmdbNotifications = notifications.filter(n => 
-      (n.type === 'tmdb_upcoming' || n.type === 'tmdb_now_playing' || n.type === 'movie_suggestion') && 
-      n.tmdb_ids && n.tmdb_ids.length > 0
-    );
-
-    for (const notification of tmdbNotifications) {
-      if (notification.tmdb_ids) {
-        for (const tmdbId of notification.tmdb_ids) {
-          try {
-            const response = await fetch(`${apiUrl}/api/tmdb-movie/${tmdbId}`);
-            if (response.ok) {
-              const movieData = await response.json();
-              
-              // Fetch additional data
-              try {
-                const videosResponse = await fetch(`${apiUrl}/api/tmdb/movie/${tmdbId}/videos`);
-                if (videosResponse.ok) {
-                  const videosData = await videosResponse.json();
-                  movieData.videos = videosData;
-                }
-              } catch (e) {
-                console.log('Videos not available for', tmdbId);
-              }
-              
-              try {
-                const imagesResponse = await fetch(`${apiUrl}/api/tmdb/movie/${tmdbId}/images`);
-                if (imagesResponse.ok) {
-                  const imagesData = await imagesResponse.json();
-                  const logo = imagesData.logos?.find((logo: any) => 
-                    logo.iso_639_1 === 'en' || logo.iso_639_1 === null
-                  );
-                  if (logo) {
-                    movieData.logo_path = logo.file_path;
-                  }
-                }
-              } catch (e) {
-                console.log('Images not available for', tmdbId);
-              }
-              
-              setTmdbDetails(prev => ({
-                ...prev,
-                [`tmdb_${tmdbId}`]: movieData
-              }));
-            } else {
-              console.log(`TMDB API returned ${response.status} for movie ${tmdbId}`);
-            }
-          } catch (error) {
-            console.error(`Failed to fetch TMDB details for ${tmdbId}:`, error);
-          }
-        }
-      }
+  const getThemeColors = (notification: EnhancedNotification) => {
+    // Use backend-provided genres for theme colors
+    if (notification.genres && notification.genres.length > 0) {
+      return getColorPaletteByGenre(notification.genres);
     }
-  };
-
-  const fetchLocalMediaDetails = async (notifications: EnhancedNotification[]) => {
-    const localNotifications = notifications.filter(n => 
-      (n.type === 'movie_suggestion' || n.type === 'watch_again' || n.type === 'new_movies') && 
-      n.movie_ids && n.movie_ids.length > 0
-    );
-
-    for (const notification of localNotifications) {
-      if (notification.movie_ids) {
-        for (const movieId of notification.movie_ids) {
-          try {
-            const response = await fetch(`${apiUrl}/api/media/${movieId}`);
-            if (response.ok) {
-              const mediaData = await response.json();
-              
-              setTmdbDetails(prev => ({
-                ...prev,
-                [`local_${movieId}`]: {
-                  id: mediaData.id,
-                  title: mediaData.title,
-                  overview: mediaData.description || mediaData.overview || 'No description available',
-                  backdrop_path: mediaData.tmdb_backdrop_url || mediaData.banner_path || mediaData.backdrop_path,
-                  poster_path: mediaData.poster_path,
-                  release_date: mediaData.release_date || `${mediaData.year || '2024'}-01-01`,
-                  vote_average: mediaData.rating || 0,
-                  genres: mediaData.genres || [],
-                  runtime: mediaData.duration ? Math.floor(mediaData.duration / 60) : 0,
-                  media_type: mediaData.type || 'movie',
-                  original_language: 'en',
-                  popularity: mediaData.view_count || 0,
-                  adult: false,
-                  tagline: mediaData.tagline,
-                  videos: mediaData.tmdb_trailer_url ? {
-                    results: [{
-                      key: extractYouTubeKey(mediaData.tmdb_trailer_url) || '',
-                      type: 'Trailer',
-                      site: 'YouTube',
-                      name: 'Official Trailer',
-                      official: true
-                    }]
-                  } : { results: [] },
-                  logo_path: mediaData.logo_path
-                }
-              }));
-            } else {
-              console.log(`Local media API returned ${response.status} for movie ${movieId}`);
-            }
-          } catch (error) {
-            console.error(`Failed to fetch local media details for ${movieId}:`, error);
-          }
-        }
-      }
+    
+    switch (notification.category) {
+      case 'trending':
+        return {
+          primary: '#ff6b35',
+          secondary: '#ff8c42',
+          accent: '#ffa726',
+          background: 'linear-gradient(135deg, #1a0f00 0%, #331e00 50%, #000000 100%)',
+          text: '#ffffff',
+        };
+      case 'new':
+        return {
+          primary: '#4caf50',
+          secondary: '#66bb6a',
+          accent: '#81c784',
+          background: 'linear-gradient(135deg, #0d1a0d 0%, #1a331a 50%, #000000 100%)',
+          text: '#ffffff',
+        };
+      case 'recommended':
+        return {
+          primary: '#e91e63',
+          secondary: '#f06292',
+          accent: '#f48fb1',
+          background: 'linear-gradient(135deg, #1a0d14 0%, #330d1a 50%, #000000 100%)',
+          text: '#ffffff',
+        };
+      default:
+        return {
+          primary: '#e50914',
+          secondary: '#831010',
+          accent: '#ff6b6b',
+          background: 'linear-gradient(135deg, #141414 0%, #1a1a1a 50%, #000000 100%)',
+          text: '#ffffff',
+        };
     }
   };
 
@@ -626,6 +560,8 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
         return <TrendingUp {...iconProps} />;
       case 'new_episodes':
         return <Tv {...iconProps} />;
+      case 'new_movies':
+        return <Sparkles {...iconProps} />;
       case 'movie_suggestion':
         return <Award {...iconProps} />;
       case 'single_movie_suggestion':
@@ -697,203 +633,140 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
   }, [notifications.length]);
 
   const getBackdropUrl = (notification: EnhancedNotification) => {
-    if (notification.type === 'tmdb_upcoming' || 
-        notification.type === 'tmdb_now_playing' || 
-        notification.type === 'tmdb_trending' ||
-        notification.type === 'tmdb_upcoming_tv' ||
-        notification.type === 'tmdb_now_airing_tv') {
-      if (notification.tmdb_ids && notification.tmdb_ids.length > 0) {
-        const tmdbId = notification.tmdb_ids[0];
-        const movieDetails = tmdbDetails[`tmdb_${tmdbId}`];
-        if (movieDetails?.backdrop_path) {
-          return `https://image.tmdb.org/t/p/w1280${movieDetails.backdrop_path}`;
-        }
+    // Use backend-provided backdrop URL
+    if (notification.backdrop_url) {
+      // Handle relative paths from backend
+      if (notification.backdrop_url.startsWith('/api/')) {
+        return `${apiUrl}${notification.backdrop_url}`;
       }
-    } else if (notification.movie_ids && notification.movie_ids.length > 0) {
-      const movieId = notification.movie_ids[0];
-      const localDetails = tmdbDetails[`local_${movieId}`];
-      if (localDetails?.backdrop_path) {
-        if (localDetails.backdrop_path.startsWith('http')) {
-          return localDetails.backdrop_path;
-        } else {
-          return `${apiUrl}/api/admin/assets/${localDetails.backdrop_path.split('/').pop()}`;
-        }
-      }
-      return `${apiUrl}/api/thumbnails/${movieId}`;
+      return notification.backdrop_url;
     }
+    
+    // Fallback for local media
+    if (notification.movie_ids && notification.movie_ids.length > 0) {
+      return `${apiUrl}/api/thumbnails/${notification.movie_ids[0]}`;
+    }
+    
     return null;
   };
 
   const getLogoUrl = (notification: EnhancedNotification) => {
-    if (notification.type === 'tmdb_upcoming' || 
-        notification.type === 'tmdb_now_playing' || 
-        notification.type === 'tmdb_trending' ||
-        notification.type === 'tmdb_upcoming_tv' ||
-        notification.type === 'tmdb_now_airing_tv') {
-      if (notification.tmdb_ids && notification.tmdb_ids.length > 0) {
-        const tmdbId = notification.tmdb_ids[0];
-        const movieDetails = tmdbDetails[`tmdb_${tmdbId}`];
-        if (movieDetails?.logo_path) {
-          return `https://image.tmdb.org/t/p/w500${movieDetails.logo_path}`;
-        }
+    // Use backend-provided logo URL
+    if (notification.logo_url) {
+      // Handle relative paths from backend
+      if (notification.logo_url.startsWith('/api/')) {
+        return `${apiUrl}${notification.logo_url}`;
       }
-    } else if (notification.movie_ids && notification.movie_ids.length > 0) {
-      const movieId = notification.movie_ids[0];
-      const localDetails = tmdbDetails[`local_${movieId}`];
-      if (localDetails?.logo_path) {
-        return `${apiUrl}/api/${localDetails.logo_path}`;
-      }
+      return notification.logo_url;
     }
     return null;
   };
 
   const getPosterUrl = (notification: EnhancedNotification) => {
-    if (notification.type === 'tmdb_upcoming' || 
-        notification.type === 'tmdb_now_playing' || 
-        notification.type === 'tmdb_trending' ||
-        notification.type === 'tmdb_upcoming_tv' ||
-        notification.type === 'tmdb_now_airing_tv') {
-      if (notification.tmdb_ids && notification.tmdb_ids.length > 0) {
-        const tmdbId = notification.tmdb_ids[0];
-        const movieDetails = tmdbDetails[`tmdb_${tmdbId}`];
-        if (movieDetails?.poster_path) {
-          return `https://image.tmdb.org/t/p/w500${movieDetails.poster_path}`;
-        }
+    // Use backend-provided poster URL
+    if (notification.poster_url) {
+      // Handle relative paths from backend
+      if (notification.poster_url.startsWith('/api/')) {
+        return `${apiUrl}${notification.poster_url}`;
       }
-    } else if (notification.movie_ids && notification.movie_ids.length > 0) {
-      const movieId = notification.movie_ids[0];
-      const localDetails = tmdbDetails[`local_${movieId}`];
-      if (localDetails?.poster_path) {
-        if (localDetails.poster_path.startsWith('http')) {
-          return localDetails.poster_path;
-        } else {
-          return `${apiUrl}/api/posters/${movieId}`;
-        }
-      }
+      return notification.poster_url;
     }
+    
+    // Fallback for local media
+    if (notification.movie_ids && notification.movie_ids.length > 0) {
+      return `${apiUrl}/api/posters/${notification.movie_ids[0]}`;
+    }
+    
     return null;
   };
 
   const getMovieDetails = (notification: EnhancedNotification) => {
-    if (notification.type === 'tmdb_upcoming' || 
-        notification.type === 'tmdb_now_playing' || 
-        notification.type === 'tmdb_trending' ||
-        notification.type === 'tmdb_upcoming_tv' ||
-        notification.type === 'tmdb_now_airing_tv') {
-      if (notification.tmdb_ids && notification.tmdb_ids.length > 0) {
-        const tmdbId = notification.tmdb_ids[0];
-        return tmdbDetails[`tmdb_${tmdbId}`];
-      }
-    } else if (notification.movie_ids && notification.movie_ids.length > 0) {
-      const movieId = notification.movie_ids[0];
-      return tmdbDetails[`local_${movieId}`];
+    // Create movie details from backend-enhanced notification data
+    if (!notification.backdrop_url && !notification.poster_url && !notification.overview) {
+      return null;
     }
-    return null;
+
+    return {
+      id: notification.tmdb_ids?.[0] || notification.movie_ids?.[0] || 0,
+      title: notification.tmdb_titles?.[0] || notification.title,
+      name: notification.tmdb_titles?.[0] || notification.title,
+      overview: notification.overview || 'No description available',
+      backdrop_path: notification.backdrop_url?.replace('https://image.tmdb.org/t/p/w1280', '') || '',
+      poster_path: notification.poster_url?.replace('https://image.tmdb.org/t/p/w500', '') || '',
+      release_date: notification.release_date || '',
+      first_air_date: notification.release_date || '',
+      vote_average: notification.rating || 0,
+      genres: (notification.genres || []).map((name, index) => ({ id: index, name })),
+      runtime: notification.runtime || 0,
+      episode_run_time: notification.runtime ? [notification.runtime] : [],
+      logo_path: notification.logo_url?.replace('https://image.tmdb.org/t/p/w500', '') || '',
+      media_type: notification.type?.includes('tv') ? 'tv' : 'movie',
+      original_language: notification.language || 'en',
+      popularity: notification.popularity || 0,
+      adult: false,
+      tagline: notification.tagline || '',
+      production_companies: (notification.companies || []).map((name, index) => ({ 
+        id: index, 
+        name, 
+        logo_path: '' 
+      })),
+      videos: notification.trailer_key ? {
+        results: [{
+          key: notification.trailer_key,
+          type: 'Trailer',
+          site: 'YouTube',
+          name: 'Official Trailer',
+          official: true
+        }]
+      } : { results: [] }
+    };
   };
 
   const getAllMovieDetails = (notification: EnhancedNotification) => {
-    const details = [];
-    
-    if (notification.type === 'tmdb_upcoming' || 
-        notification.type === 'tmdb_now_playing' || 
-        notification.type === 'tmdb_trending' ||
-        notification.type === 'tmdb_upcoming_tv' ||
-        notification.type === 'tmdb_now_airing_tv') {
-      if (notification.tmdb_ids) {
-        for (const tmdbId of notification.tmdb_ids) {
-          const movieDetail = tmdbDetails[`tmdb_${tmdbId}`];
-          if (movieDetail && movieDetail.title !== `Movie ${tmdbId}`) {
-            details.push({ ...movieDetail, sourceType: 'tmdb', sourceId: tmdbId });
-          }
+    // Use backend-provided media details if available
+    if (notification.media_details && notification.media_details.length > 0) {
+      return notification.media_details.map(media => {
+        // Handle poster URL - prepend API URL if it's a relative path
+        let posterUrl = media.poster_url || '';
+        if (posterUrl && posterUrl.startsWith('/api/')) {
+          posterUrl = `${apiUrl}${posterUrl}`;
         }
-      }
-    } else if (notification.movie_ids) {
-      for (const movieId of notification.movie_ids) {
-        const movieDetail = tmdbDetails[`local_${movieId}`];
-        if (movieDetail && movieDetail.title !== `Movie ${movieId}`) {
-          details.push({ ...movieDetail, sourceType: 'local', sourceId: movieId });
+        
+        // Handle backdrop URL - prepend API URL if it's a relative path
+        let backdropUrl = media.backdrop_url || '';
+        if (backdropUrl && backdropUrl.startsWith('/api/')) {
+          backdropUrl = `${apiUrl}${backdropUrl}`;
         }
-      }
+        
+        return {
+          id: media.id,
+          title: media.title,
+          name: media.title,
+          overview: media.overview || 'No description available',
+          backdrop_path: backdropUrl,
+          poster_path: posterUrl,
+          release_date: media.year ? `${media.year}-01-01` : '',
+          vote_average: media.rating || 0,
+          genres: (media.genres || []).map((name, index) => ({ id: index, name })),
+          runtime: media.runtime || 0,
+          media_type: media.source_type === 'tmdb' ? 'movie' : 'movie',
+          original_language: 'en',
+          popularity: 0,
+          adult: false,
+          sourceType: media.source_type,
+          sourceId: media.source_id
+        };
+      });
     }
-    
-    return details;
+
+    // Fallback: create single movie detail from main notification data
+    const singleMovie = getMovieDetails(notification);
+    return singleMovie ? [{ ...singleMovie, sourceType: 'backend', sourceId: notification.id }] : [];
   };
 
   const getTrailerKey = (notification: EnhancedNotification) => {
-    if (notification.type === 'tmdb_upcoming' || 
-        notification.type === 'tmdb_now_playing' || 
-        notification.type === 'tmdb_trending' ||
-        notification.type === 'tmdb_upcoming_tv' ||
-        notification.type === 'tmdb_now_airing_tv') {
-      if (notification.tmdb_ids && notification.tmdb_ids.length > 0) {
-        const tmdbId = notification.tmdb_ids[0];
-        const movieDetails = tmdbDetails[`tmdb_${tmdbId}`];
-        const trailer = movieDetails?.videos?.results?.find(
-          video => video.type === 'Trailer' && video.site === 'YouTube'
-        );
-        return trailer?.key;
-      }
-    } else if (notification.movie_ids && notification.movie_ids.length > 0) {
-      const movieId = notification.movie_ids[0];
-      const localDetails = tmdbDetails[`local_${movieId}`];
-      const trailer = localDetails?.videos?.results?.find(
-        video => video.type === 'Trailer' && video.site === 'YouTube'
-      );
-      return trailer?.key;
-    }
-    return null;
-  };
-
-  const getThemeColors = (notification: EnhancedNotification) => {
-    if ((notification.type === 'tmdb_upcoming' || 
-         notification.type === 'tmdb_now_playing' || 
-         notification.type === 'tmdb_trending' ||
-         notification.type === 'tmdb_upcoming_tv' ||
-         notification.type === 'tmdb_now_airing_tv') && 
-        notification.tmdb_ids && notification.tmdb_ids.length > 0) {
-      const tmdbId = notification.tmdb_ids[0];
-      const movieDetails = tmdbDetails[`tmdb_${tmdbId}`];
-      
-      if (movieDetails && movieDetails.genres && movieDetails.genres.length > 0) {
-        const genres = movieDetails.genres.map(g => g.name);
-        return getColorPaletteByGenre(genres);
-      }
-    }
-    
-    switch (notification.category) {
-      case 'trending':
-        return {
-          primary: '#ff6b35',
-          secondary: '#ff8c42',
-          accent: '#ffa726',
-          background: 'linear-gradient(135deg, #1a0f00 0%, #331e00 50%, #000000 100%)',
-          text: '#ffffff',
-        };
-      case 'new':
-        return {
-          primary: '#4caf50',
-          secondary: '#66bb6a',
-          accent: '#81c784',
-          background: 'linear-gradient(135deg, #0d1a0d 0%, #1a331a 50%, #000000 100%)',
-          text: '#ffffff',
-        };
-      case 'recommended':
-        return {
-          primary: '#e91e63',
-          secondary: '#f06292',
-          accent: '#f48fb1',
-          background: 'linear-gradient(135deg, #1a0d14 0%, #330d1a 50%, #000000 100%)',
-          text: '#ffffff',
-        };
-      default:
-        return {
-          primary: '#e50914',
-          secondary: '#831010',
-          accent: '#ff6b6b',
-          background: 'linear-gradient(135deg, #141414 0%, #1a1a1a 50%, #000000 100%)',
-          text: '#ffffff',
-        };
-    }
+    // Use backend-provided trailer key
+    return notification.trailer_key || null;
   };
 
   const formatTimestamp = (timestamp: number) => {
@@ -909,8 +782,8 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
 
   if (loading) {
     return (
-      <div className={`relative overflow-hidden rounded-xl border border-white/10 backdrop-blur-sm h-full ${className}`}>
-        <div className="h-full bg-gradient-to-br from-gray-900 via-gray-800 to-black relative">
+      <div className={`relative overflow-hidden rounded-xl border border-white/10 backdrop-blur-sm ${className}`} style={{ minHeight: '400px' }}>
+        <div className="h-full bg-gradient-to-br from-gray-900 via-gray-800 to-black relative" style={{ minHeight: '400px' }}>
           <div className="absolute inset-0 bg-gradient-to-r from-red-500/10 via-blue-500/10 to-purple-500/10 animate-pulse" />
           
           <div className="absolute inset-0 flex items-center justify-center">
@@ -933,7 +806,6 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
     notificationsLength: notifications.length, 
     loading, 
     currentIndex, 
-    tmdbDetailsKeys: Object.keys(tmdbDetails),
     config: config,
     autoScroll: config.autoScroll,
     isHovering
@@ -1166,10 +1038,10 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
                                 >
                                   <div className="relative w-24 h-36 rounded-lg overflow-hidden border border-white/20 group-hover:border-white/40 transition-all group-hover:scale-105">
                                     <img
-                                      src={movie.sourceType === 'tmdb' 
-                                        ? `https://image.tmdb.org/t/p/w300${movie.poster_path}`
-                                        : movie.poster_path?.startsWith('http') 
-                                          ? movie.poster_path
+                                      src={movie.poster_path?.startsWith('http') 
+                                        ? movie.poster_path 
+                                        : movie.sourceType === 'tmdb'
+                                          ? `https://image.tmdb.org/t/p/w300${movie.poster_path}`
                                           : `${apiUrl}/api/posters/${movie.sourceId}`
                                       }
                                       alt={movie.title || movie.name}

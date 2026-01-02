@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
+	"regexp"
 	"strings"
 	"time"
 
@@ -30,7 +31,7 @@ const (
 	NotificationTypeTMDBNowAiringTV NotificationType = "tmdb_now_airing_tv"
 )
 
-// Notification represents a notification message
+// Notification represents a notification message with enhanced data
 type Notification struct {
 	ID         string           `json:"id"`
 	Type       NotificationType `json:"type"`
@@ -44,6 +45,39 @@ type Notification struct {
 	TMDBTitles []string         `json:"tmdb_titles,omitempty"` // For TMDB movie titles
 	Timestamp  int64            `json:"timestamp"`
 	Read       bool             `json:"read"`
+	
+	// Enhanced data fields - populated by backend
+	BackdropURL    string                 `json:"backdrop_url,omitempty"`
+	PosterURL      string                 `json:"poster_url,omitempty"`
+	LogoURL        string                 `json:"logo_url,omitempty"`
+	TrailerKey     string                 `json:"trailer_key,omitempty"`
+	Rating         float64                `json:"rating,omitempty"`
+	ReleaseDate    string                 `json:"release_date,omitempty"`
+	Runtime        int                    `json:"runtime,omitempty"`
+	Genres         []string               `json:"genres,omitempty"`
+	Overview       string                 `json:"overview,omitempty"`
+	Tagline        string                 `json:"tagline,omitempty"`
+	Language       string                 `json:"language,omitempty"`
+	Popularity     float64                `json:"popularity,omitempty"`
+	Companies      []string               `json:"companies,omitempty"`
+	Priority       string                 `json:"priority,omitempty"`       // high, medium, low
+	Category       string                 `json:"category,omitempty"`       // trending, new, recommended, watchlist
+	MediaDetails   []NotificationMedia    `json:"media_details,omitempty"`  // For multi-movie notifications
+}
+
+// NotificationMedia represents individual media items in notifications
+type NotificationMedia struct {
+	ID          int      `json:"id"`
+	Title       string   `json:"title"`
+	PosterURL   string   `json:"poster_url"`
+	BackdropURL string   `json:"backdrop_url"`
+	Rating      float64  `json:"rating"`
+	Year        int      `json:"year"`
+	Runtime     int      `json:"runtime"`
+	Genres      []string `json:"genres"`
+	Overview    string   `json:"overview"`
+	SourceType  string   `json:"source_type"` // "local" or "tmdb"
+	SourceID    string   `json:"source_id"`
 }
 
 // NotificationService handles notification generation and management
@@ -399,7 +433,7 @@ func (ns *NotificationService) AddNotification(notification Notification) error 
 	return nil
 }
 
-// GetNotifications retrieves the latest notifications
+// GetNotifications retrieves the latest notifications with enhanced data
 func (ns *NotificationService) GetNotifications(limit int) ([]Notification, error) {
 	if limit <= 0 || limit > ns.maxNotifications {
 		limit = ns.maxNotifications
@@ -420,7 +454,10 @@ func (ns *NotificationService) GetNotifications(limit int) ([]Notification, erro
 			log.Printf("⚠️ Failed to unmarshal notification: %v", err)
 			continue
 		}
-		notifications = append(notifications, notification)
+		
+		// Enhance notification with detailed data
+		enhancedNotification := ns.enhanceNotificationWithData(notification)
+		notifications = append(notifications, enhancedNotification)
 	}
 
 	return notifications, nil
@@ -1116,4 +1153,380 @@ func (ns *NotificationService) CreateTMDBNowPlayingNotification() error {
 func (ns *NotificationService) Close() error {
 	ns.Stop()
 	return ns.client.Close()
+}
+
+// enhanceNotificationWithData adds detailed information to notifications
+func (ns *NotificationService) enhanceNotificationWithData(notification Notification) Notification {
+	// Set priority and category based on type and age
+	hoursSinceCreated := float64(time.Now().Unix()-notification.Timestamp) / 3600.0
+	
+	switch notification.Type {
+	case NotificationTypeTMDBNowPlaying, NotificationTypeTMDBTrending:
+		if hoursSinceCreated < 24 {
+			notification.Priority = "high"
+		} else {
+			notification.Priority = "medium"
+		}
+		notification.Category = "trending"
+	case NotificationTypeTMDBUpcoming, NotificationTypeTMDBUpcomingTV:
+		notification.Priority = "medium"
+		notification.Category = "new"
+	case NotificationTypeTMDBNowAiringTV:
+		if hoursSinceCreated < 12 {
+			notification.Priority = "high"
+		} else {
+			notification.Priority = "medium"
+		}
+		notification.Category = "trending"
+	case NotificationTypeMovieSuggestion, NotificationTypeSingleMovie:
+		notification.Priority = "medium"
+		notification.Category = "recommended"
+	case NotificationTypeWatchAgain:
+		notification.Priority = "low"
+		notification.Category = "watchlist"
+	case NotificationTypeNewEpisodes, NotificationTypeNewMovies:
+		if hoursSinceCreated < 12 {
+			notification.Priority = "high"
+		} else {
+			notification.Priority = "medium"
+		}
+		notification.Category = "new"
+	default:
+		notification.Priority = "medium"
+		notification.Category = "new"
+	}
+
+	// Enhance with TMDB data if available
+	if len(notification.TMDBIDs) > 0 && ns.tmdbService != nil {
+		ns.enhanceWithTMDBData(&notification)
+	}
+
+	// Enhance with local media data if available
+	if len(notification.MovieIDs) > 0 {
+		ns.enhanceWithLocalMediaData(&notification)
+	}
+
+	return notification
+}
+
+// enhanceWithTMDBData adds TMDB details to notification
+func (ns *NotificationService) enhanceWithTMDBData(notification *Notification) {
+	if len(notification.TMDBIDs) == 0 || ns.tmdbService == nil {
+		return
+	}
+
+	// Get details for the first/primary movie
+	primaryTMDBID := notification.TMDBIDs[0]
+	
+	// Determine if it's TV or movie
+	isTV := notification.Type == NotificationTypeTMDBUpcomingTV || notification.Type == NotificationTypeTMDBNowAiringTV
+	
+	if isTV {
+		tvDetails, err := ns.tmdbService.GetTVDetails(primaryTMDBID)
+		if err != nil {
+			log.Printf("⚠️ Failed to fetch TMDB TV details for %d: %v", primaryTMDBID, err)
+			return
+		}
+
+		if tvDetails.BackdropPath != "" {
+			notification.BackdropURL = fmt.Sprintf("https://image.tmdb.org/t/p/w1280%s", tvDetails.BackdropPath)
+		}
+		
+		if tvDetails.PosterPath != "" {
+			notification.PosterURL = fmt.Sprintf("https://image.tmdb.org/t/p/w500%s", tvDetails.PosterPath)
+		}
+		
+		notification.Overview = tvDetails.Overview
+		notification.Rating = tvDetails.VoteAverage
+		notification.ReleaseDate = tvDetails.FirstAirDate
+		if len(tvDetails.EpisodeRunTime) > 0 {
+			notification.Runtime = tvDetails.EpisodeRunTime[0]
+		}
+		notification.Language = tvDetails.OriginalLanguage
+		notification.Popularity = tvDetails.Popularity
+
+		// Extract genre names
+		var genres []string
+		for _, genre := range tvDetails.Genres {
+			genres = append(genres, genre.Name)
+		}
+		notification.Genres = genres
+
+		// Extract production company names
+		var companies []string
+		for _, company := range tvDetails.ProductionCompanies {
+			companies = append(companies, company.Name)
+		}
+		notification.Companies = companies
+
+		// Get trailer key from videos
+		if len(tvDetails.Videos.Results) > 0 {
+			for _, video := range tvDetails.Videos.Results {
+				if video.Type == "Trailer" && video.Site == "YouTube" {
+					notification.TrailerKey = video.Key
+					break
+				}
+			}
+		}
+	} else {
+		movieDetails, err := ns.tmdbService.GetMovieDetails(primaryTMDBID)
+		if err != nil {
+			log.Printf("⚠️ Failed to fetch TMDB movie details for %d: %v", primaryTMDBID, err)
+			return
+		}
+
+		if movieDetails.BackdropPath != "" {
+			notification.BackdropURL = fmt.Sprintf("https://image.tmdb.org/t/p/w1280%s", movieDetails.BackdropPath)
+		}
+		
+		if movieDetails.PosterPath != "" {
+			notification.PosterURL = fmt.Sprintf("https://image.tmdb.org/t/p/w500%s", movieDetails.PosterPath)
+		}
+		
+		notification.Overview = movieDetails.Overview
+		notification.Rating = movieDetails.VoteAverage
+		notification.ReleaseDate = movieDetails.ReleaseDate
+		notification.Runtime = movieDetails.Runtime
+		notification.Tagline = movieDetails.Tagline
+		notification.Language = movieDetails.OriginalLanguage
+		notification.Popularity = movieDetails.Popularity
+
+		// Extract genre names
+		var genres []string
+		for _, genre := range movieDetails.Genres {
+			genres = append(genres, genre.Name)
+		}
+		notification.Genres = genres
+
+		// Extract production company names
+		var companies []string
+		for _, company := range movieDetails.ProductionCompanies {
+			companies = append(companies, company.Name)
+		}
+		notification.Companies = companies
+	}
+
+	// For multi-movie notifications, get details for all movies
+	if len(notification.TMDBIDs) > 1 {
+		var mediaDetails []NotificationMedia
+		for _, tmdbID := range notification.TMDBIDs {
+			media := NotificationMedia{
+				ID:         tmdbID,
+				SourceType: "tmdb",
+				SourceID:   fmt.Sprintf("%d", tmdbID),
+			}
+
+			if isTV {
+				tvDetails, err := ns.tmdbService.GetTVDetails(tmdbID)
+				if err != nil {
+					log.Printf("⚠️ Failed to fetch TMDB TV details for %d: %v", tmdbID, err)
+					continue
+				}
+
+				media.Title = tvDetails.Name
+				if tvDetails.PosterPath != "" {
+					media.PosterURL = fmt.Sprintf("https://image.tmdb.org/t/p/w500%s", tvDetails.PosterPath)
+				}
+				if tvDetails.BackdropPath != "" {
+					media.BackdropURL = fmt.Sprintf("https://image.tmdb.org/t/p/w1280%s", tvDetails.BackdropPath)
+				}
+				media.Rating = tvDetails.VoteAverage
+				if tvDetails.FirstAirDate != "" {
+					if year, err := time.Parse("2006-01-02", tvDetails.FirstAirDate); err == nil {
+						media.Year = year.Year()
+					}
+				}
+				if len(tvDetails.EpisodeRunTime) > 0 {
+					media.Runtime = tvDetails.EpisodeRunTime[0]
+				}
+				media.Overview = tvDetails.Overview
+
+				// Extract genres
+				var genres []string
+				for _, genre := range tvDetails.Genres {
+					genres = append(genres, genre.Name)
+				}
+				media.Genres = genres
+			} else {
+				movieDetails, err := ns.tmdbService.GetMovieDetails(tmdbID)
+				if err != nil {
+					log.Printf("⚠️ Failed to fetch TMDB movie details for %d: %v", tmdbID, err)
+					continue
+				}
+
+				media.Title = movieDetails.Title
+				if movieDetails.PosterPath != "" {
+					media.PosterURL = fmt.Sprintf("https://image.tmdb.org/t/p/w500%s", movieDetails.PosterPath)
+				}
+				if movieDetails.BackdropPath != "" {
+					media.BackdropURL = fmt.Sprintf("https://image.tmdb.org/t/p/w1280%s", movieDetails.BackdropPath)
+				}
+				media.Rating = movieDetails.VoteAverage
+				if movieDetails.ReleaseDate != "" {
+					if year, err := time.Parse("2006-01-02", movieDetails.ReleaseDate); err == nil {
+						media.Year = year.Year()
+					}
+				}
+				media.Runtime = movieDetails.Runtime
+				media.Overview = movieDetails.Overview
+
+				// Extract genres
+				var genres []string
+				for _, genre := range movieDetails.Genres {
+					genres = append(genres, genre.Name)
+				}
+				media.Genres = genres
+			}
+			
+			mediaDetails = append(mediaDetails, media)
+		}
+		notification.MediaDetails = mediaDetails
+	}
+}
+
+// enhanceWithLocalMediaData adds local media details to notification
+func (ns *NotificationService) enhanceWithLocalMediaData(notification *Notification) {
+	if len(notification.MovieIDs) == 0 {
+		return
+	}
+
+	// Get details for the first/primary movie
+	primaryMovieID := notification.MovieIDs[0]
+	
+	type MediaResult struct {
+		ID                uint    `gorm:"column:id"`
+		Title             string  `gorm:"column:title"`
+		Description       string  `gorm:"column:description"`
+		PosterPath        string  `gorm:"column:poster_path"`
+		BackdropPath      string  `gorm:"column:backdrop_path"`
+		TMDBBackdropURL   string  `gorm:"column:tmdb_backdrop_url"`
+		TMDBPosterURL     string  `gorm:"column:tmdb_poster_url"`
+		TMDBTrailerURL    string  `gorm:"column:tmdb_trailer_url"`
+		LogoPath          string  `gorm:"column:logo_path"`
+		Rating            float64 `gorm:"column:rating"`
+		Year              int     `gorm:"column:year"`
+		Duration          int     `gorm:"column:duration"`
+		GenreNames        string  `gorm:"column:genre_names"`
+		ReleaseDate       string  `gorm:"column:release_date"`
+		Tagline           string  `gorm:"column:tagline"`
+		ViewCount         int     `gorm:"column:view_count"`
+	}
+	
+	var media MediaResult
+	err := ns.db.Table("media").Where("id = ?", primaryMovieID).First(&media).Error
+	if err != nil {
+		log.Printf("⚠️ Failed to fetch local media details for %d: %v", primaryMovieID, err)
+		return
+	}
+
+	// Set primary notification data
+	notification.BackdropURL = media.TMDBBackdropURL
+	if notification.BackdropURL == "" && media.BackdropPath != "" {
+		notification.BackdropURL = fmt.Sprintf("/api/admin/assets/%s", media.BackdropPath)
+	}
+	
+	notification.PosterURL = media.TMDBPosterURL
+	if notification.PosterURL == "" {
+		notification.PosterURL = fmt.Sprintf("/api/posters/%d", media.ID)
+	}
+	
+	if media.LogoPath != "" {
+		notification.LogoURL = fmt.Sprintf("/api/%s", media.LogoPath)
+	}
+	
+	if media.TMDBTrailerURL != "" {
+		// Extract YouTube key from URL
+		notification.TrailerKey = ns.extractYouTubeKey(media.TMDBTrailerURL)
+	}
+	
+	notification.Rating = media.Rating
+	notification.ReleaseDate = media.ReleaseDate
+	if notification.ReleaseDate == "" && media.Year > 0 {
+		notification.ReleaseDate = fmt.Sprintf("%d-01-01", media.Year)
+	}
+	
+	if media.Duration > 0 {
+		notification.Runtime = media.Duration / 60 // Convert seconds to minutes
+	}
+	
+	notification.Overview = media.Description
+	notification.Tagline = media.Tagline
+	notification.Language = "en"
+	notification.Popularity = float64(media.ViewCount)
+
+	// Parse genres from JSON string
+	if media.GenreNames != "" {
+		var genres []string
+		if err := json.Unmarshal([]byte(media.GenreNames), &genres); err == nil {
+			notification.Genres = genres
+		}
+	}
+
+	// For multi-movie notifications, get details for all movies
+	if len(notification.MovieIDs) > 1 {
+		var mediaDetails []NotificationMedia
+		for _, movieID := range notification.MovieIDs {
+			var movieMedia MediaResult
+			if err := ns.db.Table("media").Where("id = ?", movieID).First(&movieMedia).Error; err != nil {
+				log.Printf("⚠️ Failed to fetch local media details for %d: %v", movieID, err)
+				continue
+			}
+
+			media := NotificationMedia{
+				ID:         int(movieMedia.ID),
+				Title:      movieMedia.Title,
+				SourceType: "local",
+				SourceID:   fmt.Sprintf("%d", movieMedia.ID),
+				Rating:     movieMedia.Rating,
+				Year:       movieMedia.Year,
+				Overview:   movieMedia.Description,
+			}
+			
+			media.PosterURL = movieMedia.TMDBPosterURL
+			if media.PosterURL == "" {
+				media.PosterURL = fmt.Sprintf("/api/posters/%d", movieMedia.ID)
+			}
+			
+			media.BackdropURL = movieMedia.TMDBBackdropURL
+			if media.BackdropURL == "" && movieMedia.BackdropPath != "" {
+				media.BackdropURL = fmt.Sprintf("/api/admin/assets/%s", movieMedia.BackdropPath)
+			}
+			
+			if movieMedia.Duration > 0 {
+				media.Runtime = movieMedia.Duration / 60
+			}
+
+			// Parse genres
+			if movieMedia.GenreNames != "" {
+				var genres []string
+				if err := json.Unmarshal([]byte(movieMedia.GenreNames), &genres); err == nil {
+					media.Genres = genres
+				}
+			}
+			
+			mediaDetails = append(mediaDetails, media)
+		}
+		notification.MediaDetails = mediaDetails
+	}
+}
+
+// extractYouTubeKey extracts YouTube video key from URL
+func (ns *NotificationService) extractYouTubeKey(url string) string {
+	if url == "" {
+		return ""
+	}
+	
+	// Common YouTube URL patterns
+	patterns := []string{
+		`(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([^&?\s]+)`,
+		`^([a-zA-Z0-9_-]{11})$`,
+	}
+	
+	for _, pattern := range patterns {
+		if match := regexp.MustCompile(pattern).FindStringSubmatch(url); len(match) > 1 {
+			return match[1]
+		}
+	}
+	
+	return ""
 }

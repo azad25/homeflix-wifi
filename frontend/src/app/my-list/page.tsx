@@ -16,7 +16,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Button } from '@/components/ui/button';
 import { removeFromWishlist, fetchWishlistMedia } from '@/lib/wishlist';
 import { useNavigate } from "@/hooks/useNavigate";
-import { WidgetRenderer } from '@/components/widgets';
 import { useMyList } from '@/hooks/useMyList';
 
 interface DownloadInfo {
@@ -556,7 +555,7 @@ export default function MyListPage() {
               </Select>
             </div>
 
-            <WidgetRenderer page="my-list" media={filteredList} className="mb-8" />
+
 
             {filteredList.length > 0 ? (
               <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-7 lg:grid-cols-9 xl:grid-cols-12 2xl:grid-cols-15 gap-1.5">

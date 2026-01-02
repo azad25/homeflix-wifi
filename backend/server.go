@@ -130,6 +130,34 @@ func main() {
 			log.Printf("✅ Notification service initialized successfully")
 			// Start background notification generation
 			notificationService.Start()
+			
+			// Create some initial diverse notifications for better UX
+			go func() {
+				time.Sleep(2 * time.Second) // Wait for services to be ready
+				log.Printf("🔔 Creating initial diverse notifications...")
+				
+				// Create different types of notifications
+				if err := notificationService.CreateTMDBTrendingMoviesNotification(); err != nil {
+					log.Printf("❌ Failed to create trending movies notification: %v", err)
+				}
+				
+				if err := notificationService.CreateTMDBUpcomingMoviesNotification(); err != nil {
+					log.Printf("❌ Failed to create upcoming movies notification: %v", err)
+				}
+				
+				if err := notificationService.CreateTMDBNowPlayingNotification(); err != nil {
+					log.Printf("❌ Failed to create now playing notification: %v", err)
+				}
+				
+				if err := notificationService.CreateTMDBUpcomingTVNotification(); err != nil {
+					log.Printf("❌ Failed to create upcoming TV notification: %v", err)
+				}
+				
+				if err := notificationService.CreateTMDBNowAiringTVNotification(); err != nil {
+					log.Printf("❌ Failed to create now airing TV notification: %v", err)
+				}
+			}()
+			
 			defer notificationService.Close()
 		}
 	} else {

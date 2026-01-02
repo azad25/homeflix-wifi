@@ -163,10 +163,11 @@ export default function BackendWidgetRenderer({
                 console.log('BackendWidgetRenderer: Received', Array.isArray(data) ? data.length : 0, 'widgets');
                 
                 if (Array.isArray(data)) {
-                    console.log('BackendWidgetRenderer: Received widgets:', data.map(w => ({ 
+                    console.log('🔔 BackendWidgetRenderer: Received widgets for page', page, ':', data.map(w => ({ 
                         id: w.id, 
                         name: w.name, 
                         type: w.type, 
+                        enabled: w.enabled,
                         data_source: w.data_source,
                         data_count: w.data?.length || 0 
                     })));
@@ -387,7 +388,9 @@ export default function BackendWidgetRenderer({
                         layout: widgetWithData.layout as any,
                         colorScheme: widgetWithData.color_scheme as any,
                     };
-                    console.log('BackendWidgetRenderer: Rendering NotificationWidget with config:', notificationWidget);
+                    console.log('🔔 BackendWidgetRenderer: Rendering NotificationWidget with config:', notificationWidget);
+                    console.log('🔔 BackendWidgetRenderer: Widget enabled:', widgetWithData.enabled);
+                    console.log('🔔 BackendWidgetRenderer: Widget data count:', widgetWithData.data?.length || 0);
                     return (
                         <NotificationWidget
                             key={widgetWithData.id}

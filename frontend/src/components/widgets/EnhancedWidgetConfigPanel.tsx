@@ -172,6 +172,20 @@ export default function EnhancedWidgetConfigPanel({
       }
     }
 
+    // Default notification types for notification widgets
+    const defaultNotificationTypes = [
+      'movie_suggestion',
+      'single_movie_suggestion',
+      'watch_again',
+      'tmdb_upcoming',
+      'tmdb_now_playing',
+      'tmdb_trending',
+      'tmdb_upcoming_tv',
+      'tmdb_now_airing_tv',
+      'new_episodes',
+      'new_movies'
+    ];
+
     const newWidget: Partial<Widget> = {
       name: 'New Widget',
       type: 'homeflix-grid',
@@ -181,7 +195,15 @@ export default function EnhancedWidgetConfigPanel({
       config: JSON.stringify({
         selectedContent,
         selectedGenres,
-        genreFilter: genreNames // Add genreFilter for backend compatibility
+        genreFilter: genreNames, // Add genreFilter for backend compatibility
+        notificationTypes: defaultNotificationTypes, // Add all notification types by default
+        show_logo: true,
+        show_description: true,
+        show_timestamp: true,
+        show_notification_icon: true,
+        highlight_style: 'banner',
+        auto_scroll: true,
+        scroll_interval: 10
       }),
       contentType: 'mixed',
       dataSource: genreNames.length > 0 ? 'local' : 'tmdb', // Use local data source for genre filtering
