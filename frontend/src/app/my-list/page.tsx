@@ -87,8 +87,8 @@ export default function MyListPage() {
   const [collectionItems, setCollectionItems] = useState<CollectionItem[]>([]);
   const [collectionsLoading, setCollectionsLoading] = useState(false);
 
-  // Use the My List hook for collections
-  const { collections, fetchCollections } = useMyList();
+  // Use the My List hook for both collections and my list
+  const { myList, collections, fetchCollections, isInMyList, toggleMyList, addToCollection } = useMyList();
 
   useEffect(() => {
     fetchWatchlist();
@@ -117,14 +117,48 @@ export default function MyListPage() {
   const fetchWatchlist = async () => {
     try {
       const apiUrl = getApiUrl();
+      console.log('Fetching watchlist from API:', apiUrl);
+      
+      // Try to fetch from backend My List first
+      try {
+        const response = await fetch(`${apiUrl}/api/mylist`, {
+          headers: {
+            'X-User-ID': '1'
+          }
+        });
+        
+        console.log('My List API response status:', response.status);
+        
+        if (response.ok) {
+          const myListItems = await response.json();
+          console.log('My List items from backend:', myListItems);
+          const mediaList = myListItems
+            .map((item: any) => item.media)
+            .filter((media: any) => media && media.id && media.title); // Filter out invalid media
+          console.log('Processed media list:', mediaList);
+          setWatchlist(mediaList);
+          if (mediaList.length > 0) {
+            preloadAssets(mediaList, ['poster', 'thumbnail']);
+          }
+          setLoading(false);
+          return;
+        }
+      } catch (backendError) {
+        console.log('Backend My List error:', backendError);
+        console.log('Backend My List not available, falling back to cookies');
+      }
+      
+      // Fallback to cookie-based wishlist
+      console.log('Using cookie-based wishlist fallback');
       const wishlistMedia = await fetchWishlistMedia(apiUrl);
+      console.log('Cookie-based wishlist media:', wishlistMedia);
       setWatchlist(wishlistMedia);
       if (wishlistMedia.length > 0) {
         preloadAssets(wishlistMedia, ['poster', 'thumbnail']);
       }
       setLoading(false);
     } catch (error) {
-      console.error("Error fetching wishlist:", error);
+      console.error("Error fetching watchlist:", error);
       setWatchlist([]);
       setLoading(false);
     }
@@ -187,6 +221,7 @@ export default function MyListPage() {
         const downloadingItems: DownloadingMedia[] = [];
         
         for (const download of downloads) {
+          // Show both downloading and paused downloads in the downloads tab
           if (download.tmdb_id && (download.status === 'downloading' || download.status === 'paused')) {
             const tmdbWishlistId = parseInt(`9${download.tmdb_id}`);
             const wishlistItem = watchlist.find(item => item.id === tmdbWishlistId);
@@ -301,8 +336,16 @@ export default function MyListPage() {
 
   const handleRemoveFromList = async (mediaId: number) => {
     try {
-      const success = removeFromWishlist(mediaId);
+      // Try backend My List first
+      const success = await toggleMyList(mediaId);
       if (success) {
+        setWatchlist(prev => prev.filter(item => item.id !== mediaId));
+        return;
+      }
+      
+      // Fallback to cookie-based wishlist
+      const success2 = removeFromWishlist(mediaId);
+      if (success2) {
         setWatchlist(prev => prev.filter(item => item.id !== mediaId));
       }
     } catch (error) {
