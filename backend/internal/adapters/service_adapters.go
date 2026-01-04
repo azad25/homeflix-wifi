@@ -108,8 +108,16 @@ func (a *TMDBServiceAdapter) DownloadMovieLogo(tmdbID int, mediaID uint, logoDir
 	return a.service.DownloadMovieLogo(tmdbID, mediaID, logoDir)
 }
 
+func (a *TMDBServiceAdapter) DownloadTVLogo(tmdbID int, seriesID uint, seriesTitle, logoDir string) (string, error) {
+	return a.service.DownloadTVLogo(tmdbID, seriesID, seriesTitle, logoDir)
+}
+
 func (a *TMDBServiceAdapter) DownloadLogoByTitle(title string, mediaID uint, logoDir string) (string, error) {
 	return a.service.DownloadLogoByTitle(title, mediaID, logoDir)
+}
+
+func (a *TMDBServiceAdapter) DownloadTVLogoByTitle(title string, seriesID uint, logoDir string) (string, error) {
+	return a.service.DownloadTVLogoByTitle(title, seriesID, logoDir)
 }
 
 func (a *TMDBServiceAdapter) DownloadMovieBackdrop(tmdbID int, mediaID uint, backdropDir string) (string, error) {
@@ -118,6 +126,14 @@ func (a *TMDBServiceAdapter) DownloadMovieBackdrop(tmdbID int, mediaID uint, bac
 
 func (a *TMDBServiceAdapter) DownloadBackdropByTitle(title string, mediaID uint, backdropDir string) (string, error) {
 	return a.service.DownloadBackdropByTitle(title, mediaID, backdropDir)
+}
+
+func (a *TMDBServiceAdapter) DownloadTVBackdrop(tmdbID int, seriesID uint, seriesTitle, backdropDir string) (string, error) {
+	return a.service.DownloadTVBackdrop(tmdbID, seriesID, seriesTitle, backdropDir)
+}
+
+func (a *TMDBServiceAdapter) DownloadTVBackdropByTitle(title string, seriesID uint, backdropDir string) (string, error) {
+	return a.service.DownloadTVBackdropByTitle(title, seriesID, backdropDir)
 }
 
 func (a *TMDBServiceAdapter) GetPosterURL(posterPath string, size string) string {
@@ -179,6 +195,14 @@ func (a *MediaServiceAdapter) CreateSubtitle(subtitle *models.Subtitle) error {
 
 func (a *MediaServiceAdapter) GetAllMedia() ([]models.Media, error) {
 	return a.service.GetAllMedia()
+}
+
+func (a *MediaServiceAdapter) GetSeriesByID(seriesID uint) (*models.Series, error) {
+	return a.service.GetSeriesByID(seriesID)
+}
+
+func (a *MediaServiceAdapter) UpdateSeries(id uint, updates map[string]interface{}) (*models.Series, error) {
+	return a.service.UpdateSeries(id, updates)
 }
 
 func (a *MediaServiceAdapter) SearchMedia(query string) ([]models.Media, error) {

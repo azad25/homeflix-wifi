@@ -61,9 +61,11 @@ type JobStatus struct {
 type MediaServiceInterface interface {
 	GetMediaByPath(path string) (*models.Media, error)
 	GetAllMedia() ([]models.Media, error)
+	GetSeriesByID(seriesID uint) (*models.Series, error)
 	MediaExists(path string) (bool, error)
 	CreateMedia(media *models.Media) error
 	UpdateMedia(media *models.Media) error
+	UpdateSeries(id uint, updates map[string]interface{}) (*models.Series, error)
 	UpsertMedia(media *models.Media) error
 	DeleteMedia(id uint) error
 	FindOrCreateSeries(title string) (*models.Series, error)
@@ -140,6 +142,10 @@ type TMDBServiceInterface interface {
 	DownloadLogoByTitle(title string, mediaID uint, logoDir string) (string, error)
 	DownloadMovieBackdrop(tmdbID int, mediaID uint, backdropDir string) (string, error)
 	DownloadBackdropByTitle(title string, mediaID uint, backdropDir string) (string, error)
+	DownloadTVLogo(tmdbID int, seriesID uint, seriesTitle, logoDir string) (string, error)
+	DownloadTVLogoByTitle(title string, seriesID uint, logoDir string) (string, error)
+	DownloadTVBackdrop(tmdbID int, seriesID uint, seriesTitle, backdropDir string) (string, error)
+	DownloadTVBackdropByTitle(title string, seriesID uint, backdropDir string) (string, error)
 	GetPosterURL(posterPath string, size string) string
 	TestConnection() error
 }

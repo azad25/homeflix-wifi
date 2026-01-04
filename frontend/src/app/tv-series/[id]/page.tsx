@@ -286,12 +286,18 @@ export default function TVSeriesPage() {
     console.log('🖼️ Getting background image for:', media.title);
 
     // First try TMDB backdrop if available (high priority for backdrop)
+    // Prefer locally hosted series backdrop endpoint
+    if (media.backdrop_path && media.id) {
+      const backdropEndpoint = `${apiUrl}/api/series/${media.id}/backdrop`;
+      console.log('🖼️ Using local series backdrop endpoint');
+      return backdropEndpoint;
+    }
+
     if (media.tmdb_backdrop_url) {
       console.log('🖼️ Using TMDB backdrop');
       return media.tmdb_backdrop_url;
     }
 
-    // Then try local banner
     if (media.banner_path) {
       console.log('🖼️ Using series banner');
       return `${apiUrl}/api/admin/assets/${media.banner_path.split('/').pop()}`;
@@ -312,18 +318,22 @@ export default function TVSeriesPage() {
 
     // Fallback to series thumbnail
     console.log('🖼️ Using series thumbnail:', media.id);
-    return `${apiUrl}/api/thumbnails/${media.id}`;
+    return media.id ? `${apiUrl}/api/thumbnails/${media.id}` : `${apiUrl}/api/thumbnails/${params.id}`;
   };
 
   const getBackdropImageUrl = (media: Media) => {
     const apiUrl = getApiUrl();
 
     // First try TMDB backdrop if available (high priority for backdrop)
+    // Prefer local series backdrop endpoint
+    if (media.backdrop_path && media.id) {
+      return `${apiUrl}/api/series/${media.id}/backdrop`;
+    }
+
     if (media.tmdb_backdrop_url) {
       return media.tmdb_backdrop_url;
     }
 
-    // Then try local banner
     if (media.banner_path) {
       return `${apiUrl}/api/admin/assets/${media.banner_path.split('/').pop()}`;
     }
@@ -782,18 +792,17 @@ export default function TVSeriesPage() {
                 </div>
 
                 {/* Series Title - Logo or Text */}
-                {series.logo_path ? (
-                  <img
-                    src={`${getApiUrl()}/api/${series.logo_path}`}
-                    alt={series.title}
-                    className="max-h-20 md:max-h-28 w-auto mb-3 drop-shadow-2xl"
-                    onError={(e) => {
-                      e.currentTarget.style.display = 'none';
-                      const fallback = e.currentTarget.nextElementSibling as HTMLElement;
-                      if (fallback) fallback.style.display = 'block';
-                    }}
-                  />
-                ) : null}
+                <img
+                  src={`${getApiUrl()}/api/series/${series.id}/logo`}
+                  alt={series.title}
+                  className="max-h-20 md:max-h-28 w-auto mb-3 drop-shadow-2xl"
+                  style={{ display: series.logo_path ? 'block' : 'none' }}
+                  onError={(e) => {
+                    e.currentTarget.style.display = 'none';
+                    const fallback = e.currentTarget.nextElementSibling as HTMLElement;
+                    if (fallback) fallback.style.display = 'block';
+                  }}
+                />
                 <h1
                   className="text-3xl md:text-4xl lg:text-5xl font-bold text-white mb-3 leading-tight bg-gradient-to-r from-white to-gray-300 bg-clip-text text-transparent"
                   style={{ display: series.logo_path ? 'none' : 'block' }}

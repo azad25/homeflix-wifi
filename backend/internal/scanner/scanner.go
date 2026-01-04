@@ -2106,6 +2106,7 @@ func (s *MediaScanner) processVideoFile(path string, info os.FileInfo) error {
 	}
 
 	// If it's an episode, find or create the series and assign season/episode numbers
+	var seriesForAssets *models.Series
 	if metadata.Type == "episode" && metadata.SeriesTitle != "" {
 		// CRITICAL FIX: Preserve existing SeriesID to prevent duplicate series on rename
 		// Only find/create series for new episodes or episodes without a series assignment
@@ -2123,6 +2124,15 @@ func (s *MediaScanner) processVideoFile(path string, info os.FileInfo) error {
 				media.Episode = &metadata.Episode
 				media.EpisodeNumber = &metadata.Episode
 				log.Printf("🔄 Updated episode number to: %d", metadata.Episode)
+			}
+
+			// Fetch series details for asset processing
+			if s.GetMediaService() != nil {
+				if series, err := s.GetMediaService().GetSeriesByID(*media.SeriesID); err != nil {
+					log.Printf("⚠️ Failed to load series %d for asset processing: %v", *media.SeriesID, err)
+				} else {
+					seriesForAssets = series
+				}
 			}
 		} else {
 			// New episode or episode without series - find or create series with fuzzy matching
@@ -2146,6 +2156,7 @@ func (s *MediaScanner) processVideoFile(path string, info os.FileInfo) error {
 
 			log.Printf("📺 Episode metadata assigned - Series: %s (ID: %d), Season: %d, Episode: %d",
 				series.Title, series.ID, metadata.Season, metadata.Episode)
+			seriesForAssets = series
 		}
 	} else if metadata.Type == "movie" {
 		// Ensure movies don't get assigned to series
@@ -2155,6 +2166,11 @@ func (s *MediaScanner) processVideoFile(path string, info os.FileInfo) error {
 		media.Episode = nil
 		media.EpisodeNumber = nil
 		log.Printf("🎬 Movie metadata assigned - Title: %s, Year: %d", media.Title, metadata.Year)
+	}
+
+	// Trigger asynchronous asset download for the parent series when applicable
+	if seriesForAssets != nil {
+		s.scheduleSeriesAssetDownload(seriesForAssets)
 	}
 
 	// Enhanced title validation - only fix if title is actually empty
@@ -5757,6 +5773,8 @@ func (s *MediaScanner) scheduleAssetGenerationWithFallbacks(media *models.Media,
 	// Generate thumbnail with fallbacks (can run in parallel as it's lighter)
 	if needsThumbnail {
 		go func() {
+			s.incrementGoroutines()
+			defer s.decrementGoroutines()
 			if _, err := s.GetThumbnailService().GenerateThumbnail(path, media.ID, media.Title); err != nil {
 				log.Printf("❌ Thumbnail generation failed for %s: %v", media.Title, err)
 
@@ -5800,6 +5818,89 @@ func (s *MediaScanner) scheduleAssetGenerationWithFallbacks(media *models.Media,
 // scheduleAssetGeneration provides backward compatibility (calls new method)
 func (s *MediaScanner) scheduleAssetGeneration(media *models.Media, path string, needsThumbnail, needsPreview bool) {
 	s.scheduleAssetGenerationWithFallbacks(media, path, needsThumbnail, needsPreview)
+}
+
+// scheduleSeriesAssetDownload downloads poster/logo/backdrop for a TV series when missing
+func (s *MediaScanner) scheduleSeriesAssetDownload(series *models.Series) {
+	if series == nil || s.GetTMDBService() == nil {
+		return
+	}
+
+	go func(seriesCopy models.Series) {
+		s.incrementGoroutines()
+		defer s.decrementGoroutines()
+
+		// Delay slightly to avoid competing with ongoing DB operations
+		time.Sleep(3 * time.Second)
+
+		// Refresh latest series data
+		refreshedSeries := &seriesCopy
+		if s.GetMediaService() != nil {
+			if current, err := s.GetMediaService().GetSeriesByID(seriesCopy.ID); err != nil {
+				log.Printf("⚠️ Failed to refresh series %d before asset download: %v", seriesCopy.ID, err)
+			} else {
+				refreshedSeries = current
+			}
+		}
+
+		seriesTitle := refreshedSeries.Title
+		seriesID := refreshedSeries.ID
+
+		updates := make(map[string]interface{})
+		posterDir := "./backend/posters"
+		logoDir := "./logos"
+		backdropDir := "./backdrops"
+
+		// Ensure directories exist for assets downloaded directly via TMDB service
+		if err := os.MkdirAll(posterDir, 0755); err != nil {
+			log.Printf("⚠️ Failed to ensure poster directory: %v", err)
+		}
+		if err := os.MkdirAll(logoDir, 0755); err != nil {
+			log.Printf("⚠️ Failed to ensure logo directory: %v", err)
+		}
+		if err := os.MkdirAll(backdropDir, 0755); err != nil {
+			log.Printf("⚠️ Failed to ensure backdrop directory: %v", err)
+		}
+
+		// Poster download (prefer existing local path)
+		if refreshedSeries.PosterPath == "" && s.GetPosterService() != nil {
+			if posterPath, err := s.GetPosterService().DownloadTVPosterWithPath(seriesTitle, seriesID); err != nil {
+				log.Printf("⚠️ Failed to download TV poster for series %s: %v", seriesTitle, err)
+			} else if posterPath != "" {
+				updates["poster_path"] = posterPath
+			}
+		}
+
+		// Logo download via TMDB service
+		if refreshedSeries.LogoPath == "" {
+			if logoPath, err := s.GetTMDBService().DownloadTVLogoByTitle(seriesTitle, seriesID, logoDir); err != nil {
+				log.Printf("⚠️ Failed to download TV logo for series %s: %v", seriesTitle, err)
+			} else if logoPath != "" {
+				updates["logo_path"] = logoPath
+			}
+		}
+
+		// Backdrop download via TMDB service
+		if refreshedSeries.BackdropPath == "" {
+			if backdropPath, err := s.GetTMDBService().DownloadTVBackdropByTitle(seriesTitle, seriesID, backdropDir); err != nil {
+				log.Printf("⚠️ Failed to download TV backdrop for series %s: %v", seriesTitle, err)
+			} else if backdropPath != "" {
+				updates["backdrop_path"] = backdropPath
+				updates["tmdb_backdrop_url"] = fmt.Sprintf("/api/series/%d/backdrop", seriesID)
+			}
+		}
+
+		if len(updates) == 0 {
+			log.Printf("ℹ️ No new TV series assets downloaded for %s (ID: %d)", seriesTitle, seriesID)
+			return
+		}
+
+		if _, err := s.GetMediaService().UpdateSeries(seriesID, updates); err != nil {
+			log.Printf("⚠️ Failed to update series %s with asset paths: %v", seriesTitle, err)
+		} else {
+			log.Printf("✅ TV series assets saved for %s: %+v", seriesTitle, updates)
+		}
+	}( *series)
 }
 
 // regenerateMediaAssets regenerates only missing assets for a single media item

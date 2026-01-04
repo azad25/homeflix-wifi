@@ -2,11 +2,12 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Play, Info, Star, ChevronLeft, ChevronRight, Plus, Check, Calendar, Clock, Volume2, VolumeX, Maximize2, Flame, Zap, Crown, Heart, Sparkles, Award, TrendingUp, Eye, ThumbsUp, Gift, Rocket, Target, Shield, Diamond } from 'lucide-react';
+import { Info, Star, ChevronLeft, ChevronRight, Plus, Check, Calendar, Clock, Volume2, VolumeX, Maximize2, Flame, Zap, Crown, Heart, Sparkles, Award, TrendingUp, Eye, ThumbsUp, Gift, Rocket, Target, Shield, Diamond } from 'lucide-react';
 import { Media } from '@/types/media';
 import { getApiUrl, preloadAssets } from '@/lib/api';
 import { getColorPaletteByGenre, DominantColors } from '@/types/widgets';
 import { useNavigate } from '@/hooks/useNavigate';
+import { navigateToMedia } from '@/lib/mediaNavigation';
 
 interface BackdropSlideshowProps {
     media: Media[];
@@ -127,21 +128,7 @@ export default function BackdropSlideshow({
     };
 
     const handleCardClick = (media: Media) => {
-        // Check if it's TMDB content (has tmdb_id) or local content
-        if (media.tmdb_id) {
-            // Navigate to TMDB movie page with proper media type detection
-            const mediaType = media.type === 'tv' || media.type === 'series' || media.type === 'episode' ? 'tv' : 'movie';
-            navigate.push(`/tmdb-movie/${media.tmdb_id}?type=${mediaType}`);
-        } else {
-            // Navigate to local content pages
-            if (media.type === 'episode' || media.type === 'tv' || media.type === 'series') {
-                const seriesId = media.series_id || media.id;
-                navigate.push(`/tv-series/${seriesId}`);
-            } else {
-                // Local movie - navigate to local movie page
-                navigate.push(`/movie/${media.id}`);
-            }
-        }
+        navigateToMedia(navigate, media);
     };
 
     const getBackdropUrl = (m: Media) => {
@@ -211,7 +198,6 @@ export default function BackdropSlideshow({
             'Trending': TrendingUp,
             'Clock': Clock,
             'Calendar': Calendar,
-            'Play': Play,
             'Eye': Eye,
             'Thumbs Up': ThumbsUp,
             'Gift': Gift,
@@ -280,22 +266,6 @@ export default function BackdropSlideshow({
                     isHovering ? 'opacity-100' : 'opacity-0'
                 }`} 
             />
-
-            {/* Play icon overlay on hover */}
-            <div 
-                className={`absolute inset-0 flex items-center justify-center transition-opacity duration-300 z-10 ${
-                    isHovering ? 'opacity-100' : 'opacity-0'
-                }`}
-            >
-                <motion.div
-                    initial={{ scale: 0.8 }}
-                    animate={{ scale: isHovering ? 1 : 0.8 }}
-                    transition={{ duration: 0.3 }}
-                    className="w-20 h-20 bg-white/20 backdrop-blur-md rounded-full flex items-center justify-center border border-white/30"
-                >
-                    <Play className="w-8 h-8 text-white fill-current ml-1" />
-                </motion.div>
-            </div>
 
             {/* Custom Tag/Heading */}
             {config.showTag && config.tagText && (

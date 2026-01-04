@@ -6,13 +6,9 @@ import { useNavigate } from '@/hooks/useNavigate';
 import Navbar from "@/components/Navbar";
 import { Media } from '../../types/media';
 import VideoPlayer from "@/components/VideoPlayer";
-import HomeflixHero from '@/components/HomeflixHero';
 import { WidgetManagementButton } from '@/components/widgets';
 import BackendWidgetRenderer from '@/components/widgets/BackendWidgetRenderer';
 import ErrorBoundary from "@/components/ErrorBoundary";
-
-// Memoized components for better performance
-const MemoizedHomeflixHero = React.memo(HomeflixHero);
 
 export default function MoviesPage() {
   usePageTitle('Movies');
@@ -42,20 +38,11 @@ export default function MoviesPage() {
     <div className="min-h-screen bg-black text-white">
       <Navbar onSearch={() => {}} />
 
-      {/* Hero Section */}
-      <MemoizedHomeflixHero
-        onPlay={handlePlay}
-        onInfo={handleInfo}
-        maxMovies={10}
-        contentFilter="movies-hd"
-        sortMode="mixed"
-      />
-
       {/* Widget System Integration */}
       <ErrorBoundary>
         <BackendWidgetRenderer 
           page="movies" 
-          className="py-8"
+          className="py-8 mt-12 px-3 md:px-6 lg:px-8"
         />
       </ErrorBoundary>
 

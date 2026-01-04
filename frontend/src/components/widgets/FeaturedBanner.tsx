@@ -7,6 +7,7 @@ import { Media } from '@/types/media';
 import { getApiUrl, preloadAssets } from '@/lib/api';
 import { getColorPaletteByGenre, DominantColors } from '@/types/widgets';
 import { useNavigate } from '@/hooks/useNavigate';
+import { navigateToMedia } from '@/lib/mediaNavigation';
 
 interface FeaturedBannerProps {
     media: Media[];
@@ -115,41 +116,13 @@ export default function FeaturedBanner({
 
     const handlePlay = () => {
         if (currentMedia) {
-            // Check if it's TMDB content (has tmdb_id) or local content
-            if (currentMedia.tmdb_id) {
-                // Navigate to TMDB movie page with proper media type detection
-                const mediaType = currentMedia.type === 'tv' || currentMedia.type === 'series' || currentMedia.type === 'episode' ? 'tv' : 'movie';
-                navigate.push(`/tmdb-movie/${currentMedia.tmdb_id}?type=${mediaType}`);
-            } else {
-                // Navigate to local content pages
-                if (currentMedia.type === 'episode' || currentMedia.type === 'tv' || currentMedia.type === 'series') {
-                    const seriesId = currentMedia.series_id || currentMedia.id;
-                    navigate.push(`/tv-series/${seriesId}`);
-                } else {
-                    // Local movie - navigate to local movie page
-                    navigate.push(`/movie/${currentMedia.id}`);
-                }
-            }
+            navigateToMedia(navigate, currentMedia);
         }
     };
 
     const handleMoreInfo = () => {
         if (currentMedia) {
-            // Check if it's TMDB content (has tmdb_id) or local content
-            if (currentMedia.tmdb_id) {
-                // Navigate to TMDB movie page with proper media type detection
-                const mediaType = currentMedia.type === 'tv' || currentMedia.type === 'series' || currentMedia.type === 'episode' ? 'tv' : 'movie';
-                navigate.push(`/tmdb-movie/${currentMedia.tmdb_id}?type=${mediaType}`);
-            } else {
-                // Navigate to local content pages
-                if (currentMedia.type === 'episode' || currentMedia.type === 'tv' || currentMedia.type === 'series') {
-                    const seriesId = currentMedia.series_id || currentMedia.id;
-                    navigate.push(`/tv-series/${seriesId}`);
-                } else {
-                    // Local movie - navigate to local movie page
-                    navigate.push(`/movie/${currentMedia.id}`);
-                }
-            }
+            navigateToMedia(navigate, currentMedia);
         }
     };
 
@@ -334,27 +307,34 @@ export default function FeaturedBanner({
                                 exit={{ opacity: 0, y: -20 }}
                                 transition={{ duration: 0.6, delay: 0.2 }}
                             >
-                                {showLogo && getLogoUrl(currentMedia) ? (
-                                    <img
-                                        src={getLogoUrl(currentMedia)!}
-                                        alt={currentMedia.title}
-                                        className="max-h-20 md:max-h-28 lg:max-h-36 w-auto mb-6 drop-shadow-2xl"
-                                        onError={(e) => {
-                                            e.currentTarget.style.display = 'none';
-                                            const fallback = e.currentTarget.nextElementSibling as HTMLElement;
-                                            if (fallback) fallback.style.display = 'block';
-                                        }}
-                                    />
-                                ) : null}
-                                <h1
-                                    className="text-3xl md:text-4xl lg:text-5xl font-bold mb-4 leading-tight"
-                                    style={{
-                                        display: showLogo && getLogoUrl(currentMedia) ? 'none' : 'block',
-                                        textShadow: `0 0 40px ${colors.primary}40`,
-                                    }}
+                                <button
+                                    type="button"
+                                    onClick={handlePlay}
+                                    className="group bg-transparent border-0 p-0 m-0 text-left focus:outline-none cursor-pointer"
+                                    style={{ display: 'block' }}
                                 >
-                                    {currentMedia.title}
-                                </h1>
+                                    {showLogo && getLogoUrl(currentMedia) ? (
+                                        <img
+                                            src={getLogoUrl(currentMedia)!}
+                                            alt={currentMedia.title}
+                                            className="max-h-20 md:max-h-28 lg:max-h-36 w-auto mb-6 drop-shadow-2xl transition-transform duration-300 group-hover:scale-[1.02]"
+                                            onError={(e) => {
+                                                e.currentTarget.style.display = 'none';
+                                                const fallback = e.currentTarget.nextElementSibling as HTMLElement;
+                                                if (fallback) fallback.style.display = 'block';
+                                            }}
+                                        />
+                                    ) : null}
+                                    <h1
+                                        className="text-3xl md:text-4xl lg:text-5xl font-bold mb-4 leading-tight transition-colors duration-300 group-hover:text-white"
+                                        style={{
+                                            display: showLogo && getLogoUrl(currentMedia) ? 'none' : 'block',
+                                            textShadow: `0 0 40px ${colors.primary}40`,
+                                        }}
+                                    >
+                                        {currentMedia.title}
+                                    </h1>
+                                </button>
                             </motion.div>
                         </AnimatePresence>
 
@@ -433,20 +413,6 @@ export default function FeaturedBanner({
                         transition={{ delay: 0.7 }}
                         className="flex items-center gap-3"
                     >
-                        <button
-                            onClick={handlePlay}
-                            className="flex items-center gap-2 px-6 py-3 bg-white text-black font-bold rounded-md hover:bg-white/90 transition-all transform hover:scale-105"
-                        >
-                            <Play className="w-5 h-5 fill-current" />
-                            {currentMedia.tmdb_id ? 'View Details' : 'Play'}
-                        </button>
-                        <button
-                            onClick={handleMoreInfo}
-                            className="flex items-center gap-2 px-6 py-3 bg-white/20 backdrop-blur-sm text-white font-semibold rounded-md hover:bg-white/30 transition-all"
-                        >
-                            <Info className="w-5 h-5" />
-                            More Info
-                        </button>
                         <button
                             onClick={toggleMyList}
                             className="p-3 bg-white/10 backdrop-blur-sm rounded-full hover:bg-white/20 transition-all border border-white/20"

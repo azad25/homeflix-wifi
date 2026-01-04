@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Play, Info, Volume2, VolumeX, ExternalLink, ChevronLeft, ChevronRight, Star, Calendar, Plus, Check, Flame, Zap, Crown, Heart, Sparkles, Award, TrendingUp, Clock, Eye, ThumbsUp, Gift, Rocket, Target, Shield, Diamond } from 'lucide-react';
 import { Media } from '@/types/media';
 import { getApiUrl } from '@/lib/api';
+import { navigateToMedia } from '@/lib/mediaNavigation';
 import { useNavigate } from '@/hooks/useNavigate';
 import { useMyList } from '@/hooks/useMyList';
 
@@ -80,9 +81,13 @@ export default function TrailerWidget({
     const [logoUrls, setLogoUrls] = useState<{ [key: number]: string }>({});
     const autoScrollRef = useRef<NodeJS.Timeout | null>(null);
     const playerRef = useRef<any>(null);
+    const endPollRef = useRef<NodeJS.Timeout | null>(null);
+    const advancedRef = useRef<boolean>(false);
+    const playerInitTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
     const apiUrl = getApiUrl();
     const currentTrailer = trailers[currentIndex];
+    const showNavigationButtons = false;
 
     // Convert media prop to trailers (backend must provide tmdb_trailer_url)
     const convertMediaToTrailers = useCallback(() => {
@@ -225,6 +230,8 @@ export default function TrailerWidget({
         convertMediaToTrailers();
     }, [convertMediaToTrailers]);
     const goToNextSlide = useCallback(() => {
+        if (trailers.length === 0) return;
+        advancedRef.current = false;
         setCurrentIndex((prev) => (prev + 1) % trailers.length);
         setImageLoaded(false);
         setIsPlaying(false);
@@ -300,11 +307,27 @@ export default function TrailerWidget({
             playerRef.current = null;
         }
 
-        const timer = setTimeout(() => {
-            const containerId = `yt-player-trailer-${currentTrailer.media.id}`;
+        // Reset end detection for new slide
+        advancedRef.current = false;
+        if (endPollRef.current) {
+            clearInterval(endPollRef.current);
+            endPollRef.current = null;
+        }
+        if (playerInitTimeoutRef.current) {
+            clearTimeout(playerInitTimeoutRef.current);
+            playerInitTimeoutRef.current = null;
+        }
+
+        const containerId = `yt-player-trailer-${currentTrailer.media.id}`;
+
+        const waitForContainer = (attempt: number = 0) => {
             const container = document.getElementById(containerId);
             if (!container) {
-                console.log('Container not found:', containerId);
+                if (attempt < 20) {
+                    playerInitTimeoutRef.current = setTimeout(() => waitForContainer(attempt + 1), 100);
+                } else {
+                    console.warn('TrailerWidget: Container not found after retries:', containerId);
+                }
                 return;
             }
 
@@ -347,14 +370,53 @@ export default function TrailerWidget({
                             console.log('YouTube player state changed:', event.data);
                             // 1 = playing, 0 = ended, 2 = paused
                             if (event.data === 1) {
+                                advancedRef.current = false;
                                 setVideoReady(true);
                                 setIsPlaying(true);
                                 console.log('Video is now playing');
+
+                                // Start/end fallback poll to detect end reliably
+                                if (endPollRef.current) {
+                                    clearInterval(endPollRef.current);
+                                    endPollRef.current = null;
+                                }
+                                endPollRef.current = setInterval(() => {
+                                    try {
+                                        const player = playerRef.current || event.target;
+                                        if (!player || typeof player.getCurrentTime !== 'function') return;
+                                        const duration = typeof player.getDuration === 'function' ? player.getDuration() : 0;
+                                        const current = player.getCurrentTime();
+                                        if (duration && current && (duration - current) <= 1 && !advancedRef.current) {
+                                            advancedRef.current = true;
+                                            if (endPollRef.current) {
+                                                clearInterval(endPollRef.current);
+                                                endPollRef.current = null;
+                                            }
+                                            setTimeout(() => {
+                                                goToNextSlide();
+                                            }, 500);
+                                        }
+                                    } catch (e) {
+                                        // ignore polling errors
+                                    }
+                                }, 500);
                             } else if (event.data === 0) {
+                                if (advancedRef.current) {
+                                    return;
+                                }
                                 setVideoReady(false);
                                 setIsPlaying(false);
+                                if (endPollRef.current) {
+                                    clearInterval(endPollRef.current);
+                                    endPollRef.current = null;
+                                }
                                 console.log('Video ended, advancing to next');
-                                goToNextSlide();
+                                advancedRef.current = true;
+                                setTimeout(() => {
+                                    goToNextSlide();
+                                }, 500);
+                            } else if (event.data === 2) {
+                                setIsPlaying(false);
                             }
                         },
                         onReady: (event: any) => {
@@ -432,12 +494,43 @@ export default function TrailerWidget({
                 // If player creation fails, advance to next slide
                 setTimeout(() => goToNextSlide(), 1000);
             }
-        }, 100); // Increased timeout for better stability
+        };
+
+        waitForContainer();
 
         return () => {
-            clearTimeout(timer);
+            if (playerInitTimeoutRef.current) {
+                clearTimeout(playerInitTimeoutRef.current);
+                playerInitTimeoutRef.current = null;
+            }
+            if (endPollRef.current) {
+                clearInterval(endPollRef.current);
+                endPollRef.current = null;
+            }
         };
     }, [ytReady, currentIndex, trailers, isMuted, goToNextSlide]);
+
+    // Cleanup on unmount
+    useEffect(() => {
+        return () => {
+            if (endPollRef.current) {
+                clearInterval(endPollRef.current);
+                endPollRef.current = null;
+            }
+            if (autoScrollRef.current) {
+                clearInterval(autoScrollRef.current);
+                autoScrollRef.current = null;
+            }
+            if (playerRef.current) {
+                try { playerRef.current.destroy(); } catch (e) {}
+                playerRef.current = null;
+            }
+            if (playerInitTimeoutRef.current) {
+                clearTimeout(playerInitTimeoutRef.current);
+                playerInitTimeoutRef.current = null;
+            }
+        };
+    }, []);
 
     // Handle mute toggle
     useEffect(() => {
@@ -470,36 +563,15 @@ export default function TrailerWidget({
 
     const handlePlay = () => {
         if (currentTrailer) {
-            // Navigate to the actual media page
             const media = currentTrailer.media;
-            if (media.tmdb_id) {
-                const mediaType = media.type === 'tv' || media.type === 'series' || media.type === 'episode' ? 'tv' : 'movie';
-                navigate.push(`/tmdb-movie/${media.tmdb_id}?type=${mediaType}`);
-            } else {
-                if (media.type === 'episode' || media.type === 'tv' || media.type === 'series') {
-                    const seriesId = media.series_id || media.id;
-                    navigate.push(`/tv-series/${seriesId}`);
-                } else {
-                    navigate.push(`/movie/${media.id}`);
-                }
-            }
+            navigateToMedia(navigate, media);
         }
     };
 
     const handleMoreInfo = () => {
         if (currentTrailer) {
             const media = currentTrailer.media;
-            if (media.tmdb_id) {
-                const mediaType = media.type === 'tv' || media.type === 'series' || media.type === 'episode' ? 'tv' : 'movie';
-                navigate.push(`/tmdb-movie/${media.tmdb_id}?type=${mediaType}`);
-            } else {
-                if (media.type === 'episode' || media.type === 'tv' || media.type === 'series') {
-                    const seriesId = media.series_id || media.id;
-                    navigate.push(`/tv-series/${seriesId}`);
-                } else {
-                    navigate.push(`/movie/${media.id}`);
-                }
-            }
+            navigateToMedia(navigate, media);
         }
     };
 
@@ -719,7 +791,7 @@ export default function TrailerWidget({
             )}
 
             {/* Navigation arrows */}
-            {trailers.length > 1 && (
+            {showNavigationButtons && trailers.length > 1 && (
                 <>
                     <motion.button
                         onClick={handlePrevious}
@@ -756,27 +828,34 @@ export default function TrailerWidget({
                                 exit={{ opacity: 0, y: -20 }}
                                 transition={{ duration: 0.6, delay: 0.2 }}
                             >
-                                {getLogoUrl(currentTrailer) ? (
-                                    <img
-                                        src={getLogoUrl(currentTrailer)!}
-                                        alt={currentTrailer.media.title}
-                                        className="max-h-12 md:max-h-16 lg:max-h-20 xl:max-h-24 w-auto mb-3 md:mb-4 drop-shadow-2xl"
-                                        onError={(e) => {
-                                            e.currentTarget.style.display = 'none';
-                                            const fallback = e.currentTarget.nextElementSibling as HTMLElement;
-                                            if (fallback) fallback.style.display = 'block';
-                                        }}
-                                    />
-                                ) : null}
-                                <h1
-                                    className="text-xl md:text-2xl lg:text-3xl xl:text-4xl font-bold mb-2 md:mb-3 leading-tight text-white drop-shadow-lg"
-                                    style={{
-                                        display: getLogoUrl(currentTrailer) ? 'none' : 'block',
-                                        textShadow: '2px 2px 4px rgba(0,0,0,0.8)',
-                                    }}
+                                <button
+                                    type="button"
+                                    onClick={handlePlay}
+                                    className="group bg-transparent border-0 p-0 m-0 text-left focus:outline-none cursor-pointer"
+                                    style={{ display: 'block' }}
                                 >
-                                    {currentTrailer.media.title}
-                                </h1>
+                                    {getLogoUrl(currentTrailer) ? (
+                                        <img
+                                            src={getLogoUrl(currentTrailer)!}
+                                            alt={currentTrailer.media.title}
+                                            className="max-h-12 md:max-h-16 lg:max-h-20 xl:max-h-24 w-auto mb-3 md:mb-4 drop-shadow-2xl transition-transform duration-300 group-hover:scale-[1.02]"
+                                            onError={(e) => {
+                                                e.currentTarget.style.display = 'none';
+                                                const fallback = e.currentTarget.nextElementSibling as HTMLElement;
+                                                if (fallback) fallback.style.display = 'block';
+                                            }}
+                                        />
+                                    ) : null}
+                                    <h1
+                                        className="text-xl md:text-2xl lg:text-3xl xl:text-4xl font-bold mb-2 md:mb-3 leading-tight text-white drop-shadow-lg transition-colors duration-300 group-hover:text-white"
+                                        style={{
+                                            display: getLogoUrl(currentTrailer) ? 'none' : 'block',
+                                            textShadow: '2px 2px 4px rgba(0,0,0,0.8)',
+                                        }}
+                                    >
+                                        {currentTrailer.media.title}
+                                    </h1>
+                                </button>
                             </motion.div>
                         </AnimatePresence>
 

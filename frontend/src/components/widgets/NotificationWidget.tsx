@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Bell, 
@@ -124,11 +124,88 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
   const [colors, setColors] = useState<DominantColors>(getColorPaletteByGenre());
   const [ytReady, setYtReady] = useState(false);
   const [videoReady, setVideoReady] = useState(false);
+  const [containerWidth, setContainerWidth] = useState(0);
+  const containerRef = useRef<HTMLDivElement | null>(null);
   const autoScrollRef = useRef<NodeJS.Timeout | null>(null);
   const playerRef = useRef<any>(null);
 
   // DEBUG: Add visible test element
   console.log('🔔 NotificationWidget rendering - config:', config);
+
+  useEffect(() => {
+    const element = containerRef.current;
+    if (!element) return;
+
+    const updateSize = () => {
+      const width = element.getBoundingClientRect().width;
+      setContainerWidth((prev) => (Math.abs(prev - width) > 1 ? width : prev));
+    };
+
+    updateSize();
+
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', updateSize);
+      return () => {
+        window.removeEventListener('resize', updateSize);
+      };
+    }
+
+    const resizeObserver = new ResizeObserver((entries) => {
+      entries.forEach((entry) => {
+        if (entry.target === element) {
+          const width = entry.contentRect.width;
+          setContainerWidth((prev) => (Math.abs(prev - width) > 1 ? width : prev));
+        }
+      });
+    });
+
+    resizeObserver.observe(element);
+
+    return () => {
+      resizeObserver.disconnect();
+    };
+  }, []);
+
+  const layoutVariant = useMemo<'full' | 'half' | 'third'>(() => {
+    if (containerWidth >= 960) return 'full';
+    if (containerWidth >= 640) return 'half';
+    if (containerWidth > 0) return 'third';
+    return 'full';
+  }, [containerWidth]);
+
+  const containerMinHeight = useMemo(() => {
+    if (!containerWidth) {
+      return 480;
+    }
+
+    const ratio = layoutVariant === 'full' ? 0.45 : layoutVariant === 'half' ? 0.6 : 0.82;
+    const minCap = layoutVariant === 'full' ? 420 : layoutVariant === 'half' ? 360 : 320;
+    const maxCap = layoutVariant === 'full' ? 640 : layoutVariant === 'half' ? 520 : 460;
+    const candidate = containerWidth * ratio;
+    return Math.max(minCap, Math.min(maxCap, candidate));
+  }, [containerWidth, layoutVariant]);
+
+  const horizontalPaddingClasses = useMemo(() => {
+    switch (layoutVariant) {
+      case 'third':
+        return 'px-4 sm:px-6';
+      case 'half':
+        return 'px-6 lg:px-10';
+      default:
+        return 'px-6 md:px-12 lg:px-16';
+    }
+  }, [layoutVariant]);
+
+  const contentWidthClass = useMemo(() => {
+    switch (layoutVariant) {
+      case 'third':
+        return 'max-w-full';
+      case 'half':
+        return 'max-w-2xl xl:max-w-3xl';
+      default:
+        return 'max-w-3xl';
+    }
+  }, [layoutVariant]);
 
   // Create sample notifications when API doesn't return any
   const createSampleNotifications = async (): Promise<Notification[]> => {
@@ -845,12 +922,14 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
   if (config.highlightStyle === 'banner' || !config.highlightStyle) {
     return (
       <div 
+        ref={containerRef}
         className={`relative overflow-hidden rounded-xl border border-white/10 backdrop-blur-sm h-full ${className}`}
         onMouseEnter={() => setIsHovering(true)}
         onMouseLeave={() => setIsHovering(false)}
         style={{
           background: `linear-gradient(135deg, ${themeColors.primary}05 0%, transparent 50%, ${themeColors.accent}05 100%)`,
-          boxShadow: `0 8px 32px ${themeColors.primary}20, inset 0 1px 0 rgba(255,255,255,0.1)`
+          boxShadow: `0 8px 32px ${themeColors.primary}20, inset 0 1px 0 rgba(255,255,255,0.1)`,
+          minHeight: `${containerMinHeight}px`
         }}
       >
         <AnimatePresence mode="wait">
@@ -938,8 +1017,8 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
 
             {/* Main Content */}
             <div className="absolute inset-0 flex items-center z-20">
-              <div className="w-full px-6 md:px-12 lg:px-16">
-                <div className="max-w-3xl">
+              <div className={`w-full ${horizontalPaddingClasses}`}>
+                <div className={contentWidthClass}>
                   {/* Logo or Title */}
                   <AnimatePresence mode="wait">
                     <motion.div

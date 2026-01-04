@@ -38,6 +38,8 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		api.GET("/series/:id/seasons", handlers.GetSeasonsBySeriesID(mediaService))
 		api.GET("/series/:id/seasons/:season/episodes", handlers.GetEpisodesBySeriesAndSeason(mediaService))
 		api.GET("/series/:id/poster", handlers.GetSeriesPoster(mediaService, posterService))
+		api.GET("/series/:id/logo", handlers.GetSeriesLogo(mediaService, tmdbService))
+		api.GET("/series/:id/backdrop", handlers.GetSeriesBackdrop(mediaService, tmdbService))
 
 		// Genre endpoints
 		api.GET("/genres", handlers.GetAllGenres(mediaService))

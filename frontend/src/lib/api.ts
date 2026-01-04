@@ -31,6 +31,18 @@ export const getApiHost = () => {
   return window.location.hostname;
 };
 
+export const getSeriesPosterUrl = (seriesId: number | string) => {
+  return `${getApiUrl()}/api/series/${seriesId}/poster`;
+};
+
+export const getSeriesLogoUrl = (seriesId: number | string) => {
+  return `${getApiUrl()}/api/series/${seriesId}/logo`;
+};
+
+export const getSeriesBackdropUrl = (seriesId: number | string) => {
+  return `${getApiUrl()}/api/series/${seriesId}/backdrop`;
+};
+
 export const API_ENDPOINTS = {
   media: '/api/media',
   genres: '/api/genres',

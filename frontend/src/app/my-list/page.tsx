@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { usePageTitle } from '@/hooks/usePageTitle';
-import { Play, Info, Trash2, Heart, Film, Tv, Download, CheckCircle, Pause, AlertCircle, FolderOpen, Plus, Grid3X3 } from 'lucide-react';
+import { Play, Info, Trash2, Heart, Film, Tv, Download, CheckCircle, Pause, AlertCircle, FolderOpen, Plus, Grid3X3, Edit, X } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import Navbar from "@/components/Navbar";
@@ -85,6 +85,14 @@ export default function MyListPage() {
   const [selectedCollection, setSelectedCollection] = useState<Collection | null>(null);
   const [collectionItems, setCollectionItems] = useState<CollectionItem[]>([]);
   const [collectionsLoading, setCollectionsLoading] = useState(false);
+  const [showCollectionModal, setShowCollectionModal] = useState(false);
+  const [editingCollection, setEditingCollection] = useState<Collection | null>(null);
+  const [collectionForm, setCollectionForm] = useState({
+    name: '',
+    description: '',
+    is_public: false,
+    tags: ''
+  });
 
   // Use the My List hook for both collections and my list
   const { myList, collections, fetchCollections, isInMyList, toggleMyList, addToCollection } = useMyList();
@@ -183,6 +191,126 @@ export default function MyListPage() {
       console.error("Error fetching collections:", error);
       setUserCollections([]);
     }
+  };
+
+  const handleCreateCollection = async () => {
+    if (!collectionForm.name.trim()) return;
+
+    try {
+      const apiUrl = getApiUrl();
+      const response = await fetch(`${apiUrl}/api/collections`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-ID': '1'
+        },
+        body: JSON.stringify({
+          name: collectionForm.name,
+          description: collectionForm.description,
+          is_public: collectionForm.is_public,
+          tags: collectionForm.tags
+        })
+      });
+
+      if (response.ok) {
+        await fetchUserCollections();
+        setCollectionForm({ name: '', description: '', is_public: false, tags: '' });
+        setShowCollectionModal(false);
+        setEditingCollection(null);
+      } else {
+        console.error("Failed to create collection");
+      }
+    } catch (error) {
+      console.error("Error creating collection:", error);
+    }
+  };
+
+  const handleUpdateCollection = async () => {
+    if (!collectionForm.name.trim() || !editingCollection) return;
+
+    try {
+      const apiUrl = getApiUrl();
+      const response = await fetch(`${apiUrl}/api/collections/${editingCollection.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-ID': '1'
+        },
+        body: JSON.stringify({
+          name: collectionForm.name,
+          description: collectionForm.description,
+          is_public: collectionForm.is_public,
+          tags: collectionForm.tags
+        })
+      });
+
+      if (response.ok) {
+        await fetchUserCollections();
+        setCollectionForm({ name: '', description: '', is_public: false, tags: '' });
+        setShowCollectionModal(false);
+        setEditingCollection(null);
+        // If we're viewing the edited collection, refresh it
+        if (selectedCollection && selectedCollection.id === editingCollection.id) {
+          setSelectedCollection(null);
+        }
+      } else {
+        console.error("Failed to update collection");
+      }
+    } catch (error) {
+      console.error("Error updating collection:", error);
+    }
+  };
+
+  const handleDeleteCollection = async (collectionId: number) => {
+    if (!confirm('Are you sure you want to delete this collection? This action cannot be undone.')) {
+      return;
+    }
+
+    try {
+      const apiUrl = getApiUrl();
+      const response = await fetch(`${apiUrl}/api/collections/${collectionId}`, {
+        method: 'DELETE',
+        headers: {
+          'X-User-ID': '1'
+        }
+      });
+
+      if (response.ok) {
+        await fetchUserCollections();
+        // If we're viewing the deleted collection, close it
+        if (selectedCollection && selectedCollection.id === collectionId) {
+          setSelectedCollection(null);
+          setCollectionItems([]);
+        }
+      } else {
+        console.error("Failed to delete collection");
+      }
+    } catch (error) {
+      console.error("Error deleting collection:", error);
+    }
+  };
+
+  const openEditModal = (collection: Collection) => {
+    setEditingCollection(collection);
+    setCollectionForm({
+      name: collection.name,
+      description: collection.description || '',
+      is_public: collection.is_public,
+      tags: collection.tags || ''
+    });
+    setShowCollectionModal(true);
+  };
+
+  const openCreateModal = () => {
+    setEditingCollection(null);
+    setCollectionForm({ name: '', description: '', is_public: false, tags: '' });
+    setShowCollectionModal(true);
+  };
+
+  const closeCollectionModal = () => {
+    setShowCollectionModal(false);
+    setEditingCollection(null);
+    setCollectionForm({ name: '', description: '', is_public: false, tags: '' });
   };
 
   const fetchCollectionItems = async (collectionId: number) => {
@@ -621,6 +749,18 @@ export default function MyListPage() {
 
         {activeTab === 'collections' && (
           <>
+            {/* Header with Create Button */}
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-2xl font-bold text-white">Your Collections</h2>
+              <MagneticButton
+                onClick={openCreateModal}
+                className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg font-semibold flex items-center gap-2"
+              >
+                <Plus className="w-4 h-4" />
+                Create Collection
+              </MagneticButton>
+            </div>
+
             {userCollections.length > 0 ? (
               <div className="space-y-6">
                 {/* Collections Grid */}
@@ -628,47 +768,75 @@ export default function MyListPage() {
                   {userCollections.map((collection) => (
                     <div
                       key={collection.id}
-                      className="bg-gray-800 rounded-lg p-6 hover:bg-gray-700 transition-all duration-300 cursor-pointer group"
-                      onClick={() => {
-                        setSelectedCollection(collection);
-                        fetchCollectionItems(collection.id);
-                      }}
+                      className="bg-gray-800 rounded-lg p-6 hover:bg-gray-700 transition-all duration-300 group relative"
                     >
-                      <div className="flex items-start justify-between mb-4">
-                        <div className="flex-1">
-                          <h3 className="text-white font-semibold text-lg mb-2 group-hover:text-red-400 transition-colors">
-                            {collection.name}
-                          </h3>
-                          {collection.description && (
-                            <p className="text-gray-400 text-sm line-clamp-2 mb-3">
-                              {collection.description}
-                            </p>
-                          )}
+                      <div
+                        className="cursor-pointer"
+                        onClick={() => {
+                          setSelectedCollection(collection);
+                          fetchCollectionItems(collection.id);
+                        }}
+                      >
+                        <div className="flex items-start justify-between mb-4">
+                          <div className="flex-1">
+                            <h3 className="text-white font-semibold text-lg mb-2 group-hover:text-red-400 transition-colors">
+                              {collection.name}
+                            </h3>
+                            {collection.description && (
+                              <p className="text-gray-400 text-sm line-clamp-2 mb-3">
+                                {collection.description}
+                              </p>
+                            )}
+                          </div>
+                          <FolderOpen className="w-6 h-6 text-gray-400 group-hover:text-red-400 transition-colors" />
                         </div>
-                        <FolderOpen className="w-6 h-6 text-gray-400 group-hover:text-red-400 transition-colors" />
+                        
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-gray-400">
+                            {collection.item_count} {collection.item_count === 1 ? 'item' : 'items'}
+                          </span>
+                          <span className="text-gray-500">
+                            {collection.is_public ? 'Public' : 'Private'}
+                          </span>
+                        </div>
+                        
+                        {collection.tags && (
+                          <div className="mt-3 flex flex-wrap gap-1">
+                            {collection.tags.split(',').slice(0, 3).map((tag, index) => (
+                              <span
+                                key={index}
+                                className="px-2 py-1 bg-gray-700 text-gray-300 text-xs rounded-full"
+                              >
+                                {tag.trim()}
+                              </span>
+                            ))}
+                          </div>
+                        )}
                       </div>
                       
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="text-gray-400">
-                          {collection.item_count} {collection.item_count === 1 ? 'item' : 'items'}
-                        </span>
-                        <span className="text-gray-500">
-                          {collection.is_public ? 'Public' : 'Private'}
-                        </span>
+                      {/* Action Buttons */}
+                      <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openEditModal(collection);
+                          }}
+                          className="p-2 bg-gray-700 hover:bg-gray-600 text-white rounded transition-colors"
+                          title="Edit collection"
+                        >
+                          <Edit className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteCollection(collection.id);
+                          }}
+                          className="p-2 bg-red-600 hover:bg-red-700 text-white rounded transition-colors"
+                          title="Delete collection"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
                       </div>
-                      
-                      {collection.tags && (
-                        <div className="mt-3 flex flex-wrap gap-1">
-                          {collection.tags.split(',').slice(0, 3).map((tag, index) => (
-                            <span
-                              key={index}
-                              className="px-2 py-1 bg-gray-700 text-gray-300 text-xs rounded-full"
-                            >
-                              {tag.trim()}
-                            </span>
-                          ))}
-                        </div>
-                      )}
                     </div>
                   ))}
                 </div>
@@ -733,10 +901,7 @@ export default function MyListPage() {
                   Create collections to organize your favorite movies and TV shows
                 </p>
                 <MagneticButton
-                  onClick={() => {
-                    // TODO: Add create collection functionality
-                    console.log('Create collection clicked');
-                  }}
+                  onClick={openCreateModal}
                   className="bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-lg font-semibold"
                 >
                   <Plus className="w-4 h-4 mr-2" />
@@ -758,6 +923,96 @@ export default function MyListPage() {
             setSelectedMedia(nextMedia);
           }}
         />
+      )}
+
+      {/* Collection Create/Edit Modal */}
+      {showCollectionModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={closeCollectionModal}>
+          <div className="bg-gray-800 rounded-lg p-6 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-xl font-bold text-white">
+                {editingCollection ? 'Edit Collection' : 'Create Collection'}
+              </h3>
+              <button
+                onClick={closeCollectionModal}
+                className="text-gray-400 hover:text-white transition-colors"
+              >
+                <X size={24} />
+              </button>
+            </div>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-white text-sm font-medium mb-2">
+                  Collection Name *
+                </label>
+                <input
+                  type="text"
+                  value={collectionForm.name}
+                  onChange={(e) => setCollectionForm({ ...collectionForm, name: e.target.value })}
+                  placeholder="My Awesome Collection"
+                  className="w-full px-3 py-2 bg-gray-700 text-white rounded border border-gray-600 focus:border-red-500 focus:outline-none"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-white text-sm font-medium mb-2">
+                  Description (Optional)
+                </label>
+                <textarea
+                  value={collectionForm.description}
+                  onChange={(e) => setCollectionForm({ ...collectionForm, description: e.target.value })}
+                  placeholder="Describe your collection..."
+                  rows={3}
+                  className="w-full px-3 py-2 bg-gray-700 text-white rounded border border-gray-600 focus:border-red-500 focus:outline-none resize-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-white text-sm font-medium mb-2">
+                  Tags (Optional)
+                </label>
+                <input
+                  type="text"
+                  value={collectionForm.tags}
+                  onChange={(e) => setCollectionForm({ ...collectionForm, tags: e.target.value })}
+                  placeholder="action, thriller, comedy (comma-separated)"
+                  className="w-full px-3 py-2 bg-gray-700 text-white rounded border border-gray-600 focus:border-red-500 focus:outline-none"
+                />
+                <p className="text-gray-400 text-xs mt-1">Separate tags with commas</p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="is_public"
+                  checked={collectionForm.is_public}
+                  onChange={(e) => setCollectionForm({ ...collectionForm, is_public: e.target.checked })}
+                  className="w-4 h-4 text-red-600 bg-gray-700 border-gray-600 rounded focus:ring-red-500"
+                />
+                <label htmlFor="is_public" className="text-white text-sm">
+                  Make this collection public
+                </label>
+              </div>
+            </div>
+            
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={closeCollectionModal}
+                className="flex-1 px-4 py-2 bg-gray-600 hover:bg-gray-500 text-white rounded transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={editingCollection ? handleUpdateCollection : handleCreateCollection}
+                disabled={!collectionForm.name.trim()}
+                className="flex-1 px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded transition-colors"
+              >
+                {editingCollection ? 'Update' : 'Create'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

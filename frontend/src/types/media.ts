@@ -58,6 +58,7 @@ export interface Media {
   preview_path?: string;
   preview_clip_path?: string;
   banner_path?: string;
+  backdrop_path?: string;
   trailer_path?: string;
   poster_path?: string;
   poster_url?: string | null; // For TMDB movies

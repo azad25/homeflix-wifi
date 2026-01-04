@@ -11,7 +11,7 @@ import { getApiUrl, fetchUniqueRecommendations, preloadAssets } from '@/lib/api'
 import RecentlyWatchedTVShows from '@/components/RecentlyWatchedTVShows';
 
 import { Media } from '@/types/media';
-import { ScrollXHero, ParallaxSection, ScrollReveal } from '@/components/scrollx';
+import { ParallaxSection, ScrollReveal } from '@/components/scrollx';
 import BackendWidgetRenderer from '@/components/widgets/BackendWidgetRenderer';
 
 
@@ -46,7 +46,6 @@ interface Season {
 export default function TVShowsPage() {
   usePageTitle('TV Shows');
   const navigate = useNavigate();
-  const [featuredSeries, setFeaturedSeries] = useState<Series[]>([]);
   const [seriesList, setSeriesList] = useState<Series[]>([]);
   const [actionSeries, setActionSeries] = useState<Series[]>([]);
   const [dramaSeries, setDramaSeries] = useState<Series[]>([]);
@@ -193,7 +192,6 @@ export default function TVShowsPage() {
             );
 
             setSeriesList(processedSeries);
-            setFeaturedSeries(processedSeries.slice(0, 5));
 
             // Categorize series by genre
             setActionSeries(processedSeries.filter(series =>
@@ -275,7 +273,6 @@ export default function TVShowsPage() {
           });
 
           const fallbackSeries = Array.from(fallbackSeriesMap.values());
-          setFeaturedSeries(fallbackSeries.slice(0, 5));
           setSeriesList(fallbackSeries);
           setLoading(false);
           return;
@@ -358,12 +355,6 @@ export default function TVShowsPage() {
 
       setSeriesList(allSeries);
 
-      // Set featured series for hero section (top rated series)
-      const featuredSeriesList = allSeries
-        .sort((a, b) => (b.rating || 0) - (a.rating || 0))
-        .slice(0, 5);
-      setFeaturedSeries(featuredSeriesList);
-
       // Categorize series by genre
       setActionSeries(allSeries.filter(series =>
         series.genres?.some(g => g.name.toLowerCase().includes('action'))
@@ -439,79 +430,10 @@ export default function TVShowsPage() {
     <div className="min-h-screen bg-black">
       <Navbar />
 
-      {/* Hero Section */}
-      {featuredSeries.length > 0 ? (
-        <ScrollXHero
-          featuredMedia={featuredSeries.map(series => {
-            // Get all episodes from all seasons
-            const allEpisodes = series.seasons.flatMap(season => season.episodes || []);
-
-            // Pick a random episode for preview clip (or first if random fails)
-            const randomEpisode = allEpisodes.length > 0
-              ? allEpisodes[Math.floor(Math.random() * allEpisodes.length)]
-              : null;
-
-            const firstSeason = series.seasons.find(season => season.episodes.length > 0);
-            const firstEpisode = firstSeason?.episodes[0];
-
-            // Use the random episode for the media object (this provides the preview clip)
-            const episodeForPreview = randomEpisode || firstEpisode;
-
-            // If no episode found with file_path, skip this series
-            if (!episodeForPreview || !episodeForPreview.file_path) {
-              return null;
-            }
-
-            return {
-              // Spread all episode properties first (includes file_path, duration, quality, etc.)
-              ...episodeForPreview,
-              // Then override with series-specific display properties
-              title: series.title, // Keep series title for display
-              description: series.description || episodeForPreview.description,
-              rating: series.rating,
-              // Use episode thumbnail for preview, fallback to series poster
-              thumbnail_path: episodeForPreview?.thumbnail_path || series.poster_path || series.thumbnail_path,
-              // Prioritize series backdrop/banner for background
-              banner_path: series.banner_path || episodeForPreview?.banner_path,
-              tmdb_backdrop_url: series.tmdb_backdrop_url,
-              backdrop_path: series.backdrop_path,
-              poster_path: series.poster_path,
-              tmdb_poster_url: series.tmdb_poster_url,
-              type: 'episode', // Mark as episode so ScrollXHero can fetch preview clips
-              series_id: series.id,
-              // Store original episode info for display purposes
-              original_episode_title: episodeForPreview?.title,
-              genres: series.genres || episodeForPreview.genres,
-              year: series.year,
-              total_seasons: series.total_seasons,
-              total_episodes: series.total_episodes
-            } as Media;
-          }).filter((media): media is Media => media !== null)}  // Filter out null entries with type guard
-          contentFilter='tv-series'
-          onPlay={(media) => {
-            const series = featuredSeries.find(s => s.id === media.series_id);
-            if (series) handlePlay(series);
-          }}
-          onInfo={(media) => {
-            const series = featuredSeries.find(s => s.id === media.series_id);
-            if (series) handleInfo(series);
-          }}
-        />
-      ) : (
-        !loading && (
-          <div className="h-96 bg-gradient-to-r from-red-900/50 to-black flex items-center justify-center">
-            <div className="text-center text-white">
-              <h2 className="text-2xl font-bold mb-2">No TV Shows Found</h2>
-              <p className="text-gray-400">No TV show episodes are available in your library.</p>
-            </div>
-          </div>
-        )
-      )}
-
       {/* Widget System Integration */}
       <BackendWidgetRenderer 
         page="tv-shows" 
-        className="relative z-10 py-8"
+        className="relative z-10 py-8 mt-12"
       />
 
       {/* Main Content with Parallax Background */}

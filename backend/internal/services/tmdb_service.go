@@ -2324,23 +2324,32 @@ func (t *TMDBService) DownloadMovieLogo(tmdbID int, mediaID uint, logoDir string
 		return "", fmt.Errorf("no logos available for TMDB ID %d", tmdbID)
 	}
 
-	// Find the best English logo (highest vote_average)
-	var bestLogo *TMDBImage
-	var bestScore float64 = -1
+	// Find the best logo, preferring English when available
+	var bestEnglish *TMDBImage
+	var bestEnglishScore float64 = -1
+	var bestOverall *TMDBImage
+	var bestOverallScore float64 = -1
 
-	// Only look for English logos (iso_639_1 == "en")
 	for i := range images.Logos {
 		logo := &images.Logos[i]
-		if logo.ISO6391 == "en" {
-			if logo.VoteAverage > bestScore {
-				bestScore = logo.VoteAverage
-				bestLogo = logo
-			}
+		score := logo.VoteAverage
+		if score > bestOverallScore {
+			bestOverallScore = score
+			bestOverall = logo
+		}
+		if strings.EqualFold(logo.ISO6391, "en") && score > bestEnglishScore {
+			bestEnglishScore = score
+			bestEnglish = logo
 		}
 	}
 
+	bestLogo := bestEnglish
 	if bestLogo == nil {
-		return "", fmt.Errorf("no English logo found for TMDB ID %d", tmdbID)
+		bestLogo = bestOverall
+	}
+
+	if bestLogo == nil {
+		return "", fmt.Errorf("no logos available for TMDB ID %d", tmdbID)
 	}
 
 	log.Printf("✅ TMDB: Found logo - Path: %s, Language: %s, Score: %.1f",
@@ -3568,7 +3577,7 @@ func (t *TMDBService) GetTVImages(tvID int) (*TMDBImagesResponse, error) {
 }
 
 // DownloadTVLogo downloads the English logo for a TV show by TMDB ID and saves it locally
-func (t *TMDBService) DownloadTVLogo(tmdbID int, seriesID uint, logoDir string) (string, error) {
+func (t *TMDBService) DownloadTVLogo(tmdbID int, seriesID uint, seriesTitle, logoDir string) (string, error) {
 	if t.apiKey == "" {
 		return "", fmt.Errorf("TMDB API key not configured")
 	}
@@ -3585,23 +3594,32 @@ func (t *TMDBService) DownloadTVLogo(tmdbID int, seriesID uint, logoDir string) 
 		return "", fmt.Errorf("no logos available for TMDB TV ID %d", tmdbID)
 	}
 
-	// Find the best English logo (highest vote_average)
-	var bestLogo *TMDBImage
-	var bestScore float64 = -1
+	// Find the best logo, preferring English when available
+	var bestEnglish *TMDBImage
+	var bestEnglishScore float64 = -1
+	var bestOverall *TMDBImage
+	var bestOverallScore float64 = -1
 
-	// Only look for English logos (iso_639_1 == "en")
 	for i := range images.Logos {
 		logo := &images.Logos[i]
-		if logo.ISO6391 == "en" {
-			if logo.VoteAverage > bestScore {
-				bestScore = logo.VoteAverage
-				bestLogo = logo
-			}
+		score := logo.VoteAverage
+		if score > bestOverallScore {
+			bestOverallScore = score
+			bestOverall = logo
+		}
+		if strings.EqualFold(logo.ISO6391, "en") && score > bestEnglishScore {
+			bestEnglishScore = score
+			bestEnglish = logo
 		}
 	}
 
+	bestLogo := bestEnglish
 	if bestLogo == nil {
-		return "", fmt.Errorf("no English logo found for TMDB TV ID %d", tmdbID)
+		bestLogo = bestOverall
+	}
+
+	if bestLogo == nil {
+		return "", fmt.Errorf("no logos available for TMDB TV ID %d", tmdbID)
 	}
 
 	log.Printf("✅ TMDB: Found TV logo - Path: %s, Language: %s, Score: %.1f",
@@ -3612,8 +3630,12 @@ func (t *TMDBService) DownloadTVLogo(tmdbID int, seriesID uint, logoDir string) 
 		return "", fmt.Errorf("failed to create logo directory: %v", err)
 	}
 
-	// Generate filename using series ID with tv_ prefix to distinguish from movies
+	// Generate filename using series ID with title prefix to distinguish from movies
+	cleanTitle := t.cleanTitleForFilename(seriesTitle)
 	filename := fmt.Sprintf("tv_%d.png", seriesID)
+	if cleanTitle != "" {
+		filename = fmt.Sprintf("tv_%d_%s.png", seriesID, cleanTitle)
+	}
 	logoPath := filepath.Join(logoDir, filename)
 
 	// Construct full logo URL (using w500 for good quality)
@@ -3671,6 +3693,130 @@ func (t *TMDBService) DownloadTVLogoByTitle(title string, seriesID uint, logoDir
 	tv := results.Results[0]
 	log.Printf("✅ TMDB: Found TV show '%s' (ID: %d) for logo download", tv.Name, tv.ID)
 
-	return t.DownloadTVLogo(tv.ID, seriesID, logoDir)
+	return t.DownloadTVLogo(tv.ID, seriesID, tv.Name, logoDir)
+}
+
+// DownloadTVBackdrop downloads the best backdrop for a TV show by TMDB ID and saves it locally
+func (t *TMDBService) DownloadTVBackdrop(tmdbID int, seriesID uint, seriesTitle, backdropDir string) (string, error) {
+	if t.apiKey == "" {
+		return "", fmt.Errorf("TMDB API key not configured")
+	}
+
+	log.Printf("🖼️ TMDB: Downloading TV backdrop for TMDB ID %d (Series ID: %d)", tmdbID, seriesID)
+
+	// Get TV images
+	images, err := t.GetTVImages(tmdbID)
+	if err != nil {
+		return "", fmt.Errorf("failed to get TV images: %v", err)
+	}
+
+	if len(images.Backdrops) == 0 {
+		return "", fmt.Errorf("no backdrops available for TMDB TV ID %d", tmdbID)
+	}
+
+	// Find the best backdrop (highest vote_average and good aspect ratio)
+	var bestBackdrop *TMDBImage
+	var bestScore float64 = -1
+
+	for i := range images.Backdrops {
+		backdrop := &images.Backdrops[i]
+		// Prefer backdrops with good aspect ratio (around 16:9) and high votes
+		aspectRatioScore := 1.0
+		if backdrop.AspectRatio > 0 {
+			idealRatio := 1.778
+			ratioDiff := backdrop.AspectRatio - idealRatio
+			if ratioDiff < 0 {
+				ratioDiff = -ratioDiff
+			}
+			aspectRatioScore = 1.0 - (ratioDiff / idealRatio)
+			if aspectRatioScore < 0 {
+				aspectRatioScore = 0
+			}
+		}
+
+		combinedScore := backdrop.VoteAverage + (aspectRatioScore * 2.0)
+
+		if combinedScore > bestScore {
+			bestScore = combinedScore
+			bestBackdrop = backdrop
+		}
+	}
+
+	if bestBackdrop == nil {
+		return "", fmt.Errorf("no suitable backdrop found for TMDB TV ID %d", tmdbID)
+	}
+
+	log.Printf("✅ TMDB: Found TV backdrop - Path: %s, Score: %.1f, Aspect Ratio: %.2f",
+		bestBackdrop.FilePath, bestBackdrop.VoteAverage, bestBackdrop.AspectRatio)
+
+	// Create backdrop directory if it doesn't exist
+	if err := os.MkdirAll(backdropDir, 0755); err != nil {
+		return "", fmt.Errorf("failed to create TV backdrop directory: %v", err)
+	}
+
+	// Generate filename using series ID with title prefix to distinguish from movies
+	cleanTitle := t.cleanTitleForFilename(seriesTitle)
+	filename := fmt.Sprintf("tv_%d.jpg", seriesID)
+	if cleanTitle != "" {
+		filename = fmt.Sprintf("tv_%d_%s.jpg", seriesID, cleanTitle)
+	}
+	backdropPath := filepath.Join(backdropDir, filename)
+
+	// Construct full backdrop URL (using w1280 for high quality)
+	backdropURL := "https://image.tmdb.org/t/p/w1280" + bestBackdrop.FilePath
+	log.Printf("📥 TMDB: Downloading TV backdrop from: %s", backdropURL)
+
+	// Download the backdrop
+	resp, err := t.httpClient.Get(backdropURL)
+	if err != nil {
+		return "", fmt.Errorf("failed to download TV backdrop: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("failed to download TV backdrop: HTTP %d", resp.StatusCode)
+	}
+
+	// Create the file
+	file, err := os.Create(backdropPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to create TV backdrop file: %v", err)
+	}
+	defer file.Close()
+
+	// Copy data to file
+	bytesWritten, err := file.ReadFrom(resp.Body)
+	if err != nil {
+		os.Remove(backdropPath)
+		return "", fmt.Errorf("failed to write TV backdrop data: %v", err)
+	}
+
+	log.Printf("✅ TMDB: TV backdrop saved (%d bytes): %s", bytesWritten, backdropPath)
+	return backdropPath, nil
+}
+
+// DownloadTVBackdropByTitle searches TMDB for a TV show by title and downloads its backdrop
+func (t *TMDBService) DownloadTVBackdropByTitle(title string, seriesID uint, backdropDir string) (string, error) {
+	if t.apiKey == "" {
+		return "", fmt.Errorf("TMDB API key not configured")
+	}
+
+	log.Printf("🔍 TMDB: Searching for TV backdrop for '%s'", title)
+
+	// Search for the TV show
+	results, err := t.SearchTVOnly(title, 1)
+	if err != nil {
+		return "", fmt.Errorf("failed to search TV show: %v", err)
+	}
+
+	if len(results.Results) == 0 {
+		return "", fmt.Errorf("TV show not found in TMDB: %s", title)
+	}
+
+	// Use the first result
+	tv := results.Results[0]
+	log.Printf("✅ TMDB: Found TV show for backdrop - ID: %d, Name: '%s'", tv.ID, tv.Name)
+
+	return t.DownloadTVBackdrop(tv.ID, seriesID, tv.Name, backdropDir)
 }
 

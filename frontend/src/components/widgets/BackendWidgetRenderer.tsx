@@ -134,9 +134,7 @@ export default function BackendWidgetRenderer({
     useEffect(() => {
         const fetchWidgets = async () => {
             const apiUrl = getApiUrl();
-            // Add timestamp to bust cache when needed
-            const timestamp = Date.now();
-            const url = `${apiUrl}/api/widgets/page/${page}/with-data?t=${timestamp}`;
+            const url = `${apiUrl}/api/widgets/page/${page}/with-data`;
             
             console.log('BackendWidgetRenderer: Fetching widgets from:', url);
             
@@ -149,8 +147,6 @@ export default function BackendWidgetRenderer({
                         'Content-Type': 'application/json',
                         'X-User-ID': '1',
                     },
-                    // Use no-cache for fresh data
-                    cache: 'no-cache',
                 });
                 
                 console.log('BackendWidgetRenderer: Response status:', response.status);

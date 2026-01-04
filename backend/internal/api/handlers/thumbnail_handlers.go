@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -29,6 +30,89 @@ type AssetCache struct {
 	lastUpdate     time.Time
 	hitCount       int64
 	missCount      int64
+}
+
+// sanitizeSeriesFilename creates a filesystem-safe identifier for series assets.
+func sanitizeSeriesFilename(title string) string {
+	replacer := strings.NewReplacer(
+		" ", "_",
+		":", "",
+		"/", "_",
+		"\\", "_",
+		"?", "",
+		"*", "",
+		"<", "",
+		">", "",
+		"|", "",
+		"\"", "",
+		"'", "",
+		"(", "",
+		")", "",
+	)
+
+	cleaned := strings.ToLower(strings.TrimSpace(title))
+	if cleaned == "" {
+		cleaned = "untitled"
+	}
+
+	cleaned = replacer.Replace(cleaned)
+	cleaned = regexp.MustCompile(`_+`).ReplaceAllString(cleaned, "_")
+	cleaned = strings.Trim(cleaned, "_")
+
+	if cleaned == "" {
+		cleaned = "untitled"
+	}
+
+	if len(cleaned) > 100 {
+		cleaned = cleaned[:100]
+	}
+
+	return cleaned
+}
+
+// resolveSeriesAssetPath attempts to locate a stored series asset or a fallback candidate.
+func resolveSeriesAssetPath(storedPath, root string, fallbackNames []string) (string, bool) {
+	var candidates []string
+
+	appendCandidate := func(path string) {
+		if path == "" {
+			return
+		}
+		normalized := filepath.Clean(path)
+		if normalized == "." {
+			return
+		}
+		candidates = append(candidates, normalized)
+	}
+
+	if storedPath != "" {
+		appendCandidate(storedPath)
+		appendCandidate(filepath.Join("./", storedPath))
+		appendCandidate(filepath.Join("./backend", storedPath))
+	}
+
+	for _, name := range fallbackNames {
+		if name == "" {
+			continue
+		}
+		if root != "" {
+			appendCandidate(filepath.Join(root, name))
+			appendCandidate(filepath.Join("./", root, name))
+			appendCandidate(filepath.Join("./backend", root, name))
+			appendCandidate(filepath.Join("backend", root, name))
+		} else {
+			appendCandidate(name)
+			appendCandidate(filepath.Join("./", name))
+		}
+	}
+
+	for _, candidate := range candidates {
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate, true
+		}
+	}
+
+	return "", false
 }
 
 type CachedAsset struct {
@@ -132,6 +216,117 @@ func cleanupExpiredCache() {
 	
 	if expired > 0 || resetRetries > 0 || clearedFlags > 0 {
 		log.Printf("🧹 Cache cleanup: %d expired entries, %d retry resets, %d stale flags cleared", expired, resetRetries, clearedFlags)
+	}
+}
+
+// GetSeriesLogo serves local series logos with TMDB fallback
+func GetSeriesLogo(mediaService *services.MediaService, tmdbService *services.TMDBService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id, err := strconv.ParseUint(c.Param("id"), 10, 32)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid series ID"})
+			return
+		}
+
+		seriesID := uint(id)
+		series, err := mediaService.GetSeriesByID(seriesID)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Series not found"})
+			return
+		}
+
+		sanitized := sanitizeSeriesFilename(series.Title)
+		fallbackNames := []string{
+			fmt.Sprintf("tv_%d_%s.png", series.ID, sanitized),
+			fmt.Sprintf("tv_%d.png", series.ID),
+		}
+
+		if path, ok := resolveSeriesAssetPath(series.LogoPath, "logos", fallbackNames); ok {
+			c.Header("Cache-Control", "public, max-age=86400, immutable")
+			c.Header("Content-Type", "image/png")
+			c.File(path)
+			return
+		}
+
+		if tmdbService != nil {
+			logoDir := "./logos"
+			if err := os.MkdirAll(logoDir, 0755); err != nil {
+				log.Printf("⚠️ Failed to ensure logo directory: %v", err)
+			} else {
+				if logoPath, err := tmdbService.DownloadTVLogoByTitle(series.Title, series.ID, logoDir); err == nil && logoPath != "" {
+					updates := map[string]interface{}{"logo_path": filepath.ToSlash(strings.TrimPrefix(logoPath, "./"))}
+					if _, updateErr := mediaService.UpdateSeries(series.ID, updates); updateErr != nil {
+						log.Printf("⚠️ Failed to update series %s with logo path: %v", series.Title, updateErr)
+					}
+					c.Header("Cache-Control", "public, max-age=86400, immutable")
+					c.Header("Content-Type", "image/png")
+					c.File(logoPath)
+					return
+				}
+			}
+		}
+
+		c.JSON(http.StatusNotFound, gin.H{
+			"error":     "Series logo not found",
+			"series_id": series.ID,
+		})
+	}
+}
+
+// GetSeriesBackdrop serves local series backdrops with TMDB fallback
+func GetSeriesBackdrop(mediaService *services.MediaService, tmdbService *services.TMDBService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id, err := strconv.ParseUint(c.Param("id"), 10, 32)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid series ID"})
+			return
+		}
+
+		seriesID := uint(id)
+		series, err := mediaService.GetSeriesByID(seriesID)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Series not found"})
+			return
+		}
+
+		sanitized := sanitizeSeriesFilename(series.Title)
+		fallbackNames := []string{
+			fmt.Sprintf("tv_%d_%s.jpg", series.ID, sanitized),
+			fmt.Sprintf("tv_%d.jpg", series.ID),
+		}
+
+		if path, ok := resolveSeriesAssetPath(series.BackdropPath, "backdrops", fallbackNames); ok {
+			c.Header("Cache-Control", "public, max-age=86400, immutable")
+			c.Header("Content-Type", "image/jpeg")
+			c.File(path)
+			return
+		}
+
+		if tmdbService != nil {
+			backdropDir := "./backdrops"
+			if err := os.MkdirAll(backdropDir, 0755); err != nil {
+				log.Printf("⚠️ Failed to ensure backdrop directory: %v", err)
+			} else {
+				if backdropPath, err := tmdbService.DownloadTVBackdropByTitle(series.Title, series.ID, backdropDir); err == nil && backdropPath != "" {
+					updates := map[string]interface{}{
+						"backdrop_path":      filepath.ToSlash(strings.TrimPrefix(backdropPath, "./")),
+						"tmdb_backdrop_url": fmt.Sprintf("/api/series/%d/backdrop", series.ID),
+					}
+					if _, updateErr := mediaService.UpdateSeries(series.ID, updates); updateErr != nil {
+						log.Printf("⚠️ Failed to update series %s with backdrop path: %v", series.Title, updateErr)
+					}
+					c.Header("Cache-Control", "public, max-age=86400, immutable")
+					c.Header("Content-Type", "image/jpeg")
+					c.File(backdropPath)
+					return
+				}
+			}
+		}
+
+		c.JSON(http.StatusNotFound, gin.H{
+			"error":     "Series backdrop not found",
+			"series_id": series.ID,
+		})
 	}
 }
 

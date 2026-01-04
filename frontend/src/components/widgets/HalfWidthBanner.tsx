@@ -7,6 +7,7 @@ import { Media } from '@/types/media';
 import { getApiUrl } from '@/lib/api';
 import { getColorPaletteByGenre, DominantColors } from '@/types/widgets';
 import { useNavigate } from '@/hooks/useNavigate';
+import { navigateToMedia } from '@/lib/mediaNavigation';
 
 interface HalfWidthBannerProps {
     media: Media | Media[];
@@ -139,21 +140,7 @@ export default function HalfWidthBanner({
     };
 
     const handleClick = () => {
-        // Check if it's TMDB content (has tmdb_id) or local content
-        if (currentMedia.tmdb_id) {
-            // Navigate to TMDB movie page with proper media type detection
-            const mediaType = currentMedia.type === 'tv' || currentMedia.type === 'series' || currentMedia.type === 'episode' ? 'tv' : 'movie';
-            navigate.push(`/tmdb-movie/${currentMedia.tmdb_id}?type=${mediaType}`);
-        } else {
-            // Navigate to local content pages
-            if (currentMedia.type === 'episode' || currentMedia.type === 'tv' || currentMedia.type === 'series') {
-                const seriesId = currentMedia.series_id || currentMedia.id;
-                navigate.push(`/tv-series/${seriesId}`);
-            } else {
-                // Local movie - navigate to local movie page
-                navigate.push(`/movie/${currentMedia.id}`);
-            }
-        }
+        navigateToMedia(navigate, currentMedia);
     };
 
     if (!currentMedia) return null;
@@ -314,38 +301,7 @@ export default function HalfWidthBanner({
                                 </p>
                             )}
 
-                            {/* Play button - appears on hover */}
-                            <motion.button
-                                initial={{ opacity: 0, y: 10 }}
-                                animate={{ opacity: isHovering ? 1 : 0, y: isHovering ? 0 : 10 }}
-                                transition={{ duration: 0.3 }}
-                                className="flex items-center gap-2 px-4 py-2 rounded-md font-semibold text-sm transition-all"
-                                style={{
-                                    backgroundColor: colors.primary,
-                                    color: '#fff',
-                                }}
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    // Check if it's TMDB content (has tmdb_id) or local content
-                                    if (currentMedia.tmdb_id) {
-                                        // Navigate to TMDB movie page with proper media type detection
-                                        const mediaType = currentMedia.type === 'tv' || currentMedia.type === 'series' || currentMedia.type === 'episode' ? 'tv' : 'movie';
-                                        navigate.push(`/tmdb-movie/${currentMedia.tmdb_id}?type=${mediaType}`);
-                                    } else {
-                                        // Navigate to local content pages
-                                        if (currentMedia.type === 'episode' || currentMedia.type === 'tv' || currentMedia.type === 'series') {
-                                            const seriesId = currentMedia.series_id || currentMedia.id;
-                                            navigate.push(`/tv-series/${seriesId}`);
-                                        } else {
-                                            // Local movie - navigate to local movie page
-                                            navigate.push(`/movie/${currentMedia.id}`);
-                                        }
-                                    }
-                                }}
-                            >
-                                <Play className="w-4 h-4 fill-current" />
-                                {currentMedia.tmdb_id ? 'View Details' : 'Watch Now'}
-                            </motion.button>
+                            {/* Play button removed per new design */}
                         </div>
                     </motion.div>
                 </AnimatePresence>
