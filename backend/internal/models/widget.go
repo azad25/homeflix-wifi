@@ -43,6 +43,9 @@ type MediaItem struct {
 	TMDBPosterURL     string     `json:"tmdb_poster_url,omitempty"`
 	TMDBBackdropURL   string     `json:"tmdb_backdrop_url,omitempty"`
 	TMDBTrailerURL    string     `json:"tmdb_trailer_url,omitempty"`
+	PreviewPath       string     `json:"preview_path,omitempty"`
+	PreviewClipPath   string     `json:"preview_clip_path,omitempty"`
+	TrailerPath       string     `json:"trailer_path,omitempty"`
 	TMDBID            int        `json:"tmdb_id,omitempty"`
 	Popularity        float64    `json:"popularity,omitempty"`
 	VoteCount         int        `json:"vote_count,omitempty"`
@@ -61,6 +64,8 @@ type MediaItem struct {
 	Genres            []Genre    `json:"genres,omitempty"`
 	// Notification data for notification widgets
 	NotificationData  interface{} `json:"notification_data,omitempty"`
+	CreatedAt         *time.Time  `json:"created_at,omitempty"`
+	FilePath          string      `json:"file_path,omitempty"`
 }
 
 // WidgetWithData represents a widget with its populated data
@@ -125,6 +130,9 @@ const (
 	WidgetTypeRecentlyWatched    = "recently-watched"
 	WidgetTypeContinueWatching   = "continue-watching"
 	WidgetTypeTrailer            = "trailer"
+	WidgetTypePreviewVideo       = "preview-video"
+	WidgetTypeMediaTrailer       = "media-trailer"
+	WidgetTypeMixedVideo         = "mixed-video"
 	WidgetTypeSpecificContent    = "specific-content"
 	WidgetTypeNotifications      = "notifications"
 )

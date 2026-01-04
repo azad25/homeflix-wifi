@@ -37,6 +37,9 @@ const widgetTypes: { value: WidgetType; label: string; description: string; icon
   { value: 'recently-added', label: 'Recently Added', description: 'Latest additions', icon: '📅' },
   { value: 'recently-watched', label: 'Recently Watched', description: 'User\'s viewing history', icon: '👁️' },
   { value: 'continue-watching', label: 'Continue Watching', description: 'Resume watching progress', icon: '▶️' },
+  { value: 'preview-video', label: 'Preview Video Hero', description: 'Autoplay hero using local preview clips', icon: '🎞️' },
+  { value: 'media-trailer', label: 'Media Trailer Hero', description: 'Hero highlighting official trailers', icon: '📽️' },
+  { value: 'mixed-video', label: 'Mixed Video Hero', description: 'Hybrid hero that mixes previews and trailers', icon: '🎛️' },
   { value: 'trailer', label: 'Trailer Widget', description: 'Video trailers and previews', icon: '🎥' },
   { value: 'notifications', label: 'Notifications', description: 'Display system notifications and alerts', icon: '🔔' }
 ];

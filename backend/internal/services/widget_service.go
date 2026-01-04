@@ -340,11 +340,14 @@ func (s *WidgetService) GetWidgetTypes() []map[string]string {
 		{"type": models.WidgetTypeMovieGrid, "name": "Movie Grid", "description": "Grid of movie posters"},
 		{"type": models.WidgetTypeHomeflixGrid, "name": "Homeflix Grid", "description": "Netflix-style grid with backdrop and logo"},
 		{"type": models.WidgetTypeGenreBased, "name": "Genre Based", "description": "Genre-specific movie collection"},
-		{"type": models.WidgetTypeComingSoon, "name": "Coming Soon", "description": "Upcoming movies with release dates"},
+		{"type": models.WidgetTypeComingSoon, "name": "Coming Soon", "description": "Upcoming releases banner"},
 		{"type": models.WidgetTypeNewReleases, "name": "New Releases", "description": "Recently released movies"},
 		{"type": models.WidgetTypePopular, "name": "Popular", "description": "Most popular content"},
 		{"type": models.WidgetTypeRecentlyAdded, "name": "Recently Added", "description": "Recently added to library"},
 		{"type": models.WidgetTypeTrailer, "name": "Trailer Widget", "description": "YouTube trailers and video content"},
+		{"type": models.WidgetTypePreviewVideo, "name": "Preview Video Hero", "description": "Autoplay hero showcasing local preview clips"},
+		{"type": models.WidgetTypeMediaTrailer, "name": "Media Trailer Hero", "description": "Autoplay hero featuring trailers from data source"},
+		{"type": models.WidgetTypeMixedVideo, "name": "Mixed Preview & Trailer Hero", "description": "Hero mixing preview clips and trailers"},
 		{"type": "recently-watched", "name": "Recently Watched", "description": "User's viewing history"},
 		{"type": "continue-watching", "name": "Continue Watching", "description": "Resume watching progress"},
 		{"type": models.WidgetTypeNotifications, "name": "Notifications", "description": "Featured content from notifications with TMDB theming"},
@@ -353,7 +356,7 @@ func (s *WidgetService) GetWidgetTypes() []map[string]string {
 
 // GetWidgetPages returns available pages for widgets
 func (s *WidgetService) GetWidgetPages() []map[string]string {
-	return []map[string]string{
+	pages := []map[string]string{
 		{"page": models.WidgetPageHome, "name": "Home"},
 		{"page": models.WidgetPageMovies, "name": "Movies"},
 		{"page": models.WidgetPageTVShows, "name": "TV Shows"},
@@ -361,6 +364,29 @@ func (s *WidgetService) GetWidgetPages() []map[string]string {
 		{"page": models.WidgetPageNewPopular, "name": "New & Popular"},
 		{"page": models.WidgetPageMyList, "name": "My List"},
 	}
+
+	if s.db != nil {
+		var dbPages []models.Page
+		if err := s.db.Order("nav_order").Find(&dbPages).Error; err == nil {
+			for _, p := range dbPages {
+				duplicate := false
+				for _, existing := range pages {
+					if existing["page"] == p.Slug {
+						duplicate = true
+						break
+					}
+				}
+				if !duplicate {
+					pages = append(pages, map[string]string{
+						"page": p.Slug,
+						"name": p.Title,
+					})
+				}
+			}
+		}
+	}
+
+	return pages
 }
 
 // GetWidgetLayouts returns available layouts
@@ -822,10 +848,37 @@ func (s *WidgetService) getLocalDataFromCache(widget models.Widget, cache *DataC
 					item.GenreNames = append(item.GenreNames, genre.Name)
 				}
 
+				// Map trailer path from local media
+				item.TrailerPath = progress.Media.TrailerPath
+				item.TMDBTrailerURL = progress.Media.TMDBTrailerURL
+				item.TrailerPath = progress.Media.TrailerPath
+				item.TMDBTrailerURL = progress.Media.TMDBTrailerURL
+				item.CreatedAt = &progress.Media.CreatedAt
+				item.FilePath = progress.Media.FilePath
+				item.PreviewPath = progress.Media.PreviewPath
+				item.PreviewClipPath = progress.Media.PreviewClipPath
+				
+				// If it's a TV show/episode, try to get trailer from Series field
+				if progress.Media.Series != nil {
+					if item.TrailerPath == "" {
+						item.TrailerPath = progress.Media.Series.TrailerURL
+					}
+					if item.TMDBTrailerURL == "" {
+						item.TMDBTrailerURL = progress.Media.Series.TMDBTrailerURL
+					}
+				}
+
 				mediaItems = append(mediaItems, item)
 			}
 
 			fmt.Printf("🔧 Found %d recently played items from playback service for widget %s\n", len(mediaItems), widget.Name)
+			
+			// Enrich with trailers if needed
+			if (widget.Type == models.WidgetTypeTrailer || widget.Type == models.WidgetTypeMediaTrailer || widget.Type == models.WidgetTypeMixedVideo) && s.tmdbService != nil {
+				fmt.Printf("🎬 Enriching recently played media with trailers for widget %s\n", widget.Name)
+				return s.enrichMediaItemsWithTrailers(mediaItems)
+			}
+			
 			return mediaItems
 		} else {
 			fmt.Printf("⚠️ Playback service not available for widget %s\n", widget.Name)
@@ -855,12 +908,12 @@ func (s *WidgetService) getLocalDataFromCache(widget models.Widget, cache *DataC
 		mediaItems = dedupeSeriesItems(mediaItems)
 	}
 
-	if widget.Type == models.WidgetTypeTrailer && s.tmdbService != nil {
-		fmt.Printf("🎬 Enriching local media with trailer URLs for trailer widget %s\n", widget.Name)
+	if (widget.Type == models.WidgetTypeTrailer || widget.Type == models.WidgetTypeMediaTrailer || widget.Type == models.WidgetTypeMixedVideo) && s.tmdbService != nil {
+		fmt.Printf("🎬 Enriching local media with trailer URLs for video widget %s\n", widget.Name)
 
 		enrichedItems := s.enrichMediaItemsWithTrailers(mediaItems)
 
-		fmt.Printf("🎬 Trailer widget %s: %d items with trailers out of %d local items\n",
+		fmt.Printf("🎬 Video widget %s: %d items with trailers out of %d local items\n",
 			widget.Name, len(enrichedItems), len(mediaItems))
 
 		return enrichedItems
@@ -1309,8 +1362,30 @@ func (s *WidgetService) convertSelectedContentToMediaItems(selectedContent []int
 				item.Certification = certification
 			}
 
+			// Handle trailer mappings for both TMDB and local content
+			if tmdbTrailerUrl, ok := contentMap["tmdb_trailer_url"].(string); ok && tmdbTrailerUrl != "" {
+				item.TMDBTrailerURL = tmdbTrailerUrl
+			}
+			if trailerPath, ok := contentMap["trailer_path"].(string); ok && trailerPath != "" {
+				item.TrailerPath = trailerPath
+			}
+			// If missing TMDB trailer and we have a TMDB ID, try to construct/fetch it?
+			// Ideally we assume selectedContent has it or we enrich it.
+			// The ContentSelector saves what it receives. If it came from TMDB search, it might lack trailer_url unless detailed info was fetched.
+			// However, local content (from search) usually has it if the API returned it.
+
 			items = append(items, item)
 		}
+	}
+
+	// Enrich with trailers if missing
+	for i := range items {
+		// Determine media type for enrichment
+		mediaType := "movie"
+		if items[i].Type == "tv" || items[i].Type == "series" {
+			mediaType = "tv"
+		}
+		items[i] = s.enrichMediaItemWithTrailer(items[i], mediaType)
 	}
 
 	fmt.Printf("✅ Converted %d selected content items to MediaItems\n", len(items))
@@ -1583,11 +1658,36 @@ func (s *WidgetService) getLocalMediaDataDirect(widget *models.Widget, config *m
 				for _, genre := range progress.Media.Genres {
 					item.GenreNames = append(item.GenreNames, genre.Name)
 				}
+				
+				// Map trailer path from local media
+				item.TrailerPath = progress.Media.TrailerPath
+				item.TMDBTrailerURL = progress.Media.TMDBTrailerURL
+				item.CreatedAt = &progress.Media.CreatedAt
+				item.FilePath = progress.Media.FilePath
+				item.PreviewPath = progress.Media.PreviewPath
+				item.PreviewClipPath = progress.Media.PreviewClipPath
+				
+				// If it's a TV show/episode, try to get trailer from Series field
+				if progress.Media.Series != nil {
+					if item.TrailerPath == "" {
+						item.TrailerPath = progress.Media.Series.TrailerURL
+					}
+					if item.TMDBTrailerURL == "" {
+						item.TMDBTrailerURL = progress.Media.Series.TMDBTrailerURL
+					}
+				}
 
 				mediaItems = append(mediaItems, item)
 			}
 
 			fmt.Printf("✅ Widget %s (direct): Found %d recently played items from playback service\n", widget.Name, len(mediaItems))
+			
+			// Enrich with trailers if needed for recently played items
+			if (widget.Type == models.WidgetTypeTrailer || widget.Type == models.WidgetTypeMediaTrailer || widget.Type == models.WidgetTypeMixedVideo) && s.tmdbService != nil {
+				fmt.Printf("🎬 Enriching recently played media with trailers for widget %s (direct query)\n", widget.Name)
+				return s.enrichMediaItemsWithTrailers(mediaItems), nil
+			}
+			
 			return mediaItems, nil
 		} else {
 			// Fallback to database query if playback service is not available
@@ -1742,7 +1842,9 @@ func (s *WidgetService) getTMDBData(widget *models.Widget, config *models.Widget
 		widget.Name, widget.DataSource, widget.ContentType)
 
 	// For trailer widgets, we need to fetch data with video information
-	isTrailerWidget := widget.Type == models.WidgetTypeTrailer
+	isTrailerWidget := widget.Type == models.WidgetTypeTrailer ||
+		widget.Type == models.WidgetTypeMediaTrailer ||
+		widget.Type == models.WidgetTypeMixedVideo
 
 	switch widget.DataSource {
 	case models.WidgetDataSourceTrending:
@@ -2247,6 +2349,9 @@ func (s *WidgetService) convertMediaToWidgetItem(media models.Media, preferSerie
 		LogoPath:        media.LogoPath,
 		TMDBBackdropURL: media.TMDBBackdropURL,
 		TMDBTrailerURL:  media.TMDBTrailerURL,
+		PreviewPath:     media.PreviewPath,
+		PreviewClipPath: media.PreviewClipPath,
+		TrailerPath:     media.TrailerPath,
 		TMDBID:          media.TMDBID,
 		ViewCount:       media.ViewCount,
 		LastViewed:      media.LastViewed,

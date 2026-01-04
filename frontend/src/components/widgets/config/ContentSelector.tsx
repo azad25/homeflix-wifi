@@ -46,7 +46,37 @@ interface TMDBSearchResult {
   media_type: "movie" | "tv";
   adult: boolean;
   genre_ids: number[];
+  tmdb_poster_url?: string;
+  poster_url?: string;
+  poster?: string;
 }
+
+const buildPosterUrl = (posterPath: string | null | undefined, apiUrl: string) => {
+  if (!posterPath) return null;
+  const path = posterPath.trim();
+  if (!path) return null;
+  if (path.startsWith('http://') || path.startsWith('https://')) return path;
+  if (path.startsWith('/api/')) return `${apiUrl}${path}`;
+  if (path.startsWith('/')) return `https://image.tmdb.org/t/p/w500${path}`;
+  return `https://image.tmdb.org/t/p/w500/${path}`;
+};
+
+const resolvePosterUrl = (item: TMDBSearchResult, apiUrl: string) => {
+  const candidates = [
+    item.tmdb_poster_url,
+    item.poster_url,
+    item.poster_path,
+    item.poster,
+    item.backdrop_path,
+  ];
+
+  for (const candidate of candidates) {
+    const resolved = buildPosterUrl(candidate, apiUrl);
+    if (resolved) return resolved;
+  }
+
+  return '/placeholder-poster.jpg';
+};
 
 export default function ContentSelector({
   isOpen,
@@ -56,7 +86,7 @@ export default function ContentSelector({
   selectedGenres,
   onGenresChange
 }: ContentSelectorProps) {
-  const [activeTab, setActiveTab] = useState<'search' | 'genres' | 'featured'>('search');
+  const [activeTab, setActiveTab] = useState<'search' | 'genres' | 'featured' | 'local'>('search');
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<TMDBSearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -64,6 +94,9 @@ export default function ContentSelector({
   const [tmdbGenres, setTmdbGenres] = useState<Genre[]>([]);
   const [featuredContent, setFeaturedContent] = useState<TMDBSearchResult[]>([]);
   const [loadingFeatured, setLoadingFeatured] = useState(false);
+  const [activeLocalTab, setActiveLocalTab] = useState<'browse' | 'search'>('browse');
+  const [localResults, setLocalResults] = useState<any[]>([]);
+  const [localLoading, setLocalLoading] = useState(false);
 
   const apiUrl = getApiUrl();
 
@@ -192,11 +225,6 @@ export default function ContentSelector({
     }
   };
 
-  const getPosterUrl = (posterPath: string) => {
-    if (!posterPath) return '/placeholder-poster.jpg';
-    return `https://image.tmdb.org/t/p/w185${posterPath}`;
-  };
-
   const formatDate = (dateString: string) => {
     if (!dateString) return '';
     const year = new Date(dateString).getFullYear();
@@ -258,7 +286,8 @@ export default function ContentSelector({
               {[
                 { id: 'search', label: 'TMDB Search', icon: Globe },
                 { id: 'genres', label: 'Local Genres', icon: Database },
-                { id: 'featured', label: 'Featured & Trending', icon: Star }
+                { id: 'featured', label: 'Featured & Trending', icon: Star },
+                { id: 'local', label: 'Local Library', icon: Database }
               ].map(({ id, label, icon: Icon }) => (
                 <button
                   key={id}
@@ -313,6 +342,91 @@ export default function ContentSelector({
                     <div className="text-center py-12">
                       <Search className="w-16 h-16 text-white/20 mx-auto mb-4" />
                       <p className="text-white/60">No results found for "{searchQuery}"</p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Local Library Tab */}
+              {activeTab === 'local' && (
+                <div className="p-6 space-y-6">
+                  {/* Local Search */}
+                  <div className="flex items-center gap-3">
+                    <div className="relative flex-1">
+                      <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-white/40" />
+                      <input
+                        type="text"
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        placeholder="Search local movies & shows..."
+                        className="w-full bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl pl-12 pr-4 py-3 text-white placeholder-white/40 focus:border-red-400/50 focus:outline-none transition-colors"
+                      />
+                    </div>
+                    <button
+                      onClick={async () => {
+                        setLocalLoading(true);
+                        try {
+                          const url = searchQuery.trim() ? `${apiUrl}/api/media/search?q=${encodeURIComponent(searchQuery.trim())}` : `${apiUrl}/api/media`;
+                          const data = await fetch(url).then(r => r.ok ? r.json() : []);
+                          setLocalResults(Array.isArray(data) ? data : []);
+                        } catch (e) {
+                          setLocalResults([]);
+                        } finally {
+                          setLocalLoading(false);
+                        }
+                      }}
+                      className="px-4 py-3 bg-red-600/20 hover:bg-red-600/30 border border-red-500/30 rounded-xl text-red-200"
+                    >
+                      Search
+                    </button>
+                  </div>
+
+                  {/* Local Results */}
+                  {localLoading ? (
+                    <div className="flex items-center justify-center py-12">
+                      <div className="w-10 h-10 border-4 border-white/20 border-t-red-400 rounded-full animate-spin" />
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+                      {localResults.map((item: any) => (
+                        <ContentCard
+                          key={`local-${item.type}-${item.id}`}
+                          item={{
+                            id: item.id,
+                            title: item.title,
+                            name: item.title,
+                            overview: item.description || item.long_desc || item.short_desc || '',
+                            release_date: item.release_date,
+                            first_air_date: item.first_air_date,
+                            poster_path: item.poster_path ? `/api/posters/${item.id}` : '',
+                            backdrop_path: item.backdrop_path ? `/api/backdrops/${item.id}` : '',
+                            vote_average: item.rating || 0,
+                            vote_count: item.vote_count || 0,
+                            popularity: item.popularity || 0,
+                            media_type: (item.type === 'tv' || item.type === 'series' || item.type === 'episode') ? 'tv' : 'movie',
+                            adult: false,
+                            genre_ids: [],
+                          } as TMDBSearchResult}
+                          isSelected={selectedContent.some(c => c.id === item.id)}
+                          onToggle={() => {
+                            const exists = selectedContent.some(c => c.id === item.id);
+                            const mapped = {
+                              id: item.id,
+                              type: item.type,
+                              title: item.title,
+                              poster_path: item.poster_path ? `/api/posters/${item.id}` : '',
+                              backdrop_path: item.backdrop_path ? `/api/backdrops/${item.id}` : '',
+                              overview: item.description || '',
+                              media_type: (item.type === 'tv' || item.type === 'series' || item.type === 'episode') ? 'tv' : 'movie',
+                            };
+                            if (exists) {
+                              onContentChange(selectedContent.filter(c => c.id !== item.id));
+                            } else {
+                              onContentChange([...selectedContent, mapped]);
+                            }
+                          }}
+                        />
+                      ))}
                     </div>
                   )}
                 </div>
@@ -448,10 +562,7 @@ interface ContentCardProps {
 }
 
 function ContentCard({ item, isSelected, onToggle }: ContentCardProps) {
-  const getPosterUrl = (posterPath: string) => {
-    if (!posterPath) return '/placeholder-poster.jpg';
-    return `https://image.tmdb.org/t/p/w185${posterPath}`;
-  };
+  const posterUrl = resolvePosterUrl(item, getApiUrl());
 
   const formatDate = (dateString: string) => {
     if (!dateString) return '';
@@ -472,7 +583,7 @@ function ContentCard({ item, isSelected, onToggle }: ContentCardProps) {
     >
       <div className="aspect-[2/3] relative bg-white/5 backdrop-blur-sm">
         <img
-          src={getPosterUrl(item.poster_path)}
+          src={posterUrl}
           alt={item.title || item.name}
           className="w-full h-full object-cover"
           onError={(e) => {

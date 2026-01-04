@@ -4,6 +4,7 @@ import (
 	"homeflix-backend/internal/api/handlers"
 	torrentHandlers "homeflix-backend/internal/handlers"
 	"homeflix-backend/internal/scanner"
+	"homeflix-backend/internal/models"
 	"homeflix-backend/internal/services"
 	"gorm.io/gorm"
 
@@ -59,6 +60,20 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		widgetService := services.NewWidgetService(db, mediaService, tmdbService, notificationService, playbackService)
 		widgetService.InitializeWidgets() // Run migration and seeding
 		widgetHandler := handlers.NewWidgetHandler(widgetService, mediaService, tmdbService)
+
+		// Initialize dynamic pages service/handler
+		pageService := services.NewPageService(db)
+		_ = pageService.Migrate()
+		pageHandler := handlers.NewPageHandler(pageService)
+		// Seed a sample page if none exists
+		if pages, err := pageService.GetAllPages(); err == nil && len(pages) == 0 {
+			pageService.Create(&models.Page{
+				Slug:         "discover",
+				Title:        "Discover",
+				Description:  "Dynamic discovery page",
+				IsNavVisible: true,
+			})
+		}
 
 		// Initialize collection service and handler
 		collectionService := services.NewCollectionService(db)
@@ -396,6 +411,15 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		api.PUT("/widgets/reorder", widgetHandler.ReorderWidgets)
 		api.POST("/widgets/:id/toggle", widgetHandler.ToggleWidget)
 		api.POST("/widgets/:id/duplicate", widgetHandler.DuplicateWidget)
+
+		// Dynamic pages endpoints
+		api.GET("/pages", pageHandler.List)
+		api.GET("/pages/nav", pageHandler.Nav)
+		api.GET("/pages/home", pageHandler.GetHomePage)
+		api.GET("/pages/:slug", pageHandler.Get)
+		api.POST("/pages", pageHandler.Create)
+		api.PUT("/pages/:slug", pageHandler.Update)
+		api.DELETE("/pages/:slug", pageHandler.Delete)
 
 		// TMDB genre endpoints for widget configuration
 		api.GET("/tmdb/genres/movie", widgetHandler.GetTMDBGenres)

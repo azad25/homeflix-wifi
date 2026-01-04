@@ -14,6 +14,7 @@ export interface Media {
   description?: string;
   year?: number;
   release_date?: string;
+  first_air_date?: string;
   rating?: number;
   country?: string;
   language?: string;

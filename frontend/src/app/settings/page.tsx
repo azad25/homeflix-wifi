@@ -16,6 +16,7 @@ import TMDBSearchModal from '@/components/TMDBSearchModal';
 import SystemLogs from '@/components/SystemLogs';
 import WidgetManager from '@/components/settings/WidgetManager';
 import EnhancedWidgetManager from '@/components/settings/EnhancedWidgetManager';
+import PageManager from '@/components/settings/PageManager';
 import { useSearchParams } from 'next/navigation';
 interface MediaAssets {
   id?: number;
@@ -2488,6 +2489,16 @@ function SettingsContent() {
               Widgets
             </MagneticButton>
             <MagneticButton
+              onClick={() => setActiveTab('pages')}
+              className={`px-4 py-3 rounded-lg font-semibold transition-all duration-300 flex items-center gap-2 whitespace-nowrap ${activeTab === 'pages'
+                ? 'bg-[#E50914] text-white shadow-lg shadow-red-500/25'
+                : 'bg-transparent text-white/70 hover:text-white hover:bg-white/10'
+                }`}
+            >
+              <Layout className="w-4 h-4" />
+              Pages
+            </MagneticButton>
+            <MagneticButton
               onClick={() => setActiveTab('general')}
               className={`px-4 py-3 rounded-lg font-semibold transition-all duration-300 flex items-center gap-2 whitespace-nowrap ${activeTab === 'general'
                 ? 'bg-[#E50914] text-white shadow-lg shadow-red-500/25'
@@ -4553,6 +4564,19 @@ function SettingsContent() {
           <ScrollReveal>
             <GlassCard className="p-8">
               <EnhancedWidgetManager />
+            </GlassCard>
+          </ScrollReveal>
+        )}
+
+        {/* Pages Management Tab (inline, no modals) */}
+        {activeTab === 'pages' && (
+          <ScrollReveal>
+            <GlassCard className="p-8">
+              <h2 className="text-2xl font-semibold text-white mb-6 flex items-center">
+                <Layout className="w-6 h-6 mr-3 text-[#E50914]" />
+                Pages
+              </h2>
+              <PageManager />
             </GlassCard>
           </ScrollReveal>
         )}

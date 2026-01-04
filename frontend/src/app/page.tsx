@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { useNavigate } from '@/hooks/useNavigate';
 import Navbar from "@/components/Navbar";
@@ -14,12 +14,33 @@ import ErrorBoundary from "@/components/ErrorBoundary";
 // Memoized components for better performance
 const MemoizedHomeflixHero = React.memo(HomeflixHero);
 
+import { getApiUrl } from "@/lib/api";
+
 export default function Home() {
   usePageTitle('Home');
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedMedia, setSelectedMedia] = useState<Media | null>(null);
   const [isPlayerOpen, setIsPlayerOpen] = useState(false);
+
+  // Check if there's a custom home page and redirect
+  useEffect(() => {
+    const checkHomePage = async () => {
+      try {
+        const apiUrl = getApiUrl();
+        const response = await fetch(`${apiUrl}/api/pages/home`);
+        if (response.ok) {
+          const page = await response.json();
+          if (page && page.slug) {
+            navigate.push(`/${page.slug}`);
+          }
+        }
+      } catch (error) {
+        console.error('Failed to fetch home page:', error);
+      }
+    };
+    checkHomePage();
+  }, [navigate]);
 
   // Memoized event handlers
   const handleSearch = useCallback((query: string) => {
@@ -69,8 +90,8 @@ export default function Home() {
 
       {/* Widget System Integration - Backend Data */}
       <ErrorBoundary>
-        <BackendWidgetRenderer 
-          page="home" 
+        <BackendWidgetRenderer
+          page="home"
           className="py-8"
         />
       </ErrorBoundary>

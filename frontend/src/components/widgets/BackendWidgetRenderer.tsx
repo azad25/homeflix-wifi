@@ -16,6 +16,7 @@ import TrailerWidget from './TrailerWidget';
 import RecentlyWatchedWidget from './RecentlyWatchedWidget';
 import NotificationWidget from './NotificationWidget';
 import HomeflixGrid from './HomeflixGrid';
+import HeroVideoWidget from './HeroVideoWidget';
 
 interface BackendWidgetRendererProps {
     page: string;
@@ -55,6 +56,9 @@ interface MediaItem {
     tmdb_poster_url?: string;
     tmdb_backdrop_url?: string;
     tmdb_trailer_url?: string; // ← MISSING FIELD ADDED!
+    preview_path?: string;
+    preview_clip_path?: string;
+    trailer_path?: string;
     tmdb_id?: number;
     popularity?: number;
     vote_count?: number;
@@ -69,7 +73,7 @@ interface MediaItem {
     runtime?: number;
     certification?: string;
     tagline?: string;
-    genres?: Array<{id: number; name: string}>;
+    genres?: Array<{ id: number; name: string }>;
 }
 
 // Convert backend MediaItem to frontend Media format
@@ -91,6 +95,9 @@ const convertToFrontendMedia = (items: MediaItem[]) => {
         tmdb_poster_url: item.tmdb_poster_url,
         tmdb_backdrop_url: item.tmdb_backdrop_url,
         tmdb_trailer_url: item.tmdb_trailer_url, // ← MISSING FIELD ADDED!
+        preview_path: item.preview_path,
+        preview_clip_path: item.preview_clip_path,
+        trailer_path: item.trailer_path,
         tmdb_id: item.tmdb_id,
         popularity: item.popularity || 0,
         vote_count: item.vote_count || 0,
@@ -135,40 +142,40 @@ export default function BackendWidgetRenderer({
         const fetchWidgets = async () => {
             const apiUrl = getApiUrl();
             const url = `${apiUrl}/api/widgets/page/${page}/with-data`;
-            
+
             console.log('BackendWidgetRenderer: Fetching widgets from:', url);
-            
+
             try {
                 setLoading(true);
                 setError(null);
-                
+
                 const response = await fetch(url, {
                     headers: {
                         'Content-Type': 'application/json',
                         'X-User-ID': '1',
                     },
                 });
-                
+
                 console.log('BackendWidgetRenderer: Response status:', response.status);
-                
+
                 if (!response.ok) {
                     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
                 }
-                
+
                 const data = await response.json();
                 console.log('BackendWidgetRenderer: Received', Array.isArray(data) ? data.length : 0, 'widgets');
-                
+
                 if (Array.isArray(data)) {
-                    console.log('🔔 BackendWidgetRenderer: Received widgets for page', page, ':', data.map(w => ({ 
-                        id: w.id, 
-                        name: w.name, 
-                        type: w.type, 
+                    console.log('🔔 BackendWidgetRenderer: Received widgets for page', page, ':', data.map(w => ({
+                        id: w.id,
+                        name: w.name,
+                        type: w.type,
                         enabled: w.enabled,
                         data_source: w.data_source,
-                        data_count: w.data?.length || 0 
+                        data_count: w.data?.length || 0
                     })));
                     setWidgets(data);
-                    
+
                     // Call refresh callback if provided
                     if (onRefresh) {
                         onRefresh();
@@ -211,7 +218,7 @@ export default function BackendWidgetRenderer({
             // For specific content widgets, always render even with no data (they might have selected content)
             const shouldRenderWithoutData = [
                 'specific-content',
-                'coming-soon', 
+                'coming-soon',
                 'notifications',
                 'featured-banner', // Add featured-banner to always render
                 'recently-watched',
@@ -239,6 +246,42 @@ export default function BackendWidgetRenderer({
                             showLogo={config.showLogo !== false}
                             showDescription={config.showDescription !== false}
                             showRating={config.showRating !== false}
+                            config={config}
+                        />
+                    );
+
+                case 'preview-video':
+                    return (
+                        <HeroVideoWidget
+                            key={widgetWithData.id}
+                            media={media}
+                            mode="preview"
+                            autoPlay={config.autoPlay !== false}
+                            slideDurationMs={(config.scrollInterval ? config.scrollInterval * 1000 : 8000)}
+                            config={config}
+                        />
+                    );
+
+                case 'media-trailer':
+                    return (
+                        <HeroVideoWidget
+                            key={widgetWithData.id}
+                            media={media}
+                            mode="trailer"
+                            autoPlay={config.autoPlay !== false}
+                            slideDurationMs={(config.scrollInterval ? config.scrollInterval * 1000 : 8000)}
+                            config={config}
+                        />
+                    );
+
+                case 'mixed-video':
+                    return (
+                        <HeroVideoWidget
+                            key={widgetWithData.id}
+                            media={media}
+                            mode="mixed"
+                            autoPlay={config.autoPlay !== false}
+                            slideDurationMs={(config.scrollInterval ? config.scrollInterval * 1000 : 8000)}
                             config={config}
                         />
                     );
@@ -459,7 +502,7 @@ export default function BackendWidgetRenderer({
                 const needsHeight = ['notifications', 'featured-banner', 'backdrop-slideshow', 'trailer'].includes(widget.type);
                 const heightClass = needsHeight ? 'min-h-[400px] md:min-h-[600px]' : '';
                 const marginClass = widget.type === 'featured-banner' ? 'mb-12' : 'mb-8';
-                
+
                 elements.push(
                     <div key={widget.id} className={`w-full ${heightClass} ${marginClass} relative overflow-hidden`}>
                         {renderWidget(widget)}

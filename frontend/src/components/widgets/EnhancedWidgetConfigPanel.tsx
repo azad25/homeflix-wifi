@@ -42,6 +42,34 @@ export default function EnhancedWidgetConfigPanel({
     }
   }, [isOpen, page]);
 
+  useEffect(() => {
+    if (!editingWidget) {
+      setSelectedContent([]);
+      setSelectedGenres([]);
+      return;
+    }
+
+    try {
+      const parsedConfig = editingWidget.config ? JSON.parse(editingWidget.config) : {};
+
+      if (Array.isArray(parsedConfig.selectedContent)) {
+        setSelectedContent(parsedConfig.selectedContent);
+      } else {
+        setSelectedContent([]);
+      }
+
+      if (Array.isArray(parsedConfig.selectedGenres)) {
+        setSelectedGenres(parsedConfig.selectedGenres.filter((id: unknown) => typeof id === 'number'));
+      } else {
+        setSelectedGenres([]);
+      }
+    } catch (err) {
+      console.error('Error parsing widget config for selected content:', err);
+      setSelectedContent([]);
+      setSelectedGenres([]);
+    }
+  }, [editingWidget]);
+
   const fetchGenres = async () => {
     try {
       const [movieGenres, tvGenres] = await Promise.all([

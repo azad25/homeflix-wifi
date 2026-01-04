@@ -15,9 +15,12 @@ export type WidgetType =
     | 'recently-watched'
     | 'continue-watching'
     | 'trailer'
+    | 'preview-video'
+    | 'media-trailer'
+    | 'mixed-video'
     | 'notifications';
 
-export type PageType = 'home' | 'movies' | 'tv-shows' | 'browse' | 'new-popular' | 'my-list';
+export type PageType = 'home' | 'movies' | 'tv-shows' | 'browse' | 'new-popular' | 'my-list' | (string & {});
 
 export type LayoutType = 'full' | 'half' | 'third';
 
@@ -43,6 +46,10 @@ export interface WidgetConfig {
     ratingFilter?: number;
     customGradient?: string;
     animationStyle?: 'fade' | 'slide' | 'parallax';
+    // Hero video widget specific
+    heroMode?: 'preview' | 'trailer' | 'mixed';
+    slideDuration?: number;
+    muteByDefault?: boolean;
     // Notification widget specific
     notificationTypes?: string[];
     showTimestamp?: boolean;
@@ -94,6 +101,20 @@ export function stringifyWidgetConfig(config: WidgetConfig): string {
 export interface WidgetDisplayProps {
     widget: Widget;
     className?: string;
+}
+
+export interface PageDefinition {
+    id: number;
+    slug: string;
+    title: string;
+    description?: string;
+    is_default?: boolean;
+    is_nav_visible: boolean;
+    nav_order: number;
+    layout_config?: string;
+    widget_layout?: string;
+    created_at?: string;
+    updated_at?: string;
 }
 
 // Extracted dominant color from logo for theming

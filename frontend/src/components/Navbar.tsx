@@ -49,6 +49,8 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
   const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const suggestionsRef = useRef<HTMLDivElement>(null);
+  const [dynamicPages, setDynamicPages] = useState<Array<{ slug: string; title: string }>>([]);
+  const [homePageSlug, setHomePageSlug] = useState<string | null>(null);
 
   // Notification state
   const [notifications, setNotifications] = useState<Notification[]>([]);
@@ -63,6 +65,34 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
 
     window.addEventListener("scroll", handleScroll);
     return () => window.removeEventListener("scroll", handleScroll);
+  }, []);
+
+  // Fetch dynamic pages for navigation (append to existing)
+  useEffect(() => {
+    const apiUrl = getApiUrl();
+    fetch(`${apiUrl}/api/pages/nav`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((pages) => {
+        if (Array.isArray(pages)) {
+          setDynamicPages(
+            pages.map((p: any) => ({ slug: p.slug, title: p.title }))
+          );
+        }
+      })
+      .catch(() => setDynamicPages([]));
+  }, []);
+
+  // Fetch custom home page
+  useEffect(() => {
+    const apiUrl = getApiUrl();
+    fetch(`${apiUrl}/api/pages/home`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((page) => {
+        if (page && page.slug) {
+          setHomePageSlug(page.slug);
+        }
+      })
+      .catch(() => setHomePageSlug(null));
   }, []);
 
   // Handle clicks outside search to close suggestions
@@ -219,11 +249,11 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
   };
 
   const navItems = [
-    { name: "Movies", href: "/movies" },
-    { name: "TV Shows", href: "/tv-shows" },
+    // { name: "Movies", href: "/movies" },
+    // { name: "TV Shows", href: "/tv-shows" },
     { name: "Music", href: "/music" },
-    { name: "Trailers", href: "/trailers" },
-    { name: "New & Popular", href: "/new-popular" },
+    // { name: "Trailers", href: "/trailers" },
+    // { name: "New & Popular", href: "/new-popular" },
     { name: "My List", href: "/my-list" },
     { name: "Browse", href: "/browse" },
   ];
@@ -241,15 +271,15 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
           {/* Logo */}
           <div className="flex items-center gap-8">
             <NavigationLink
-              href="/"
+              href={homePageSlug ? `/${homePageSlug}` : "/"}
               className="text-red-600 text-2xl font-bold hover:text-red-500 transition-colors cursor-pointer"
             >
               HomeFlix
             </NavigationLink>
 
-            {/* Desktop Navigation */}
+            {/* Desktop Navigation - Home page is filtered out of this list by backend (is_nav_visible=false) */}
             <div className="hidden md:flex items-center gap-6">
-              {navItems.map((item) => {
+              {[...navItems, ...dynamicPages.map(p => ({ name: p.title, href: `/${p.slug}` }))].map((item) => {
                 const isActive = pathname === item.href;
                 return (
                   <NavigationLink
