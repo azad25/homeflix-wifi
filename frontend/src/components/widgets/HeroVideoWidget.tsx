@@ -8,6 +8,7 @@ import { Media } from "@/types/media";
 import VideoPlayerOverlay from './VideoPlayerOverlay';
 import { navigateToMedia } from '@/lib/mediaNavigation';
 import { useNavigate } from '@/hooks/useNavigate';
+import { useRecommendationScore } from '@/lib/swr-api';
 
 export type HeroMode = "preview" | "trailer" | "mixed";
 
@@ -222,7 +223,8 @@ export default function HeroVideoWidget({
     return null;
   }, []);
 
-  const getRecommendationScore = useCallback((m: Media) => {
+  // Mock score fallback
+  const calculateMockScore = useCallback((m: Media) => {
     const rating = typeof m.rating === "number" && m.rating > 0 ? m.rating : 0;
     const popularity = typeof m.popularity === "number" ? Math.min(100, m.popularity) : 0;
     const voteCount = typeof m.vote_count === "number" ? Math.min(200, m.vote_count) : 0;
@@ -230,6 +232,10 @@ export default function HeroVideoWidget({
     const score = base || 65;
     return Math.max(60, Math.min(98, Math.round(score)));
   }, []);
+
+  // Fetch real recommendation score
+  const { data: scoreData } = useRecommendationScore(current?.id || 0);
+
 
   const isTrailer = useCallback((m: Media) => {
     if (mode === "preview") return false;
@@ -805,7 +811,7 @@ export default function HeroVideoWidget({
 
   const releaseYear = current ? getYear(current) : null;
   const displayRating = current ? getDisplayRating(current) : null;
-  const recommendationScore = current ? getRecommendationScore(current) : null;
+  const recommendationScore = scoreData?.score || (current ? calculateMockScore(current) : null);
   const logoUrl = current ? getLogoUrl(current) : "";
 
   // Dynamic Theme

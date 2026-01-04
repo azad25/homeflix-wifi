@@ -34,6 +34,7 @@ export const CACHE_KEYS = {
   RECOMMENDATIONS_TRENDING: (limit: number) => `/api/recommendations/trending?limit=${limit}`,
   RECOMMENDATIONS_POPULAR: (limit: number) => `/api/recommendations/popular?limit=${limit}`,
   RECOMMENDATIONS_SCIFI: (limit: number) => `/api/recommendations/scifi?limit=${limit}`,
+  RECOMMENDATION_SCORE: (id: number) => `/api/recommendations/score/${id}`,
 
   // TMDB
   TMDB_UPCOMING_MOVIES: '/api/upcoming-movies',
@@ -579,3 +580,18 @@ export function usePreloadData() {
 
 // Export SWR for direct use when needed
 export { useSWR, mutate };
+
+// Hook for personalized recommendation score
+export function useRecommendationScore(mediaId: number, config?: SWRConfiguration) {
+  return useSWR<{ score: number, reason: string }>(
+    mediaId ? CACHE_KEYS.RECOMMENDATION_SCORE(mediaId) : null,
+    fetcher,
+    {
+      ...swrConfig,
+      refreshInterval: 0, // Don't auto-refresh
+      dedupingInterval: 60000, // 1 minute deduplication
+      revalidateOnFocus: false,
+      ...config,
+    }
+  );
+}

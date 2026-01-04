@@ -404,6 +404,133 @@ func (s *RecommendationService) TrackRecommendationClick(userID uint, mediaID ui
 		}).Error
 }
 
+// GetScoreForMedia calculates a personalized recommendation score (0-100) for a specific media item
+// based on user's watch history, genre preferences, content ratings, and media attributes.
+func (s *RecommendationService) GetScoreForMedia(userID string, mediaID uint) (int, string, error) {
+	// Get the media item
+	var media models.Media
+	if err := s.db.Preload("Genres").First(&media, mediaID).Error; err != nil {
+		return 0, "", fmt.Errorf("media not found: %v", err)
+	}
+
+	// Get user's playback progress (recently watched items with progress)
+	var recentlyWatched []models.PlaybackProgress
+	s.db.Preload("Media").Preload("Media.Genres").
+		Where("user_id = ?", userID).
+		Order("last_watched DESC").
+		Limit(50).
+		Find(&recentlyWatched)
+
+	// Calculate genre preferences from watch history
+	genrePrefs := make(map[string]float64)
+	typePrefs := make(map[string]float64)
+	var totalWatched float64
+
+	for _, progress := range recentlyWatched {
+		weight := 1.0
+		if progress.Completed {
+			weight = 2.0 // Double weight for completed items
+		} else if progress.Progress > 50 {
+			weight = 1.5 // Higher weight for items watched more than 50%
+		}
+
+		// Track genre preferences
+		for _, genre := range progress.Media.Genres {
+			genrePrefs[genre.Name] += weight
+		}
+
+		// Track type preferences (movie vs tv)
+		typePrefs[progress.Media.Type] += weight
+		totalWatched += weight
+	}
+
+	// Normalize preferences if we have watch history
+	if totalWatched > 0 {
+		for genre := range genrePrefs {
+			genrePrefs[genre] = genrePrefs[genre] / totalWatched
+		}
+		for mediaType := range typePrefs {
+			typePrefs[mediaType] = typePrefs[mediaType] / totalWatched
+		}
+	}
+
+	// Calculate score components
+	var score float64 = 0
+	var reason string
+
+	// 1. Genre matching score (0-40 points)
+	var genreScore float64 = 0
+	var matchedGenre string
+	for _, genre := range media.Genres {
+		if pref, exists := genrePrefs[genre.Name]; exists {
+			genreScore += pref * 40
+			if pref > 0.2 && matchedGenre == "" {
+				matchedGenre = genre.Name
+			}
+		}
+	}
+	if genreScore > 40 {
+		genreScore = 40
+	}
+	score += genreScore
+
+	// 2. Type preference score (0-10 points)
+	if pref, exists := typePrefs[media.Type]; exists {
+		score += pref * 10
+	}
+
+	// 3. Rating score (0-20 points) - scaled from 0-10 rating
+	if media.Rating > 0 {
+		ratingScore := (media.Rating / 10) * 20
+		score += ratingScore
+	}
+
+	// 4. Popularity score (0-15 points)
+	if media.ViewCount > 0 {
+		// Log scale for view count to prevent huge numbers from dominating
+		popScore := float64(media.ViewCount)
+		if popScore > 100 {
+			popScore = 100
+		}
+		score += (popScore / 100) * 15
+	}
+
+	// 5. Recency boost (0-15 points)
+	now := time.Now()
+	daysSinceAdded := int(now.Sub(media.CreatedAt).Hours() / 24)
+	if daysSinceAdded <= 7 {
+		score += 15 // Very new content
+	} else if daysSinceAdded <= 30 {
+		score += 10 // Recent content
+	} else if daysSinceAdded <= 90 {
+		score += 5 // Somewhat recent
+	}
+
+	// Generate reason
+	if matchedGenre != "" && genreScore > 15 {
+		reason = fmt.Sprintf("Based on your love for %s", matchedGenre)
+	} else if len(recentlyWatched) == 0 {
+		reason = "Recommended for you"
+	} else if media.Rating >= 7.5 {
+		reason = "Highly rated content"
+	} else if daysSinceAdded <= 14 {
+		reason = "New in library"
+	} else {
+		reason = "You might enjoy this"
+	}
+
+	// Ensure score is between 60-98 (to feel realistic like Netflix)
+	finalScore := int(score)
+	if finalScore < 60 {
+		finalScore = 60
+	}
+	if finalScore > 98 {
+		finalScore = 98
+	}
+
+	return finalScore, reason, nil
+}
+
 // RefreshRecommendations updates recommendation scores for all users after new media is added
 func (s *RecommendationService) RefreshRecommendations() error {
 	// Get all active users (users who have watched something in the last 90 days)

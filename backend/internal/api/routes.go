@@ -231,6 +231,7 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 
 		// Recommendation tracking
 		api.POST("/recommendations/track-click/:id", handlers.TrackRecommendationClick(recommendationService))
+		api.GET("/recommendations/score/:id", handlers.GetRecommendationScoreForMedia(recommendationService))
 
 
 
