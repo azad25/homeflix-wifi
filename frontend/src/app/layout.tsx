@@ -5,6 +5,7 @@ import { NavigationLoaderProvider } from "@/contexts/NavigationLoaderContext";
 import { MusicPlayerProvider } from "@/contexts/MusicPlayerContext";
 import NavigationLoader from "@/components/NavigationLoader";
 import SWRProvider from "@/components/providers/SWRProvider";
+import WidgetPreloader from "@/components/WidgetPreloader";
 import { Suspense } from "react";
 
 export const metadata: Metadata = {
@@ -54,10 +55,10 @@ export default function RootLayout({
         {/* DNS prefetch for external resources */}
         <link rel="dns-prefetch" href="//image.tmdb.org" />
         <link rel="preconnect" href="//image.tmdb.org" crossOrigin="anonymous" />
-        
+
         {/* Performance hints */}
         <meta name="color-scheme" content="dark" />
-        
+
         {/* Prevent FOUC */}
         <script
           dangerouslySetInnerHTML={{
@@ -78,6 +79,7 @@ export default function RootLayout({
             <EnhancedAudioProvider>
               <MusicPlayerProvider>
                 <Suspense fallback={<div className="min-h-screen bg-black" />}>
+                  <WidgetPreloader />
                   <NavigationLoader />
                   {children}
                 </Suspense>

@@ -85,6 +85,8 @@ export default function HeroVideoWidget({
   const advanceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const trailerLoadTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const TRAILER_LOAD_TIMEOUT_MS = 8000;
+  const VIDEO_LOAD_TIMEOUT_FIRST_MS = 1000; // Fast first slide
+  const VIDEO_LOAD_TIMEOUT_MS = 5000; // Standard timeout
   const isMutedRef = useRef(isMuted);
 
   const [progress, setProgress] = useState(0);
@@ -355,35 +357,42 @@ export default function HeroVideoWidget({
     setIndex(targetIndex);
   }, [index, clearProgressInterval]);
 
-  // Load Logos
+  // Load Logos - batch fetched with concurrency limit of 3
   useEffect(() => {
     if (!items.length) return;
     const pending = items.filter(item => item.tmdb_id && !logoUrlsRef.current[item.tmdb_id]);
     if (!pending.length) return;
     const controller = new AbortController();
-    const loadLogos = async () => {
-      await Promise.all(pending.map(async item => {
-        try {
-          const type = (item.type === 'tv' || item.type === 'series') ? 'tv' : 'movie';
-          const res = await fetch(`${apiUrl}/api/tmdb/${type}/${item.tmdb_id}/images`, { signal: controller.signal });
-          if (!res.ok) return;
-          const data = await res.json();
-          const logos = data?.logos || [];
-          if (!logos.length) return;
-          const preferred = logos.find((l: any) => l.iso_639_1 === "en") || logos[0];
-          if (preferred?.file_path) {
-            const url = `https://image.tmdb.org/t/p/w500${preferred.file_path}`;
-            setLogoUrls(prev => {
-              if (item.tmdb_id && prev[item.tmdb_id] === url) return prev;
-              const next = item.tmdb_id ? { ...prev, [item.tmdb_id]: url } : prev;
-              logoUrlsRef.current = next;
-              return next;
-            });
-          }
-        } catch { }
-      }));
+
+    // Limit concurrent requests to reduce network load
+    const loadLogosInBatches = async () => {
+      const BATCH_SIZE = 3;
+      for (let i = 0; i < pending.length; i += BATCH_SIZE) {
+        const batch = pending.slice(i, i + BATCH_SIZE);
+        await Promise.all(batch.map(async item => {
+          try {
+            const type = (item.type === 'tv' || item.type === 'series') ? 'tv' : 'movie';
+            const res = await fetch(`${apiUrl}/api/tmdb/${type}/${item.tmdb_id}/images`, { signal: controller.signal });
+            if (!res.ok) return;
+            const data = await res.json();
+            const logos = data?.logos || [];
+            if (!logos.length) return;
+            const preferred = logos.find((l: any) => l.iso_639_1 === "en") || logos[0];
+            if (preferred?.file_path) {
+              const url = `https://image.tmdb.org/t/p/w500${preferred.file_path}`;
+              setLogoUrls(prev => {
+                if (item.tmdb_id && prev[item.tmdb_id] === url) return prev;
+                const next = item.tmdb_id ? { ...prev, [item.tmdb_id]: url } : prev;
+                logoUrlsRef.current = next;
+                return next;
+              });
+            }
+          } catch { }
+        }));
+      }
     };
-    loadLogos();
+    loadLogosInBatches();
+    return () => controller.abort();
   }, [items, apiUrl]);
 
   // Preloading Logic
@@ -415,20 +424,12 @@ export default function HeroVideoWidget({
     // console.log(`🎬 Preloading video for: ${m.title}`);
   }, [getPreviewClipUrl]);
 
-  // Preload upcoming videos (current + next 2)
+  // Preload only current video (reduced from 3 to 1 to save resources)
   useEffect(() => {
     if (items.length === 0) return;
 
-    // Preload current and next 2 items
-    const indicesToPreload = [
-      index,
-      (index + 1) % items.length,
-      (index + 2) % items.length
-    ];
-
-    indicesToPreload.forEach(i => {
-      if (items[i]) preloadVideo(items[i]);
-    });
+    // Only preload current item to reduce memory/bandwidth usage
+    if (items[index]) preloadVideo(items[index]);
   }, [index, items, preloadVideo]);
 
   // Cleanup preloaded videos on unmount
@@ -591,6 +592,9 @@ export default function HeroVideoWidget({
               if (!PlayerState) return;
               if (event.data === PlayerState.PLAYING) {
                 if (trailerLoadTimeoutRef.current) { clearTimeout(trailerLoadTimeoutRef.current); trailerLoadTimeoutRef.current = null; }
+                // Clear the main safety timeout to prevent cutting off the video
+                if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; }
+
                 setYtVideoReady(true);
                 if (progressAnimationFrameRef.current) cancelAnimationFrame(progressAnimationFrameRef.current);
                 clearProgressInterval();
@@ -599,6 +603,7 @@ export default function HeroVideoWidget({
                 let lastTime = -1;
                 let stalledCount = 0;
 
+                // Use 800ms interval instead of 500ms to reduce CPU usage
                 progressIntervalRef.current = setInterval(() => {
                   try {
                     const duration = event.target.getDuration?.();
@@ -607,7 +612,7 @@ export default function HeroVideoWidget({
                     // Stalled detection (stuck buffering or frozen > 15s)
                     if (currentTime === lastTime) {
                       stalledCount++;
-                      if (stalledCount > 30) { // 30 * 500ms = 15s
+                      if (stalledCount > 18) { // 18 * 800ms = ~15s stalled detection
                         clearProgressInterval();
                         clearAdvanceTimeout();
                         advanceSlide();
@@ -631,7 +636,7 @@ export default function HeroVideoWidget({
                       }
                     }
                   } catch { }
-                }, 500);
+                }, 800); // Increased from 500ms for better performance
               } else if (event.data === PlayerState.ENDED) {
                 setYtVideoReady(false);
                 setProgress(100);
@@ -694,6 +699,9 @@ export default function HeroVideoWidget({
     let stalledCount = 0;
 
     const handleTimeUpdate = () => {
+      // Clear safety timeout once playback starts
+      if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; }
+
       if (ended) return;
 
       // Stalled detection
@@ -868,10 +876,10 @@ export default function HeroVideoWidget({
 
       {/* Content */}
       <AnimatePresence mode="wait">
-        <motion.div key={current.id} initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 10, transition: { duration: 0.3 } }} transition={{ delay: 0.3, duration: 0.6 }} className="absolute bottom-12 left-8 right-8 z-20">
+        <motion.div key={current.id} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 10, transition: { duration: 0.2 } }} transition={{ delay: 0.1, duration: 0.4 }} className="absolute bottom-12 left-8 right-8 z-20">
           <div className="flex items-end gap-6">
             {/* Poster */}
-            <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.5, duration: 0.5 }} className="hidden md:block relative">
+            <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.2, duration: 0.3 }} className="hidden md:block relative">
               <div className={`absolute -inset-1 bg-gradient-to-r from-red-500/30 to-purple-500/30 rounded-lg blur-lg`} />
               <img src={getPosterUrl(current)} alt={current.title} onError={(e) => { const target = e.target as HTMLImageElement; if (current.tmdb_poster_url && target.src !== current.tmdb_poster_url) { target.src = current.tmdb_poster_url; } else { target.src = `${apiUrl}/api/thumbnails/${current.id}`; } }} className="relative w-28 md:w-32 lg:w-36 aspect-[2/3] rounded-lg object-cover shadow-2xl ring-1 ring-white/20" />
             </motion.div>

@@ -27,7 +27,7 @@ type WidgetService struct {
 }
 
 const trailerCacheTTL = 30 * time.Minute
-const widgetsCacheTTL = 30 * time.Second
+const widgetsCacheTTL = 2 * time.Minute // Increased for faster loading
 
 type trailerCacheEntry struct {
 	url       string

@@ -2,12 +2,12 @@
 
 import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { 
-  Bell, 
-  Play, 
-  Info, 
-  Star, 
-  Calendar, 
+import {
+  Bell,
+  Play,
+  Info,
+  Star,
+  Calendar,
   Clock,
   ChevronRight,
   Sparkles,
@@ -31,10 +31,10 @@ import { useNavigate } from '@/hooks/useNavigate';
 
 // Declare global YouTube types
 declare global {
-    interface Window {
-        YT: any;
-        onYouTubeIframeAPIReady: () => void;
-    }
+  interface Window {
+    YT: any;
+    onYouTubeIframeAPIReady: () => void;
+  }
 }
 
 interface NotificationWidgetProps {
@@ -113,7 +113,7 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
   console.log('🔔 NotificationWidget mounted with widget:', widget);
   console.log('🔔 NotificationWidget className:', className);
   console.log('🔔 API URL:', apiUrl);
-  
+
   const [notifications, setNotifications] = useState<EnhancedNotification[]>([]);
   const [loading, setLoading] = useState(true);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -341,7 +341,7 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
           setCurrentIndex((prev) => (prev + 1) % notifications.length);
           setImageLoaded(false);
           setVideoReady(false);
-        }, 3000); // 3 seconds as requested
+        }, 5000); // 5 seconds auto-scroll for faster perceived performance
       }
     }
     return () => {
@@ -436,37 +436,39 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
     try {
       setLoading(true);
       console.log('Fetching notifications from:', `${apiUrl}/api/notifications?limit=${widget.maxItems || 10}`);
-      
+
       const response = await fetch(`${apiUrl}/api/notifications?limit=${widget.maxItems || 10}`);
       console.log('Notifications API response status:', response.status);
-      
+
       if (response.ok) {
         const data = await response.json();
         console.log('Notifications API response data:', data);
-        
+
         let filteredNotifications = filterNotifications(data.notifications || []);
         console.log('Filtered notifications:', filteredNotifications);
-        
-        // If no notifications from API, create some sample ones for testing
+
+        // If no notifications from API, just show empty state quickly
         if (filteredNotifications.length === 0) {
-          console.log('No notifications from API, creating sample notifications');
-          filteredNotifications = await createSampleNotifications();
+          console.log('No notifications from API');
+          setNotifications([]);
+          setLoading(false);
+          return;
         }
-        
+
         filteredNotifications = await enhanceNotifications(filteredNotifications);
-        
+
         filteredNotifications.sort((a, b) => {
           const priorityOrder: Record<string, number> = { high: 3, medium: 2, low: 1 };
           const aPriority = priorityOrder[(a as EnhancedNotification).priority || 'medium'];
           const bPriority = priorityOrder[(b as EnhancedNotification).priority || 'medium'];
-          
+
           if (aPriority !== bPriority) return bPriority - aPriority;
           return b.timestamp - a.timestamp;
         });
-        
+
         console.log('Final notifications to display:', filteredNotifications);
         setNotifications(filteredNotifications);
-        
+
         // No need to fetch additional data - backend provides everything
       } else {
         console.log('API response not ok, status:', response.status, 'creating sample notifications');
@@ -494,9 +496,9 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
     return notifications.map(notification => {
       let priority: 'high' | 'medium' | 'low' = 'medium';
       let category: 'trending' | 'new' | 'recommended' | 'watchlist' = 'new';
-      
+
       const hoursSinceCreated = (Date.now() / 1000 - notification.timestamp) / 3600;
-      
+
       switch (notification.type) {
         case 'tmdb_now_playing':
         case 'tmdb_trending':
@@ -533,7 +535,7 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
           priority = 'medium';
           category = 'new';
       }
-      
+
       return {
         ...notification,
         priority,
@@ -547,8 +549,8 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
     if (!config.notificationTypes || config.notificationTypes.length === 0) {
       return notifications;
     }
-    
-    return notifications.filter(notification => 
+
+    return notifications.filter(notification =>
       config.notificationTypes!.includes(notification.type)
     );
   };
@@ -558,7 +560,7 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
     if (notification.genres && notification.genres.length > 0) {
       return getColorPaletteByGenre(notification.genres);
     }
-    
+
     switch (notification.category) {
       case 'trending':
         return {
@@ -596,11 +598,11 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
   };
 
   const handleNotificationClick = (notification: EnhancedNotification, index?: number) => {
-    if (notification.type === 'tmdb_upcoming' || 
-        notification.type === 'tmdb_now_playing' || 
-        notification.type === 'tmdb_trending' ||
-        notification.type === 'tmdb_upcoming_tv' ||
-        notification.type === 'tmdb_now_airing_tv') {
+    if (notification.type === 'tmdb_upcoming' ||
+      notification.type === 'tmdb_now_playing' ||
+      notification.type === 'tmdb_trending' ||
+      notification.type === 'tmdb_upcoming_tv' ||
+      notification.type === 'tmdb_now_airing_tv') {
       if (notification.tmdb_ids && notification.tmdb_ids.length > 0) {
         const tmdbId = index !== undefined ? notification.tmdb_ids[index] : notification.tmdb_ids[0];
         // Check if it's a TV series notification
@@ -671,15 +673,15 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
       medium: { text: 'NEW', color: '#ffa500', glow: 'shadow-orange-500/50' },
       low: { text: '', color: '#888888', glow: '' }
     };
-    
+
     const badge = badges[priority as keyof typeof badges] || badges.medium;
-    
+
     if (!badge.text) return null;
-    
+
     return (
-      <div 
+      <div
         className={`px-2 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${badge.glow} shadow-lg`}
-        style={{ 
+        style={{
           backgroundColor: badge.color,
           color: 'white',
           textShadow: '0 0 10px rgba(0,0,0,0.8)'
@@ -718,12 +720,12 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
       }
       return notification.backdrop_url;
     }
-    
+
     // Fallback for local media
     if (notification.movie_ids && notification.movie_ids.length > 0) {
       return `${apiUrl}/api/thumbnails/${notification.movie_ids[0]}`;
     }
-    
+
     return null;
   };
 
@@ -748,12 +750,12 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
       }
       return notification.poster_url;
     }
-    
+
     // Fallback for local media
     if (notification.movie_ids && notification.movie_ids.length > 0) {
       return `${apiUrl}/api/posters/${notification.movie_ids[0]}`;
     }
-    
+
     return null;
   };
 
@@ -782,10 +784,10 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
       popularity: notification.popularity || 0,
       adult: false,
       tagline: notification.tagline || '',
-      production_companies: (notification.companies || []).map((name, index) => ({ 
-        id: index, 
-        name, 
-        logo_path: '' 
+      production_companies: (notification.companies || []).map((name, index) => ({
+        id: index,
+        name,
+        logo_path: ''
       })),
       videos: notification.trailer_key ? {
         results: [{
@@ -808,13 +810,13 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
         if (posterUrl && posterUrl.startsWith('/api/')) {
           posterUrl = `${apiUrl}${posterUrl}`;
         }
-        
+
         // Handle backdrop URL - prepend API URL if it's a relative path
         let backdropUrl = media.backdrop_url || '';
         if (backdropUrl && backdropUrl.startsWith('/api/')) {
           backdropUrl = `${apiUrl}${backdropUrl}`;
         }
-        
+
         return {
           id: media.id,
           title: media.title,
@@ -862,7 +864,7 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
       <div className={`relative overflow-hidden rounded-xl border border-white/10 backdrop-blur-sm ${className}`} style={{ minHeight: '400px' }}>
         <div className="h-full bg-gradient-to-br from-gray-900 via-gray-800 to-black relative" style={{ minHeight: '400px' }}>
           <div className="absolute inset-0 bg-gradient-to-r from-red-500/10 via-blue-500/10 to-purple-500/10 animate-pulse" />
-          
+
           <div className="absolute inset-0 flex items-center justify-center">
             <div className="text-center space-y-4">
               <div className="relative">
@@ -879,10 +881,10 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
     );
   }
 
-  console.log('NotificationWidget render:', { 
-    notificationsLength: notifications.length, 
-    loading, 
-    currentIndex, 
+  console.log('NotificationWidget render:', {
+    notificationsLength: notifications.length,
+    loading,
+    currentIndex,
     config: config,
     autoScroll: config.autoScroll,
     isHovering
@@ -921,7 +923,7 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
   // Enhanced Banner style (default)
   if (config.highlightStyle === 'banner' || !config.highlightStyle) {
     return (
-      <div 
+      <div
         ref={containerRef}
         className={`relative overflow-hidden rounded-xl border border-white/10 backdrop-blur-sm h-full ${className}`}
         onMouseEnter={() => setIsHovering(true)}
@@ -991,7 +993,7 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
             {/* Dynamic Gradient Overlays */}
             <div className="absolute inset-0 bg-gradient-to-r from-black/90 via-black/60 to-transparent" />
             <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/20" />
-            <div 
+            <div
               className="absolute bottom-0 left-0 right-0 h-32"
               style={{
                 background: `linear-gradient(to top, ${themeColors.primary}15 0%, transparent 100%)`
@@ -1001,9 +1003,9 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
             {/* Floating Elements */}
             <div className="absolute top-6 right-6 flex items-center gap-3 z-20">
               {getPriorityBadge(currentNotification.priority || 'medium')}
-              <div 
+              <div
                 className="flex items-center gap-2 px-3 py-1 rounded-full backdrop-blur-md border"
-                style={{ 
+                style={{
                   backgroundColor: `${themeColors.primary}20`,
                   borderColor: `${themeColors.primary}40`
                 }}
@@ -1031,9 +1033,9 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
                     >
                       {config.showNotificationIcon && (
                         <div className="flex items-center gap-4 mb-4">
-                          <div 
+                          <div
                             className="p-3 rounded-full backdrop-blur-md border"
-                            style={{ 
+                            style={{
                               backgroundColor: `${themeColors.primary}30`,
                               borderColor: `${themeColors.primary}50`,
                               boxShadow: `0 0 30px ${themeColors.primary}40`
@@ -1062,7 +1064,7 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
                           }}
                         />
                       ) : null}
-                      
+
                       <h1
                         className="text-3xl md:text-4xl lg:text-6xl font-bold leading-tight"
                         style={{
@@ -1089,12 +1091,12 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
                     <p className="text-lg md:text-xl text-white/90 mb-4 max-w-2xl leading-relaxed">
                       {currentNotification.message}
                     </p>
-                    
+
                     {/* Show movie details based on notification type */}
                     {(() => {
                       const allMovies = getAllMovieDetails(currentNotification);
                       const singleMovie = getMovieDetails(currentNotification);
-                      
+
                       // Only show recommendation cards for multi-movie suggestions (more than 1 movie)
                       if (currentNotification.type === 'movie_suggestion' && allMovies.length > 1) {
                         return (
@@ -1117,8 +1119,8 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
                                 >
                                   <div className="relative w-24 h-36 rounded-lg overflow-hidden border border-white/20 group-hover:border-white/40 transition-all group-hover:scale-105">
                                     <img
-                                      src={movie.poster_path?.startsWith('http') 
-                                        ? movie.poster_path 
+                                      src={movie.poster_path?.startsWith('http')
+                                        ? movie.poster_path
                                         : movie.sourceType === 'tmdb'
                                           ? `https://image.tmdb.org/t/p/w300${movie.poster_path}`
                                           : `${apiUrl}/api/posters/${movie.sourceId}`
@@ -1150,7 +1152,7 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
                           </div>
                         );
                       }
-                      
+
                       // For all other notifications (single movies, trending, upcoming, single suggestions), show individual poster and details
                       if (singleMovie && singleMovie.title !== `Movie ${singleMovie.id}`) {
                         return (
@@ -1177,7 +1179,7 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
                                 {/* Rating Badge on Poster */}
                                 {singleMovie.vote_average > 0 && (
                                   <div className="absolute top-2 left-2">
-                                    <div 
+                                    <div
                                       className="flex items-center gap-1 px-2 py-1 rounded-full backdrop-blur-md border"
                                       style={{
                                         backgroundColor: `${themeColors.primary}30`,
@@ -1193,13 +1195,13 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
                                 )}
                               </div>
                             )}
-                            
+
                             {/* Enhanced Movie Details */}
                             <div className="flex-1 min-w-0">
                               <h3 className="text-2xl md:text-3xl font-bold text-white mb-3 leading-tight">
                                 {singleMovie.title || singleMovie.name}
                               </h3>
-                              
+
                               {/* Enhanced Meta Information */}
                               <div className="flex flex-wrap items-center gap-4 mb-4">
                                 {singleMovie.release_date && (
@@ -1210,7 +1212,7 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
                                     </span>
                                   </div>
                                 )}
-                                
+
                                 {singleMovie.runtime && singleMovie.runtime > 0 && (
                                   <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 backdrop-blur-sm border border-white/20">
                                     <Clock className="w-4 h-4 text-white/80" />
@@ -1275,7 +1277,7 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
                           </div>
                         );
                       }
-                      
+
                       return null;
                     })()}
                   </motion.div>
@@ -1294,11 +1296,11 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
                       <Play className="w-4 h-4 fill-current" />
                       Watch Now
                     </button>
-                    
+
                     <button
                       onClick={() => handleNotificationClick(currentNotification)}
                       className="flex items-center gap-2 px-3 py-2 backdrop-blur-md border font-medium rounded-md transition-all hover:scale-105 text-sm"
-                      style={{ 
+                      style={{
                         backgroundColor: `${themeColors.primary}20`,
                         borderColor: `${themeColors.primary}50`,
                         color: 'white'
@@ -1311,13 +1313,13 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
                     <button
                       onClick={() => toggleMyList(currentNotification.id)}
                       className="p-2 backdrop-blur-md rounded-full border transition-all hover:scale-110"
-                      style={{ 
+                      style={{
                         backgroundColor: isInMyList[currentNotification.id] ? `${themeColors.primary}40` : `${themeColors.primary}20`,
                         borderColor: `${themeColors.primary}50`
                       }}
                     >
-                      {isInMyList[currentNotification.id] ? 
-                        <Check className="w-4 h-4" style={{ color: themeColors.primary }} /> : 
+                      {isInMyList[currentNotification.id] ?
+                        <Check className="w-4 h-4" style={{ color: themeColors.primary }} /> :
                         <Plus className="w-4 h-4 text-white" />
                       }
                     </button>
@@ -1326,13 +1328,13 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
                       <button
                         onClick={() => setIsMuted(!isMuted)}
                         className="p-2 backdrop-blur-md rounded-full border transition-all hover:scale-110"
-                        style={{ 
+                        style={{
                           backgroundColor: `${themeColors.primary}20`,
                           borderColor: `${themeColors.primary}50`
                         }}
                       >
-                        {isMuted ? 
-                          <VolumeX className="w-4 h-4 text-white" /> : 
+                        {isMuted ?
+                          <VolumeX className="w-4 h-4 text-white" /> :
                           <Volume2 className="w-4 h-4 text-white" />
                         }
                       </button>
@@ -1348,7 +1350,7 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
                 <motion.button
                   onClick={handlePrevious}
                   className="absolute left-4 top-1/2 -translate-y-1/2 p-2 backdrop-blur-md rounded-full border transition-all z-30"
-                  style={{ 
+                  style={{
                     backgroundColor: `${themeColors.primary}20`,
                     borderColor: `${themeColors.primary}40`,
                     opacity: isHovering ? 1 : 0
@@ -1358,11 +1360,11 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
                 >
                   <ChevronLeft className="w-5 h-5 text-white" />
                 </motion.button>
-                
+
                 <motion.button
                   onClick={handleNext}
                   className="absolute right-4 top-1/2 -translate-y-1/2 p-2 backdrop-blur-md rounded-full border transition-all z-30"
-                  style={{ 
+                  style={{
                     backgroundColor: `${themeColors.primary}20`,
                     borderColor: `${themeColors.primary}40`,
                     opacity: isHovering ? 1 : 0
@@ -1391,9 +1393,8 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
                     whileTap={{ scale: 0.9 }}
                   >
                     <div
-                      className={`h-1 rounded-full transition-all duration-300 ${
-                        idx === currentIndex ? 'w-8' : 'w-2'
-                      }`}
+                      className={`h-1 rounded-full transition-all duration-300 ${idx === currentIndex ? 'w-8' : 'w-2'
+                        }`}
                       style={{
                         backgroundColor: idx === currentIndex ? themeColors.primary : 'rgba(255,255,255,0.4)',
                         boxShadow: idx === currentIndex ? `0 0 10px ${themeColors.primary}80` : 'none'

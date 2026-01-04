@@ -11,7 +11,7 @@ export const swrConfig: SWRConfiguration = {
   dedupingInterval: 60000, // 1 minute deduplication for better caching
   errorRetryCount: 1, // Minimal retries for speed
   errorRetryInterval: 1000, // Fast retry
-  loadingTimeout: 8000, // Longer timeout for widget data
+  loadingTimeout: 5000, // Reduced timeout for faster widget loading
   focusThrottleInterval: 60000,
   refreshWhenHidden: false,
   refreshWhenOffline: false,
@@ -28,35 +28,35 @@ export const CACHE_KEYS = {
   TV_SHOWS: '/api/media/tv-shows',
   SERIES: '/api/series',
   GENRES: '/api/genres',
-  
+
   // Recommendations
   RECOMMENDATIONS_UNIQUE: (type: string, limit: number) => `/api/recommendations/unique?type=${type}&limit=${limit}`,
   RECOMMENDATIONS_TRENDING: (limit: number) => `/api/recommendations/trending?limit=${limit}`,
   RECOMMENDATIONS_POPULAR: (limit: number) => `/api/recommendations/popular?limit=${limit}`,
   RECOMMENDATIONS_SCIFI: (limit: number) => `/api/recommendations/scifi?limit=${limit}`,
-  
+
   // TMDB
   TMDB_UPCOMING_MOVIES: '/api/upcoming-movies',
   TMDB_UPCOMING_TV: '/api/upcoming-tv-series',
   TMDB_NOW_PLAYING: '/api/tmdb/movie/now-playing',
   TMDB_POPULAR_MOVIES: '/api/tmdb/movie/popular',
   TMDB_DISCOVER: (genres: string) => `/api/tmdb/discover/movie?with_genres=${genres}`,
-  
+
   // Widgets
   WIDGETS: '/api/widgets',
   WIDGETS_PAGE: (page: string) => `/api/widgets/page/${page}`,
   WIDGETS_META: '/api/widgets/meta',
-  
+
   // Playback
   PLAYBACK_RECENT: '/api/playback/recent',
   PLAYBACK_CONTINUE: '/api/playback/continue',
   MY_LIST: '/api/mylist',
-  
+
   // Music
   MUSIC_TRENDING: '/api/music/trending',
   MUSIC_PLAYLISTS: '/api/music/playlists',
   MUSIC_LIKED: '/api/music/tracks/liked',
-  
+
   // Search
   SEARCH: (query: string) => `/api/media/search?q=${encodeURIComponent(query)}`,
   GENRE_MEDIA: (genre: string, page: number, limit: number) => `/api/media/genre/${encodeURIComponent(genre)}?page=${page}&limit=${limit}`,
@@ -66,14 +66,14 @@ export const CACHE_KEYS = {
 const fetcher = async (url: string) => {
   const baseUrl = getApiUrl();
   const fullUrl = `${baseUrl}${url}`;
-  
+
   try {
     // Optimized timeout for widget loading
     const controller = new AbortController();
     const timeoutId = setTimeout(() => {
       controller.abort();
     }, 15000); // 15 second timeout for widgets with data
-    
+
     const response = await fetch(fullUrl, {
       headers: {
         'Content-Type': 'application/json',
@@ -90,18 +90,18 @@ const fetcher = async (url: string) => {
     if (!response.ok) {
       // Log the actual error for debugging
       console.error(`API Error ${response.status} for ${fullUrl}:`, response.statusText);
-      
+
       // For widgets, always throw error to trigger SWR error handling
       if (url.includes('/widgets')) {
         throw new Error(`Widget API Error: ${response.status} ${response.statusText}`);
       }
-      
+
       // Return empty array for optional endpoints instead of throwing
       if (response.status === 404 && url.includes('/mylist')) {
         console.warn(`404 for ${url}, returning empty array`);
         return [];
       }
-      
+
       // For other errors, return empty array to prevent loading states
       console.warn(`API Error ${response.status} for ${fullUrl}, returning empty array`);
       return [];
@@ -110,7 +110,7 @@ const fetcher = async (url: string) => {
     const data = await response.json();
     console.log(`SWR Fetcher success for ${url}:`, Array.isArray(data) ? `${data.length} items` : typeof data);
     return data;
-    
+
   } catch (error) {
     // Handle AbortError gracefully
     if (error instanceof Error && error.name === 'AbortError') {
@@ -121,7 +121,7 @@ const fetcher = async (url: string) => {
       }
       return [];
     }
-    
+
     // Handle network errors more gracefully
     if (error instanceof TypeError && error.message === 'Failed to fetch') {
       console.warn('SWR Fetcher: Network error for', fullUrl, '- likely server unavailable');
@@ -136,17 +136,17 @@ const fetcher = async (url: string) => {
     } else {
       console.error('SWR Fetcher: Error for', fullUrl, error);
     }
-    
+
     // For widgets, return empty array to prevent crashes
     if (url.includes('/widgets')) {
       return [];
     }
-    
+
     // For optional endpoints, return empty array instead of throwing
     if (url.includes('/mylist')) {
       return [];
     }
-    
+
     // For critical endpoints, throw the error
     throw error;
   }
@@ -297,9 +297,9 @@ export function useWidgets(config?: SWRConfiguration) {
 // Hook for widgets by page with caching
 export function useWidgetsByPage(page: string, config?: SWRConfiguration) {
   const key = page ? CACHE_KEYS.WIDGETS_PAGE(page) : null;
-  
+
   console.log('useWidgetsByPage called:', { page, key });
-  
+
   return useSWR<any[]>(
     key,
     fetcher,
@@ -346,9 +346,9 @@ export function useWidgetsByPage(page: string, config?: SWRConfiguration) {
 // Hook for widgets with data by page - optimized for fast loading
 export function useWidgetsWithDataByPage(page: string, config?: SWRConfiguration) {
   const key = page ? `/api/widgets/page/${page}/with-data` : null;
-  
+
   console.log('useWidgetsWithDataByPage called:', { page, key });
-  
+
   const result = useSWR<any[]>(
     key,
     fetcher,

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { getApiUrl } from '@/lib/api';
 import WidgetPerformanceMonitor from './WidgetPerformanceMonitor';
 
@@ -55,7 +55,7 @@ interface MediaItem {
     logo_path?: string;
     tmdb_poster_url?: string;
     tmdb_backdrop_url?: string;
-    tmdb_trailer_url?: string; // ← MISSING FIELD ADDED!
+    tmdb_trailer_url?: string;
     preview_path?: string;
     preview_clip_path?: string;
     trailer_path?: string;
@@ -76,6 +76,10 @@ interface MediaItem {
     genres?: Array<{ id: number; name: string }>;
 }
 
+// Simple in-memory cache for widget data
+const widgetCache = new Map<string, { data: WidgetWithData[]; timestamp: number }>();
+const CACHE_TTL = 10 * 60 * 1000; // 10 minutes for faster subsequent loads
+
 // Convert backend MediaItem to frontend Media format
 const convertToFrontendMedia = (items: MediaItem[]) => {
     if (!items || !Array.isArray(items)) return [];
@@ -94,7 +98,7 @@ const convertToFrontendMedia = (items: MediaItem[]) => {
         logo_path: item.logo_path,
         tmdb_poster_url: item.tmdb_poster_url,
         tmdb_backdrop_url: item.tmdb_backdrop_url,
-        tmdb_trailer_url: item.tmdb_trailer_url, // ← MISSING FIELD ADDED!
+        tmdb_trailer_url: item.tmdb_trailer_url,
         preview_path: item.preview_path,
         preview_clip_path: item.preview_clip_path,
         trailer_path: item.trailer_path,
@@ -136,17 +140,28 @@ export default function BackendWidgetRenderer({
     const [widgets, setWidgets] = useState<WidgetWithData[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const fetchedRef = useRef(false);
 
-    // Fetch widgets directly from backend API with optimized caching
+    // Fetch widgets with in-memory caching for instant subsequent loads
     useEffect(() => {
         const fetchWidgets = async () => {
             const apiUrl = getApiUrl();
+            const cacheKey = `widgets-${page}`;
+
+            // Check cache first for instant load
+            const cached = widgetCache.get(cacheKey);
+            if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+                console.log('BackendWidgetRenderer: Using cached widgets');
+                setWidgets(cached.data);
+                setLoading(false);
+                if (onRefresh) onRefresh();
+                return;
+            }
+
             const url = `${apiUrl}/api/widgets/page/${page}/with-data`;
 
-            console.log('BackendWidgetRenderer: Fetching widgets from:', url);
-
             try {
-                setLoading(true);
+                if (!fetchedRef.current) setLoading(true);
                 setError(null);
 
                 const response = await fetch(url, {
@@ -156,47 +171,33 @@ export default function BackendWidgetRenderer({
                     },
                 });
 
-                console.log('BackendWidgetRenderer: Response status:', response.status);
-
                 if (!response.ok) {
                     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
                 }
 
                 const data = await response.json();
-                console.log('BackendWidgetRenderer: Received', Array.isArray(data) ? data.length : 0, 'widgets');
 
                 if (Array.isArray(data)) {
-                    console.log('🔔 BackendWidgetRenderer: Received widgets for page', page, ':', data.map(w => ({
-                        id: w.id,
-                        name: w.name,
-                        type: w.type,
-                        enabled: w.enabled,
-                        data_source: w.data_source,
-                        data_count: w.data?.length || 0
-                    })));
                     setWidgets(data);
-
-                    // Call refresh callback if provided
-                    if (onRefresh) {
-                        onRefresh();
-                    }
+                    // Cache the data
+                    widgetCache.set(cacheKey, { data, timestamp: Date.now() });
+                    if (onRefresh) onRefresh();
                 } else {
-                    console.warn('BackendWidgetRenderer: Data is not an array:', data);
                     setWidgets([]);
                 }
             } catch (err) {
                 console.error('BackendWidgetRenderer: Error fetching widgets:', err);
                 setError(err instanceof Error ? err.message : 'Unknown error');
-                // Don't clear widgets on error, keep previous data
             } finally {
                 setLoading(false);
+                fetchedRef.current = true;
             }
         };
 
         if (page) {
             fetchWidgets();
         }
-    }, [page]);
+    }, [page, onRefresh]);
 
     // Memoize widget rendering for better performance
     const renderWidget = useMemo(() => (widgetWithData: WidgetWithData) => {

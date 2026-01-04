@@ -6,6 +6,7 @@ import { ChevronLeft, ChevronRight, Play, Info, Star, Film } from 'lucide-react'
 import { Media } from '@/types/media';
 import { getApiUrl } from '@/lib/api';
 import { useNavigate } from '@/hooks/useNavigate';
+import { navigateToMedia } from '@/lib/mediaNavigation';
 
 interface HomeflixGridProps {
   media: Media[];
@@ -42,7 +43,9 @@ const HomeflixCard: React.FC<HomeflixCardProps> = ({
   const [imageLoaded, setImageLoaded] = useState(false);
   const [imageError, setImageError] = useState(false);
   const [logoError, setLogoError] = useState(false);
+  const [tmdbLogoUrl, setTmdbLogoUrl] = useState<string | null>(null);
   const navigate = useNavigate();
+  const apiUrl = getApiUrl();
 
   // Get poster image URL - prioritize backdrop, then poster, then thumbnail
   const getPosterUrl = () => {
@@ -54,11 +57,38 @@ const HomeflixCard: React.FC<HomeflixCardProps> = ({
     return null;
   };
 
-  // Get logo URL - use same pattern as HomeflixHero
+  // Get logo URL - try local first, then TMDB
   const getLogoUrl = () => {
-    if (media.logo_path) return `${getApiUrl()}/api/${media.logo_path}`;
+    // Use fetched TMDB logo if available
+    if (tmdbLogoUrl) return tmdbLogoUrl;
+    // Use local logo if available
+    if (media.logo_path) {
+      if (media.logo_path.startsWith('http')) return media.logo_path;
+      return `${apiUrl}/api/logos/${media.logo_path.split('/').pop()}`;
+    }
     return null;
   };
+
+  // Fetch TMDB logo if media has tmdb_id but no local logo
+  useEffect(() => {
+    if (!media.tmdb_id || media.logo_path) return;
+
+    const fetchTmdbLogo = async () => {
+      try {
+        const type = media.type === 'tv' || media.type === 'series' ? 'tv' : 'movie';
+        const res = await fetch(`${apiUrl}/api/tmdb/${type}/${media.tmdb_id}/images`);
+        if (!res.ok) return;
+        const data = await res.json();
+        const logos = data?.logos || [];
+        const preferred = logos.find((l: any) => l.iso_639_1 === 'en') || logos[0];
+        if (preferred?.file_path) {
+          setTmdbLogoUrl(`https://image.tmdb.org/t/p/w500${preferred.file_path}`);
+        }
+      } catch { /* ignore */ }
+    };
+
+    fetchTmdbLogo();
+  }, [media.tmdb_id, media.logo_path, media.type, apiUrl]);
 
   const posterUrl = getPosterUrl();
   const logoUrl = getLogoUrl();
@@ -68,7 +98,7 @@ const HomeflixCard: React.FC<HomeflixCardProps> = ({
     if (onPlay) {
       onPlay(media);
     } else {
-      navigate.push(`/watch/${media.id}`);
+      navigateToMedia(navigate, media);
     }
   };
 
@@ -77,12 +107,12 @@ const HomeflixCard: React.FC<HomeflixCardProps> = ({
     if (onInfo) {
       onInfo(media);
     } else {
-      navigate.push(`/media/${media.id}`);
+      navigateToMedia(navigate, media);
     }
   };
 
   const handleCardClick = () => {
-    navigate.push(`/media/${media.id}`);
+    navigateToMedia(navigate, media);
   };
 
   return (
@@ -102,9 +132,8 @@ const HomeflixCard: React.FC<HomeflixCardProps> = ({
           <img
             src={posterUrl}
             alt={media.title}
-            className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-300 ${
-              imageLoaded ? 'opacity-100' : 'opacity-0'
-            }`}
+            className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-300 ${imageLoaded ? 'opacity-100' : 'opacity-0'
+              }`}
             onLoad={() => setImageLoaded(true)}
             onError={() => setImageError(true)}
             loading={priority ? 'eager' : 'lazy'}
@@ -219,7 +248,7 @@ export default function HomeflixGrid({
 
   const updateScrollButtons = () => {
     if (!scrollRef.current) return;
-    
+
     const { scrollLeft, scrollWidth, clientWidth } = scrollRef.current;
     setCanScrollLeft(scrollLeft > 0);
     setCanScrollRight(scrollLeft < scrollWidth - clientWidth - 10);
@@ -228,7 +257,7 @@ export default function HomeflixGrid({
   const scroll = (direction: "left" | "right") => {
     if (!scrollRef.current) return;
 
-    const newScrollLeft = scrollRef.current.scrollLeft + 
+    const newScrollLeft = scrollRef.current.scrollLeft +
       (direction === "left" ? -scrollAmount : scrollAmount);
 
     scrollRef.current.scrollTo({
@@ -246,7 +275,7 @@ export default function HomeflixGrid({
     const interval = setInterval(() => {
       if (scrollRef.current) {
         const { scrollLeft, scrollWidth, clientWidth } = scrollRef.current;
-        
+
         if (scrollLeft >= scrollWidth - clientWidth - 10) {
           // Reset to beginning
           scrollRef.current.scrollTo({ left: 0, behavior: "smooth" });
@@ -269,7 +298,7 @@ export default function HomeflixGrid({
   if (!displayMedia || displayMedia.length === 0) return null;
 
   return (
-    <div 
+    <div
       className={`relative mb-12 group ${className}`}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
@@ -286,15 +315,14 @@ export default function HomeflixGrid({
           </p>
         )}
       </div>
-      
+
       <div className="relative">
         {/* Left scroll button */}
         {canScrollLeft && (
           <button
             onClick={() => scroll("left")}
-            className={`absolute left-0 top-0 bottom-0 z-20 bg-black/80 text-white px-2 flex items-center justify-center transition-all duration-300 cursor-pointer ${
-              isHovered ? 'opacity-100' : 'opacity-0'
-            } hover:bg-black/90`}
+            className={`absolute left-0 top-0 bottom-0 z-20 bg-black/80 text-white px-2 flex items-center justify-center transition-all duration-300 cursor-pointer ${isHovered ? 'opacity-100' : 'opacity-0'
+              } hover:bg-black/90`}
             style={{ width: '60px' }}
           >
             <ChevronLeft className="w-8 h-8" />
@@ -305,9 +333,8 @@ export default function HomeflixGrid({
         {canScrollRight && (
           <button
             onClick={() => scroll("right")}
-            className={`absolute right-0 top-0 bottom-0 z-20 bg-black/80 text-white px-2 flex items-center justify-center transition-all duration-300 cursor-pointer ${
-              isHovered ? 'opacity-100' : 'opacity-0'
-            } hover:bg-black/90`}
+            className={`absolute right-0 top-0 bottom-0 z-20 bg-black/80 text-white px-2 flex items-center justify-center transition-all duration-300 cursor-pointer ${isHovered ? 'opacity-100' : 'opacity-0'
+              } hover:bg-black/90`}
             style={{ width: '60px' }}
           >
             <ChevronRight className="w-8 h-8" />
@@ -319,17 +346,17 @@ export default function HomeflixGrid({
           ref={scrollRef}
           onScroll={updateScrollButtons}
           className="flex gap-4 overflow-x-auto scrollbar-hide px-4 md:px-12 pb-4"
-          style={{ 
-            scrollbarWidth: "none", 
+          style={{
+            scrollbarWidth: "none",
             msOverflowStyle: "none",
             scrollSnapType: "x mandatory"
           }}
         >
           {displayMedia.map((mediaItem, index) => (
-            <div 
-              key={mediaItem.id} 
+            <div
+              key={mediaItem.id}
               className="flex-shrink-0"
-              style={{ 
+              style={{
                 width: `${itemWidth}px`,
                 scrollSnapAlign: "start"
               }}
