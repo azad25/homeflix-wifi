@@ -3,12 +3,14 @@ package handlers
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -1381,4 +1383,860 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// TerminalOutput represents a terminal output line
+type TerminalOutput struct {
+	Timestamp time.Time `json:"timestamp"`
+	Type      string    `json:"type"` // stdout, stderr, info, progress
+	Message   string    `json:"message"`
+	Progress  float64   `json:"progress,omitempty"` // 0-100 for progress updates
+}
+
+// StreamTerminalOutput provides real-time terminal output via WebSocket
+func StreamTerminalOutput() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to upgrade to WebSocket"})
+			return
+		}
+		defer conn.Close()
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		// Stream terminal output
+		go streamTerminalLogs(ctx, conn)
+
+		// Keep connection alive
+		for {
+			_, _, err := conn.ReadMessage()
+			if err != nil {
+				break
+			}
+		}
+	}
+}
+
+// GetTerminalOutput returns recent terminal output
+func GetTerminalOutput() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		lines := c.DefaultQuery("lines", "100")
+		lineCount, err := strconv.Atoi(lines)
+		if err != nil {
+			lineCount = 100
+		}
+
+		output := getRecentTerminalOutput(lineCount)
+		c.JSON(http.StatusOK, gin.H{
+			"output": output,
+			"count":  len(output),
+		})
+	}
+}
+
+// streamTerminalLogs streams terminal output in real-time
+func streamTerminalLogs(ctx context.Context, conn *websocket.Conn) {
+	// Try to tail multiple log files for comprehensive output
+	logFiles := []string{
+		"backend.log",
+		"frontend.log",
+		"homeflix.log",
+		"startup.log",
+	}
+
+	// Find available log files
+	var availableFiles []string
+	for _, file := range logFiles {
+		if _, err := os.Stat(file); err == nil {
+			availableFiles = append(availableFiles, file)
+		}
+	}
+
+	if len(availableFiles) == 0 {
+		// Send initial message if no log files found
+		conn.WriteJSON(TerminalOutput{
+			Timestamp: time.Now(),
+			Type:      "info",
+			Message:   "📡 Terminal stream connected - waiting for output...",
+		})
+		
+		// Stream process activity instead
+		streamProcessActivity(ctx, conn)
+		return
+	}
+
+	// Tail all available log files
+	for _, logFile := range availableFiles {
+		go tailLogFile(ctx, conn, logFile)
+	}
+
+	// Also stream scan progress
+	go streamScanProgress(ctx, conn)
+
+	<-ctx.Done()
+}
+
+// tailLogFile tails a specific log file and sends output via WebSocket
+func tailLogFile(ctx context.Context, conn *websocket.Conn, logFile string) {
+	cmd := exec.CommandContext(ctx, "tail", "-f", "-n", "50", logFile)
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return
+	}
+
+	if err := cmd.Start(); err != nil {
+		return
+	}
+
+	scanner := bufio.NewScanner(stdout)
+	for scanner.Scan() {
+		select {
+		case <-ctx.Done():
+			cmd.Process.Kill()
+			return
+		default:
+			line := scanner.Text()
+			output := parseTerminalLine(line, logFile)
+			if err := conn.WriteJSON(output); err != nil {
+				cmd.Process.Kill()
+				return
+			}
+		}
+	}
+
+	cmd.Wait()
+}
+
+// streamProcessActivity streams process activity when no log files available
+func streamProcessActivity(ctx context.Context, conn *websocket.Conn) {
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			// Get current process info
+			pid := os.Getpid()
+			stats, _ := getProcessStats()
+			
+			output := TerminalOutput{
+				Timestamp: time.Now(),
+				Type:      "info",
+				Message:   fmt.Sprintf("🔧 Server PID: %d | CPU: %.1f%% | Memory: %.1f MB | Threads: %d", 
+					pid, stats.CPUPercent, stats.MemoryMB, stats.Threads),
+			}
+			
+			if err := conn.WriteJSON(output); err != nil {
+				return
+			}
+		}
+	}
+}
+
+// streamScanProgress streams media scan progress
+func streamScanProgress(ctx context.Context, conn *websocket.Conn) {
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+
+	lastProgress := -1.0
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			// Check for scan progress file or API
+			progress := getScanProgress()
+			if progress != lastProgress && progress >= 0 {
+				lastProgress = progress
+				output := TerminalOutput{
+					Timestamp: time.Now(),
+					Type:      "progress",
+					Message:   fmt.Sprintf("📊 Scan progress: %.1f%%", progress),
+					Progress:  progress,
+				}
+				if err := conn.WriteJSON(output); err != nil {
+					return
+				}
+			}
+		}
+	}
+}
+
+// getScanProgress retrieves current scan progress
+func getScanProgress() float64 {
+	// Try to read from a progress file if it exists
+	progressFile := "scan_progress.json"
+	if data, err := os.ReadFile(progressFile); err == nil {
+		var progress struct {
+			Percent float64 `json:"percent"`
+		}
+		if err := json.Unmarshal(data, &progress); err == nil {
+			return progress.Percent
+		}
+	}
+	return -1 // No progress available
+}
+
+// parseTerminalLine parses a terminal output line
+func parseTerminalLine(line, source string) TerminalOutput {
+	output := TerminalOutput{
+		Timestamp: time.Now(),
+		Type:      "stdout",
+		Message:   line,
+	}
+
+	// Detect output type from content
+	upperLine := strings.ToUpper(line)
+	if strings.Contains(upperLine, "ERROR") || strings.Contains(upperLine, "❌") || strings.Contains(upperLine, "FAIL") {
+		output.Type = "stderr"
+	} else if strings.Contains(upperLine, "WARN") || strings.Contains(upperLine, "⚠️") {
+		output.Type = "warning"
+	} else if strings.Contains(line, "%") {
+		// Try to extract progress percentage
+		if progress := extractProgress(line); progress >= 0 {
+			output.Type = "progress"
+			output.Progress = progress
+		}
+	} else if strings.Contains(line, "✅") || strings.Contains(line, "🎉") || strings.Contains(upperLine, "SUCCESS") {
+		output.Type = "success"
+	} else if strings.Contains(line, "🚀") || strings.Contains(line, "📁") || strings.Contains(line, "🔄") {
+		output.Type = "info"
+	}
+
+	return output
+}
+
+// extractProgress extracts progress percentage from a line
+func extractProgress(line string) float64 {
+	// Look for patterns like "50%", "50.5%", "[50%]", "(50%)"
+	patterns := []string{
+		`(\d+\.?\d*)%`,
+		`\[(\d+\.?\d*)%\]`,
+		`\((\d+\.?\d*)%\)`,
+	}
+
+	for _, pattern := range patterns {
+		re := regexp.MustCompile(pattern)
+		matches := re.FindStringSubmatch(line)
+		if len(matches) >= 2 {
+			if val, err := strconv.ParseFloat(matches[1], 64); err == nil {
+				return val
+			}
+		}
+	}
+	return -1
+}
+
+// getRecentTerminalOutput returns recent terminal output
+func getRecentTerminalOutput(lines int) []TerminalOutput {
+	var output []TerminalOutput
+
+	// Read from log files
+	logFiles := []string{"backend.log", "frontend.log", "startup.log"}
+	
+	for _, logFile := range logFiles {
+		if _, err := os.Stat(logFile); err == nil {
+			cmd := exec.Command("tail", "-n", strconv.Itoa(lines/len(logFiles)), logFile)
+			if data, err := cmd.Output(); err == nil {
+				logLines := strings.Split(string(data), "\n")
+				for _, line := range logLines {
+					if strings.TrimSpace(line) != "" {
+						output = append(output, parseTerminalLine(line, logFile))
+					}
+				}
+			}
+		}
+	}
+
+	// Sort by timestamp
+	if len(output) > lines {
+		output = output[len(output)-lines:]
+	}
+
+	return output
+}
+
+
+// ServerControlResponse represents the response from server control operations
+type ServerControlResponse struct {
+	Success bool   `json:"success"`
+	Message string `json:"message"`
+	Output  string `json:"output,omitempty"`
+}
+
+// ServerStatus represents the status of production and dev servers
+type ServerStatus struct {
+	Production struct {
+		Frontend bool `json:"frontend"`
+		Backend  bool `json:"backend"`
+	} `json:"production"`
+	Development struct {
+		Frontend bool `json:"frontend"`
+		Backend  bool `json:"backend"`
+	} `json:"development"`
+}
+
+// GetServerStatus returns the status of all servers
+func GetServerStatus() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		status := ServerStatus{}
+
+		// Check production servers
+		status.Production.Frontend = isPortInUse(3008)
+		status.Production.Backend = isPortInUse(8252)
+
+		// Check development servers
+		status.Development.Frontend = isPortInUse(3009)
+		status.Development.Backend = isPortInUse(8253)
+
+		c.JSON(http.StatusOK, status)
+	}
+}
+
+// StartProductionServer starts the production server
+func StartProductionServer() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		cmd := exec.Command("./start.sh")
+		cmd.Dir = getProjectRoot()
+		output, err := cmd.CombinedOutput()
+
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, ServerControlResponse{
+				Success: false,
+				Message: "Failed to start production server",
+				Output:  string(output),
+			})
+			return
+		}
+
+		c.JSON(http.StatusOK, ServerControlResponse{
+			Success: true,
+			Message: "Production server started",
+			Output:  string(output),
+		})
+	}
+}
+
+// StopProductionServer stops the production server
+func StopProductionServer() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		cmd := exec.Command("./stop.sh")
+		cmd.Dir = getProjectRoot()
+		output, err := cmd.CombinedOutput()
+
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, ServerControlResponse{
+				Success: false,
+				Message: "Failed to stop production server",
+				Output:  string(output),
+			})
+			return
+		}
+
+		c.JSON(http.StatusOK, ServerControlResponse{
+			Success: true,
+			Message: "Production server stopped",
+			Output:  string(output),
+		})
+	}
+}
+
+// RestartProductionServer restarts the production server
+func RestartProductionServer() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// Stop first
+		stopCmd := exec.Command("./stop.sh")
+		stopCmd.Dir = getProjectRoot()
+		stopCmd.CombinedOutput()
+
+		// Wait a moment
+		time.Sleep(2 * time.Second)
+
+		// Start
+		startCmd := exec.Command("./start.sh")
+		startCmd.Dir = getProjectRoot()
+		output, err := startCmd.CombinedOutput()
+
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, ServerControlResponse{
+				Success: false,
+				Message: "Failed to restart production server",
+				Output:  string(output),
+			})
+			return
+		}
+
+		c.JSON(http.StatusOK, ServerControlResponse{
+			Success: true,
+			Message: "Production server restarted",
+			Output:  string(output),
+		})
+	}
+}
+
+// StartDevServer starts the development server
+func StartDevServer() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		cmd := exec.Command("./start-dev.sh")
+		cmd.Dir = getProjectRoot()
+		output, err := cmd.CombinedOutput()
+
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, ServerControlResponse{
+				Success: false,
+				Message: "Failed to start dev server",
+				Output:  string(output),
+			})
+			return
+		}
+
+		c.JSON(http.StatusOK, ServerControlResponse{
+			Success: true,
+			Message: "Development server started",
+			Output:  string(output),
+		})
+	}
+}
+
+// StopDevServer stops the development server
+func StopDevServer() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		cmd := exec.Command("./stop-dev.sh")
+		cmd.Dir = getProjectRoot()
+		output, err := cmd.CombinedOutput()
+
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, ServerControlResponse{
+				Success: false,
+				Message: "Failed to stop dev server",
+				Output:  string(output),
+			})
+			return
+		}
+
+		c.JSON(http.StatusOK, ServerControlResponse{
+			Success: true,
+			Message: "Development server stopped",
+			Output:  string(output),
+		})
+	}
+}
+
+// RestartDevServer restarts the development server
+func RestartDevServer() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// Stop first
+		stopCmd := exec.Command("./stop-dev.sh")
+		stopCmd.Dir = getProjectRoot()
+		stopCmd.CombinedOutput()
+
+		// Wait a moment
+		time.Sleep(2 * time.Second)
+
+		// Start
+		startCmd := exec.Command("./start-dev.sh")
+		startCmd.Dir = getProjectRoot()
+		output, err := startCmd.CombinedOutput()
+
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, ServerControlResponse{
+				Success: false,
+				Message: "Failed to restart dev server",
+				Output:  string(output),
+			})
+			return
+		}
+
+		c.JSON(http.StatusOK, ServerControlResponse{
+			Success: true,
+			Message: "Development server restarted",
+			Output:  string(output),
+		})
+	}
+}
+
+// isPortInUse checks if a port is in use
+func isPortInUse(port int) bool {
+	cmd := exec.Command("lsof", "-i", fmt.Sprintf(":%d", port))
+	output, _ := cmd.Output()
+	return strings.Contains(string(output), "LISTEN")
+}
+
+// getProjectRoot returns the project root directory
+func getProjectRoot() string {
+	// Go up from backend directory to project root
+	execPath, err := os.Executable()
+	if err != nil {
+		// Fallback: assume we're running from backend directory
+		return ".."
+	}
+	
+	dir := filepath.Dir(execPath)
+	// If running with go run, use working directory
+	if strings.Contains(dir, "go-build") {
+		wd, err := os.Getwd()
+		if err != nil {
+			return ".."
+		}
+		// If we're in backend directory, go up one level
+		if strings.HasSuffix(wd, "backend") {
+			return filepath.Dir(wd)
+		}
+		return wd
+	}
+	
+	return filepath.Dir(dir)
+}
+
+// BuildBackend builds the backend using go build
+func BuildBackend() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		projectRoot := getProjectRoot()
+		backendDir := filepath.Join(projectRoot, "backend")
+		
+		cmd := exec.Command("go", "build", "-v", ".")
+		cmd.Dir = backendDir
+		
+		// Create pipes for real-time output
+		stdout, err := cmd.StdoutPipe()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, ServerControlResponse{
+				Success: false,
+				Message: "Failed to create stdout pipe",
+			})
+			return
+		}
+		
+		stderr, err := cmd.StderrPipe()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, ServerControlResponse{
+				Success: false,
+				Message: "Failed to create stderr pipe",
+			})
+			return
+		}
+
+		if err := cmd.Start(); err != nil {
+			c.JSON(http.StatusInternalServerError, ServerControlResponse{
+				Success: false,
+				Message: "Failed to start build process",
+			})
+			return
+		}
+
+		// Read output
+		var output strings.Builder
+		
+		// Read stdout
+		go func() {
+			scanner := bufio.NewScanner(stdout)
+			for scanner.Scan() {
+				line := scanner.Text()
+				output.WriteString(line + "\n")
+			}
+		}()
+		
+		// Read stderr
+		go func() {
+			scanner := bufio.NewScanner(stderr)
+			for scanner.Scan() {
+				line := scanner.Text()
+				output.WriteString(line + "\n")
+			}
+		}()
+
+		// Wait for command to complete
+		err = cmd.Wait()
+		
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, ServerControlResponse{
+				Success: false,
+				Message: "Backend build failed",
+				Output:  output.String(),
+			})
+			return
+		}
+
+		c.JSON(http.StatusOK, ServerControlResponse{
+			Success: true,
+			Message: "Backend built successfully",
+			Output:  output.String(),
+		})
+	}
+}
+
+// BuildFrontend builds the frontend using npm run build
+func BuildFrontend() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		projectRoot := getProjectRoot()
+		frontendDir := filepath.Join(projectRoot, "frontend")
+		
+		cmd := exec.Command("npm", "run", "build")
+		cmd.Dir = frontendDir
+		
+		// Create pipes for real-time output
+		stdout, err := cmd.StdoutPipe()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, ServerControlResponse{
+				Success: false,
+				Message: "Failed to create stdout pipe",
+			})
+			return
+		}
+		
+		stderr, err := cmd.StderrPipe()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, ServerControlResponse{
+				Success: false,
+				Message: "Failed to create stderr pipe",
+			})
+			return
+		}
+
+		if err := cmd.Start(); err != nil {
+			c.JSON(http.StatusInternalServerError, ServerControlResponse{
+				Success: false,
+				Message: "Failed to start build process",
+			})
+			return
+		}
+
+		// Read output
+		var output strings.Builder
+		
+		// Read stdout
+		go func() {
+			scanner := bufio.NewScanner(stdout)
+			for scanner.Scan() {
+				line := scanner.Text()
+				output.WriteString(line + "\n")
+			}
+		}()
+		
+		// Read stderr
+		go func() {
+			scanner := bufio.NewScanner(stderr)
+			for scanner.Scan() {
+				line := scanner.Text()
+				output.WriteString(line + "\n")
+			}
+		}()
+
+		// Wait for command to complete
+		err = cmd.Wait()
+		
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, ServerControlResponse{
+				Success: false,
+				Message: "Frontend build failed",
+				Output:  output.String(),
+			})
+			return
+		}
+
+		c.JSON(http.StatusOK, ServerControlResponse{
+			Success: true,
+			Message: "Frontend built successfully",
+			Output:  output.String(),
+		})
+	}
+}
+
+// StreamBuildBackend streams backend build output via WebSocket
+func StreamBuildBackend() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to upgrade to WebSocket"})
+			return
+		}
+		defer conn.Close()
+
+		projectRoot := getProjectRoot()
+		backendDir := filepath.Join(projectRoot, "backend")
+		
+		cmd := exec.Command("go", "build", "-v", ".")
+		cmd.Dir = backendDir
+		
+		stdout, err := cmd.StdoutPipe()
+		if err != nil {
+			conn.WriteJSON(TerminalOutput{
+				Timestamp: time.Now(),
+				Type:      "stderr",
+				Message:   "Failed to create stdout pipe",
+			})
+			return
+		}
+		
+		stderr, err := cmd.StderrPipe()
+		if err != nil {
+			conn.WriteJSON(TerminalOutput{
+				Timestamp: time.Now(),
+				Type:      "stderr",
+				Message:   "Failed to create stderr pipe",
+			})
+			return
+		}
+
+		if err := cmd.Start(); err != nil {
+			conn.WriteJSON(TerminalOutput{
+				Timestamp: time.Now(),
+				Type:      "stderr",
+				Message:   "Failed to start build process",
+			})
+			return
+		}
+
+		// Send initial message
+		conn.WriteJSON(TerminalOutput{
+			Timestamp: time.Now(),
+			Type:      "info",
+			Message:   "🔨 Starting backend build...",
+		})
+
+		// Stream stdout
+		go func() {
+			scanner := bufio.NewScanner(stdout)
+			for scanner.Scan() {
+				line := scanner.Text()
+				conn.WriteJSON(TerminalOutput{
+					Timestamp: time.Now(),
+					Type:      "stdout",
+					Message:   line,
+				})
+			}
+		}()
+		
+		// Stream stderr
+		go func() {
+			scanner := bufio.NewScanner(stderr)
+			for scanner.Scan() {
+				line := scanner.Text()
+				conn.WriteJSON(TerminalOutput{
+					Timestamp: time.Now(),
+					Type:      "stderr",
+					Message:   line,
+				})
+			}
+		}()
+
+		// Wait for completion
+		err = cmd.Wait()
+		
+		if err != nil {
+			conn.WriteJSON(TerminalOutput{
+				Timestamp: time.Now(),
+				Type:      "stderr",
+				Message:   "❌ Backend build failed",
+			})
+		} else {
+			conn.WriteJSON(TerminalOutput{
+				Timestamp: time.Now(),
+				Type:      "success",
+				Message:   "✅ Backend build completed successfully",
+			})
+		}
+	}
+}
+
+// StreamBuildFrontend streams frontend build output via WebSocket
+func StreamBuildFrontend() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to upgrade to WebSocket"})
+			return
+		}
+		defer conn.Close()
+
+		projectRoot := getProjectRoot()
+		frontendDir := filepath.Join(projectRoot, "frontend")
+		
+		cmd := exec.Command("npm", "run", "build")
+		cmd.Dir = frontendDir
+		
+		stdout, err := cmd.StdoutPipe()
+		if err != nil {
+			conn.WriteJSON(TerminalOutput{
+				Timestamp: time.Now(),
+				Type:      "stderr",
+				Message:   "Failed to create stdout pipe",
+			})
+			return
+		}
+		
+		stderr, err := cmd.StderrPipe()
+		if err != nil {
+			conn.WriteJSON(TerminalOutput{
+				Timestamp: time.Now(),
+				Type:      "stderr",
+				Message:   "Failed to create stderr pipe",
+			})
+			return
+		}
+
+		if err := cmd.Start(); err != nil {
+			conn.WriteJSON(TerminalOutput{
+				Timestamp: time.Now(),
+				Type:      "stderr",
+				Message:   "Failed to start build process",
+			})
+			return
+		}
+
+		// Send initial message
+		conn.WriteJSON(TerminalOutput{
+			Timestamp: time.Now(),
+			Type:      "info",
+			Message:   "🔨 Starting frontend build...",
+		})
+
+		// Stream stdout
+		go func() {
+			scanner := bufio.NewScanner(stdout)
+			for scanner.Scan() {
+				line := scanner.Text()
+				conn.WriteJSON(TerminalOutput{
+					Timestamp: time.Now(),
+					Type:      "stdout",
+					Message:   line,
+				})
+			}
+		}()
+		
+		// Stream stderr
+		go func() {
+			scanner := bufio.NewScanner(stderr)
+			for scanner.Scan() {
+				line := scanner.Text()
+				conn.WriteJSON(TerminalOutput{
+					Timestamp: time.Now(),
+					Type:      "stderr",
+					Message:   line,
+				})
+			}
+		}()
+
+		// Wait for completion
+		err = cmd.Wait()
+		
+		if err != nil {
+			conn.WriteJSON(TerminalOutput{
+				Timestamp: time.Now(),
+				Type:      "stderr",
+				Message:   "❌ Frontend build failed",
+			})
+		} else {
+			conn.WriteJSON(TerminalOutput{
+				Timestamp: time.Now(),
+				Type:      "success",
+				Message:   "✅ Frontend build completed successfully",
+			})
+		}
+	}
 }

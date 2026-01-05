@@ -2,10 +2,11 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Play, Clock, Star, RotateCcw, ChevronLeft, ChevronRight, Info, Pause } from 'lucide-react';
+import { Play, Clock, Star, RotateCcw, ChevronLeft, ChevronRight, Info } from 'lucide-react';
 import { Media } from '@/types/media';
 import { getApiUrl } from '@/lib/api';
 import { useNavigate } from '@/hooks/useNavigate';
+import { navigateToMedia } from '@/lib/mediaNavigation';
 import { getColorPaletteByGenre } from '@/types/widgets';
 
 interface RecentlyWatchedItem {
@@ -30,7 +31,7 @@ interface RecentlyWatchedWidgetProps {
 export default function RecentlyWatchedWidget({
   title = 'Continue Watching',
   maxItems = 10,
-  layout = 'slideshow',
+  layout: _layout = 'slideshow',
   showProgress = true,
   className = '',
   onPlay
@@ -40,7 +41,6 @@ export default function RecentlyWatchedWidget({
   const [error, setError] = useState<string | null>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(true);
-  const [isHovered, setIsHovered] = useState(false);
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   const navigate = useNavigate();
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -97,39 +97,26 @@ export default function RecentlyWatchedWidget({
     if (onPlay) {
       onPlay(item.media, item.progress_seconds);
     } else {
-      // Check if it's TMDB content (has tmdb_id) or local content
-      if (item.media.tmdb_id) {
-        // Navigate to TMDB movie page with proper media type detection
-        const mediaType = item.media.type === 'tv' || item.media.type === 'series' || item.media.type === 'episode' ? 'tv' : 'movie';
-        navigate.push(`/tmdb-movie/${item.media.tmdb_id}?type=${mediaType}`);
+      // Ensure we route to local content correctly
+      // Recently watched items are always local content
+      const media = item.media;
+      if (media.type === 'episode' || media.type === 'tv' || media.type === 'series') {
+        const seriesId = media.series_id || media.id;
+        navigate.push(`/tv-series/${seriesId}`);
       } else {
-        // Navigate to local content pages
-        if (item.media.type === 'episode' || item.media.type === 'tv' || item.media.type === 'series') {
-          const seriesId = item.media.series_id || item.media.id;
-          navigate.push(`/tv-series/${seriesId}`);
-        } else {
-          // Local movie - navigate to local movie page
-          navigate.push(`/movie/${item.media.id}`);
-        }
+        // For movies, always use local movie route
+        navigate.push(`/movie/${media.id}`);
       }
     }
   };
 
   const handleInfo = (media: Media) => {
-    // Check if it's TMDB content (has tmdb_id) or local content
-    if (media.tmdb_id) {
-      // Navigate to TMDB movie page with proper media type detection
-      const mediaType = media.type === 'tv' || media.type === 'series' || media.type === 'episode' ? 'tv' : 'movie';
-      navigate.push(`/tmdb-movie/${media.tmdb_id}?type=${mediaType}`);
+    // Route to local content detail page
+    if (media.type === 'episode' || media.type === 'tv' || media.type === 'series') {
+      const seriesId = media.series_id || media.id;
+      navigate.push(`/tv-series/${seriesId}`);
     } else {
-      // Navigate to local content pages
-      if (media.type === 'episode' || media.type === 'tv' || media.type === 'series') {
-        const seriesId = media.series_id || media.id;
-        navigate.push(`/tv-series/${seriesId}`);
-      } else {
-        // Local movie - navigate to local movie page
-        navigate.push(`/movie/${media.id}`);
-      }
+      navigate.push(`/movie/${media.id}`);
     }
   };
 
@@ -241,8 +228,6 @@ export default function RecentlyWatchedWidget({
   return (
     <div 
       className={`w-full py-8 ${className}`}
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
     >
       {/* Header */}
       <div className="flex items-center justify-between mb-6 px-4 md:px-12">
@@ -402,12 +387,19 @@ export default function RecentlyWatchedWidget({
                           }}
                         />
                       ) : null}
-                      <h3 
-                        className="text-lg font-bold text-white line-clamp-1 drop-shadow-lg"
-                        style={{ display: logoUrl ? 'none' : 'block' }}
-                      >
-                        {item.media.title}
-                      </h3>
+                      <div style={{ display: logoUrl ? 'none' : 'block' }}>
+                        <h3 className="text-lg font-bold text-white line-clamp-1 drop-shadow-lg">
+                          {item.media.title}
+                        </h3>
+                      </div>
+                      {/* Episode info for TV series */}
+                      {(item.media.type === 'episode' || item.media.type === 'tv' || item.media.type === 'series') && 
+                       (item.media.season_number || item.media.episode_number || item.media.season || item.media.episode) && (
+                        <p className="text-sm text-white/70 drop-shadow-lg">
+                          {(item.media.season_number || item.media.season) && `S${item.media.season_number || item.media.season}`}
+                          {(item.media.episode_number || item.media.episode) && `E${item.media.episode_number || item.media.episode}`}
+                        </p>
+                      )}
 
                       {/* Progress Info */}
                       <div className="flex items-center justify-between">

@@ -9,7 +9,13 @@ export type NotificationType =
     | 'tmdb_now_playing'
     | 'tmdb_trending'
     | 'tmdb_upcoming_tv'
-    | 'tmdb_now_airing_tv';
+    | 'tmdb_now_airing_tv'
+    | 'continue_watching'
+    | 'recently_added'
+    | 'coming_soon'
+    | 'genre_based'
+    | 'tmdb_coming_soon'
+    | 'local_trending';
 
 export interface Notification {
     id: string;

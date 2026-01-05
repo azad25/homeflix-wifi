@@ -223,14 +223,31 @@ export default function HeroVideoWidget({
     return null;
   }, []);
 
-  // Mock score fallback
+  // Mock score fallback - improved for local content
   const calculateMockScore = useCallback((m: Media) => {
     const rating = typeof m.rating === "number" && m.rating > 0 ? m.rating : 0;
     const popularity = typeof m.popularity === "number" ? Math.min(100, m.popularity) : 0;
     const voteCount = typeof m.vote_count === "number" ? Math.min(200, m.vote_count) : 0;
-    const base = rating * 7 + popularity * 0.2 + (voteCount / 10);
-    const score = base || 65;
-    return Math.max(60, Math.min(98, Math.round(score)));
+    const viewCount = typeof (m as any).view_count === "number" ? Math.min(100, (m as any).view_count) : 0;
+    
+    // Enhanced calculation for local content
+    let base = rating * 8; // Rating is most important
+    base += popularity * 0.15;
+    base += (voteCount / 10);
+    base += (viewCount * 0.5); // Local view count bonus
+    
+    // Year bonus for newer content
+    if (m.year && m.year > 2015) {
+      base += (m.year - 2015) * 0.5;
+    }
+    
+    // Quality bonus
+    if (m.quality && (m.quality.includes('4K') || m.quality.includes('2160'))) {
+      base += 3;
+    }
+    
+    const score = base || 70; // Higher default for local content
+    return Math.max(65, Math.min(98, Math.round(score)));
   }, []);
 
   // Fetch real recommendation score

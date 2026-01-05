@@ -8,16 +8,17 @@ export const swrConfig: SWRConfiguration = {
   revalidateOnFocus: false,
   revalidateOnReconnect: false,
   refreshInterval: 0, // Disable auto-refresh completely
-  dedupingInterval: 60000, // 1 minute deduplication for better caching
+  dedupingInterval: 120000, // 2 minute deduplication for better caching
   errorRetryCount: 1, // Minimal retries for speed
-  errorRetryInterval: 1000, // Fast retry
-  loadingTimeout: 5000, // Reduced timeout for faster widget loading
-  focusThrottleInterval: 60000,
+  errorRetryInterval: 2000, // Fast retry
+  loadingTimeout: 3000, // Reduced timeout - show content faster
+  focusThrottleInterval: 120000,
   refreshWhenHidden: false,
   refreshWhenOffline: false,
   shouldRetryOnError: false, // No retries for instant loading
   keepPreviousData: true, // Keep previous data while loading new
   fallbackData: [], // Always provide fallback to prevent loading states
+  suspense: false, // Disable suspense for faster initial render
 };
 
 // Cache keys for different data types
@@ -69,11 +70,12 @@ const fetcher = async (url: string) => {
   const fullUrl = `${baseUrl}${url}`;
 
   try {
-    // Optimized timeout for widget loading
+    // Shorter timeout for widgets to fail fast and show cached/fallback data
+    const isWidgetRequest = url.includes('/widgets');
     const controller = new AbortController();
     const timeoutId = setTimeout(() => {
       controller.abort();
-    }, 15000); // 15 second timeout for widgets with data
+    }, isWidgetRequest ? 8000 : 15000); // 8s for widgets, 15s for others
 
     const response = await fetch(fullUrl, {
       headers: {
@@ -82,74 +84,42 @@ const fetcher = async (url: string) => {
         ...(typeof window !== 'undefined' ? { 'X-Session-ID': getSessionId() } : {}),
       },
       signal: controller.signal,
-      // Enable browser caching for better performance
       cache: 'default',
     });
 
     clearTimeout(timeoutId);
 
     if (!response.ok) {
-      // Log the actual error for debugging
-      console.error(`API Error ${response.status} for ${fullUrl}:`, response.statusText);
-
-      // For widgets, always throw error to trigger SWR error handling
-      if (url.includes('/widgets')) {
-        throw new Error(`Widget API Error: ${response.status} ${response.statusText}`);
-      }
-
-      // Return empty array for optional endpoints instead of throwing
-      if (response.status === 404 && url.includes('/mylist')) {
-        console.warn(`404 for ${url}, returning empty array`);
+      console.error(`API Error ${response.status} for ${fullUrl}`);
+      
+      // For widgets, return empty to show fallback UI faster
+      if (isWidgetRequest) {
         return [];
       }
 
-      // For other errors, return empty array to prevent loading states
-      console.warn(`API Error ${response.status} for ${fullUrl}, returning empty array`);
+      if (response.status === 404 && url.includes('/mylist')) {
+        return [];
+      }
+
       return [];
     }
 
     const data = await response.json();
-    console.log(`SWR Fetcher success for ${url}:`, Array.isArray(data) ? `${data.length} items` : typeof data);
     return data;
 
   } catch (error) {
-    // Handle AbortError gracefully
     if (error instanceof Error && error.name === 'AbortError') {
-      console.warn('SWR Fetcher: Request aborted (timeout) for', fullUrl);
-      // For widgets, throw error to trigger SWR error handling
-      if (url.includes('/widgets')) {
-        throw new Error('Widget request timeout');
-      }
+      console.warn('SWR Fetcher: Request timeout for', fullUrl);
       return [];
     }
 
-    // Handle network errors more gracefully
     if (error instanceof TypeError && error.message === 'Failed to fetch') {
-      console.warn('SWR Fetcher: Network error for', fullUrl, '- likely server unavailable');
-      // For widgets, return empty array instead of throwing to prevent crashes
-      if (url.includes('/widgets')) {
-        return [];
-      }
-      // For optional endpoints, return empty array instead of throwing
-      if (url.includes('/mylist')) {
-        return [];
-      }
-    } else {
-      console.error('SWR Fetcher: Error for', fullUrl, error);
-    }
-
-    // For widgets, return empty array to prevent crashes
-    if (url.includes('/widgets')) {
+      console.warn('SWR Fetcher: Network error for', fullUrl);
       return [];
     }
 
-    // For optional endpoints, return empty array instead of throwing
-    if (url.includes('/mylist')) {
-      return [];
-    }
-
-    // For critical endpoints, throw the error
-    throw error;
+    console.error('SWR Fetcher: Error for', fullUrl, error);
+    return [];
   }
 };
 
@@ -348,62 +318,31 @@ export function useWidgetsByPage(page: string, config?: SWRConfiguration) {
 export function useWidgetsWithDataByPage(page: string, config?: SWRConfiguration) {
   const key = page ? `/api/widgets/page/${page}/with-data` : null;
 
-  console.log('useWidgetsWithDataByPage called:', { page, key });
-
   const result = useSWR<any[]>(
     key,
     fetcher,
     {
       ...swrConfig,
-      refreshInterval: 600000, // Refresh every 10 minutes (widgets change rarely)
+      refreshInterval: 0, // No auto-refresh on first load
       revalidateOnFocus: false,
-      revalidateOnReconnect: true,
-      errorRetryCount: 2,
-      errorRetryInterval: 3000,
-      shouldRetryOnError: (error) => {
-        console.log('SWR shouldRetryOnError:', error?.message);
-        if (error?.message?.includes('Failed to fetch')) {
-          console.log('SWR: Not retrying fetch error for widgets with data');
-          return false;
-        }
-        return true;
-      },
+      revalidateOnReconnect: false,
+      errorRetryCount: 1,
+      errorRetryInterval: 2000,
+      shouldRetryOnError: false, // Don't retry - show what we have
       fallbackData: [], // Provide fallback data to prevent crashes
       onError: (error) => {
         console.error('SWR useWidgetsWithDataByPage error:', {
           page,
           key,
           error: error.message,
-          stack: error.stack
         });
       },
-      onSuccess: (data) => {
-        console.log('SWR useWidgetsWithDataByPage success:', {
-          page,
-          key,
-          dataLength: Array.isArray(data) ? data.length : 'not array',
-          data: Array.isArray(data) ? data.slice(0, 1) : data // Log first item
-        });
-      },
-      onLoadingSlow: () => {
-        console.warn('SWR useWidgetsWithDataByPage loading slowly for page:', page);
-      },
-      // Enable background revalidation for better UX
-      revalidateIfStale: true,
-      // Keep data fresh but don't block UI
+      // Disable revalidation on mount for cached data
+      revalidateIfStale: false,
       revalidateOnMount: true,
       ...config,
     }
   );
-
-  console.log('useWidgetsWithDataByPage result:', {
-    page,
-    data: result.data,
-    dataLength: Array.isArray(result.data) ? result.data.length : 'not array',
-    isLoading: result.isLoading,
-    error: result.error?.message,
-    isValidating: result.isValidating
-  });
 
   return result;
 }

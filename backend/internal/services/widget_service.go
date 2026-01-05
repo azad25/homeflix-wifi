@@ -27,7 +27,7 @@ type WidgetService struct {
 }
 
 const trailerCacheTTL = 30 * time.Minute
-const widgetsCacheTTL = 2 * time.Minute // Increased for faster loading
+const widgetsCacheTTL = 5 * time.Minute // Increased for faster loading - widgets rarely change
 
 type trailerCacheEntry struct {
 	url       string
@@ -85,8 +85,10 @@ func (s *WidgetService) GetWidgetsByPage(page string) ([]models.Widget, error) {
 // GetWidgetsWithDataByPage returns widgets with their populated data for a specific page
 // Optimized for fast loading with concurrent data fetching and caching
 func (s *WidgetService) GetWidgetsWithDataByPage(page string) ([]models.WidgetWithData, error) {
+	startTime := time.Now()
+	
 	if cached, ok := s.getCachedWidgets(page); ok {
-		fmt.Printf("⚡ Serving %d widgets for page %s from cache\n", len(cached), page)
+		fmt.Printf("⚡ Serving %d widgets for page %s from cache (%.2fms)\n", len(cached), page, float64(time.Since(startTime).Microseconds())/1000)
 		return cached, nil
 	}
 
@@ -95,7 +97,7 @@ func (s *WidgetService) GetWidgetsWithDataByPage(page string) ([]models.WidgetWi
 	defer lock.Unlock()
 
 	if cached, ok := s.getCachedWidgets(page); ok {
-		fmt.Printf("⚡ Serving %d widgets for page %s from cache after refresh check\n", len(cached), page)
+		fmt.Printf("⚡ Serving %d widgets for page %s from cache after lock (%.2fms)\n", len(cached), page, float64(time.Since(startTime).Microseconds())/1000)
 		return cached, nil
 	}
 
@@ -109,7 +111,9 @@ func (s *WidgetService) GetWidgetsWithDataByPage(page string) ([]models.WidgetWi
 	}
 
 	// Pre-fetch all required data in parallel to avoid sequential loading
+	prefetchStart := time.Now()
 	dataCache := s.prefetchWidgetData(widgets)
+	fmt.Printf("📦 Prefetch completed in %.2fms\n", float64(time.Since(prefetchStart).Milliseconds()))
 
 	// Process widgets concurrently for faster loading
 	widgetsWithData := make([]models.WidgetWithData, len(widgets))
@@ -122,9 +126,14 @@ func (s *WidgetService) GetWidgetsWithDataByPage(page string) ([]models.WidgetWi
 
 	resultChan := make(chan widgetResult, len(widgets))
 
-	// Process widgets concurrently
+	// Process widgets concurrently - limit concurrency to avoid overwhelming
+	semaphore := make(chan struct{}, 8) // Max 8 concurrent widget processing
+	
 	for i, widget := range widgets {
 		go func(index int, w models.Widget) {
+			semaphore <- struct{}{} // Acquire
+			defer func() { <-semaphore }() // Release
+			
 			widgetData := s.getWidgetDataFromCache(w, dataCache)
 
 			resultChan <- widgetResult{
@@ -143,10 +152,12 @@ func (s *WidgetService) GetWidgetsWithDataByPage(page string) ([]models.WidgetWi
 		widgetsWithData[result.index] = result.data
 	}
 
-	fmt.Printf("✅ Loaded %d widgets for page %s with optimized concurrent processing\n", len(widgetsWithData), page)
+	totalTime := time.Since(startTime)
+	fmt.Printf("✅ Loaded %d widgets for page %s in %.2fms\n", len(widgetsWithData), page, float64(totalTime.Milliseconds()))
+	
 	cloneForCache := cloneWidgetsWithData(widgetsWithData)
 	s.widgetsCache.Store(page, widgetsCacheEntry{data: cloneForCache, fetchedAt: time.Now()})
-	fmt.Printf("💾 Cached %d widgets for page %s\n", len(cloneForCache), page)
+	
 	return widgetsWithData, nil
 }
 
@@ -728,32 +739,11 @@ func (s *WidgetService) getWidgetDataFromCache(widget models.Widget, cache *Data
 		return []models.MediaItem{}
 	}
 
-	// For trailer widgets, bypass cache and use direct data fetching to ensure trailer URLs are populated
-	if widget.Type == models.WidgetTypeTrailer {
-		fmt.Printf("🎬 Trailer widget %s: bypassing cache for real-time trailer URL enrichment\n", widget.Name)
-
-		config, err := s.GetWidgetConfig(&widget)
-		if err != nil {
-			fmt.Printf("⚠️ Error parsing widget config for %s: %v\n", widget.Name, err)
-			config = &models.WidgetConfig{}
-		}
-
-		// Use direct data fetching instead of cache
-		if widget.DataSource == models.WidgetDataSourceLocal ||
-			widget.DataSource == models.WidgetDataSourceRecent ||
-			widget.DataSource == models.WidgetDataSourceRecentlyPlayed {
-			if data, err := s.getLocalMediaData(&widget, config); err == nil {
-				return data
-			}
-		} else {
-			if data, err := s.getTMDBData(&widget, config); err == nil {
-				return data
-			}
-		}
-
-		// Fallback to empty if direct fetching fails
-		return []models.MediaItem{}
-	}
+	// For trailer widgets, use cached data first, enrich trailers asynchronously
+	// This prevents slow first-load due to TMDB API calls
+	isTrailerWidget := widget.Type == models.WidgetTypeTrailer || 
+		widget.Type == models.WidgetTypeMediaTrailer || 
+		widget.Type == models.WidgetTypeMixedVideo
 
 	config, err := s.GetWidgetConfig(&widget)
 	if err != nil {
@@ -795,6 +785,13 @@ func (s *WidgetService) getWidgetDataFromCache(widget models.Widget, cache *Data
 	// Limit results
 	if len(sortedData) > widget.MaxItems {
 		sortedData = sortedData[:widget.MaxItems]
+	}
+
+	// For trailer widgets, enrich with trailers but use fast path
+	// Only enrich items that already have TMDB IDs and use cached trailers
+	if isTrailerWidget && s.tmdbService != nil && len(sortedData) > 0 {
+		fmt.Printf("🎬 Fast trailer enrichment for widget %s (%d items)\n", widget.Name, len(sortedData))
+		sortedData = s.fastEnrichMediaItemsWithTrailers(sortedData)
 	}
 
 	return sortedData
@@ -1827,6 +1824,77 @@ func (s *WidgetService) enrichMediaItemsWithTrailers(items []models.MediaItem) [
 	}
 
 	return ordered
+}
+
+// fastEnrichMediaItemsWithTrailers enriches items using only cached trailer data
+// This is used for first-load optimization - no API calls, only cache lookups
+func (s *WidgetService) fastEnrichMediaItemsWithTrailers(items []models.MediaItem) []models.MediaItem {
+	if len(items) == 0 {
+		return []models.MediaItem{}
+	}
+
+	result := make([]models.MediaItem, 0, len(items))
+	
+	for _, item := range items {
+		// Already has trailer URL
+		if item.TMDBTrailerURL != "" {
+			result = append(result, item)
+			continue
+		}
+		
+		// Check cache only - no API calls
+		if item.TMDBID != 0 {
+			mediaType := "movie"
+			if item.Type == "tv" || item.Type == "episode" || item.Type == "series" {
+				mediaType = "tv"
+			}
+			
+			cacheKey := fmt.Sprintf("%s:%d", mediaType, item.TMDBID)
+			if cached, ok := s.trailerCache.Load(cacheKey); ok {
+				entry := cached.(trailerCacheEntry)
+				if time.Since(entry.fetchedAt) < trailerCacheTTL && entry.url != "" {
+					item.TMDBTrailerURL = entry.url
+					result = append(result, item)
+					continue
+				}
+			}
+		}
+		
+		// Include item even without trailer for first load
+		// Trailer will be fetched on subsequent loads
+		result = append(result, item)
+	}
+	
+	// Trigger background trailer fetch for items missing trailers
+	go s.backgroundEnrichTrailers(items)
+	
+	return result
+}
+
+// backgroundEnrichTrailers fetches trailers in background for cache warming
+func (s *WidgetService) backgroundEnrichTrailers(items []models.MediaItem) {
+	if s.tmdbService == nil {
+		return
+	}
+	
+	for _, item := range items {
+		if item.TMDBTrailerURL != "" || item.TMDBID == 0 {
+			continue
+		}
+		
+		mediaType := "movie"
+		if item.Type == "tv" || item.Type == "episode" || item.Type == "series" {
+			mediaType = "tv"
+		}
+		
+		cacheKey := fmt.Sprintf("%s:%d", mediaType, item.TMDBID)
+		if _, ok := s.trailerCache.Load(cacheKey); ok {
+			continue // Already cached
+		}
+		
+		// Fetch and cache trailer
+		s.enrichMediaItemWithTrailer(item, mediaType)
+	}
 }
 
 // getTMDBData fetches data from TMDB API

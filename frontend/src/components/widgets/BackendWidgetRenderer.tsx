@@ -80,6 +80,38 @@ interface MediaItem {
 const widgetCache = new Map<string, { data: WidgetWithData[]; timestamp: number }>();
 const CACHE_TTL = 10 * 60 * 1000; // 10 minutes for faster subsequent loads
 
+// Preload cache from sessionStorage on module load for instant first render
+if (typeof window !== 'undefined') {
+    try {
+        const stored = sessionStorage.getItem('widget-cache');
+        if (stored) {
+            const parsed = JSON.parse(stored);
+            Object.entries(parsed).forEach(([key, value]: [string, any]) => {
+                if (value && Date.now() - value.timestamp < CACHE_TTL) {
+                    widgetCache.set(key, value);
+                }
+            });
+        }
+    } catch (e) {
+        // Ignore parse errors
+    }
+}
+
+// Save cache to sessionStorage periodically
+const persistCache = () => {
+    if (typeof window !== 'undefined') {
+        try {
+            const cacheObj: Record<string, any> = {};
+            widgetCache.forEach((value, key) => {
+                cacheObj[key] = value;
+            });
+            sessionStorage.setItem('widget-cache', JSON.stringify(cacheObj));
+        } catch (e) {
+            // Ignore storage errors
+        }
+    }
+};
+
 // Convert backend MediaItem to frontend Media format
 const convertToFrontendMedia = (items: MediaItem[]) => {
     if (!items || !Array.isArray(items)) return [];
@@ -144,6 +176,8 @@ export default function BackendWidgetRenderer({
 
     // Fetch widgets with in-memory caching for instant subsequent loads
     useEffect(() => {
+        const controller = new AbortController();
+        
         const fetchWidgets = async () => {
             const apiUrl = getApiUrl();
             const cacheKey = `widgets-${page}`;
@@ -155,13 +189,25 @@ export default function BackendWidgetRenderer({
                 setWidgets(cached.data);
                 setLoading(false);
                 if (onRefresh) onRefresh();
+                
+                // Background revalidation - fetch fresh data without blocking UI
+                fetch(`${apiUrl}/api/widgets/page/${page}/with-data`, {
+                    headers: { 'Content-Type': 'application/json', 'X-User-ID': '1' },
+                    signal: controller.signal,
+                }).then(res => res.json()).then(data => {
+                    if (Array.isArray(data) && !controller.signal.aborted) {
+                        widgetCache.set(cacheKey, { data, timestamp: Date.now() });
+                        persistCache();
+                    }
+                }).catch(() => {});
                 return;
             }
 
             const url = `${apiUrl}/api/widgets/page/${page}/with-data`;
 
             try {
-                if (!fetchedRef.current) setLoading(true);
+                // Show loading only on true first load (no cache at all)
+                if (!fetchedRef.current && widgets.length === 0) setLoading(true);
                 setError(null);
 
                 const response = await fetch(url, {
@@ -169,6 +215,7 @@ export default function BackendWidgetRenderer({
                         'Content-Type': 'application/json',
                         'X-User-ID': '1',
                     },
+                    signal: controller.signal,
                 });
 
                 if (!response.ok) {
@@ -177,26 +224,32 @@ export default function BackendWidgetRenderer({
 
                 const data = await response.json();
 
-                if (Array.isArray(data)) {
+                if (Array.isArray(data) && !controller.signal.aborted) {
                     setWidgets(data);
                     // Cache the data
                     widgetCache.set(cacheKey, { data, timestamp: Date.now() });
+                    persistCache();
                     if (onRefresh) onRefresh();
-                } else {
+                } else if (!controller.signal.aborted) {
                     setWidgets([]);
                 }
             } catch (err) {
+                if (controller.signal.aborted) return;
                 console.error('BackendWidgetRenderer: Error fetching widgets:', err);
                 setError(err instanceof Error ? err.message : 'Unknown error');
             } finally {
-                setLoading(false);
-                fetchedRef.current = true;
+                if (!controller.signal.aborted) {
+                    setLoading(false);
+                    fetchedRef.current = true;
+                }
             }
         };
 
         if (page) {
             fetchWidgets();
         }
+        
+        return () => controller.abort();
     }, [page, onRefresh]);
 
     // Memoize widget rendering for better performance

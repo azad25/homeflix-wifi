@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
-import { Activity, HardDrive, Server, TrendingUp, Timer, FileSearch, Trash2, RefreshCw, Search, X, Cpu, Monitor, MemoryStick, Database, Wifi, Info, Zap } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Activity, HardDrive, Server, TrendingUp, Timer, FileSearch, Trash2, RefreshCw, Search, X, Cpu, Monitor, MemoryStick, Database, Wifi, Info, Zap, Terminal, Play, Square, RotateCcw, Code, Hammer } from 'lucide-react';
 import { GlassCard, ScrollReveal, MagneticButton } from '@/components/scrollx';
 import { getApiUrl } from '@/lib/api';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
@@ -52,6 +52,13 @@ interface LogEntry {
   source: string;
 }
 
+interface TerminalLine {
+  timestamp: string;
+  type: 'stdout' | 'stderr' | 'info' | 'progress' | 'success' | 'warning';
+  message: string;
+  progress?: number;
+}
+
 interface SystemInfo {
   cpu: {
     model: string;
@@ -98,6 +105,17 @@ interface SystemLogsProps {
   onTerminalOutput?: (message: string) => void;
 }
 
+interface ServerStatus {
+  production: {
+    frontend: boolean;
+    backend: boolean;
+  };
+  development: {
+    frontend: boolean;
+    backend: boolean;
+  };
+}
+
 export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
   const [systemStats, setSystemStats] = useState<SystemStats | null>(null);
   const [statsHistory, setStatsHistory] = useState<any[]>([]);
@@ -111,10 +129,32 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
   const [lastLogUpdate, setLastLogUpdate] = useState<Date | null>(null);
   const [isFetchingLogs, setIsFetchingLogs] = useState(false);
 
+  // Terminal state
+  const [terminalLines, setTerminalLines] = useState<TerminalLine[]>([]);
+  const [isTerminalConnected, setIsTerminalConnected] = useState(false);
+  const [terminalWebSocket, setTerminalWebSocket] = useState<WebSocket | null>(null);
+  const [scanProgress, setScanProgress] = useState<number>(-1);
+  const terminalRef = useRef<HTMLDivElement>(null);
+
+  // Server control state
+  const [serverStatus, setServerStatus] = useState<ServerStatus | null>(null);
+  const [isServerActionLoading, setIsServerActionLoading] = useState(false);
+
+  // Build state
+  const [isBuildingBackend, setIsBuildingBackend] = useState(false);
+  const [isBuildingFrontend, setIsBuildingFrontend] = useState(false);
+  const [buildWebSocket, setBuildWebSocket] = useState<WebSocket | null>(null);
+
   const addTerminalOutput = (message: string) => {
     if (onTerminalOutput) {
       onTerminalOutput(message);
     }
+    // Also add to terminal lines
+    setTerminalLines(prev => [...prev.slice(-199), {
+      timestamp: new Date().toISOString(),
+      type: 'info',
+      message
+    }]);
   };
 
   useEffect(() => {
@@ -124,10 +164,12 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
     // Load initial data first
     fetchInitialLogs();
     fetchSystemInfo();
+    fetchInitialTerminalOutput();
 
     // Try WebSocket connections
     connectToSystemLogs();
     connectToSystemStats();
+    connectToTerminal();
 
     // Set up polling as fallback - force refresh every time
     const logsInterval = setInterval(() => {
@@ -256,8 +298,80 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
       statsWebSocket.close();
       setStatsWebSocket(null);
     }
+    if (terminalWebSocket) {
+      terminalWebSocket.close();
+      setTerminalWebSocket(null);
+    }
     setIsLogsConnected(false);
     setIsStatsConnected(false);
+    setIsTerminalConnected(false);
+  };
+
+  // Terminal WebSocket connection
+  const connectToTerminal = () => {
+    try {
+      const apiUrl = getApiUrl().replace('http', 'ws');
+      const ws = new WebSocket(`${apiUrl}/api/admin/system/terminal/stream`);
+
+      ws.onopen = () => {
+        setIsTerminalConnected(true);
+        addTerminalOutput('🖥️ Terminal stream connected');
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const line: TerminalLine = JSON.parse(event.data);
+          setTerminalLines(prev => [...prev.slice(-199), line]);
+          
+          // Update scan progress if present
+          if (line.progress !== undefined && line.progress >= 0) {
+            setScanProgress(line.progress);
+          }
+          
+          // Auto-scroll terminal
+          if (terminalRef.current) {
+            terminalRef.current.scrollTop = terminalRef.current.scrollHeight;
+          }
+        } catch (error) {
+          console.error('Error parsing terminal line:', error);
+        }
+      };
+
+      ws.onclose = () => {
+        setIsTerminalConnected(false);
+        // Attempt to reconnect after 3 seconds
+        setTimeout(() => {
+          if (!isTerminalConnected) {
+            connectToTerminal();
+          }
+        }, 3000);
+      };
+
+      ws.onerror = () => {
+        setIsTerminalConnected(false);
+      };
+
+      setTerminalWebSocket(ws);
+    } catch (error) {
+      setIsTerminalConnected(false);
+      console.warn('Terminal WebSocket connection failed:', error);
+    }
+  };
+
+  // Fetch initial terminal output
+  const fetchInitialTerminalOutput = async () => {
+    try {
+      const apiUrl = getApiUrl();
+      const response = await fetch(`${apiUrl}/api/admin/system/terminal?lines=100`);
+      if (response.ok) {
+        const data = await response.json();
+        if (data.output && Array.isArray(data.output)) {
+          setTerminalLines(data.output);
+        }
+      }
+    } catch (error) {
+      console.warn('Failed to fetch initial terminal output:', error);
+    }
   };
 
   const fetchInitialLogs = async () => {
@@ -351,6 +465,124 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
       }
     } catch (error) {
       addTerminalOutput('❌ Failed to fetch system information');
+    }
+  };
+
+  // Server control functions
+  const fetchServerStatus = async () => {
+    try {
+      const response = await fetch(`${getApiUrl()}/api/admin/server/status`);
+      if (response.ok) {
+        const data = await response.json();
+        setServerStatus(data);
+      }
+    } catch (error) {
+      console.warn('Failed to fetch server status:', error);
+    }
+  };
+
+  const serverAction = async (action: string, type: 'production' | 'dev') => {
+    setIsServerActionLoading(true);
+    addTerminalOutput(`🔄 ${action === 'start' ? 'Starting' : action === 'stop' ? 'Stopping' : 'Restarting'} ${type} server...`);
+    
+    try {
+      const response = await fetch(`${getApiUrl()}/api/admin/server/${type}/${action}`, {
+        method: 'POST',
+      });
+      
+      const data = await response.json();
+      
+      if (data.success) {
+        addTerminalOutput(`✅ ${data.message}`);
+        if (data.output) {
+          data.output.split('\n').forEach((line: string) => {
+            if (line.trim()) addTerminalOutput(line);
+          });
+        }
+      } else {
+        addTerminalOutput(`❌ ${data.message}`);
+        if (data.output) {
+          addTerminalOutput(data.output);
+        }
+      }
+      
+      // Refresh server status
+      setTimeout(fetchServerStatus, 2000);
+    } catch (error) {
+      addTerminalOutput(`❌ Failed to ${action} ${type} server: ${error}`);
+    } finally {
+      setIsServerActionLoading(false);
+    }
+  };
+
+  // Fetch server status periodically
+  useEffect(() => {
+    fetchServerStatus();
+    const interval = setInterval(fetchServerStatus, 10000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Build functions
+  const buildProject = async (type: 'backend' | 'frontend') => {
+    if (type === 'backend') {
+      setIsBuildingBackend(true);
+    } else {
+      setIsBuildingFrontend(true);
+    }
+
+    addTerminalOutput(`🔨 Starting ${type} build...`);
+
+    try {
+      // Start WebSocket for real-time build output
+      const apiUrl = getApiUrl().replace('http', 'ws');
+      const ws = new WebSocket(`${apiUrl}/api/admin/build/${type}/stream`);
+      
+      ws.onopen = () => {
+        addTerminalOutput(`🔗 Connected to ${type} build stream`);
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const line: TerminalLine = JSON.parse(event.data);
+          setTerminalLines(prev => [...prev.slice(-199), line]);
+          
+          // Auto-scroll terminal
+          if (terminalRef.current) {
+            terminalRef.current.scrollTop = terminalRef.current.scrollHeight;
+          }
+        } catch (error) {
+          console.error('Error parsing build output:', error);
+        }
+      };
+
+      ws.onclose = () => {
+        if (type === 'backend') {
+          setIsBuildingBackend(false);
+        } else {
+          setIsBuildingFrontend(false);
+        }
+        setBuildWebSocket(null);
+      };
+
+      ws.onerror = () => {
+        addTerminalOutput(`❌ Build stream connection failed for ${type}`);
+        if (type === 'backend') {
+          setIsBuildingBackend(false);
+        } else {
+          setIsBuildingFrontend(false);
+        }
+        setBuildWebSocket(null);
+      };
+
+      setBuildWebSocket(ws);
+
+    } catch (error) {
+      addTerminalOutput(`❌ Failed to start ${type} build: ${error}`);
+      if (type === 'backend') {
+        setIsBuildingBackend(false);
+      } else {
+        setIsBuildingFrontend(false);
+      }
     }
   };
 
@@ -593,6 +825,320 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
               </div>
             </div>
           )}
+        </GlassCard>
+      </ScrollReveal>
+
+      {/* Server Control Panel */}
+      <ScrollReveal delay={0.03}>
+        <GlassCard className="p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-2xl font-semibold text-white flex items-center">
+              <Server className="w-6 h-6 mr-3 text-[#E50914]" />
+              Server Control
+            </h2>
+            <MagneticButton
+              onClick={fetchServerStatus}
+              className="bg-white/10 hover:bg-white/20 text-white px-3 py-2 rounded-lg flex items-center space-x-2 text-sm"
+            >
+              <RefreshCw className="w-4 h-4" />
+              <span>Refresh Status</span>
+            </MagneticButton>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Production Server */}
+            <div className="bg-gradient-to-br from-green-600/10 to-green-800/10 rounded-lg p-4 border border-green-500/20">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-white flex items-center">
+                  <Server className="w-5 h-5 text-green-400 mr-2" />
+                  Production Server
+                </h3>
+                <div className="flex items-center space-x-2">
+                  <div className={`w-2 h-2 rounded-full ${serverStatus?.production?.backend ? 'bg-green-400' : 'bg-red-400'}`}></div>
+                  <span className="text-white/70 text-xs">
+                    {serverStatus?.production?.backend ? 'Running' : 'Stopped'}
+                  </span>
+                </div>
+              </div>
+              
+              <div className="space-y-2 mb-4">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-white/60">Frontend (3008):</span>
+                  <span className={serverStatus?.production?.frontend ? 'text-green-400' : 'text-red-400'}>
+                    {serverStatus?.production?.frontend ? '● Running' : '○ Stopped'}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-white/60">Backend (8252):</span>
+                  <span className={serverStatus?.production?.backend ? 'text-green-400' : 'text-red-400'}>
+                    {serverStatus?.production?.backend ? '● Running' : '○ Stopped'}
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex items-center space-x-2">
+                <MagneticButton
+                  onClick={() => serverAction('start', 'production')}
+                  disabled={isServerActionLoading}
+                  className="flex-1 bg-green-600/20 hover:bg-green-600/40 text-green-400 px-3 py-2 rounded-lg flex items-center justify-center space-x-2 text-sm disabled:opacity-50"
+                >
+                  <Play className="w-4 h-4" />
+                  <span>Start</span>
+                </MagneticButton>
+                <MagneticButton
+                  onClick={() => serverAction('stop', 'production')}
+                  disabled={isServerActionLoading}
+                  className="flex-1 bg-red-600/20 hover:bg-red-600/40 text-red-400 px-3 py-2 rounded-lg flex items-center justify-center space-x-2 text-sm disabled:opacity-50"
+                >
+                  <Square className="w-4 h-4" />
+                  <span>Stop</span>
+                </MagneticButton>
+                <MagneticButton
+                  onClick={() => serverAction('restart', 'production')}
+                  disabled={isServerActionLoading}
+                  className="flex-1 bg-yellow-600/20 hover:bg-yellow-600/40 text-yellow-400 px-3 py-2 rounded-lg flex items-center justify-center space-x-2 text-sm disabled:opacity-50"
+                >
+                  <RotateCcw className="w-4 h-4" />
+                  <span>Restart</span>
+                </MagneticButton>
+              </div>
+
+              <div className="mt-3 pt-3 border-t border-white/10">
+                <div className="flex items-center space-x-2">
+                  <MagneticButton
+                    onClick={() => buildProject('backend')}
+                    disabled={isBuildingBackend || isBuildingFrontend}
+                    className="flex-1 bg-blue-600/20 hover:bg-blue-600/40 text-blue-400 px-3 py-2 rounded-lg flex items-center justify-center space-x-2 text-sm disabled:opacity-50"
+                  >
+                    {isBuildingBackend ? (
+                      <div className="animate-spin w-4 h-4 border-2 border-blue-400 border-t-transparent rounded-full" />
+                    ) : (
+                      <Hammer className="w-4 h-4" />
+                    )}
+                    <span>{isBuildingBackend ? 'Building...' : 'Build Backend'}</span>
+                  </MagneticButton>
+                  <MagneticButton
+                    onClick={() => buildProject('frontend')}
+                    disabled={isBuildingBackend || isBuildingFrontend}
+                    className="flex-1 bg-cyan-600/20 hover:bg-cyan-600/40 text-cyan-400 px-3 py-2 rounded-lg flex items-center justify-center space-x-2 text-sm disabled:opacity-50"
+                  >
+                    {isBuildingFrontend ? (
+                      <div className="animate-spin w-4 h-4 border-2 border-cyan-400 border-t-transparent rounded-full" />
+                    ) : (
+                      <Hammer className="w-4 h-4" />
+                    )}
+                    <span>{isBuildingFrontend ? 'Building...' : 'Build Frontend'}</span>
+                  </MagneticButton>
+                </div>
+              </div>
+            </div>
+
+            {/* Development Server */}
+            <div className="bg-gradient-to-br from-purple-600/10 to-purple-800/10 rounded-lg p-4 border border-purple-500/20">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-white flex items-center">
+                  <Code className="w-5 h-5 text-purple-400 mr-2" />
+                  Development Server
+                </h3>
+                <div className="flex items-center space-x-2">
+                  <div className={`w-2 h-2 rounded-full ${serverStatus?.development?.backend ? 'bg-green-400' : 'bg-red-400'}`}></div>
+                  <span className="text-white/70 text-xs">
+                    {serverStatus?.development?.backend ? 'Running' : 'Stopped'}
+                  </span>
+                </div>
+              </div>
+              
+              <div className="space-y-2 mb-4">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-white/60">Frontend (3009):</span>
+                  <span className={serverStatus?.development?.frontend ? 'text-green-400' : 'text-red-400'}>
+                    {serverStatus?.development?.frontend ? '● Running' : '○ Stopped'}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-white/60">Backend (8253):</span>
+                  <span className={serverStatus?.development?.backend ? 'text-green-400' : 'text-red-400'}>
+                    {serverStatus?.development?.backend ? '● Running' : '○ Stopped'}
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex items-center space-x-2">
+                <MagneticButton
+                  onClick={() => serverAction('start', 'dev')}
+                  disabled={isServerActionLoading}
+                  className="flex-1 bg-green-600/20 hover:bg-green-600/40 text-green-400 px-3 py-2 rounded-lg flex items-center justify-center space-x-2 text-sm disabled:opacity-50"
+                >
+                  <Play className="w-4 h-4" />
+                  <span>Start</span>
+                </MagneticButton>
+                <MagneticButton
+                  onClick={() => serverAction('stop', 'dev')}
+                  disabled={isServerActionLoading}
+                  className="flex-1 bg-red-600/20 hover:bg-red-600/40 text-red-400 px-3 py-2 rounded-lg flex items-center justify-center space-x-2 text-sm disabled:opacity-50"
+                >
+                  <Square className="w-4 h-4" />
+                  <span>Stop</span>
+                </MagneticButton>
+                <MagneticButton
+                  onClick={() => serverAction('restart', 'dev')}
+                  disabled={isServerActionLoading}
+                  className="flex-1 bg-yellow-600/20 hover:bg-yellow-600/40 text-yellow-400 px-3 py-2 rounded-lg flex items-center justify-center space-x-2 text-sm disabled:opacity-50"
+                >
+                  <RotateCcw className="w-4 h-4" />
+                  <span>Restart</span>
+                </MagneticButton>
+              </div>
+
+              <div className="mt-3 pt-3 border-t border-white/10">
+                <div className="flex items-center space-x-2">
+                  <MagneticButton
+                    onClick={() => buildProject('backend')}
+                    disabled={isBuildingBackend || isBuildingFrontend}
+                    className="flex-1 bg-blue-600/20 hover:bg-blue-600/40 text-blue-400 px-3 py-2 rounded-lg flex items-center justify-center space-x-2 text-sm disabled:opacity-50"
+                  >
+                    {isBuildingBackend ? (
+                      <div className="animate-spin w-4 h-4 border-2 border-blue-400 border-t-transparent rounded-full" />
+                    ) : (
+                      <Hammer className="w-4 h-4" />
+                    )}
+                    <span>{isBuildingBackend ? 'Building...' : 'Build Backend'}</span>
+                  </MagneticButton>
+                  <MagneticButton
+                    onClick={() => buildProject('frontend')}
+                    disabled={isBuildingBackend || isBuildingFrontend}
+                    className="flex-1 bg-cyan-600/20 hover:bg-cyan-600/40 text-cyan-400 px-3 py-2 rounded-lg flex items-center justify-center space-x-2 text-sm disabled:opacity-50"
+                  >
+                    {isBuildingFrontend ? (
+                      <div className="animate-spin w-4 h-4 border-2 border-cyan-400 border-t-transparent rounded-full" />
+                    ) : (
+                      <Hammer className="w-4 h-4" />
+                    )}
+                    <span>{isBuildingFrontend ? 'Building...' : 'Build Frontend'}</span>
+                  </MagneticButton>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {isServerActionLoading && (
+            <div className="mt-4 flex items-center justify-center text-white/60">
+              <div className="animate-spin w-5 h-5 border-2 border-[#E50914] border-t-transparent rounded-full mr-2"></div>
+              <span>Processing server action...</span>
+            </div>
+          )}
+        </GlassCard>
+      </ScrollReveal>
+
+      {/* Real-time Terminal Output */}
+      <ScrollReveal delay={0.05}>
+        <GlassCard className="p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-2xl font-semibold text-white flex items-center">
+              <Terminal className="w-6 h-6 mr-3 text-[#E50914]" />
+              Live Terminal Output
+            </h2>
+            <div className="flex items-center space-x-4">
+              <div className="flex items-center space-x-2">
+                <div className={`w-2 h-2 rounded-full ${isTerminalConnected ? 'bg-green-400 animate-pulse' : 'bg-yellow-400'}`}></div>
+                <span className="text-white/70 text-sm">
+                  {isTerminalConnected ? 'Connected' : 'Polling'}
+                </span>
+              </div>
+              {scanProgress >= 0 && (
+                <div className="flex items-center space-x-2">
+                  <div className="w-32 h-2 bg-white/10 rounded-full overflow-hidden">
+                    <div 
+                      className="h-full bg-gradient-to-r from-[#E50914] to-red-400 transition-all duration-300"
+                      style={{ width: `${scanProgress}%` }}
+                    />
+                  </div>
+                  <span className="text-white/70 text-sm">{scanProgress.toFixed(1)}%</span>
+                </div>
+              )}
+              <MagneticButton
+                onClick={() => setTerminalLines([])}
+                className="bg-white/10 hover:bg-white/20 text-white px-3 py-2 rounded-lg flex items-center space-x-2 text-sm"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>Clear</span>
+              </MagneticButton>
+              <MagneticButton
+                onClick={() => {
+                  if (terminalWebSocket) {
+                    terminalWebSocket.close();
+                  }
+                  setTimeout(connectToTerminal, 500);
+                }}
+                className="bg-green-600/20 hover:bg-green-600/40 text-green-400 px-3 py-2 rounded-lg flex items-center space-x-2 text-sm"
+              >
+                <RefreshCw className="w-4 h-4" />
+                <span>Reconnect</span>
+              </MagneticButton>
+            </div>
+          </div>
+
+          {/* Terminal Display */}
+          <div 
+            ref={terminalRef}
+            className="bg-black rounded-lg p-4 h-64 overflow-y-auto font-mono text-sm border border-white/10 scroll-smooth"
+          >
+            {terminalLines.length === 0 ? (
+              <div className="text-white/50 italic text-center py-8">
+                {isTerminalConnected ? 'Waiting for output...' : 'Connecting to terminal stream...'}
+              </div>
+            ) : (
+              <div className="space-y-1">
+                {terminalLines.map((line, index) => (
+                  <div
+                    key={index}
+                    className={`flex items-start space-x-2 py-0.5 ${
+                      line.type === 'stderr' ? 'text-red-400' :
+                      line.type === 'warning' ? 'text-yellow-400' :
+                      line.type === 'success' ? 'text-green-400' :
+                      line.type === 'progress' ? 'text-blue-400' :
+                      line.type === 'info' ? 'text-cyan-400' :
+                      'text-white/90'
+                    }`}
+                  >
+                    <span className="text-white/30 text-xs whitespace-nowrap">
+                      {line.timestamp ? new Date(line.timestamp).toLocaleTimeString() : '--:--:--'}
+                    </span>
+                    <span className="flex-1 break-all">{line.message}</span>
+                    {line.progress !== undefined && line.progress >= 0 && (
+                      <span className="text-blue-400 text-xs whitespace-nowrap">
+                        [{line.progress.toFixed(1)}%]
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="mt-3 flex items-center justify-between text-xs text-white/60">
+            <div className="flex items-center space-x-4">
+              <div className="flex items-center space-x-2">
+                <div className="w-2 h-2 rounded-full bg-white/90"></div>
+                <span>stdout</span>
+              </div>
+              <div className="flex items-center space-x-2">
+                <div className="w-2 h-2 rounded-full bg-red-400"></div>
+                <span>stderr</span>
+              </div>
+              <div className="flex items-center space-x-2">
+                <div className="w-2 h-2 rounded-full bg-cyan-400"></div>
+                <span>info</span>
+              </div>
+              <div className="flex items-center space-x-2">
+                <div className="w-2 h-2 rounded-full bg-blue-400"></div>
+                <span>progress</span>
+              </div>
+            </div>
+            <div>
+              {terminalLines.length} lines • {isTerminalConnected ? 'Real-time via WebSocket' : 'Polling mode'}
+            </div>
+          </div>
         </GlassCard>
       </ScrollReveal>
 

@@ -231,7 +231,7 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 
 		// Recommendation tracking
 		api.POST("/recommendations/track-click/:id", handlers.TrackRecommendationClick(recommendationService))
-		api.GET("/recommendations/score/:id", handlers.GetRecommendationScoreForMedia(recommendationService))
+		api.GET("/recommendations/score/:id", handlers.GetRecommendationScoreForMedia(recommendationService, db))
 
 
 
@@ -393,6 +393,23 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		api.GET("/admin/system/logs", handlers.GetServerLogs())
 		api.GET("/admin/system/logs/stream", handlers.StreamServerLogs())
 		api.GET("/admin/system/stats/stream", handlers.StreamSystemStats())
+		api.GET("/admin/system/terminal", handlers.GetTerminalOutput())
+		api.GET("/admin/system/terminal/stream", handlers.StreamTerminalOutput())
+
+		// Server control endpoints
+		api.GET("/admin/server/status", handlers.GetServerStatus())
+		api.POST("/admin/server/production/start", handlers.StartProductionServer())
+		api.POST("/admin/server/production/stop", handlers.StopProductionServer())
+		api.POST("/admin/server/production/restart", handlers.RestartProductionServer())
+		api.POST("/admin/server/dev/start", handlers.StartDevServer())
+		api.POST("/admin/server/dev/stop", handlers.StopDevServer())
+		api.POST("/admin/server/dev/restart", handlers.RestartDevServer())
+
+		// Build endpoints
+		api.POST("/admin/build/backend", handlers.BuildBackend())
+		api.POST("/admin/build/frontend", handlers.BuildFrontend())
+		api.GET("/admin/build/backend/stream", handlers.StreamBuildBackend())
+		api.GET("/admin/build/frontend/stream", handlers.StreamBuildFrontend())
 
 		// Widget management endpoints
 		api.GET("/widgets", widgetHandler.GetAllWidgets)

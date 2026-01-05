@@ -1,6 +1,7 @@
 "use client";
 
-import React, { createContext, useContext, useState, useCallback } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect, Suspense } from 'react';
+import { usePathname, useSearchParams } from 'next/navigation';
 
 interface NavigationLoaderContextType {
   isLoading: boolean;
@@ -22,6 +23,22 @@ export const useNavigationLoader = () => {
   return context;
 };
 
+// Inner component that uses useSearchParams
+const NavigationLoaderInner: React.FC<{ 
+  children: React.ReactNode;
+  setIsLoading: (loading: boolean) => void;
+}> = ({ children, setIsLoading }) => {
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  // Stop loading when route changes complete
+  useEffect(() => {
+    setIsLoading(false);
+  }, [pathname, searchParams, setIsLoading]);
+
+  return <>{children}</>;
+};
+
 export const NavigationLoaderProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [isLoading, setIsLoading] = useState(false);
 
@@ -35,7 +52,11 @@ export const NavigationLoaderProvider: React.FC<{ children: React.ReactNode }> =
 
   return (
     <NavigationLoaderContext.Provider value={{ isLoading, startLoading, stopLoading }}>
-      {children}
+      <Suspense fallback={children}>
+        <NavigationLoaderInner setIsLoading={setIsLoading}>
+          {children}
+        </NavigationLoaderInner>
+      </Suspense>
     </NavigationLoaderContext.Provider>
   );
 };

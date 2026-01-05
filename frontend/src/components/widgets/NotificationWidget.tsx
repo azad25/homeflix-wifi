@@ -21,12 +21,15 @@ import {
   Eye,
   Heart,
   Volume2,
-  VolumeX
+  VolumeX,
+  RotateCcw
 } from 'lucide-react';
 import { Widget, parseWidgetConfig, getColorPaletteByGenre, DominantColors } from '@/types/widgets';
 import type { Notification } from '@/types/notifications';
 import { getApiUrl } from '@/lib/api';
 import { useNavigate } from '@/hooks/useNavigate';
+import { resolveMediaRoute } from '@/lib/mediaNavigation';
+import { Media } from '@/types/media';
 
 
 // Declare global YouTube types
@@ -90,6 +93,11 @@ interface EnhancedNotification extends Notification {
   language?: string;
   popularity?: number;
   companies?: string[];
+  // Continue watching specific fields
+  progress?: number;
+  remaining_min?: number;
+  days_until?: number;
+  genre_highlight?: string;
   media_details?: {
     id: number;
     title: string;
@@ -110,10 +118,6 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
   const config = parseWidgetConfig(widget.config);
   const apiUrl = getApiUrl();
 
-  console.log('🔔 NotificationWidget mounted with widget:', widget);
-  console.log('🔔 NotificationWidget className:', className);
-  console.log('🔔 API URL:', apiUrl);
-
   const [notifications, setNotifications] = useState<EnhancedNotification[]>([]);
   const [loading, setLoading] = useState(true);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -128,9 +132,9 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
   const containerRef = useRef<HTMLDivElement | null>(null);
   const autoScrollRef = useRef<NodeJS.Timeout | null>(null);
   const playerRef = useRef<any>(null);
-
-  // DEBUG: Add visible test element
-  console.log('🔔 NotificationWidget rendering - config:', config);
+  const fetchControllerRef = useRef<AbortController | null>(null);
+  const cacheRef = useRef<{ data: EnhancedNotification[]; timestamp: number } | null>(null);
+  const CACHE_TTL = 2 * 60 * 1000; // 2 minutes cache for notifications
 
   useEffect(() => {
     const element = containerRef.current;
@@ -175,12 +179,13 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
 
   const containerMinHeight = useMemo(() => {
     if (!containerWidth) {
-      return 480;
+      return 380;
     }
 
-    const ratio = layoutVariant === 'full' ? 0.45 : layoutVariant === 'half' ? 0.6 : 0.82;
-    const minCap = layoutVariant === 'full' ? 420 : layoutVariant === 'half' ? 360 : 320;
-    const maxCap = layoutVariant === 'full' ? 640 : layoutVariant === 'half' ? 520 : 460;
+    // More compact heights for better responsiveness
+    const ratio = layoutVariant === 'full' ? 0.4 : layoutVariant === 'half' ? 0.5 : 0.7;
+    const minCap = layoutVariant === 'full' ? 350 : layoutVariant === 'half' ? 300 : 280;
+    const maxCap = layoutVariant === 'full' ? 550 : layoutVariant === 'half' ? 450 : 400;
     const candidate = containerWidth * ratio;
     return Math.max(minCap, Math.min(maxCap, candidate));
   }, [containerWidth, layoutVariant]);
@@ -188,11 +193,11 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
   const horizontalPaddingClasses = useMemo(() => {
     switch (layoutVariant) {
       case 'third':
-        return 'px-4 sm:px-6';
+        return 'px-3 sm:px-4';
       case 'half':
-        return 'px-6 lg:px-10';
+        return 'px-4 lg:px-6';
       default:
-        return 'px-6 md:px-12 lg:px-16';
+        return 'px-4 md:px-8 lg:px-12';
     }
   }, [layoutVariant]);
 
@@ -201,9 +206,43 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
       case 'third':
         return 'max-w-full';
       case 'half':
-        return 'max-w-2xl xl:max-w-3xl';
+        return 'max-w-xl xl:max-w-2xl';
       default:
-        return 'max-w-3xl';
+        return 'max-w-2xl lg:max-w-3xl';
+    }
+  }, [layoutVariant]);
+
+  // Responsive text sizes
+  const titleSizeClass = useMemo(() => {
+    switch (layoutVariant) {
+      case 'third':
+        return 'text-lg sm:text-xl';
+      case 'half':
+        return 'text-xl sm:text-2xl md:text-3xl';
+      default:
+        return 'text-2xl sm:text-3xl md:text-4xl lg:text-5xl';
+    }
+  }, [layoutVariant]);
+
+  const messageSizeClass = useMemo(() => {
+    switch (layoutVariant) {
+      case 'third':
+        return 'text-xs sm:text-sm';
+      case 'half':
+        return 'text-sm md:text-base';
+      default:
+        return 'text-sm md:text-base lg:text-lg';
+    }
+  }, [layoutVariant]);
+
+  const posterSizeClass = useMemo(() => {
+    switch (layoutVariant) {
+      case 'third':
+        return 'w-20 h-28';
+      case 'half':
+        return 'w-24 h-36';
+      default:
+        return 'w-28 h-40 md:w-32 md:h-48';
     }
   }, [layoutVariant]);
 
@@ -327,8 +366,14 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
   };
 
   useEffect(() => {
-    console.log('NotificationWidget: fetchNotifications called');
     fetchNotifications();
+    
+    // Cleanup on unmount
+    return () => {
+      if (fetchControllerRef.current) {
+        fetchControllerRef.current.abort();
+      }
+    };
   }, []);
 
   // Auto-scroll with hover pause - 3 seconds as requested, enabled by default
@@ -433,23 +478,34 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
   }, [isMuted]);
 
   const fetchNotifications = async () => {
+    // Check cache first for instant load
+    if (cacheRef.current && Date.now() - cacheRef.current.timestamp < CACHE_TTL) {
+      setNotifications(cacheRef.current.data);
+      setLoading(false);
+      return;
+    }
+
+    // Abort any pending request
+    if (fetchControllerRef.current) {
+      fetchControllerRef.current.abort();
+    }
+    fetchControllerRef.current = new AbortController();
+
     try {
       setLoading(true);
-      console.log('Fetching notifications from:', `${apiUrl}/api/notifications?limit=${widget.maxItems || 10}`);
-
-      const response = await fetch(`${apiUrl}/api/notifications?limit=${widget.maxItems || 10}`);
-      console.log('Notifications API response status:', response.status);
+      const response = await fetch(
+        `${apiUrl}/api/notifications?limit=${widget.maxItems || 10}`,
+        { 
+          signal: fetchControllerRef.current.signal,
+          headers: { 'Content-Type': 'application/json' }
+        }
+      );
 
       if (response.ok) {
         const data = await response.json();
-        console.log('Notifications API response data:', data);
-
         let filteredNotifications = filterNotifications(data.notifications || []);
-        console.log('Filtered notifications:', filteredNotifications);
 
-        // If no notifications from API, just show empty state quickly
         if (filteredNotifications.length === 0) {
-          console.log('No notifications from API');
           setNotifications([]);
           setLoading(false);
           return;
@@ -466,27 +522,18 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
           return b.timestamp - a.timestamp;
         });
 
-        console.log('Final notifications to display:', filteredNotifications);
+        // Cache the results
+        cacheRef.current = { data: filteredNotifications, timestamp: Date.now() };
         setNotifications(filteredNotifications);
-
-        // No need to fetch additional data - backend provides everything
       } else {
-        console.log('API response not ok, status:', response.status, 'creating sample notifications');
-        const sampleNotifications = await createSampleNotifications();
-        const enhancedSample = await enhanceNotifications(sampleNotifications);
-        setNotifications(enhancedSample);
+        setNotifications([]);
       }
     } catch (error) {
-      console.error('Failed to fetch notifications:', error);
-      // Fallback to sample notifications
-      try {
-        console.log('Creating fallback sample notifications due to error');
-        const sampleNotifications = await createSampleNotifications();
-        const enhancedSample = await enhanceNotifications(sampleNotifications);
-        setNotifications(enhancedSample);
-      } catch (sampleError) {
-        console.error('Failed to create sample notifications:', sampleError);
+      if (error instanceof Error && error.name === 'AbortError') {
+        return; // Request was aborted, ignore
       }
+      console.error('Failed to fetch notifications:', error);
+      setNotifications([]);
     } finally {
       setLoading(false);
     }
@@ -598,11 +645,29 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
   };
 
   const handleNotificationClick = (notification: EnhancedNotification, index?: number) => {
+    // Handle continue watching - route to local content
+    if (notification.type === 'continue_watching' || 
+        notification.type === 'recently_added' ||
+        notification.type === 'local_trending' ||
+        notification.type === 'genre_based') {
+      if (notification.movie_ids && notification.movie_ids.length > 0) {
+        const movieId = index !== undefined && notification.movie_ids[index] 
+          ? notification.movie_ids[index] 
+          : notification.movie_ids[0];
+        if (movieId && movieId > 0) {
+          navigate.push(`/movie/${movieId}`);
+        }
+      }
+      return;
+    }
+
+    // Handle TMDB content
     if (notification.type === 'tmdb_upcoming' ||
       notification.type === 'tmdb_now_playing' ||
       notification.type === 'tmdb_trending' ||
       notification.type === 'tmdb_upcoming_tv' ||
-      notification.type === 'tmdb_now_airing_tv') {
+      notification.type === 'tmdb_now_airing_tv' ||
+      notification.type === 'tmdb_coming_soon') {
       if (notification.tmdb_ids && notification.tmdb_ids.length > 0) {
         const tmdbId = index !== undefined ? notification.tmdb_ids[index] : notification.tmdb_ids[0];
         // Check if it's a TV series notification
@@ -631,22 +696,28 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
     switch (type) {
       case 'tmdb_upcoming':
       case 'tmdb_upcoming_tv':
+      case 'tmdb_coming_soon':
         return <Calendar {...iconProps} />;
       case 'tmdb_now_playing':
       case 'tmdb_now_airing_tv':
         return <Sparkles {...iconProps} />;
       case 'tmdb_trending':
+      case 'local_trending':
         return <TrendingUp {...iconProps} />;
       case 'new_episodes':
         return <Tv {...iconProps} />;
       case 'new_movies':
+      case 'recently_added':
         return <Sparkles {...iconProps} />;
       case 'movie_suggestion':
         return <Award {...iconProps} />;
       case 'single_movie_suggestion':
         return <Star {...iconProps} />;
       case 'watch_again':
-        return <Eye {...iconProps} />;
+      case 'continue_watching':
+        return <RotateCcw {...iconProps} />;
+      case 'genre_based':
+        return <Heart {...iconProps} />;
       default:
         return <Bell {...iconProps} />;
     }
@@ -861,34 +932,18 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
 
   if (loading) {
     return (
-      <div className={`relative overflow-hidden rounded-xl border border-white/10 backdrop-blur-sm ${className}`} style={{ minHeight: '400px' }}>
-        <div className="h-full bg-gradient-to-br from-gray-900 via-gray-800 to-black relative" style={{ minHeight: '400px' }}>
-          <div className="absolute inset-0 bg-gradient-to-r from-red-500/10 via-blue-500/10 to-purple-500/10 animate-pulse" />
-
+      <div className={`relative overflow-hidden rounded-xl border border-white/10 backdrop-blur-sm ${className}`} style={{ minHeight: `${containerMinHeight}px` }}>
+        <div className="h-full bg-gradient-to-br from-gray-900 via-gray-800 to-black relative" style={{ minHeight: `${containerMinHeight}px` }}>
+          <div className="absolute inset-0 bg-gradient-to-r from-red-500/5 via-blue-500/5 to-purple-500/5" />
           <div className="absolute inset-0 flex items-center justify-center">
-            <div className="text-center space-y-4">
-              <div className="relative">
-                <div className="w-16 h-16 border-4 border-red-500/30 border-t-red-500 rounded-full animate-spin mx-auto" />
-              </div>
-              <div className="space-y-2">
-                <div className="h-4 bg-white/20 rounded-full w-48 mx-auto animate-pulse" />
-                <div className="h-3 bg-white/10 rounded-full w-32 mx-auto animate-pulse" />
-              </div>
-            </div>
+            <div className="w-8 h-8 border-2 border-red-500/30 border-t-red-500 rounded-full animate-spin" />
           </div>
         </div>
       </div>
     );
   }
 
-  console.log('NotificationWidget render:', {
-    notificationsLength: notifications.length,
-    loading,
-    currentIndex,
-    config: config,
-    autoScroll: config.autoScroll,
-    isHovering
-  });
+  console.log('NotificationWidget render:', { notificationsLength: notifications.length, loading, currentIndex });
 
   if (notifications.length === 0) {
     return (
@@ -1001,20 +1056,22 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
             />
 
             {/* Floating Elements */}
-            <div className="absolute top-6 right-6 flex items-center gap-3 z-20">
+            <div className={`absolute top-4 right-4 flex items-center gap-2 z-20 ${layoutVariant === 'third' ? 'scale-90' : ''}`}>
               {getPriorityBadge(currentNotification.priority || 'medium')}
-              <div
-                className="flex items-center gap-2 px-3 py-1 rounded-full backdrop-blur-md border"
-                style={{
-                  backgroundColor: `${themeColors.primary}20`,
-                  borderColor: `${themeColors.primary}40`
-                }}
-              >
-                {getCategoryIcon(currentNotification.category || 'new')}
-                <span className="text-xs font-medium text-white uppercase tracking-wider">
-                  {currentNotification.category}
-                </span>
-              </div>
+              {layoutVariant !== 'third' && (
+                <div
+                  className="flex items-center gap-1.5 px-2 py-0.5 rounded-full backdrop-blur-md border text-xs"
+                  style={{
+                    backgroundColor: `${themeColors.primary}20`,
+                    borderColor: `${themeColors.primary}40`
+                  }}
+                >
+                  {getCategoryIcon(currentNotification.category || 'new')}
+                  <span className="font-medium text-white uppercase tracking-wider">
+                    {currentNotification.category}
+                  </span>
+                </div>
+              )}
             </div>
 
             {/* Main Content */}
@@ -1029,22 +1086,22 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, y: -20 }}
                       transition={{ duration: 0.6, delay: 0.2 }}
-                      className="mb-6"
+                      className={layoutVariant === 'third' ? 'mb-3' : 'mb-4'}
                     >
                       {config.showNotificationIcon && (
-                        <div className="flex items-center gap-4 mb-4">
+                        <div className={`flex items-center gap-2 ${layoutVariant === 'third' ? 'mb-2' : 'mb-3'}`}>
                           <div
-                            className="p-3 rounded-full backdrop-blur-md border"
+                            className={`rounded-full backdrop-blur-md border ${layoutVariant === 'third' ? 'p-1.5' : 'p-2'}`}
                             style={{
                               backgroundColor: `${themeColors.primary}30`,
                               borderColor: `${themeColors.primary}50`,
-                              boxShadow: `0 0 30px ${themeColors.primary}40`
+                              boxShadow: `0 0 20px ${themeColors.primary}40`
                             }}
                           >
                             {getNotificationIcon(currentNotification.type, currentNotification.priority)}
                           </div>
                           {config.showTimestamp && (
-                            <div className="text-sm text-white/70 font-medium">
+                            <div className={`text-white/70 font-medium ${layoutVariant === 'third' ? 'text-xs' : 'text-sm'}`}>
                               {formatTimestamp(currentNotification.timestamp)}
                             </div>
                           )}
@@ -1055,7 +1112,9 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
                         <img
                           src={logoUrl}
                           alt={currentNotification.title}
-                          className="max-h-16 md:max-h-20 lg:max-h-24 w-auto drop-shadow-2xl"
+                          className={`w-auto drop-shadow-2xl ${
+                            layoutVariant === 'third' ? 'max-h-10' : layoutVariant === 'half' ? 'max-h-14' : 'max-h-16 md:max-h-20'
+                          }`}
                           style={{ filter: 'drop-shadow(0 0 20px rgba(0,0,0,0.8))' }}
                           onError={(e) => {
                             e.currentTarget.style.display = 'none';
@@ -1066,10 +1125,10 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
                       ) : null}
 
                       <h1
-                        className="text-3xl md:text-4xl lg:text-6xl font-bold leading-tight"
+                        className={`font-bold leading-tight ${titleSizeClass}`}
                         style={{
                           display: logoUrl ? 'none' : 'block',
-                          textShadow: `0 0 40px ${themeColors.primary}60, 0 4px 20px rgba(0,0,0,0.8)`,
+                          textShadow: `0 0 30px ${themeColors.primary}60, 0 4px 15px rgba(0,0,0,0.8)`,
                           background: `linear-gradient(135deg, ${themeColors.primary} 0%, ${themeColors.accent} 100%)`,
                           WebkitBackgroundClip: 'text',
                           WebkitTextFillColor: 'transparent',
@@ -1086,9 +1145,11 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     transition={{ delay: 0.4 }}
-                    className="mb-6"
+                    className={layoutVariant === 'third' ? 'mb-2' : 'mb-3'}
                   >
-                    <p className="text-lg md:text-xl text-white/90 mb-4 max-w-2xl leading-relaxed">
+                    <p className={`text-white/90 max-w-2xl leading-relaxed ${
+                      layoutVariant === 'third' ? 'text-xs line-clamp-1' : layoutVariant === 'half' ? 'text-sm line-clamp-2 mb-2' : 'text-sm md:text-base line-clamp-2 mb-3'
+                    }`}>
                       {currentNotification.message}
                     </p>
 
@@ -1097,18 +1158,99 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
                       const allMovies = getAllMovieDetails(currentNotification);
                       const singleMovie = getMovieDetails(currentNotification);
 
-                      // Only show recommendation cards for multi-movie suggestions (more than 1 movie)
-                      if (currentNotification.type === 'movie_suggestion' && allMovies.length > 1) {
+                      // Continue Watching UI with progress bars (like ContinueWatching.tsx)
+                      if (currentNotification.type === 'continue_watching' && allMovies.length > 0) {
                         return (
-                          <div className="mb-6">
-                            <h4 className="text-lg font-semibold text-white mb-3">Recommended Movies</h4>
+                          <div className={layoutVariant === 'third' ? 'mb-2' : 'mb-4'}>
                             <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
                               <style jsx>{`
                                 .scrollbar-hide::-webkit-scrollbar {
                                   display: none;
                                 }
                               `}</style>
-                              {allMovies.slice(0, 6).map((movie, idx) => (
+                              {allMovies.slice(0, layoutVariant === 'third' ? 3 : 5).map((movie, idx) => {
+                                const progress = idx === 0 ? (currentNotification.progress || 0) : Math.random() * 60 + 20;
+                                return (
+                                  <motion.div
+                                    key={`continue_${movie.sourceId}`}
+                                    initial={{ opacity: 0, x: 20 }}
+                                    animate={{ opacity: 1, x: 0 }}
+                                    transition={{ delay: 0.1 * idx }}
+                                    className="flex-shrink-0 cursor-pointer group"
+                                    onClick={() => handleNotificationClick(currentNotification, idx)}
+                                  >
+                                    <div className={`relative rounded-xl overflow-hidden border border-white/20 group-hover:border-white/40 transition-all group-hover:scale-105 shadow-lg ${
+                                      layoutVariant === 'third' ? 'w-28 h-16' : 'w-40 h-24'
+                                    }`}>
+                                      <img
+                                        src={movie.backdrop_path?.startsWith('http')
+                                          ? movie.backdrop_path
+                                          : movie.poster_path?.startsWith('http')
+                                            ? movie.poster_path
+                                            : `${apiUrl}/api/thumbnails/${movie.sourceId}`
+                                        }
+                                        alt={movie.title || movie.name}
+                                        className="w-full h-full object-cover"
+                                        onError={(e) => {
+                                          e.currentTarget.src = `${apiUrl}/api/thumbnails/${movie.sourceId}`;
+                                        }}
+                                      />
+                                      {/* Gradient overlay */}
+                                      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
+                                      
+                                      {/* Progress bar */}
+                                      <div className="absolute bottom-0 left-0 right-0 h-1 bg-white/20">
+                                        <motion.div
+                                          className="h-full bg-red-600"
+                                          initial={{ width: 0 }}
+                                          animate={{ width: `${progress}%` }}
+                                          transition={{ duration: 0.8, delay: idx * 0.1 }}
+                                        />
+                                      </div>
+                                      
+                                      {/* Title and progress info */}
+                                      <div className="absolute bottom-1 left-2 right-2">
+                                        <p className="text-white text-xs font-medium line-clamp-1 drop-shadow-lg">
+                                          {movie.title}
+                                        </p>
+                                        <div className="flex items-center justify-between mt-0.5">
+                                          <span className="text-white/70 text-[10px]">{Math.round(progress)}%</span>
+                                          {movie.vote_average > 0 && (
+                                            <div className="flex items-center gap-0.5">
+                                              <Star className="w-2 h-2 text-yellow-400 fill-current" />
+                                              <span className="text-white/70 text-[10px]">{movie.vote_average.toFixed(1)}</span>
+                                            </div>
+                                          )}
+                                        </div>
+                                      </div>
+                                      
+                                      {/* Play button on hover */}
+                                      <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/30">
+                                        <div className="bg-white/90 rounded-full p-2">
+                                          <Play className="w-4 h-4 text-black fill-black" />
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </motion.div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        );
+                      }
+
+                      // Only show recommendation cards for multi-movie suggestions (more than 1 movie)
+                      if (currentNotification.type === 'movie_suggestion' && allMovies.length > 1) {
+                        return (
+                          <div className={layoutVariant === 'third' ? 'mb-2' : 'mb-4'}>
+                            <h4 className={`font-semibold text-white ${layoutVariant === 'third' ? 'text-sm mb-1' : 'text-base mb-2'}`}>Recommended</h4>
+                            <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+                              <style jsx>{`
+                                .scrollbar-hide::-webkit-scrollbar {
+                                  display: none;
+                                }
+                              `}</style>
+                              {allMovies.slice(0, layoutVariant === 'third' ? 3 : 6).map((movie, idx) => (
                                 <motion.div
                                   key={`${movie.sourceType}_${movie.sourceId}`}
                                   initial={{ opacity: 0, x: 20 }}
@@ -1117,7 +1259,9 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
                                   className="flex-shrink-0 cursor-pointer group"
                                   onClick={() => handleNotificationClick(currentNotification, idx)}
                                 >
-                                  <div className="relative w-24 h-36 rounded-lg overflow-hidden border border-white/20 group-hover:border-white/40 transition-all group-hover:scale-105">
+                                  <div className={`relative rounded-lg overflow-hidden border border-white/20 group-hover:border-white/40 transition-all group-hover:scale-105 ${
+                                    layoutVariant === 'third' ? 'w-14 h-20' : 'w-20 h-28'
+                                  }`}>
                                     <img
                                       src={movie.poster_path?.startsWith('http')
                                         ? movie.poster_path
@@ -1132,19 +1276,6 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
                                       }}
                                     />
                                     <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-                                    <div className="absolute bottom-1 left-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                      <p className="text-white text-xs font-medium truncate">
-                                        {movie.title || movie.name}
-                                      </p>
-                                      {movie.vote_average > 0 && (
-                                        <div className="flex items-center gap-1">
-                                          <Star className="w-2 h-2 text-yellow-400 fill-current" />
-                                          <span className="text-yellow-400 text-xs">
-                                            {movie.vote_average.toFixed(1)}
-                                          </span>
-                                        </div>
-                                      )}
-                                    </div>
                                   </div>
                                 </motion.div>
                               ))}
@@ -1156,38 +1287,32 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
                       // For all other notifications (single movies, trending, upcoming, single suggestions), show individual poster and details
                       if (singleMovie && singleMovie.title !== `Movie ${singleMovie.id}`) {
                         return (
-                          <div className="flex items-start gap-6 mb-6">
+                          <div className={`flex items-start gap-2 ${layoutVariant === 'third' ? 'mb-2' : 'mb-3'}`}>
                             {/* Enhanced Poster */}
                             {getPosterUrl(currentNotification) && (
                               <div className="relative flex-shrink-0">
                                 <img
                                   src={getPosterUrl(currentNotification)!}
                                   alt="Movie Poster"
-                                  className="w-32 h-48 object-cover rounded-xl shadow-2xl border border-white/20"
+                                  className={`object-cover rounded-lg shadow-xl border border-white/20 ${posterSizeClass}`}
                                   onError={(e) => {
                                     if (currentNotification.movie_ids && currentNotification.movie_ids[0]) {
                                       e.currentTarget.src = `${apiUrl}/api/thumbnails/${currentNotification.movie_ids[0]}`;
                                     }
                                   }}
                                 />
-                                {/* Quality Badge on Poster */}
-                                <div className="absolute top-2 right-2">
-                                  <div className="px-2 py-1 bg-black/80 backdrop-blur-sm rounded text-xs font-bold text-white border border-white/20">
-                                    4K
-                                  </div>
-                                </div>
                                 {/* Rating Badge on Poster */}
-                                {singleMovie.vote_average > 0 && (
-                                  <div className="absolute top-2 left-2">
+                                {singleMovie.vote_average > 0 && layoutVariant !== 'third' && (
+                                  <div className="absolute top-1 left-1">
                                     <div
-                                      className="flex items-center gap-1 px-2 py-1 rounded-full backdrop-blur-md border"
+                                      className="flex items-center gap-0.5 px-1 py-0.5 rounded-full backdrop-blur-md border text-xs"
                                       style={{
                                         backgroundColor: `${themeColors.primary}30`,
                                         borderColor: `${themeColors.primary}50`
                                       }}
                                     >
-                                      <Star className="w-3 h-3 text-yellow-400 fill-current" />
-                                      <span className="text-xs font-semibold text-white">
+                                      <Star className="w-2 h-2 text-yellow-400 fill-current" />
+                                      <span className="font-semibold text-white text-[10px]">
                                         {singleMovie.vote_average.toFixed(1)}
                                       </span>
                                     </div>
@@ -1198,46 +1323,50 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
 
                             {/* Enhanced Movie Details */}
                             <div className="flex-1 min-w-0">
-                              <h3 className="text-2xl md:text-3xl font-bold text-white mb-3 leading-tight">
+                              <h3 className={`font-bold text-white leading-tight line-clamp-2 ${
+                                layoutVariant === 'third' ? 'text-sm mb-1' : layoutVariant === 'half' ? 'text-base mb-1' : 'text-lg md:text-xl mb-2'
+                              }`}>
                                 {singleMovie.title || singleMovie.name}
                               </h3>
 
-                              {/* Enhanced Meta Information */}
-                              <div className="flex flex-wrap items-center gap-4 mb-4">
+                              {/* Enhanced Meta Information - Compact */}
+                              <div className={`flex flex-wrap items-center gap-1.5 ${layoutVariant === 'third' ? 'mb-1' : 'mb-2'}`}>
                                 {singleMovie.release_date && (
-                                  <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 backdrop-blur-sm border border-white/20">
-                                    <Calendar className="w-4 h-4 text-white/80" />
-                                    <span className="text-white font-medium text-sm">
+                                  <div className="flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-white/10 backdrop-blur-sm border border-white/20 text-[10px]">
+                                    <Calendar className="w-2.5 h-2.5 text-white/80" />
+                                    <span className="text-white font-medium">
                                       {new Date(singleMovie.release_date).getFullYear()}
                                     </span>
                                   </div>
                                 )}
 
-                                {singleMovie.runtime && singleMovie.runtime > 0 && (
-                                  <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 backdrop-blur-sm border border-white/20">
-                                    <Clock className="w-4 h-4 text-white/80" />
-                                    <span className="text-white font-medium text-sm">
+                                {singleMovie.runtime && singleMovie.runtime > 0 && layoutVariant === 'full' && (
+                                  <div className="flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-white/10 backdrop-blur-sm border border-white/20 text-[10px]">
+                                    <Clock className="w-2.5 h-2.5 text-white/80" />
+                                    <span className="text-white font-medium">
                                       {Math.floor(singleMovie.runtime / 60)}h {singleMovie.runtime % 60}m
                                     </span>
                                   </div>
                                 )}
 
-                                {singleMovie.original_language && (
-                                  <div className="px-3 py-1 rounded-full bg-white/10 backdrop-blur-sm border border-white/20">
-                                    <span className="text-white text-sm font-medium uppercase">
-                                      {singleMovie.original_language}
+                                {/* Rating badge for third layout */}
+                                {singleMovie.vote_average > 0 && layoutVariant === 'third' && (
+                                  <div className="flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-white/10 backdrop-blur-sm border border-white/20 text-[10px]">
+                                    <Star className="w-2.5 h-2.5 text-yellow-400 fill-current" />
+                                    <span className="text-white font-medium">
+                                      {singleMovie.vote_average.toFixed(1)}
                                     </span>
                                   </div>
                                 )}
                               </div>
 
-                              {/* Enhanced Genres */}
-                              {singleMovie.genres && singleMovie.genres.length > 0 && (
-                                <div className="flex flex-wrap gap-2 mb-4">
-                                  {singleMovie.genres.slice(0, 4).map((genre) => (
+                              {/* Enhanced Genres - Compact */}
+                              {singleMovie.genres && singleMovie.genres.length > 0 && layoutVariant !== 'third' && (
+                                <div className="flex flex-wrap gap-1 mb-1">
+                                  {singleMovie.genres.slice(0, layoutVariant === 'half' ? 2 : 3).map((genre) => (
                                     <span
                                       key={genre.id}
-                                      className="px-3 py-1 text-sm rounded-full border font-medium"
+                                      className="px-1.5 py-0.5 text-[10px] rounded-full border font-medium"
                                       style={{
                                         backgroundColor: `${themeColors.primary}20`,
                                         borderColor: `${themeColors.primary}40`,
@@ -1250,28 +1379,11 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
                                 </div>
                               )}
 
-                              {/* Enhanced Description */}
-                              {singleMovie.overview && singleMovie.overview !== 'Details not available' && (
-                                <p className="text-white/90 text-base leading-relaxed line-clamp-3 max-w-2xl mb-4">
+                              {/* Enhanced Description - Only on full layout */}
+                              {singleMovie.overview && singleMovie.overview !== 'Details not available' && layoutVariant === 'full' && (
+                                <p className="text-white/80 text-xs leading-relaxed line-clamp-2 max-w-lg">
                                   {singleMovie.overview}
                                 </p>
-                              )}
-
-                              {/* Tagline */}
-                              {singleMovie.tagline && (
-                                <p className="text-white/70 italic text-sm mb-4 max-w-xl">
-                                  "{singleMovie.tagline}"
-                                </p>
-                              )}
-
-                              {/* Production Info */}
-                              {singleMovie.production_companies && singleMovie.production_companies.length > 0 && (
-                                <div className="flex items-center gap-2 text-sm text-white/60">
-                                  <span>Produced by:</span>
-                                  <span className="font-medium">
-                                    {singleMovie.production_companies.slice(0, 2).map(company => company.name).join(', ')}
-                                  </span>
-                                </div>
                               )}
                             </div>
                           </div>
@@ -1287,55 +1399,63 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: 0.8 }}
-                    className="flex items-center gap-3 mt-8"
+                    className={`flex items-center gap-2 ${layoutVariant === 'third' ? 'mt-3' : 'mt-4'}`}
                   >
                     <button
                       onClick={() => handleNotificationClick(currentNotification)}
-                      className="flex items-center gap-2 px-4 py-2 bg-white text-black font-semibold rounded-md hover:bg-white/90 transition-all transform hover:scale-105 shadow-lg text-sm"
+                      className={`flex items-center gap-1.5 bg-white text-black font-semibold rounded-md hover:bg-white/90 transition-all transform hover:scale-105 shadow-lg ${
+                        layoutVariant === 'third' ? 'px-2.5 py-1 text-xs' : 'px-3 py-1.5 text-sm'
+                      }`}
                     >
-                      <Play className="w-4 h-4 fill-current" />
-                      Watch Now
+                      <Play className={layoutVariant === 'third' ? 'w-3 h-3 fill-current' : 'w-3.5 h-3.5 fill-current'} />
+                      {layoutVariant === 'third' ? 'Watch' : 'Watch Now'}
                     </button>
 
                     <button
                       onClick={() => handleNotificationClick(currentNotification)}
-                      className="flex items-center gap-2 px-3 py-2 backdrop-blur-md border font-medium rounded-md transition-all hover:scale-105 text-sm"
+                      className={`flex items-center gap-1.5 backdrop-blur-md border font-medium rounded-md transition-all hover:scale-105 ${
+                        layoutVariant === 'third' ? 'px-2 py-1 text-xs' : 'px-2.5 py-1.5 text-sm'
+                      }`}
                       style={{
                         backgroundColor: `${themeColors.primary}20`,
                         borderColor: `${themeColors.primary}50`,
                         color: 'white'
                       }}
                     >
-                      <Info className="w-4 h-4" />
-                      More Info
+                      <Info className={layoutVariant === 'third' ? 'w-3 h-3' : 'w-3.5 h-3.5'} />
+                      {layoutVariant === 'third' ? 'Info' : 'More Info'}
                     </button>
 
                     <button
                       onClick={() => toggleMyList(currentNotification.id)}
-                      className="p-2 backdrop-blur-md rounded-full border transition-all hover:scale-110"
+                      className={`backdrop-blur-md rounded-full border transition-all hover:scale-110 ${
+                        layoutVariant === 'third' ? 'p-1' : 'p-1.5'
+                      }`}
                       style={{
                         backgroundColor: isInMyList[currentNotification.id] ? `${themeColors.primary}40` : `${themeColors.primary}20`,
                         borderColor: `${themeColors.primary}50`
                       }}
                     >
                       {isInMyList[currentNotification.id] ?
-                        <Check className="w-4 h-4" style={{ color: themeColors.primary }} /> :
-                        <Plus className="w-4 h-4 text-white" />
+                        <Check className={layoutVariant === 'third' ? 'w-3 h-3' : 'w-3.5 h-3.5'} style={{ color: themeColors.primary }} /> :
+                        <Plus className={layoutVariant === 'third' ? 'w-3 h-3 text-white' : 'w-3.5 h-3.5 text-white'} />
                       }
                     </button>
 
                     {trailerKey && (
                       <button
                         onClick={() => setIsMuted(!isMuted)}
-                        className="p-2 backdrop-blur-md rounded-full border transition-all hover:scale-110"
+                        className={`backdrop-blur-md rounded-full border transition-all hover:scale-110 ${
+                          layoutVariant === 'third' ? 'p-1' : 'p-1.5'
+                        }`}
                         style={{
                           backgroundColor: `${themeColors.primary}20`,
                           borderColor: `${themeColors.primary}50`
                         }}
                       >
                         {isMuted ?
-                          <VolumeX className="w-4 h-4 text-white" /> :
-                          <Volume2 className="w-4 h-4 text-white" />
+                          <VolumeX className={layoutVariant === 'third' ? 'w-3 h-3 text-white' : 'w-3.5 h-3.5 text-white'} /> :
+                          <Volume2 className={layoutVariant === 'third' ? 'w-3 h-3 text-white' : 'w-3.5 h-3.5 text-white'} />
                         }
                       </button>
                     )}
@@ -1349,7 +1469,9 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
               <>
                 <motion.button
                   onClick={handlePrevious}
-                  className="absolute left-4 top-1/2 -translate-y-1/2 p-2 backdrop-blur-md rounded-full border transition-all z-30"
+                  className={`absolute left-2 top-1/2 -translate-y-1/2 backdrop-blur-md rounded-full border transition-all z-30 ${
+                    layoutVariant === 'third' ? 'p-1' : 'p-1.5'
+                  }`}
                   style={{
                     backgroundColor: `${themeColors.primary}20`,
                     borderColor: `${themeColors.primary}40`,
@@ -1358,12 +1480,14 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
                   whileHover={{ scale: 1.1 }}
                   whileTap={{ scale: 0.95 }}
                 >
-                  <ChevronLeft className="w-5 h-5 text-white" />
+                  <ChevronLeft className={layoutVariant === 'third' ? 'w-4 h-4 text-white' : 'w-5 h-5 text-white'} />
                 </motion.button>
 
                 <motion.button
                   onClick={handleNext}
-                  className="absolute right-4 top-1/2 -translate-y-1/2 p-2 backdrop-blur-md rounded-full border transition-all z-30"
+                  className={`absolute right-2 top-1/2 -translate-y-1/2 backdrop-blur-md rounded-full border transition-all z-30 ${
+                    layoutVariant === 'third' ? 'p-1' : 'p-1.5'
+                  }`}
                   style={{
                     backgroundColor: `${themeColors.primary}20`,
                     borderColor: `${themeColors.primary}40`,
@@ -1372,15 +1496,17 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
                   whileHover={{ scale: 1.1 }}
                   whileTap={{ scale: 0.95 }}
                 >
-                  <ChevronRight className="w-5 h-5 text-white" />
+                  <ChevronRight className={layoutVariant === 'third' ? 'w-4 h-4 text-white' : 'w-5 h-5 text-white'} />
                 </motion.button>
               </>
             )}
 
             {/* Enhanced Progress Indicators */}
             {notifications.length > 1 && (
-              <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-2 z-30">
-                {notifications.slice(0, 8).map((notification, idx) => (
+              <div className={`absolute left-1/2 -translate-x-1/2 flex items-center gap-1.5 z-30 ${
+                layoutVariant === 'third' ? 'bottom-3' : 'bottom-4'
+              }`}>
+                {notifications.slice(0, layoutVariant === 'third' ? 5 : 8).map((notification, idx) => (
                   <motion.button
                     key={idx}
                     onClick={() => {
@@ -1393,21 +1519,21 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
                     whileTap={{ scale: 0.9 }}
                   >
                     <div
-                      className={`h-1 rounded-full transition-all duration-300 ${idx === currentIndex ? 'w-8' : 'w-2'
-                        }`}
+                      className={`rounded-full transition-all duration-300 ${
+                        idx === currentIndex 
+                          ? layoutVariant === 'third' ? 'w-5 h-1' : 'w-6 h-1'
+                          : 'w-1.5 h-1.5'
+                      }`}
                       style={{
                         backgroundColor: idx === currentIndex ? themeColors.primary : 'rgba(255,255,255,0.4)',
-                        boxShadow: idx === currentIndex ? `0 0 10px ${themeColors.primary}80` : 'none'
+                        boxShadow: idx === currentIndex ? `0 0 8px ${themeColors.primary}80` : 'none'
                       }}
                     />
-                    <div className="absolute bottom-6 left-1/2 -translate-x-1/2 px-2 py-1 bg-black/80 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
-                      {notification.title}
-                    </div>
                   </motion.button>
                 ))}
-                {notifications.length > 8 && (
-                  <span className="text-xs text-white/50 ml-2 font-medium">
-                    +{notifications.length - 8} more
+                {notifications.length > (layoutVariant === 'third' ? 5 : 8) && (
+                  <span className="text-[10px] text-white/50 ml-1 font-medium">
+                    +{notifications.length - (layoutVariant === 'third' ? 5 : 8)}
                   </span>
                 )}
               </div>
