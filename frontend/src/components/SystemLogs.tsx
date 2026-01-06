@@ -1,8 +1,8 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Activity, HardDrive, Server, TrendingUp, Timer, FileSearch, Trash2, RefreshCw, Search, X, Cpu, Monitor, MemoryStick, Database, Wifi, Info, Zap, Terminal, Play, Square, RotateCcw, Code, Hammer } from 'lucide-react';
-import { GlassCard, ScrollReveal, MagneticButton } from '@/components/scrollx';
+import { Activity, HardDrive, Server, TrendingUp, Timer, FileSearch, Trash2, RefreshCw, Search, X, Cpu, Monitor, MemoryStick, Database, Wifi, Info, Zap, Terminal, Play, Square, RotateCcw, Code, Hammer, Database as DatabaseIcon } from 'lucide-react';
+import { MagneticButton, GlassCard, ScrollReveal } from '@/components/scrollx';
 import { getApiUrl } from '@/lib/api';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
@@ -109,10 +109,18 @@ interface ServerStatus {
   production: {
     frontend: boolean;
     backend: boolean;
+    urls: {
+      frontend: string;
+      backend: string;
+    };
   };
   development: {
     frontend: boolean;
     backend: boolean;
+    urls: {
+      frontend: string;
+      backend: string;
+    };
   };
 }
 
@@ -144,6 +152,80 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
   const [isBuildingBackend, setIsBuildingBackend] = useState(false);
   const [isBuildingFrontend, setIsBuildingFrontend] = useState(false);
   const [buildWebSocket, setBuildWebSocket] = useState<WebSocket | null>(null);
+
+  // Terminal command execution state
+  const [commandInput, setCommandInput] = useState('');
+  const [isCommandExecuting, setIsCommandExecuting] = useState(false);
+  const [commandWebSocket, setCommandWebSocket] = useState<WebSocket | null>(null);
+  const [isTerminalAuthenticated, setIsTerminalAuthenticated] = useState(false);
+  const [terminalPassword, setTerminalPassword] = useState('');
+  const [passwordError, setPasswordError] = useState('');
+  const commandRef = useRef<HTMLDivElement>(null);
+
+  // Clear cache function
+  const clearAllCache = async () => {
+    try {
+      addTerminalOutput('🧹 Clearing all cache data...');
+      
+      // Clear browser cache
+      if ('caches' in window) {
+        const cacheNames = await caches.keys();
+        await Promise.all(
+          cacheNames.map(cacheName => caches.delete(cacheName))
+        );
+        addTerminalOutput('✅ Browser cache cleared');
+      }
+
+      // Clear localStorage
+      localStorage.clear();
+      addTerminalOutput('✅ Local storage cleared');
+
+      // Clear sessionStorage
+      sessionStorage.clear();
+      addTerminalOutput('✅ Session storage cleared');
+
+      // Clear IndexedDB (if any)
+      if ('indexedDB' in window) {
+        try {
+          const databases = await indexedDB.databases();
+          await Promise.all(
+            databases.map(db => {
+              if (db.name) {
+                return new Promise((resolve, reject) => {
+                  const deleteReq = indexedDB.deleteDatabase(db.name!);
+                  deleteReq.onsuccess = () => resolve(undefined);
+                  deleteReq.onerror = () => reject(deleteReq.error);
+                });
+              }
+            })
+          );
+          addTerminalOutput('✅ IndexedDB cleared');
+        } catch (error) {
+          addTerminalOutput('⚠️ IndexedDB clear failed (may not exist)');
+        }
+      }
+
+      // Call backend cache clear endpoint if it exists
+      try {
+        const response = await fetch(`${getApiUrl()}/api/admin/cache/clear`, {
+          method: 'POST',
+        });
+        if (response.ok) {
+          addTerminalOutput('✅ Backend cache cleared');
+        } else {
+          addTerminalOutput('⚠️ Backend cache clear failed');
+        }
+      } catch (error) {
+        addTerminalOutput('⚠️ Backend cache clear endpoint not available');
+      }
+
+      addTerminalOutput('🎉 All cache data cleared successfully!');
+      addTerminalOutput('💡 Refresh the page to see changes');
+      
+    } catch (error) {
+      addTerminalOutput(`❌ Cache clear failed: ${error}`);
+    }
+  };
 
   const addTerminalOutput = (message: string) => {
     if (onTerminalOutput) {
@@ -302,9 +384,14 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
       terminalWebSocket.close();
       setTerminalWebSocket(null);
     }
+    if (commandWebSocket) {
+      commandWebSocket.close();
+      setCommandWebSocket(null);
+    }
     setIsLogsConnected(false);
     setIsStatsConnected(false);
     setIsTerminalConnected(false);
+    setIsTerminalAuthenticated(false);
   };
 
   // Terminal WebSocket connection
@@ -322,12 +409,12 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
         try {
           const line: TerminalLine = JSON.parse(event.data);
           setTerminalLines(prev => [...prev.slice(-199), line]);
-          
+
           // Update scan progress if present
           if (line.progress !== undefined && line.progress >= 0) {
             setScanProgress(line.progress);
           }
-          
+
           // Auto-scroll terminal
           if (terminalRef.current) {
             terminalRef.current.scrollTop = terminalRef.current.scrollHeight;
@@ -355,6 +442,117 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
     } catch (error) {
       setIsTerminalConnected(false);
       console.warn('Terminal WebSocket connection failed:', error);
+    }
+  };
+
+  // Terminal Command Authentication
+  const authenticateTerminal = () => {
+    setPasswordError('');
+
+    if (!terminalPassword) {
+      setPasswordError('Password is required');
+      return;
+    }
+
+    // Connect directly to command terminal
+    connectToCommandTerminal(terminalPassword);
+    setTerminalPassword('');
+  };
+
+  // Validate password by making a test request
+  const validateAndConnect = async (password: string) => {
+    // Direct connection - no pre-validation needed
+    connectToCommandTerminal(password);
+  };
+
+  // Command WebSocket connection
+  const connectToCommandTerminal = (password: string) => {
+    try {
+      const apiUrl = getApiUrl().replace('http', 'ws');
+      const wsUrl = `${apiUrl}/api/admin/system/command/stream?password=${encodeURIComponent(password)}`;
+      console.log('Connecting to command terminal:', wsUrl);
+      
+      const ws = new WebSocket(wsUrl);
+
+      ws.onopen = () => {
+        console.log('Command WebSocket connected successfully');
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const line: TerminalLine = JSON.parse(event.data);
+          console.log('Received terminal message:', line);
+          
+          // Check if this is an authentication error
+          if (line.type === 'stderr' && line.message.includes('Authentication failed')) {
+            setIsTerminalAuthenticated(false);
+            setPasswordError(line.message);
+            ws.close();
+            return;
+          }
+
+          // Mark as authenticated on first successful message
+          if (!isTerminalAuthenticated && line.type === 'success' && line.message.includes('authenticated')) {
+            setIsTerminalAuthenticated(true);
+            setPasswordError('');
+            addTerminalOutput('🔐 Terminal authenticated and ready for commands');
+            console.log('Terminal authenticated successfully');
+          }
+
+          // Add line to terminal output
+          setTerminalLines(prev => [...prev.slice(-199), line]);
+
+          if (commandRef.current) {
+            commandRef.current.scrollTop = commandRef.current.scrollHeight;
+          }
+        } catch (error) {
+          console.error('Error parsing command output:', error);
+        }
+      };
+
+      ws.onclose = (event) => {
+        console.log('Command WebSocket closed:', event.code, event.reason);
+        setIsTerminalAuthenticated(false);
+        if (!isTerminalAuthenticated) {
+          setPasswordError('Failed to authenticate - connection closed');
+        } else {
+          addTerminalOutput('🔓 Terminal session closed');
+        }
+      };
+
+      ws.onerror = (event) => {
+        console.error('Command WebSocket error:', event);
+        setIsTerminalAuthenticated(false);
+        setPasswordError('Failed to connect to terminal - check your password');
+      };
+
+      setCommandWebSocket(ws);
+    } catch (error) {
+      setPasswordError('WebSocket connection failed');
+      console.warn('Command terminal WebSocket connection failed:', error);
+    }
+  };
+
+  const executeCommand = () => {
+    if (!commandInput.trim()) return;
+
+    if (!isTerminalAuthenticated || !commandWebSocket) {
+      setPasswordError('Terminal not authenticated');
+      return;
+    }
+
+    setIsCommandExecuting(true);
+
+    try {
+      commandWebSocket.send(JSON.stringify({
+        command: commandInput,
+      }));
+
+      setCommandInput('');
+    } catch (error) {
+      addTerminalOutput(`❌ Failed to send command: ${error}`);
+    } finally {
+      setIsCommandExecuting(false);
     }
   };
 
@@ -484,14 +682,14 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
   const serverAction = async (action: string, type: 'production' | 'dev') => {
     setIsServerActionLoading(true);
     addTerminalOutput(`🔄 ${action === 'start' ? 'Starting' : action === 'stop' ? 'Stopping' : 'Restarting'} ${type} server...`);
-    
+
     try {
       const response = await fetch(`${getApiUrl()}/api/admin/server/${type}/${action}`, {
         method: 'POST',
       });
-      
+
       const data = await response.json();
-      
+
       if (data.success) {
         addTerminalOutput(`✅ ${data.message}`);
         if (data.output) {
@@ -505,7 +703,7 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
           addTerminalOutput(data.output);
         }
       }
-      
+
       // Refresh server status
       setTimeout(fetchServerStatus, 2000);
     } catch (error) {
@@ -536,7 +734,7 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
       // Start WebSocket for real-time build output
       const apiUrl = getApiUrl().replace('http', 'ws');
       const ws = new WebSocket(`${apiUrl}/api/admin/build/${type}/stream`);
-      
+
       ws.onopen = () => {
         addTerminalOutput(`🔗 Connected to ${type} build stream`);
       };
@@ -545,7 +743,7 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
         try {
           const line: TerminalLine = JSON.parse(event.data);
           setTerminalLines(prev => [...prev.slice(-199), line]);
-          
+
           // Auto-scroll terminal
           if (terminalRef.current) {
             terminalRef.current.scrollTop = terminalRef.current.scrollHeight;
@@ -605,7 +803,7 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
           <div className="flex items-center justify-between mb-6">
             <h2 className="text-2xl font-semibold text-white flex items-center">
               <Activity className="w-6 h-6 mr-3 text-[#E50914]" />
-              System Dashboard
+              HomeFlix
             </h2>
             <div className="flex items-center space-x-4">
               <div className="flex items-center space-x-2">
@@ -620,6 +818,14 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
                   Stats {isStatsConnected ? 'WebSocket' : 'Polling'}
                 </span>
               </div>
+              <button
+                onClick={clearAllCache}
+                title="Clear all cache data (pages, widgets, notifications)"
+                className="bg-red-600/20 hover:bg-red-600/40 text-red-400 px-3 py-2 rounded-lg flex items-center space-x-2 text-sm transition-colors"
+              >
+                <DatabaseIcon className="w-4 h-4" />
+                <span>Clear Cache</span>
+              </button>
               <div className="text-white/50 text-xs">
                 {serverLogs.length} entries
                 {isFetchingLogs && (
@@ -836,13 +1042,14 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
               <Server className="w-6 h-6 mr-3 text-[#E50914]" />
               Server Control
             </h2>
-            <MagneticButton
+            <button
               onClick={fetchServerStatus}
-              className="bg-white/10 hover:bg-white/20 text-white px-3 py-2 rounded-lg flex items-center space-x-2 text-sm"
+              title="Refresh server status"
+              className="bg-white/10 hover:bg-white/20 text-white px-3 py-2 rounded-lg flex items-center space-x-2 text-sm transition-colors"
             >
               <RefreshCw className="w-4 h-4" />
               <span>Refresh Status</span>
-            </MagneticButton>
+            </button>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -860,7 +1067,7 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
                   </span>
                 </div>
               </div>
-              
+
               <div className="space-y-2 mb-4">
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-white/60">Frontend (3008):</span>
@@ -876,31 +1083,65 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
                 </div>
               </div>
 
+              {/* Server URLs */}
+              {serverStatus?.production && (serverStatus.production.frontend || serverStatus.production.backend) && (
+                <div className="mb-4 p-3 bg-black/30 rounded-lg border border-green-500/20">
+                  <div className="text-green-400 text-xs font-medium mb-2">🌐 Server URLs:</div>
+                  {serverStatus.production.frontend && (
+                    <div className="mb-1">
+                      <a 
+                        href={serverStatus.production.urls.frontend} 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="text-green-300 hover:text-green-200 text-xs underline"
+                      >
+                        📱 Frontend: {serverStatus.production.urls.frontend}
+                      </a>
+                    </div>
+                  )}
+                  {serverStatus.production.backend && (
+                    <div>
+                      <a 
+                        href={serverStatus.production.urls.backend} 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="text-green-300 hover:text-green-200 text-xs underline"
+                      >
+                        🔧 Backend: {serverStatus.production.urls.backend}
+                      </a>
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div className="flex items-center space-x-2">
-                <MagneticButton
+                <button
                   onClick={() => serverAction('start', 'production')}
                   disabled={isServerActionLoading}
-                  className="flex-1 bg-green-600/20 hover:bg-green-600/40 text-green-400 px-3 py-2 rounded-lg flex items-center justify-center space-x-2 text-sm disabled:opacity-50"
+                  title="Start production server"
+                  className="flex-1 bg-green-600/20 hover:bg-green-600/40 text-green-400 px-3 py-2 rounded-lg flex items-center justify-center space-x-2 text-sm disabled:opacity-50 transition-colors"
                 >
                   <Play className="w-4 h-4" />
                   <span>Start</span>
-                </MagneticButton>
-                <MagneticButton
+                </button>
+                <button
                   onClick={() => serverAction('stop', 'production')}
                   disabled={isServerActionLoading}
-                  className="flex-1 bg-red-600/20 hover:bg-red-600/40 text-red-400 px-3 py-2 rounded-lg flex items-center justify-center space-x-2 text-sm disabled:opacity-50"
+                  title="Stop production server"
+                  className="flex-1 bg-red-600/20 hover:bg-red-600/40 text-red-400 px-3 py-2 rounded-lg flex items-center justify-center space-x-2 text-sm disabled:opacity-50 transition-colors"
                 >
                   <Square className="w-4 h-4" />
                   <span>Stop</span>
-                </MagneticButton>
-                <MagneticButton
+                </button>
+                <button
                   onClick={() => serverAction('restart', 'production')}
                   disabled={isServerActionLoading}
-                  className="flex-1 bg-yellow-600/20 hover:bg-yellow-600/40 text-yellow-400 px-3 py-2 rounded-lg flex items-center justify-center space-x-2 text-sm disabled:opacity-50"
+                  title="Restart production server"
+                  className="flex-1 bg-yellow-600/20 hover:bg-yellow-600/40 text-yellow-400 px-3 py-2 rounded-lg flex items-center justify-center space-x-2 text-sm disabled:opacity-50 transition-colors"
                 >
                   <RotateCcw className="w-4 h-4" />
                   <span>Restart</span>
-                </MagneticButton>
+                </button>
               </div>
 
               <div className="mt-3 pt-3 border-t border-white/10">
@@ -947,7 +1188,7 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
                   </span>
                 </div>
               </div>
-              
+
               <div className="space-y-2 mb-4">
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-white/60">Frontend (3009):</span>
@@ -963,31 +1204,65 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
                 </div>
               </div>
 
+              {/* Development Server URLs */}
+              {serverStatus?.development && (serverStatus.development.frontend || serverStatus.development.backend) && (
+                <div className="mb-4 p-3 bg-black/30 rounded-lg border border-purple-500/20">
+                  <div className="text-purple-400 text-xs font-medium mb-2">🔧 Dev Server URLs:</div>
+                  {serverStatus.development.frontend && (
+                    <div className="mb-1">
+                      <a 
+                        href={serverStatus.development.urls.frontend} 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="text-purple-300 hover:text-purple-200 text-xs underline"
+                      >
+                        📱 Dev Frontend: {serverStatus.development.urls.frontend}
+                      </a>
+                    </div>
+                  )}
+                  {serverStatus.development.backend && (
+                    <div>
+                      <a 
+                        href={serverStatus.development.urls.backend} 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="text-purple-300 hover:text-purple-200 text-xs underline"
+                      >
+                        🔧 Dev Backend: {serverStatus.development.urls.backend}
+                      </a>
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div className="flex items-center space-x-2">
-                <MagneticButton
+                <button
                   onClick={() => serverAction('start', 'dev')}
                   disabled={isServerActionLoading}
-                  className="flex-1 bg-green-600/20 hover:bg-green-600/40 text-green-400 px-3 py-2 rounded-lg flex items-center justify-center space-x-2 text-sm disabled:opacity-50"
+                  title="Start development server"
+                  className="flex-1 bg-green-600/20 hover:bg-green-600/40 text-green-400 px-3 py-2 rounded-lg flex items-center justify-center space-x-2 text-sm disabled:opacity-50 transition-colors"
                 >
                   <Play className="w-4 h-4" />
                   <span>Start</span>
-                </MagneticButton>
-                <MagneticButton
+                </button>
+                <button
                   onClick={() => serverAction('stop', 'dev')}
                   disabled={isServerActionLoading}
-                  className="flex-1 bg-red-600/20 hover:bg-red-600/40 text-red-400 px-3 py-2 rounded-lg flex items-center justify-center space-x-2 text-sm disabled:opacity-50"
+                  title="Stop development server"
+                  className="flex-1 bg-red-600/20 hover:bg-red-600/40 text-red-400 px-3 py-2 rounded-lg flex items-center justify-center space-x-2 text-sm disabled:opacity-50 transition-colors"
                 >
                   <Square className="w-4 h-4" />
                   <span>Stop</span>
-                </MagneticButton>
-                <MagneticButton
+                </button>
+                <button
                   onClick={() => serverAction('restart', 'dev')}
                   disabled={isServerActionLoading}
-                  className="flex-1 bg-yellow-600/20 hover:bg-yellow-600/40 text-yellow-400 px-3 py-2 rounded-lg flex items-center justify-center space-x-2 text-sm disabled:opacity-50"
+                  title="Restart development server"
+                  className="flex-1 bg-yellow-600/20 hover:bg-yellow-600/40 text-yellow-400 px-3 py-2 rounded-lg flex items-center justify-center space-x-2 text-sm disabled:opacity-50 transition-colors"
                 >
                   <RotateCcw className="w-4 h-4" />
                   <span>Restart</span>
-                </MagneticButton>
+                </button>
               </div>
 
               <div className="mt-3 pt-3 border-t border-white/10">
@@ -1048,7 +1323,7 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
               {scanProgress >= 0 && (
                 <div className="flex items-center space-x-2">
                   <div className="w-32 h-2 bg-white/10 rounded-full overflow-hidden">
-                    <div 
+                    <div
                       className="h-full bg-gradient-to-r from-[#E50914] to-red-400 transition-all duration-300"
                       style={{ width: `${scanProgress}%` }}
                     />
@@ -1078,10 +1353,10 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
             </div>
           </div>
 
-          {/* Terminal Display */}
-          <div 
+          {/* Terminal Display - Increased height */}
+          <div
             ref={terminalRef}
-            className="bg-black rounded-lg p-4 h-64 overflow-y-auto font-mono text-sm border border-white/10 scroll-smooth"
+            className="bg-black rounded-lg p-4 h-96 overflow-y-auto font-mono text-sm border border-white/10 scroll-smooth"
           >
             {terminalLines.length === 0 ? (
               <div className="text-white/50 italic text-center py-8">
@@ -1092,14 +1367,13 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
                 {terminalLines.map((line, index) => (
                   <div
                     key={index}
-                    className={`flex items-start space-x-2 py-0.5 ${
-                      line.type === 'stderr' ? 'text-red-400' :
-                      line.type === 'warning' ? 'text-yellow-400' :
-                      line.type === 'success' ? 'text-green-400' :
-                      line.type === 'progress' ? 'text-blue-400' :
-                      line.type === 'info' ? 'text-cyan-400' :
-                      'text-white/90'
-                    }`}
+                    className={`flex items-start space-x-2 py-0.5 ${line.type === 'stderr' ? 'text-red-400' :
+                        line.type === 'warning' ? 'text-yellow-400' :
+                          line.type === 'success' ? 'text-green-400' :
+                            line.type === 'progress' ? 'text-blue-400' :
+                              line.type === 'info' ? 'text-cyan-400' :
+                                'text-white/90'
+                      }`}
                   >
                     <span className="text-white/30 text-xs whitespace-nowrap">
                       {line.timestamp ? new Date(line.timestamp).toLocaleTimeString() : '--:--:--'}
@@ -1139,6 +1413,189 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
               {terminalLines.length} lines • {isTerminalConnected ? 'Real-time via WebSocket' : 'Polling mode'}
             </div>
           </div>
+        </GlassCard>
+      </ScrollReveal>
+
+      {/* Terminal Command Executor */}
+      <ScrollReveal delay={0.07}>
+        <GlassCard className="p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-2xl font-semibold text-white flex items-center">
+              <Terminal className="w-6 h-6 mr-3 text-[#E50914]" />
+              Command Executor
+            </h2>
+            <div className="flex items-center space-x-2">
+              <div className={`w-2 h-2 rounded-full ${isTerminalAuthenticated ? 'bg-green-400 animate-pulse' : 'bg-red-400'}`}></div>
+              <span className="text-white/70 text-sm">
+                {isTerminalAuthenticated ? '🔓 Authenticated' : '🔒 Not Authenticated'}
+              </span>
+            </div>
+          </div>
+
+          {!isTerminalAuthenticated ? (
+            <div className="bg-gradient-to-br from-yellow-600/20 to-yellow-800/20 rounded-lg p-6 border border-yellow-500/20 mb-4">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center space-x-2">
+                  <div className="text-yellow-400 text-2xl">🔐</div>
+                  <div>
+                    <h3 className="text-lg font-semibold text-white">Terminal Access Required</h3>
+                    <p className="text-white/60 text-sm mt-1">Enter password to enable terminal command execution</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <div>
+                  <input
+                    type="password"
+                    value={terminalPassword}
+                    onChange={(e) => {
+                      setTerminalPassword(e.target.value);
+                      setPasswordError('');
+                    }}
+                    onKeyPress={(e) => e.key === 'Enter' && authenticateTerminal()}
+                    placeholder="Enter password..."
+                    className="w-full bg-black/50 border border-white/20 rounded-lg px-4 py-2 text-white placeholder-white/50 focus:border-yellow-400 focus:outline-none transition-colors"
+                  />
+                  {passwordError && (
+                    <p className="text-red-400 text-xs mt-2">⚠️ {passwordError}</p>
+                  )}
+                </div>
+                <MagneticButton
+                  onClick={authenticateTerminal}
+                  className="w-full bg-yellow-600/20 hover:bg-yellow-600/40 text-yellow-400 px-4 py-2 rounded-lg font-medium transition-colors"
+                >
+                  Unlock Terminal
+                </MagneticButton>
+              </div>
+
+              <div className="mt-4 pt-4 border-t border-white/10 text-white/50 text-xs">
+                ⚠️ Advanced feature - be careful with commands executed here
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {/* Command Input */}
+              <div className="flex items-center space-x-2">
+                <div className="flex-1">
+                  <input
+                    type="text"
+                    value={commandInput}
+                    onChange={(e) => setCommandInput(e.target.value)}
+                    onKeyPress={(e) => e.key === 'Enter' && executeCommand()}
+                    placeholder="Enter terminal command (e.g., ls -la, ps aux, docker ps)..."
+                    className="w-full bg-black/50 border border-white/20 rounded-lg px-4 py-2 text-white placeholder-white/50 focus:border-[#E50914] focus:outline-none transition-colors font-mono text-sm"
+                    disabled={!isTerminalAuthenticated}
+                  />
+                </div>
+                <MagneticButton
+                  onClick={executeCommand}
+                  disabled={isCommandExecuting || !commandInput.trim()}
+                  className="bg-green-600/20 hover:bg-green-600/40 text-green-400 px-4 py-2 rounded-lg flex items-center space-x-2 disabled:opacity-50"
+                >
+                  <Play className="w-4 h-4" />
+                  <span>{isCommandExecuting ? 'Running...' : 'Execute'}</span>
+                </MagneticButton>
+                <MagneticButton
+                  onClick={() => {
+                    if (commandWebSocket) {
+                      commandWebSocket.close();
+                    }
+                    setIsTerminalAuthenticated(false);
+                    addTerminalOutput('🔓 Terminal session closed');
+                  }}
+                  className="bg-red-600/20 hover:bg-red-600/40 text-red-400 px-4 py-2 rounded-lg"
+                >
+                  Lock
+                </MagneticButton>
+              </div>
+
+              {/* Command History / Output display in terminal lines above */}
+              <div className="bg-blue-600/10 border border-blue-500/20 rounded-lg p-3 text-blue-400 text-xs flex items-start space-x-2">
+                <Info className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                <div>
+                  <p>Command output appears in the Terminal Output section above</p>
+                  <p className="text-white/60 mt-1">Safe commands: ls, pwd, ps, top, docker, systemctl, systemd-analyze, journalctl, etc.</p>
+                </div>
+              </div>
+
+              {/* Quick command buttons */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                <MagneticButton
+                  onClick={() => {
+                    setCommandInput('ls -lah');
+                    setTimeout(() => executeCommand(), 100);
+                  }}
+                  className="bg-white/5 hover:bg-white/10 text-white/80 px-3 py-2 rounded text-xs"
+                >
+                  📁 List Files
+                </MagneticButton>
+                <MagneticButton
+                  onClick={() => {
+                    setCommandInput('pwd');
+                    setTimeout(() => executeCommand(), 100);
+                  }}
+                  className="bg-white/5 hover:bg-white/10 text-white/80 px-3 py-2 rounded text-xs"
+                >
+                  📍 Current Dir
+                </MagneticButton>
+                <MagneticButton
+                  onClick={() => {
+                    setCommandInput('df -h');
+                    setTimeout(() => executeCommand(), 100);
+                  }}
+                  className="bg-white/5 hover:bg-white/10 text-white/80 px-3 py-2 rounded text-xs"
+                >
+                  💾 Disk Usage
+                </MagneticButton>
+                <MagneticButton
+                  onClick={() => {
+                    setCommandInput('top -n1 -b | head -20');
+                    setTimeout(() => executeCommand(), 100);
+                  }}
+                  className="bg-white/5 hover:bg-white/10 text-white/80 px-3 py-2 rounded text-xs"
+                >
+                  📊 Top Processes
+                </MagneticButton>
+                <MagneticButton
+                  onClick={() => {
+                    setCommandInput('docker ps');
+                    setTimeout(() => executeCommand(), 100);
+                  }}
+                  className="bg-white/5 hover:bg-white/10 text-white/80 px-3 py-2 rounded text-xs"
+                >
+                  🐳 Docker Containers
+                </MagneticButton>
+                <MagneticButton
+                  onClick={() => {
+                    setCommandInput('systemctl status');
+                    setTimeout(() => executeCommand(), 100);
+                  }}
+                  className="bg-white/5 hover:bg-white/10 text-white/80 px-3 py-2 rounded text-xs"
+                >
+                  ⚙️ Systemctl
+                </MagneticButton>
+                <MagneticButton
+                  onClick={() => {
+                    setCommandInput('ps aux');
+                    setTimeout(() => executeCommand(), 100);
+                  }}
+                  className="bg-white/5 hover:bg-white/10 text-white/80 px-3 py-2 rounded text-xs"
+                >
+                  🔍 All Processes
+                </MagneticButton>
+                <MagneticButton
+                  onClick={() => {
+                    setCommandInput('uptime');
+                    setTimeout(() => executeCommand(), 100);
+                  }}
+                  className="bg-white/5 hover:bg-white/10 text-white/80 px-3 py-2 rounded text-xs"
+                >
+                  ⏱️ Uptime
+                </MagneticButton>
+              </div>
+            </div>
+          )}
         </GlassCard>
       </ScrollReveal>
 
@@ -1456,18 +1913,18 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
                   <div
                     key={index}
                     className={`flex items-start space-x-3 py-1 px-2 rounded hover:bg-white/5 transition-colors ${log.level === 'ERROR' || log.level === 'FATAL' ? 'bg-red-500/10' :
-                        log.level === 'WARN' ? 'bg-yellow-500/10' :
-                          log.level === 'DEBUG' ? 'bg-blue-500/10' :
-                            ''
+                      log.level === 'WARN' ? 'bg-yellow-500/10' :
+                        log.level === 'DEBUG' ? 'bg-blue-500/10' :
+                          ''
                       }`}
                   >
                     <span className="text-white/40 text-xs whitespace-nowrap">
                       {log.timestamp ? new Date(log.timestamp).toLocaleTimeString() : '--:--:--'}
                     </span>
                     <span className={`text-xs font-bold whitespace-nowrap ${log.level === 'ERROR' || log.level === 'FATAL' ? 'text-red-400' :
-                        log.level === 'WARN' ? 'text-yellow-400' :
-                          log.level === 'DEBUG' ? 'text-blue-400' :
-                            'text-green-400'
+                      log.level === 'WARN' ? 'text-yellow-400' :
+                        log.level === 'DEBUG' ? 'text-blue-400' :
+                          'text-green-400'
                       }`}>
                       {log.level || 'INFO'}
                     </span>

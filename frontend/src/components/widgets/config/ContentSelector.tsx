@@ -2,14 +2,14 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { 
-  X, 
-  Search, 
-  Filter, 
-  Star, 
-  Calendar, 
-  Film, 
-  Tv, 
+import {
+  X,
+  Search,
+  Filter,
+  Star,
+  Calendar,
+  Film,
+  Tv,
   Check,
   Loader2,
   Globe,
@@ -49,6 +49,15 @@ interface TMDBSearchResult {
   tmdb_poster_url?: string;
   poster_url?: string;
   poster?: string;
+  type?: string; // Add this for local media items
+  rating?: number;
+  year?: number;
+  duration?: number;
+  description?: string;
+  // Add trailer and logo fields for local content
+  tmdb_trailer_url?: string;
+  trailer_path?: string;
+  logo_path?: string;
 }
 
 const buildPosterUrl = (posterPath: string | null | undefined, apiUrl: string) => {
@@ -143,12 +152,12 @@ export default function ContentSelector({
         fetch(`${apiUrl}/api/tmdb/genres/movie`).then(r => r.ok ? r.json() : { genres: [] }),
         fetch(`${apiUrl}/api/tmdb/genres/tv`).then(r => r.ok ? r.json() : { genres: [] })
       ]);
-      
+
       const allGenres = [...movieGenres.genres, ...tvGenres.genres];
-      const uniqueGenres = allGenres.filter((genre, index, self) => 
+      const uniqueGenres = allGenres.filter((genre, index, self) =>
         index === self.findIndex(g => g.id === genre.id)
       );
-      
+
       setTmdbGenres(uniqueGenres.sort((a, b) => a.name.localeCompare(b.name)));
     } catch (error) {
       console.error('Error fetching TMDB genres:', error);
@@ -183,23 +192,23 @@ export default function ContentSelector({
         `${apiUrl}/api/tmdb/movie/now-playing`,
         `${apiUrl}/api/upcoming-tv-series?section=popular`
       ];
-      
+
       const responses = await Promise.all(
         endpoints.map(url => fetch(url).then(r => r.ok ? r.json() : { results: [] }))
       );
-      
+
       const allResults = responses.flatMap(data => data.results || []);
-      
+
       const processedResults = allResults.map(item => ({
         ...item,
         media_type: item.media_type || (item.title ? 'movie' : 'tv'),
         title: item.title || item.name
       }));
-      
-      const uniqueResults = processedResults.filter((item, index, self) => 
+
+      const uniqueResults = processedResults.filter((item, index, self) =>
         index === self.findIndex(i => i.id === item.id && i.media_type === item.media_type)
       ).slice(0, 20);
-      
+
       setFeaturedContent(uniqueResults);
     } catch (error) {
       console.error("Error fetching featured content:", error);
@@ -208,12 +217,66 @@ export default function ContentSelector({
     }
   };
 
-  const toggleContent = (item: TMDBSearchResult) => {
-    const exists = selectedContent.some(c => c.id === item.id && c.media_type === item.media_type);
+  const toggleContent = (item: TMDBSearchResult | any) => {
+    // For both TMDB and local items, use id as primary key with media_type as secondary
+    const itemId = item.id;
+    const itemMediaType = item.media_type || item.type || 'movie';
+
+    // Normalize media type for consistent comparison
+    const normalizedMediaType = (itemMediaType === 'tv' || itemMediaType === 'series' || itemMediaType === 'episode')
+      ? 'tv'
+      : 'movie';
+
+    // Check if item already selected - compare by id AND source type (tmdb vs local)
+    const isLocalItem = item.type && (item.type === 'tv' || item.type === 'series' || item.type === 'episode' || item.type === 'movie');
+    const itemSource = isLocalItem ? 'local' : 'tmdb';
+
+    const exists = selectedContent.some(c => {
+      const cSource = c._source || (c.type && !c.media_type ? 'local' : 'tmdb');
+      return c.id === itemId && cSource === itemSource;
+    });
+
     if (exists) {
-      onContentChange(selectedContent.filter(c => !(c.id === item.id && c.media_type === item.media_type)));
+      onContentChange(selectedContent.filter(c => {
+        const cSource = c._source || (c.type && !c.media_type ? 'local' : 'tmdb');
+        return !(c.id === itemId && cSource === itemSource);
+      }));
     } else {
-      onContentChange([...selectedContent, item]);
+      // Ensure proper data structure - preserve all fields
+      const contentItem = {
+        id: item.id,
+        type: item.type || normalizedMediaType,
+        title: item.title || item.name,
+        name: item.name || item.title,
+        media_type: item.media_type || normalizedMediaType,
+        poster_path: item.poster_path || item.poster || '',
+        backdrop_path: item.backdrop_path || '',
+        overview: item.overview || item.description || '',
+        description: item.description || item.overview || '',
+        rating: item.rating || item.vote_average || 0,
+        year: item.year || (item.release_date ? parseInt(item.release_date.split('-')[0]) : null),
+        duration: item.duration || 0,
+        _source: isLocalItem ? 'local' : 'tmdb', // Track source
+        // Preserve trailer and logo fields for local content
+        tmdb_trailer_url: item.tmdb_trailer_url || '',
+        trailer_path: item.trailer_path || '',
+        logo_path: item.logo_path || '',
+        // Preserve TMDB ID if available
+        tmdb_id: item.tmdb_id || 0,
+        // Preserve all other fields
+        vote_average: item.vote_average || item.rating || 0,
+        vote_count: item.vote_count || 0,
+        popularity: item.popularity || 0,
+        adult: item.adult || false,
+        original_language: item.original_language || '',
+        video: item.video || false,
+        release_date: item.release_date || '',
+        first_air_date: item.first_air_date || '',
+        tagline: item.tagline || '',
+        certification: item.certification || '',
+        ...item // Preserve all original fields
+      };
+      onContentChange([...selectedContent, contentItem]);
     }
   };
 
@@ -233,7 +296,7 @@ export default function ContentSelector({
 
   const getFilteredByGenres = () => {
     if (selectedGenres.length === 0) return featuredContent;
-    return featuredContent.filter(item => 
+    return featuredContent.filter(item =>
       item.genre_ids?.some(genreId => selectedGenres.includes(genreId))
     );
   };
@@ -292,11 +355,10 @@ export default function ContentSelector({
                 <button
                   key={id}
                   onClick={() => setActiveTab(id as any)}
-                  className={`flex items-center gap-3 px-6 py-4 text-sm font-medium transition-all duration-200 ${
-                    activeTab === id
+                  className={`flex items-center gap-3 px-6 py-4 text-sm font-medium transition-all duration-200 ${activeTab === id
                       ? 'text-red-200 border-b-2 border-red-400 bg-red-400/10'
                       : 'text-white/60 hover:text-white hover:bg-white/5'
-                  }`}
+                    }`}
                 >
                   <Icon className="w-4 h-4" />
                   {label}
@@ -366,10 +428,17 @@ export default function ContentSelector({
                       onClick={async () => {
                         setLocalLoading(true);
                         try {
-                          const url = searchQuery.trim() ? `${apiUrl}/api/media/search?q=${encodeURIComponent(searchQuery.trim())}` : `${apiUrl}/api/media`;
-                          const data = await fetch(url).then(r => r.ok ? r.json() : []);
+                          const url = searchQuery.trim()
+                            ? `${apiUrl}/api/media/search?q=${encodeURIComponent(searchQuery.trim())}`
+                            : `${apiUrl}/api/media`;
+                          const response = await fetch(url);
+                          let data = [];
+                          if (response.ok) {
+                            data = await response.json();
+                          }
                           setLocalResults(Array.isArray(data) ? data : []);
                         } catch (e) {
+                          console.error('Error fetching local media:', e);
                           setLocalResults([]);
                         } finally {
                           setLocalLoading(false);
@@ -388,45 +457,45 @@ export default function ContentSelector({
                     </div>
                   ) : (
                     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-                      {localResults.map((item: any) => (
-                        <ContentCard
-                          key={`local-${item.type}-${item.id}`}
-                          item={{
-                            id: item.id,
-                            title: item.title,
-                            name: item.title,
-                            overview: item.description || item.long_desc || item.short_desc || '',
-                            release_date: item.release_date,
-                            first_air_date: item.first_air_date,
-                            poster_path: item.poster_path ? `/api/posters/${item.id}` : '',
-                            backdrop_path: item.backdrop_path ? `/api/backdrops/${item.id}` : '',
-                            vote_average: item.rating || 0,
-                            vote_count: item.vote_count || 0,
-                            popularity: item.popularity || 0,
-                            media_type: (item.type === 'tv' || item.type === 'series' || item.type === 'episode') ? 'tv' : 'movie',
-                            adult: false,
-                            genre_ids: [],
-                          } as TMDBSearchResult}
-                          isSelected={selectedContent.some(c => c.id === item.id)}
-                          onToggle={() => {
-                            const exists = selectedContent.some(c => c.id === item.id);
-                            const mapped = {
-                              id: item.id,
-                              type: item.type,
-                              title: item.title,
-                              poster_path: item.poster_path ? `/api/posters/${item.id}` : '',
-                              backdrop_path: item.backdrop_path ? `/api/backdrops/${item.id}` : '',
-                              overview: item.description || '',
-                              media_type: (item.type === 'tv' || item.type === 'series' || item.type === 'episode') ? 'tv' : 'movie',
-                            };
-                            if (exists) {
-                              onContentChange(selectedContent.filter(c => c.id !== item.id));
-                            } else {
-                              onContentChange([...selectedContent, mapped]);
-                            }
-                          }}
-                        />
-                      ))}
+                      {localResults.map((item: any) => {
+                        const mappedItem: TMDBSearchResult = {
+                          id: item.id,
+                          title: item.title,
+                          name: item.title,
+                          overview: item.description || item.long_desc || item.short_desc || '',
+                          release_date: item.release_date,
+                          first_air_date: item.first_air_date,
+                          poster_path: item.poster_path ? `/api/posters/${item.id}` : '',
+                          backdrop_path: item.backdrop_path ? `/api/backdrops/${item.id}` : '',
+                          vote_average: item.rating || 0,
+                          vote_count: item.vote_count || 0,
+                          popularity: item.popularity || 0,
+                          media_type: (item.type === 'tv' || item.type === 'series' || item.type === 'episode') ? 'tv' : 'movie',
+                          adult: false,
+                          genre_ids: [],
+                          type: item.type,
+                          rating: item.rating,
+                          year: item.year,
+                          duration: item.duration,
+                          description: item.description,
+                          // Add trailer and logo fields
+                          tmdb_trailer_url: item.tmdb_trailer_url || '',
+                          trailer_path: item.trailer_path || '',
+                          logo_path: item.logo_path || '',
+                        };
+
+                        return (
+                          <ContentCard
+                            key={`local-${item.id}`}
+                            item={mappedItem}
+                            isSelected={selectedContent.some(c => {
+                              const cSource = c._source || (c.type && !c.media_type ? 'local' : 'tmdb');
+                              return c.id === item.id && cSource === 'local';
+                            })}
+                            onToggle={() => toggleContent(mappedItem)}
+                          />
+                        );
+                      })}
                     </div>
                   )}
                 </div>
@@ -447,11 +516,10 @@ export default function ContentSelector({
                         <button
                           key={`local-${genre.id}`}
                           onClick={() => toggleGenre(genre.id)}
-                          className={`px-4 py-2 rounded-xl text-sm font-medium transition-all duration-200 hover:scale-105 ${
-                            selectedGenres.includes(genre.id)
+                          className={`px-4 py-2 rounded-xl text-sm font-medium transition-all duration-200 hover:scale-105 ${selectedGenres.includes(genre.id)
                               ? 'bg-green-500/20 border border-green-400/50 text-green-200 shadow-lg shadow-green-500/10'
                               : 'bg-white/5 border border-white/10 text-white/80 hover:bg-white/10 hover:border-white/20'
-                          }`}
+                            }`}
                         >
                           {genre.name}
                         </button>
@@ -471,11 +539,10 @@ export default function ContentSelector({
                         <button
                           key={`tmdb-${genre.id}`}
                           onClick={() => toggleGenre(genre.id)}
-                          className={`px-4 py-2 rounded-xl text-sm font-medium transition-all duration-200 hover:scale-105 ${
-                            selectedGenres.includes(genre.id)
+                          className={`px-4 py-2 rounded-xl text-sm font-medium transition-all duration-200 hover:scale-105 ${selectedGenres.includes(genre.id)
                               ? 'bg-blue-500/20 border border-blue-400/50 text-blue-200 shadow-lg shadow-blue-500/10'
                               : 'bg-white/5 border border-white/10 text-white/80 hover:bg-white/10 hover:border-white/20'
-                          }`}
+                            }`}
                         >
                           {genre.name}
                         </button>
@@ -574,11 +641,10 @@ function ContentCard({ item, isSelected, onToggle }: ContentCardProps) {
     <motion.div
       whileHover={{ scale: 1.05 }}
       whileTap={{ scale: 0.95 }}
-      className={`relative cursor-pointer rounded-xl overflow-hidden transition-all duration-200 ${
-        isSelected 
-          ? 'ring-2 ring-blue-400 shadow-lg shadow-blue-500/20' 
+      className={`relative cursor-pointer rounded-xl overflow-hidden transition-all duration-200 ${isSelected
+          ? 'ring-2 ring-blue-400 shadow-lg shadow-blue-500/20'
           : 'hover:ring-1 hover:ring-white/20'
-      }`}
+        }`}
       onClick={onToggle}
     >
       <div className="aspect-[2/3] relative bg-white/5 backdrop-blur-sm">
@@ -591,7 +657,7 @@ function ContentCard({ item, isSelected, onToggle }: ContentCardProps) {
             target.src = '/placeholder-poster.jpg';
           }}
         />
-        
+
         {/* Selection overlay */}
         {isSelected && (
           <div className="absolute inset-0 bg-blue-500/20 backdrop-blur-sm flex items-center justify-center">
@@ -603,11 +669,10 @@ function ContentCard({ item, isSelected, onToggle }: ContentCardProps) {
 
         {/* Media type badge */}
         <div className="absolute top-2 left-2">
-          <div className={`p-1.5 rounded-lg backdrop-blur-sm border ${
-            item.media_type === 'movie' 
-              ? 'bg-blue-500/20 border-blue-400/30' 
+          <div className={`p-1.5 rounded-lg backdrop-blur-sm border ${item.media_type === 'movie'
+              ? 'bg-blue-500/20 border-blue-400/30'
               : 'bg-green-500/20 border-green-400/30'
-          }`}>
+            }`}>
             {item.media_type === 'movie' ? (
               <Film className="w-3 h-3 text-blue-200" />
             ) : (

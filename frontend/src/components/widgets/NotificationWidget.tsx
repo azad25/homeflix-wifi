@@ -40,11 +40,6 @@ declare global {
   }
 }
 
-interface NotificationWidgetProps {
-  widget: Widget;
-  className?: string;
-}
-
 interface TMDBMovieDetails {
   id: number;
   title: string;
@@ -113,13 +108,20 @@ interface EnhancedNotification extends Notification {
   }[];
 }
 
-const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, className = '' }) => {
+interface NotificationWidgetProps {
+  widget: Widget;
+  className?: string;
+  initialData?: EnhancedNotification[];
+}
+
+const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, className = '', initialData }) => {
   const navigate = useNavigate();
   const config = parseWidgetConfig(widget.config);
   const apiUrl = getApiUrl();
 
-  const [notifications, setNotifications] = useState<EnhancedNotification[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [notifications, setNotifications] = useState<EnhancedNotification[]>(initialData || []);
+  const [loading, setLoading] = useState(!initialData);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isHovering, setIsHovering] = useState(false);
   const [imageLoaded, setImageLoaded] = useState(false);
@@ -134,7 +136,51 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
   const playerRef = useRef<any>(null);
   const fetchControllerRef = useRef<AbortController | null>(null);
   const cacheRef = useRef<{ data: EnhancedNotification[]; timestamp: number } | null>(null);
-  const CACHE_TTL = 2 * 60 * 1000; // 2 minutes cache for notifications
+  const refreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const CACHE_TTL = 7 * 60 * 1000; // 7 minutes cache for notifications (between 5-10 minutes)
+  const REFRESH_INTERVAL = 8 * 60 * 1000; // 8 minutes refresh interval
+  const STORAGE_KEY = 'homeflix_notifications_cache';
+
+  // Helper function to clear expired cache
+  const clearExpiredCache = useCallback(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const storedCache = localStorage.getItem(STORAGE_KEY);
+        if (storedCache) {
+          const parsedCache = JSON.parse(storedCache);
+          if (!parsedCache.timestamp || Date.now() - parsedCache.timestamp >= CACHE_TTL) {
+            localStorage.removeItem(STORAGE_KEY);
+          }
+        }
+      } catch (error) {
+        // Invalid cache data, remove it
+        localStorage.removeItem(STORAGE_KEY);
+      }
+    }
+  }, [CACHE_TTL, STORAGE_KEY]);
+
+  // Initialize cache from localStorage on mount
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const storedCache = localStorage.getItem(STORAGE_KEY);
+        if (storedCache) {
+          const parsedCache = JSON.parse(storedCache);
+          // Check if stored cache is still valid
+          if (parsedCache.timestamp && Date.now() - parsedCache.timestamp < CACHE_TTL) {
+            cacheRef.current = parsedCache;
+            // If no initialData provided, use cached data
+            if (!initialData || initialData.length === 0) {
+              setNotifications(parsedCache.data || []);
+              setLoading(false);
+            }
+          }
+        }
+      } catch (error) {
+        // Invalid cache data, ignore
+      }
+    }
+  }, []);
 
   useEffect(() => {
     const element = containerRef.current;
@@ -247,7 +293,7 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
   }, [layoutVariant]);
 
   // Create sample notifications when API doesn't return any
-  const createSampleNotifications = async (): Promise<Notification[]> => {
+  const createSampleNotifications = useCallback(async (): Promise<Notification[]> => {
     try {
       // Try to fetch some movies from the local API to create realistic notifications
       const response = await fetch(`${apiUrl}/api/media/movies?limit=10`);
@@ -290,7 +336,7 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
         }
       }
     } catch (error) {
-      console.log('Could not fetch movies for sample notifications');
+      // Could not fetch movies for sample notifications
     }
 
     // Fallback sample notifications with real TMDB IDs
@@ -332,7 +378,104 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
         read: false
       }
     ];
-  };
+  }, [apiUrl]);
+
+  const fetchNotifications = useCallback(async () => {
+    // Check cache first for instant load
+    if (cacheRef.current && Date.now() - cacheRef.current.timestamp < CACHE_TTL) {
+      setNotifications(cacheRef.current.data);
+      setLoading(false);
+      return;
+    }
+
+    // Abort any pending request
+    if (fetchControllerRef.current) {
+      fetchControllerRef.current.abort();
+    }
+    fetchControllerRef.current = new AbortController();
+
+    try {
+      // Only show loading for initial load, not for background refreshes
+      const isInitialLoad = notifications.length === 0;
+      if (isInitialLoad) {
+        setLoading(true);
+      } else {
+        setIsRefreshing(true);
+      }
+
+      const response = await fetch(
+        `${apiUrl}/api/notifications?limit=${widget.maxItems || 10}`,
+        {
+          signal: fetchControllerRef.current.signal,
+          headers: { 'Content-Type': 'application/json' }
+        }
+      );
+
+      if (response.ok) {
+        const data = await response.json();
+        let filteredNotifications = filterNotifications(data.notifications || []);
+
+        if (filteredNotifications.length === 0) {
+          // Fallback to samples if no real notifications
+          const samples = await createSampleNotifications();
+          filteredNotifications = filterNotifications(samples);
+        }
+
+        if (filteredNotifications.length > 0) {
+          filteredNotifications = await enhanceNotifications(filteredNotifications);
+
+          filteredNotifications.sort((a, b) => {
+            const priorityOrder: Record<string, number> = { high: 3, medium: 2, low: 1 };
+            const aPriority = priorityOrder[(a as EnhancedNotification).priority || 'medium'];
+            const bPriority = priorityOrder[(b as EnhancedNotification).priority || 'medium'];
+
+            if (aPriority !== bPriority) return bPriority - aPriority;
+            return b.timestamp - a.timestamp;
+          });
+
+          // Cache the results with current timestamp
+          const cacheData = { data: filteredNotifications, timestamp: Date.now() };
+          cacheRef.current = cacheData;
+          
+          // Also save to localStorage for persistence across sessions
+          if (typeof window !== 'undefined') {
+            try {
+              localStorage.setItem(STORAGE_KEY, JSON.stringify(cacheData));
+            } catch (error) {
+              // localStorage might be full or disabled, ignore
+            }
+          }
+          
+          setNotifications(filteredNotifications);
+        } else {
+          setNotifications([]);
+        }
+      } else {
+        // API Error fallback - only use samples if we don't have cached data
+        if (!cacheRef.current || cacheRef.current.data.length === 0) {
+          const samples = await createSampleNotifications();
+          let processed = await enhanceNotifications(filterNotifications(samples));
+          setNotifications(processed);
+        }
+        // If we have cached data, keep using it even if API fails
+      }
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        return; // Request was aborted, ignore
+      }
+
+      // Error fallback - only use samples if we don't have cached data
+      if (!cacheRef.current || cacheRef.current.data.length === 0) {
+        const samples = await createSampleNotifications();
+        let processed = await enhanceNotifications(filterNotifications(samples));
+        setNotifications(processed);
+      }
+      // If we have cached data, keep using it even if there's an error
+    } finally {
+      setLoading(false);
+      setIsRefreshing(false);
+    }
+  }, [apiUrl, widget.maxItems, createSampleNotifications, notifications.length]);
 
   // Load YouTube IFrame API
   useEffect(() => {
@@ -366,15 +509,43 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
   };
 
   useEffect(() => {
-    fetchNotifications();
-    
+    if (!initialData || initialData.length === 0) {
+      fetchNotifications();
+    } else {
+      setLoading(false); // Ensure loading is false when using initialData
+    }
+
     // Cleanup on unmount
     return () => {
       if (fetchControllerRef.current) {
         fetchControllerRef.current.abort();
       }
+      if (refreshIntervalRef.current) {
+        clearInterval(refreshIntervalRef.current);
+      }
     };
-  }, []);
+  }, [initialData, fetchNotifications]);
+
+  // Periodic refresh effect - refresh notifications every 8 minutes
+  useEffect(() => {
+    // Set up periodic refresh
+    refreshIntervalRef.current = setInterval(() => {
+      // Clear expired cache first
+      clearExpiredCache();
+      
+      // Only refresh if we have notifications and component is still mounted
+      if (notifications.length > 0) {
+        fetchNotifications();
+      }
+    }, REFRESH_INTERVAL);
+
+    // Cleanup interval on unmount
+    return () => {
+      if (refreshIntervalRef.current) {
+        clearInterval(refreshIntervalRef.current);
+      }
+    };
+  }, [fetchNotifications, notifications.length, clearExpiredCache]);
 
   // Auto-scroll with hover pause - 3 seconds as requested, enabled by default
   useEffect(() => {
@@ -476,68 +647,6 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
       }
     }
   }, [isMuted]);
-
-  const fetchNotifications = async () => {
-    // Check cache first for instant load
-    if (cacheRef.current && Date.now() - cacheRef.current.timestamp < CACHE_TTL) {
-      setNotifications(cacheRef.current.data);
-      setLoading(false);
-      return;
-    }
-
-    // Abort any pending request
-    if (fetchControllerRef.current) {
-      fetchControllerRef.current.abort();
-    }
-    fetchControllerRef.current = new AbortController();
-
-    try {
-      setLoading(true);
-      const response = await fetch(
-        `${apiUrl}/api/notifications?limit=${widget.maxItems || 10}`,
-        { 
-          signal: fetchControllerRef.current.signal,
-          headers: { 'Content-Type': 'application/json' }
-        }
-      );
-
-      if (response.ok) {
-        const data = await response.json();
-        let filteredNotifications = filterNotifications(data.notifications || []);
-
-        if (filteredNotifications.length === 0) {
-          setNotifications([]);
-          setLoading(false);
-          return;
-        }
-
-        filteredNotifications = await enhanceNotifications(filteredNotifications);
-
-        filteredNotifications.sort((a, b) => {
-          const priorityOrder: Record<string, number> = { high: 3, medium: 2, low: 1 };
-          const aPriority = priorityOrder[(a as EnhancedNotification).priority || 'medium'];
-          const bPriority = priorityOrder[(b as EnhancedNotification).priority || 'medium'];
-
-          if (aPriority !== bPriority) return bPriority - aPriority;
-          return b.timestamp - a.timestamp;
-        });
-
-        // Cache the results
-        cacheRef.current = { data: filteredNotifications, timestamp: Date.now() };
-        setNotifications(filteredNotifications);
-      } else {
-        setNotifications([]);
-      }
-    } catch (error) {
-      if (error instanceof Error && error.name === 'AbortError') {
-        return; // Request was aborted, ignore
-      }
-      console.error('Failed to fetch notifications:', error);
-      setNotifications([]);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const enhanceNotifications = async (notifications: Notification[]): Promise<EnhancedNotification[]> => {
     return notifications.map(notification => {
@@ -656,15 +765,15 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
   const handleNotificationClick = (notification: EnhancedNotification, index?: number) => {
     // Handle continue watching and local content
     if (
-      notification.type === 'continue_watching' || 
+      notification.type === 'continue_watching' ||
       notification.type === 'recently_added' ||
       notification.type === 'local_trending' ||
       notification.type === 'genre_based' ||
       notification.type === 'watch_again'
     ) {
       if (notification.movie_ids && notification.movie_ids.length > 0) {
-        const movieId = index !== undefined && notification.movie_ids[index] 
-          ? notification.movie_ids[index] 
+        const movieId = index !== undefined && notification.movie_ids[index]
+          ? notification.movie_ids[index]
           : notification.movie_ids[0];
         if (movieId && movieId > 0) {
           navigate.push(`/movie/${movieId}`);
@@ -995,8 +1104,6 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
     );
   }
 
-  console.log('NotificationWidget render:', { notificationsLength: notifications.length, loading, currentIndex });
-
   if (notifications.length === 0) {
     return (
       <div className={`relative overflow-hidden rounded-xl border border-white/10 backdrop-blur-sm h-full ${className}`}>
@@ -1109,6 +1216,13 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
 
             {/* Floating Elements */}
             <div className={`absolute top-4 right-4 flex items-center gap-2 z-20 ${layoutVariant === 'third' ? 'scale-90' : ''}`}>
+              {/* Refresh indicator */}
+              {isRefreshing && (
+                <div className="flex items-center gap-1 px-2 py-1 rounded-full backdrop-blur-md border border-white/20 bg-white/10">
+                  <div className="w-3 h-3 border border-white/40 border-t-white rounded-full animate-spin" />
+                  <span className="text-xs text-white/80 font-medium">Updating</span>
+                </div>
+              )}
               {getPriorityBadge(currentNotification.priority || 'medium')}
               {layoutVariant !== 'third' && (
                 <div
@@ -1164,9 +1278,8 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
                         <img
                           src={logoUrl}
                           alt={currentNotification.title}
-                          className={`w-auto drop-shadow-2xl ${
-                            layoutVariant === 'third' ? 'max-h-10' : layoutVariant === 'half' ? 'max-h-14' : 'max-h-16 md:max-h-20'
-                          }`}
+                          className={`w-auto drop-shadow-2xl ${layoutVariant === 'third' ? 'max-h-10' : layoutVariant === 'half' ? 'max-h-14' : 'max-h-16 md:max-h-20'
+                            }`}
                           style={{ filter: 'drop-shadow(0 0 20px rgba(0,0,0,0.8))' }}
                           onError={(e) => {
                             e.currentTarget.style.display = 'none';
@@ -1199,9 +1312,8 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
                     transition={{ delay: 0.4 }}
                     className={layoutVariant === 'third' ? 'mb-2' : 'mb-3'}
                   >
-                    <p className={`text-white/90 max-w-2xl leading-relaxed ${
-                      layoutVariant === 'third' ? 'text-xs line-clamp-1' : layoutVariant === 'half' ? 'text-sm line-clamp-2 mb-2' : 'text-sm md:text-base line-clamp-2 mb-3'
-                    }`}>
+                    <p className={`text-white/90 max-w-2xl leading-relaxed ${layoutVariant === 'third' ? 'text-xs line-clamp-1' : layoutVariant === 'half' ? 'text-sm line-clamp-2 mb-2' : 'text-sm md:text-base line-clamp-2 mb-3'
+                      }`}>
                       {currentNotification.message}
                     </p>
 
@@ -1231,9 +1343,8 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
                                     className="flex-shrink-0 cursor-pointer group"
                                     onClick={() => handleNotificationClick(currentNotification, idx)}
                                   >
-                                    <div className={`relative rounded-xl overflow-hidden border border-white/20 group-hover:border-white/40 transition-all group-hover:scale-105 shadow-lg ${
-                                      layoutVariant === 'third' ? 'w-28 h-16' : 'w-40 h-24'
-                                    }`}>
+                                    <div className={`relative rounded-xl overflow-hidden border border-white/20 group-hover:border-white/40 transition-all group-hover:scale-105 shadow-lg ${layoutVariant === 'third' ? 'w-28 h-16' : 'w-40 h-24'
+                                      }`}>
                                       <img
                                         src={movie.backdrop_path?.startsWith('http')
                                           ? movie.backdrop_path
@@ -1249,7 +1360,7 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
                                       />
                                       {/* Gradient overlay */}
                                       <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
-                                      
+
                                       {/* Progress bar */}
                                       <div className="absolute bottom-0 left-0 right-0 h-1 bg-white/20">
                                         <motion.div
@@ -1259,7 +1370,7 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
                                           transition={{ duration: 0.8, delay: idx * 0.1 }}
                                         />
                                       </div>
-                                      
+
                                       {/* Title and progress info */}
                                       <div className="absolute bottom-1 left-2 right-2">
                                         <p className="text-white text-xs font-medium line-clamp-1 drop-shadow-lg">
@@ -1275,7 +1386,7 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
                                           )}
                                         </div>
                                       </div>
-                                      
+
                                       {/* Play button on hover */}
                                       <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/30">
                                         <div className="bg-white/90 rounded-full p-2">
@@ -1311,9 +1422,8 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
                                   className="flex-shrink-0 cursor-pointer group"
                                   onClick={() => handleNotificationClick(currentNotification, idx)}
                                 >
-                                  <div className={`relative rounded-lg overflow-hidden border border-white/20 group-hover:border-white/40 transition-all group-hover:scale-105 ${
-                                    layoutVariant === 'third' ? 'w-14 h-20' : 'w-20 h-28'
-                                  }`}>
+                                  <div className={`relative rounded-lg overflow-hidden border border-white/20 group-hover:border-white/40 transition-all group-hover:scale-105 ${layoutVariant === 'third' ? 'w-14 h-20' : 'w-20 h-28'
+                                    }`}>
                                     <img
                                       src={movie.poster_path?.startsWith('http')
                                         ? movie.poster_path
@@ -1375,9 +1485,8 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
 
                             {/* Enhanced Movie Details */}
                             <div className="flex-1 min-w-0">
-                              <h3 className={`font-bold text-white leading-tight line-clamp-2 ${
-                                layoutVariant === 'third' ? 'text-sm mb-1' : layoutVariant === 'half' ? 'text-base mb-1' : 'text-lg md:text-xl mb-2'
-                              }`}>
+                              <h3 className={`font-bold text-white leading-tight line-clamp-2 ${layoutVariant === 'third' ? 'text-sm mb-1' : layoutVariant === 'half' ? 'text-base mb-1' : 'text-lg md:text-xl mb-2'
+                                }`}>
                                 {singleMovie.title || singleMovie.name}
                               </h3>
 
@@ -1455,9 +1564,8 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
                   >
                     <button
                       onClick={() => handleNotificationClick(currentNotification)}
-                      className={`flex items-center gap-1.5 bg-white text-black font-semibold rounded-md hover:bg-white/90 transition-all transform hover:scale-105 shadow-lg ${
-                        layoutVariant === 'third' ? 'px-2.5 py-1 text-xs' : 'px-3 py-1.5 text-sm'
-                      }`}
+                      className={`flex items-center gap-1.5 bg-white text-black font-semibold rounded-md hover:bg-white/90 transition-all transform hover:scale-105 shadow-lg ${layoutVariant === 'third' ? 'px-2.5 py-1 text-xs' : 'px-3 py-1.5 text-sm'
+                        }`}
                     >
                       <Play className={layoutVariant === 'third' ? 'w-3 h-3 fill-current' : 'w-3.5 h-3.5 fill-current'} />
                       {layoutVariant === 'third' ? 'Watch' : 'Watch Now'}
@@ -1465,9 +1573,8 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
 
                     <button
                       onClick={() => handleNotificationClick(currentNotification)}
-                      className={`flex items-center gap-1.5 backdrop-blur-md border font-medium rounded-md transition-all hover:scale-105 ${
-                        layoutVariant === 'third' ? 'px-2 py-1 text-xs' : 'px-2.5 py-1.5 text-sm'
-                      }`}
+                      className={`flex items-center gap-1.5 backdrop-blur-md border font-medium rounded-md transition-all hover:scale-105 ${layoutVariant === 'third' ? 'px-2 py-1 text-xs' : 'px-2.5 py-1.5 text-sm'
+                        }`}
                       style={{
                         backgroundColor: `${themeColors.primary}20`,
                         borderColor: `${themeColors.primary}50`,
@@ -1480,9 +1587,8 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
 
                     <button
                       onClick={() => toggleMyList(currentNotification.id)}
-                      className={`backdrop-blur-md rounded-full border transition-all hover:scale-110 ${
-                        layoutVariant === 'third' ? 'p-1' : 'p-1.5'
-                      }`}
+                      className={`backdrop-blur-md rounded-full border transition-all hover:scale-110 ${layoutVariant === 'third' ? 'p-1' : 'p-1.5'
+                        }`}
                       style={{
                         backgroundColor: isInMyList[currentNotification.id] ? `${themeColors.primary}40` : `${themeColors.primary}20`,
                         borderColor: `${themeColors.primary}50`
@@ -1497,9 +1603,8 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
                     {trailerKey && (
                       <button
                         onClick={() => setIsMuted(!isMuted)}
-                        className={`backdrop-blur-md rounded-full border transition-all hover:scale-110 ${
-                          layoutVariant === 'third' ? 'p-1' : 'p-1.5'
-                        }`}
+                        className={`backdrop-blur-md rounded-full border transition-all hover:scale-110 ${layoutVariant === 'third' ? 'p-1' : 'p-1.5'
+                          }`}
                         style={{
                           backgroundColor: `${themeColors.primary}20`,
                           borderColor: `${themeColors.primary}50`
@@ -1521,9 +1626,8 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
               <>
                 <motion.button
                   onClick={handlePrevious}
-                  className={`absolute left-2 top-1/2 -translate-y-1/2 backdrop-blur-md rounded-full border transition-all z-30 ${
-                    layoutVariant === 'third' ? 'p-1' : 'p-1.5'
-                  }`}
+                  className={`absolute left-2 top-1/2 -translate-y-1/2 backdrop-blur-md rounded-full border transition-all z-30 ${layoutVariant === 'third' ? 'p-1' : 'p-1.5'
+                    }`}
                   style={{
                     backgroundColor: `${themeColors.primary}20`,
                     borderColor: `${themeColors.primary}40`,
@@ -1537,9 +1641,8 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
 
                 <motion.button
                   onClick={handleNext}
-                  className={`absolute right-2 top-1/2 -translate-y-1/2 backdrop-blur-md rounded-full border transition-all z-30 ${
-                    layoutVariant === 'third' ? 'p-1' : 'p-1.5'
-                  }`}
+                  className={`absolute right-2 top-1/2 -translate-y-1/2 backdrop-blur-md rounded-full border transition-all z-30 ${layoutVariant === 'third' ? 'p-1' : 'p-1.5'
+                    }`}
                   style={{
                     backgroundColor: `${themeColors.primary}20`,
                     borderColor: `${themeColors.primary}40`,
@@ -1555,9 +1658,8 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
 
             {/* Enhanced Progress Indicators */}
             {notifications.length > 1 && (
-              <div className={`absolute left-1/2 -translate-x-1/2 flex items-center gap-1.5 z-30 ${
-                layoutVariant === 'third' ? 'bottom-3' : 'bottom-4'
-              }`}>
+              <div className={`absolute left-1/2 -translate-x-1/2 flex items-center gap-1.5 z-30 ${layoutVariant === 'third' ? 'bottom-3' : 'bottom-4'
+                }`}>
                 {notifications.slice(0, layoutVariant === 'third' ? 5 : 8).map((notification, idx) => (
                   <motion.button
                     key={idx}
@@ -1571,11 +1673,10 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
                     whileTap={{ scale: 0.9 }}
                   >
                     <div
-                      className={`rounded-full transition-all duration-300 ${
-                        idx === currentIndex 
-                          ? layoutVariant === 'third' ? 'w-5 h-1' : 'w-6 h-1'
-                          : 'w-1.5 h-1.5'
-                      }`}
+                      className={`rounded-full transition-all duration-300 ${idx === currentIndex
+                        ? layoutVariant === 'third' ? 'w-5 h-1' : 'w-6 h-1'
+                        : 'w-1.5 h-1.5'
+                        }`}
                       style={{
                         backgroundColor: idx === currentIndex ? themeColors.primary : 'rgba(255,255,255,0.4)',
                         boxShadow: idx === currentIndex ? `0 0 8px ${themeColors.primary}80` : 'none'

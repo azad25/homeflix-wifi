@@ -1199,10 +1199,10 @@ func (s *WidgetService) convertSelectedContentToMediaItems(selectedContent []int
 			// Handle ID (could be float64 from JSON)
 			if id, ok := contentMap["id"].(float64); ok {
 				item.ID = uint(id)
-				item.TMDBID = int(id)
+				// Don't set TMDBID here for local content
 			} else if id, ok := contentMap["id"].(int); ok {
 				item.ID = uint(id)
-				item.TMDBID = id
+				// Don't set TMDBID here for local content
 			}
 
 			// Handle TMDB ID specifically
@@ -1210,6 +1210,12 @@ func (s *WidgetService) convertSelectedContentToMediaItems(selectedContent []int
 				item.TMDBID = int(tmdbId)
 			} else if tmdbId, ok := contentMap["tmdb_id"].(int); ok {
 				item.TMDBID = tmdbId
+			}
+
+			// Check if this is a local item or TMDB item
+			isLocalItem := false
+			if source, ok := contentMap["_source"].(string); ok && source == "local" {
+				isLocalItem = true
 			}
 
 			// Handle title (could be title or name for TV shows)
@@ -1233,27 +1239,37 @@ func (s *WidgetService) convertSelectedContentToMediaItems(selectedContent []int
 				item.Description = description
 			}
 
-			// Handle poster path
-			if posterPath, ok := contentMap["poster_path"].(string); ok {
-				if posterPath != "" {
+			// Handle poster path - different for local vs TMDB
+			if posterPath, ok := contentMap["poster_path"].(string); ok && posterPath != "" {
+				if isLocalItem {
+					// Local items use API path
+					item.PosterPath = posterPath
+					if strings.HasPrefix(posterPath, "/api/") {
+						item.TMDBPosterURL = posterPath
+					}
+				} else {
+					// TMDB items use TMDB URL format
 					item.TMDBPosterURL = "https://image.tmdb.org/t/p/w500" + posterPath
 					item.PosterPath = posterPath
 				}
 			}
 
 			// Handle backdrop path
-			if backdropPath, ok := contentMap["backdrop_path"].(string); ok {
-				if backdropPath != "" {
+			if backdropPath, ok := contentMap["backdrop_path"].(string); ok && backdropPath != "" {
+				if isLocalItem {
+					item.BackdropPath = backdropPath
+					if strings.HasPrefix(backdropPath, "/api/") {
+						item.TMDBBackdropURL = backdropPath
+					}
+				} else {
 					item.TMDBBackdropURL = "https://image.tmdb.org/t/p/original" + backdropPath
 					item.BackdropPath = backdropPath
 				}
 			}
 
 			// Handle logo path
-			if logoPath, ok := contentMap["logo_path"].(string); ok {
-				if logoPath != "" {
-					item.LogoPath = "https://image.tmdb.org/t/p/w500" + logoPath
-				}
+			if logoPath, ok := contentMap["logo_path"].(string); ok && logoPath != "" {
+				item.LogoPath = "https://image.tmdb.org/t/p/w500" + logoPath
 			}
 
 			// Handle rating/vote average
@@ -1289,14 +1305,14 @@ func (s *WidgetService) convertSelectedContentToMediaItems(selectedContent []int
 			}
 
 			// Handle release date
-			if releaseDate, ok := contentMap["release_date"].(string); ok {
+			if releaseDate, ok := contentMap["release_date"].(string); ok && releaseDate != "" {
 				item.ReleaseDate = releaseDate
 				if len(releaseDate) >= 4 {
 					if year, err := strconv.Atoi(releaseDate[:4]); err == nil {
 						item.Year = year
 					}
 				}
-			} else if firstAirDate, ok := contentMap["first_air_date"].(string); ok {
+			} else if firstAirDate, ok := contentMap["first_air_date"].(string); ok && firstAirDate != "" {
 				item.FirstAirDate = firstAirDate
 				if len(firstAirDate) >= 4 {
 					if year, err := strconv.Atoi(firstAirDate[:4]); err == nil {
@@ -1305,10 +1321,20 @@ func (s *WidgetService) convertSelectedContentToMediaItems(selectedContent []int
 				}
 			}
 
-			// Handle runtime
+			// Handle year directly if provided
+			if year, ok := contentMap["year"].(float64); ok && item.Year == 0 {
+				item.Year = int(year)
+			} else if year, ok := contentMap["year"].(int); ok && item.Year == 0 {
+				item.Year = year
+			}
+
+			// Handle runtime/duration
 			if runtime, ok := contentMap["runtime"].(float64); ok {
 				item.Runtime = int(runtime)
 				item.Duration = int(runtime) * 60 // Convert minutes to seconds
+			} else if duration, ok := contentMap["duration"].(float64); ok {
+				item.Duration = int(duration)
+				item.Runtime = int(duration) / 60
 			}
 
 			// Handle media type
@@ -1366,23 +1392,158 @@ func (s *WidgetService) convertSelectedContentToMediaItems(selectedContent []int
 			if trailerPath, ok := contentMap["trailer_path"].(string); ok && trailerPath != "" {
 				item.TrailerPath = trailerPath
 			}
-			// If missing TMDB trailer and we have a TMDB ID, try to construct/fetch it?
-			// Ideally we assume selectedContent has it or we enrich it.
-			// The ContentSelector saves what it receives. If it came from TMDB search, it might lack trailer_url unless detailed info was fetched.
-			// However, local content (from search) usually has it if the API returned it.
+
+			// Handle logo path for local content
+			if logoPath, ok := contentMap["logo_path"].(string); ok && logoPath != "" {
+				if isLocalItem {
+					// For local items, logo_path might be a relative path
+					item.LogoPath = logoPath
+				} else {
+					// For TMDB items, build full URL
+					if !strings.HasPrefix(logoPath, "http") {
+						item.LogoPath = "https://image.tmdb.org/t/p/w500" + logoPath
+					} else {
+						item.LogoPath = logoPath
+					}
+				}
+			}
 
 			items = append(items, item)
 		}
 	}
 
-	// Enrich with trailers if missing
+	// For local content items, fetch missing trailer and logo data from database
+	localItems := make([]models.MediaItem, 0)
+	var localIDs []uint
+	
+	for _, item := range items {
+		// Check if it's a local item by looking at the _source field or lack of TMDB-specific data
+		if item.ID > 0 { // Any item with a local ID should be checked
+			localItems = append(localItems, item)
+			localIDs = append(localIDs, item.ID)
+		}
+	}
+
+	// Fetch trailer and logo data for local items
+	if len(localIDs) > 0 && s.db != nil {
+		var dbResults []struct {
+			ID              uint
+			TMDBTrailerURL  string
+			TrailerPath     string
+			LogoPath        string
+			TMDBID          int
+			TMDBPosterURL   string
+			TMDBBackdropURL string
+			PosterPath      string
+			BackdropPath    string
+		}
+		
+		if err := s.db.Table("media").
+			Select("id, tmdb_trailer_url, trailer_path, logo_path, tmdb_id, tmdb_poster_url, tmdb_backdrop_url, poster_path, backdrop_path").
+			Where("id IN ?", localIDs).
+			Find(&dbResults).Error; err == nil {
+			
+			fmt.Printf("🔍 Found %d database records for local content enrichment\n", len(dbResults))
+			
+			// Create a map for quick lookup
+			dbMap := make(map[uint]struct {
+				TMDBTrailerURL  string
+				TrailerPath     string
+				LogoPath        string
+				TMDBID          int
+				TMDBPosterURL   string
+				TMDBBackdropURL string
+				PosterPath      string
+				BackdropPath    string
+			})
+			
+			for _, result := range dbResults {
+				dbMap[result.ID] = struct {
+					TMDBTrailerURL  string
+					TrailerPath     string
+					LogoPath        string
+					TMDBID          int
+					TMDBPosterURL   string
+					TMDBBackdropURL string
+					PosterPath      string
+					BackdropPath    string
+				}{
+					TMDBTrailerURL:  result.TMDBTrailerURL,
+					TrailerPath:     result.TrailerPath,
+					LogoPath:        result.LogoPath,
+					TMDBID:          result.TMDBID,
+					TMDBPosterURL:   result.TMDBPosterURL,
+					TMDBBackdropURL: result.TMDBBackdropURL,
+					PosterPath:      result.PosterPath,
+					BackdropPath:    result.BackdropPath,
+				}
+			}
+			
+			// Update items with database data
+			for i := range items {
+				if items[i].ID > 0 {
+					if dbData, exists := dbMap[items[i].ID]; exists {
+						fmt.Printf("🔄 Updating item %s (ID: %d) with DB data - trailer: %s, logo: %s\n", 
+							items[i].Title, items[i].ID, dbData.TMDBTrailerURL, dbData.LogoPath)
+						
+						// Update trailer URLs
+						if items[i].TMDBTrailerURL == "" && dbData.TMDBTrailerURL != "" {
+							items[i].TMDBTrailerURL = dbData.TMDBTrailerURL
+							fmt.Printf("   ✅ Updated TMDB trailer URL: %s\n", dbData.TMDBTrailerURL)
+						}
+						if items[i].TrailerPath == "" && dbData.TrailerPath != "" {
+							items[i].TrailerPath = dbData.TrailerPath
+							fmt.Printf("   ✅ Updated trailer path: %s\n", dbData.TrailerPath)
+						}
+						
+						// Update logo path
+						if items[i].LogoPath == "" && dbData.LogoPath != "" {
+							items[i].LogoPath = dbData.LogoPath
+							fmt.Printf("   ✅ Updated logo path: %s\n", dbData.LogoPath)
+						}
+						
+						// Update TMDB ID
+						if items[i].TMDBID == 0 && dbData.TMDBID > 0 {
+							items[i].TMDBID = dbData.TMDBID
+							fmt.Printf("   ✅ Updated TMDB ID: %d\n", dbData.TMDBID)
+						}
+						
+						// Update poster and backdrop URLs if missing
+						if items[i].TMDBPosterURL == "" && dbData.TMDBPosterURL != "" {
+							items[i].TMDBPosterURL = dbData.TMDBPosterURL
+						}
+						if items[i].PosterPath == "" && dbData.PosterPath != "" {
+							items[i].PosterPath = dbData.PosterPath
+						}
+						if items[i].TMDBBackdropURL == "" && dbData.TMDBBackdropURL != "" {
+							items[i].TMDBBackdropURL = dbData.TMDBBackdropURL
+						}
+						if items[i].BackdropPath == "" && dbData.BackdropPath != "" {
+							items[i].BackdropPath = dbData.BackdropPath
+						}
+					} else {
+						fmt.Printf("⚠️ No DB data found for item %s (ID: %d)\n", items[i].Title, items[i].ID)
+					}
+				}
+			}
+		}
+	}
+
+	// Enrich with trailers if missing - but only for TMDB items
 	for i := range items {
 		// Determine media type for enrichment
 		mediaType := "movie"
 		if items[i].Type == "tv" || items[i].Type == "series" {
 			mediaType = "tv"
 		}
-		items[i] = s.enrichMediaItemWithTrailer(items[i], mediaType)
+		
+		// Only enrich if it's a TMDB item (has TMDBID and no local source indicator)
+		if items[i].TMDBID != 0 && items[i].TMDBTrailerURL == "" {
+			fmt.Printf("🎬 Enriching TMDB item %s (ID: %d, TMDB ID: %d) with trailer\n", items[i].Title, items[i].ID, items[i].TMDBID)
+			items[i] = s.enrichMediaItemWithTrailer(items[i], mediaType)
+		} else if items[i].TMDBID == 0 {
+			fmt.Printf("🏠 Local item %s (ID: %d) - trailer: %s, logo: %s\n", items[i].Title, items[i].ID, items[i].TMDBTrailerURL, items[i].LogoPath)
+		}
 	}
 
 	fmt.Printf("✅ Converted %d selected content items to MediaItems\n", len(items))
@@ -1588,7 +1749,9 @@ func (s *WidgetService) getLocalMediaDataDirect(widget *models.Widget, config *m
 	var mediaItems []models.MediaItem
 
 	// Build query based on content type
-	query := s.db.Table("media").Preload("Genres").Preload("Series").Preload("Series.Genres")
+	query := s.db.Table("media").
+		Select("id, title, type, description, poster_path, backdrop_path, tmdb_backdrop_url, tmdb_poster_url, tmdb_trailer_url, logo_path, trailer_path, rating, year, duration, genre_names, release_date, tagline, view_count, quality, popularity, vote_count, series_id, file_path, preview_path, preview_clip_path, tmdb_id, created_at, last_viewed").
+		Preload("Genres").Preload("Series").Preload("Series.Genres")
 
 	// Filter by content type
 	switch widget.ContentType {
@@ -2417,9 +2580,9 @@ func (s *WidgetService) convertMediaToWidgetItem(media models.Media, preferSerie
 		LogoPath:        media.LogoPath,
 		TMDBBackdropURL: media.TMDBBackdropURL,
 		TMDBTrailerURL:  media.TMDBTrailerURL,
+		TrailerPath:     media.TrailerPath,
 		PreviewPath:     media.PreviewPath,
 		PreviewClipPath: media.PreviewClipPath,
-		TrailerPath:     media.TrailerPath,
 		TMDBID:          media.TMDBID,
 		ViewCount:       media.ViewCount,
 		LastViewed:      media.LastViewed,
@@ -2464,6 +2627,9 @@ func (s *WidgetService) convertMediaToWidgetItem(media models.Media, preferSerie
 		}
 		if series.TMDBTrailerURL != "" {
 			item.TMDBTrailerURL = series.TMDBTrailerURL
+		}
+		if series.TrailerURL != "" && item.TrailerPath == "" {
+			item.TrailerPath = series.TrailerURL
 		}
 		if series.TMDBID != 0 {
 			item.TMDBID = series.TMDBID

@@ -19,6 +19,7 @@ interface HeroVideoWidgetProps {
   slideDurationMs?: number;
   className?: string;
   config?: any;
+  isMuted?: boolean;
 }
 
 const getGenreTheme = (genre: string = "") => {
@@ -42,6 +43,7 @@ export default function HeroVideoWidget({
   slideDurationMs = 8000,
   className = "",
   config = {},
+  isMuted: initialMuted = true,
 }: HeroVideoWidgetProps) {
   const apiUrl = getApiUrl();
   const navigate = useNavigate();
@@ -73,7 +75,7 @@ export default function HeroVideoWidget({
 
   const TagIcon = getTagIcon(config?.tagIcon || 'Sparkles');
   const [index, setIndex] = useState(0);
-  const [isMuted, setIsMuted] = useState(true);
+  const [isMuted, setIsMuted] = useState(initialMuted);
   const [imageLoaded, setImageLoaded] = useState(false);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -117,6 +119,11 @@ export default function HeroVideoWidget({
   useEffect(() => {
     isMutedRef.current = isMuted;
   }, [isMuted]);
+
+  // Sync with prop change
+  useEffect(() => {
+    setIsMuted(initialMuted);
+  }, [initialMuted]);
 
   const advanceTriggeredRef = useRef(false);
   const progressIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -229,23 +236,23 @@ export default function HeroVideoWidget({
     const popularity = typeof m.popularity === "number" ? Math.min(100, m.popularity) : 0;
     const voteCount = typeof m.vote_count === "number" ? Math.min(200, m.vote_count) : 0;
     const viewCount = typeof (m as any).view_count === "number" ? Math.min(100, (m as any).view_count) : 0;
-    
+
     // Enhanced calculation for local content
     let base = rating * 8; // Rating is most important
     base += popularity * 0.15;
     base += (voteCount / 10);
     base += (viewCount * 0.5); // Local view count bonus
-    
+
     // Year bonus for newer content
     if (m.year && m.year > 2015) {
       base += (m.year - 2015) * 0.5;
     }
-    
+
     // Quality bonus
     if (m.quality && (m.quality.includes('4K') || m.quality.includes('2160'))) {
       base += 3;
     }
-    
+
     const score = base || 70; // Higher default for local content
     return Math.max(65, Math.min(98, Math.round(score)));
   }, []);
@@ -603,11 +610,33 @@ export default function HeroVideoWidget({
             onReady: (event: any) => {
               const attemptPlay = (retries = 3) => {
                 try {
-                  if (!isMutedRef.current) event.target.unMute(); else event.target.mute();
+                  // Try to respect mute preference immediately
+                  if (!isMutedRef.current) {
+                    event.target.unMute();
+                  } else {
+                    event.target.mute();
+                  }
+
                   event.target.seekTo(10, true);
                   event.target.playVideo();
-                  setTimeout(() => { try { if (event.target.getPlayerState && typeof event.target.getPlayerState === 'function') { const state = event.target.getPlayerState(); if (state !== 1 && retries > 0) attemptPlay(retries - 1); } } catch (e) { } }, 1000);
-                } catch (e) { if (retries > 0) setTimeout(() => attemptPlay(retries - 1), 1000); }
+
+                  setTimeout(() => {
+                    try {
+                      if (event.target.getPlayerState && typeof event.target.getPlayerState === 'function') {
+                        const state = event.target.getPlayerState();
+                        if (state !== 1 && retries > 0) attemptPlay(retries - 1);
+                      }
+                    } catch (e) { }
+                  }, 1000);
+                } catch (e) {
+                  console.warn("YouTube unmuted autoplay failed, falling back to muted");
+                  try {
+                    event.target.mute();
+                    event.target.playVideo();
+                  } catch (err) { }
+
+                  if (retries > 0) setTimeout(() => attemptPlay(retries - 1), 1000);
+                }
               };
               attemptPlay();
             },
@@ -713,7 +742,22 @@ export default function HeroVideoWidget({
       try {
         if (Math.abs(video.currentTime) > 0.5) video.currentTime = 0;
       } catch { }
-      video.play().catch(() => { });
+
+      // Attempt unmuted playback first if configured
+      video.muted = isMutedRef.current;
+      video.volume = isMutedRef.current ? 0 : 1;
+
+      const playPromise = video.play();
+      if (playPromise !== undefined) {
+        playPromise.then(() => {
+          // Playback started successfully
+        }).catch(error => {
+          console.warn('HeroVideoWidget: Unmuted autoplay blocked, falling back to muted');
+          video.muted = true;
+          video.volume = 0;
+          video.play().catch(() => { });
+        });
+      }
     };
 
     const handleLoaded = () => startPlayback();
@@ -819,10 +863,28 @@ export default function HeroVideoWidget({
     );
   }, [current, getTrailerKey, ytVideoReady]);
 
-  const renderPreview = useCallback(() => {
-    const src = current ? `${apiUrl}/api/preview-clips/${current.id}?quality=high&format=mp4&cache=true` : "";
+  const renderNativeVideo = useCallback(() => {
+    let src = "";
+    if (current) {
+      // Check for local trailer first (if mode allows)
+      if (mode !== 'preview' && current.trailer_path && !extractYouTubeKey(current.trailer_path)) {
+        if (current.trailer_path.startsWith('http')) {
+          src = current.trailer_path;
+        } else if (current.trailer_path.startsWith('/')) {
+          src = `${apiUrl}${current.trailer_path}`;
+        } else {
+          // Relative path or filename
+          src = `${apiUrl}/api/assets/${current.trailer_path}`;
+        }
+      }
+      // Fallback to preview clip
+      if (!src) {
+        src = `${apiUrl}/api/preview-clips/${current.id}?quality=high&format=mp4&cache=true`;
+      }
+    }
+
     return <video key={current?.id || "preview"} ref={videoRef} autoPlay muted={isMuted} playsInline className="absolute inset-0 w-full h-full object-cover z-10" src={src} />;
-  }, [apiUrl, current, isMuted]);
+  }, [apiUrl, current, isMuted, mode, extractYouTubeKey]);
 
   if (!current) return null;
 
@@ -891,7 +953,7 @@ export default function HeroVideoWidget({
       </AnimatePresence>
 
       {/* Video */}
-      <AnimatePresence mode="wait">{isTrailer(current) ? renderTrailer() : renderPreview()}</AnimatePresence>
+      <AnimatePresence mode="wait">{isTrailer(current) ? renderTrailer() : renderNativeVideo()}</AnimatePresence>
 
       {/* Gradients */}
       <div className="absolute inset-0 bg-gradient-to-r from-black/95 via-black/60 to-transparent" />

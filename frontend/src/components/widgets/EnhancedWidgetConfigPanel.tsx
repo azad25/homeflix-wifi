@@ -8,6 +8,7 @@ import { getApiUrl } from '@/lib/api';
 import WidgetList from './config/WidgetList';
 import WidgetEditor from './config/WidgetEditor';
 import ContentSelector from './config/ContentSelector';
+import { widgetCache } from '@/utils/widgetCache';
 import WidgetPerformanceDashboard from './WidgetPerformanceDashboard';
 
 interface EnhancedWidgetConfigPanelProps {
@@ -76,12 +77,12 @@ export default function EnhancedWidgetConfigPanel({
         fetch(`${apiUrl}/api/tmdb/genres/movie`).then(r => r.ok ? r.json() : { genres: [] }),
         fetch(`${apiUrl}/api/tmdb/genres/tv`).then(r => r.ok ? r.json() : { genres: [] })
       ]);
-      
+
       const allGenres = [...movieGenres.genres, ...tvGenres.genres];
-      const uniqueGenres = allGenres.filter((genre, index, self) => 
+      const uniqueGenres = allGenres.filter((genre, index, self) =>
         index === self.findIndex(g => g.id === genre.id)
       );
-      
+
       setGenres(uniqueGenres);
     } catch (error) {
       console.error('Error fetching genres:', error);
@@ -107,11 +108,25 @@ export default function EnhancedWidgetConfigPanel({
     }
   };
 
+  // Add this function to fetch widget-specific data:
+  const fetchWidgetData = async (widgetId: number) => {
+    try {
+      const response = await fetch(`${apiUrl}/api/widgets/${widgetId}/data`);
+      if (response.ok) {
+        const data = await response.json();
+        return data.data; // Returns the actual media items based on config
+      }
+    } catch (error) {
+      console.error('Error fetching widget data:', error);
+    }
+    return [];
+  };
+
   const saveWidget = async (widget: Partial<Widget>) => {
     try {
       const method = widget.id ? 'PUT' : 'POST';
       const url = widget.id ? `${apiUrl}/api/widgets/${widget.id}` : `${apiUrl}/api/widgets`;
-      
+
       const response = await fetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
@@ -120,6 +135,7 @@ export default function EnhancedWidgetConfigPanel({
 
       if (response.ok) {
         await fetchWidgets();
+        widgetCache.invalidate(page); // Invalidate cache on save
         setEditingWidget(null);
         onWidgetsChange?.();
       } else {
@@ -141,6 +157,7 @@ export default function EnhancedWidgetConfigPanel({
 
       if (response.ok) {
         await fetchWidgets();
+        widgetCache.invalidate(page); // Invalidate cache on delete
         onWidgetsChange?.();
       } else {
         throw new Error('Failed to delete widget');
@@ -166,6 +183,7 @@ export default function EnhancedWidgetConfigPanel({
 
       if (response.ok) {
         setWidgets(reorderedWidgets);
+        widgetCache.invalidate(page); // Invalidate cache on reorder
         onWidgetsChange?.();
       } else {
         throw new Error('Failed to reorder widgets');
@@ -186,12 +204,12 @@ export default function EnhancedWidgetConfigPanel({
           fetch(`${apiUrl}/api/tmdb/genres/movie`).then(r => r.ok ? r.json() : { genres: [] }),
           fetch(`${apiUrl}/api/tmdb/genres/tv`).then(r => r.ok ? r.json() : { genres: [] })
         ]);
-        
+
         const allGenres = [...movieGenres.genres, ...tvGenres.genres];
-        const uniqueGenres = allGenres.filter((genre, index, self) => 
+        const uniqueGenres = allGenres.filter((genre, index, self) =>
           index === self.findIndex(g => g.id === genre.id)
         );
-        
+
         genreNames = selectedGenres
           .map(id => uniqueGenres.find(g => g.id === id)?.name)
           .filter(name => name) as string[];
@@ -200,18 +218,24 @@ export default function EnhancedWidgetConfigPanel({
       }
     }
 
-    // Default notification types for notification widgets
+    // Default notification types for notification widgets - COMPLETE BACKEND MATCH
     const defaultNotificationTypes = [
+      'new_movies',
+      'new_episodes',
+      'recently_added',
       'movie_suggestion',
       'single_movie_suggestion',
       'watch_again',
+      'continue_watching',
+      'genre_based',
+      'local_trending',
       'tmdb_upcoming',
       'tmdb_now_playing',
       'tmdb_trending',
       'tmdb_upcoming_tv',
       'tmdb_now_airing_tv',
-      'new_episodes',
-      'new_movies'
+      'tmdb_coming_soon',
+      'download_complete'
     ];
 
     const newWidget: Partial<Widget> = {
@@ -243,8 +267,8 @@ export default function EnhancedWidgetConfigPanel({
   };
 
   const handleGenreToggle = (genreId: number) => {
-    setSelectedGenres(prev => 
-      prev.includes(genreId) 
+    setSelectedGenres(prev =>
+      prev.includes(genreId)
         ? prev.filter(id => id !== genreId)
         : [...prev, genreId]
     );
@@ -301,7 +325,7 @@ export default function EnhancedWidgetConfigPanel({
                   </p>
                 </div>
               </div>
-              
+
               <div className="flex items-center gap-3">
                 <button
                   onClick={() => setShowPerformance(true)}

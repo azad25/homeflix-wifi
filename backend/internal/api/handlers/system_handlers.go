@@ -153,6 +153,384 @@ func GetSystemStats() gin.HandlerFunc {
 	}
 }
 
+// GetSystemInfo returns detailed system hardware information
+func GetSystemInfo() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		info, err := collectSystemInfo()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		c.JSON(http.StatusOK, info)
+	}
+}
+
+// collectSystemInfo gathers detailed system hardware information
+func collectSystemInfo() (*SystemInfo, error) {
+	info := &SystemInfo{}
+
+	// CPU Info
+	info.CPU = getCPUInfo()
+
+	// GPU Info
+	info.GPU = getGPUInfo()
+
+	// Memory Info
+	info.Memory = getMemoryInfo()
+
+	// Disk Info
+	info.Disk = getDiskInfo()
+
+	// Network Info
+	info.Network = getNetworkInfo()
+
+	// OS Info
+	info.OS = getOSInfo()
+
+	return info, nil
+}
+
+// getCPUInfo retrieves detailed CPU information
+func getCPUInfo() CPUInfo {
+	cpuInfo := CPUInfo{
+		Cores: runtime.NumCPU(),
+		Arch:  runtime.GOARCH,
+	}
+
+	if runtime.GOOS == "linux" {
+		// Get CPU model from /proc/cpuinfo
+		if data, err := os.ReadFile("/proc/cpuinfo"); err == nil {
+			lines := strings.Split(string(data), "\n")
+			for _, line := range lines {
+				if strings.HasPrefix(line, "model name") {
+					parts := strings.Split(line, ":")
+					if len(parts) > 1 {
+						cpuInfo.Model = strings.TrimSpace(parts[1])
+						break
+					}
+				}
+			}
+
+			// Get cache size
+			for _, line := range lines {
+				if strings.HasPrefix(line, "cache size") {
+					parts := strings.Split(line, ":")
+					if len(parts) > 1 {
+						cpuInfo.Cache = strings.TrimSpace(parts[1])
+						break
+					}
+				}
+			}
+		}
+
+		// Get max frequency
+		if data, err := os.ReadFile("/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq"); err == nil {
+			freq := strings.TrimSpace(string(data))
+			if freqInt, err := strconv.ParseInt(freq, 10, 64); err == nil {
+				cpuInfo.MaxFreq = fmt.Sprintf("%.2f GHz", float64(freqInt)/1000000)
+			}
+		}
+	}
+
+	// Estimate threads (usually 2x cores for hyperthreading)
+	cpuInfo.Threads = cpuInfo.Cores * 2
+
+	if cpuInfo.Model == "" {
+		cpuInfo.Model = "Unknown CPU"
+	}
+
+	return cpuInfo
+}
+
+// getGPUInfo retrieves GPU information
+func getGPUInfo() GPUInfo {
+	gpuInfo := GPUInfo{
+		Model:  "Unknown GPU",
+		Vendor: "Unknown",
+		Driver: "N/A",
+		Memory: "N/A",
+	}
+
+	if runtime.GOOS == "linux" {
+		// Try lspci for GPU info
+		cmd := exec.Command("lspci")
+		if output, err := cmd.Output(); err == nil {
+			lines := strings.Split(string(output), "\n")
+			for _, line := range lines {
+				if strings.Contains(strings.ToLower(line), "vga") || strings.Contains(strings.ToLower(line), "3d") {
+					parts := strings.Split(line, ":")
+					if len(parts) > 2 {
+						gpuInfo.Model = strings.TrimSpace(parts[2])
+						if strings.Contains(strings.ToLower(line), "nvidia") {
+							gpuInfo.Vendor = "NVIDIA"
+						} else if strings.Contains(strings.ToLower(line), "amd") || strings.Contains(strings.ToLower(line), "radeon") {
+							gpuInfo.Vendor = "AMD"
+						} else if strings.Contains(strings.ToLower(line), "intel") {
+							gpuInfo.Vendor = "Intel"
+						}
+						break
+					}
+				}
+			}
+		}
+
+		// Try nvidia-smi for NVIDIA GPUs
+		cmd = exec.Command("nvidia-smi", "--query-gpu=name,driver_version,memory.total", "--format=csv,noheader")
+		if output, err := cmd.Output(); err == nil {
+			parts := strings.Split(strings.TrimSpace(string(output)), ",")
+			if len(parts) >= 3 {
+				gpuInfo.Model = strings.TrimSpace(parts[0])
+				gpuInfo.Vendor = "NVIDIA"
+				gpuInfo.Driver = strings.TrimSpace(parts[1])
+				gpuInfo.Memory = strings.TrimSpace(parts[2])
+			}
+		}
+	}
+
+	return gpuInfo
+}
+
+// getMemoryInfo retrieves memory information
+func getMemoryInfo() MemoryInfo {
+	memInfo := MemoryInfo{
+		Type:  "Unknown",
+		Speed: "Unknown",
+		Slots: 1,
+	}
+
+	if runtime.GOOS == "linux" {
+		// Get total memory from /proc/meminfo
+		if data, err := os.ReadFile("/proc/meminfo"); err == nil {
+			lines := strings.Split(string(data), "\n")
+			for _, line := range lines {
+				if strings.HasPrefix(line, "MemTotal:") {
+					parts := strings.Fields(line)
+					if len(parts) >= 2 {
+						if totalKB, err := strconv.ParseUint(parts[1], 10, 64); err == nil {
+							totalGB := float64(totalKB) / (1024 * 1024)
+							memInfo.Total = fmt.Sprintf("%.1f GB", totalGB)
+						}
+					}
+					break
+				}
+			}
+		}
+
+		// Try dmidecode for detailed memory info
+		cmd := exec.Command("dmidecode", "-t", "memory")
+		if output, err := cmd.Output(); err == nil {
+			lines := strings.Split(string(output), "\n")
+			slotCount := 0
+			for _, line := range lines {
+				if strings.Contains(line, "Type:") && !strings.Contains(line, "Error") && !strings.Contains(line, "Unknown") {
+					parts := strings.Split(line, ":")
+					if len(parts) > 1 {
+						memType := strings.TrimSpace(parts[1])
+						if memType != "" && memType != "Unknown" {
+							memInfo.Type = memType
+						}
+					}
+				}
+				if strings.Contains(line, "Speed:") && !strings.Contains(line, "Unknown") {
+					parts := strings.Split(line, ":")
+					if len(parts) > 1 {
+						memInfo.Speed = strings.TrimSpace(parts[1])
+					}
+				}
+				if strings.Contains(line, "Size:") && !strings.Contains(line, "No Module") {
+					slotCount++
+				}
+			}
+			if slotCount > 0 {
+				memInfo.Slots = slotCount
+			}
+		}
+	}
+
+	if memInfo.Total == "" {
+		memInfo.Total = "Unknown"
+	}
+
+	return memInfo
+}
+
+// getDiskInfo retrieves disk information
+func getDiskInfo() DiskInfo {
+	diskInfo := DiskInfo{
+		Model:      "Unknown",
+		Type:       "Unknown",
+		Total:      "Unknown",
+		Partitions: []string{},
+	}
+
+	if runtime.GOOS == "linux" {
+		// Get disk model from /sys/block
+		if entries, err := os.ReadDir("/sys/block"); err == nil {
+			for _, entry := range entries {
+				if strings.HasPrefix(entry.Name(), "sd") || strings.HasPrefix(entry.Name(), "nvme") {
+					modelPath := fmt.Sprintf("/sys/block/%s/device/model", entry.Name())
+					if data, err := os.ReadFile(modelPath); err == nil {
+						diskInfo.Model = strings.TrimSpace(string(data))
+					}
+
+					// Determine disk type
+					if strings.HasPrefix(entry.Name(), "nvme") {
+						diskInfo.Type = "NVMe SSD"
+					} else {
+						rotationalPath := fmt.Sprintf("/sys/block/%s/queue/rotational", entry.Name())
+						if data, err := os.ReadFile(rotationalPath); err == nil {
+							if strings.TrimSpace(string(data)) == "0" {
+								diskInfo.Type = "SSD"
+							} else {
+								diskInfo.Type = "HDD"
+							}
+						}
+					}
+					break
+				}
+			}
+		}
+
+		// Get partition info
+		cmd := exec.Command("lsblk", "-o", "NAME,SIZE,TYPE,MOUNTPOINT", "-n")
+		if output, err := cmd.Output(); err == nil {
+			lines := strings.Split(string(output), "\n")
+			var totalSize uint64
+			for _, line := range lines {
+				fields := strings.Fields(line)
+				if len(fields) >= 3 {
+					if fields[2] == "part" {
+						partition := fmt.Sprintf("%s (%s)", fields[0], fields[1])
+						if len(fields) >= 4 {
+							partition += fmt.Sprintf(" - %s", fields[3])
+						}
+						diskInfo.Partitions = append(diskInfo.Partitions, partition)
+					}
+					if fields[2] == "disk" && len(fields) >= 2 {
+						// Parse size (e.g., "500G", "1T")
+						sizeStr := fields[1]
+						if strings.HasSuffix(sizeStr, "T") {
+							if val, err := strconv.ParseFloat(strings.TrimSuffix(sizeStr, "T"), 64); err == nil {
+								totalSize += uint64(val * 1024 * 1024 * 1024 * 1024)
+							}
+						} else if strings.HasSuffix(sizeStr, "G") {
+							if val, err := strconv.ParseFloat(strings.TrimSuffix(sizeStr, "G"), 64); err == nil {
+								totalSize += uint64(val * 1024 * 1024 * 1024)
+							}
+						}
+					}
+				}
+			}
+			if totalSize > 0 {
+				diskInfo.Total = fmt.Sprintf("%.1f TB", float64(totalSize)/(1024*1024*1024*1024))
+			}
+		}
+	}
+
+	return diskInfo
+}
+
+// getNetworkInfo retrieves network information
+func getNetworkInfo() NetworkInfo {
+	netInfo := NetworkInfo{
+		Hostname:   "Unknown",
+		Interfaces: []string{},
+		IPAddress:  "Unknown",
+		MACAddress: "Unknown",
+	}
+
+	// Get hostname
+	if hostname, err := os.Hostname(); err == nil {
+		netInfo.Hostname = hostname
+	}
+
+	if runtime.GOOS == "linux" {
+		// Get network interfaces
+		cmd := exec.Command("ip", "link", "show")
+		if output, err := cmd.Output(); err == nil {
+			lines := strings.Split(string(output), "\n")
+			for _, line := range lines {
+				if strings.Contains(line, ": ") && !strings.Contains(line, "lo:") {
+					parts := strings.Split(line, ": ")
+					if len(parts) >= 2 {
+						ifaceName := strings.TrimSpace(parts[1])
+						if !strings.Contains(ifaceName, "lo") {
+							netInfo.Interfaces = append(netInfo.Interfaces, ifaceName)
+						}
+					}
+				}
+			}
+		}
+
+		// Get IP address
+		cmd = exec.Command("hostname", "-I")
+		if output, err := cmd.Output(); err == nil {
+			ips := strings.Fields(string(output))
+			if len(ips) > 0 {
+				netInfo.IPAddress = ips[0]
+			}
+		}
+
+		// Get MAC address of first non-loopback interface
+		if len(netInfo.Interfaces) > 0 {
+			macPath := fmt.Sprintf("/sys/class/net/%s/address", netInfo.Interfaces[0])
+			if data, err := os.ReadFile(macPath); err == nil {
+				netInfo.MACAddress = strings.TrimSpace(string(data))
+			}
+		}
+	}
+
+	return netInfo
+}
+
+// getOSInfo retrieves operating system information
+func getOSInfo() OSInfo {
+	osInfo := OSInfo{
+		Platform: runtime.GOOS,
+	}
+
+	if runtime.GOOS == "linux" {
+		// Get OS name and version from /etc/os-release
+		if data, err := os.ReadFile("/etc/os-release"); err == nil {
+			lines := strings.Split(string(data), "\n")
+			for _, line := range lines {
+				if strings.HasPrefix(line, "PRETTY_NAME=") {
+					osInfo.Name = strings.Trim(strings.TrimPrefix(line, "PRETTY_NAME="), "\"")
+				}
+				if strings.HasPrefix(line, "VERSION=") {
+					osInfo.Version = strings.Trim(strings.TrimPrefix(line, "VERSION="), "\"")
+				}
+			}
+		}
+
+		// Get kernel version
+		cmd := exec.Command("uname", "-r")
+		if output, err := cmd.Output(); err == nil {
+			osInfo.Kernel = strings.TrimSpace(string(output))
+		}
+
+		// Get uptime
+		if data, err := os.ReadFile("/proc/uptime"); err == nil {
+			fields := strings.Fields(string(data))
+			if len(fields) > 0 {
+				if uptimeSec, err := strconv.ParseFloat(fields[0], 64); err == nil {
+					days := int(uptimeSec / 86400)
+					hours := int((uptimeSec - float64(days*86400)) / 3600)
+					minutes := int((uptimeSec - float64(days*86400) - float64(hours*3600)) / 60)
+					osInfo.Uptime = fmt.Sprintf("%dd %dh %dm", days, hours, minutes)
+				}
+			}
+		}
+	}
+
+	if osInfo.Name == "" {
+		osInfo.Name = "Unknown OS"
+	}
+
+	return osInfo
+}
+
 // StreamSystemStats provides real-time system stats via WebSocket
 func StreamSystemStats() gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -581,6 +959,128 @@ func readProcessAndSystemTimes() (uint64, uint64, error) {
 	return pTime, sTime, nil
 }
 
+// RestartProductionServer restarts the production server
+func RestartProductionServer() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		projectRoot := getProjectRoot()
+		scriptPath := filepath.Join(projectRoot, "restart.sh")
+		
+		// Make sure the script is executable
+		if err := os.Chmod(scriptPath, 0755); err != nil {
+			c.JSON(http.StatusInternalServerError, ServerControlResponse{
+				Success: false,
+				Message: "Failed to make restart.sh executable",
+				Output:  err.Error(),
+			})
+			return
+		}
+
+		// Return success response immediately
+		c.JSON(http.StatusOK, ServerControlResponse{
+			Success: true,
+			Message: "Production server restart initiated successfully. Server will reload in a few seconds.",
+		})
+
+		// Use a detached process that survives the current server shutdown
+		go func() {
+			// Small delay to ensure the response is sent
+			time.Sleep(1 * time.Second)
+			
+			// Execute restart script in a completely detached way using nohup
+			cmd := exec.Command("nohup", "bash", scriptPath)
+			cmd.Dir = projectRoot
+			cmd.Env = append(os.Environ(), "SCRIPT_DIR="+projectRoot)
+			
+			// Detach from current process completely
+			cmd.SysProcAttr = &syscall.SysProcAttr{
+				Setpgid: true,  // Create new process group
+				Pgid:    0,     // Make it the process group leader
+			}
+			
+			// Start the detached process
+			if err := cmd.Start(); err != nil {
+				fmt.Printf("Failed to start detached restart process: %v\n", err)
+				return
+			}
+			
+			fmt.Printf("Detached restart process started with PID: %d\n", cmd.Process.Pid)
+			
+			// Don't wait for the process - let it run independently
+			cmd.Process.Release()
+		}()
+	}
+}
+
+// RestartDevServer restarts the development server
+func RestartDevServer() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		projectRoot := getProjectRoot()
+		scriptPath := filepath.Join(projectRoot, "restart-dev.sh")
+		
+		// Make sure the script is executable
+		if err := os.Chmod(scriptPath, 0755); err != nil {
+			c.JSON(http.StatusInternalServerError, ServerControlResponse{
+				Success: false,
+				Message: "Failed to make restart-dev.sh executable",
+				Output:  err.Error(),
+			})
+			return
+		}
+
+		// Return success response immediately
+		c.JSON(http.StatusOK, ServerControlResponse{
+			Success: true,
+			Message: "Development server restart initiated successfully. Server will reload in a few seconds.",
+		})
+
+		// Use a detached process that survives the current server shutdown
+		go func() {
+			// Small delay to ensure the response is sent
+			time.Sleep(1 * time.Second)
+			
+			// Execute restart script in a completely detached way using nohup
+			cmd := exec.Command("nohup", "bash", scriptPath)
+			cmd.Dir = projectRoot
+			cmd.Env = append(os.Environ(), "SCRIPT_DIR="+projectRoot)
+			
+			// Detach from current process completely
+			cmd.SysProcAttr = &syscall.SysProcAttr{
+				Setpgid: true,  // Create new process group
+				Pgid:    0,     // Make it the process group leader
+			}
+			
+			// Start the detached process
+			if err := cmd.Start(); err != nil {
+				fmt.Printf("Failed to start detached restart process: %v\n", err)
+				return
+			}
+			
+			fmt.Printf("Detached restart process started with PID: %d\n", cmd.Process.Pid)
+			
+			// Don't wait for the process - let it run independently
+			cmd.Process.Release()
+		}()
+	}
+}
+
+// waitForPortsToFree waits for specified ports to become available
+func waitForPortsToFree(ports []int, maxWaitSeconds int) bool {
+	for i := 0; i < maxWaitSeconds; i++ {
+		allFree := true
+		for _, port := range ports {
+			if isPortInUse(port) {
+				allFree = false
+				break
+			}
+		}
+		if allFree {
+			return true
+		}
+		time.Sleep(1 * time.Second)
+	}
+	return false
+}
+
 // streamLogs streams server logs in real-time
 func streamLogs(ctx context.Context, conn *websocket.Conn) {
 	// Try to tail the server log file
@@ -706,486 +1206,6 @@ func parseLogLine(line, source string) LogEntry {
 	}
 
 	return entry
-}
-
-// getSampleLogs returns sample log entries for demonstration
-func getSampleLogs(count int) []LogEntry {
-	logs := []LogEntry{
-		{
-			Timestamp: time.Now().Add(-5 * time.Minute),
-			Level:     "INFO",
-			Message:   "🚀 HomeFlix Server starting on port 8252",
-			Source:    "server",
-		},
-		{
-			Timestamp: time.Now().Add(-4 * time.Minute),
-			Level:     "INFO",
-			Message:   "✅ Redis asset cache initialized successfully",
-			Source:    "cache",
-		},
-		{
-			Timestamp: time.Now().Add(-3 * time.Minute),
-			Level:     "INFO",
-			Message:   "🎬 Transcode service initialized (HW Accel: none)",
-			Source:    "transcode",
-		},
-		{
-			Timestamp: time.Now().Add(-2 * time.Minute),
-			Level:     "INFO",
-			Message:   "📁 Loaded media path: /media/movies (external) - Movies",
-			Source:    "scanner",
-		},
-		{
-			Timestamp: time.Now().Add(-1 * time.Minute),
-			Level:     "INFO",
-			Message:   "🔄 Starting comprehensive media sync validation on server startup...",
-			Source:    "scanner",
-		},
-		{
-			Timestamp: time.Now(),
-			Level:     "INFO",
-			Message:   "✅ Initial media scanning completed successfully",
-			Source:    "scanner",
-		},
-	}
-
-	if count < len(logs) {
-		return logs[:count]
-	}
-	return logs
-}
-
-// GetSystemInfo returns detailed system hardware information
-func GetSystemInfo() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		info, err := collectSystemInfo()
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-
-		c.JSON(http.StatusOK, info)
-	}
-}
-
-// collectSystemInfo gathers detailed system hardware information
-func collectSystemInfo() (*SystemInfo, error) {
-	info := &SystemInfo{}
-
-	// CPU Info
-	info.CPU = getCPUInfo()
-
-	// GPU Info
-	info.GPU = getGPUInfo()
-
-	// Memory Info
-	info.Memory = getMemoryInfo()
-
-	// Disk Info
-	info.Disk = getDiskInfo()
-
-	// Network Info
-	info.Network = getNetworkInfo()
-
-	// OS Info
-	info.OS = getOSInfo()
-
-	return info, nil
-}
-
-// getCPUInfo retrieves detailed CPU information
-func getCPUInfo() CPUInfo {
-	cpuInfo := CPUInfo{
-		Cores: runtime.NumCPU(),
-		Arch:  runtime.GOARCH,
-	}
-
-	if runtime.GOOS == "linux" {
-		// Get CPU model from /proc/cpuinfo
-		if data, err := os.ReadFile("/proc/cpuinfo"); err == nil {
-			lines := strings.Split(string(data), "\n")
-			for _, line := range lines {
-				if strings.HasPrefix(line, "model name") {
-					parts := strings.Split(line, ":")
-					if len(parts) > 1 {
-						cpuInfo.Model = strings.TrimSpace(parts[1])
-						break
-					}
-				}
-			}
-
-			// Get cache size
-			for _, line := range lines {
-				if strings.HasPrefix(line, "cache size") {
-					parts := strings.Split(line, ":")
-					if len(parts) > 1 {
-						cpuInfo.Cache = strings.TrimSpace(parts[1])
-						break
-					}
-				}
-			}
-		}
-
-		// Get max frequency
-		if data, err := os.ReadFile("/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq"); err == nil {
-			freq := strings.TrimSpace(string(data))
-			if freqInt, err := strconv.ParseInt(freq, 10, 64); err == nil {
-				cpuInfo.MaxFreq = fmt.Sprintf("%.2f GHz", float64(freqInt)/1000000)
-			}
-		}
-	}
-
-	// Estimate threads (usually 2x cores for hyperthreading)
-	cpuInfo.Threads = cpuInfo.Cores * 2
-
-	if cpuInfo.Model == "" {
-		cpuInfo.Model = "Unknown CPU"
-	}
-
-	return cpuInfo
-}
-
-// getGPUInfo retrieves GPU information
-func getGPUInfo() GPUInfo {
-	gpuInfo := GPUInfo{
-		Model:  "Unknown GPU",
-		Vendor: "Unknown",
-		Driver: "N/A",
-		Memory: "N/A",
-	}
-
-	if runtime.GOOS == "linux" {
-		// Try lspci for GPU info
-		cmd := exec.Command("lspci")
-		if output, err := cmd.Output(); err == nil {
-			lines := strings.Split(string(output), "\n")
-			for _, line := range lines {
-				if strings.Contains(strings.ToLower(line), "vga") || strings.Contains(strings.ToLower(line), "3d") {
-					parts := strings.Split(line, ":")
-					if len(parts) > 2 {
-						gpuInfo.Model = strings.TrimSpace(parts[2])
-						if strings.Contains(strings.ToLower(line), "nvidia") {
-							gpuInfo.Vendor = "NVIDIA"
-						} else if strings.Contains(strings.ToLower(line), "amd") || strings.Contains(strings.ToLower(line), "radeon") {
-							gpuInfo.Vendor = "AMD"
-						} else if strings.Contains(strings.ToLower(line), "intel") {
-							gpuInfo.Vendor = "Intel"
-						}
-						break
-					}
-				}
-			}
-		}
-
-		// Try nvidia-smi for NVIDIA GPUs
-		cmd = exec.Command("nvidia-smi", "--query-gpu=name,driver_version,memory.total", "--format=csv,noheader")
-		if output, err := cmd.Output(); err == nil {
-			parts := strings.Split(strings.TrimSpace(string(output)), ",")
-			if len(parts) >= 3 {
-				gpuInfo.Model = strings.TrimSpace(parts[0])
-				gpuInfo.Vendor = "NVIDIA"
-				gpuInfo.Driver = strings.TrimSpace(parts[1])
-				gpuInfo.Memory = strings.TrimSpace(parts[2])
-			}
-		}
-	}
-
-	return gpuInfo
-}
-
-// getMemoryInfo retrieves memory information
-func getMemoryInfo() MemoryInfo {
-	memInfo := MemoryInfo{
-		Type:  "Unknown",
-		Speed: "Unknown",
-		Slots: 1,
-	}
-
-	if runtime.GOOS == "linux" {
-		// Get total memory from /proc/meminfo
-		if data, err := os.ReadFile("/proc/meminfo"); err == nil {
-			lines := strings.Split(string(data), "\n")
-			for _, line := range lines {
-				if strings.HasPrefix(line, "MemTotal:") {
-					parts := strings.Fields(line)
-					if len(parts) >= 2 {
-						if totalKB, err := strconv.ParseUint(parts[1], 10, 64); err == nil {
-							totalGB := float64(totalKB) / (1024 * 1024)
-							memInfo.Total = fmt.Sprintf("%.1f GB", totalGB)
-						}
-					}
-					break
-				}
-			}
-		}
-
-		// Try dmidecode for detailed memory info
-		cmd := exec.Command("dmidecode", "-t", "memory")
-		if output, err := cmd.Output(); err == nil {
-			lines := strings.Split(string(output), "\n")
-			slotCount := 0
-			for _, line := range lines {
-				if strings.Contains(line, "Type:") && !strings.Contains(line, "Error") && !strings.Contains(line, "Unknown") {
-					parts := strings.Split(line, ":")
-					if len(parts) > 1 {
-						memType := strings.TrimSpace(parts[1])
-						if memType != "" && memType != "Unknown" {
-							memInfo.Type = memType
-						}
-					}
-				}
-				if strings.Contains(line, "Speed:") && !strings.Contains(line, "Unknown") {
-					parts := strings.Split(line, ":")
-					if len(parts) > 1 {
-						memInfo.Speed = strings.TrimSpace(parts[1])
-					}
-				}
-				if strings.Contains(line, "Size:") && !strings.Contains(line, "No Module") {
-					slotCount++
-				}
-			}
-			if slotCount > 0 {
-				memInfo.Slots = slotCount
-			}
-		}
-	}
-
-	if memInfo.Total == "" {
-		memInfo.Total = "Unknown"
-	}
-
-	return memInfo
-}
-
-// getDiskInfo retrieves disk information
-func getDiskInfo() DiskInfo {
-	diskInfo := DiskInfo{
-		Model:      "Unknown",
-		Type:       "Unknown",
-		Total:      "Unknown",
-		Partitions: []string{},
-	}
-
-	if runtime.GOOS == "linux" {
-		// Get disk model from /sys/block
-		if entries, err := os.ReadDir("/sys/block"); err == nil {
-			for _, entry := range entries {
-				if strings.HasPrefix(entry.Name(), "sd") || strings.HasPrefix(entry.Name(), "nvme") {
-					modelPath := fmt.Sprintf("/sys/block/%s/device/model", entry.Name())
-					if data, err := os.ReadFile(modelPath); err == nil {
-						diskInfo.Model = strings.TrimSpace(string(data))
-					}
-
-					// Determine disk type
-					if strings.HasPrefix(entry.Name(), "nvme") {
-						diskInfo.Type = "NVMe SSD"
-					} else {
-						rotationalPath := fmt.Sprintf("/sys/block/%s/queue/rotational", entry.Name())
-						if data, err := os.ReadFile(rotationalPath); err == nil {
-							if strings.TrimSpace(string(data)) == "0" {
-								diskInfo.Type = "SSD"
-							} else {
-								diskInfo.Type = "HDD"
-							}
-						}
-					}
-					break
-				}
-			}
-		}
-
-		// Get partition info
-		cmd := exec.Command("lsblk", "-o", "NAME,SIZE,TYPE,MOUNTPOINT", "-n")
-		if output, err := cmd.Output(); err == nil {
-			lines := strings.Split(string(output), "\n")
-			var totalSize uint64
-			for _, line := range lines {
-				fields := strings.Fields(line)
-				if len(fields) >= 3 {
-					if fields[2] == "part" {
-						partition := fmt.Sprintf("%s (%s)", fields[0], fields[1])
-						if len(fields) >= 4 {
-							partition += fmt.Sprintf(" - %s", fields[3])
-						}
-						diskInfo.Partitions = append(diskInfo.Partitions, partition)
-					}
-					if fields[2] == "disk" && len(fields) >= 2 {
-						// Parse size (e.g., "500G", "1T")
-						sizeStr := fields[1]
-						if strings.HasSuffix(sizeStr, "T") {
-							if val, err := strconv.ParseFloat(strings.TrimSuffix(sizeStr, "T"), 64); err == nil {
-								totalSize += uint64(val * 1024 * 1024 * 1024 * 1024)
-							}
-						} else if strings.HasSuffix(sizeStr, "G") {
-							if val, err := strconv.ParseFloat(strings.TrimSuffix(sizeStr, "G"), 64); err == nil {
-								totalSize += uint64(val * 1024 * 1024 * 1024)
-							}
-						}
-					}
-				}
-			}
-			if totalSize > 0 {
-				diskInfo.Total = fmt.Sprintf("%.1f TB", float64(totalSize)/(1024*1024*1024*1024))
-			}
-		}
-	}
-
-	return diskInfo
-}
-
-// getNetworkInfo retrieves network information
-func getNetworkInfo() NetworkInfo {
-	netInfo := NetworkInfo{
-		Hostname:   "Unknown",
-		Interfaces: []string{},
-		IPAddress:  "Unknown",
-		MACAddress: "Unknown",
-	}
-
-	// Get hostname
-	if hostname, err := os.Hostname(); err == nil {
-		netInfo.Hostname = hostname
-	}
-
-	if runtime.GOOS == "linux" {
-		// Get network interfaces
-		cmd := exec.Command("ip", "link", "show")
-		if output, err := cmd.Output(); err == nil {
-			lines := strings.Split(string(output), "\n")
-			for _, line := range lines {
-				if strings.Contains(line, ": ") && !strings.Contains(line, "lo:") {
-					parts := strings.Split(line, ": ")
-					if len(parts) >= 2 {
-						ifaceName := strings.TrimSpace(parts[1])
-						if !strings.Contains(ifaceName, "lo") {
-							netInfo.Interfaces = append(netInfo.Interfaces, ifaceName)
-						}
-					}
-				}
-			}
-		}
-
-		// Get IP address
-		cmd = exec.Command("hostname", "-I")
-		if output, err := cmd.Output(); err == nil {
-			ips := strings.Fields(string(output))
-			if len(ips) > 0 {
-				netInfo.IPAddress = ips[0]
-			}
-		}
-
-		// Get MAC address of first non-loopback interface
-		if len(netInfo.Interfaces) > 0 {
-			macPath := fmt.Sprintf("/sys/class/net/%s/address", netInfo.Interfaces[0])
-			if data, err := os.ReadFile(macPath); err == nil {
-				netInfo.MACAddress = strings.TrimSpace(string(data))
-			}
-		}
-	}
-
-	return netInfo
-}
-
-// getOSInfo retrieves operating system information
-func getOSInfo() OSInfo {
-	osInfo := OSInfo{
-		Platform: runtime.GOOS,
-	}
-
-	if runtime.GOOS == "linux" {
-		// Get OS name and version from /etc/os-release
-		if data, err := os.ReadFile("/etc/os-release"); err == nil {
-			lines := strings.Split(string(data), "\n")
-			for _, line := range lines {
-				if strings.HasPrefix(line, "PRETTY_NAME=") {
-					osInfo.Name = strings.Trim(strings.TrimPrefix(line, "PRETTY_NAME="), "\"")
-				}
-				if strings.HasPrefix(line, "VERSION=") {
-					osInfo.Version = strings.Trim(strings.TrimPrefix(line, "VERSION="), "\"")
-				}
-			}
-		}
-
-		// Get kernel version
-		cmd := exec.Command("uname", "-r")
-		if output, err := cmd.Output(); err == nil {
-			osInfo.Kernel = strings.TrimSpace(string(output))
-		}
-
-		// Get uptime
-		if data, err := os.ReadFile("/proc/uptime"); err == nil {
-			fields := strings.Fields(string(data))
-			if len(fields) > 0 {
-				if uptimeSec, err := strconv.ParseFloat(fields[0], 64); err == nil {
-					days := int(uptimeSec / 86400)
-					hours := int((uptimeSec - float64(days*86400)) / 3600)
-					minutes := int((uptimeSec - float64(days*86400) - float64(hours*3600)) / 60)
-					osInfo.Uptime = fmt.Sprintf("%dd %dh %dm", days, hours, minutes)
-				}
-			}
-		}
-	}
-
-	if osInfo.Name == "" {
-		osInfo.Name = "Unknown OS"
-	}
-
-	return osInfo
-}
-
-// getSystemdLogs gets logs from systemd journal
-func getSystemdLogs(lines int) []LogEntry {
-	var logs []LogEntry
-	
-	// Try to get logs from journalctl for the current process
-	cmd := exec.Command("journalctl", "-n", strconv.Itoa(lines), "--no-pager", "-o", "short-iso")
-	output, err := cmd.Output()
-	if err != nil {
-		return logs
-	}
-
-	logLines := strings.Split(string(output), "\n")
-	for _, line := range logLines {
-		if strings.TrimSpace(line) != "" {
-			entry := parseLogLine(line, "systemd")
-			logs = append(logs, entry)
-		}
-	}
-
-	return logs
-}
-
-// getDockerLogs gets logs from Docker (not applicable since not using Docker)
-func getDockerLogs(lines int) []LogEntry {
-	// Since backend is not running in Docker, return empty
-	return []LogEntry{}
-}
-
-// getProcessLogs gets logs from current process and system
-func getProcessLogs(lines int) []LogEntry {
-	var logs []LogEntry
-	
-	// Get recent dmesg entries
-	cmd := exec.Command("dmesg", "-T", "--level=info,notice,warn,err", "--time-format=iso")
-	output, err := cmd.Output()
-	if err == nil {
-		logLines := strings.Split(string(output), "\n")
-		// Get last 'lines' entries
-		start := len(logLines) - lines
-		if start < 0 {
-			start = 0
-		}
-		
-		for i := start; i < len(logLines); i++ {
-			line := logLines[i]
-			if strings.TrimSpace(line) != "" {
-				entry := parseLogLine(line, "kernel")
-				logs = append(logs, entry)
-			}
-		}
-	}
-
-	return logs
 }
 
 // getLiveSystemLogs generates live CLI logs from actual system processes
@@ -1317,9 +1337,8 @@ func getApplicationLogs(lines int) []LogEntry {
 	for _, logPath := range logPatterns {
 		if _, err := os.Stat(logPath); err == nil {
 			cmd := exec.Command("tail", "-n", strconv.Itoa(lines/3), logPath)
-			output, err := cmd.Output()
-			if err == nil {
-				logLines := strings.Split(string(output), "\n")
+			if data, err := cmd.Output(); err == nil {
+				logLines := strings.Split(string(data), "\n")
 				for i, line := range logLines {
 					if strings.TrimSpace(line) != "" {
 						logs = append(logs, LogEntry{
@@ -1377,14 +1396,6 @@ func parseJournalLogLine(line string) LogEntry {
 	return entry
 }
 
-// Helper function for min
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
 // TerminalOutput represents a terminal output line
 type TerminalOutput struct {
 	Timestamp time.Time `json:"timestamp"`
@@ -1405,6 +1416,9 @@ func StreamTerminalOutput() gin.HandlerFunc {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
+
+		// Initialize log files on first connection
+		ensureLogFiles()
 
 		// Stream terminal output
 		go streamTerminalLogs(ctx, conn)
@@ -1436,14 +1450,58 @@ func GetTerminalOutput() gin.HandlerFunc {
 	}
 }
 
+// ensureLogFiles creates log files if they don't exist and writes startup messages
+func ensureLogFiles() {
+	projectRoot := getProjectRoot()
+	logFiles := []string{
+		filepath.Join(projectRoot, "backend.log"),
+		filepath.Join(projectRoot, "frontend.log"),
+		filepath.Join(projectRoot, "backend-dev.log"),
+		filepath.Join(projectRoot, "frontend-dev.log"),
+		filepath.Join(projectRoot, "homeflix.log"),
+		filepath.Join(projectRoot, "startup.log"),
+	}
+
+	for _, logFile := range logFiles {
+		if _, err := os.Stat(logFile); os.IsNotExist(err) {
+			// Create the file
+			file, err := os.Create(logFile)
+			if err == nil {
+				// Write startup message
+				timestamp := time.Now().Format("2006/01/02 15:04:05")
+				startupMsg := fmt.Sprintf("%s [INFO] 🚀 HomeFlix log file created - %s\n", timestamp, filepath.Base(logFile))
+				file.WriteString(startupMsg)
+				file.Close()
+			}
+		}
+	}
+
+	// Write to startup.log
+	startupLogPath := filepath.Join(projectRoot, "startup.log")
+	if file, err := os.OpenFile(startupLogPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644); err == nil {
+		timestamp := time.Now().Format("2006/01/02 15:04:05")
+		startupMsg := fmt.Sprintf("%s [INFO] 🎬 HomeFlix backend server starting up...\n", timestamp)
+		file.WriteString(startupMsg)
+		file.Close()
+	}
+}
+
 // streamTerminalLogs streams terminal output in real-time
 func streamTerminalLogs(ctx context.Context, conn *websocket.Conn) {
+	// Ensure log files exist
+	ensureLogFiles()
+	
+	// Get project root to find log files
+	projectRoot := getProjectRoot()
+	
 	// Try to tail multiple log files for comprehensive output
 	logFiles := []string{
-		"backend.log",
-		"frontend.log",
-		"homeflix.log",
-		"startup.log",
+		filepath.Join(projectRoot, "backend.log"),
+		filepath.Join(projectRoot, "frontend.log"),
+		filepath.Join(projectRoot, "backend-dev.log"),
+		filepath.Join(projectRoot, "frontend-dev.log"),
+		filepath.Join(projectRoot, "homeflix.log"),
+		filepath.Join(projectRoot, "startup.log"),
 	}
 
 	// Find available log files
@@ -1454,39 +1512,99 @@ func streamTerminalLogs(ctx context.Context, conn *websocket.Conn) {
 		}
 	}
 
+	// Create a channel for coordinated writes to prevent WebSocket concurrency issues
+	writeChannel := make(chan TerminalOutput, 100)
+	
+	// Start a single writer goroutine to handle all WebSocket writes
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				// Log the panic but don't crash the server
+				fmt.Printf("WebSocket writer panic recovered: %v\n", r)
+			}
+		}()
+		
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case output := <-writeChannel:
+				if err := conn.WriteJSON(output); err != nil {
+					// Connection closed, exit gracefully
+					return
+				}
+			}
+		}
+	}()
+
+	// Send initial connection message
+	writeChannel <- TerminalOutput{
+		Timestamp: time.Now(),
+		Type:      "info",
+		Message:   fmt.Sprintf("📡 Terminal stream connected - monitoring %d log files", len(availableFiles)),
+	}
+
 	if len(availableFiles) == 0 {
-		// Send initial message if no log files found
-		conn.WriteJSON(TerminalOutput{
+		// Send message about no log files and stream process activity
+		writeChannel <- TerminalOutput{
 			Timestamp: time.Now(),
 			Type:      "info",
-			Message:   "📡 Terminal stream connected - waiting for output...",
-		})
+			Message:   "⚠️ No log files found - showing process activity instead",
+		}
 		
 		// Stream process activity instead
-		streamProcessActivity(ctx, conn)
+		streamProcessActivity(ctx, writeChannel)
 		return
+	}
+
+	// List found log files
+	for _, logFile := range availableFiles {
+		writeChannel <- TerminalOutput{
+			Timestamp: time.Now(),
+			Type:      "info",
+			Message:   fmt.Sprintf("📄 Monitoring: %s", filepath.Base(logFile)),
+		}
 	}
 
 	// Tail all available log files
 	for _, logFile := range availableFiles {
-		go tailLogFile(ctx, conn, logFile)
+		go tailLogFile(ctx, writeChannel, logFile)
 	}
 
-	// Also stream scan progress
-	go streamScanProgress(ctx, conn)
+	// Also stream scan progress and process activity
+	go streamScanProgressToChannel(ctx, writeChannel)
+	go streamProcessActivity(ctx, writeChannel)
 
 	<-ctx.Done()
 }
 
-// tailLogFile tails a specific log file and sends output via WebSocket
-func tailLogFile(ctx context.Context, conn *websocket.Conn, logFile string) {
-	cmd := exec.CommandContext(ctx, "tail", "-f", "-n", "50", logFile)
+// tailLogFile tails a specific log file and sends output via channel
+func tailLogFile(ctx context.Context, writeChannel chan<- TerminalOutput, logFile string) {
+	// Send initial message about which file we're tailing
+	writeChannel <- TerminalOutput{
+		Timestamp: time.Now(),
+		Type:      "info",
+		Message:   fmt.Sprintf("🔍 Starting to tail: %s", filepath.Base(logFile)),
+	}
+
+	// Use tail -F to follow file even if it gets recreated
+	cmd := exec.CommandContext(ctx, "tail", "-F", "-n", "50", logFile)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
+		writeChannel <- TerminalOutput{
+			Timestamp: time.Now(),
+			Type:      "stderr",
+			Message:   fmt.Sprintf("❌ Failed to create pipe for %s: %v", filepath.Base(logFile), err),
+		}
 		return
 	}
 
 	if err := cmd.Start(); err != nil {
+		writeChannel <- TerminalOutput{
+			Timestamp: time.Now(),
+			Type:      "stderr",
+			Message:   fmt.Sprintf("❌ Failed to start tailing %s: %v", filepath.Base(logFile), err),
+		}
 		return
 	}
 
@@ -1498,11 +1616,25 @@ func tailLogFile(ctx context.Context, conn *websocket.Conn, logFile string) {
 			return
 		default:
 			line := scanner.Text()
-			output := parseTerminalLine(line, logFile)
-			if err := conn.WriteJSON(output); err != nil {
-				cmd.Process.Kill()
-				return
+			if strings.TrimSpace(line) != "" { // Skip empty lines
+				output := parseTerminalLine(line, filepath.Base(logFile))
+				select {
+				case writeChannel <- output:
+					// Successfully sent to channel
+				case <-ctx.Done():
+					cmd.Process.Kill()
+					return
+				}
 			}
+		}
+	}
+
+	// Check for scanner errors
+	if err := scanner.Err(); err != nil {
+		writeChannel <- TerminalOutput{
+			Timestamp: time.Now(),
+			Type:      "stderr",
+			Message:   fmt.Sprintf("❌ Error reading %s: %v", filepath.Base(logFile), err),
 		}
 	}
 
@@ -1510,28 +1642,80 @@ func tailLogFile(ctx context.Context, conn *websocket.Conn, logFile string) {
 }
 
 // streamProcessActivity streams process activity when no log files available
-func streamProcessActivity(ctx context.Context, conn *websocket.Conn) {
-	ticker := time.NewTicker(2 * time.Second)
+func streamProcessActivity(ctx context.Context, writeChannel chan<- TerminalOutput) {
+	ticker := time.NewTicker(10 * time.Second) // Check every 10 seconds
 	defer ticker.Stop()
+
+	lastMessageTime := time.Now()
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			// Get current process info
-			pid := os.Getpid()
-			stats, _ := getProcessStats()
-			
-			output := TerminalOutput{
-				Timestamp: time.Now(),
-				Type:      "info",
-				Message:   fmt.Sprintf("🔧 Server PID: %d | CPU: %.1f%% | Memory: %.1f MB | Threads: %d", 
-					pid, stats.CPUPercent, stats.MemoryMB, stats.Threads),
+			// Send process info occasionally
+			if time.Since(lastMessageTime) > 30*time.Second {
+				pid := os.Getpid()
+				stats, _ := getProcessStats()
+				
+				output := TerminalOutput{
+					Timestamp: time.Now(),
+					Type:      "info",
+					Message:   fmt.Sprintf("🔧 HomeFlix Server Status - PID: %d | CPU: %.1f%% | Memory: %.1f MB | Threads: %d", 
+						pid, stats.CPUPercent, stats.MemoryMB, stats.Threads),
+				}
+				
+				select {
+				case writeChannel <- output:
+					lastMessageTime = time.Now()
+				case <-ctx.Done():
+					return
+				}
 			}
-			
-			if err := conn.WriteJSON(output); err != nil {
-				return
+
+			// Check for running HomeFlix processes
+			cmd := exec.Command("pgrep", "-f", "homeflix|HomeFlix")
+			if output, err := cmd.Output(); err == nil {
+				processes := strings.Split(strings.TrimSpace(string(output)), "\n")
+				if len(processes) > 0 && processes[0] != "" {
+					select {
+					case writeChannel <- TerminalOutput{
+						Timestamp: time.Now(),
+						Type:      "info",
+						Message:   fmt.Sprintf("🚀 Found %d HomeFlix processes running", len(processes)),
+					}:
+					case <-ctx.Done():
+						return
+					}
+				}
+			}
+
+			// Check for port usage
+			ports := []int{3008, 8252, 3009, 8253}
+			for _, port := range ports {
+				if isPortInUse(port) {
+					serviceName := "Unknown"
+					switch port {
+					case 3008:
+						serviceName = "Frontend (Production)"
+					case 8252:
+						serviceName = "Backend (Production)"
+					case 3009:
+						serviceName = "Frontend (Dev)"
+					case 8253:
+						serviceName = "Backend (Dev)"
+					}
+					
+					select {
+					case writeChannel <- TerminalOutput{
+						Timestamp: time.Now(),
+						Type:      "success",
+						Message:   fmt.Sprintf("🌐 Port %d active - %s", port, serviceName),
+					}:
+					case <-ctx.Done():
+						return
+					}
+				}
 			}
 		}
 	}
@@ -1567,6 +1751,31 @@ func streamScanProgress(ctx context.Context, conn *websocket.Conn) {
 	}
 }
 
+// streamScanProgressToChannel streams media scan progress to a channel
+func streamScanProgressToChannel(ctx context.Context, writeChannel chan<- TerminalOutput) {
+	ticker := time.NewTicker(5 * time.Second) // Check every 5 seconds
+	defer ticker.Stop()
+
+	lastProgress := -1.0
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			progress := getScanProgress()
+			if progress >= 0 && progress != lastProgress {
+				writeChannel <- TerminalOutput{
+					Timestamp: time.Now(),
+					Type:      "info",
+					Message:   fmt.Sprintf("📊 Media scan progress: %.1f%%", progress),
+				}
+				lastProgress = progress
+			}
+		}
+	}
+}
+
 // getScanProgress retrieves current scan progress
 func getScanProgress() float64 {
 	// Try to read from a progress file if it exists
@@ -1592,9 +1801,15 @@ func parseTerminalLine(line, source string) TerminalOutput {
 
 	// Detect output type from content
 	upperLine := strings.ToUpper(line)
-	if strings.Contains(upperLine, "ERROR") || strings.Contains(upperLine, "❌") || strings.Contains(upperLine, "FAIL") {
+	
+	// Check for common error patterns
+	if strings.Contains(upperLine, "ERROR") || strings.Contains(line, "❌") || 
+	   strings.Contains(upperLine, "FAIL") || strings.Contains(upperLine, "FATAL") ||
+	   strings.Contains(line, "✗") || strings.Contains(upperLine, "ENOENT") ||
+	   strings.Contains(upperLine, "ECONNREFUSED") {
 		output.Type = "stderr"
-	} else if strings.Contains(upperLine, "WARN") || strings.Contains(upperLine, "⚠️") {
+	} else if strings.Contains(upperLine, "WARN") || strings.Contains(line, "⚠️") ||
+			  strings.Contains(upperLine, "WARNING") {
 		output.Type = "warning"
 	} else if strings.Contains(line, "%") {
 		// Try to extract progress percentage
@@ -1602,10 +1817,22 @@ func parseTerminalLine(line, source string) TerminalOutput {
 			output.Type = "progress"
 			output.Progress = progress
 		}
-	} else if strings.Contains(line, "✅") || strings.Contains(line, "🎉") || strings.Contains(upperLine, "SUCCESS") {
+	} else if strings.Contains(line, "✅") || strings.Contains(line, "🎉") || 
+			  strings.Contains(upperLine, "SUCCESS") || strings.Contains(upperLine, "COMPLETE") ||
+			  strings.Contains(upperLine, "READY") || strings.Contains(upperLine, "STARTED") ||
+			  strings.Contains(line, "✓") {
 		output.Type = "success"
-	} else if strings.Contains(line, "🚀") || strings.Contains(line, "📁") || strings.Contains(line, "🔄") {
+	} else if strings.Contains(line, "🚀") || strings.Contains(line, "📁") || 
+			  strings.Contains(line, "🔄") || strings.Contains(line, "🎬") ||
+			  strings.Contains(line, "🌐") || strings.Contains(line, "🔧") ||
+			  strings.Contains(line, "📋") || strings.Contains(line, "⏳") ||
+			  strings.Contains(upperLine, "STARTING") || strings.Contains(upperLine, "LOADING") {
 		output.Type = "info"
+	}
+
+	// Add source prefix to message for clarity
+	if source != "" && !strings.Contains(line, source) {
+		output.Message = fmt.Sprintf("[%s] %s", source, line)
 	}
 
 	return output
@@ -1635,32 +1862,57 @@ func extractProgress(line string) float64 {
 // getRecentTerminalOutput returns recent terminal output
 func getRecentTerminalOutput(lines int) []TerminalOutput {
 	var output []TerminalOutput
+	projectRoot := getProjectRoot()
 
-	// Read from log files
-	logFiles := []string{"backend.log", "frontend.log", "startup.log"}
+	// Read from log files in order of priority
+	logFiles := []string{
+		filepath.Join(projectRoot, "backend.log"),
+		filepath.Join(projectRoot, "frontend.log"), 
+		filepath.Join(projectRoot, "backend-dev.log"),
+		filepath.Join(projectRoot, "frontend-dev.log"),
+		filepath.Join(projectRoot, "startup.log"),
+		filepath.Join(projectRoot, "homeflix.log"),
+	}
 	
+	linesPerFile := lines / len(logFiles)
+	if linesPerFile < 10 {
+		linesPerFile = 10 // Minimum lines per file
+	}
+
 	for _, logFile := range logFiles {
 		if _, err := os.Stat(logFile); err == nil {
-			cmd := exec.Command("tail", "-n", strconv.Itoa(lines/len(logFiles)), logFile)
+			cmd := exec.Command("tail", "-n", strconv.Itoa(linesPerFile), logFile)
 			if data, err := cmd.Output(); err == nil {
 				logLines := strings.Split(string(data), "\n")
-				for _, line := range logLines {
+				for i, line := range logLines {
 					if strings.TrimSpace(line) != "" {
-						output = append(output, parseTerminalLine(line, logFile))
+						// Add timestamp offset to maintain chronological order
+						timestamp := time.Now().Add(-time.Duration(len(logLines)-i) * time.Second)
+						termLine := parseTerminalLine(line, filepath.Base(logFile))
+						termLine.Timestamp = timestamp
+						output = append(output, termLine)
 					}
 				}
 			}
 		}
 	}
 
-	// Sort by timestamp
+	// Sort by timestamp and limit
 	if len(output) > lines {
 		output = output[len(output)-lines:]
 	}
 
+	// If no log output found, add some basic info
+	if len(output) == 0 {
+		output = append(output, TerminalOutput{
+			Timestamp: time.Now(),
+			Type:      "info",
+			Message:   "📡 No recent terminal output found - check if services are running",
+		})
+	}
+
 	return output
 }
-
 
 // ServerControlResponse represents the response from server control operations
 type ServerControlResponse struct {
@@ -1672,12 +1924,20 @@ type ServerControlResponse struct {
 // ServerStatus represents the status of production and dev servers
 type ServerStatus struct {
 	Production struct {
-		Frontend bool `json:"frontend"`
-		Backend  bool `json:"backend"`
+		Frontend bool   `json:"frontend"`
+		Backend  bool   `json:"backend"`
+		URLs     struct {
+			Frontend string `json:"frontend"`
+			Backend  string `json:"backend"`
+		} `json:"urls"`
 	} `json:"production"`
 	Development struct {
-		Frontend bool `json:"frontend"`
-		Backend  bool `json:"backend"`
+		Frontend bool   `json:"frontend"`
+		Backend  bool   `json:"backend"`
+		URLs     struct {
+			Frontend string `json:"frontend"`
+			Backend  string `json:"backend"`
+		} `json:"urls"`
 	} `json:"development"`
 }
 
@@ -1686,13 +1946,20 @@ func GetServerStatus() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		status := ServerStatus{}
 
+		// Get local IP address for network URLs
+		localIP := getLocalIP()
+
 		// Check production servers
 		status.Production.Frontend = isPortInUse(3008)
 		status.Production.Backend = isPortInUse(8252)
+		status.Production.URLs.Frontend = fmt.Sprintf("http://%s:3008", localIP)
+		status.Production.URLs.Backend = fmt.Sprintf("http://%s:8252", localIP)
 
 		// Check development servers
 		status.Development.Frontend = isPortInUse(3009)
 		status.Development.Backend = isPortInUse(8253)
+		status.Development.URLs.Frontend = fmt.Sprintf("http://%s:3009", localIP)
+		status.Development.URLs.Backend = fmt.Sprintf("http://%s:8253", localIP)
 
 		c.JSON(http.StatusOK, status)
 	}
@@ -1701,8 +1968,28 @@ func GetServerStatus() gin.HandlerFunc {
 // StartProductionServer starts the production server
 func StartProductionServer() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		cmd := exec.Command("./start.sh")
-		cmd.Dir = getProjectRoot()
+		projectRoot := getProjectRoot()
+		scriptPath := filepath.Join(projectRoot, "start.sh")
+		
+		// Make sure the script is executable
+		if err := os.Chmod(scriptPath, 0755); err != nil {
+			c.JSON(http.StatusInternalServerError, ServerControlResponse{
+				Success: false,
+				Message: "Failed to make start.sh executable",
+				Output:  err.Error(),
+			})
+			return
+		}
+
+		// Execute the script with proper working directory
+		cmd := exec.Command("bash", scriptPath)
+		cmd.Dir = projectRoot
+		
+		// Set environment variables for the script
+		cmd.Env = append(os.Environ(),
+			"SCRIPT_DIR="+projectRoot,
+		)
+		
 		output, err := cmd.CombinedOutput()
 
 		if err != nil {
@@ -1716,7 +2003,7 @@ func StartProductionServer() gin.HandlerFunc {
 
 		c.JSON(http.StatusOK, ServerControlResponse{
 			Success: true,
-			Message: "Production server started",
+			Message: "Production server started successfully",
 			Output:  string(output),
 		})
 	}
@@ -1725,8 +2012,28 @@ func StartProductionServer() gin.HandlerFunc {
 // StopProductionServer stops the production server
 func StopProductionServer() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		cmd := exec.Command("./stop.sh")
-		cmd.Dir = getProjectRoot()
+		projectRoot := getProjectRoot()
+		scriptPath := filepath.Join(projectRoot, "stop.sh")
+		
+		// Make sure the script is executable
+		if err := os.Chmod(scriptPath, 0755); err != nil {
+			c.JSON(http.StatusInternalServerError, ServerControlResponse{
+				Success: false,
+				Message: "Failed to make stop.sh executable",
+				Output:  err.Error(),
+			})
+			return
+		}
+
+		// Execute the script with proper working directory
+		cmd := exec.Command("bash", scriptPath)
+		cmd.Dir = projectRoot
+		
+		// Set environment variables for the script
+		cmd.Env = append(os.Environ(),
+			"SCRIPT_DIR="+projectRoot,
+		)
+		
 		output, err := cmd.CombinedOutput()
 
 		if err != nil {
@@ -1740,40 +2047,7 @@ func StopProductionServer() gin.HandlerFunc {
 
 		c.JSON(http.StatusOK, ServerControlResponse{
 			Success: true,
-			Message: "Production server stopped",
-			Output:  string(output),
-		})
-	}
-}
-
-// RestartProductionServer restarts the production server
-func RestartProductionServer() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		// Stop first
-		stopCmd := exec.Command("./stop.sh")
-		stopCmd.Dir = getProjectRoot()
-		stopCmd.CombinedOutput()
-
-		// Wait a moment
-		time.Sleep(2 * time.Second)
-
-		// Start
-		startCmd := exec.Command("./start.sh")
-		startCmd.Dir = getProjectRoot()
-		output, err := startCmd.CombinedOutput()
-
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, ServerControlResponse{
-				Success: false,
-				Message: "Failed to restart production server",
-				Output:  string(output),
-			})
-			return
-		}
-
-		c.JSON(http.StatusOK, ServerControlResponse{
-			Success: true,
-			Message: "Production server restarted",
+			Message: "Production server stopped successfully",
 			Output:  string(output),
 		})
 	}
@@ -1782,8 +2056,28 @@ func RestartProductionServer() gin.HandlerFunc {
 // StartDevServer starts the development server
 func StartDevServer() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		cmd := exec.Command("./start-dev.sh")
-		cmd.Dir = getProjectRoot()
+		projectRoot := getProjectRoot()
+		scriptPath := filepath.Join(projectRoot, "start-dev.sh")
+		
+		// Make sure the script is executable
+		if err := os.Chmod(scriptPath, 0755); err != nil {
+			c.JSON(http.StatusInternalServerError, ServerControlResponse{
+				Success: false,
+				Message: "Failed to make start-dev.sh executable",
+				Output:  err.Error(),
+			})
+			return
+		}
+
+		// Execute the script with proper working directory
+		cmd := exec.Command("bash", scriptPath)
+		cmd.Dir = projectRoot
+		
+		// Set environment variables for the script
+		cmd.Env = append(os.Environ(),
+			"SCRIPT_DIR="+projectRoot,
+		)
+		
 		output, err := cmd.CombinedOutput()
 
 		if err != nil {
@@ -1797,7 +2091,7 @@ func StartDevServer() gin.HandlerFunc {
 
 		c.JSON(http.StatusOK, ServerControlResponse{
 			Success: true,
-			Message: "Development server started",
+			Message: "Development server started successfully",
 			Output:  string(output),
 		})
 	}
@@ -1827,44 +2121,87 @@ func StopDevServer() gin.HandlerFunc {
 	}
 }
 
-// RestartDevServer restarts the development server
-func RestartDevServer() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		// Stop first
-		stopCmd := exec.Command("./stop-dev.sh")
-		stopCmd.Dir = getProjectRoot()
-		stopCmd.CombinedOutput()
-
-		// Wait a moment
-		time.Sleep(2 * time.Second)
-
-		// Start
-		startCmd := exec.Command("./start-dev.sh")
-		startCmd.Dir = getProjectRoot()
-		output, err := startCmd.CombinedOutput()
-
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, ServerControlResponse{
-				Success: false,
-				Message: "Failed to restart dev server",
-				Output:  string(output),
-			})
-			return
+// getLocalIP returns the local IP address for network access
+func getLocalIP() string {
+	// First, try the most reliable method using ip route to get the actual network IP
+	cmd := exec.Command("ip", "route", "get", "8.8.8.8")
+	if output, err := cmd.Output(); err == nil {
+		// Parse output like: "8.8.8.8 via 192.168.1.1 dev wlan0 src 192.168.1.100"
+		lines := strings.Split(string(output), "\n")
+		for _, line := range lines {
+			if strings.Contains(line, "src") {
+				parts := strings.Fields(line)
+				for i, part := range parts {
+					if part == "src" && i+1 < len(parts) {
+						return parts[i+1]
+					}
+				}
+			}
 		}
-
-		c.JSON(http.StatusOK, ServerControlResponse{
-			Success: true,
-			Message: "Development server restarted",
-			Output:  string(output),
-		})
 	}
+	
+	// Fallback: Try to get IP from hostname -I command
+	cmd = exec.Command("hostname", "-I")
+	if output, err := cmd.Output(); err == nil {
+		ips := strings.Fields(string(output))
+		
+		// Prioritize 192.168.x.x addresses (home networks)
+		for _, ip := range ips {
+			if strings.HasPrefix(ip, "192.168.") {
+				return ip
+			}
+		}
+		
+		// Then look for other private network IPs, avoiding Docker ranges
+		for _, ip := range ips {
+			if strings.HasPrefix(ip, "10.") ||
+			   (strings.HasPrefix(ip, "172.") && isPrivateIP172(ip) && 
+			    !strings.HasPrefix(ip, "172.17.") && 
+			    !strings.HasPrefix(ip, "172.18.") && 
+			    !strings.HasPrefix(ip, "172.19.") && 
+			    !strings.HasPrefix(ip, "172.20.")) {
+				return ip
+			}
+		}
+		
+		// If no preferred IP found, use the first IP
+		if len(ips) > 0 {
+			return ips[0]
+		}
+	}
+	
+	// Fallback to localhost
+	return "localhost"
+}
+
+// isPrivateIP172 checks if an IP starting with 172 is in the private range (172.16-172.31)
+func isPrivateIP172(ip string) bool {
+	parts := strings.Split(ip, ".")
+	if len(parts) >= 2 {
+		if second, err := strconv.Atoi(parts[1]); err == nil {
+			return second >= 16 && second <= 31
+		}
+	}
+	return false
 }
 
 // isPortInUse checks if a port is in use
 func isPortInUse(port int) bool {
-	cmd := exec.Command("lsof", "-i", fmt.Sprintf(":%d", port))
-	output, _ := cmd.Output()
-	return strings.Contains(string(output), "LISTEN")
+	cmd := exec.Command("ss", "-tlnp")
+	output, err := cmd.Output()
+	if err != nil {
+		// Fallback to lsof if ss fails
+		cmd = exec.Command("lsof", "-i", fmt.Sprintf(":%d", port))
+		output, err = cmd.Output()
+		if err != nil {
+			return false
+		}
+		return strings.Contains(string(output), "LISTEN")
+	}
+	
+	// Check if the port is in the ss output
+	portStr := fmt.Sprintf(":%d ", port)
+	return strings.Contains(string(output), portStr)
 }
 
 // getProjectRoot returns the project root directory
@@ -2239,4 +2576,195 @@ func StreamBuildFrontend() gin.HandlerFunc {
 			})
 		}
 	}
+}
+
+// ExecuteCommand executes a terminal command and returns output
+func ExecuteCommand() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// Check password
+		password := c.PostForm("password")
+		if password != "8008" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid password"})
+			return
+		}
+
+		command := c.PostForm("command")
+		if command == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "No command provided"})
+			return
+		}
+
+		// Parse command (handle pipes, redirects, etc.)
+		cmd := exec.Command("bash", "-c", command)
+		cmd.Dir = getProjectRoot()
+
+		// Capture both stdout and stderr
+		output, err := cmd.CombinedOutput()
+
+		if err != nil {
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"output":  string(output),
+				"error":   err.Error(),
+				"command": command,
+			})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"output":  string(output),
+			"command": command,
+		})
+	}
+}
+
+// StreamCommandExecution streams command execution output via WebSocket
+func StreamCommandExecution() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// Upgrade to WebSocket first
+		conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to upgrade to WebSocket"})
+			return
+		}
+		defer conn.Close()
+
+		// Check password after connection (support both query param and header)
+		password := c.Query("password")
+		if password == "" {
+			password = c.GetHeader("X-Terminal-Password")
+		}
+		
+		// Trim spaces and check password
+		password = strings.TrimSpace(password)
+		if password != "8008" {
+			// Send authentication error through WebSocket
+			conn.WriteJSON(TerminalOutput{
+				Timestamp: time.Now(),
+				Type:      "stderr",
+				Message:   "❌ Authentication failed: Invalid password",
+			})
+			return
+		}
+
+		// Send success message
+		conn.WriteJSON(TerminalOutput{
+			Timestamp: time.Now(),
+			Type:      "success",
+			Message:   "🔐 Terminal authenticated - ready for commands",
+		})
+
+		// Listen for commands from client
+		for {
+			var msg struct {
+				Command string `json:"command"`
+			}
+			err := conn.ReadJSON(&msg)
+			if err != nil {
+				break
+			}
+
+			if msg.Command == "" {
+				continue
+			}
+
+			// Execute command
+			executeCommandStream(conn, msg.Command)
+		}
+	}
+}
+
+// executeCommandStream executes a command and streams output
+func executeCommandStream(conn *websocket.Conn, command string) {
+	conn.WriteJSON(TerminalOutput{
+		Timestamp: time.Now(),
+		Type:      "info",
+		Message:   fmt.Sprintf("▶ Executing: %s", command),
+	})
+
+	cmd := exec.Command("bash", "-c", command)
+	cmd.Dir = getProjectRoot()
+
+	// Create pipes for stdout and stderr
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		conn.WriteJSON(TerminalOutput{
+			Timestamp: time.Now(),
+			Type:      "stderr",
+			Message:   fmt.Sprintf("Failed to create stdout pipe: %v", err),
+		})
+		return
+	}
+
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		conn.WriteJSON(TerminalOutput{
+			Timestamp: time.Now(),
+			Type:      "stderr",
+			Message:   fmt.Sprintf("Failed to create stderr pipe: %v", err),
+		})
+		return
+	}
+
+	// Start command
+	if err := cmd.Start(); err != nil {
+		conn.WriteJSON(TerminalOutput{
+			Timestamp: time.Now(),
+			Type:      "stderr",
+			Message:   fmt.Sprintf("Failed to start command: %v", err),
+		})
+		return
+	}
+
+	// Stream stdout
+	go func() {
+		scanner := bufio.NewScanner(stdout)
+		for scanner.Scan() {
+			line := scanner.Text()
+			conn.WriteJSON(TerminalOutput{
+				Timestamp: time.Now(),
+				Type:      "stdout",
+				Message:   line,
+			})
+		}
+	}()
+
+	// Stream stderr
+	go func() {
+		scanner := bufio.NewScanner(stderr)
+		for scanner.Scan() {
+			line := scanner.Text()
+			conn.WriteJSON(TerminalOutput{
+				Timestamp: time.Now(),
+				Type:      "stderr",
+				Message:   line,
+			})
+		}
+	}()
+
+	// Wait for command completion
+	err = cmd.Wait()
+
+	if err != nil {
+		conn.WriteJSON(TerminalOutput{
+			Timestamp: time.Now(),
+			Type:      "stderr",
+			Message:   fmt.Sprintf("❌ Command failed: %v", err),
+		})
+	} else {
+		conn.WriteJSON(TerminalOutput{
+			Timestamp: time.Now(),
+			Type:      "success",
+			Message:   "✅ Command completed successfully",
+		})
+	}
+}
+
+// Helper function for min
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }

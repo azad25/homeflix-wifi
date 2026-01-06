@@ -5,20 +5,35 @@ export const getApiUrl = () => {
   
   if (typeof window === 'undefined') {
     // Server-side: use Docker internal URL or localhost
-    return dockerApiUrl || 'http://localhost:8252';
+    // Check if we're in dev mode (NODE_ENV or port detection)
+    const isDev = process.env.NODE_ENV === 'development' || process.env.PORT === '3009';
+    const defaultPort = isDev ? '8253' : '8252';
+    return dockerApiUrl || `http://localhost:${defaultPort}`;
   }
 
   // Client-side: Use the same hostname as the frontend for network access
   const hostname = window.location.hostname;
-  const apiUrl = `http://${hostname}:8252`;
+  const frontendPort = window.location.port;
+  
+  // Determine backend port based on frontend port
+  let backendPort = '8252'; // Default production port
+  if (frontendPort === '3009') {
+    backendPort = '8253'; // Dev backend port
+  } else if (frontendPort === '3008') {
+    backendPort = '8252'; // Production backend port
+  }
+  
+  const apiUrl = `http://${hostname}:${backendPort}`;
   
   // Debug logging
   console.log('getApiUrl called:', {
     windowHostname: hostname,
-    windowPort: window.location.port,
+    windowPort: frontendPort,
+    backendPort,
     dockerApiUrl,
     finalUrl: apiUrl,
-    windowLocation: window.location.href
+    windowLocation: window.location.href,
+    isDev: frontendPort === '3009'
   });
   
   return apiUrl;

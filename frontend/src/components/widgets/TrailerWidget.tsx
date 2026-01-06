@@ -27,6 +27,7 @@ interface TrailerWidgetProps {
     autoScroll?: boolean;
     scrollInterval?: number;
     config?: any; // Add config prop for tags and headings
+    isMuted?: boolean;
 }
 
 interface TrailerData {
@@ -66,13 +67,14 @@ export default function TrailerWidget({
     autoScroll = true,
     scrollInterval = 8,
     config = {},
+    isMuted: initialMuted = true,
 }: TrailerWidgetProps) {
     const navigate = useNavigate();
     const { isInMyList, toggleMyList } = useMyList();
     const [trailers, setTrailers] = useState<TrailerData[]>([]);
     const [currentIndex, setCurrentIndex] = useState(0);
     const [isPlaying, setIsPlaying] = useState(false);
-    const [isMuted, setIsMuted] = useState(true); // Start muted for auto-play compliance
+    const [isMuted, setIsMuted] = useState(initialMuted); // Start muted for auto-play compliance
     const [loading, setLoading] = useState(true);
     const [isHovering, setIsHovering] = useState(false);
     const [imageLoaded, setImageLoaded] = useState(false);
@@ -93,11 +95,11 @@ export default function TrailerWidget({
     const convertMediaToTrailers = useCallback(() => {
         try {
             setLoading(true);
-      
+
             const trailerResults = media.slice(0, maxItems).map((item) => {
                 // Use TMDB trailer URL from backend
                 const videoId = item.tmdb_trailer_url ? extractYouTubeKey(item.tmdb_trailer_url) : null;
-                
+
                 return {
                     id: `trailer-${item.id}`,
                     title: `${item.title} - Official Trailer`,
@@ -111,14 +113,14 @@ export default function TrailerWidget({
                     media: item,
                 };
             });
-            
+
             // Filter to only include trailers with actual YouTube video IDs
-            const validTrailers = trailerResults.filter(trailer => 
+            const validTrailers = trailerResults.filter(trailer =>
                 trailer.videoId && trailer.media.tmdb_trailer_url
             );
-            
+
             console.log(`TrailerWidget: Found ${validTrailers.length} valid trailers out of ${trailerResults.length} media items`);
-            
+
             if (validTrailers.length > 0) {
                 setTrailers(validTrailers);
                 setCurrentIndex(0);
@@ -161,7 +163,7 @@ export default function TrailerWidget({
                     console.log('YouTube IFrame API ready (from existing script)');
                 }
             }, 100);
-            
+
             // Timeout after 10 seconds
             setTimeout(() => {
                 clearInterval(checkReady);
@@ -189,7 +191,7 @@ export default function TrailerWidget({
 
         // Store original callback if it exists
         const originalCallback = window.onYouTubeIframeAPIReady;
-        
+
         window.onYouTubeIframeAPIReady = () => {
             // Call original callback first if it exists
             if (originalCallback && typeof originalCallback === 'function') {
@@ -199,7 +201,7 @@ export default function TrailerWidget({
                     console.warn('Error calling original YouTube API callback:', e);
                 }
             }
-            
+
             setYtReady(true);
             console.log('YouTube IFrame API ready (TrailerWidget)');
         };
@@ -333,13 +335,6 @@ export default function TrailerWidget({
 
             console.log('Creating YouTube player in container:', containerId);
 
-            // Ensure container has proper dimensions and responsive scaling
-            container.style.width = '100%';
-            container.style.height = '100%';
-            container.style.position = 'absolute';
-            container.style.top = '0';
-            container.style.left = '0';
-
             try {
                 playerRef.current = new window.YT.Player(containerId, {
                     videoId: videoKey,
@@ -421,15 +416,21 @@ export default function TrailerWidget({
                         },
                         onReady: (event: any) => {
                             console.log('YouTube player ready');
-                            
+
                             // Force play immediately with retry mechanism
                             const attemptPlay = (retries = 3) => {
                                 try {
-                                    event.target.mute(); // Ensure muted for autoplay
-                                    event.target.seekTo(10, true); // Seek to 10 seconds
-                                    event.target.playVideo(); // Force play
+                                    // Try to respect mute preference
+                                    if (!isMuted) {
+                                        event.target.unMute();
+                                    } else {
+                                        event.target.mute();
+                                    }
+
+                                    event.target.seekTo(10, true);
+                                    event.target.playVideo();
                                     console.log(`Attempting to play video (${4 - retries}/3)...`);
-                                    
+
                                     // Check if playing after a short delay
                                     setTimeout(() => {
                                         try {
@@ -445,15 +446,20 @@ export default function TrailerWidget({
                                         }
                                     }, 1000);
                                 } catch (error) {
-                                    console.error('Error starting video playback:', error);
+                                    console.warn('Unmuted autoplay failed, falling back to muted');
+                                    try {
+                                        event.target.mute();
+                                        event.target.playVideo();
+                                    } catch (e) { }
+
                                     if (retries > 0) {
                                         setTimeout(() => attemptPlay(retries - 1), 1000);
                                     }
                                 }
                             };
-                            
+
                             attemptPlay();
-                            
+
                             // No need for interval - YouTube API will fire onStateChange when video ends
                             // This prevents premature slide changes during playback
                         },
@@ -466,7 +472,7 @@ export default function TrailerWidget({
                             });
                             setVideoReady(false);
                             setIsPlaying(false);
-                            
+
                             // Try to recover from certain errors
                             if (event.data === 2) { // Invalid video ID
                                 console.log('Invalid video ID, skipping to next trailer');
@@ -522,7 +528,7 @@ export default function TrailerWidget({
                 autoScrollRef.current = null;
             }
             if (playerRef.current) {
-                try { playerRef.current.destroy(); } catch (e) {}
+                try { playerRef.current.destroy(); } catch (e) { }
                 playerRef.current = null;
             }
             if (playerInitTimeoutRef.current) {
@@ -546,6 +552,11 @@ export default function TrailerWidget({
             }
         }
     }, [isMuted]);
+
+    // Sync with prop
+    useEffect(() => {
+        setIsMuted(initialMuted);
+    }, [initialMuted]);
 
     const handlePrevious = useCallback(() => {
         setCurrentIndex((prev) => (prev - 1 + trailers.length) % trailers.length);
@@ -594,12 +605,12 @@ export default function TrailerWidget({
 
     const getLogoUrl = (trailer: TrailerData) => {
         const media = trailer.media;
-        
+
         // First check if we have a TMDB logo
         if (media.tmdb_id && logoUrls[media.tmdb_id]) {
             return logoUrls[media.tmdb_id];
         }
-        
+
         // Fallback to local logo
         if (media.logo_path) {
             if (media.logo_path.startsWith('http')) {
@@ -645,7 +656,7 @@ export default function TrailerWidget({
             video_key: extractYouTubeKey(m.tmdb_trailer_url || ''),
             tmdb_id: m.tmdb_id
         })));
-        
+
         return (
             <div className={`relative w-full h-[200px] overflow-hidden rounded-xl ${className} bg-gray-800/50 flex items-center justify-center`}>
                 <div className="text-center text-white/60">
@@ -735,15 +746,18 @@ export default function TrailerWidget({
                         transition={{ duration: 0.5 }}
                         className="absolute inset-0 z-10 flex items-center justify-center overflow-hidden pointer-events-none"
                         style={{
-                            // Scale up to hide YouTube end screen annotations at edges
                             clipPath: 'inset(0)',
                         }}
                     >
                         <div className="relative w-full h-full overflow-hidden">
                             <div
                                 id={`yt-player-trailer-${currentTrailer.media.id}`}
-                                className="absolute inset-0 w-full h-full"
+                                className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2"
                                 style={{
+                                    width: '120vw',
+                                    height: '120vh',
+                                    minWidth: '200vh',
+                                    minHeight: '70vw',
                                     pointerEvents: 'none'
                                 }}
                             />
@@ -759,7 +773,7 @@ export default function TrailerWidget({
             {/* Custom Tag/Heading */}
             {config.showTag && config.tagText && (
                 <div className="absolute top-6 left-6 z-30">
-                    <div 
+                    <div
                         className="flex items-center gap-2 px-4 py-2 rounded-full backdrop-blur-md border font-semibold text-sm shadow-lg"
                         style={{
                             backgroundColor: config.tagColor || '#ef444430',
@@ -779,7 +793,7 @@ export default function TrailerWidget({
 
             {config.showHeading && config.headingText && (
                 <div className="absolute top-6 left-6 z-30" style={{ marginTop: config.showTag && config.tagText ? '60px' : '0' }}>
-                    <h3 
+                    <h3
                         className="text-2xl md:text-3xl font-bold text-white"
                         style={{
                             textShadow: '0 0 20px rgba(239, 68, 68, 0.6), 0 2px 10px rgba(0,0,0,0.8)'
@@ -984,11 +998,10 @@ export default function TrailerWidget({
                                     setIsPlaying(false);
                                     setVideoReady(false);
                                 }}
-                                className={`w-2 h-2 rounded-full transition-all duration-300 ${
-                                    index === currentIndex
-                                        ? 'bg-white w-8'
-                                        : 'bg-white/50 hover:bg-white/70'
-                                }`}
+                                className={`w-2 h-2 rounded-full transition-all duration-300 ${index === currentIndex
+                                    ? 'bg-white w-8'
+                                    : 'bg-white/50 hover:bg-white/70'
+                                    }`}
                             />
                         ))}
                     </div>
@@ -1012,11 +1025,10 @@ export default function TrailerWidget({
                                 setIsPlaying(false);
                                 setVideoReady(false);
                             }}
-                            className={`relative w-16 h-10 rounded overflow-hidden transition-all ${
-                                currentIndex === index
-                                    ? 'ring-2 ring-white scale-110'
-                                    : 'hover:scale-105 opacity-70 hover:opacity-100'
-                            }`}
+                            className={`relative w-16 h-10 rounded overflow-hidden transition-all ${currentIndex === index
+                                ? 'ring-2 ring-white scale-110'
+                                : 'hover:scale-105 opacity-70 hover:opacity-100'
+                                }`}
                             whileHover={{ scale: 1.05 }}
                             whileTap={{ scale: 0.95 }}
                         >

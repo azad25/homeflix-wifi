@@ -273,6 +273,14 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
             <NavigationLink
               href={homePageSlug ? `/${homePageSlug}` : "/"}
               className="text-red-600 text-2xl font-bold hover:text-red-500 transition-colors cursor-pointer"
+              onClick={(e) => {
+                const targetPath = homePageSlug ? `/${homePageSlug}` : "/";
+                // If we are already on the target page, force a reload to refresh content and fix stuck spinner
+                if (pathname === targetPath) {
+                  e.preventDefault();
+                  window.location.reload();
+                }
+              }}
             >
               HomeFlix
             </NavigationLink>

@@ -38,3 +38,11 @@ if lsof -i :8253 2>/dev/null | grep -q LISTEN; then
 fi
 
 echo "🎬 HomeFlix Development Server stopped!"
+
+# Clean up dev log files and PID files
+echo "🧹 Cleaning up dev log and PID files..."
+rm -f "$SCRIPT_DIR"/*-dev.log
+rm -f "$SCRIPT_DIR"/.frontend-dev.pid
+rm -f "$SCRIPT_DIR"/.backend-dev.pid
+
+echo "✅ Dev cleanup complete!"

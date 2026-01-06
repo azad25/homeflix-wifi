@@ -1,6 +1,7 @@
 #!/bin/bash
 
 # HomeFlix Stop Script
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 echo "🛑 Stopping HomeFlix..."
 
 # Kill processes on port 3008 (frontend)
@@ -29,3 +30,10 @@ if lsof -i :8252 2>/dev/null | grep -q LISTEN; then
 fi
 
 echo "✅ HomeFlix stopped!"
+
+# Clean up log files and PID files
+echo "🧹 Cleaning up log and PID files..."
+rm -f "$SCRIPT_DIR"/*.log
+rm -f "$SCRIPT_DIR"/.*.pid
+
+echo "✅ Cleanup complete!"

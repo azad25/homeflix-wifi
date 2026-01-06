@@ -158,7 +158,7 @@ export default function WidgetEditor({
     // Add genreFilter for backend compatibility
     if (selectedGenres.length > 0) {
       const genreMap: { [key: number]: string } = {
-        28: "Action", 12: "Adventure", 16: "Animation", 35: "Comedy", 
+        28: "Action", 12: "Adventure", 16: "Animation", 35: "Comedy",
         80: "Crime", 99: "Documentary", 18: "Drama", 10751: "Family",
         14: "Fantasy", 36: "History", 27: "Horror", 10402: "Music",
         9648: "Mystery", 10749: "Romance", 878: "Science Fiction",
@@ -168,7 +168,7 @@ export default function WidgetEditor({
         10764: "Reality", 10765: "Sci-Fi & Fantasy", 10766: "Soap",
         10767: "Talk", 10768: "War & Politics"
       };
-      
+
       const genreNames = selectedGenres.map(id => genreMap[id] || '').filter(name => name);
       updatedConfig.genreFilter = genreNames;
     }
@@ -270,11 +270,10 @@ export default function WidgetEditor({
                   <button
                     key={type.value}
                     onClick={() => setFormData({ ...formData, type: type.value })}
-                    className={`p-4 rounded-xl border transition-all duration-200 text-left hover:scale-105 ${
-                      formData.type === type.value
+                    className={`p-4 rounded-xl border transition-all duration-200 text-left hover:scale-105 ${formData.type === type.value
                         ? 'bg-red-500/20 border-red-400/50 shadow-lg shadow-red-500/10'
                         : 'bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20'
-                    }`}
+                      }`}
                   >
                     <div className="flex items-center gap-3 mb-2">
                       <span className="text-2xl">{type.icon}</span>
@@ -294,11 +293,10 @@ export default function WidgetEditor({
                   <button
                     key={layout.value}
                     onClick={() => setFormData({ ...formData, layout: layout.value })}
-                    className={`p-4 rounded-xl border transition-all duration-200 text-left hover:scale-105 ${
-                      formData.layout === layout.value
+                    className={`p-4 rounded-xl border transition-all duration-200 text-left hover:scale-105 ${formData.layout === layout.value
                         ? 'bg-red-500/20 border-red-400/50 shadow-lg shadow-red-500/10'
                         : 'bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20'
-                    }`}
+                      }`}
                   >
                     <div className="flex items-center gap-3 mb-2">
                       <span className="font-mono text-white/80">{layout.icon}</span>
@@ -324,11 +322,10 @@ export default function WidgetEditor({
                     <button
                       key={source.value}
                       onClick={() => setFormData({ ...formData, dataSource: source.value })}
-                      className={`p-4 rounded-xl border transition-all duration-200 text-left hover:scale-105 ${
-                        formData.dataSource === source.value
+                      className={`p-4 rounded-xl border transition-all duration-200 text-left hover:scale-105 ${formData.dataSource === source.value
                           ? `bg-gradient-to-br ${source.color} shadow-lg`
                           : 'bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20'
-                      }`}
+                        }`}
                     >
                       <div className="font-medium text-white mb-1">{source.label}</div>
                       <p className="text-xs text-white/60">{source.description}</p>
@@ -346,11 +343,10 @@ export default function WidgetEditor({
                   <button
                     key={type.value}
                     onClick={() => setFormData({ ...formData, contentType: type.value })}
-                    className={`p-4 rounded-xl border transition-all duration-200 text-left hover:scale-105 ${
-                      formData.contentType === type.value
+                    className={`p-4 rounded-xl border transition-all duration-200 text-left hover:scale-105 ${formData.contentType === type.value
                         ? 'bg-red-500/20 border-red-400/50 shadow-lg shadow-red-500/10'
                         : 'bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20'
-                    }`}
+                      }`}
                   >
                     <div className="flex items-center gap-3">
                       <span className="text-xl">{type.icon}</span>
@@ -380,11 +376,10 @@ export default function WidgetEditor({
                         <button
                           key={genre.id}
                           onClick={() => onGenreToggle(genre.id)}
-                          className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
-                            selectedGenres.includes(genre.id)
+                          className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${selectedGenres.includes(genre.id)
                               ? 'bg-blue-600 text-white'
                               : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                          }`}
+                            }`}
                         >
                           {genre.name}
                         </button>
@@ -460,7 +455,7 @@ export default function WidgetEditor({
                 <h5 className="text-lg font-semibold text-white flex items-center gap-2">
                   🏷️ Tags & Headings
                 </h5>
-                
+
                 {/* Tag Options */}
                 <div className="space-y-4">
                   <div className="flex items-center gap-3">
@@ -474,7 +469,7 @@ export default function WidgetEditor({
                       <span className="text-sm text-white/80 font-medium">Show Tag</span>
                     </label>
                   </div>
-                  
+
                   {config.showTag && (
                     <div className="grid grid-cols-1 gap-4 ml-7">
                       <div>
@@ -487,7 +482,7 @@ export default function WidgetEditor({
                           placeholder="e.g., NEW, TRENDING, FEATURED"
                         />
                       </div>
-                      
+
                       <div>
                         <label className="block text-sm font-medium text-white/80 mb-2">Tag Icon</label>
                         <div className="grid grid-cols-6 gap-2">
@@ -516,9 +511,8 @@ export default function WidgetEditor({
                               <button
                                 key={iconOption.name}
                                 onClick={() => setConfig({ ...config, tagIcon: iconOption.name })}
-                                className={`w-10 h-10 rounded-lg border-2 transition-all flex items-center justify-center ${
-                                  config.tagIcon === iconOption.name ? 'border-purple-400 bg-purple-500/20 scale-110' : 'border-white/20 hover:border-white/40'
-                                }`}
+                                className={`w-10 h-10 rounded-lg border-2 transition-all flex items-center justify-center ${config.tagIcon === iconOption.name ? 'border-purple-400 bg-purple-500/20 scale-110' : 'border-white/20 hover:border-white/40'
+                                  }`}
                                 title={iconOption.name}
                               >
                                 <IconComponent className="w-4 h-4 text-white" />
@@ -527,7 +521,7 @@ export default function WidgetEditor({
                           })}
                         </div>
                       </div>
-                      
+
                       <div>
                         <label className="block text-sm font-medium text-white/80 mb-2">Tag Color</label>
                         <div className="flex gap-2">
@@ -543,9 +537,8 @@ export default function WidgetEditor({
                             <button
                               key={colorOption.color}
                               onClick={() => setConfig({ ...config, tagColor: colorOption.color })}
-                              className={`w-8 h-8 rounded-lg border-2 transition-all ${
-                                config.tagColor === colorOption.color ? 'border-white scale-110' : 'border-white/20'
-                              }`}
+                              className={`w-8 h-8 rounded-lg border-2 transition-all ${config.tagColor === colorOption.color ? 'border-white scale-110' : 'border-white/20'
+                                }`}
                               style={{ backgroundColor: colorOption.color }}
                               title={colorOption.name}
                             />
@@ -569,7 +562,7 @@ export default function WidgetEditor({
                       <span className="text-sm text-white/80 font-medium">Show Heading</span>
                     </label>
                   </div>
-                  
+
                   {config.showHeading && (
                     <div className="ml-7">
                       <label className="block text-sm font-medium text-white/80 mb-2">Heading Text</label>
@@ -592,7 +585,8 @@ export default function WidgetEditor({
                   { key: 'showRating', label: 'Show Rating' },
                   { key: 'showDescription', label: 'Show Description' },
                   { key: 'showLogo', label: 'Show Logo' },
-                  ...(formData.type === 'homeflix-grid' ? [{ key: 'showYear', label: 'Show Year' }] : [])
+                  ...(formData.type === 'homeflix-grid' ? [{ key: 'showYear', label: 'Show Year' }] : []),
+                  ...(['preview-video', 'media-trailer', 'mixed-video', 'trailer'].includes(formData.type) ? [{ key: 'isMuted', label: 'Mute Video' }] : [])
                 ].map(({ key, label }) => (
                   <label key={key} className="flex items-center gap-3 p-3 bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl hover:bg-white/10 transition-colors cursor-pointer">
                     <input
@@ -612,7 +606,7 @@ export default function WidgetEditor({
                   <h5 className="text-lg font-semibold text-white flex items-center gap-2">
                     🎯 Homeflix Grid Settings
                   </h5>
-                  
+
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div>
                       <label className="block text-sm font-medium text-white/80 mb-3">Card Width (px)</label>
@@ -650,11 +644,10 @@ export default function WidgetEditor({
                         <button
                           key={priority.value}
                           onClick={() => setConfig({ ...config, imagePriority: priority.value })}
-                          className={`p-3 rounded-xl border transition-all duration-200 text-left hover:scale-105 ${
-                            config.imagePriority === priority.value
+                          className={`p-3 rounded-xl border transition-all duration-200 text-left hover:scale-105 ${config.imagePriority === priority.value
                               ? 'bg-blue-500/20 border-blue-400/50 shadow-lg shadow-blue-500/10'
                               : 'bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20'
-                          }`}
+                            }`}
                         >
                           <div className="font-medium text-white mb-1">{priority.label}</div>
                           <p className="text-xs text-white/60">{priority.description}</p>
@@ -692,7 +685,7 @@ export default function WidgetEditor({
                   <h5 className="text-lg font-semibold text-white flex items-center gap-2">
                     🎥 Trailer Widget Settings
                   </h5>
-                  
+
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div>
                       <label className="block text-sm font-medium text-white/80 mb-3">Auto Play Trailers</label>
@@ -718,11 +711,10 @@ export default function WidgetEditor({
                           <button
                             key={quality.value}
                             onClick={() => setConfig({ ...config, videoQuality: quality.value })}
-                            className={`p-2 rounded-lg border transition-all duration-200 text-left text-sm ${
-                              config.videoQuality === quality.value
+                            className={`p-2 rounded-lg border transition-all duration-200 text-left text-sm ${config.videoQuality === quality.value
                                 ? 'bg-red-500/20 border-red-400/50 text-white'
                                 : 'bg-white/5 border-white/10 hover:bg-white/10 text-white/80'
-                            }`}
+                              }`}
                           >
                             {quality.label}
                           </button>
@@ -778,7 +770,7 @@ export default function WidgetEditor({
                   <h5 className="text-lg font-semibold text-white flex items-center gap-2">
                     🔔 Notification Settings
                   </h5>
-                  
+
                   {/* Highlight Style */}
                   <div>
                     <label className="block text-sm font-medium text-white/80 mb-3">Display Style</label>
@@ -791,11 +783,10 @@ export default function WidgetEditor({
                         <button
                           key={style.value}
                           onClick={() => setConfig({ ...config, highlightStyle: style.value })}
-                          className={`p-3 rounded-xl border transition-all duration-200 text-left hover:scale-105 ${
-                            config.highlightStyle === style.value
+                          className={`p-3 rounded-xl border transition-all duration-200 text-left hover:scale-105 ${config.highlightStyle === style.value
                               ? 'bg-red-500/20 border-red-400/50 shadow-lg shadow-red-500/10'
                               : 'bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20'
-                          }`}
+                            }`}
                         >
                           <div className="font-medium text-white mb-1">{style.label}</div>
                           <p className="text-xs text-white/60">{style.description}</p>
@@ -836,22 +827,21 @@ export default function WidgetEditor({
                           onClick={() => {
                             const currentTypes = config.notificationTypes || [];
                             if (currentTypes.includes(type.value)) {
-                              setConfig({ 
-                                ...config, 
+                              setConfig({
+                                ...config,
                                 notificationTypes: currentTypes.filter((t: string) => t !== type.value)
                               });
                             } else {
-                              setConfig({ 
-                                ...config, 
+                              setConfig({
+                                ...config,
                                 notificationTypes: [...currentTypes, type.value]
                               });
                             }
                           }}
-                          className={`p-3 rounded-xl border transition-all duration-200 text-left hover:scale-105 ${
-                            (config.notificationTypes || []).includes(type.value)
+                          className={`p-3 rounded-xl border transition-all duration-200 text-left hover:scale-105 ${(config.notificationTypes || []).includes(type.value)
                               ? 'bg-red-500/20 border-red-400/50 shadow-lg shadow-red-500/10'
                               : 'bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20'
-                          }`}
+                            }`}
                         >
                           <div className="font-medium text-white mb-1">{type.label}</div>
                           <p className="text-xs text-white/60">{type.description}</p>
@@ -859,12 +849,12 @@ export default function WidgetEditor({
                         </button>
                       ))}
                     </div>
-                    
+
                     {/* Select All / None buttons */}
                     <div className="flex gap-2 mt-3">
                       <button
-                        onClick={() => setConfig({ 
-                          ...config, 
+                        onClick={() => setConfig({
+                          ...config,
                           notificationTypes: [
                             'new_movies', 'new_episodes', 'recently_added',
                             'movie_suggestion', 'single_movie_suggestion', 'watch_again', 'continue_watching', 'genre_based',

@@ -57,6 +57,19 @@ mkdir -p "$SCRIPT_DIR/previews"
 mkdir -p "$SCRIPT_DIR/subtitles"
 mkdir -p "$SCRIPT_DIR/optimized"
 
+# Clean up old log files and create fresh ones
+echo "🧹 Cleaning up old log files..."
+rm -f "$SCRIPT_DIR"/*.log
+rm -f "$SCRIPT_DIR"/*.pid
+
+# Create fresh log files
+touch "$FRONTEND_LOG"
+touch "$BACKEND_LOG"
+touch "$SCRIPT_DIR/homeflix.log"
+touch "$SCRIPT_DIR/startup.log"
+
+echo "📝 Created fresh log files"
+
 # Get local IP address for network access
 LOCAL_IP=$(hostname -I | awk '{print $1}')
 

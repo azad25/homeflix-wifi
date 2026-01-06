@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { getApiUrl } from '@/lib/api';
 import WidgetPerformanceMonitor from './WidgetPerformanceMonitor';
+import { widgetCache } from '@/utils/widgetCache';
 
 // Import widget components
 import FeaturedBanner from './FeaturedBanner';
@@ -74,43 +75,8 @@ interface MediaItem {
     certification?: string;
     tagline?: string;
     genres?: Array<{ id: number; name: string }>;
+    notification_data?: any; // Add notification data
 }
-
-// Simple in-memory cache for widget data
-const widgetCache = new Map<string, { data: WidgetWithData[]; timestamp: number }>();
-const CACHE_TTL = 10 * 60 * 1000; // 10 minutes for faster subsequent loads
-
-// Preload cache from sessionStorage on module load for instant first render
-if (typeof window !== 'undefined') {
-    try {
-        const stored = sessionStorage.getItem('widget-cache');
-        if (stored) {
-            const parsed = JSON.parse(stored);
-            Object.entries(parsed).forEach(([key, value]: [string, any]) => {
-                if (value && Date.now() - value.timestamp < CACHE_TTL) {
-                    widgetCache.set(key, value);
-                }
-            });
-        }
-    } catch (e) {
-        // Ignore parse errors
-    }
-}
-
-// Save cache to sessionStorage periodically
-const persistCache = () => {
-    if (typeof window !== 'undefined') {
-        try {
-            const cacheObj: Record<string, any> = {};
-            widgetCache.forEach((value, key) => {
-                cacheObj[key] = value;
-            });
-            sessionStorage.setItem('widget-cache', JSON.stringify(cacheObj));
-        } catch (e) {
-            // Ignore storage errors
-        }
-    }
-};
 
 // Convert backend MediaItem to frontend Media format
 const convertToFrontendMedia = (items: MediaItem[]) => {
@@ -152,6 +118,7 @@ const convertToFrontendMedia = (items: MediaItem[]) => {
         poster_url: item.tmdb_poster_url || item.poster_path,
         banner_path: item.tmdb_backdrop_url || item.backdrop_path,
         file_path: undefined,
+        notification_data: item.notification_data, // Pass through notification data
     }));
 };
 
@@ -177,29 +144,17 @@ export default function BackendWidgetRenderer({
     // Fetch widgets with in-memory caching for instant subsequent loads
     useEffect(() => {
         const controller = new AbortController();
-        
+
         const fetchWidgets = async () => {
             const apiUrl = getApiUrl();
-            const cacheKey = `widgets-${page}`;
 
-            // Check cache first for instant load
-            const cached = widgetCache.get(cacheKey);
-            if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-                console.log('BackendWidgetRenderer: Using cached widgets');
-                setWidgets(cached.data);
+            // Check smart cache first
+            const cachedData = widgetCache.get(page);
+            if (cachedData) {
+                console.log('BackendWidgetRenderer: Using cached widgets from widgetCache');
+                setWidgets(cachedData as WidgetWithData[]);
                 setLoading(false);
                 if (onRefresh) onRefresh();
-                
-                // Background revalidation - fetch fresh data without blocking UI
-                fetch(`${apiUrl}/api/widgets/page/${page}/with-data`, {
-                    headers: { 'Content-Type': 'application/json', 'X-User-ID': '1' },
-                    signal: controller.signal,
-                }).then(res => res.json()).then(data => {
-                    if (Array.isArray(data) && !controller.signal.aborted) {
-                        widgetCache.set(cacheKey, { data, timestamp: Date.now() });
-                        persistCache();
-                    }
-                }).catch(() => {});
                 return;
             }
 
@@ -226,9 +181,8 @@ export default function BackendWidgetRenderer({
 
                 if (Array.isArray(data) && !controller.signal.aborted) {
                     setWidgets(data);
-                    // Cache the data
-                    widgetCache.set(cacheKey, { data, timestamp: Date.now() });
-                    persistCache();
+                    // Cache the data using smart cache
+                    widgetCache.set(page, data);
                     if (onRefresh) onRefresh();
                 } else if (!controller.signal.aborted) {
                     setWidgets([]);
@@ -248,7 +202,7 @@ export default function BackendWidgetRenderer({
         if (page) {
             fetchWidgets();
         }
-        
+
         return () => controller.abort();
     }, [page, onRefresh]);
 
@@ -256,7 +210,33 @@ export default function BackendWidgetRenderer({
     const renderWidget = useMemo(() => (widgetWithData: WidgetWithData) => {
         try {
             const config = parseConfig(widgetWithData.config);
-            const media = convertToFrontendMedia(widgetWithData.data || []);
+            let media = convertToFrontendMedia(widgetWithData.data || []);
+
+            // Sanitize local content to prevent TMDB ID collisions
+            if (config.selectedContent && Array.isArray(config.selectedContent)) {
+                media = media.map(item => {
+                    const selectedItem = config.selectedContent.find((c: any) => c.id === item.id);
+                    // Check if it's explicitly marked as local OR purely matched by ID and we know it's a local widget type
+                    // The safest check is if _source is 'local' or if the selected item has type but no media_type (legacy local)
+                    const isLocal = selectedItem && (selectedItem._source === 'local' || (selectedItem.type && !selectedItem.media_type));
+
+                    if (isLocal) {
+                        // Strip TMDB data to force local metadata usage
+                        return {
+                            ...item,
+                            tmdb_id: undefined,
+                            tmdb_poster_url: undefined,
+                            tmdb_backdrop_url: undefined,
+                            tmdb_trailer_url: undefined, // Prevent random trailer from showing
+                            // Ensure we keep the local paths
+                            poster_path: item.poster_path,
+                            backdrop_path: item.backdrop_path,
+                            logo_path: undefined, // Clear potential random logo 
+                        };
+                    }
+                    return item;
+                });
+            }
 
             console.log(`Rendering widget ${widgetWithData.name}:`, {
                 type: widgetWithData.type,
@@ -313,6 +293,7 @@ export default function BackendWidgetRenderer({
                             autoPlay={config.autoPlay !== false}
                             slideDurationMs={(config.scrollInterval ? config.scrollInterval * 1000 : 8000)}
                             config={config}
+                            isMuted={config.isMuted}
                         />
                     );
 
@@ -325,6 +306,7 @@ export default function BackendWidgetRenderer({
                             autoPlay={config.autoPlay !== false}
                             slideDurationMs={(config.scrollInterval ? config.scrollInterval * 1000 : 8000)}
                             config={config}
+                            isMuted={config.isMuted}
                         />
                     );
 
@@ -337,6 +319,7 @@ export default function BackendWidgetRenderer({
                             autoPlay={config.autoPlay !== false}
                             slideDurationMs={(config.scrollInterval ? config.scrollInterval * 1000 : 8000)}
                             config={config}
+                            isMuted={config.isMuted}
                         />
                     );
 
@@ -440,6 +423,7 @@ export default function BackendWidgetRenderer({
                             autoScroll={config.autoScroll !== false}
                             scrollInterval={config.scrollInterval || 8}
                             config={config}
+                            isMuted={config.isMuted}
                         />
                     );
 
@@ -483,7 +467,7 @@ export default function BackendWidgetRenderer({
                     };
                     console.log('🔔 BackendWidgetRenderer: Rendering NotificationWidget with config:', notificationWidget);
                     console.log('🔔 BackendWidgetRenderer: Widget enabled:', widgetWithData.enabled);
-                    console.log('🔔 BackendWidgetRenderer: Widget data count:', widgetWithData.data?.length || 0);
+                    // Don't pass cached data as initialData for notifications - let the widget fetch fresh data
                     return (
                         <NotificationWidget
                             key={widgetWithData.id}
@@ -598,7 +582,10 @@ export default function BackendWidgetRenderer({
     }
 
     return (
-        <div className={`w-full ${className}`}>
+        <div
+            className={`w-full select-none ${className}`}
+            onContextMenu={(e) => e.preventDefault()}
+        >
             <div className="w-full space-y-0">
                 {renderedWidgets}
             </div>
