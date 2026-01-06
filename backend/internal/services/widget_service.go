@@ -1205,6 +1205,12 @@ func (s *WidgetService) convertSelectedContentToMediaItems(selectedContent []int
 				// Don't set TMDBID here for local content
 			}
 
+			// Check if this is a local item or TMDB item
+			isLocalItem := false
+			if source, ok := contentMap["_source"].(string); ok && source == "local" {
+				isLocalItem = true
+			}
+
 			// Handle TMDB ID specifically
 			if tmdbId, ok := contentMap["tmdb_id"].(float64); ok {
 				item.TMDBID = int(tmdbId)
@@ -1212,10 +1218,9 @@ func (s *WidgetService) convertSelectedContentToMediaItems(selectedContent []int
 				item.TMDBID = tmdbId
 			}
 
-			// Check if this is a local item or TMDB item
-			isLocalItem := false
-			if source, ok := contentMap["_source"].(string); ok && source == "local" {
-				isLocalItem = true
+			// Fail-safe: For TMDB items, if TMDBID is missing but we have an ID, assume ID is TMDBID
+			if !isLocalItem && item.TMDBID == 0 && item.ID > 0 {
+				item.TMDBID = int(item.ID)
 			}
 
 			// Handle title (could be title or name for TV shows)

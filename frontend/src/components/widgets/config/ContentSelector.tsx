@@ -262,7 +262,7 @@ export default function ContentSelector({
         trailer_path: item.trailer_path || '',
         logo_path: item.logo_path || '',
         // Preserve TMDB ID if available
-        tmdb_id: item.tmdb_id || 0,
+        tmdb_id: item.tmdb_id || (!isLocalItem ? item.id : 0),
         // Preserve all other fields
         vote_average: item.vote_average || item.rating || 0,
         vote_count: item.vote_count || 0,
@@ -356,8 +356,8 @@ export default function ContentSelector({
                   key={id}
                   onClick={() => setActiveTab(id as any)}
                   className={`flex items-center gap-3 px-6 py-4 text-sm font-medium transition-all duration-200 ${activeTab === id
-                      ? 'text-red-200 border-b-2 border-red-400 bg-red-400/10'
-                      : 'text-white/60 hover:text-white hover:bg-white/5'
+                    ? 'text-red-200 border-b-2 border-red-400 bg-red-400/10'
+                    : 'text-white/60 hover:text-white hover:bg-white/5'
                     }`}
                 >
                   <Icon className="w-4 h-4" />
@@ -517,8 +517,8 @@ export default function ContentSelector({
                           key={`local-${genre.id}`}
                           onClick={() => toggleGenre(genre.id)}
                           className={`px-4 py-2 rounded-xl text-sm font-medium transition-all duration-200 hover:scale-105 ${selectedGenres.includes(genre.id)
-                              ? 'bg-green-500/20 border border-green-400/50 text-green-200 shadow-lg shadow-green-500/10'
-                              : 'bg-white/5 border border-white/10 text-white/80 hover:bg-white/10 hover:border-white/20'
+                            ? 'bg-green-500/20 border border-green-400/50 text-green-200 shadow-lg shadow-green-500/10'
+                            : 'bg-white/5 border border-white/10 text-white/80 hover:bg-white/10 hover:border-white/20'
                             }`}
                         >
                           {genre.name}
@@ -540,8 +540,8 @@ export default function ContentSelector({
                           key={`tmdb-${genre.id}`}
                           onClick={() => toggleGenre(genre.id)}
                           className={`px-4 py-2 rounded-xl text-sm font-medium transition-all duration-200 hover:scale-105 ${selectedGenres.includes(genre.id)
-                              ? 'bg-blue-500/20 border border-blue-400/50 text-blue-200 shadow-lg shadow-blue-500/10'
-                              : 'bg-white/5 border border-white/10 text-white/80 hover:bg-white/10 hover:border-white/20'
+                            ? 'bg-blue-500/20 border border-blue-400/50 text-blue-200 shadow-lg shadow-blue-500/10'
+                            : 'bg-white/5 border border-white/10 text-white/80 hover:bg-white/10 hover:border-white/20'
                             }`}
                         >
                           {genre.name}
@@ -642,8 +642,8 @@ function ContentCard({ item, isSelected, onToggle }: ContentCardProps) {
       whileHover={{ scale: 1.05 }}
       whileTap={{ scale: 0.95 }}
       className={`relative cursor-pointer rounded-xl overflow-hidden transition-all duration-200 ${isSelected
-          ? 'ring-2 ring-blue-400 shadow-lg shadow-blue-500/20'
-          : 'hover:ring-1 hover:ring-white/20'
+        ? 'ring-2 ring-blue-400 shadow-lg shadow-blue-500/20'
+        : 'hover:ring-1 hover:ring-white/20'
         }`}
       onClick={onToggle}
     >
@@ -670,8 +670,8 @@ function ContentCard({ item, isSelected, onToggle }: ContentCardProps) {
         {/* Media type badge */}
         <div className="absolute top-2 left-2">
           <div className={`p-1.5 rounded-lg backdrop-blur-sm border ${item.media_type === 'movie'
-              ? 'bg-blue-500/20 border-blue-400/30'
-              : 'bg-green-500/20 border-green-400/30'
+            ? 'bg-blue-500/20 border-blue-400/30'
+            : 'bg-green-500/20 border-green-400/30'
             }`}>
             {item.media_type === 'movie' ? (
               <Film className="w-3 h-3 text-blue-200" />

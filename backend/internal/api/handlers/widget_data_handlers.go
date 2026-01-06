@@ -57,12 +57,33 @@ func NewWidgetDataHandlers(db *gorm.DB, tmdbService *services.TMDBService) *Widg
 
 // WidgetContent represents content saved in widget config
 type WidgetContent struct {
-	ID        int    `json:"id"`
-	Title     string `json:"title,omitempty"`
-	Name      string `json:"name,omitempty"`
-	Type      string `json:"type,omitempty"`
-	MediaType string `json:"media_type,omitempty"`
-	Source    string `json:"_source,omitempty"`
+	ID               int     `json:"id"`
+	Title            string  `json:"title,omitempty"`
+	Name             string  `json:"name,omitempty"`
+	Type             string  `json:"type,omitempty"`
+	MediaType        string  `json:"media_type,omitempty"`
+	Source           string  `json:"_source,omitempty"`
+	Overview         string  `json:"overview,omitempty"`
+	Description      string  `json:"description,omitempty"`
+	PosterPath       string  `json:"poster_path,omitempty"`
+	BackdropPath     string  `json:"backdrop_path,omitempty"`
+	LogoPath         string  `json:"logo_path,omitempty"`
+	TrailerPath      string  `json:"trailer_path,omitempty"`
+	TMDBTrailerURL   string  `json:"tmdb_trailer_url,omitempty"`
+	TMDBPosterURL    string  `json:"tmdb_poster_url,omitempty"`
+	TMDBBackdropURL  string  `json:"tmdb_backdrop_url,omitempty"`
+	Rating           float64 `json:"rating,omitempty"`
+	VoteAverage      float64 `json:"vote_average,omitempty"`
+	Year             int     `json:"year,omitempty"`
+	ReleaseDate      string  `json:"release_date,omitempty"`
+	FirstAirDate     string  `json:"first_air_date,omitempty"`
+	TMDBID           int     `json:"tmdb_id,omitempty"`
+	OriginalTitle    string  `json:"original_title,omitempty"`
+	OriginalLanguage string  `json:"original_language,omitempty"`
+	Popularity       float64 `json:"popularity,omitempty"`
+	VoteCount        int     `json:"vote_count,omitempty"`
+	Video            bool    `json:"video,omitempty"`
+	Adult            bool    `json:"adult,omitempty"`
 }
 
 // WidgetConfigData represents the parsed widget config
@@ -103,11 +124,11 @@ func (h *WidgetDataHandlers) GetWidgetData(c *gin.Context) {
 		}
 	}
 
-	// Fetch local content if selectedContent is present
+	// Fetch content
 	var results []map[string]interface{}
 
 	if len(configData.SelectedContent) > 0 {
-		results = h.getLocalContentByIDs(configData.SelectedContent)
+		results = h.getMixedContent(configData.SelectedContent)
 	} else if len(configData.SelectedGenres) > 0 {
 		results = h.getContentByGenres(configData.SelectedGenres, "local")
 	} else if len(configData.GenreFilter) > 0 {
@@ -123,35 +144,125 @@ func (h *WidgetDataHandlers) GetWidgetData(c *gin.Context) {
 	})
 }
 
-// getLocalContentByIDs retrieves specific local media items by their IDs
-func (h *WidgetDataHandlers) getLocalContentByIDs(selectedContent []WidgetContent) []map[string]interface{} {
+// getMixedContent handles a mix of Local and TMDB content from SelectedContent
+func (h *WidgetDataHandlers) getMixedContent(selectedContent []WidgetContent) []map[string]interface{} {
 	if len(selectedContent) == 0 {
 		return []map[string]interface{}{}
 	}
 
-	// Build list of IDs to query
-	var mediaIDs []int
-	for _, content := range selectedContent {
-		if content.ID > 0 && content.Source == "local" {
-			mediaIDs = append(mediaIDs, content.ID)
+	// 1. Identify Local items to fetch from DB
+	var localIDs []int
+	// Map to preserve order and merge data later
+	contentMap := make(map[string]WidgetContent)
+	
+	for i, content := range selectedContent {
+		// Create a unique key for the item
+		key := fmt.Sprintf("%s_%d", content.Source, content.ID)
+		if content.Source == "" {
+			// Fallback: assume local if it has ID but no TMDB specific fields, otherwise TMDB
+			if content.TMDBID == 0 {
+				content.Source = "local"
+			} else {
+				content.Source = "tmdb"
+			}
+			key = fmt.Sprintf("%s_%d", content.Source, content.ID)
+		}
+		
+		contentMap[key] = content
+		
+		if content.Source == "local" && content.ID > 0 {
+			localIDs = append(localIDs, content.ID)
+		}
+		
+		// Ensure index is preserved for sorting
+		selectedContent[i].Source = content.Source
+	}
+
+	// 2. Fetch Local items from DB
+	dbResults := make(map[int]MediaResult)
+	if len(localIDs) > 0 {
+		var results []MediaResult
+		if err := h.db.Table("media").
+			Select("id, title, type, description, poster_path, backdrop_path, tmdb_backdrop_url, tmdb_poster_url, tmdb_trailer_url, logo_path, trailer_path, rating, year, duration, genre_names, release_date, tagline, view_count, quality, popularity, vote_count, series_id, file_path, preview_path, preview_clip_path, tmdb_id").
+			Where("id IN ?", localIDs).
+			Find(&results).Error; err == nil {
+			for _, r := range results {
+				dbResults[int(r.ID)] = r
+			}
 		}
 	}
 
-	if len(mediaIDs) == 0 {
-		return []map[string]interface{}{}
+	// 3. Construct final list maintaining order from selectedContent
+	var finalResults []map[string]interface{}
+
+	for _, content := range selectedContent {
+		var item map[string]interface{}
+
+		if content.Source == "local" {
+			// Try to find in DB results
+			if dbItem, exists := dbResults[content.ID]; exists {
+				// Use DB item as base
+				item = h.formatMediaResult(dbItem)
+			} else {
+				// Fallback to config data if valid
+				// This handles cases where local item might be deleted but still in config?
+				// Or we can skip it. For now let's skip if not in DB to avoid broken links
+				continue 
+			}
+		} else {
+			// TMDB Item - Use data from config
+			tmdbID := content.TMDBID
+			if tmdbID == 0 {
+				tmdbID = content.ID
+			}
+
+			item = map[string]interface{}{
+				"id":                content.ID,
+				"title":             content.Title,
+				"name":              content.Name,
+				"type":              content.Type,
+				"media_type":        content.MediaType,
+				"description":       content.Overview, // TMDB uses overview
+				"overview":          content.Overview,
+				"poster_path":       content.PosterPath,
+				"backdrop_path":     content.BackdropPath,
+				"tmdb_poster_url":   content.TMDBPosterURL,
+				"tmdb_backdrop_url": content.TMDBBackdropURL,
+				"tmdb_trailer_url":  content.TMDBTrailerURL,
+				"logo_path":         content.LogoPath,
+				"trailer_path":      content.TrailerPath,
+				"rating":            content.VoteAverage, // TMDB uses vote_average
+				"vote_average":      content.VoteAverage,
+				"year":              content.Year,
+				"release_date":      content.ReleaseDate,
+				"first_air_date":    content.FirstAirDate,
+				"tmdb_id":           tmdbID,
+				"original_title":    content.OriginalTitle,
+				"original_language": content.OriginalLanguage,
+				"popularity":        content.Popularity,
+				"vote_count":        content.VoteCount,
+				"video":             content.Video,
+				"_source":           "tmdb",
+			}
+
+			// Ensure title is set
+			if item["title"] == "" && content.Name != "" {
+				item["title"] = content.Name
+			}
+			// Ensure description is set
+			if item["description"] == "" && content.Description != "" {
+				item["description"] = content.Description
+			}
+			// Ensure rating is set
+			if content.Rating > 0 {
+				item["rating"] = content.Rating
+			}
+		}
+		
+		finalResults = append(finalResults, item)
 	}
 
-	var results []MediaResult
-	if err := h.db.Table("media").
-		Select("id, title, type, description, poster_path, backdrop_path, tmdb_backdrop_url, tmdb_poster_url, tmdb_trailer_url, logo_path, trailer_path, rating, year, duration, genre_names, release_date, tagline, view_count, quality, popularity, vote_count, series_id, file_path, preview_path, preview_clip_path, tmdb_id").
-		Where("id IN ?", mediaIDs).
-		Order("FIELD(id, " + h.buildIDList(mediaIDs) + ")").
-		Find(&results).Error; err != nil {
-		return []map[string]interface{}{}
-	}
-
-	// Convert to map format for response
-	return h.formatMediaResults(results)
+	return finalResults
 }
 
 // getContentByGenres retrieves content filtered by genre IDs
@@ -227,39 +338,43 @@ func (h *WidgetDataHandlers) getContentByGenreNames(genreNames []string) []map[s
 // formatMediaResults converts media database results to response format
 func (h *WidgetDataHandlers) formatMediaResults(results []MediaResult) []map[string]interface{} {
 	var formatted []map[string]interface{}
-
 	for _, result := range results {
-		formatted = append(formatted, map[string]interface{}{
-			"id":                  result.ID,
-			"title":               result.Title,
-			"type":                result.Type,
-			"description":         result.Description,
-			"poster_path":         result.PosterPath,
-			"backdrop_path":       result.BackdropPath,
-			"tmdb_backdrop_url":   result.TMDBBackdropURL,
-			"tmdb_poster_url":     result.TMDBPosterURL,
-			"tmdb_trailer_url":    result.TMDBTrailerURL,
-			"logo_path":           result.LogoPath,
-			"trailer_path":        result.TrailerPath,
-			"rating":              result.Rating,
-			"year":                result.Year,
-			"duration":            result.Duration,
-			"genre_names":         result.GenreNames,
-			"release_date":        result.ReleaseDate,
-			"tagline":             result.Tagline,
-			"view_count":          result.ViewCount,
-			"quality":             result.Quality,
-			"popularity":          result.Popularity,
-			"vote_count":          result.VoteCount,
-			"series_id":           result.SeriesID,
-			"file_path":           result.FilePath,
-			"preview_path":        result.PreviewPath,
-			"preview_clip_path":   result.PreviewClipPath,
-			"tmdb_id":             result.TMDBID,
-		})
+		formatted = append(formatted, h.formatMediaResult(result))
 	}
-
 	return formatted
+}
+
+// formatMediaResult converts a single media result to map
+func (h *WidgetDataHandlers) formatMediaResult(result MediaResult) map[string]interface{} {
+	return map[string]interface{}{
+		"id":                result.ID,
+		"title":             result.Title,
+		"type":              result.Type,
+		"description":       result.Description,
+		"poster_path":       result.PosterPath,
+		"backdrop_path":     result.BackdropPath,
+		"tmdb_backdrop_url": result.TMDBBackdropURL,
+		"tmdb_poster_url":   result.TMDBPosterURL,
+		"tmdb_trailer_url":  result.TMDBTrailerURL,
+		"logo_path":         result.LogoPath,
+		"trailer_path":      result.TrailerPath,
+		"rating":            result.Rating,
+		"year":              result.Year,
+		"duration":          result.Duration,
+		"genre_names":       result.GenreNames,
+		"release_date":      result.ReleaseDate,
+		"tagline":           result.Tagline,
+		"view_count":        result.ViewCount,
+		"quality":           result.Quality,
+		"popularity":        result.Popularity,
+		"vote_count":        result.VoteCount,
+		"series_id":         result.SeriesID,
+		"file_path":         result.FilePath,
+		"preview_path":      result.PreviewPath,
+		"preview_clip_path": result.PreviewClipPath,
+		"tmdb_id":           result.TMDBID,
+		"_source":           "local",
+	}
 }
 
 // Helper function to build ID list for ORDER BY FIELD
