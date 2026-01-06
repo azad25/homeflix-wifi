@@ -1,0 +1,62 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    font-family: system-ui, sans-serif;
+  }
+  
+  body {
+    @apply bg-black text-white;
+  }
+}
+
+@layer components {
+  .glass-card {
+    @apply bg-white/5 backdrop-blur-md border border-white/10 rounded-xl;
+  }
+  
+  .homeflix-button {
+    @apply bg-homeflix-red hover:bg-homeflix-red-dark text-white font-semibold py-3 px-6 rounded-lg transition-all duration-200 transform hover:scale-105;
+  }
+  
+  .homeflix-input {
+    @apply bg-homeflix-gray-dark border border-white/20 rounded-lg px-4 py-3 text-white placeholder-gray-400 focus:border-homeflix-red focus:outline-none transition-colors;
+  }
+  
+  .step-indicator {
+    @apply w-8 h-8 rounded-full flex items-center justify-center text-sm font-semibold transition-all duration-300;
+  }
+  
+  .step-active {
+    @apply bg-homeflix-red text-white;
+  }
+  
+  .step-completed {
+    @apply bg-green-600 text-white;
+  }
+  
+  .step-inactive {
+    @apply bg-gray-600 text-gray-300;
+  }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(229, 9, 20, 0.6);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(229, 9, 20, 0.8);
+}

@@ -1,0 +1,115 @@
+version: '3.8'
+
+services:
+  homeflix-setup:
+    build:
+      context: .
+      dockerfile: Dockerfile.setup
+    ports:
+      - "3009:3009"
+    volumes:
+      - ./setup-data:/app/setup-data
+      - ./config:/app/config
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - SETUP_MODE=true
+      - DOCKER_HOST=unix:///var/run/docker.sock
+    networks:
+      - homeflix-network
+    profiles:
+      - setup
+
+  homeflix-backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.production
+    ports:
+      - "8252:8252"
+    volumes:
+      # Use existing local folders for media assets
+      - ${MEDIA_PATH:-/media/azad/Movies1}:/media/movies:ro
+      - ./backend/thumbnails:/app/thumbnails
+      - ./backend/posters:/app/posters
+      - ./backend/previews:/app/previews
+      - ./backend/subtitles:/app/subtitles
+      - ./backend/optimized:/app/optimized
+      - ./backend/backdrops:/app/backdrops
+      - ./backend/logos:/app/logos
+      - ./backend/alac_audio:/app/alac_audio
+      # Use existing SQLite database
+      - ./backend/homeflix.db:/app/homeflix.db
+      - ./config:/app/config:ro
+    env_file:
+      - ./config/backend.env
+    environment:
+      - DATABASE_URL=/app/homeflix.db
+      - MEDIA_PATH=/media/movies
+      - PORT=8252
+    depends_on:
+      - homeflix-redis
+    networks:
+      - homeflix-network
+    restart: unless-stopped
+    profiles:
+      - production
+
+  homeflix-frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.production
+    ports:
+      - "3008:3008"
+    env_file:
+      - ./config/frontend.env
+    environment:
+      - NEXT_PUBLIC_API_URL=http://homeflix-backend:8252
+      - NODE_ENV=production
+      - PORT=3008
+    depends_on:
+      - homeflix-backend
+    networks:
+      - homeflix-network
+    restart: unless-stopped
+    profiles:
+      - production
+
+  homeflix-redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    networks:
+      - homeflix-network
+    restart: unless-stopped
+    profiles:
+      - production
+
+  jackett:
+    image: lscr.io/linuxserver/jackett:latest
+    container_name: homeflix-jackett
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=UTC
+      - AUTO_UPDATE=true
+    volumes:
+      - ./jackett-config:/config
+      - ./downloads:/downloads
+    ports:
+      - "9117:9117"
+    networks:
+      - homeflix-network
+    restart: unless-stopped
+    profiles:
+      - production
+      - torrent
+
+volumes:
+  redis-data:
+  setup-data:
+
+networks:
+  homeflix-network:
+    driver: bridge

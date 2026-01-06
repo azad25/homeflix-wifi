@@ -285,17 +285,33 @@ Transform your media collection into a professional streaming platform! HomeFlix
 
 ## 🚀 Quick Installation
 
-### One-Command Setup (Version 2.0)
-```bash
-# Clone and setup everything including torrent system
-git clone <repository-url>
-cd homeflix
-chmod +x setup.sh start.sh setup-jackett.sh
-./setup.sh
+### One-Command Setup (Recommended)
 
-# Optional: Setup torrent downloads (recommended)
-./setup-jackett.sh
+```bash
+# Quick start with automatic permissions
+./quick-start.sh
 ```
+
+Or full installation with setup wizard:
+
+```bash
+./install.sh
+```
+
+Or download and run:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/your-username/homeflix/main/install.sh | bash
+```
+
+**All permissions are automatically configured** - no manual chmod commands needed!
+
+This will:
+1. ✅ **Automatically fix all script permissions**
+2. ✅ Check system requirements
+3. 📁 Set up directory structure with correct permissions
+4. 🐳 Build Docker containers
+5. 🌐 Start the setup wizard at `http://localhost:3009`
 
 ### Manual Installation
 

@@ -1,0 +1,48 @@
+FROM node:18-alpine AS setup-builder
+
+WORKDIR /app
+
+# Install setup dependencies
+RUN apk add --no-cache \
+    docker-cli \
+    docker-compose \
+    curl \
+    bash \
+    git
+
+# Copy setup application
+COPY setup-ui/package*.json ./
+RUN npm ci
+
+COPY setup-ui/ ./
+RUN npm run build
+
+FROM node:18-alpine AS setup-runner
+
+WORKDIR /app
+
+# Install runtime dependencies
+RUN apk add --no-cache \
+    docker-cli \
+    docker-compose \
+    curl \
+    bash \
+    git \
+    sqlite
+
+# Copy built setup application
+COPY --from=setup-builder /app/.next/standalone ./
+COPY --from=setup-builder /app/.next/static ./.next/static
+COPY --from=setup-builder /app/public ./public
+
+# Copy setup scripts
+COPY setup-scripts/ ./setup-scripts/
+RUN chmod +x ./setup-scripts/*.sh
+
+EXPOSE 3009
+
+ENV NODE_ENV=production
+ENV PORT=3009
+ENV HOSTNAME="0.0.0.0"
+
+CMD ["node", "server.js"]

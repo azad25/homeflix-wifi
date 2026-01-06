@@ -27,14 +27,14 @@ check_dependency "redis-server"
 echo "✅ All dependencies found!"
 
 # Check if already running
-if lsof -i :3008 2>/dev/null | grep -q LISTEN; then
+if ss -tlnp | grep -q ":3008 "; then
     echo "⚠️  Frontend already running on port 3008"
     FRONTEND_RUNNING=true
 else
     FRONTEND_RUNNING=false
 fi
 
-if lsof -i :8252 2>/dev/null | grep -q LISTEN; then
+if ss -tlnp | grep -q ":8252 "; then
     echo "⚠️  Backend already running on port 8252"
     BACKEND_RUNNING=true
 else

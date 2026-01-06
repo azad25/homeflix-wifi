@@ -11,12 +11,12 @@ bash "$SCRIPT_DIR/stop.sh"
 
 # Wait for processes to fully terminate
 echo "⏳ Waiting for shutdown..."
-sleep 3
+sleep 5
 
 # Check if ports are free
 echo "🔍 Checking if ports are available..."
 for port in 3008 8252; do
-    if lsof -i:$port > /dev/null 2>&1; then
+    if ss -tlnp | grep -q ":$port "; then
         echo "⚠️ Port $port is still in use, waiting..."
         sleep 2
     fi
