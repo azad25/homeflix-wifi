@@ -137,14 +137,28 @@ setup_wizard() {
 dev_mode() {
     log "🔧 Starting development mode..."
     
-    migrate_environment
+    # Ensure all scripts are executable
+    find . -name "*.sh" -type f -exec chmod +x {} \; 2>/dev/null || true
     
-    # Start development services
-    if [ -f "start-dev.sh" ]; then
-        ./start-dev.sh
+    # Start development environment
+    docker-compose -f docker-compose.dev.yml up --build -d
+    
+    log "✅ Development environment started!"
+    echo "🌐 Open http://localhost:3009 in your browser"
+}
+
+# Setup Jackett for torrent search
+setup_jackett() {
+    if [ -f "setup-jackett.sh" ]; then
+        log "🔍 Setting up Jackett for torrent search..."
+        chmod +x setup-jackett.sh
+        if ./setup-jackett.sh; then
+            log "✅ Jackett setup completed successfully"
+        else
+            warn "⚠️ Jackett setup encountered some issues, but continuing..."
+        fi
     else
-        warn "start-dev.sh not found, using production mode"
-        quick_start
+        warn "⚠️ Jackett setup script not found. Skipping Jackett setup."
     fi
 }
 
@@ -158,6 +172,10 @@ main() {
     fi
     
     check_docker
+    
+    # Run Jackett setup before showing options
+    setup_jackett
+    
     show_options
 }
 

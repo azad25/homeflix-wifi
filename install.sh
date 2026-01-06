@@ -233,30 +233,31 @@ download_homeflix() {
 setup_directories() {
     log "Setting up directory structure..."
     
-    # Create necessary directories
-    mkdir -p config
-    mkdir -p setup-data
-    mkdir -p jackett-config
-    mkdir -p downloads
+    # Create required directories
+    local dirs=(
+        "$INSTALL_DIR/config"
+        "$INSTALL_DIR/downloads"
+        "$INSTALL_DIR/media"
+        "$INSTALL_DIR/db"
+        "$INSTALL_DIR/logs"
+        "$INSTALL_DIR/scripts"
+        "$INSTALL_DIR/jackett-config"
+    )
     
-    # Create backend asset directories
-    mkdir -p backend/thumbnails
-    mkdir -p backend/posters
-    mkdir -p backend/previews
-    mkdir -p backend/subtitles
-    mkdir -p backend/optimized
-    mkdir -p backend/backdrops
-    mkdir -p backend/logos
-    mkdir -p backend/alac_audio
+    for dir in "${dirs[@]}"; do
+        if [ ! -d "$dir" ]; then
+            mkdir -p "$dir"
+            log "Created directory: $dir"
+        fi
+    done
     
     # Set permissions
-    chmod 755 config setup-data jackett-config downloads
-    chmod 755 backend/thumbnails backend/posters backend/previews backend/subtitles backend/optimized backend/backdrops backend/logos backend/alac_audio
+    chmod -R 755 "$INSTALL_DIR"
     
-    # Initialize database if it doesn't exist
-    if [ ! -f "backend/homeflix.db" ]; then
-        log "Creating database file..."
-        touch backend/homeflix.db
+    # Create .env file if it doesn't exist
+    if [ ! -f "$INSTALL_DIR/.env" ]; then
+        cp "$INSTALL_DIR/.env.example" "$INSTALL_DIR/.env"
+        log "Created .env file from example"
         chmod 644 backend/homeflix.db
     else
         log "Using existing database"
@@ -300,15 +301,23 @@ setup_scripts() {
 
 # Start installation
 start_installation() {
-    log "Starting HomeFlix installation..."
+    log "🚀 Starting HomeFlix installation..."
     
-    # Run the installation script
-    if [ -f "setup-scripts/install.sh" ]; then
-        ./setup-scripts/install.sh
+    # Run setup steps
+    check_requirements
+    get_install_dir
+    download_homeflix
+    setup_directories
+    setup_scripts
+    
+    # Setup Jackett if not in demo mode
+    if [ "$DEMO_MODE" != "true" ]; then
+        setup_jackett
     else
-        error "Installation script not found"
-        return 1
+        log "Skipping Jackett setup in demo mode"
     fi
+    
+    success "✅ Installation completed successfully!"
 }
 
 # Show completion message

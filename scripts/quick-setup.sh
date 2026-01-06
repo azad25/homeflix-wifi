@@ -28,9 +28,14 @@ print_error() {
 }
 
 # Check if we're in the right directory
-if [ ! -f "setup-jackett.sh" ] || [ ! -f "setup-jackett-native.sh" ]; then
-    print_error "Please run this script from the HomeFlix root directory"
-    exit 1
+if [ ! -f "../setup-jackett.sh" ] || [ ! -f "../setup-jackett-native.sh" ]; then
+    if [ ! -f "setup-jackett.sh" ] || [ ! -f "setup-jackett-native.sh" ]; then
+        print_error "Could not find Jackett setup files. Please run this script from the HomeFlix root directory"
+        exit 1
+    fi
+else
+    # If we're in the scripts directory, change to root
+    cd ..
 fi
 
 echo ""

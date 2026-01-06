@@ -1,6 +1,24 @@
 # HomeFlix Installation Guide
 
-Transform your media collection into a professional streaming platform with this comprehensive installation system!
+Transform your media collection into a professional streaming platform with this comprehensive installation system, featuring built-in Jackett integration for torrent search functionality!
+
+## 🔍 Jackett Integration
+
+HomeFlix now includes built-in support for [Jackett](https://github.com/Jackett/Jackett), which provides:
+
+- **Torrent Search**: Search across multiple torrent sites from one place
+- **Auto-Configuration**: Automatic setup during installation
+- **Seamless Integration**: Directly works with HomeFlix's download manager
+
+The Jackett setup will run automatically during installation. You can also run it manually:
+
+```bash
+./setup-jackett.sh
+```
+
+> **Note**: You'll need to configure your preferred indexers in the Jackett web interface after setup.
+
+## 🚀 Quick Start (Recommended)
 
 ## 🚀 Quick Start (Recommended)
 
