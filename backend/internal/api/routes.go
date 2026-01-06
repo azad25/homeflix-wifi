@@ -12,8 +12,14 @@ import (
 )
 
 func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamService *services.OptimizedStreamService, thumbnailService *services.ThumbnailService, userService *services.UserService, recommendationService *services.RecommendationService, playbackService *services.PlaybackService, geminiService *services.GeminiService, celeryService *services.CeleryService, alacService *services.ALACAudioService, tmdbService *services.TMDBService, mediaScanner *scanner.MediaScanner, watcherService *services.WatcherService, redisCache *services.RedisAssetCache, transcodeService *services.TranscodeService, newsService *services.NewsService, posterService *services.PosterService, openSubService *services.OpenSubtitlesService, notificationService *services.NotificationService, db *gorm.DB) {
+	// Initialize API handler
+	apiHandler := NewHandler(db)
+
 	api := r.Group("/api")
 	{
+		// Health check
+		api.GET("/health", apiHandler.HealthCheckHandler)
+
 		// Media routes
 		api.GET("/media", handlers.GetAllMedia(mediaService))
 		api.GET("/media/movies", handlers.GetMovies(mediaService))
