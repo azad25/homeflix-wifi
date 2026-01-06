@@ -809,36 +809,54 @@ export default function WidgetEditor({
                     <label className="block text-sm font-medium text-white/80 mb-3">Notification Types</label>
                     <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                       {[
-                        { value: 'movie_suggestion', label: 'Movie Suggestions', description: 'Multi-movie recommendations' },
-                        { value: 'single_movie_suggestion', label: 'Single Movie', description: 'Perfect match recommendations' },
-                        { value: 'watch_again', label: 'Watch Again', description: 'Continue watching content' },
-                        { value: 'tmdb_upcoming', label: 'TMDB Upcoming', description: 'Upcoming movie releases' },
-                        { value: 'tmdb_now_playing', label: 'TMDB Now Playing', description: 'Currently in theaters' },
-                        { value: 'tmdb_trending', label: 'TMDB Trending', description: 'Trending movies worldwide' },
-                        { value: 'tmdb_upcoming_tv', label: 'Upcoming TV', description: 'Upcoming TV series' },
-                        { value: 'tmdb_now_airing_tv', label: 'Now Airing TV', description: 'Currently airing series' },
-                        { value: 'new_episodes', label: 'New Episodes', description: 'New TV episodes available' },
-                        { value: 'new_movies', label: 'New Movies', description: 'Recently added movies' }
+                        // Library Updates
+                        { value: 'new_movies', label: 'New Movies', description: 'Newly added movies', category: '📚 Library' },
+                        { value: 'new_episodes', label: 'New Episodes', description: 'New TV episodes', category: '📚 Library' },
+                        { value: 'recently_added', label: 'Recently Added', description: 'Recently added highlights', category: '📚 Library' },
+                        // Recommendations
+                        { value: 'movie_suggestion', label: 'Movie Suggestions', description: 'Multi-movie recommendations', category: '💡 Recommendations' },
+                        { value: 'single_movie_suggestion', label: 'Single Movie Pick', description: 'Perfect match', category: '💡 Recommendations' },
+                        { value: 'watch_again', label: 'Watch Again', description: 'Resume watching', category: '💡 Recommendations' },
+                        { value: 'continue_watching', label: 'Continue Watching', description: 'With progress tracking', category: '💡 Recommendations' },
+                        { value: 'genre_based', label: 'Genre Based', description: 'By favorite genres', category: '💡 Recommendations' },
+                        // Trending & Local
+                        { value: 'local_trending', label: 'Local Trending', description: 'Trending in your library', category: '🔥 Trending' },
+                        // TMDB Updates
+                        { value: 'tmdb_upcoming', label: 'TMDB Upcoming', description: 'Coming to theaters', category: '🎬 TMDB' },
+                        { value: 'tmdb_now_playing', label: 'Now Playing', description: 'In theaters now', category: '🎬 TMDB' },
+                        { value: 'tmdb_trending', label: 'TMDB Trending', description: 'Trending worldwide', category: '🎬 TMDB' },
+                        { value: 'tmdb_upcoming_tv', label: 'Upcoming TV', description: 'New TV series/episodes', category: '🎬 TMDB' },
+                        { value: 'tmdb_now_airing_tv', label: 'Now Airing TV', description: 'Currently airing', category: '🎬 TMDB' },
+                        { value: 'tmdb_coming_soon', label: 'Coming Soon', description: 'Curated upcoming movies', category: '🎬 TMDB' },
+                        // System
+                        { value: 'download_complete', label: 'Download Complete', description: 'Finished downloads', category: '⚙️ System' },
                       ].map((type) => (
-                        <label key={type.value} className="flex items-start gap-3 p-3 bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl hover:bg-white/10 transition-colors cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={config.notificationTypes?.includes(type.value) || false}
-                            onChange={(e) => {
-                              const currentTypes = config.notificationTypes || [];
-                              if (e.target.checked) {
-                                setConfig({ ...config, notificationTypes: [...currentTypes, type.value] });
-                              } else {
-                                setConfig({ ...config, notificationTypes: currentTypes.filter((t: string) => t !== type.value) });
-                              }
-                            }}
-                            className="w-4 h-4 text-red-500 bg-white/10 border-white/20 rounded focus:ring-red-500 focus:ring-2 mt-0.5"
-                          />
-                          <div className="flex-1">
-                            <span className="text-sm text-white/80 font-medium block">{type.label}</span>
-                            <span className="text-xs text-white/50">{type.description}</span>
-                          </div>
-                        </label>
+                        <button
+                          key={type.value}
+                          onClick={() => {
+                            const currentTypes = config.notificationTypes || [];
+                            if (currentTypes.includes(type.value)) {
+                              setConfig({ 
+                                ...config, 
+                                notificationTypes: currentTypes.filter((t: string) => t !== type.value)
+                              });
+                            } else {
+                              setConfig({ 
+                                ...config, 
+                                notificationTypes: [...currentTypes, type.value]
+                              });
+                            }
+                          }}
+                          className={`p-3 rounded-xl border transition-all duration-200 text-left hover:scale-105 ${
+                            (config.notificationTypes || []).includes(type.value)
+                              ? 'bg-red-500/20 border-red-400/50 shadow-lg shadow-red-500/10'
+                              : 'bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20'
+                          }`}
+                        >
+                          <div className="font-medium text-white mb-1">{type.label}</div>
+                          <p className="text-xs text-white/60">{type.description}</p>
+                          <span className="text-xs text-white/40 mt-1 block">{type.category}</span>
+                        </button>
                       ))}
                     </div>
                     
@@ -848,9 +866,12 @@ export default function WidgetEditor({
                         onClick={() => setConfig({ 
                           ...config, 
                           notificationTypes: [
-                            'movie_suggestion', 'single_movie_suggestion', 'watch_again',
+                            'new_movies', 'new_episodes', 'recently_added',
+                            'movie_suggestion', 'single_movie_suggestion', 'watch_again', 'continue_watching', 'genre_based',
+                            'local_trending',
                             'tmdb_upcoming', 'tmdb_now_playing', 'tmdb_trending',
-                            'tmdb_upcoming_tv', 'tmdb_now_airing_tv', 'new_episodes', 'new_movies'
+                            'tmdb_upcoming_tv', 'tmdb_now_airing_tv', 'tmdb_coming_soon',
+                            'download_complete'
                           ]
                         })}
                         className="px-3 py-1 text-xs bg-red-500/20 hover:bg-red-500/30 border border-red-400/30 text-red-200 rounded-lg transition-colors"

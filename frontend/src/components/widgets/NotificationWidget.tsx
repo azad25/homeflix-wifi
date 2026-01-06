@@ -547,35 +547,44 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
       const hoursSinceCreated = (Date.now() / 1000 - notification.timestamp) / 3600;
 
       switch (notification.type) {
+        // High Priority - Trending
         case 'tmdb_now_playing':
         case 'tmdb_trending':
+        case 'tmdb_now_airing_tv':
+        case 'local_trending':
           priority = hoursSinceCreated < 24 ? 'high' : 'medium';
           category = 'trending';
           break;
+        // Medium Priority - Coming Soon
         case 'tmdb_upcoming':
         case 'tmdb_upcoming_tv':
+        case 'tmdb_coming_soon':
           priority = 'medium';
           category = 'new';
           break;
-        case 'tmdb_now_airing_tv':
-          priority = hoursSinceCreated < 12 ? 'high' : 'medium';
-          category = 'trending';
-          break;
+        // Medium Priority - Recommendations
         case 'movie_suggestion':
         case 'single_movie_suggestion':
+        case 'genre_based':
           priority = 'medium';
           category = 'recommended';
           break;
+        // Low Priority - Watch Again
         case 'watch_again':
+        case 'continue_watching':
           priority = 'low';
           category = 'watchlist';
           break;
+        // High Priority - New Content
         case 'new_episodes':
+        case 'new_movies':
+        case 'recently_added':
           priority = hoursSinceCreated < 12 ? 'high' : 'medium';
           category = 'new';
           break;
-        case 'new_movies':
-          priority = hoursSinceCreated < 24 ? 'high' : 'medium';
+        // Low Priority - System
+        case 'download_complete':
+          priority = 'low';
           category = 'new';
           break;
         default:
@@ -645,11 +654,14 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
   };
 
   const handleNotificationClick = (notification: EnhancedNotification, index?: number) => {
-    // Handle continue watching - route to local content
-    if (notification.type === 'continue_watching' || 
-        notification.type === 'recently_added' ||
-        notification.type === 'local_trending' ||
-        notification.type === 'genre_based') {
+    // Handle continue watching and local content
+    if (
+      notification.type === 'continue_watching' || 
+      notification.type === 'recently_added' ||
+      notification.type === 'local_trending' ||
+      notification.type === 'genre_based' ||
+      notification.type === 'watch_again'
+    ) {
       if (notification.movie_ids && notification.movie_ids.length > 0) {
         const movieId = index !== undefined && notification.movie_ids[index] 
           ? notification.movie_ids[index] 
@@ -662,12 +674,14 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
     }
 
     // Handle TMDB content
-    if (notification.type === 'tmdb_upcoming' ||
+    if (
+      notification.type === 'tmdb_upcoming' ||
       notification.type === 'tmdb_now_playing' ||
       notification.type === 'tmdb_trending' ||
       notification.type === 'tmdb_upcoming_tv' ||
       notification.type === 'tmdb_now_airing_tv' ||
-      notification.type === 'tmdb_coming_soon') {
+      notification.type === 'tmdb_coming_soon'
+    ) {
       if (notification.tmdb_ids && notification.tmdb_ids.length > 0) {
         const tmdbId = index !== undefined ? notification.tmdb_ids[index] : notification.tmdb_ids[0];
         // Check if it's a TV series notification
@@ -677,13 +691,39 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
           navigate.push(`/tmdb-movie/${tmdbId}?type=movie`);
         }
       }
-    } else if (notification.type === 'new_episodes' && notification.series_id) {
+      return;
+    }
+
+    // Handle episodes
+    if (notification.type === 'new_episodes' && notification.series_id) {
       navigate.push(`/tv-series/${notification.series_id}`);
-    } else if (notification.movie_ids && notification.movie_ids.length > 0) {
+      return;
+    }
+
+    // Handle movie suggestions and new movies
+    if (
+      notification.type === 'movie_suggestion' ||
+      notification.type === 'single_movie_suggestion' ||
+      notification.type === 'new_movies'
+    ) {
+      if (notification.movie_ids && notification.movie_ids.length > 0) {
+        const movieId = index !== undefined ? notification.movie_ids[index] : notification.movie_ids[0];
+        if (movieId && movieId > 0) {
+          navigate.push(`/movie/${movieId}`);
+        }
+      }
+      return;
+    }
+
+    // Default: try movie IDs first, then TMDB IDs
+    if (notification.movie_ids && notification.movie_ids.length > 0) {
       const movieId = index !== undefined ? notification.movie_ids[index] : notification.movie_ids[0];
       if (movieId && movieId > 0) {
         navigate.push(`/movie/${movieId}`);
       }
+    } else if (notification.tmdb_ids && notification.tmdb_ids.length > 0) {
+      const tmdbId = index !== undefined ? notification.tmdb_ids[index] : notification.tmdb_ids[0];
+      navigate.push(`/tmdb-movie/${tmdbId}?type=movie`);
     }
   };
 
@@ -694,30 +734,42 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
     };
 
     switch (type) {
+      // Upcoming & Coming Soon
       case 'tmdb_upcoming':
       case 'tmdb_upcoming_tv':
       case 'tmdb_coming_soon':
         return <Calendar {...iconProps} />;
+      // Now Playing/Airing
       case 'tmdb_now_playing':
       case 'tmdb_now_airing_tv':
         return <Sparkles {...iconProps} />;
+      // Trending
       case 'tmdb_trending':
       case 'local_trending':
         return <TrendingUp {...iconProps} />;
+      // Episodes
       case 'new_episodes':
         return <Tv {...iconProps} />;
+      // New/Recently Added
       case 'new_movies':
       case 'recently_added':
-        return <Sparkles {...iconProps} />;
+        return <Plus {...iconProps} />;
+      // Recommendations
       case 'movie_suggestion':
         return <Award {...iconProps} />;
       case 'single_movie_suggestion':
         return <Star {...iconProps} />;
+      // Continue/Watch Again
       case 'watch_again':
       case 'continue_watching':
         return <RotateCcw {...iconProps} />;
+      // Genre Based
       case 'genre_based':
         return <Heart {...iconProps} />;
+      // System
+      case 'download_complete':
+        return <Check {...iconProps} />;
+      // Default
       default:
         return <Bell {...iconProps} />;
     }

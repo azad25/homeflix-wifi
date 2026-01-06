@@ -36,8 +36,9 @@ interface WidgetManagerProps {
     className?: string;
 }
 
-// Notification types with descriptions
+// Notification types with descriptions - COMPLETE BACKEND MATCH
 const NOTIFICATION_TYPES = [
+    // Library Updates
     { 
         value: 'new_movies' as NotificationType, 
         label: 'New Movies', 
@@ -51,9 +52,16 @@ const NOTIFICATION_TYPES = [
         category: 'Library Updates'
     },
     { 
+        value: 'recently_added' as NotificationType, 
+        label: 'Recently Added', 
+        description: 'Recently added content highlights',
+        category: 'Library Updates'
+    },
+    // Recommendations
+    { 
         value: 'movie_suggestion' as NotificationType, 
         label: 'Movie Suggestions', 
-        description: 'Multiple movie recommendations',
+        description: 'Multiple movie recommendations based on watch history',
         category: 'Recommendations'
     },
     { 
@@ -65,19 +73,40 @@ const NOTIFICATION_TYPES = [
     { 
         value: 'watch_again' as NotificationType, 
         label: 'Watch Again', 
-        description: 'Continue watching suggestions',
+        description: 'Resume watching suggestions for partially watched content',
         category: 'Recommendations'
     },
+    { 
+        value: 'continue_watching' as NotificationType, 
+        label: 'Continue Watching', 
+        description: 'In-progress content with progress tracking',
+        category: 'Recommendations'
+    },
+    { 
+        value: 'genre_based' as NotificationType, 
+        label: 'Genre Based', 
+        description: 'Recommendations based on favorite genres',
+        category: 'Recommendations'
+    },
+    // Trending & Local
+    { 
+        value: 'local_trending' as NotificationType, 
+        label: 'Local Trending', 
+        description: 'Trending content in your library',
+        category: 'Local Content'
+    },
+    // System
     { 
         value: 'download_complete' as NotificationType, 
         label: 'Download Complete', 
         description: 'Finished downloads',
         category: 'System'
     },
+    // TMDB Updates
     { 
         value: 'tmdb_upcoming' as NotificationType, 
         label: 'TMDB Upcoming', 
-        description: 'Coming soon to theaters',
+        description: 'Coming soon to theaters (1-60 days)',
         category: 'TMDB Updates'
     },
     { 
@@ -89,13 +118,13 @@ const NOTIFICATION_TYPES = [
     { 
         value: 'tmdb_trending' as NotificationType, 
         label: 'TMDB Trending', 
-        description: 'Trending worldwide movies',
+        description: 'Trending movies worldwide',
         category: 'TMDB Updates'
     },
     { 
         value: 'tmdb_upcoming_tv' as NotificationType, 
         label: 'Upcoming TV', 
-        description: 'New TV episodes coming',
+        description: 'Upcoming TV episodes and series',
         category: 'TMDB Updates'
     },
     { 
@@ -103,6 +132,19 @@ const NOTIFICATION_TYPES = [
         label: 'Now Airing TV', 
         description: 'Currently airing TV shows',
         category: 'TMDB Updates'
+    },
+    { 
+        value: 'tmdb_coming_soon' as NotificationType, 
+        label: 'TMDB Coming Soon', 
+        description: 'Curated upcoming movie releases',
+        category: 'TMDB Updates'
+    },
+    // Legacy/Unused (kept for compatibility)
+    { 
+        value: 'coming_soon' as NotificationType, 
+        label: 'Coming Soon (Legacy)', 
+        description: 'Legacy coming soon notification',
+        category: 'Deprecated'
     },
 ] as const;
 
