@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Search, Bell, User, Menu, X, Film, Tv } from "lucide-react";
+import { Search, Bell, User, Menu, X, Film, Tv, Music, List, Compass, Settings, HelpCircle, LogOut } from "lucide-react";
 import { usePathname } from "next/navigation";
 import NavigationLink from "./NavigationLink";
 import { useNavigate } from "@/hooks/useNavigate";
@@ -30,6 +30,8 @@ interface TMDBSearchResult {
   media_type: "movie" | "tv";
   adult: boolean;
   genre_ids: number[];
+  is_local?: boolean;
+  logo_path?: string;
 }
 
 interface TMDBSuggestionsResponse {
@@ -182,17 +184,74 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
     setIsLoadingSuggestions(true);
     try {
       const apiUrl = getApiUrl();
-      const response = await fetch(`${apiUrl}/api/tmdb/suggestions?q=${encodeURIComponent(query)}`);
+      
+      // Fetch from both Local and TMDB in parallel
+      const [localRes, tmdbRes] = await Promise.allSettled([
+        fetch(`${apiUrl}/api/media/search?q=${encodeURIComponent(query)}`),
+        fetch(`${apiUrl}/api/tmdb/suggestions?q=${encodeURIComponent(query)}`)
+      ]);
 
-      if (response.ok) {
-        const data: TMDBSuggestionsResponse = await response.json();
-        setSuggestions(data.results || []);
-        setShowSuggestions(data.results.length > 0);
-      } else {
-        console.error("Failed to fetch suggestions:", response.statusText);
-        setSuggestions([]);
-        setShowSuggestions(false);
+      let combinedResults: TMDBSearchResult[] = [];
+
+      // Process Local Results
+      if (localRes.status === 'fulfilled' && localRes.value.ok) {
+        const localData = await localRes.value.json();
+        if (Array.isArray(localData)) {
+          const localMapped: TMDBSearchResult[] = localData.map((item: any) => ({
+            id: item.id,
+            title: item.title,
+            original_title: item.title,
+            overview: item.description || item.long_desc || item.short_desc || '',
+            release_date: item.release_date || '',
+            poster_path: item.poster_path ? `/api/posters/${item.id}` : '',
+            backdrop_path: item.backdrop_path ? `/api/backdrops/${item.id}` : '',
+            vote_average: item.rating || 0,
+            vote_count: item.vote_count || 0,
+            popularity: item.popularity || 0,
+            media_type: (item.type === 'tv' || item.type === 'series' || item.type === 'episode') ? 'tv' : 'movie',
+            adult: false,
+            genre_ids: [],
+            is_local: true,
+            logo_path: item.logo_path || ''
+          }));
+          combinedResults = [...localMapped];
+        }
       }
+
+      // Process TMDB Results
+      if (tmdbRes.status === 'fulfilled' && tmdbRes.value.ok) {
+        const tmdbData: TMDBSuggestionsResponse = await tmdbRes.value.json();
+        const tmdbResults = tmdbData.results || [];
+        
+        // Filter out TMDB results that are already in local results (by title and type)
+        // This prevents duplicates if a user has the movie locally
+        const localTitles = new Set(combinedResults.map(r => `${r.title.toLowerCase()}-${r.media_type}`));
+        
+        const newTmdbResults = tmdbResults.filter(item => 
+          !localTitles.has(`${item.title.toLowerCase()}-${item.media_type}`)
+        ).map(item => ({
+          ...item,
+          is_local: false // Explicitly mark as TMDB result
+        }));
+        
+        // Sort results: local first, then by popularity/vote average
+        combinedResults = [...combinedResults, ...newTmdbResults].sort((a, b) => {
+          // Local results first
+          if (a.is_local && !b.is_local) return -1;
+          if (!a.is_local && b.is_local) return 1;
+          
+          // Then by vote average
+          if (b.vote_average !== a.vote_average) {
+            return b.vote_average - a.vote_average;
+          }
+          
+          // Then by popularity
+          return b.popularity - a.popularity;
+        });
+      }
+
+      setSuggestions(combinedResults);
+      setShowSuggestions(combinedResults.length > 0);
     } catch (error) {
       console.error("Error fetching suggestions:", error);
       setSuggestions([]);
@@ -217,8 +276,17 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
   };
 
   const handleSuggestionClick = (suggestion: TMDBSearchResult) => {
-    // Navigate directly to TMDB movie/TV page with media type
-    navigate.push(`/tmdb-movie/${suggestion.id}?type=${suggestion.media_type}`);
+    if (suggestion.is_local) {
+      // Navigate to local content page
+      if (suggestion.media_type === 'movie') {
+        navigate.push(`/movie/${suggestion.id}`);
+      } else {
+        navigate.push(`/tv-shows/${suggestion.id}`);
+      }
+    } else {
+      // Navigate directly to TMDB movie/TV page with media type
+      navigate.push(`/tmdb-movie/${suggestion.id}?type=${suggestion.media_type}`);
+    }
     setIsSearchOpen(false);
     setShowSuggestions(false);
     setSearchQuery("");
@@ -239,6 +307,9 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
     if (!posterPath) {
       return 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDgiIGhlaWdodD0iNjQiIHZpZXdCb3g9IjAgMCA0OCA2NCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjQ4IiBoZWlnaHQ9IjY0IiBmaWxsPSIjMzc0MTUxIi8+CjxwYXRoIGQ9Ik0yNCAzMkMzMC42Mjc0IDMyIDM2IDI2LjYyNzQgMzYgMjBDMzYgMTMuMzcyNiAzMC42Mjc0IDggMjQgOEMxNy4zNzI2IDggMTIgMTMuMzcyNiAxMiAyMEMxMiAyNi42Mjc0IDE3LjM3MjYgMzIgMjQgMzJaIiBmaWxsPSIjNkI3Mjg4Ii8+CjxwYXRoIGQ9Ik0xMiA0NEMxMiAzNi4yNjggMTguMjY4IDMwIDI2IDMwSDIyQzI5LjczMiAzMCAzNiAzNi4yNjggMzYgNDRWNTZIMTJWNDRaIiBmaWxsPSIjNkI3Mjg4Ii8+Cjwvc3ZnPgo=';
     }
+    if (posterPath.startsWith('/api/')) {
+      return `${getApiUrl()}${posterPath}`;
+    }
     return `https://image.tmdb.org/t/p/w92${posterPath}`;
   };
 
@@ -248,14 +319,19 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
     return year ? `(${year})` : '';
   };
 
-  const navItems = [
+  interface NavItem {
+    name: string;
+    href: string;
+  }
+
+  const navItems: NavItem[] = [
     // { name: "Movies", href: "/movies" },
     // { name: "TV Shows", href: "/tv-shows" },
-    { name: "Music", href: "/music" },
+    // { name: "Music", href: "/music" },
     // { name: "Trailers", href: "/trailers" },
     // { name: "New & Popular", href: "/new-popular" },
-    { name: "My List", href: "/my-list" },
-    { name: "Browse", href: "/browse" },
+    // { name: "My List", href: "/my-list" },
+    // { name: "Browse", href: "/browse" },
   ];
 
   return (
@@ -385,9 +461,37 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
                                     ) : (
                                       <Tv className="w-4 h-4 text-green-400 flex-shrink-0" />
                                     )}
-                                    <h4 className="text-white font-medium truncate group-hover:text-red-400 transition-colors">
-                                      {suggestion.title}
-                                    </h4>
+                                    
+                                    <div className="min-w-0 flex-1">
+                                      <div className="relative h-6 flex items-center">
+                                        {suggestion.is_local && suggestion.logo_path ? (
+                                          <img 
+                                            src={`${getApiUrl()}/api/${suggestion.logo_path}`}
+                                            alt={suggestion.title}
+                                            className="h-full w-auto max-w-full object-contain object-left"
+                                            onError={(e) => {
+                                              e.currentTarget.style.display = 'none';
+                                              const titleEl = e.currentTarget.nextElementSibling;
+                                              if (titleEl) (titleEl as HTMLElement).style.display = 'block';
+                                            }}
+                                          />
+                                        ) : null}
+                                        <h4 
+                                          className="text-white font-medium truncate group-hover:text-red-400 transition-colors"
+                                          style={{ 
+                                            display: suggestion.is_local && suggestion.logo_path ? 'none' : 'block' 
+                                          }}
+                                        >
+                                          {suggestion.title}
+                                        </h4>
+                                      </div>
+                                    </div>
+
+                                    {suggestion.is_local && (
+                                      <span className="ml-2 px-1.5 py-0.5 text-[10px] font-bold bg-green-500/20 text-green-400 rounded border border-green-500/30 uppercase tracking-wider flex-shrink-0">
+                                        Library
+                                      </span>
+                                    )}
                                     <span className="text-gray-400 text-sm flex-shrink-0">
                                       {formatDate(suggestion.release_date)}
                                     </span>
@@ -397,13 +501,27 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
                                       {suggestion.overview}
                                     </p>
                                   )}
-                                  <div className="flex items-center gap-2 mt-1">
+                                  <div className="flex items-center gap-2 mt-1 flex-wrap">
                                     <span className="text-yellow-400 text-sm">
                                       ★ {suggestion.vote_average.toFixed(1)}
                                     </span>
-                                    <span className="text-gray-500 text-xs">
+                                    {suggestion.vote_count > 0 && (
+                                      <span className="text-gray-500 text-xs">
+                                        ({suggestion.vote_count.toLocaleString()} votes)
+                                      </span>
+                                    )}
+                                    <span className={`text-xs px-2 py-0.5 rounded-full border ${
+                                      suggestion.media_type === 'movie' 
+                                        ? 'text-blue-400 border-blue-400/30 bg-blue-500/10' 
+                                        : 'text-green-400 border-green-400/30 bg-green-500/10'
+                                    }`}>
                                       {suggestion.media_type === 'movie' ? 'Movie' : 'TV Show'}
                                     </span>
+                                    {suggestion.is_local && (
+                                      <span className="text-xs px-2 py-0.5 rounded-full border border-green-400/30 bg-green-500/10 text-green-400">
+                                        In Library
+                                      </span>
+                                    )}
                                   </div>
                                 </div>
                               </button>
@@ -481,18 +599,31 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
               </button>
 
               {/* Profile Dropdown */}
-              <div className="absolute right-0 top-full mt-2 w-48 bg-black/90 rounded-lg py-2 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200">
-                <a href="#" className="block px-4 py-2 text-white/80 hover:text-white hover:bg-white/10">
-                  Profile
+              <div className="absolute right-0 top-full mt-2 w-56 bg-black/90 rounded-lg py-2 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200">
+                <a href="/music" className="block px-4 py-2 text-white/80 hover:text-white hover:bg-white/10 flex items-center gap-2">
+                  <Music className="w-4 h-4" />
+                  Music
                 </a>
-                <a href="/settings" className="block px-4 py-2 text-white/80 hover:text-white hover:bg-white/10">
+                <a href="/my-list" className="block px-4 py-2 text-white/80 hover:text-white hover:bg-white/10 flex items-center gap-2">
+                  <List className="w-4 h-4" />
+                  My List
+                </a>
+                <a href="/browse" className="block px-4 py-2 text-white/80 hover:text-white hover:bg-white/10 flex items-center gap-2">
+                  <Compass className="w-4 h-4" />
+                  Browse
+                </a>
+                <hr className="border-white/20 my-2" />
+                <a href="/settings" className="block px-4 py-2 text-white/80 hover:text-white hover:bg-white/10 flex items-center gap-2">
+                  <Settings className="w-4 h-4" />
                   Settings
                 </a>
-                <a href="#" className="block px-4 py-2 text-white/80 hover:text-white hover:bg-white/10">
+                <a href="#" className="block px-4 py-2 text-white/80 hover:text-white hover:bg-white/10 flex items-center gap-2">
+                  <HelpCircle className="w-4 h-4" />
                   Help
                 </a>
                 <hr className="border-white/20 my-2" />
-                <a href="#" className="block px-4 py-2 text-white/80 hover:text-white hover:bg-white/10">
+                <a href="#" className="block px-4 py-2 text-white/80 hover:text-white hover:bg-white/10 flex items-center gap-2">
+                  <LogOut className="w-4 h-4" />
                   Sign Out
                 </a>
               </div>

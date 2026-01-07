@@ -13,12 +13,14 @@ import {
 } from '@/components/scrollx';
 import { useNavigate } from "@/hooks/useNavigate";
 
-interface TMDBSearchResult {
+interface SearchResult {
   id: number;
   title: string;
-  original_title: string;
+  original_title?: string;
+  name?: string;
   overview: string;
-  release_date: string;
+  release_date?: string;
+  first_air_date?: string;
   poster_path: string;
   backdrop_path: string;
   vote_average: number;
@@ -27,11 +29,16 @@ interface TMDBSearchResult {
   media_type: "movie" | "tv";
   adult: boolean;
   genre_ids: number[];
+  type?: string;
+  year?: number;
+  duration?: number;
+  description?: string;
+  _source?: 'tmdb' | 'local';
 }
 
 interface TMDBSearchResponse {
   page: number;
-  results: TMDBSearchResult[];
+  results: SearchResult[];
   total_pages: number;
   total_results: number;
 }
@@ -47,7 +54,9 @@ export default function SearchPage() {
   usePageTitle('Search');
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState("");
-  const [searchResults, setSearchResults] = useState<TMDBSearchResult[]>([]);
+  const [localResults, setLocalResults] = useState<SearchResult[]>([]);
+  const [isSearchingLocal, setIsSearchingLocal] = useState(false);
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [filters, setFilters] = useState<SearchFilters>({
     type: "multi",
     rating: "all",
@@ -63,12 +72,14 @@ export default function SearchPage() {
 
   useEffect(() => {
     // Check for search query in URL
-    const urlParams = new URLSearchParams(window.location.search);
-    const queryParam = urlParams.get('q');
-    if (queryParam) {
-      setSearchQuery(queryParam);
-      setHasSearched(true);
-      performSearch(queryParam, 1);
+    if (typeof window !== 'undefined') {
+      const urlParams = new URLSearchParams(window.location.search);
+      const queryParam = urlParams.get('q') || '';
+      if (queryParam) {
+        setSearchQuery(queryParam);
+        setHasSearched(true);
+        searchTMDBContent(queryParam, 1);
+      }
     }
   }, []);
 
@@ -76,16 +87,64 @@ export default function SearchPage() {
     if (searchQuery.trim() || hasSearched) {
       // Debounce search to avoid too many API calls
       const timeoutId = setTimeout(() => {
-        performSearch(searchQuery, 1);
+        searchTMDBContent(searchQuery, 1);
       }, 300);
       
       return () => clearTimeout(timeoutId);
     }
   }, [searchQuery, filters]);
 
-  const performSearch = async (query: string, page: number = 1) => {
+  const searchLocalContent = async (query: string) => {
+    if (!query.trim()) {
+      setLocalResults([]);
+      return [];
+    }
+
+    setIsSearchingLocal(true);
+    try {
+      const apiUrl = getApiUrl();
+      const response = await fetch(`${apiUrl}/api/media/search?q=${encodeURIComponent(query.trim())}`);
+      let results: SearchResult[] = [];
+      
+      if (response.ok) {
+        const data = await response.json();
+        if (Array.isArray(data)) {
+          results = data.map((item: any) => ({
+            id: item.id,
+            title: item.title,
+            name: item.title,
+            overview: item.description || item.long_desc || item.short_desc || '',
+            release_date: item.release_date,
+            first_air_date: item.first_air_date,
+            poster_path: item.poster_path ? `/api/posters/${item.id}` : '',
+            backdrop_path: item.backdrop_path ? `/api/backdrops/${item.id}` : '',
+            vote_average: item.rating || 0,
+            vote_count: item.vote_count || 0,
+            popularity: item.popularity || 0,
+            media_type: (item.type === 'tv' || item.type === 'series' || item.type === 'episode') ? 'tv' : 'movie',
+            adult: false,
+            genre_ids: [],
+            type: item.type,
+            year: item.year,
+            duration: item.duration,
+            description: item.description,
+            _source: 'local' as const
+          }));
+        }
+      }
+      setLocalResults(results);
+    } catch (error) {
+      console.error('Error searching local content:', error);
+      setLocalResults([]);
+    } finally {
+      setIsSearchingLocal(false);
+    }
+  };
+
+  const searchTMDBContent = async (query: string, page: number = 1) => {
     if (!query.trim()) {
       setSearchResults([]);
+      setLocalResults([]);
       setHasSearched(false);
       return;
     }
@@ -98,63 +157,64 @@ export default function SearchPage() {
       const params = new URLSearchParams({
         q: query.trim(),
         page: page.toString(),
-        type: filters.type
+        type: filters.type || 'multi'
       });
 
-      const response = await fetch(`${apiUrl}/api/tmdb/search?${params}`);
+      // Always search local content when searching TMDB
+      await searchLocalContent(query.trim());
       
-      if (!response.ok) {
-        throw new Error(`Search failed: ${response.statusText}`);
+      // Then search TMDB
+      const tmdbResponse = await fetch(`${apiUrl}/api/tmdb/search?${params.toString()}`);
+      
+      let tmdbResults: SearchResult[] = [];
+      
+      if (tmdbResponse.ok) {
+        const data = await tmdbResponse.json();
+        tmdbResults = (data.results || []).map((item: any) => ({
+          ...item,
+          _source: 'tmdb' as const
+        }));
+        setTotalPages(data.total_pages || 1);
+        setTotalResults((data.total_results || 0) + localResults.length);
+        setCurrentPage(data.page || 1);
+      } else {
+        setTotalPages(1);
+        setTotalResults(localResults.length);
+        setCurrentPage(1);
       }
       
-      const data: TMDBSearchResponse = await response.json();
-      let results = data.results || [];
+      // Combine TMDB and local results, removing duplicates by title and type
+      const combinedResults = [...tmdbResults];
       
-      // Apply client-side filters
-      if (filters.rating !== 'all') {
-        const minRating = parseFloat(filters.rating);
-        results = results.filter(item => item.vote_average >= minRating);
-      }
+      // Add local results that aren't already in the TMDB results
+      localResults.forEach(localItem => {
+        const exists = combinedResults.some(
+          item => item.title?.toLowerCase() === localItem.title?.toLowerCase() && 
+                 item.media_type === localItem.media_type
+        );
+        if (!exists) {
+          combinedResults.push(localItem);
+        }
+      });
       
-      if (filters.year !== 'all') {
-        const targetYear = parseInt(filters.year);
-        results = results.filter(item => {
-          const year = new Date(item.release_date).getFullYear();
-          return year === targetYear;
-        });
-      }
+      // Sort by relevance (local results first, then by popularity/rating)
+      combinedResults.sort((a, b) => {
+        // Local results first
+        if (a._source === 'local' && b._source !== 'local') return -1;
+        if (a._source !== 'local' && b._source === 'local') return 1;
+        
+        // Then sort by popularity/rating
+        return (b.popularity || 0) - (a.popularity || 0) || 
+               (b.vote_average || 0) - (a.vote_average || 0);
+      });
       
-      // Sort results
-      switch (filters.sortBy) {
-        case 'title':
-          results.sort((a, b) => a.title.localeCompare(b.title));
-          break;
-        case 'rating':
-          results.sort((a, b) => b.vote_average - a.vote_average);
-          break;
-        case 'year':
-          results.sort((a, b) => {
-            const yearA = new Date(a.release_date).getFullYear();
-            const yearB = new Date(b.release_date).getFullYear();
-            return yearB - yearA;
-          });
-          break;
-        case 'popularity':
-        default:
-          results.sort((a, b) => b.popularity - a.popularity);
-          break;
-      }
-      
-      setSearchResults(results);
-      setCurrentPage(data.page);
-      setTotalPages(data.total_pages);
-      setTotalResults(data.total_results);
+      setSearchResults(combinedResults);
       setHasSearched(true);
       
-      console.log(`🔍 TMDB search returned ${results.length} results for "${query}"`);
+      console.log(`🔍 Search returned ${tmdbResults.length} TMDB results and ${localResults.length} local results for "${query}"`);
       
     } catch (error) {
-      console.error("Error performing TMDB search:", error);
+      console.error("Error performing search:", error);
       setSearchResults([]);
       setTotalResults(0);
     } finally {
@@ -162,15 +222,24 @@ export default function SearchPage() {
     }
   };
 
-  const handleResultClick = (result: TMDBSearchResult) => {
-    // Navigate to TMDB movie/TV page with media type
-    navigate.push(`/tmdb-movie/${result.id}?type=${result.media_type}`);
+  const handleResultClick = (result: SearchResult) => {
+    if (result._source === 'local') {
+      // Navigate to local content page
+      if (result.media_type === 'movie') {
+        navigate.push(`/movie/${result.id}`);
+      } else {
+        navigate.push(`/tv/${result.id}`);
+      }
+    } else {
+      // Navigate to TMDB content page
+      navigate.push(`/tmdb-movie/${result.id}?type=${result.media_type}`);
+    }
   };
 
   const handleSearch = (query: string) => {
     setSearchQuery(query);
     setCurrentPage(1);
-    performSearch(query, 1);
+    searchTMDBContent(query, 1);
   };
 
   const clearFilters = () => {
@@ -182,17 +251,39 @@ export default function SearchPage() {
     });
   };
 
-  const getPosterUrl = (posterPath: string) => {
-    if (!posterPath) {
-      return 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjQ1MCIgdmlld0JveD0iMCAwIDMwMCA0NTAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIzMDAiIGhlaWdodD0iNDUwIiBmaWxsPSIjMzc0MTUxIi8+CjxwYXRoIGQ9Ik0xNTAgMjAwQzE4Ny4yNzkgMjAwIDIxOCAxNjkuMjc5IDIxOCAxMzJDMjE4IDk0LjcyMDggMTg3LjI3OSA2NCAxNTAgNjRDMTEyLjcyMSA2NCA4MiA5NC43MjA4IDgyIDEzMkM4MiAxNjkuMjc5IDExMi43MjEgMjAwIDE1MCAyMDBaIiBmaWxsPSIjNkI3Mjg4Ii8+CjxwYXRoIGQ9Ik04MiAyNzZDODIgMjM4LjY4IDExMi42OCAyMDggMTUwIDIwOEgxNTBDMTg3LjMyIDIwOCAyMTggMjM4LjY4IDIxOCAyNzZWMzUwSDgyVjI3NloiIGZpbGw9IiM2QjcyODgiLz4KPHN2Zz4K';
+  const getPosterUrl = (result: SearchResult) => {
+    // Handle local API poster paths
+    if (result._source === 'local' && result.poster_path) {
+      // Local results have poster_path like "/api/posters/{id}"
+      if (result.poster_path.startsWith('/api/')) {
+        return `${getApiUrl()}${result.poster_path}`;
+      }
+      // Some local results might have full poster paths
+      return result.poster_path;
     }
-    return `https://image.tmdb.org/t/p/w500${posterPath}`;
+    
+    // Handle TMDB poster paths
+    if (result.poster_path) {
+      return `https://image.tmdb.org/t/p/w500${result.poster_path}`;
+    }
+    
+    // Fallback to backdrop if available
+    if (result.backdrop_path) {
+      if (result._source === 'local' && result.backdrop_path.startsWith('/api/')) {
+        return `${getApiUrl()}${result.backdrop_path}`;
+      }
+      return `https://image.tmdb.org/t/p/w500${result.backdrop_path}`;
+    }
+    
+    // Default placeholder
+    return 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjQ1MCIgdmlld0JveD0iMCAwIDMwMCA0NTAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIzMDAiIGhlaWdodD0iNDUwIiBmaWxsPSIjMzc0MTUxIi8+CjxwYXRoIGQ9Ik0xNTAgMjAwQzE4Ny4yNzkgMjAwIDIxOCAxNjkuMjc5IDIxOCAxMzJDMjE4IDk0LjcyMDggMTg3LjI3OSA2NCAxNTAgNjRDMTEyLjcyMSA2NCA4MiA5NC43MjA4IDgyIDEzMkM4MiAxNjkuMjc5IDExMi43MjEgMjAwIDE1MCAyMDBaIiBmaWxsPSIjNkI3Mjg4Ii8+CjxwYXRoIGQ9Ik04MiAyNzZDODIgMjM4LjY4IDExMi42OCAyMDggMTUwIDIwOEgxNTBDMTg3LjMyIDIwOCAyMTggMjM4LjY4IDIxOCAyNzZWMzUwSDgyVjI3NloiIGZpbGw9IiM2QjcyODgiLz4KPHN2Zz4K';
   };
 
-  const formatDate = (dateString: string) => {
+  const formatDate = (dateString?: string | null): string => {
     if (!dateString) return '';
-    const year = new Date(dateString).getFullYear();
-    return year ? year.toString() : '';
+    const date = new Date(dateString);
+    const year = date.getFullYear();
+    return isNaN(year) ? '' : year.toString();
   };
 
   const activeFiltersCount = Object.values(filters).filter(value => value !== "multi" && value !== "all" && value !== "popularity").length;
@@ -221,7 +312,7 @@ export default function SearchPage() {
                       type="text"
                       placeholder="Search for movies, TV shows, genres..."
                       value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
+                      onChange={(e) => setSearchQuery(e.target.value || '')}
                       className="w-full bg-black/50 backdrop-blur-md text-white pl-16 pr-6 py-6 rounded-2xl border border-white/20 focus:border-red-500 focus:outline-none text-xl placeholder-gray-400"
                     />
                   </div>
@@ -427,7 +518,7 @@ export default function SearchPage() {
                             {/* Poster */}
                             <div className="aspect-[2/3] relative overflow-hidden">
                               <img
-                                src={getPosterUrl(result.poster_path)}
+                                src={getPosterUrl(result)}
                                 alt={result.title}
                                 className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500 bg-gray-800"
                                 onError={(e) => {
@@ -437,7 +528,7 @@ export default function SearchPage() {
                               />
                               
                               {/* Media Type Badge */}
-                              <div className="absolute top-2 left-2">
+                              <div className="absolute top-2 left-2 flex flex-col gap-1">
                                 <span className={`px-2 py-1 rounded-full text-xs font-semibold ${
                                   result.media_type === 'movie' 
                                     ? 'bg-blue-600 text-white' 
@@ -445,13 +536,23 @@ export default function SearchPage() {
                                 }`}>
                                   {result.media_type === 'movie' ? 'Movie' : 'TV'}
                                 </span>
+                                {result._source === 'local' && (
+                                  <span className="bg-yellow-600 text-white text-xs px-2 py-0.5 rounded-full font-semibold">
+                                    In Library
+                                  </span>
+                                )}
                               </div>
 
                               {/* Rating Badge */}
                               {result.vote_average > 0 && (
                                 <div className="absolute top-2 right-2">
-                                  <span className="bg-black/70 text-yellow-400 px-2 py-1 rounded-full text-xs font-semibold">
+                                  <span className="bg-black/70 text-yellow-400 px-2 py-1 rounded-full text-xs font-semibold flex items-center gap-1">
                                     ★ {result.vote_average.toFixed(1)}
+                                    {result.vote_count > 0 && (
+                                      <span className="text-gray-300 text-xs ml-1">
+                                        ({result.vote_count.toLocaleString()})
+                                      </span>
+                                    )}
                                   </span>
                                 </div>
                               )}
@@ -472,8 +573,16 @@ export default function SearchPage() {
                                 {result.title}
                               </h3>
                               
-                              <div className="flex items-center justify-between text-sm text-gray-400 mb-2">
-                                <span>{formatDate(result.release_date)}</span>
+                                                      <div className="flex items-center justify-between text-sm text-gray-400 mb-2">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span>{formatDate(result.release_date || result.first_air_date)}</span>
+                                  {result.year && (
+                                    <span className="text-gray-500">• {result.year}</span>
+                                  )}
+                                  {result.duration && (
+                                    <span className="text-gray-500">• {Math.floor(result.duration / 60)}h {result.duration % 60}m</span>
+                                  )}
+                                </div>
                                 <span className="capitalize">{result.media_type}</span>
                               </div>
 

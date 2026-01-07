@@ -21,7 +21,8 @@ import {
   X,
   ExternalLink,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  Info
 } from 'lucide-react';
 import { getApiUrl } from '@/lib/api';
 
@@ -499,11 +500,11 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
   };
 
   return (
-    <div className="bg-gray-900 rounded-lg p-6">
+    <div className="bg-black p-6 min-h-screen">
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <h2 className="text-2xl font-bold text-white flex items-center gap-2">
-          <Download className="w-6 h-6 text-red-500" />
+      <div className="flex items-center justify-between mb-8">
+        <h2 className="text-2xl font-bold text-white flex items-center gap-3">
+          <Download className="w-6 h-6 text-red-600" />
           Torrent Downloads
         </h2>
 
@@ -523,7 +524,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
       </div>
 
       {/* Tabs */}
-      <div className="flex space-x-1 mb-6 bg-gray-800 rounded-lg p-1">
+      <div className="flex space-x-2 mb-8 bg-gray-900 rounded-lg p-1 border border-gray-800">
         {[
           { id: 'search', label: 'Search Torrents', icon: Search },
           { id: 'downloads', label: 'Downloads', icon: Download },
@@ -532,10 +533,11 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
           <button
             key={id}
             onClick={() => setActiveTab(id as any)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${activeTab === id
-              ? 'bg-red-600 text-white'
-              : 'text-gray-400 hover:text-white hover:bg-gray-700'
-              }`}
+            className={`flex items-center gap-2 px-6 py-2 rounded-md text-sm font-medium transition-all ${
+              activeTab === id
+                ? 'bg-gray-800 text-red-500 shadow-lg'
+                : 'text-gray-400 hover:text-white hover:bg-gray-800/50'
+            }`}
           >
             <Icon className="w-4 h-4" />
             {label}
@@ -544,15 +546,25 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
       </div>
 
       {/* Error Display */}
-      {error && (
-        <div className="bg-red-900/50 border border-red-500 rounded-lg p-4 mb-6 flex items-center gap-2">
-          <AlertCircle className="w-5 h-5 text-red-400" />
-          <span className="text-red-200">{error}</span>
-          <button onClick={() => setError(null)} className="ml-auto text-red-400 hover:text-red-300">
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-      )}
+      <AnimatePresence>
+        {error && (
+          <motion.div 
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className="bg-red-900/30 border border-red-800 rounded-lg p-4 mb-6 flex items-center gap-3 backdrop-blur-sm"
+          >
+            <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0" />
+            <span className="text-red-100 text-sm">{error}</span>
+            <button 
+              onClick={() => setError(null)} 
+              className="ml-auto text-red-400 hover:text-red-300 transition-colors"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Tab Content */}
       <AnimatePresence mode="wait">
@@ -566,7 +578,8 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
           >
             {/* Search Controls */}
             <div className="flex gap-4">
-              <div className="flex-1">
+              <div className="flex-1 relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
                 <input
                   type="text"
                   value={searchQuery}
@@ -574,7 +587,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
                   placeholder={mediaInfo?.media_type === 'tv'
                     ? "Search for TV series... (will search all seasons automatically)"
                     : "Search for movies or TV shows... (edit to customize search)"}
-                  className="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-red-500"
+                  className="w-full pl-10 pr-4 py-2.5 bg-gray-900 border border-gray-800 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-red-500/50 focus:border-transparent transition-all"
                   onKeyPress={(e) => e.key === 'Enter' && searchTorrents()}
                 />
                 <p className="text-xs text-gray-400 mt-1">
@@ -597,10 +610,14 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
               <button
                 onClick={() => searchTorrents()}
                 disabled={searchLoading || !searchQuery.trim()}
-                className="px-6 py-2 bg-red-600 hover:bg-red-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded-lg font-medium transition-colors flex items-center gap-2"
+                className="px-6 py-2.5 bg-red-600 hover:bg-red-700 disabled:bg-gray-800 disabled:text-gray-500 disabled:cursor-not-allowed text-white rounded-lg font-medium transition-all flex items-center gap-2 hover:shadow-lg hover:shadow-red-500/10 disabled:shadow-none"
               >
-                {searchLoading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
-                Search
+                {searchLoading ? (
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Search className="w-4 h-4" />
+                )}
+                <span>Search</span>
               </button>
 
               {searchQuery && (
@@ -610,10 +627,10 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
                     setSearchResults([]);
                     setError(null);
                   }}
-                  className="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg font-medium transition-colors flex items-center gap-2"
+                  className="px-4 py-2.5 bg-gray-800 hover:bg-gray-700/80 text-gray-300 rounded-lg font-medium transition-all flex items-center gap-2 border border-gray-700 hover:border-gray-600"
                 >
                   <X className="w-4 h-4" />
-                  Clear
+                  <span>Clear</span>
                 </button>
               )}
             </div>
@@ -623,22 +640,26 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
               {searchResults.map((result, index) => (
                 <motion.div
                   key={index}
-                  initial={{ opacity: 0, y: 20 }}
+                  initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: index * 0.1 }}
-                  className="bg-gray-800 rounded-lg p-4 hover:bg-gray-750 transition-colors"
+                  transition={{ duration: 0.2, delay: index * 0.03 }}
+                  className="bg-gray-900/50 rounded-xl p-4 hover:bg-gray-800/50 transition-all border border-gray-800 hover:border-gray-700 backdrop-blur-sm"
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex-1">
                       <div className="flex items-center gap-3 mb-2">
-                        <h3 className="text-white font-medium line-clamp-1">{result.title}</h3>
+                        <h3 className="text-white font-medium line-clamp-1 text-sm">{result.title}</h3>
                         {result.verified && (
-                          <span className="bg-green-600 text-white text-xs px-2 py-1 rounded-full">Verified</span>
+                          <span className="bg-green-600/20 text-green-400 text-[10px] px-2 py-0.5 rounded-full border border-green-500/30">
+                            Verified
+                          </span>
                         )}
-                        <span className="bg-blue-600 text-white text-xs px-2 py-1 rounded-full">{result.quality}</span>
+                        <span className="bg-blue-600/20 text-blue-400 text-[10px] px-2 py-0.5 rounded-full border border-blue-500/30">
+                          {result.quality}
+                        </span>
                       </div>
 
-                      <div className="flex items-center gap-4 text-sm text-gray-400">
+                      <div className="flex items-center gap-4 text-xs text-gray-400">
                         <span className="flex items-center gap-1">
                           <HardDrive className="w-4 h-4" />
                           {result.size}
@@ -661,7 +682,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
                     <button
                       onClick={() => startDownload(result)}
                       disabled={loading}
-                      className="px-3 py-2 bg-red-600 hover:bg-red-700 disabled:bg-gray-600 text-white rounded-lg font-medium transition-colors flex items-center justify-center"
+                      className="p-2 bg-red-600/20 hover:bg-red-600/30 disabled:bg-gray-800/50 disabled:text-gray-600 text-red-400 rounded-lg font-medium transition-all flex items-center justify-center border border-red-500/30 hover:border-red-500/50"
                       title="Download torrent"
                     >
                       <Download className="w-4 h-4" />
@@ -671,32 +692,71 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
               ))}
 
               {searchResults.length === 0 && !searchLoading && searchQuery && (
-                <div className="text-center py-12 text-gray-400">
-                  <Search className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                  <p>No torrents found for "{searchQuery}"</p>
-                  <div className="text-sm mt-4 space-y-2">
-                    <p>💡 Try these search tips:</p>
-                    <ul className="text-left max-w-md mx-auto space-y-1">
+                <motion.div 
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="text-center py-16 text-gray-400 bg-gray-900/30 rounded-xl border border-gray-800/50 mt-6"
+                >
+                  <Search className="w-12 h-12 mx-auto mb-4 opacity-30" />
+                  <p className="text-sm">No torrents found for <span className="text-gray-300">"{searchQuery}"</span></p>
+                  <div className="text-xs mt-6 space-y-3 max-w-2xl mx-auto px-4">
+                    <div className="bg-gray-800/50 border border-gray-700/50 rounded-lg p-4 text-left">
+                      <p className="text-amber-400/80 mb-2 flex items-center gap-2">
+                        <Info className="w-4 h-4" />
+                        <span>Search Tips</span>
+                      </p>
+                      <ul className="space-y-1.5">
                       {mediaInfo?.media_type === 'tv' ? (
                         <>
-                          <li>• Search automatically includes all seasons</li>
-                          <li>• Try just the series name without year</li>
-                          <li>• Use simpler search terms</li>
-                          <li>• Try different quality filters</li>
-                          <li>• Check if Jackett is configured in Settings</li>
+                          <li className="flex items-start gap-2">
+                            <span className="text-amber-400/60">•</span>
+                            <span>Search automatically includes all seasons</span>
+                          </li>
+                          <li className="flex items-start gap-2">
+                            <span className="text-amber-400/60">•</span>
+                            <span>Try just the series name without year</span>
+                          </li>
+                          <li className="flex items-start gap-2">
+                            <span className="text-amber-400/60">•</span>
+                            <span>Use simpler search terms</span>
+                          </li>
+                          <li className="flex items-start gap-2">
+                            <span className="text-amber-400/60">•</span>
+                            <span>Try different quality filters</span>
+                          </li>
+                          <li className="flex items-start gap-2">
+                            <span className="text-amber-400/60">•</span>
+                            <span>Check if Jackett is configured in Settings</span>
+                          </li>
                         </>
                       ) : (
                         <>
-                          <li>• Remove year from movie titles</li>
-                          <li>• Use simpler search terms</li>
-                          <li>• Try different quality filters</li>
-                          <li>• For TV shows, try just the series name</li>
-                          <li>• Check if Jackett is configured in Settings</li>
+                          <li className="flex items-start gap-2">
+                            <span className="text-amber-400/60">•</span>
+                            <span>Remove year from movie titles</span>
+                          </li>
+                          <li className="flex items-start gap-2">
+                            <span className="text-amber-400/60">•</span>
+                            <span>Use simpler search terms</span>
+                          </li>
+                          <li className="flex items-start gap-2">
+                            <span className="text-amber-400/60">•</span>
+                            <span>Try different quality filters</span>
+                          </li>
+                          <li className="flex items-start gap-2">
+                            <span className="text-amber-400/60">•</span>
+                            <span>For TV shows, try just the series name</span>
+                          </li>
+                          <li className="flex items-start gap-2">
+                            <span className="text-amber-400/60">•</span>
+                            <span>Check if Jackett is configured in Settings</span>
+                          </li>
                         </>
                       )}
-                    </ul>
+                      </ul>
+                    </div>
                   </div>
-                </div>
+                </motion.div>
               )}
             </div>
           </motion.div>

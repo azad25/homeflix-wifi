@@ -68,7 +68,9 @@ export interface Media {
   tmdb_backdrop_url?: string; // TMDB backdrop image URL
   tmdb_poster_url?: string;   // TMDB poster image URL (stored when downloading from TMDB)
   tmdb_trailer_url?: string;  // TMDB trailer video URL
+  tmdb_logo_url?: string;     // TMDB logo image URL
   logo_path?: string;         // Local path to movie logo image
+  network?: string;           // Original network/channel (for TV series)
 
   // Series info
   series_id?: number;
@@ -112,4 +114,11 @@ export interface Series {
   backdrop_path?: string;
   thumbnail_path?: string;
   banner_path?: string;
+  tmdb_backdrop_url?: string;
+  tmdb_poster_url?: string;
+  tmdb_logo_url?: string;
+  logo_path?: string;
+  network?: string;
+  status?: string;
+  duration?: number;
 }

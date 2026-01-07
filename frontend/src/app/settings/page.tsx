@@ -2398,7 +2398,6 @@ function SettingsContent() {
         {React.cloneElement(icon, { size: 18 })}
       </div>
       <span className="font-medium text-sm">{label}</span>
-      {active && <motion.div layoutId="activeTab" className="ml-auto w-1.5 h-1.5 rounded-full bg-white" />}
     </button>
   );
 

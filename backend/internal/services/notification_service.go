@@ -1189,11 +1189,10 @@ func (ns *NotificationService) CreateSingleMovieSuggestion() error {
 		query += fmt.Sprintf(" AND (%s)", genrePreference)
 	}
 	
-	// Order by rating and randomness for single best pick
+	// Order by a combination of rating and randomness for better variety
 	query += `
 		ORDER BY 
-			m.rating DESC,
-			RANDOM()
+			RANDOM() * (1.0 + (m.rating / 10.0)) DESC
 		LIMIT 1
 	`
 	
@@ -1226,7 +1225,7 @@ func (ns *NotificationService) CreateSingleMovieSuggestion() error {
 			fallbackQuery += fmt.Sprintf(" AND m.id NOT IN (%s)", watchedIDsStr)
 		}
 		
-		fallbackQuery += " ORDER BY m.rating DESC, RANDOM() LIMIT 1"
+		fallbackQuery += " ORDER BY RANDOM() * (1.0 + (m.rating / 10.0)) DESC LIMIT 1"
 		err = ns.db.Raw(fallbackQuery).Scan(&movies).Error
 		if err != nil {
 			return fmt.Errorf("failed to fetch fallback single movie: %w", err)
