@@ -87,10 +87,21 @@ func (s *CollectionService) UpdateCollectionItemPosition(collectionID, mediaID u
 
 func (s *CollectionService) GetCollectionItems(collectionID uint) ([]models.CollectionItem, error) {
 	var items []models.CollectionItem
+	// Don't preload Media for now - handle missing media gracefully
 	err := s.db.Where("collection_id = ?", collectionID).
-		Preload("Media").
 		Order("position ASC").
 		Find(&items).Error
+	
+	// For each item, try to load the media if it exists locally
+	for i := range items {
+		var media models.Media
+		if err := s.db.First(&media, items[i].MediaID).Error; err == nil {
+			items[i].Media = media
+		}
+		// If media doesn't exist locally (like TMDB content), leave Media empty
+		// The frontend should handle this case
+	}
+	
 	return items, err
 }
 
@@ -122,10 +133,21 @@ func (s *CollectionService) RemoveFromMyList(userID, mediaID uint) error {
 
 func (s *CollectionService) GetMyList(userID uint) ([]models.MyListItem, error) {
 	var items []models.MyListItem
+	// Don't preload Media for now - handle missing media gracefully
 	err := s.db.Where("user_id = ?", userID).
-		Preload("Media").
 		Order("priority DESC, added_at DESC").
 		Find(&items).Error
+	
+	// For each item, try to load the media if it exists locally
+	for i := range items {
+		var media models.Media
+		if err := s.db.First(&media, items[i].MediaID).Error; err == nil {
+			items[i].Media = media
+		}
+		// If media doesn't exist locally (like TMDB content), leave Media empty
+		// The frontend should handle this case
+	}
+	
 	return items, err
 }
 

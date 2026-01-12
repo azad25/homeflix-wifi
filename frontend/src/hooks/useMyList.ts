@@ -96,12 +96,27 @@ export function useMyList() {
   // Add to my list
   const addToMyList = useCallback(async (mediaId: number): Promise<boolean> => {
     try {
+      // Determine media type based on ID and content
+      let mediaType = 'movie';
+      
+      // Check if this is TMDB content (ID starts with 9)
+      const isTMDBContent = mediaId.toString().startsWith('9');
+      
+      if (isTMDBContent) {
+        // For TMDB content, default to movie unless we can determine otherwise
+        // This could be enhanced by passing media object to get more context
+        mediaType = 'movie'; // Default for TMDB content
+      }
+
       const response = await fetch(`${apiUrl}/api/mylist/${mediaId}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'X-User-ID': '1'
-        }
+        },
+        body: JSON.stringify({
+          media_type: mediaType
+        })
       });
 
       if (response.ok) {
@@ -202,6 +217,18 @@ export function useMyList() {
   // Add to collection
   const addToCollection = useCallback(async (collectionId: number, mediaId: number): Promise<boolean> => {
     try {
+      // Determine media type based on ID
+      let mediaType = 'movie';
+      
+      // Check if this is TMDB content (ID starts with 9)
+      const isTMDBContent = mediaId.toString().startsWith('9');
+      
+      if (isTMDBContent) {
+        // For TMDB content, default to movie
+        // This could be enhanced by passing media object to get more context
+        mediaType = 'movie'; // Default for TMDB content
+      }
+
       const response = await fetch(`${apiUrl}/api/collections/${collectionId}/items`, {
         method: 'POST',
         headers: {
@@ -209,7 +236,8 @@ export function useMyList() {
           'X-User-ID': '1'
         },
         body: JSON.stringify({
-          media_id: mediaId
+          media_id: mediaId,
+          media_type: mediaType
         })
       });
 
@@ -222,6 +250,29 @@ export function useMyList() {
       }
     } catch (error) {
       console.error('Error adding to collection:', error);
+      return false;
+    }
+  }, [apiUrl, fetchCollections]);
+
+  // Remove from collection
+  const removeFromCollection = useCallback(async (collectionId: number, mediaId: number): Promise<boolean> => {
+    try {
+      const response = await fetch(`${apiUrl}/api/collections/${collectionId}/items/${mediaId}`, {
+        method: 'DELETE',
+        headers: {
+          'X-User-ID': '1'
+        }
+      });
+
+      if (response.ok) {
+        // Refresh collections to update counts
+        fetchCollections();
+        return true;
+      } else {
+        throw new Error('Failed to remove from collection');
+      }
+    } catch (error) {
+      console.error('Error removing from collection:', error);
       return false;
     }
   }, [apiUrl, fetchCollections]);
@@ -256,6 +307,7 @@ export function useMyList() {
     removeFromMyList,
     toggleMyList,
     addToCollection,
+    removeFromCollection,
     fetchMyList,
     fetchCollections
   };

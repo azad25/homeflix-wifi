@@ -52,7 +52,7 @@ const HomeflixHero: React.FC<HomeflixHeroProps> = ({
     const [ytVideoReady, setYtVideoReady] = useState(false); // Track when YouTube video is actually playing
 
     // Use the new backend-connected My List hook
-    const { myList, collections, isInMyList, toggleMyList: toggleMyListHook, addToCollection } = useMyList();
+    const { myList, collections, isInMyList, toggleMyList: toggleMyListHook, addToCollection, fetchCollections } = useMyList();
 
     // Wrapper function to handle the movie parameter
     const toggleMyList = useCallback((movie: Media) => {
@@ -967,14 +967,18 @@ const HomeflixHero: React.FC<HomeflixHeroProps> = ({
                                         Play
                                     </button>
                                     <MyListTooltip
-                                        media={movie}
-                                        isInMyList={isInMyList(movie.id)}
+                                        media={{
+                                            ...movie,
+                                            id: movie.tmdb_id ? parseInt(`9${movie.tmdb_id}`) : movie.id
+                                        }}
+                                        isInMyList={isInMyList(movie.tmdb_id ? parseInt(`9${movie.tmdb_id}`) : movie.id)}
                                         collections={collections}
                                         onToggleMyList={() => toggleMyList(movie)}
-                                        onAddToCollection={(collectionId) => addToCollection(collectionId, movie.id)}
+                                        onAddToCollection={(collectionId) => addToCollection(collectionId, movie.tmdb_id ? parseInt(`9${movie.tmdb_id}`) : movie.id)}
+                                        onCollectionCreated={fetchCollections}
                                     >
                                         <button className="p-3 rounded-full border border-white/30 bg-black/30 backdrop-blur-sm hover:bg-white/10 transition-colors">
-                                            {isInMyList(movie.id) ? (
+                                            {isInMyList(movie.tmdb_id ? parseInt(`9${movie.tmdb_id}`) : movie.id) ? (
                                                 <Check className="w-5 h-5" />
                                             ) : (
                                                 <Plus className="w-5 h-5" />

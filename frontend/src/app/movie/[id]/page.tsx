@@ -22,6 +22,8 @@ import CastButton from '@/components/CastButton';
 import { useChromecast, CastMedia } from '@/hooks/useChromecast';
 import ImageWithFallback from '@/components/ImageWithFallback';
 import CastSection from '@/components/CastSection';
+import { useMyList } from '@/hooks/useMyList';
+import MyListTooltip from '@/components/ui/MyListTooltip';
 
 import {
   NetflixHorizontalRow,
@@ -542,6 +544,9 @@ export default function MoviePage() {
   const [trailerReady, setTrailerReady] = useState(false); // Track if trailer is ready to play
   const [forceShowBackdrop, setForceShowBackdrop] = useState(false); // Force show backdrop when player closes
   const [userPausedTrailer, setUserPausedTrailer] = useState(false); // Track if user manually paused trailer
+
+  // Use the new backend-connected My List hook
+  const { myList, collections, isInMyList: isInMyListHook, toggleMyList: toggleMyListHook, addToCollection, fetchCollections } = useMyList();
 
   // Component mount/unmount tracking
   useEffect(() => {
@@ -2365,13 +2370,19 @@ export default function MoviePage() {
                   </button>
                 )}
 
-                <button
-                  onClick={toggleMyList}
-                  className="flex items-center gap-1 px-4 py-2 bg-gray-800/80 hover:bg-gray-700 rounded-lg text-sm font-semibold transition-all duration-300 hover:scale-105"
+                <MyListTooltip
+                  media={media}
+                  isInMyList={isInMyListHook(media.id)}
+                  collections={collections}
+                  onToggleMyList={() => toggleMyListHook(media.id)}
+                  onAddToCollection={(collectionId) => addToCollection(collectionId, media.id)}
+                  onCollectionCreated={fetchCollections}
                 >
-                  {isInMyList ? <Check className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
-                  Watchlist
-                </button>
+                  <button className="flex items-center gap-1 px-4 py-2 bg-gray-800/80 hover:bg-gray-700 rounded-lg text-sm font-semibold transition-all duration-300 hover:scale-105">
+                    {isInMyListHook(media.id) ? <Check className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
+                    Watchlist
+                  </button>
+                </MyListTooltip>
 
                 <button className="flex items-center gap-1 px-4 py-2 bg-gray-800/80 hover:bg-gray-700 rounded-lg text-sm font-semibold transition-all duration-300 hover:scale-105">
                   <Share className="w-4 h-4" />

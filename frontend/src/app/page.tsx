@@ -26,21 +26,46 @@ export default function Home() {
   // Check if there's a custom home page and redirect
   useEffect(() => {
     const checkHomePage = async () => {
+      // Only run this check once when the component mounts
+      // and only if we're actually on the root path
+      if (window.location.pathname !== '/') {
+        return;
+      }
+
       try {
         const apiUrl = getApiUrl();
         const response = await fetch(`${apiUrl}/api/pages/home`);
         if (response.ok) {
-          const page = await response.json();
-          if (page && page.slug) {
-            navigate.push(`/${page.slug}`);
+          const data = await response.json();
+          
+          // Handle two response formats:
+          // 1. When no home page: {"home_page": null}
+          // 2. When home page exists: {page object with slug, title, etc.}
+          
+          let customPage = null;
+          if (data.home_page === null) {
+            // No custom home page set, stay on default home
+            return;
+          } else if (data.slug) {
+            // Direct page object response
+            customPage = data;
+          }
+          
+          // Only redirect if we have a valid custom page with a slug
+          if (customPage && customPage.slug && customPage.slug !== 'home' && customPage.slug !== '') {
+            // Use replace instead of push to avoid adding to history
+            navigate.replace(`/${customPage.slug}`);
           }
         }
       } catch (error) {
         console.error('Failed to fetch home page:', error);
+        // On error, stay on default home page
       }
     };
+    
+    // Only run once on mount
     checkHomePage();
-  }, [navigate]);
+  }, []); // Empty dependency array means this only runs once
 
   // Memoized event handlers
   const handleSearch = useCallback((query: string) => {

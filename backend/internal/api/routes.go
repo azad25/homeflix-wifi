@@ -402,6 +402,11 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		api.GET("/admin/system/terminal", handlers.GetTerminalOutput())
 		api.GET("/admin/system/terminal/stream", handlers.StreamTerminalOutput())
 
+		// Terminal command execution endpoints
+		api.POST("/admin/system/command", handlers.ExecuteCommand())
+		api.GET("/admin/system/command/stream", handlers.StreamCommandExecution())
+		api.POST("/admin/system/command/auth", handlers.AuthenticateTerminal())
+
 		// Server control endpoints
 		api.GET("/admin/server/status", handlers.GetServerStatus())
 		api.POST("/admin/server/production/start", handlers.StartProductionServer())

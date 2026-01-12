@@ -24,6 +24,8 @@ import {
 } from '@/components/scrollx';
 import { useNavigate } from "@/hooks/useNavigate";
 import ImageWithFallback from '@/components/ImageWithFallback';
+import { useMyList } from '@/hooks/useMyList';
+import MyListTooltip from '@/components/ui/MyListTooltip';
 
 interface Season {
   id: number;
@@ -76,6 +78,9 @@ export default function TVSeriesPage() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const trailerRef = useRef<HTMLIFrameElement>(null);
   const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Use the new backend-connected My List hook
+  const { myList, collections, isInMyList: isInMyListHook, toggleMyList: toggleMyListHook, addToCollection, fetchCollections } = useMyList();
 
   useEffect(() => {
     if (params.id) {
@@ -912,13 +917,19 @@ export default function TVSeriesPage() {
                   </button>
                 )}
 
-                <button
-                  onClick={toggleMyList}
-                  className="flex items-center gap-1 px-4 py-2 bg-gray-800/80 hover:bg-gray-700 rounded-lg text-sm font-semibold transition-all duration-300 hover:scale-105"
+                <MyListTooltip
+                  media={series}
+                  isInMyList={isInMyListHook(series.id)}
+                  collections={collections}
+                  onToggleMyList={() => toggleMyListHook(series.id)}
+                  onAddToCollection={(collectionId) => addToCollection(collectionId, series.id)}
+                  onCollectionCreated={fetchCollections}
                 >
-                  {isInMyList ? <Check className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
-                  Watchlist
-                </button>
+                  <button className="flex items-center gap-1 px-4 py-2 bg-gray-800/80 hover:bg-gray-700 rounded-lg text-sm font-semibold transition-all duration-300 hover:scale-105">
+                    {isInMyListHook(series.id) ? <Check className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
+                    Watchlist
+                  </button>
+                </MyListTooltip>
 
                 <button className="flex items-center gap-1 px-4 py-2 bg-gray-800/80 hover:bg-gray-700 rounded-lg text-sm font-semibold transition-all duration-300 hover:scale-105">
                   <Share className="w-4 h-4" />

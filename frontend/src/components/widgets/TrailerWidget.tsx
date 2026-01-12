@@ -8,6 +8,7 @@ import { getApiUrl } from '@/lib/api';
 import { navigateToMedia } from '@/lib/mediaNavigation';
 import { useNavigate } from '@/hooks/useNavigate';
 import { useMyList } from '@/hooks/useMyList';
+import MyListTooltip from '@/components/ui/MyListTooltip';
 
 // Declare global YouTube types
 declare global {
@@ -70,7 +71,7 @@ export default function TrailerWidget({
     isMuted: initialMuted = true,
 }: TrailerWidgetProps) {
     const navigate = useNavigate();
-    const { isInMyList, toggleMyList } = useMyList();
+    const { isInMyList, toggleMyList, collections, addToCollection, fetchCollections } = useMyList();
     const [trailers, setTrailers] = useState<TrailerData[]>([]);
     const [currentIndex, setCurrentIndex] = useState(0);
     const [isPlaying, setIsPlaying] = useState(false);
@@ -611,17 +612,29 @@ export default function TrailerWidget({
             return logoUrls[media.tmdb_id];
         }
 
-        // Fallback to local logo
+        // Handle local content logos
         if (media.logo_path) {
+            // If it's a full URL, use it directly
             if (media.logo_path.startsWith('http')) {
                 return media.logo_path;
             }
+            
+            // If it's already an API path, use it directly
             if (media.logo_path.startsWith('/api/')) {
                 return `${apiUrl}${media.logo_path}`;
             }
-            const filename = media.logo_path.includes('/') ? media.logo_path.split('/').pop() : media.logo_path;
-            return `${apiUrl}/api/logos/${filename}`;
+            
+            // For local content, construct the appropriate endpoint
+            if (media.type === 'tv' || media.type === 'series' || media.type === 'episode') {
+                // For TV series, use the series logo endpoint
+                const seriesId = media.series_id || media.id;
+                return `${apiUrl}/api/series/${seriesId}/logo`;
+            } else {
+                // For movies, use the direct logo path
+                return `${apiUrl}/api/${media.logo_path}`;
+            }
         }
+        
         return null;
     };
 
@@ -950,16 +963,25 @@ export default function TrailerWidget({
                             transition={{ delay: 0.7 }}
                             className="flex items-center gap-2 md:gap-3"
                         >
-                            <button
-                                onClick={() => toggleMyList(currentTrailer.media.id)}
-                                className="bg-white/20 text-white p-2 md:p-3 rounded-full hover:bg-white/30 transition-all duration-300 border border-white/30"
+                            <MyListTooltip
+                                media={{
+                                    ...currentTrailer.media,
+                                    id: currentTrailer.media.tmdb_id ? parseInt(`9${currentTrailer.media.tmdb_id}`) : currentTrailer.media.id
+                                }}
+                                isInMyList={isInMyList(currentTrailer.media.tmdb_id ? parseInt(`9${currentTrailer.media.tmdb_id}`) : currentTrailer.media.id)}
+                                collections={collections}
+                                onToggleMyList={() => toggleMyList(currentTrailer.media.tmdb_id ? parseInt(`9${currentTrailer.media.tmdb_id}`) : currentTrailer.media.id)}
+                                onAddToCollection={(collectionId) => addToCollection(collectionId, currentTrailer.media.tmdb_id ? parseInt(`9${currentTrailer.media.tmdb_id}`) : currentTrailer.media.id)}
+                                onCollectionCreated={fetchCollections}
                             >
-                                {isInMyList(currentTrailer.media.id) ? (
-                                    <Check className="w-4 h-4 md:w-6 md:h-6" />
-                                ) : (
-                                    <Plus className="w-4 h-4 md:w-6 md:h-6" />
-                                )}
-                            </button>
+                                <button className="bg-white/20 text-white p-2 md:p-3 rounded-full hover:bg-white/30 transition-all duration-300 border border-white/30">
+                                    {isInMyList(currentTrailer.media.tmdb_id ? parseInt(`9${currentTrailer.media.tmdb_id}`) : currentTrailer.media.id) ? (
+                                        <Check className="w-4 h-4 md:w-6 md:h-6" />
+                                    ) : (
+                                        <Plus className="w-4 h-4 md:w-6 md:h-6" />
+                                    )}
+                                </button>
+                            </MyListTooltip>
 
                             <button
                                 onClick={toggleMute}

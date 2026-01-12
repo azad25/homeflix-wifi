@@ -160,6 +160,7 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
   const [isTerminalAuthenticated, setIsTerminalAuthenticated] = useState(false);
   const [terminalPassword, setTerminalPassword] = useState('');
   const [passwordError, setPasswordError] = useState('');
+  const [isAuthenticating, setIsAuthenticating] = useState(false);
   const commandRef = useRef<HTMLDivElement>(null);
 
   // Clear cache function
@@ -446,36 +447,76 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
   };
 
   // Terminal Command Authentication
-  const authenticateTerminal = () => {
+  const authenticateTerminal = async () => {
     setPasswordError('');
+    setIsAuthenticating(true);
 
     if (!terminalPassword) {
       setPasswordError('Password is required');
+      setIsAuthenticating(false);
       return;
     }
 
-    // Connect directly to command terminal
-    connectToCommandTerminal(terminalPassword);
-    setTerminalPassword('');
-  };
+    try {
+      // First validate password with HTTP request
+      const response = await fetch(`${getApiUrl()}/api/admin/system/command/auth`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ password: terminalPassword }),
+      });
 
-  // Validate password by making a test request
-  const validateAndConnect = async (password: string) => {
-    // Direct connection - no pre-validation needed
-    connectToCommandTerminal(password);
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success) {
+          // Password is valid, now connect to WebSocket
+          connectToCommandTerminal(terminalPassword);
+          setTerminalPassword('');
+        } else {
+          setPasswordError(data.message || 'Authentication failed');
+          setIsAuthenticating(false);
+        }
+      } else {
+        setPasswordError('Authentication server error');
+        setIsAuthenticating(false);
+      }
+    } catch (error) {
+      // Fallback to direct WebSocket connection if HTTP auth not available
+      console.warn('HTTP auth not available, trying direct WebSocket connection');
+      connectToCommandTerminal(terminalPassword);
+      setTerminalPassword('');
+    }
   };
 
   // Command WebSocket connection
   const connectToCommandTerminal = (password: string) => {
+    // Close existing connection if any
+    if (commandWebSocket) {
+      commandWebSocket.close();
+      setCommandWebSocket(null);
+    }
+
     try {
       const apiUrl = getApiUrl().replace('http', 'ws');
       const wsUrl = `${apiUrl}/api/admin/system/command/stream?password=${encodeURIComponent(password)}`;
       console.log('Connecting to command terminal:', wsUrl);
       
       const ws = new WebSocket(wsUrl);
+      let authTimeout: NodeJS.Timeout;
+
+      // Set authentication timeout
+      authTimeout = setTimeout(() => {
+        if (!isTerminalAuthenticated) {
+          setPasswordError('Authentication timeout - please try again');
+          setIsAuthenticating(false);
+          ws.close();
+        }
+      }, 10000); // 10 second timeout
 
       ws.onopen = () => {
         console.log('Command WebSocket connected successfully');
+        addTerminalOutput('🔗 Connecting to terminal...');
       };
 
       ws.onmessage = (event) => {
@@ -483,20 +524,28 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
           const line: TerminalLine = JSON.parse(event.data);
           console.log('Received terminal message:', line);
           
-          // Check if this is an authentication error
-          if (line.type === 'stderr' && line.message.includes('Authentication failed')) {
-            setIsTerminalAuthenticated(false);
-            setPasswordError(line.message);
-            ws.close();
+          // Clear auth timeout on any message
+          if (authTimeout) {
+            clearTimeout(authTimeout);
+          }
+          
+          // Check for authentication success
+          if (line.type === 'success' && (line.message.includes('authenticated') || line.message.includes('Terminal ready'))) {
+            setIsTerminalAuthenticated(true);
+            setPasswordError('');
+            setIsAuthenticating(false);
+            addTerminalOutput('🔐 Terminal authenticated and ready for commands');
+            console.log('Terminal authenticated successfully');
             return;
           }
 
-          // Mark as authenticated on first successful message
-          if (!isTerminalAuthenticated && line.type === 'success' && line.message.includes('authenticated')) {
-            setIsTerminalAuthenticated(true);
-            setPasswordError('');
-            addTerminalOutput('🔐 Terminal authenticated and ready for commands');
-            console.log('Terminal authenticated successfully');
+          // Check for authentication errors
+          if (line.type === 'stderr' && (line.message.includes('Authentication failed') || line.message.includes('Invalid password'))) {
+            setIsTerminalAuthenticated(false);
+            setPasswordError('Invalid password - please try again');
+            setIsAuthenticating(false);
+            ws.close();
+            return;
           }
 
           // Add line to terminal output
@@ -512,18 +561,29 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
 
       ws.onclose = (event) => {
         console.log('Command WebSocket closed:', event.code, event.reason);
-        setIsTerminalAuthenticated(false);
-        if (!isTerminalAuthenticated) {
-          setPasswordError('Failed to authenticate - connection closed');
-        } else {
-          addTerminalOutput('🔓 Terminal session closed');
+        if (authTimeout) {
+          clearTimeout(authTimeout);
         }
+        
+        if (isTerminalAuthenticated) {
+          addTerminalOutput('🔓 Terminal session closed');
+        } else if (!passwordError) {
+          setPasswordError('Connection closed - please check your password and try again');
+        }
+        setIsTerminalAuthenticated(false);
+        setIsAuthenticating(false);
       };
 
       ws.onerror = (event) => {
         console.error('Command WebSocket error:', event);
+        if (authTimeout) {
+          clearTimeout(authTimeout);
+        }
         setIsTerminalAuthenticated(false);
-        setPasswordError('Failed to connect to terminal - check your password');
+        setIsAuthenticating(false);
+        if (!passwordError) {
+          setPasswordError('Failed to connect to terminal - please check your password');
+        }
       };
 
       setCommandWebSocket(ws);
@@ -537,13 +597,22 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
     if (!commandInput.trim()) return;
 
     if (!isTerminalAuthenticated || !commandWebSocket) {
-      setPasswordError('Terminal not authenticated');
+      setPasswordError('Terminal not authenticated - please authenticate first');
+      return;
+    }
+
+    if (commandWebSocket.readyState !== WebSocket.OPEN) {
+      setPasswordError('Terminal connection lost - please reconnect');
+      setIsTerminalAuthenticated(false);
       return;
     }
 
     setIsCommandExecuting(true);
 
     try {
+      // Add command to terminal output for reference
+      addTerminalOutput(`$ ${commandInput}`);
+      
       commandWebSocket.send(JSON.stringify({
         command: commandInput,
       }));
@@ -551,6 +620,7 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
       setCommandInput('');
     } catch (error) {
       addTerminalOutput(`❌ Failed to send command: ${error}`);
+      setPasswordError('Failed to send command - connection may be lost');
     } finally {
       setIsCommandExecuting(false);
     }
@@ -1425,9 +1495,20 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
               Command Executor
             </h2>
             <div className="flex items-center space-x-2">
-              <div className={`w-2 h-2 rounded-full ${isTerminalAuthenticated ? 'bg-green-400 animate-pulse' : 'bg-red-400'}`}></div>
+              <div className={`w-2 h-2 rounded-full ${
+                isTerminalAuthenticated && commandWebSocket?.readyState === WebSocket.OPEN 
+                  ? 'bg-green-400 animate-pulse' 
+                  : isAuthenticating 
+                    ? 'bg-yellow-400 animate-pulse' 
+                    : 'bg-red-400'
+              }`}></div>
               <span className="text-white/70 text-sm">
-                {isTerminalAuthenticated ? '🔓 Authenticated' : '🔒 Not Authenticated'}
+                {isTerminalAuthenticated && commandWebSocket?.readyState === WebSocket.OPEN
+                  ? '🔓 Authenticated & Connected'
+                  : isAuthenticating
+                    ? '🔄 Authenticating...'
+                    : '🔒 Not Authenticated'
+                }
               </span>
             </div>
           </div>
@@ -1453,24 +1534,65 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
                       setTerminalPassword(e.target.value);
                       setPasswordError('');
                     }}
-                    onKeyPress={(e) => e.key === 'Enter' && authenticateTerminal()}
+                    onKeyPress={(e) => e.key === 'Enter' && !isAuthenticating && authenticateTerminal()}
                     placeholder="Enter password..."
-                    className="w-full bg-black/50 border border-white/20 rounded-lg px-4 py-2 text-white placeholder-white/50 focus:border-yellow-400 focus:outline-none transition-colors"
+                    disabled={isAuthenticating}
+                    className="w-full bg-black/50 border border-white/20 rounded-lg px-4 py-2 text-white placeholder-white/50 focus:border-yellow-400 focus:outline-none transition-colors disabled:opacity-50"
                   />
                   {passwordError && (
-                    <p className="text-red-400 text-xs mt-2">⚠️ {passwordError}</p>
+                    <div className="text-red-400 text-xs mt-2 space-y-2">
+                      <p>⚠️ {passwordError}</p>
+                      {passwordError.includes('connection') && (
+                        <MagneticButton
+                          onClick={() => {
+                            setPasswordError('');
+                            if (terminalPassword) {
+                              authenticateTerminal();
+                            }
+                          }}
+                          className="bg-blue-600/20 hover:bg-blue-600/40 text-blue-400 px-3 py-1 rounded text-xs"
+                        >
+                          🔄 Retry Connection
+                        </MagneticButton>
+                      )}
+                    </div>
+                  )}
+                  {isAuthenticating && (
+                    <p className="text-yellow-400 text-xs mt-2 flex items-center">
+                      <div className="animate-spin w-3 h-3 border border-yellow-400 border-t-transparent rounded-full mr-2"></div>
+                      Authenticating...
+                    </p>
                   )}
                 </div>
                 <MagneticButton
                   onClick={authenticateTerminal}
-                  className="w-full bg-yellow-600/20 hover:bg-yellow-600/40 text-yellow-400 px-4 py-2 rounded-lg font-medium transition-colors"
+                  disabled={isAuthenticating || !terminalPassword}
+                  className="w-full bg-yellow-600/20 hover:bg-yellow-600/40 text-yellow-400 px-4 py-2 rounded-lg font-medium transition-colors disabled:opacity-50 flex items-center justify-center space-x-2"
                 >
-                  Unlock Terminal
+                  {isAuthenticating ? (
+                    <>
+                      <div className="animate-spin w-4 h-4 border-2 border-yellow-400 border-t-transparent rounded-full"></div>
+                      <span>Authenticating...</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>🔓 Unlock Terminal</span>
+                    </>
+                  )}
                 </MagneticButton>
               </div>
 
-              <div className="mt-4 pt-4 border-t border-white/10 text-white/50 text-xs">
-                ⚠️ Advanced feature - be careful with commands executed here
+              <div className="mt-4 pt-4 border-t border-white/10 text-white/50 text-xs space-y-2">
+                <p>⚠️ Advanced feature - be careful with commands executed here</p>
+                <div className="bg-blue-600/10 border border-blue-500/20 rounded p-2 text-blue-400">
+                  <p className="font-medium mb-1">💡 Troubleshooting:</p>
+                  <ul className="space-y-1 text-xs">
+                    <li>• Check if backend server is running on port 8252/8253</li>
+                    <li>• Verify WebSocket connection is not blocked by firewall</li>
+                    <li>• Password should match your system admin password</li>
+                    <li>• Try refreshing the page if connection fails</li>
+                  </ul>
+                </div>
               </div>
             </div>
           ) : (
@@ -1502,11 +1624,13 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
                       commandWebSocket.close();
                     }
                     setIsTerminalAuthenticated(false);
-                    addTerminalOutput('🔓 Terminal session closed');
+                    setIsAuthenticating(false);
+                    setPasswordError('');
+                    addTerminalOutput('🔓 Terminal session closed by user');
                   }}
-                  className="bg-red-600/20 hover:bg-red-600/40 text-red-400 px-4 py-2 rounded-lg"
+                  className="bg-red-600/20 hover:bg-red-600/40 text-red-400 px-4 py-2 rounded-lg flex items-center space-x-2"
                 >
-                  Lock
+                  <span>🔒 Lock Terminal</span>
                 </MagneticButton>
               </div>
 

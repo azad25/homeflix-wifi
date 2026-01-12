@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { usePageTitle } from '@/hooks/usePageTitle';
-import { Play, Info, Trash2, Heart, Film, Tv, Download, CheckCircle, Pause, AlertCircle, FolderOpen, Plus, Grid3X3, Edit, X } from 'lucide-react';
+import { Play, Info, Trash2, Heart, Film, Tv, Download, CheckCircle, Pause, AlertCircle, FolderOpen, Plus, Grid3X3, Edit, X, RotateCcw } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import Navbar from "@/components/Navbar";
@@ -17,6 +17,7 @@ import { Button } from '@/components/ui/button';
 import { removeFromWishlist, fetchWishlistMedia } from '@/lib/wishlist';
 import { useNavigate } from "@/hooks/useNavigate";
 import { useMyList } from '@/hooks/useMyList';
+import MyListTooltip from '@/components/ui/MyListTooltip';
 
 interface DownloadInfo {
   id: string;
@@ -95,7 +96,29 @@ export default function MyListPage() {
   });
 
   // Use the My List hook for both collections and my list
-  const { myList, collections, fetchCollections, isInMyList, toggleMyList, addToCollection } = useMyList();
+  const { myList, collections, fetchCollections, isInMyList, toggleMyList, addToCollection, removeFromMyList: removeFromMyListHook, removeFromCollection } = useMyList();
+
+  // Refresh function to be called after tooltip operations
+  const refreshData = async () => {
+    console.log('Refreshing my-list data...');
+    try {
+      await Promise.all([
+        fetchWatchlist(),
+        fetchUserCollections(),
+        fetchCollections()
+      ]);
+      console.log('My-list data refreshed successfully');
+    } catch (error) {
+      console.error('Error refreshing my-list data:', error);
+    }
+  };
+
+  // Manual refresh function for the refresh button
+  const handleManualRefresh = async () => {
+    setLoading(true);
+    await refreshData();
+    setLoading(false);
+  };
 
   useEffect(() => {
     fetchWatchlist();
@@ -138,11 +161,66 @@ export default function MyListPage() {
         
         if (response.ok) {
           const myListItems = await response.json();
-          console.log('My List items from backend:', myListItems);
-          const mediaList = myListItems
-            .map((item: any) => item.media)
-            .filter((media: any) => media && media.id && media.title); // Filter out invalid media
-          console.log('Processed media list:', mediaList);
+          console.log('My List items from backend:', myListItems.length, 'items');
+          
+          const mediaList = [];
+          for (const item of myListItems) {
+            if (item.media && item.media.id && item.media.title) {
+              // Local media - use as is
+              console.log('Processing local media:', item.media.title);
+              mediaList.push(item.media);
+            } else if (item.media_id && item.media_id.toString().startsWith('9')) {
+              // TMDB content - reconstruct media object
+              const tmdbId = item.media_id.toString().substring(1); // Remove the '9' prefix
+              console.log('Processing TMDB content with ID:', item.media_id, 'TMDB ID:', tmdbId);
+              try {
+                // Fetch TMDB data to reconstruct media object
+                const tmdbResponse = await fetch(`${apiUrl}/api/tmdb-movie/${tmdbId}?type=${item.media_type || 'movie'}`);
+                if (tmdbResponse.ok) {
+                  const tmdbData = await tmdbResponse.json();
+                  const mediaData = tmdbData.data || tmdbData;
+                  const mediaType = tmdbData.media_type || item.media_type || 'movie';
+                  
+                  const reconstructedMedia = {
+                    id: item.media_id, // Use the prefixed ID
+                    title: mediaData.title || mediaData.name,
+                    type: mediaType === 'tv' ? 'episode' : 'movie',
+                    year: mediaData.release_date || mediaData.first_air_date 
+                      ? new Date(mediaData.release_date || mediaData.first_air_date).getFullYear() 
+                      : new Date().getFullYear(),
+                    rating: mediaData.vote_average || 0,
+                    genres: mediaData.genres?.map((g: any) => ({ name: g.name })) || [],
+                    tmdb_id: parseInt(tmdbId),
+                    poster_url: mediaData.poster_path ? `https://image.tmdb.org/t/p/w500${mediaData.poster_path}` : null,
+                    poster_path: mediaData.poster_path,
+                    description: mediaData.overview,
+                    media_type: mediaType
+                  };
+                  console.log('Successfully reconstructed TMDB media:', reconstructedMedia.title);
+                  mediaList.push(reconstructedMedia);
+                } else {
+                  console.error('Failed to fetch TMDB data for ID:', tmdbId, 'Status:', tmdbResponse.status);
+                }
+              } catch (tmdbError) {
+                console.error('Error fetching TMDB data for media_id:', item.media_id, tmdbError);
+                // Create a minimal media object as fallback
+                mediaList.push({
+                  id: item.media_id,
+                  title: `TMDB Content ${tmdbId}`,
+                  type: item.media_type === 'tv' ? 'episode' : 'movie',
+                  year: new Date().getFullYear(),
+                  rating: 0,
+                  genres: [],
+                  tmdb_id: parseInt(tmdbId),
+                  poster_url: null
+                });
+              }
+            } else {
+              console.log('Skipping item with no valid media data:', item);
+            }
+          }
+          
+          console.log('Processed media list:', mediaList.length, 'items');
           setWatchlist(mediaList);
           if (mediaList.length > 0) {
             preloadAssets(mediaList, ['poster', 'thumbnail']);
@@ -158,7 +236,7 @@ export default function MyListPage() {
       // Fallback to cookie-based wishlist
       console.log('Using cookie-based wishlist fallback');
       const wishlistMedia = await fetchWishlistMedia(apiUrl);
-      console.log('Cookie-based wishlist media:', wishlistMedia);
+      console.log('Cookie-based wishlist media:', wishlistMedia.length, 'items');
       setWatchlist(wishlistMedia);
       if (wishlistMedia.length > 0) {
         preloadAssets(wishlistMedia, ['poster', 'thumbnail']);
@@ -324,8 +402,67 @@ export default function MyListPage() {
       });
       
       if (response.ok) {
-        const data = await response.json();
-        setCollectionItems(data || []);
+        const items = await response.json();
+        
+        // Process items to handle TMDB content
+        const processedItems = [];
+        for (const item of items) {
+          if (item.media && item.media.id && item.media.title) {
+            // Local media - use as is
+            processedItems.push(item);
+          } else if (item.media_id && item.media_id.toString().startsWith('9')) {
+            // TMDB content - reconstruct media object
+            const tmdbId = item.media_id.toString().substring(1); // Remove the '9' prefix
+            try {
+              // Fetch TMDB data to reconstruct media object
+              const tmdbResponse = await fetch(`${apiUrl}/api/tmdb-movie/${tmdbId}?type=movie`);
+              if (tmdbResponse.ok) {
+                const tmdbData = await tmdbResponse.json();
+                const mediaData = tmdbData.data || tmdbData;
+                const mediaType = tmdbData.media_type || 'movie';
+                
+                const reconstructedMedia = {
+                  id: item.media_id, // Use the prefixed ID
+                  title: mediaData.title || mediaData.name,
+                  type: mediaType === 'tv' ? 'episode' : 'movie',
+                  year: mediaData.release_date || mediaData.first_air_date 
+                    ? new Date(mediaData.release_date || mediaData.first_air_date).getFullYear() 
+                    : new Date().getFullYear(),
+                  rating: mediaData.vote_average || 0,
+                  genres: mediaData.genres?.map((g: any) => ({ name: g.name })) || [],
+                  tmdb_id: parseInt(tmdbId),
+                  poster_url: mediaData.poster_path ? `https://image.tmdb.org/t/p/w500${mediaData.poster_path}` : null,
+                  poster_path: mediaData.poster_path,
+                  description: mediaData.overview,
+                  media_type: mediaType
+                };
+                
+                processedItems.push({
+                  ...item,
+                  media: reconstructedMedia
+                });
+              }
+            } catch (tmdbError) {
+              console.error('Error fetching TMDB data for collection item:', item.media_id, tmdbError);
+              // Create a minimal media object as fallback
+              processedItems.push({
+                ...item,
+                media: {
+                  id: item.media_id,
+                  title: `TMDB Content ${tmdbId}`,
+                  type: 'movie',
+                  year: new Date().getFullYear(),
+                  rating: 0,
+                  genres: [],
+                  tmdb_id: parseInt(tmdbId),
+                  poster_url: null
+                }
+              });
+            }
+          }
+        }
+        
+        setCollectionItems(processedItems);
       } else {
         console.error("Failed to fetch collection items");
         setCollectionItems([]);
@@ -464,7 +601,7 @@ export default function MyListPage() {
   const handleRemoveFromList = async (mediaId: number) => {
     try {
       // Try backend My List first
-      const success = await toggleMyList(mediaId);
+      const success = await removeFromMyListHook(mediaId);
       if (success) {
         setWatchlist(prev => prev.filter(item => item.id !== mediaId));
         return;
@@ -605,6 +742,19 @@ export default function MyListPage() {
             </h1>
             <p className="text-gray-400">Your personal collection of favorites</p>
           </div>
+          
+          {/* Refresh Button */}
+          <button
+            onClick={handleManualRefresh}
+            disabled={loading}
+            className="flex items-center gap-2 px-4 py-2 bg-gray-800 hover:bg-gray-700 disabled:bg-gray-600 text-white rounded-lg transition-colors border border-gray-600 hover:border-gray-500"
+            title="Refresh lists and collections"
+          >
+            <RotateCcw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            <span className="text-sm font-medium">
+              {loading ? 'Refreshing...' : 'Refresh'}
+            </span>
+          </button>
         </div>
 
         {/* Tabs */}
@@ -689,15 +839,37 @@ export default function MyListPage() {
               <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-7 lg:grid-cols-9 xl:grid-cols-12 2xl:grid-cols-15 gap-1.5">
                 {filteredList.map((media, index) => (
                   <div key={media.id} className="relative">
-                    <NetflixMediaCard
+                    <MyListTooltip
                       media={media}
-                      onPlay={handlePlay}
-                      onInfo={handleInfo}
-                      onAddToList={() => handleRemoveFromList(media.id)}
-                      isInList={true}
-                      priority={index < 12 ? 'high' : 'normal'}
-                      showPreviewOnHover={true}
-                    />
+                      isInMyList={true}
+                      collections={collections}
+                      onToggleMyList={() => {
+                        handleRemoveFromList(media.id);
+                        // Add a small delay to ensure backend is updated before refresh
+                        setTimeout(() => refreshData(), 500);
+                      }}
+                      onAddToCollection={(collectionId) => {
+                        addToCollection(collectionId, media.id);
+                        // Add a small delay to ensure backend is updated before refresh
+                        setTimeout(() => refreshData(), 500);
+                      }}
+                      onCollectionCreated={() => {
+                        fetchUserCollections();
+                        // Add a small delay to ensure backend is updated before refresh
+                        setTimeout(() => refreshData(), 500);
+                      }}
+                      onDataRefresh={refreshData}
+                    >
+                      <NetflixMediaCard
+                        media={media}
+                        onPlay={handlePlay}
+                        onInfo={handleInfo}
+                        onAddToList={() => handleRemoveFromList(media.id)}
+                        isInList={true}
+                        priority={index < 12 ? 'high' : 'normal'}
+                        showPreviewOnHover={true}
+                      />
+                    </MyListTooltip>
                   </div>
                 ))}
               </div>
@@ -869,15 +1041,48 @@ export default function MyListPage() {
                       <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-7 lg:grid-cols-9 xl:grid-cols-12 2xl:grid-cols-15 gap-1.5">
                         {collectionItems.map((item, index) => (
                           <div key={item.id} className="relative">
-                            <NetflixMediaCard
+                            <MyListTooltip
                               media={item.media}
-                              onPlay={handlePlay}
-                              onInfo={handleInfo}
-                              onAddToList={() => {}}
-                              isInList={false}
-                              priority={index < 12 ? 'high' : 'normal'}
-                              showPreviewOnHover={true}
-                            />
+                              isInMyList={isInMyList(item.media.id)}
+                              collections={collections.filter(c => c.id !== selectedCollection?.id)}
+                              onToggleMyList={() => {
+                                toggleMyList(item.media.id);
+                                // Add a small delay to ensure backend is updated before refresh
+                                setTimeout(() => refreshData(), 500);
+                              }}
+                              onAddToCollection={(collectionId) => {
+                                addToCollection(collectionId, item.media.id);
+                                // Add a small delay to ensure backend is updated before refresh
+                                setTimeout(() => refreshData(), 500);
+                              }}
+                              onRemoveFromCollection={(collectionId) => {
+                                removeFromCollection(collectionId, item.media.id).then(() => {
+                                  // Refresh collection items
+                                  if (selectedCollection) {
+                                    fetchCollectionItems(selectedCollection.id);
+                                  }
+                                  // Add a small delay to ensure backend is updated before refresh
+                                  setTimeout(() => refreshData(), 500);
+                                });
+                              }}
+                              currentCollectionId={selectedCollection?.id}
+                              onCollectionCreated={() => {
+                                fetchUserCollections();
+                                // Add a small delay to ensure backend is updated before refresh
+                                setTimeout(() => refreshData(), 500);
+                              }}
+                              onDataRefresh={refreshData}
+                            >
+                              <NetflixMediaCard
+                                media={item.media}
+                                onPlay={handlePlay}
+                                onInfo={handleInfo}
+                                onAddToList={() => toggleMyList(item.media.id)}
+                                isInList={isInMyList(item.media.id)}
+                                priority={index < 12 ? 'high' : 'normal'}
+                                showPreviewOnHover={true}
+                              />
+                            </MyListTooltip>
                           </div>
                         ))}
                       </div>

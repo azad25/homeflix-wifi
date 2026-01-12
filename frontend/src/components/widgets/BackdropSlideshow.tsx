@@ -8,6 +8,8 @@ import { getApiUrl, preloadAssets } from '@/lib/api';
 import { getColorPaletteByGenre, DominantColors } from '@/types/widgets';
 import { useNavigate } from '@/hooks/useNavigate';
 import { navigateToMedia } from '@/lib/mediaNavigation';
+import { useMyList } from '@/hooks/useMyList';
+import MyListTooltip from '@/components/ui/MyListTooltip';
 
 interface BackdropSlideshowProps {
     media: Media[];
@@ -37,11 +39,11 @@ export default function BackdropSlideshow({
     config = {},
 }: BackdropSlideshowProps) {
     const navigate = useNavigate();
+    const { isInMyList, toggleMyList, collections, addToCollection, fetchCollections } = useMyList();
     const [currentIndex, setCurrentIndex] = useState(0);
     const [isHovering, setIsHovering] = useState(false);
     const [colors, setColors] = useState<DominantColors>(getColorPaletteByGenre());
     const [imageLoaded, setImageLoaded] = useState(false);
-    const [isInMyList, setIsInMyList] = useState<Record<number, boolean>>({});
     const [isMuted, setIsMuted] = useState(true);
     const [showTrailer, setShowTrailer] = useState(false);
     const [tmdbLogos, setTmdbLogos] = useState<Record<number, string>>({});
@@ -120,12 +122,7 @@ export default function BackdropSlideshow({
         setImageLoaded(false);
     };
 
-    const toggleMyList = (mediaId: number) => {
-        setIsInMyList(prev => ({
-            ...prev,
-            [mediaId]: !prev[mediaId]
-        }));
-    };
+
 
     const handleCardClick = (media: Media) => {
         navigateToMedia(navigate, media);
@@ -409,24 +406,35 @@ export default function BackdropSlideshow({
 
                                 {/* Enhanced Action Buttons - Only Add to List */}
                                 <div className="flex items-center gap-4">
-                                    <motion.button
-                                        whileHover={{ scale: 1.1 }}
-                                        whileTap={{ scale: 0.95 }}
-                                        onClick={(e) => {
-                                            e.stopPropagation(); // Prevent triggering the main click
-                                            toggleMyList(currentMedia.id);
+                                    <MyListTooltip
+                                        media={{
+                                            ...currentMedia,
+                                            id: currentMedia.tmdb_id ? parseInt(`9${currentMedia.tmdb_id}`) : currentMedia.id
                                         }}
-                                        className="p-4 backdrop-blur-md rounded-full border transition-all"
-                                        style={{ 
-                                            backgroundColor: isInMyList[currentMedia.id] ? `${colors.primary}40` : `${colors.primary}20`,
-                                            borderColor: `${colors.primary}50`
-                                        }}
+                                        isInMyList={isInMyList(currentMedia.tmdb_id ? parseInt(`9${currentMedia.tmdb_id}`) : currentMedia.id)}
+                                        collections={collections}
+                                        onToggleMyList={() => toggleMyList(currentMedia.tmdb_id ? parseInt(`9${currentMedia.tmdb_id}`) : currentMedia.id)}
+                                        onAddToCollection={(collectionId) => addToCollection(collectionId, currentMedia.tmdb_id ? parseInt(`9${currentMedia.tmdb_id}`) : currentMedia.id)}
+                                        onCollectionCreated={fetchCollections}
                                     >
-                                        {isInMyList[currentMedia.id] ? 
-                                            <Check className="w-5 h-5" style={{ color: colors.primary }} /> : 
-                                            <Plus className="w-5 h-5 text-white" />
-                                        }
-                                    </motion.button>
+                                        <motion.button
+                                            whileHover={{ scale: 1.1 }}
+                                            whileTap={{ scale: 0.95 }}
+                                            onClick={(e) => {
+                                                e.stopPropagation(); // Prevent triggering the main click
+                                            }}
+                                            className="p-4 backdrop-blur-md rounded-full border transition-all"
+                                            style={{ 
+                                                backgroundColor: isInMyList(currentMedia.tmdb_id ? parseInt(`9${currentMedia.tmdb_id}`) : currentMedia.id) ? `${colors.primary}40` : `${colors.primary}20`,
+                                                borderColor: `${colors.primary}50`
+                                            }}
+                                        >
+                                            {isInMyList(currentMedia.tmdb_id ? parseInt(`9${currentMedia.tmdb_id}`) : currentMedia.id) ? 
+                                                <Check className="w-5 h-5" style={{ color: colors.primary }} /> : 
+                                                <Plus className="w-5 h-5 text-white" />
+                                            }
+                                        </motion.button>
+                                    </MyListTooltip>
                                 </div>
                             </>
                         )}

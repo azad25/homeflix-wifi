@@ -32,6 +32,8 @@ import Navbar from '@/components/Navbar';
 import RedLoader from '@/components/RedLoader';
 import UpcomingMovies from '@/components/UpcomingMovies';
 import UpcomingTVSeries from '@/components/UpcomingTVSeries';
+import { useMyList } from '@/hooks/useMyList';
+import MyListTooltip from '@/components/ui/MyListTooltip';
 
 // Related Media Component
 interface RelatedMediaProps {
@@ -777,6 +779,7 @@ interface UnifiedMediaDetails {
   };
   // Media type specific fields
   media_type: 'movie' | 'tv';
+  type: string; // Required by Media interface - maps to media_type
   runtime?: number; // Movies only
   budget?: number; // Movies only
   revenue?: number; // Movies only
@@ -822,7 +825,13 @@ const TMDBMoviePage: React.FC = () => {
   }>({ isDownloading: false, progress: 0 });
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
 
+  // Use the new backend-connected My List hook
+  const { myList, collections, isInMyList: isInMyListHook, toggleMyList: toggleMyListHook, addToCollection, fetchCollections } = useMyList();
+
   const movieId = params.id as string;
+  
+  // Create prefixed ID for TMDB content to distinguish from local media
+  const tmdbPrefixedId = movieId ? parseInt(`9${movieId}`) : 0;
 
   useEffect(() => {
     if (movieId) {
@@ -900,6 +909,7 @@ const TMDBMoviePage: React.FC = () => {
         unifiedData = {
           ...responseData,
           media_type: 'movie' as const,
+          type: 'movie', // Add required type property
           title: responseData.title,
           original_title: responseData.original_title,
           release_date: responseData.release_date,
@@ -965,6 +975,7 @@ const TMDBMoviePage: React.FC = () => {
       return {
         ...movieData,
         media_type: 'movie',
+        type: 'movie', // Add required type property
         title: movieData.title,
         original_title: movieData.original_title,
         release_date: movieData.release_date,
@@ -974,6 +985,7 @@ const TMDBMoviePage: React.FC = () => {
       return {
         ...tvData,
         media_type: 'tv',
+        type: 'episode', // Add required type property (TV shows are treated as episodes)
         title: tvData.name, // Map name to title
         original_title: tvData.original_name, // Map original_name to original_title
         release_date: tvData.first_air_date, // Map first_air_date to release_date
@@ -1626,13 +1638,19 @@ const TMDBMoviePage: React.FC = () => {
                   </div>
                 )}
 
-                <button
-                  onClick={toggleMyList}
-                  className="flex items-center gap-1 px-4 py-2 bg-gray-800/80 hover:bg-gray-700 rounded-lg text-sm font-semibold transition-all duration-300 hover:scale-105"
+                <MyListTooltip
+                  media={mediaDetails}
+                  isInMyList={isInMyListHook(tmdbPrefixedId)}
+                  collections={collections}
+                  onToggleMyList={() => toggleMyListHook(tmdbPrefixedId)}
+                  onAddToCollection={(collectionId) => addToCollection(collectionId, tmdbPrefixedId)}
+                  onCollectionCreated={fetchCollections}
                 >
-                  {isInMyList ? <Check className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
-                  My List
-                </button>
+                  <button className="flex items-center gap-1 px-4 py-2 bg-gray-800/80 hover:bg-gray-700 rounded-lg text-sm font-semibold transition-all duration-300 hover:scale-105">
+                    {isInMyListHook(tmdbPrefixedId) ? <Check className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
+                    My List
+                  </button>
+                </MyListTooltip>
                 <button className="flex items-center gap-1 px-4 py-2 bg-gray-800/80 hover:bg-gray-700 rounded-lg text-sm font-semibold transition-all duration-300 hover:scale-105">
                   <Share2 className="w-4 h-4" />
                   Share

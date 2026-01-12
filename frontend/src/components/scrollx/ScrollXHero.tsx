@@ -89,7 +89,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
   } = useAudio();
 
   // Use the new backend-connected My List hook
-  const { myList, collections, isInMyList, toggleMyList: toggleMyListHook, addToCollection } = useMyList();
+  const { myList, collections, isInMyList, toggleMyList: toggleMyListHook, addToCollection, fetchCollections } = useMyList();
 
   // Wrapper function to handle the media parameter
   const toggleMyList = useCallback((media: Media) => {
@@ -1408,16 +1408,20 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
                 </MagneticButton>
 
                 <MyListTooltip
-                  media={currentMedia}
-                  isInMyList={isInMyList(currentMedia.id)}
+                  media={{
+                    ...currentMedia,
+                    id: currentMedia.tmdb_id ? parseInt(`9${currentMedia.tmdb_id}`) : currentMedia.id
+                  }}
+                  isInMyList={isInMyList(currentMedia.tmdb_id ? parseInt(`9${currentMedia.tmdb_id}`) : currentMedia.id)}
                   collections={collections}
                   onToggleMyList={() => toggleMyList(currentMedia)}
-                  onAddToCollection={(collectionId) => addToCollection(collectionId, currentMedia.id)}
+                  onAddToCollection={(collectionId) => addToCollection(collectionId, currentMedia.tmdb_id ? parseInt(`9${currentMedia.tmdb_id}`) : currentMedia.id)}
+                  onCollectionCreated={fetchCollections}
                 >
                   <MagneticButton
                     className="bg-transparent text-white px-8 py-3 rounded-md font-bold text-lg hover:bg-white/10 transition-all duration-300 flex items-center gap-2 border border-white/30"
                   >
-                    {isInMyList(currentMedia.id) ? (
+                    {isInMyList(currentMedia.tmdb_id ? parseInt(`9${currentMedia.tmdb_id}`) : currentMedia.id) ? (
                       <>
                         <Check className="w-6 h-6" />
                         In My List

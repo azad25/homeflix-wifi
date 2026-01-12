@@ -2,13 +2,15 @@
 
 import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Star, ThumbsUp, Calendar, Play, Info, Volume2, VolumeX, Flame, Zap, Crown, Heart, Sparkles, Award, TrendingUp, Clock, Eye, Gift, Rocket, Target, Shield, Diamond } from "lucide-react";
+import { Star, ThumbsUp, Calendar, Play, Info, Volume2, VolumeX, Flame, Zap, Crown, Heart, Sparkles, Award, TrendingUp, Clock, Eye, Gift, Rocket, Target, Shield, Diamond, Plus, Check } from "lucide-react";
 import { getApiUrl } from '@/lib/api';
 import { Media } from "@/types/media";
 import VideoPlayerOverlay from './VideoPlayerOverlay';
 import { navigateToMedia } from '@/lib/mediaNavigation';
 import { useNavigate } from '@/hooks/useNavigate';
 import { useRecommendationScore } from '@/lib/swr-api';
+import { useMyList } from '@/hooks/useMyList';
+import MyListTooltip from '@/components/ui/MyListTooltip';
 
 export type HeroMode = "preview" | "trailer" | "mixed";
 
@@ -47,6 +49,7 @@ export default function HeroVideoWidget({
 }: HeroVideoWidgetProps) {
   const apiUrl = getApiUrl();
   const navigate = useNavigate();
+  const { isInMyList, toggleMyList, collections, addToCollection, fetchCollections } = useMyList();
 
   // Icon mapping for tags
   const getTagIcon = (iconName: string) => {
@@ -143,17 +146,35 @@ export default function HeroVideoWidget({
     if (m.tmdb_id && logoUrls[m.tmdb_id]) {
       return logoUrls[m.tmdb_id];
     }
-    // Check if logo_path is a full TMDB URL
+    
+    // Handle local content logos
     if (m.logo_path) {
-      if (m.logo_path.startsWith("http://") || m.logo_path.startsWith("https://")) return m.logo_path;
-      // Check if it's a TMDB path (starts with /)
+      // If it's a full URL, use it directly
+      if (m.logo_path.startsWith("http://") || m.logo_path.startsWith("https://")) {
+        return m.logo_path;
+      }
+      
+      // If it's a TMDB path (starts with /), construct TMDB URL
       if (m.logo_path.startsWith("/") && !m.logo_path.startsWith("/api/")) {
         return `https://image.tmdb.org/t/p/w500${m.logo_path}`;
       }
-      if (m.logo_path.startsWith("/api/")) return `${apiUrl}${m.logo_path}`;
-      const name = m.logo_path.split("/").pop();
-      return `${apiUrl}/api/logos/${name}`;
+      
+      // If it's already an API path, use it directly
+      if (m.logo_path.startsWith("/api/")) {
+        return `${apiUrl}${m.logo_path}`;
+      }
+      
+      // For local content, construct the appropriate endpoint
+      if (m.type === 'tv' || m.type === 'series' || m.type === 'episode') {
+        // For TV series, use the series logo endpoint
+        const seriesId = m.series_id || m.id;
+        return `${apiUrl}/api/series/${seriesId}/logo`;
+      } else {
+        // For movies, use the direct logo path
+        return `${apiUrl}/api/${m.logo_path}`;
+      }
     }
+    
     return "";
   }, [apiUrl, logoUrls]);
 
@@ -1042,22 +1063,46 @@ export default function HeroVideoWidget({
 
               <motion.p className="text-white/70 text-xs md:text-sm max-w-xl line-clamp-2 mb-4 leading-relaxed" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.6, duration: 0.4 }}>{current.description || current.short_desc || current.long_desc}</motion.p>
 
-              <motion.div className="flex items-center gap-4" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.7, duration: 0.4 }}>
+              <motion.div className="flex items-center gap-3" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.7, duration: 0.4 }}>
                 {hasLocalFile(current) && (
                   <button
                     onClick={() => {
                       setSelectedMediaForPlayback(current);
                       setShowVideoPlayer(true);
                     }}
-                    className="group p-2.5 rounded-full bg-red-600/40 border border-red-500/30 text-white backdrop-blur-md hover:bg-red-600/60 transition-all duration-200 shadow-lg hover:shadow-xl hover:scale-110"
+                    className="group p-2 rounded-full bg-red-600/40 border border-red-500/30 text-white backdrop-blur-md hover:bg-red-600/60 transition-all duration-200 shadow-lg hover:shadow-xl hover:scale-110"
                     title="Play"
                   >
-                    <Play className="w-5 h-5 fill-current" />
+                    <Play className="w-4 h-4 fill-current" />
                   </button>
                 )}
-                <button onClick={() => navigateToMedia(navigate, current)} className="group p-2.5 bg-white/20 text-white rounded-full backdrop-blur-md border border-white/30 hover:bg-white/30 transition-all duration-200 hover:scale-110" title="More Info">
-                  <Info className="w-5 h-5" />
+                <button onClick={() => navigateToMedia(navigate, current)} className="group p-2 bg-white/20 text-white rounded-full backdrop-blur-md border border-white/30 hover:bg-white/30 transition-all duration-200 hover:scale-110" title="More Info">
+                  <Info className="w-4 h-4" />
                 </button>
+                
+                {/* MyListTooltip for Add to List */}
+                <MyListTooltip
+                  media={{
+                    ...current,
+                    id: current.tmdb_id ? parseInt(`9${current.tmdb_id}`) : current.id
+                  }}
+                  isInMyList={isInMyList(current.tmdb_id ? parseInt(`9${current.tmdb_id}`) : current.id)}
+                  collections={collections}
+                  onToggleMyList={() => toggleMyList(current.tmdb_id ? parseInt(`9${current.tmdb_id}`) : current.id)}
+                  onAddToCollection={(collectionId) => addToCollection(collectionId, current.tmdb_id ? parseInt(`9${current.tmdb_id}`) : current.id)}
+                  onCollectionCreated={fetchCollections}
+                >
+                  <button
+                    className="group p-2 bg-white/20 text-white rounded-full backdrop-blur-md border border-white/30 hover:bg-white/30 transition-all duration-200 hover:scale-110"
+                    title={isInMyList(current.tmdb_id ? parseInt(`9${current.tmdb_id}`) : current.id) ? "Remove from My List" : "Add to My List"}
+                  >
+                    {isInMyList(current.tmdb_id ? parseInt(`9${current.tmdb_id}`) : current.id) ? (
+                      <Check className="w-4 h-4" />
+                    ) : (
+                      <Plus className="w-4 h-4" />
+                    )}
+                  </button>
+                </MyListTooltip>
               </motion.div>
             </div>
           </div>
@@ -1066,8 +1111,8 @@ export default function HeroVideoWidget({
 
       {/* Volume */}
       <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.5, duration: 0.4 }} className="absolute top-6 right-6 z-30">
-        <button onClick={() => setIsMuted((m) => !m)} className="group p-3 rounded-full bg-black/40 backdrop-blur-md border border-white/20 hover:bg-black/60 hover:border-white/40 transition-all duration-200 hover:scale-110" title={isMuted ? "Unmute" : "Mute"}>
-          {isMuted ? <VolumeX className="w-5 h-5 text-white/80 group-hover:text-white transition-colors" /> : <Volume2 className="w-5 h-5 text-white/80 group-hover:text-white transition-colors" />}
+        <button onClick={() => setIsMuted((m) => !m)} className="group p-2 rounded-full bg-black/40 backdrop-blur-md border border-white/20 hover:bg-black/60 hover:border-white/40 transition-all duration-200 hover:scale-110" title={isMuted ? "Unmute" : "Mute"}>
+          {isMuted ? <VolumeX className="w-4 h-4 text-white/80 group-hover:text-white transition-colors" /> : <Volume2 className="w-4 h-4 text-white/80 group-hover:text-white transition-colors" />}
         </button>
       </motion.div>
 

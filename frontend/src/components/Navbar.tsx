@@ -10,7 +10,7 @@ import { getApiUrl } from "@/lib/api";
 import NotificationDropdown from "./NotificationDropdown";
 import { Notification, NotificationResponse, NotificationCountResponse } from "@/types/notifications";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { getCachedNavData, cacheNavData } from "@/utils/navCache";
 
 interface NavbarProps {
   onSearch?: (query: string) => void;
@@ -53,8 +53,53 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
   const suggestionsRef = useRef<HTMLDivElement>(null);
   const [dynamicPages, setDynamicPages] = useState<Array<{ slug: string; title: string }>>([]);
   const [homePageSlug, setHomePageSlug] = useState<string | null>(null);
+  const [isInitialLoad, setIsInitialLoad] = useState(true);
 
-  // Notification state
+  // Preload dynamic pages and home page data immediately
+  useEffect(() => {
+    const loadNavData = async () => {
+      try {
+        // Try to load from cache first for instant display
+        const cachedData = getCachedNavData();
+        if (cachedData) {
+          setDynamicPages(cachedData.dynamicPages);
+          setHomePageSlug(cachedData.homePageSlug);
+          setIsInitialLoad(false);
+        }
+
+        const apiUrl = getApiUrl();
+        
+        // Load both nav pages and home page in parallel
+        const [navResponse, homeResponse] = await Promise.all([
+          fetch(`${apiUrl}/api/pages/nav`).then(r => r.ok ? r.json() : []),
+          fetch(`${apiUrl}/api/pages/home`).then(r => r.ok ? r.json() : null)
+        ]);
+
+        // Set dynamic pages
+        const newDynamicPages = Array.isArray(navResponse) 
+          ? navResponse.map((p: any) => ({ slug: p.slug, title: p.title }))
+          : [];
+        
+        // Set home page slug
+        const newHomePageSlug = (homeResponse && homeResponse.slug) ? homeResponse.slug : null;
+
+        setDynamicPages(newDynamicPages);
+        setHomePageSlug(newHomePageSlug);
+        setIsInitialLoad(false);
+
+        // Cache the results
+        cacheNavData(newDynamicPages, newHomePageSlug);
+
+      } catch (error) {
+        console.error('Failed to load navigation data:', error);
+        setDynamicPages([]);
+        setHomePageSlug(null);
+        setIsInitialLoad(false);
+      }
+    };
+
+    loadNavData();
+  }, []);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [notificationCount, setNotificationCount] = useState(0);
   const [isNotificationOpen, setIsNotificationOpen] = useState(false);
@@ -69,35 +114,7 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
-  // Fetch dynamic pages for navigation (append to existing)
-  useEffect(() => {
-    const apiUrl = getApiUrl();
-    fetch(`${apiUrl}/api/pages/nav`)
-      .then((r) => (r.ok ? r.json() : []))
-      .then((pages) => {
-        if (Array.isArray(pages)) {
-          setDynamicPages(
-            pages.map((p: any) => ({ slug: p.slug, title: p.title }))
-          );
-        }
-      })
-      .catch(() => setDynamicPages([]));
-  }, []);
-
-  // Fetch custom home page
-  useEffect(() => {
-    const apiUrl = getApiUrl();
-    fetch(`${apiUrl}/api/pages/home`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((page) => {
-        if (page && page.slug) {
-          setHomePageSlug(page.slug);
-        }
-      })
-      .catch(() => setHomePageSlug(null));
-  }, []);
-
-  // Handle clicks outside search to close suggestions
+  // Notification state
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (
@@ -347,14 +364,19 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
           {/* Logo */}
           <div className="flex items-center gap-8">
             <NavigationLink
-              href={homePageSlug ? `/${homePageSlug}` : "/"}
+              href="/"
               className="text-red-600 text-2xl font-bold hover:text-red-500 transition-colors cursor-pointer"
               onClick={(e) => {
-                const targetPath = homePageSlug ? `/${homePageSlug}` : "/";
-                // If we are already on the target page, force a reload to refresh content and fix stuck spinner
-                if (pathname === targetPath) {
+                // If we are already on the home page, force a reload to refresh content and fix stuck spinner
+                if (pathname === "/") {
                   e.preventDefault();
                   window.location.reload();
+                }
+                // If there's a custom home page and user wants to bypass it, add ?original=true
+                // This can be triggered by holding Ctrl/Cmd while clicking
+                if (homePageSlug && (e.ctrlKey || e.metaKey)) {
+                  e.preventDefault();
+                  navigate.push("/?original=true");
                 }
               }}
             >
@@ -363,7 +385,7 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
 
             {/* Desktop Navigation - Home page is filtered out of this list by backend (is_nav_visible=false) */}
             <div className="hidden md:flex items-center gap-6">
-              {[...navItems, ...dynamicPages.map(p => ({ name: p.title, href: `/${p.slug}` }))].map((item) => {
+              {!isInitialLoad && [...navItems, ...dynamicPages.map(p => ({ name: p.title, href: `/${p.slug}` }))].map((item) => {
                 const isActive = pathname === item.href;
                 return (
                   <NavigationLink
@@ -379,6 +401,28 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
                   </NavigationLink>
                 );
               })}
+              {isInitialLoad && (
+                <>
+                  {navItems.map((item) => {
+                    const isActive = pathname === item.href;
+                    return (
+                      <NavigationLink
+                        key={item.name}
+                        href={item.href}
+                        target={item.href == "/now-playing" ? "_blank" : ""}
+                        className={`transition-colors text-sm font-medium ${isActive
+                          ? "text-red-500"
+                          : "text-white/80 hover:text-white hover:text-red-400"
+                          }`}
+                      >
+                        {item.name}
+                      </NavigationLink>
+                    );
+                  })}
+                  {/* Loading placeholder for dynamic pages */}
+                  <div className="w-16 h-4 bg-gray-700/50 animate-pulse rounded"></div>
+                </>
+              )}
             </div>
           </div>
 
@@ -651,12 +695,13 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
             exit={{ opacity: 0, height: 0 }}
             className="md:hidden bg-black/95 rounded-lg mt-2 py-4"
           >
-            {navItems.map((item) => {
+            {[...navItems, ...dynamicPages.map(p => ({ name: p.title, href: `/${p.slug}` }))].map((item) => {
               const isActive = pathname === item.href;
               return (
                 <NavigationLink
                   key={item.name}
                   href={item.href}
+                  target={item.href == "/now-playing" ? "_blank" : ""}
                   className={`block px-4 py-3 transition-colors ${isActive
                     ? "text-red-500 bg-red-500/10 border-l-4 border-red-500"
                     : "text-white/80 hover:text-white hover:bg-white/10 hover:text-red-400"
@@ -667,6 +712,11 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
                 </NavigationLink>
               );
             })}
+            {isInitialLoad && dynamicPages.length === 0 && (
+              <div className="px-4 py-3">
+                <div className="w-24 h-4 bg-gray-700/50 animate-pulse rounded"></div>
+              </div>
+            )}
           </motion.div>
         )}
       </div>

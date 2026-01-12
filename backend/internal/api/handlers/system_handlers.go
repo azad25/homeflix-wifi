@@ -2628,7 +2628,12 @@ func StreamCommandExecution() gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to upgrade to WebSocket"})
 			return
 		}
-		defer conn.Close()
+		defer func() {
+			if r := recover(); r != nil {
+				fmt.Printf("Terminal WebSocket panic recovered: %v\n", r)
+			}
+			conn.Close()
+		}()
 
 		// Check password after connection (support both query param and header)
 		password := c.Query("password")
@@ -2640,123 +2645,214 @@ func StreamCommandExecution() gin.HandlerFunc {
 		password = strings.TrimSpace(password)
 		if password != "8008" {
 			// Send authentication error through WebSocket
-			conn.WriteJSON(TerminalOutput{
+			if err := conn.WriteJSON(TerminalOutput{
 				Timestamp: time.Now(),
 				Type:      "stderr",
 				Message:   "❌ Authentication failed: Invalid password",
-			})
+			}); err != nil {
+				fmt.Printf("Failed to send auth error: %v\n", err)
+			}
 			return
 		}
 
 		// Send success message
-		conn.WriteJSON(TerminalOutput{
+		if err := conn.WriteJSON(TerminalOutput{
 			Timestamp: time.Now(),
 			Type:      "success",
 			Message:   "🔐 Terminal authenticated - ready for commands",
-		})
+		}); err != nil {
+			fmt.Printf("Failed to send auth success: %v\n", err)
+			return
+		}
+
+		// Set read deadline to prevent hanging connections
+		conn.SetReadDeadline(time.Now().Add(5 * time.Minute))
 
 		// Listen for commands from client
 		for {
 			var msg struct {
 				Command string `json:"command"`
 			}
+			
+			// Reset read deadline for each message
+			conn.SetReadDeadline(time.Now().Add(5 * time.Minute))
+			
 			err := conn.ReadJSON(&msg)
 			if err != nil {
+				if !isConnectionClosed(err) {
+					fmt.Printf("Error reading WebSocket message: %v\n", err)
+				}
 				break
 			}
 
-			if msg.Command == "" {
+			if strings.TrimSpace(msg.Command) == "" {
 				continue
 			}
 
-			// Execute command
-			executeCommandStream(conn, msg.Command)
+			// Validate command for safety
+			if !isCommandSafe(msg.Command) {
+				if err := conn.WriteJSON(TerminalOutput{
+					Timestamp: time.Now(),
+					Type:      "stderr",
+					Message:   "❌ Command blocked for security reasons",
+				}); err != nil {
+					break
+				}
+				continue
+			}
+
+			// Execute command in a safe way
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						fmt.Printf("Command execution panic recovered: %v\n", r)
+						conn.WriteJSON(TerminalOutput{
+							Timestamp: time.Now(),
+							Type:      "stderr",
+							Message:   "❌ Command execution failed due to internal error",
+						})
+					}
+				}()
+				executeCommandStream(conn, msg.Command)
+			}()
 		}
 	}
 }
 
 // executeCommandStream executes a command and streams output
 func executeCommandStream(conn *websocket.Conn, command string) {
-	conn.WriteJSON(TerminalOutput{
+	// Send start message
+	if err := conn.WriteJSON(TerminalOutput{
 		Timestamp: time.Now(),
 		Type:      "info",
 		Message:   fmt.Sprintf("▶ Executing: %s", command),
-	})
+	}); err != nil {
+		return // Connection closed
+	}
 
-	cmd := exec.Command("bash", "-c", command)
+	// Set up command with timeout context
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "bash", "-c", command)
 	cmd.Dir = getProjectRoot()
 
-	// Create pipes for stdout and stderr
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		conn.WriteJSON(TerminalOutput{
-			Timestamp: time.Now(),
-			Type:      "stderr",
-			Message:   fmt.Sprintf("Failed to create stdout pipe: %v", err),
-		})
-		return
-	}
+	// Use CombinedOutput for simpler, safer execution
+	output, err := cmd.CombinedOutput()
 
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		conn.WriteJSON(TerminalOutput{
-			Timestamp: time.Now(),
-			Type:      "stderr",
-			Message:   fmt.Sprintf("Failed to create stderr pipe: %v", err),
-		})
-		return
-	}
+	// Send output line by line
+	if len(output) > 0 {
+		lines := strings.Split(string(output), "\n")
+		for _, line := range lines {
+			if strings.TrimSpace(line) == "" {
+				continue
+			}
+			
+			outputType := "stdout"
+			if err != nil {
+				outputType = "stderr"
+			}
 
-	// Start command
-	if err := cmd.Start(); err != nil {
-		conn.WriteJSON(TerminalOutput{
-			Timestamp: time.Now(),
-			Type:      "stderr",
-			Message:   fmt.Sprintf("Failed to start command: %v", err),
-		})
-		return
-	}
-
-	// Stream stdout
-	go func() {
-		scanner := bufio.NewScanner(stdout)
-		for scanner.Scan() {
-			line := scanner.Text()
-			conn.WriteJSON(TerminalOutput{
+			if writeErr := conn.WriteJSON(TerminalOutput{
 				Timestamp: time.Now(),
-				Type:      "stdout",
+				Type:      outputType,
 				Message:   line,
-			})
+			}); writeErr != nil {
+				return // Connection closed
+			}
 		}
-	}()
+	}
 
-	// Stream stderr
-	go func() {
-		scanner := bufio.NewScanner(stderr)
-		for scanner.Scan() {
-			line := scanner.Text()
+	// Send completion message
+	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
 			conn.WriteJSON(TerminalOutput{
 				Timestamp: time.Now(),
 				Type:      "stderr",
-				Message:   line,
+				Message:   "❌ Command timed out after 30 seconds",
+			})
+		} else {
+			conn.WriteJSON(TerminalOutput{
+				Timestamp: time.Now(),
+				Type:      "stderr",
+				Message:   fmt.Sprintf("❌ Command failed: %v", err),
 			})
 		}
-	}()
-
-	// Wait for command completion
-	err = cmd.Wait()
-
-	if err != nil {
-		conn.WriteJSON(TerminalOutput{
-			Timestamp: time.Now(),
-			Type:      "stderr",
-			Message:   fmt.Sprintf("❌ Command failed: %v", err),
-		})
 	} else {
 		conn.WriteJSON(TerminalOutput{
 			Timestamp: time.Now(),
 			Type:      "success",
 			Message:   "✅ Command completed successfully",
+		})
+	}
+}
+
+// isCommandSafe checks if a command is safe to execute
+func isCommandSafe(command string) bool {
+	// Block dangerous commands
+	dangerousCommands := []string{
+		"rm -rf", "sudo rm", "mkfs", "dd if=", ":(){ :|:& };:", 
+		"sudo", "su -", "passwd", "userdel", "usermod",
+		"shutdown", "reboot", "halt", "poweroff",
+		"iptables", "ufw", "firewall-cmd",
+		"crontab -r", "systemctl stop", "systemctl disable",
+		"kill -9", "killall -9",
+	}
+
+	cmdLower := strings.ToLower(strings.TrimSpace(command))
+	for _, dangerous := range dangerousCommands {
+		if strings.Contains(cmdLower, dangerous) {
+			return false
+		}
+	}
+
+	// Block commands that try to modify system files
+	if strings.Contains(cmdLower, "/etc/") && (strings.Contains(cmdLower, ">") || strings.Contains(cmdLower, ">>")) {
+		return false
+	}
+
+	return true
+}
+
+// isConnectionClosed checks if the error indicates a closed connection
+func isConnectionClosed(err error) bool {
+	if err == nil {
+		return false
+	}
+	errStr := err.Error()
+	return strings.Contains(errStr, "connection reset") ||
+		   strings.Contains(errStr, "broken pipe") ||
+		   strings.Contains(errStr, "connection refused") ||
+		   strings.Contains(errStr, "use of closed network connection")
+}
+
+// AuthenticateTerminal validates terminal access password
+func AuthenticateTerminal() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req struct {
+			Password string `json:"password"`
+		}
+
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"message": "Invalid request format",
+			})
+			return
+		}
+
+		// Check password
+		if strings.TrimSpace(req.Password) != "8008" {
+			c.JSON(http.StatusUnauthorized, gin.H{
+				"success": false,
+				"message": "Invalid password",
+			})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"message": "Authentication successful",
 		})
 	}
 }

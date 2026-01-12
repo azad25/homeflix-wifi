@@ -7,6 +7,8 @@ import { Media } from '@/types/media';
 import { getApiUrl } from '@/lib/api';
 import { getColorPaletteByGenre, DominantColors } from '@/types/widgets';
 import { useNavigate } from '@/hooks/useNavigate';
+import { useMyList } from '@/hooks/useMyList';
+import MyListTooltip from '@/components/ui/MyListTooltip';
 
 interface ComingSoonBannerProps {
     movies: Media[];
@@ -42,10 +44,10 @@ export default function ComingSoonBanner({
     config = {},
 }: ComingSoonBannerProps) {
     const navigate = useNavigate();
+    const { isInMyList, toggleMyList, collections, addToCollection, fetchCollections } = useMyList();
     const [currentIndex, setCurrentIndex] = useState(0);
     const [isHovering, setIsHovering] = useState(false);
     const [notifyEnabled, setNotifyEnabled] = useState<Set<number>>(new Set());
-    const [isInMyList, setIsInMyList] = useState<Set<number>>(new Set());
     const [imageLoaded, setImageLoaded] = useState(false);
     const [tmdbLogos, setTmdbLogos] = useState<Record<number, string>>({});
 
@@ -107,17 +109,7 @@ export default function ComingSoonBanner({
         });
     };
 
-    const toggleMyList = (movieId: number) => {
-        setIsInMyList(prev => {
-            const newSet = new Set(prev);
-            if (newSet.has(movieId)) {
-                newSet.delete(movieId);
-            } else {
-                newSet.add(movieId);
-            }
-            return newSet;
-        });
-    };
+
 
     if (!currentMovie) return null;
 
@@ -453,21 +445,32 @@ export default function ComingSoonBanner({
                                         {notifyEnabled.has(currentMovie.id) ? 'Notified' : 'Remind Me'}
                                     </motion.button>
                                     
-                                    <motion.button
-                                        whileHover={{ scale: 1.1 }}
-                                        whileTap={{ scale: 0.95 }}
-                                        onClick={() => toggleMyList(currentMovie.id)}
-                                        className="p-3 backdrop-blur-md rounded-full border transition-all"
-                                        style={{ 
-                                            backgroundColor: isInMyList.has(currentMovie.id) ? `${colors.primary}40` : `${colors.primary}20`,
-                                            borderColor: `${colors.primary}50`
+                                    <MyListTooltip
+                                        media={{
+                                            ...currentMovie,
+                                            id: currentMovie.tmdb_id ? parseInt(`9${currentMovie.tmdb_id}`) : currentMovie.id
                                         }}
+                                        isInMyList={isInMyList(currentMovie.tmdb_id ? parseInt(`9${currentMovie.tmdb_id}`) : currentMovie.id)}
+                                        collections={collections}
+                                        onToggleMyList={() => toggleMyList(currentMovie.tmdb_id ? parseInt(`9${currentMovie.tmdb_id}`) : currentMovie.id)}
+                                        onAddToCollection={(collectionId) => addToCollection(collectionId, currentMovie.tmdb_id ? parseInt(`9${currentMovie.tmdb_id}`) : currentMovie.id)}
+                                        onCollectionCreated={fetchCollections}
                                     >
-                                        {isInMyList.has(currentMovie.id) ? 
-                                            <Check className="w-4 h-4" style={{ color: colors.primary }} /> : 
-                                            <Plus className="w-4 h-4 text-white" />
-                                        }
-                                    </motion.button>
+                                        <motion.button
+                                            whileHover={{ scale: 1.1 }}
+                                            whileTap={{ scale: 0.95 }}
+                                            className="p-3 backdrop-blur-md rounded-full border transition-all"
+                                            style={{ 
+                                                backgroundColor: isInMyList(currentMovie.tmdb_id ? parseInt(`9${currentMovie.tmdb_id}`) : currentMovie.id) ? `${colors.primary}40` : `${colors.primary}20`,
+                                                borderColor: `${colors.primary}50`
+                                            }}
+                                        >
+                                            {isInMyList(currentMovie.tmdb_id ? parseInt(`9${currentMovie.tmdb_id}`) : currentMovie.id) ? 
+                                                <Check className="w-4 h-4" style={{ color: colors.primary }} /> : 
+                                                <Plus className="w-4 h-4 text-white" />
+                                            }
+                                        </motion.button>
+                                    </MyListTooltip>
                                     
                                     <motion.button
                                         whileHover={{ scale: 1.05 }}

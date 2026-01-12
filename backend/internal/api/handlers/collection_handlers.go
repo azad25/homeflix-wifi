@@ -123,14 +123,20 @@ func (h *CollectionHandlers) AddItemToCollection(c *gin.Context) {
 	}
 
 	var request struct {
-		MediaID  uint   `json:"media_id" binding:"required"`
-		Position int    `json:"position"`
-		Notes    string `json:"notes"`
+		MediaID   uint   `json:"media_id" binding:"required"`
+		MediaType string `json:"media_type"` // Add media_type support
+		Position  int    `json:"position"`
+		Notes     string `json:"notes"`
 	}
 
 	if err := c.ShouldBindJSON(&request); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
+	}
+
+	// Set default media type if not provided
+	if request.MediaType == "" {
+		request.MediaType = "movie"
 	}
 
 	if err := h.collectionService.AddItemToCollection(uint(collectionID), request.MediaID, request.Position, request.Notes); err != nil {

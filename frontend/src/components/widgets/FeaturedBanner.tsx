@@ -8,6 +8,8 @@ import { getApiUrl, preloadAssets } from '@/lib/api';
 import { getColorPaletteByGenre, DominantColors } from '@/types/widgets';
 import { useNavigate } from '@/hooks/useNavigate';
 import { navigateToMedia } from '@/lib/mediaNavigation';
+import { useMyList } from '@/hooks/useMyList';
+import MyListTooltip from '@/components/ui/MyListTooltip';
 
 interface FeaturedBannerProps {
     media: Media[];
@@ -31,10 +33,10 @@ export default function FeaturedBanner({
     config = {},
 }: FeaturedBannerProps) {
     const navigate = useNavigate();
+    const { isInMyList, toggleMyList, collections, addToCollection, fetchCollections } = useMyList();
     const [currentIndex, setCurrentIndex] = useState(0);
     const [isHovering, setIsHovering] = useState(false);
     const [colors, setColors] = useState<DominantColors>(getColorPaletteByGenre());
-    const [isInMyList, setIsInMyList] = useState(false);
     const [imageLoaded, setImageLoaded] = useState(false);
     const autoScrollRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -126,9 +128,7 @@ export default function FeaturedBanner({
         }
     };
 
-    const toggleMyList = () => {
-        setIsInMyList(!isInMyList);
-    };
+
 
     const getBackdropUrl = (m: Media) => {
         if (m.tmdb_backdrop_url) return m.tmdb_backdrop_url;
@@ -413,13 +413,24 @@ export default function FeaturedBanner({
                         transition={{ delay: 0.7 }}
                         className="flex items-center gap-3"
                     >
-                        <button
-                            onClick={toggleMyList}
-                            className="p-3 bg-white/10 backdrop-blur-sm rounded-full hover:bg-white/20 transition-all border border-white/20"
-                            style={{ borderColor: isInMyList ? colors.primary : undefined }}
+                        <MyListTooltip
+                            media={{
+                                ...currentMedia,
+                                id: currentMedia.tmdb_id ? parseInt(`9${currentMedia.tmdb_id}`) : currentMedia.id
+                            }}
+                            isInMyList={isInMyList(currentMedia.tmdb_id ? parseInt(`9${currentMedia.tmdb_id}`) : currentMedia.id)}
+                            collections={collections}
+                            onToggleMyList={() => toggleMyList(currentMedia.tmdb_id ? parseInt(`9${currentMedia.tmdb_id}`) : currentMedia.id)}
+                            onAddToCollection={(collectionId) => addToCollection(collectionId, currentMedia.tmdb_id ? parseInt(`9${currentMedia.tmdb_id}`) : currentMedia.id)}
+                            onCollectionCreated={fetchCollections}
                         >
-                            {isInMyList ? <Check className="w-5 h-5" style={{ color: colors.primary }} /> : <Plus className="w-5 h-5" />}
-                        </button>
+                            <button
+                                className="p-3 bg-white/10 backdrop-blur-sm rounded-full hover:bg-white/20 transition-all border border-white/20"
+                                style={{ borderColor: isInMyList(currentMedia.tmdb_id ? parseInt(`9${currentMedia.tmdb_id}`) : currentMedia.id) ? colors.primary : undefined }}
+                            >
+                                {isInMyList(currentMedia.tmdb_id ? parseInt(`9${currentMedia.tmdb_id}`) : currentMedia.id) ? <Check className="w-5 h-5" style={{ color: colors.primary }} /> : <Plus className="w-5 h-5" />}
+                            </button>
+                        </MyListTooltip>
                     </motion.div>
                 </div>
             </div>

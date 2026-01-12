@@ -30,6 +30,8 @@ import { getApiUrl } from '@/lib/api';
 import { useNavigate } from '@/hooks/useNavigate';
 import { resolveMediaRoute } from '@/lib/mediaNavigation';
 import { Media } from '@/types/media';
+import { useMyList } from '@/hooks/useMyList';
+import MyListTooltip from '@/components/ui/MyListTooltip';
 
 
 // Declare global YouTube types
@@ -116,6 +118,7 @@ interface NotificationWidgetProps {
 
 const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, className = '', initialData }) => {
   const navigate = useNavigate();
+  const { isInMyList, toggleMyList, collections, addToCollection, fetchCollections } = useMyList();
   const config = parseWidgetConfig(widget.config);
   const apiUrl = getApiUrl();
 
@@ -125,7 +128,6 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isHovering, setIsHovering] = useState(false);
   const [imageLoaded, setImageLoaded] = useState(false);
-  const [isInMyList, setIsInMyList] = useState<Record<string, boolean>>({});
   const [isMuted, setIsMuted] = useState(true);
   const [colors, setColors] = useState<DominantColors>(getColorPaletteByGenre());
   const [ytReady, setYtReady] = useState(false);
@@ -924,12 +926,7 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
     );
   };
 
-  const toggleMyList = (notificationId: string) => {
-    setIsInMyList(prev => ({
-      ...prev,
-      [notificationId]: !prev[notificationId]
-    }));
-  };
+  // This function is no longer needed as we use the hook directly
 
   const handlePrevious = useCallback(() => {
     setCurrentIndex((prev) => (prev - 1 + notifications.length) % notifications.length);
@@ -1585,20 +1582,39 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
                       {layoutVariant === 'third' ? 'Info' : 'More Info'}
                     </button>
 
-                    <button
-                      onClick={() => toggleMyList(currentNotification.id)}
-                      className={`backdrop-blur-md rounded-full border transition-all hover:scale-110 ${layoutVariant === 'third' ? 'p-1' : 'p-1.5'
-                        }`}
-                      style={{
-                        backgroundColor: isInMyList[currentNotification.id] ? `${themeColors.primary}40` : `${themeColors.primary}20`,
-                        borderColor: `${themeColors.primary}50`
+                    {/* MyListTooltip for Add to List */}
+                    <MyListTooltip
+                      media={{
+                        id: currentNotification.tmdb_ids?.[0] ? parseInt(`9${currentNotification.tmdb_ids[0]}`) : (currentNotification.movie_ids?.[0] || 0),
+                        title: currentNotification.title,
+                        type: currentNotification.type?.includes('tv') ? 'episode' : 'movie',
+                        year: currentNotification.release_date ? new Date(currentNotification.release_date).getFullYear() : new Date().getFullYear(),
+                        rating: currentNotification.rating || 0,
+                        genres: (currentNotification.genres || []).map((name, index) => ({ id: index, name })),
+                        tmdb_id: currentNotification.tmdb_ids?.[0],
+                        poster_url: currentNotification.poster_url,
+                        description: currentNotification.overview
                       }}
+                      isInMyList={isInMyList(currentNotification.tmdb_ids?.[0] ? parseInt(`9${currentNotification.tmdb_ids[0]}`) : (currentNotification.movie_ids?.[0] || 0))}
+                      collections={collections}
+                      onToggleMyList={() => toggleMyList(currentNotification.tmdb_ids?.[0] ? parseInt(`9${currentNotification.tmdb_ids[0]}`) : (currentNotification.movie_ids?.[0] || 0))}
+                      onAddToCollection={(collectionId) => addToCollection(collectionId, currentNotification.tmdb_ids?.[0] ? parseInt(`9${currentNotification.tmdb_ids[0]}`) : (currentNotification.movie_ids?.[0] || 0))}
+                      onCollectionCreated={fetchCollections}
                     >
-                      {isInMyList[currentNotification.id] ?
-                        <Check className={layoutVariant === 'third' ? 'w-3 h-3' : 'w-3.5 h-3.5'} style={{ color: themeColors.primary }} /> :
-                        <Plus className={layoutVariant === 'third' ? 'w-3 h-3 text-white' : 'w-3.5 h-3.5 text-white'} />
-                      }
-                    </button>
+                      <button
+                        className={`backdrop-blur-md rounded-full border transition-all hover:scale-110 ${layoutVariant === 'third' ? 'p-1' : 'p-1.5'
+                          }`}
+                        style={{
+                          backgroundColor: isInMyList(currentNotification.tmdb_ids?.[0] ? parseInt(`9${currentNotification.tmdb_ids[0]}`) : (currentNotification.movie_ids?.[0] || 0)) ? `${themeColors.primary}40` : `${themeColors.primary}20`,
+                          borderColor: `${themeColors.primary}50`
+                        }}
+                      >
+                        {isInMyList(currentNotification.tmdb_ids?.[0] || currentNotification.movie_ids?.[0] || 0) ?
+                          <Check className={layoutVariant === 'third' ? 'w-3 h-3' : 'w-3.5 h-3.5'} style={{ color: themeColors.primary }} /> :
+                          <Plus className={layoutVariant === 'third' ? 'w-3 h-3 text-white' : 'w-3.5 h-3.5 text-white'} />
+                        }
+                      </button>
+                    </MyListTooltip>
 
                     {trailerKey && (
                       <button
