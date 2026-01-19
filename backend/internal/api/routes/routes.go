@@ -44,9 +44,15 @@ func (h *WidgetDataHandlers) GetWidgetData(c *gin.Context) {
 	}
 
 	// Fetch widget data from database
-	var widgetData interface{}
+	var widgetData map[string]interface{}
 	err = h.db.Raw("SELECT * FROM widgets WHERE id = ?", id).Scan(&widgetData).Error
 	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			c.JSON(http.StatusNotFound, gin.H{
+				"error": "Widget not found",
+			})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": "Failed to fetch widget data",
 		})

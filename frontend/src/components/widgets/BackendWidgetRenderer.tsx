@@ -148,7 +148,7 @@ export default function BackendWidgetRenderer({
         const fetchWidgets = async () => {
             const apiUrl = getApiUrl();
 
-            // Check smart cache first
+            // Check smart cache first for instant loading
             const cachedData = widgetCache.get(page);
             if (cachedData) {
                 console.log('BackendWidgetRenderer: Using cached widgets from widgetCache');
@@ -161,10 +161,11 @@ export default function BackendWidgetRenderer({
             const url = `${apiUrl}/api/widgets/page/${page}/with-data`;
 
             try {
-                // Show loading only on true first load (no cache at all)
+                // Only show loading on true first load (no cache at all)
                 if (!fetchedRef.current && widgets.length === 0) setLoading(true);
                 setError(null);
 
+                const startTime = performance.now();
                 const response = await fetch(url, {
                     headers: {
                         'Content-Type': 'application/json',
@@ -178,12 +179,15 @@ export default function BackendWidgetRenderer({
                 }
 
                 const data = await response.json();
+                const loadTime = performance.now() - startTime;
 
                 if (Array.isArray(data) && !controller.signal.aborted) {
                     setWidgets(data);
-                    // Cache the data using smart cache
+                    // Cache the data using smart cache for instant subsequent loads
                     widgetCache.set(page, data);
                     if (onRefresh) onRefresh();
+                    
+                    console.log(`⚡ Widgets loaded for page ${page} in ${loadTime.toFixed(2)}ms`);
                 } else if (!controller.signal.aborted) {
                     setWidgets([]);
                 }

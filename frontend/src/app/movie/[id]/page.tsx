@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useParams, useRouter, usePathname } from "next/navigation";
 import { usePageTitle } from '@/hooks/usePageTitle';
-import { ArrowLeft, Play, Plus, Check, Share, Download, Info, Star, Clock, Calendar, Globe, Users, Award, Film, Tv, User, Mic, ChevronDown, ChevronUp, Volume2, VolumeX, Users as Cast, User as Director, X, Pause } from "lucide-react";
+import { ArrowLeft, Play, Plus, Check, Share, Download, Info, Star, Clock, Calendar, Globe, Users, Award, Film, Tv, User, Mic, ChevronDown, ChevronUp, Volume2, VolumeX, Users as Cast, User as Director, X, Pause, Settings, RotateCcw, PlayCircle } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import Image from 'next/image';
 import { Media } from '@/types/media';
@@ -24,6 +24,36 @@ import ImageWithFallback from '@/components/ImageWithFallback';
 import CastSection from '@/components/CastSection';
 import { useMyList } from '@/hooks/useMyList';
 import MyListTooltip from '@/components/ui/MyListTooltip';
+
+// Genre-based text styling utility
+const getGenreTextStyle = (genres: string[] = []) => {
+  const primaryGenre = genres[0]?.toLowerCase() || '';
+  
+  // Font family based on genre
+  let fontFamily = 'font-sans'; // default
+  if (primaryGenre.includes('horror') || primaryGenre.includes('thriller')) {
+    fontFamily = 'font-mono'; // monospace for tension
+  } else if (primaryGenre.includes('romance') || primaryGenre.includes('drama')) {
+    fontFamily = 'font-serif'; // serif for elegance
+  } else if (primaryGenre.includes('sci') || primaryGenre.includes('science')) {
+    fontFamily = 'font-mono'; // monospace for tech feel
+  } else if (primaryGenre.includes('comedy')) {
+    fontFamily = 'font-sans'; // clean sans for readability
+  }
+  
+  // Text size and styling
+  const textSize = 'text-sm md:text-base'; // Reduced from lg
+  const maxWidth = 'max-w-lg'; // Reduced from xl to lg
+  const lineHeight = 'leading-relaxed';
+  
+  return {
+    fontFamily,
+    textSize,
+    maxWidth,
+    lineHeight,
+    className: `${fontFamily} ${textSize} ${maxWidth} ${lineHeight}`
+  };
+};
 
 import {
   NetflixHorizontalRow,
@@ -544,9 +574,54 @@ export default function MoviePage() {
   const [trailerReady, setTrailerReady] = useState(false); // Track if trailer is ready to play
   const [forceShowBackdrop, setForceShowBackdrop] = useState(false); // Force show backdrop when player closes
   const [userPausedTrailer, setUserPausedTrailer] = useState(false); // Track if user manually paused trailer
+  const [useYouTubeFallback, setUseYouTubeFallback] = useState(false); // Use YouTube trailer as background fallback
+  const [ytReady, setYtReady] = useState(false); // YouTube API ready state
+  const [ytPlayerRef, setYtPlayerRef] = useState<any>(null); // YouTube player reference for background
 
   // Use the new backend-connected My List hook
   const { myList, collections, isInMyList: isInMyListHook, toggleMyList: toggleMyListHook, addToCollection, fetchCollections } = useMyList();
+
+  // Load YouTube IFrame API for fallback trailers
+  useEffect(() => {
+    if (window.YT && window.YT.Player) {
+      setYtReady(true);
+      return;
+    }
+
+    const tag = document.createElement('script');
+    tag.src = 'https://www.youtube.com/iframe_api';
+    const firstScriptTag = document.getElementsByTagName('script')[0];
+    firstScriptTag.parentNode?.insertBefore(tag, firstScriptTag);
+
+    window.onYouTubeIframeAPIReady = () => {
+      setYtReady(true);
+    };
+  }, []);
+
+  // Extract YouTube video key from URL
+  const extractYouTubeKey = useCallback((url: string): string | null => {
+    if (!url) return null;
+    const patterns = [
+      /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([^&?\s]+)/,
+      /^([a-zA-Z0-9_-]{11})$/
+    ];
+    for (const pattern of patterns) {
+      const match = url.match(pattern);
+      if (match) return match[1];
+    }
+    return null;
+  }, []);
+
+  // Safe video operation wrapper to prevent client-side exceptions
+  const safeVideoOperation = (operation: () => void, errorMessage: string) => {
+    try {
+      if (isMountedRef.current) {
+        operation();
+      }
+    } catch (error) {
+      console.warn(`${errorMessage}:`, error);
+    }
+  };
 
   // Component mount/unmount tracking
   useEffect(() => {
@@ -583,8 +658,13 @@ export default function MoviePage() {
     const handleVisibilityChange = () => {
       if (document.hidden) {
         performanceOptimizationRef.current.isInLowPowerMode = true;
+        // Force show backdrop when page is hidden to save resources
+        setForceShowBackdrop(true);
+        setIsVideoPlaying(false);
+        setIsVideoLoaded(false);
       } else {
         performanceOptimizationRef.current.isInLowPowerMode = false;
+        // Don't auto-resume video when page becomes visible - let user decide
       }
     };
 
@@ -674,6 +754,31 @@ export default function MoviePage() {
       loadPlaybackProgress();
     }
   }, [params?.id]);
+
+  // Video loading timeout - show backdrop if video takes too long to load
+  useEffect(() => {
+    if (media && !isPlayerOpen && !isShowingTrailer) {
+      // Set a timeout to show backdrop if video doesn't load within 10 seconds
+      const videoLoadTimeout = setTimeout(() => {
+        if (!isVideoLoaded || !isVideoPlaying) {
+          console.warn('Video loading timeout - showing backdrop');
+          setForceShowBackdrop(true);
+          setIsVideoLoaded(false);
+          setIsVideoPlaying(false);
+          
+          // Hide video element
+          const video = videoRef.current;
+          if (video) {
+            video.style.display = 'none';
+            video.style.visibility = 'hidden';
+            video.style.opacity = '0';
+          }
+        }
+      }, 10000); // 10 second timeout
+
+      return () => clearTimeout(videoLoadTimeout);
+    }
+  }, [media, isPlayerOpen, isShowingTrailer, isVideoLoaded, isVideoPlaying]);
 
   // Background video control when player opens/closes or trailer shows
   useEffect(() => {
@@ -801,8 +906,22 @@ export default function MoviePage() {
   useEffect(() => {
     const forceVideoPlay = () => {
       const video = videoRef.current;
-      // Only play if player is NOT open, trailer is NOT showing, and page is visible
-      if (video && media && !isPlayerOpen && !isShowingTrailer && !loading && !document.hidden) {
+      // Only play if player is NOT open, trailer is NOT showing, page is visible, and video sources are available
+      if (video && media && !isPlayerOpen && !isShowingTrailer && !loading && !document.hidden && !forceShowBackdrop) {
+        // Check if video has valid sources before attempting to play
+        const sources = video.querySelectorAll('source');
+        const hasValidSources = Array.from(sources).some(source => 
+          source.src && !source.style.display.includes('none')
+        );
+        
+        if (!hasValidSources) {
+          console.warn('No valid video sources available, showing backdrop');
+          setForceShowBackdrop(true);
+          setIsVideoLoaded(false);
+          setIsVideoPlaying(false);
+          return;
+        }
+
         // Set video properties including loop
         video.loop = true;
         video.muted = false;
@@ -813,25 +932,31 @@ export default function MoviePage() {
         // Single play attempt with proper error handling
         video.play().then(() => {
           setIsVideoPlaying(true);
+          setForceShowBackdrop(false);
         }).catch((error) => {
+          console.warn('Failed to play video with sound, trying muted:', error);
           // Fallback to muted play
           video.muted = true;
           setIsMuted(true);
           video.play().then(() => {
             setIsVideoPlaying(true);
-          }).catch(() => {
-            console.warn('Failed to play background video');
+            setForceShowBackdrop(false);
+          }).catch((muteError) => {
+            console.warn('Failed to play video even muted, showing backdrop:', muteError);
+            setForceShowBackdrop(true);
+            setIsVideoLoaded(false);
+            setIsVideoPlaying(false);
           });
         });
       }
     };
 
     // Only trigger auto-play when conditions are right and page is visible
-    if (media && !loading && !isPlayerOpen && !isShowingTrailer && !document.hidden) {
+    if (media && !loading && !isPlayerOpen && !isShowingTrailer && !document.hidden && !forceShowBackdrop) {
       const timer = setTimeout(forceVideoPlay, 500);
       return () => clearTimeout(timer);
     }
-  }, [media, loading, isPlayerOpen, isShowingTrailer]);
+  }, [media, loading, isPlayerOpen, isShowingTrailer, forceShowBackdrop]);
 
   // Note: Removed duplicate video play effect - video already plays via onLoadedData and onCanPlay handlers
 
@@ -1379,31 +1504,56 @@ export default function MoviePage() {
   };
 
   const handlePlayerClose = () => {
-    setIsPlayerOpen(false);
-    setForceStartFromBeginning(false);
+    try {
+      setIsPlayerOpen(false);
+      setForceStartFromBeginning(false);
 
-    // Show backdrop instead of auto-restarting video to prevent unnecessary API calls
-    setIsVideoPlaying(false);
-    setIsMuted(true);
-    setIsVideoLoaded(false);
-    setForceShowBackdrop(true);
+      // Show backdrop instead of auto-restarting video to prevent unnecessary API calls
+      setIsVideoPlaying(false);
+      setIsMuted(true);
+      setIsVideoLoaded(false);
+      setForceShowBackdrop(true);
 
-    // Stop background video but DON'T reload sources to avoid API calls
-    const video = videoRef.current;
-    if (video) {
-      video.pause();
-      video.muted = true;
-      video.volume = 0;
-      video.currentTime = 0;
-      video.style.display = 'none';
-      video.style.visibility = 'hidden';
-      video.style.opacity = '0';
+      // Stop background video but DON'T reload sources to avoid API calls
+      const video = videoRef.current;
+      if (video) {
+        try {
+          video.pause();
+          video.muted = true;
+          video.volume = 0;
+          video.currentTime = 0;
+          video.style.display = 'none';
+          video.style.visibility = 'hidden';
+          video.style.opacity = '0';
+        } catch (videoError) {
+          console.warn('Error stopping background video:', videoError);
+        }
+      }
+
+      // Cleanup YouTube players safely
+      if (ytPlayerRef) {
+        try {
+          ytPlayerRef.destroy();
+          setYtPlayerRef(null);
+        } catch (ytError) {
+          console.warn('Error destroying YouTube player:', ytError);
+        }
+      }
+
+      // Reset YouTube fallback state
+      setUseYouTubeFallback(false);
+
+      // Reset backdrop state after delay (user can manually unmute to restart video)
+      setTimeout(() => {
+        if (isMountedRef.current) {
+          setForceShowBackdrop(false);
+        }
+      }, 1000);
+    } catch (error) {
+      console.error('Error in handlePlayerClose:', error);
+      // Ensure player is closed even if there's an error
+      setIsPlayerOpen(false);
     }
-
-    // Reset backdrop state after delay (user can manually unmute to restart video)
-    setTimeout(() => {
-      setForceShowBackdrop(false);
-    }, 1000);
   };
 
   // Handle cast button click
@@ -1439,6 +1589,89 @@ export default function MoviePage() {
     loadCastMedia(castMedia);
 
   };
+
+  // Initialize YouTube background player when fallback is triggered
+  useEffect(() => {
+    if (!useYouTubeFallback || !ytReady || !media || isPlayerOpen || isShowingTrailer) return;
+
+    const videoKey = media?.tmdb_trailer_url
+      ? extractYouTubeKey(media.tmdb_trailer_url)
+      : null;
+
+    if (!videoKey) return;
+
+    // Destroy previous player
+    if (ytPlayerRef) {
+      try {
+        ytPlayerRef.destroy();
+      } catch (e) {
+        // Ignore
+      }
+      setYtPlayerRef(null);
+    }
+
+    const timer = setTimeout(() => {
+      const containerId = `yt-player-background-${media.id}`;
+      const container = document.getElementById(containerId);
+      if (!container) return;
+
+      console.log(`📺 Initializing YouTube background player for: ${media.title}`);
+
+      const player = new window.YT.Player(containerId, {
+        videoId: videoKey,
+        playerVars: {
+          autoplay: 1,
+          mute: 0,
+          controls: 0,
+          showinfo: 0,
+          rel: 0,
+          iv_load_policy: 3,
+          modestbranding: 1,
+          playsinline: 1,
+          disablekb: 1,
+          fs: 0,
+          cc_load_policy: 0,
+          cc_lang_pref: '',
+          enablejsapi: 1,
+          start: 10,
+          loop: 1,
+          playlist: videoKey,
+          origin: window.location.origin,
+        },
+        events: {
+          onStateChange: (event: any) => {
+            if (event.data === 1) { // playing
+              setIsVideoPlaying(true);
+              setIsMuted(false);
+              setForceShowBackdrop(false);
+            } else if (event.data === 0) { // ended - restart
+              event.target.seekTo(10);
+              event.target.playVideo();
+            }
+          },
+          onReady: (event: any) => {
+            event.target.unMute();
+            event.target.seekTo(10, true);
+            event.target.playVideo();
+            setIsVideoPlaying(true);
+            setIsMuted(false);
+            setForceShowBackdrop(false);
+          },
+          onError: (event: any) => {
+            console.error('YouTube background player error:', event.data);
+            setUseYouTubeFallback(false);
+            setForceShowBackdrop(true);
+          },
+        },
+      });
+
+      setYtPlayerRef(player);
+    }, 100);
+
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [useYouTubeFallback, ytReady, media, isPlayerOpen, isShowingTrailer, extractYouTubeKey]);
 
   // Auto-start casting when connected and cast button is clicked
   React.useEffect(() => {
@@ -1481,9 +1714,10 @@ export default function MoviePage() {
   };
 
   const formatRuntime = (minutes: number) => {
+    if (!minutes || minutes <= 0) return '';
     const hours = Math.floor(minutes / 60);
     const mins = minutes % 60;
-    return `${hours}h ${mins}m`;
+    return hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
   };
 
   const formatDate = (dateString: string) => {
@@ -1571,8 +1805,12 @@ export default function MoviePage() {
   const getBackgroundVideoUrl = (media: Media) => {
     try {
       const apiUrl = getApiUrl();
+      if (!apiUrl) {
+        console.warn('No API URL available for background video');
+        return null;
+      }
 
-      // Then try local trailer for background (lighter than full media file)
+      // First try local trailer for background (lighter than full media file)
       if (media?.trailer_path && typeof media.trailer_path === 'string' && media.trailer_path.trim()) {
         const fileName = media.trailer_path.split('/').pop();
         if (fileName && fileName.trim()) {
@@ -1588,25 +1826,16 @@ export default function MoviePage() {
         }
       }
 
-      // Fallback to preview clips endpoint
-      return `${apiUrl}/api/preview-clips/${media?.id || 'default'}`;
-    } catch (error) {
-      console.error('Error getting background video URL:', error);
-      const apiUrl = getApiUrl();
-      return `${apiUrl}/api/preview-clips/default`;
-    }
-  };
-
-  const extractYouTubeKey = (url: string): string | null => {
-    try {
-      if (!url || typeof url !== 'string' || !url.trim()) {
-        return null;
+      // Check if preview clips endpoint exists for this media
+      if (media?.id) {
+        return `${apiUrl}/api/preview-clips/${media.id}`;
       }
 
-      const match = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([^&\n?#]+)/);
-      return match && match[1] ? match[1] : null;
+      // No valid video source found
+      console.warn('No valid background video source found for media:', media?.id);
+      return null;
     } catch (error) {
-      console.error('Error extracting YouTube key:', error);
+      console.error('Error getting background video URL:', error);
       return null;
     }
   };
@@ -1691,36 +1920,46 @@ export default function MoviePage() {
   };
 
   const handleCloseTrailer = () => {
-    setIsShowingTrailer(false);
-    setTrailerKey(null);
-    setIsVideoPlaying(false);
-    setIsMuted(true);
-    setShowControls(true);
-    setTrailerLoaded(false);
-    setTrailerReady(false);
-    setUserPausedTrailer(false); // Reset user pause state
-
-    // Ensure background video stays stopped and backdrop shows
-    const video = videoRef.current;
-    if (video && media && !isPlayerOpen) {
-      video.pause();
-      video.muted = true;
-      video.volume = 0;
-      video.currentTime = 0;
+    try {
+      setIsShowingTrailer(false);
+      setTrailerKey(null);
       setIsVideoPlaying(false);
       setIsMuted(true);
-      setIsVideoLoaded(false);
-      setForceShowBackdrop(true);
+      setShowControls(true);
+      setTrailerLoaded(false);
+      setTrailerReady(false);
+      setUserPausedTrailer(false); // Reset user pause state
 
-      // Keep video hidden to ensure backdrop is visible
-      video.style.display = 'none';
-      video.style.visibility = 'hidden';
-      video.style.opacity = '0';
+      // Ensure background video stays stopped and backdrop shows
+      const video = videoRef.current;
+      if (video && media && !isPlayerOpen) {
+        try {
+          video.pause();
+          video.muted = true;
+          video.volume = 0;
+          video.currentTime = 0;
+          setIsVideoPlaying(false);
+          setIsMuted(true);
+          setIsVideoLoaded(false);
+          setForceShowBackdrop(true);
 
-      // Don't reload video sources immediately - let user decide if they want video back
-      setTimeout(() => {
-        setForceShowBackdrop(false);
-      }, 3000);
+          // Keep video hidden to ensure backdrop is visible
+          video.style.display = 'none';
+          video.style.visibility = 'hidden';
+          video.style.opacity = '0';
+        } catch (videoError) {
+          console.warn('Error stopping background video in handleCloseTrailer:', videoError);
+        }
+
+        // Don't reload video sources immediately - let user decide if they want video back
+        setTimeout(() => {
+          if (isMountedRef.current) {
+            setForceShowBackdrop(false);
+          }
+        }, 3000);
+      }
+    } catch (error) {
+      console.error('Error in handleCloseTrailer:', error);
     }
   };
 
@@ -1729,6 +1968,54 @@ export default function MoviePage() {
       setShowControls(true);
     }
   };
+
+  // Cleanup YouTube players on unmount
+  useEffect(() => {
+    return () => {
+      try {
+        // Cleanup YouTube background player
+        if (ytPlayerRef) {
+          try {
+            if (typeof ytPlayerRef.destroy === 'function') {
+              ytPlayerRef.destroy();
+            }
+          } catch (e) {
+            console.warn('Error destroying YouTube background player:', e);
+          }
+          setYtPlayerRef(null);
+        }
+
+        // Cleanup YouTube trailer player
+        if (ytPlayerRef.current) {
+          try {
+            if (typeof ytPlayerRef.current.destroy === 'function') {
+              ytPlayerRef.current.destroy();
+            }
+          } catch (e) {
+            console.warn('Error destroying YouTube trailer player:', e);
+          }
+          ytPlayerRef.current = null;
+        }
+
+        // Stop any background video
+        const video = videoRef.current;
+        if (video) {
+          try {
+            video.pause();
+            video.muted = true;
+            video.volume = 0;
+            video.currentTime = 0;
+            video.src = '';
+            video.load();
+          } catch (e) {
+            console.warn('Error stopping background video:', e);
+          }
+        }
+      } catch (error) {
+        console.error('Error in cleanup useEffect:', error);
+      }
+    };
+  }, [ytPlayerRef]);
 
   if (loading) {
     return (
@@ -1759,9 +2046,9 @@ export default function MoviePage() {
 
       {/* Hero Section */}
       <div className="relative h-screen overflow-hidden">
-        {/* Backdrop Background Image - Shows when video not playing or player is open */}
+        {/* Backdrop Background Image - Shows when video not playing, not loaded, or player is open */}
         <div
-          className={`absolute inset-0 pointer-events-none transition-opacity duration-1000 ${!isVideoLoaded || !isVideoPlaying || isPlayerOpen || forceShowBackdrop ? 'opacity-100' : 'opacity-0'
+          className={`absolute inset-0 pointer-events-none transition-opacity duration-1000 ${!isVideoLoaded || !isVideoPlaying || isPlayerOpen || forceShowBackdrop || (!useYouTubeFallback && !isVideoPlaying) ? 'opacity-100' : 'opacity-0'
             }`}
           style={{ zIndex: 2 }}
         >
@@ -1773,7 +2060,20 @@ export default function MoviePage() {
             onError={(e) => {
               const target = e.target as HTMLImageElement;
               const apiUrl = getApiUrl();
-              target.src = `${apiUrl}/api/thumbnails/${media?.id || 'default'}`;
+              // First fallback to thumbnail
+              if (!target.src.includes('/api/thumbnails/')) {
+                target.src = `${apiUrl}/api/thumbnails/${media?.id || 'default'}`;
+              } else if (!target.src.includes('default')) {
+                // Second fallback to default thumbnail
+                target.src = `${apiUrl}/api/thumbnails/default`;
+              } else {
+                // Final fallback to a solid color background
+                target.style.display = 'none';
+                const parent = target.parentElement;
+                if (parent) {
+                  parent.style.background = 'linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%)';
+                }
+              }
             }}
           />
           {/* Gradient overlay for better text readability */}
@@ -1802,10 +2102,10 @@ export default function MoviePage() {
             width: '100%',
             height: '100%',
             objectFit: 'cover',
-            // Hide video completely when player is open or when we want to show backdrop
-            display: isPlayerOpen || !isVideoLoaded || !isVideoPlaying || forceShowBackdrop ? 'none' : 'block',
-            visibility: isPlayerOpen || !isVideoLoaded || !isVideoPlaying || forceShowBackdrop ? 'hidden' : 'visible',
-            opacity: isPlayerOpen || !isVideoLoaded || !isVideoPlaying || forceShowBackdrop ? 0 : 1,
+            // Hide video completely when player is open, when we want to show backdrop, or when using YouTube fallback
+            display: isPlayerOpen || !isVideoLoaded || !isVideoPlaying || forceShowBackdrop || useYouTubeFallback ? 'none' : 'block',
+            visibility: isPlayerOpen || !isVideoLoaded || !isVideoPlaying || forceShowBackdrop || useYouTubeFallback ? 'hidden' : 'visible',
+            opacity: isPlayerOpen || !isVideoLoaded || !isVideoPlaying || forceShowBackdrop || useYouTubeFallback ? 0 : 1,
             transition: 'opacity 0.3s ease-in-out'
           }}
 
@@ -1824,12 +2124,25 @@ export default function MoviePage() {
                 video.play().then(() => {
                   setIsVideoPlaying(true);
                   setIsMuted(false);
+                  setForceShowBackdrop(false);
                 }).catch((error) => {
+                  console.warn('Preview video failed to play with sound, trying muted:', error);
                   video.muted = true;
                   setIsMuted(true);
                   video.play().then(() => {
                     setIsVideoPlaying(true);
-                  }).catch(() => {
+                    setForceShowBackdrop(false);
+                  }).catch((muteError) => {
+                    console.warn('Preview video failed completely, trying trailer fallback:', muteError);
+                    // Try trailer fallback if preview fails
+                    if (media?.tmdb_trailer_url && extractYouTubeKey(media.tmdb_trailer_url)) {
+                      console.log('🎬 Preview failed, switching to trailer fallback');
+                      setUseYouTubeFallback(true);
+                      setForceShowBackdrop(false);
+                    } else {
+                      console.log('🎬 No trailer available, showing backdrop');
+                      setForceShowBackdrop(true);
+                    }
                   });
                 });
               };
@@ -1841,9 +2154,22 @@ export default function MoviePage() {
             }
           }}
           onError={(e) => {
-            console.warn('Background video failed to load, falling back to backdrop image');
-            setIsVideoLoaded(false);
-            setIsVideoPlaying(false);
+            console.warn('Background video failed to load, trying trailer fallback');
+            
+            // Try trailer fallback if preview fails to load
+            if (media?.tmdb_trailer_url && extractYouTubeKey(media.tmdb_trailer_url)) {
+              console.log('🎬 Preview failed to load, switching to trailer fallback');
+              setUseYouTubeFallback(true);
+              setIsVideoLoaded(false);
+              setIsVideoPlaying(false);
+              setForceShowBackdrop(false);
+            } else {
+              console.log('🎬 No trailer available, showing backdrop');
+              setIsVideoLoaded(false);
+              setIsVideoPlaying(false);
+              setForceShowBackdrop(true);
+            }
+            
             // Stop video completely on error
             const video = videoRef.current;
             if (video) {
@@ -1858,6 +2184,10 @@ export default function MoviePage() {
                   source.remove();
                 }
               });
+              // Hide video element completely
+              video.style.display = 'none';
+              video.style.visibility = 'hidden';
+              video.style.opacity = '0';
             }
           }}
           onCanPlay={() => {
@@ -1930,33 +2260,96 @@ export default function MoviePage() {
             }
           }}
         >
-          {/* Preview/trailer sources - not full media file */}
-          <source
-            src={`${getBackgroundVideoUrl(media)}?audio=aac&quality=medium`}
-            type="video/mp4"
-            onError={(e) => {
-              console.warn('Primary video source failed to load');
-              e.currentTarget.style.display = 'none';
-            }}
-          />
-          <source
-            src={`${getBackgroundVideoUrl(media)}`}
-            type="video/mp4"
-            onError={(e) => {
-              console.warn('Secondary video source failed to load');
-              e.currentTarget.style.display = 'none';
-            }}
-          />
-          <source
-            src={getAssetUrl('preview', media.id, false) as string}
-            type="video/mp4"
-            onError={(e) => {
-              console.warn('Fallback video source failed to load');
-              e.currentTarget.style.display = 'none';
-            }}
-          />
+          {/* Preview/trailer sources - try preview clips first */}
+          {(() => {
+            const videoUrl = getBackgroundVideoUrl(media);
+            if (!videoUrl) {
+              // No video sources available - try trailer fallback
+              setTimeout(() => {
+                if (media?.tmdb_trailer_url && extractYouTubeKey(media.tmdb_trailer_url)) {
+                  console.log('🎬 No preview available, using trailer fallback');
+                  setUseYouTubeFallback(true);
+                  setForceShowBackdrop(false);
+                } else {
+                  console.log('🎬 No video sources available, showing backdrop');
+                  setForceShowBackdrop(true);
+                  setIsVideoLoaded(false);
+                  setIsVideoPlaying(false);
+                }
+              }, 100);
+              return null;
+            }
+            
+            return (
+              <>
+                {/* Primary source: Preview clips with high quality */}
+                <source
+                  src={`${getApiUrl()}/api/preview-clips/${media.id}?quality=high&format=mp4&cache=true`}
+                  type="video/mp4"
+                  onError={(e) => {
+                    console.warn('High quality preview clip failed to load');
+                    e.currentTarget.style.display = 'none';
+                  }}
+                />
+                {/* Secondary source: Preview clips with medium quality */}
+                <source
+                  src={`${getApiUrl()}/api/preview-clips/${media.id}?quality=medium&format=mp4`}
+                  type="video/mp4"
+                  onError={(e) => {
+                    console.warn('Medium quality preview clip failed to load');
+                    e.currentTarget.style.display = 'none';
+                  }}
+                />
+                {/* Tertiary source: Local trailer/preview file */}
+                <source
+                  src={videoUrl}
+                  type="video/mp4"
+                  onError={(e) => {
+                    console.warn('Local video source failed to load');
+                    e.currentTarget.style.display = 'none';
+                  }}
+                />
+                {/* Final fallback: Asset URL */}
+                <source
+                  src={getAssetUrl('preview', media.id, false) as string}
+                  type="video/mp4"
+                  onError={(e) => {
+                    console.warn('Asset preview source failed to load - will try trailer fallback');
+                    e.currentTarget.style.display = 'none';
+                  }}
+                />
+              </>
+            );
+          })()}
           Your browser does not support the video tag.
         </video>
+
+        {/* YouTube Background Fallback Player - Only show when video is playing */}
+        {useYouTubeFallback && !isPlayerOpen && !isShowingTrailer && extractYouTubeKey(media.tmdb_trailer_url || '') && (
+          <div
+            className="absolute inset-0 z-[6] flex items-center justify-center overflow-hidden pointer-events-none"
+            style={{
+              clipPath: 'inset(0)',
+              display: isPlayerOpen || forceShowBackdrop ? 'none' : 'block',
+              visibility: isPlayerOpen || forceShowBackdrop ? 'hidden' : 'visible',
+              opacity: isPlayerOpen || forceShowBackdrop ? 0 : 1,
+            }}
+          >
+            <div className="relative w-full h-full overflow-hidden">
+              <div
+                id={`yt-player-background-${media.id}`}
+                className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2"
+                style={{
+                  width: '120vw',
+                  height: '120vh',
+                  minWidth: '200vh',
+                  minHeight: '70vw',
+                  pointerEvents: 'none'
+                }}
+              />
+            </div>
+          </div>
+        )}
 
         {/* YouTube Trailer Overlay */}
         {isShowingTrailer && trailerKey && (
@@ -2211,18 +2604,39 @@ export default function MoviePage() {
         {/* Minimal overlay for text readability only */}
         <div className="absolute bottom-0 left-0 right-0 h-1/2 bg-gradient-to-t from-black/80 to-transparent z-[10] pointer-events-none" />
 
-        {/* Navigation */}
-        <div className="absolute top-0 left-0 right-0 z-[20] p-6 flex justify-between items-center pointer-events-auto">
+        {/* Volume Control */}
+        <motion.div 
+          initial={{ opacity: 0, x: 20 }} 
+          animate={{ opacity: 1, x: 0 }} 
+          transition={{ delay: 0.5, duration: 0.4 }} 
+          className="absolute top-6 right-6 z-30"
+        >
+          <div className="group relative">
+            <button 
+              onClick={() => {
+                const video = videoRef.current;
+                if (video) {
+                  video.muted = !video.muted;
+                  setIsMuted(video.muted);
+                }
+              }} 
+              className="group p-3 rounded-full bg-black/40 backdrop-blur-md border border-white/20 hover:bg-black/60 hover:border-white/40 transition-all duration-200 hover:scale-110"
+            >
+              {isMuted ? <VolumeX className="w-5 h-5 text-white/80 group-hover:text-white transition-colors" /> : <Volume2 className="w-5 h-5 text-white/80 group-hover:text-white transition-colors" />}
+            </button>
+            <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 px-2 py-1 bg-black/90 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
+              {isMuted ? "Unmute" : "Mute"}
+            </div>
+          </div>
+        </motion.div>
 
-        </div>
-
-        {/* Hero Content - Bottom Left with Poster (TMDB Style) */}
-        <div className="absolute bottom-0 left-0 z-[20] p-8 pointer-events-auto w-2/3">
+        {/* Hero Content - Left Aligned with Poster */}
+        <div className="absolute inset-0 z-[20] flex items-center justify-start p-8 pl-16 pointer-events-auto">
           <motion.div
-            initial={{ opacity: 0, x: -50 }}
-            animate={{ opacity: 1, x: 0 }}
+            initial={{ opacity: 0, y: 50 }}
+            animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.8, delay: 0.2 }}
-            className="flex gap-6 items-end"
+            className="flex flex-col md:flex-row items-start gap-8 max-w-5xl"
           >
             {/* Movie Poster */}
             <motion.div
@@ -2231,44 +2645,49 @@ export default function MoviePage() {
               transition={{ duration: 0.6, delay: 0.4 }}
               className="flex-shrink-0"
             >
-              <div className="relative w-64 h-96 rounded-lg overflow-hidden shadow-2xl border border-white/10">
-                <ImageWithFallback
-                  mediaId={media.id}
-                  alt={cleanMovieTitle(media.title)}
-                  fill={true}
-                  sizes="256px"
-                  className="object-cover"
-                  loading="eager"
-                />
+              <div className="relative">
+                <div className="absolute -inset-1 bg-gradient-to-r from-red-500/30 to-purple-500/30 rounded-lg blur-lg" />
+                <div className="relative w-48 md:w-56 lg:w-64 h-72 md:h-84 lg:h-96 rounded-lg overflow-hidden shadow-2xl border border-white/10">
+                  <ImageWithFallback
+                    mediaId={media.id}
+                    alt={cleanMovieTitle(media.title)}
+                    fill={true}
+                    sizes="256px"
+                    className="object-cover"
+                    loading="eager"
+                  />
 
-                {/* Progress Bar - Similar to ContinueWatching component */}
-                {hasWatchedBefore && playbackProgress > 0 && playbackDuration > 0 && (
-                  <>
-                    {/* Progress indicator */}
-                    <div className="absolute bottom-2 left-2 right-2 bg-black/50 rounded-full h-1 z-10">
-                      <div
-                        className="bg-red-600 h-full rounded-full transition-all duration-300"
-                        style={{ width: `${Math.min(Math.max((playbackProgress / playbackDuration) * 100, 0), 100)}%` }}
-                      />
-                    </div>
-                    {/* Progress text */}
-                    <div className="absolute bottom-4 right-2 bg-black/70 text-white text-xs px-2 py-1 rounded z-10">
-                      {Math.round((playbackProgress / playbackDuration) * 100)}%
-                    </div>
-                  </>
-                )}
+                  {/* Progress Bar */}
+                  {hasWatchedBefore && playbackProgress > 0 && playbackDuration > 0 && (
+                    <>
+                      <div className="absolute bottom-2 left-2 right-2 bg-black/50 rounded-full h-1 z-10">
+                        <div
+                          className="bg-red-600 h-full rounded-full transition-all duration-300"
+                          style={{ width: `${Math.min(Math.max((playbackProgress / playbackDuration) * 100, 0), 100)}%` }}
+                        />
+                      </div>
+                      <div className="absolute bottom-4 right-2 bg-black/70 text-white text-xs px-2 py-1 rounded z-10">
+                        {Math.round((playbackProgress / playbackDuration) * 100)}%
+                      </div>
+                    </>
+                  )}
+                </div>
               </div>
             </motion.div>
 
             {/* Movie Details */}
-            <div className="flex-1 space-y-4 pb-4">
-              <div>
-                {/* Movie Title - Logo or Text */}
+            <div className="flex-1 text-left space-y-6 ml-12">
+              {/* Movie Title - Logo or Text */}
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.6, delay: 0.5 }}
+              >
                 {media.logo_path ? (
                   <img
                     src={`${getApiUrl()}/api/${media.logo_path}`}
                     alt={media.title}
-                    className="max-h-20 md:max-h-28 w-auto mb-3 drop-shadow-2xl"
+                    className="max-h-16 md:max-h-24 w-auto mb-4 drop-shadow-[0_4px_20px_rgba(0,0,0,0.8)]"
                     onError={(e) => {
                       e.currentTarget.style.display = 'none';
                       const fallback = e.currentTarget.nextElementSibling as HTMLElement;
@@ -2277,97 +2696,137 @@ export default function MoviePage() {
                   />
                 ) : null}
                 <h1
-                  className="text-3xl md:text-4xl font-bold mb-2 bg-gradient-to-r from-white to-gray-300 bg-clip-text text-transparent"
+                  className="text-3xl md:text-4xl lg:text-5xl font-bold mb-3 text-white drop-shadow-[0_4px_20px_rgba(0,0,0,0.8)]"
                   style={{ display: media.logo_path ? 'none' : 'block' }}
                 >
                   {media.title}
                 </h1>
 
                 {media.tagline && (
-                  <p className="text-lg text-red-400 mb-3 italic font-medium">
+                  <p className="text-lg text-red-400 mb-4 italic font-medium">
                     "{media.tagline}"
                   </p>
                 )}
-              </div>
+              </motion.div>
 
-              {/* Stats Row - Compact */}
-              <div className="flex flex-wrap items-center gap-3 text-sm">
-                {media.rating && (
-                  <div className="flex items-center gap-1 bg-yellow-500/20 px-2 py-1 rounded-full">
-                    <Star className="w-4 h-4 text-yellow-400 fill-current" />
-                    <span className="font-semibold">{media.rating.toFixed(1)}</span>
-                  </div>
+              {/* Stats Row */}
+              <motion.div
+                className="flex flex-wrap items-center gap-2 text-xs"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: 0.6, duration: 0.4 }}
+              >
+                {media.rating && media.rating > 0 ? (
+                  <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full font-semibold backdrop-blur-sm border bg-yellow-500/10 text-yellow-400 border-yellow-500/20">
+                    <Star className="w-3 h-3 fill-current" />
+                    {media.rating.toFixed(1)}
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full font-semibold backdrop-blur-sm border bg-gray-500/10 text-gray-400 border-gray-500/20">
+                    <Star className="w-3 h-3" />
+                    N/A
+                  </span>
                 )}
 
-                <div className="flex items-center gap-1 bg-blue-500/20 px-2 py-1 rounded-full">
-                  <Calendar className="w-4 h-4 text-blue-400" />
-                  <span>{media.year || (media.release_date && new Date(media.release_date).getFullYear()) || new Date().getFullYear()}</span>
-                </div>
+                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full backdrop-blur-sm border bg-blue-500/10 text-blue-400 border-blue-500/20">
+                  <Calendar className="w-3 h-3" />
+                  {media.year || (media.release_date && new Date(media.release_date).getFullYear()) || new Date().getFullYear()}
+                </span>
 
-                {media.duration && (
-                  <div className="flex items-center gap-1 bg-green-500/20 px-2 py-1 rounded-full">
-                    <Clock className="w-4 h-4 text-green-400" />
-                    <span>{formatRuntime(Math.floor(media.duration / 60))}</span>
-                  </div>
+                {media.duration && media.duration > 0 && (
+                  <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full backdrop-blur-sm border bg-green-500/10 text-green-400 border-green-500/20">
+                    <Clock className="w-3 h-3" />
+                    {formatRuntime(Math.floor(media.duration / 60))}
+                  </span>
                 )}
 
                 {media.quality && (
-                  <div className="flex items-center gap-1 border border-white/30 px-2 py-1 rounded-sm">
-                    <span className="text-white text-xs font-bold">
-                      {media.quality.includes('2160') || media.quality.toLowerCase().includes('4k') ? '4K' :
-                        media.quality.includes('1080') || media.quality.toLowerCase().includes('hd') ? 'HD' :
-                          media.quality.includes('720') ? '720p' : 'HD'}
-                    </span>
-                  </div>
-                )}
-              </div>
-
-              {/* Genres - Compact */}
-              <div className="flex flex-wrap gap-1">
-                {media.genres?.slice(0, 3).map((genre, index) => (
-                  <span
-                    key={index}
-                    className="px-2 py-1 bg-red-600/30 border border-red-500/50 rounded-full text-xs font-medium"
-                  >
-                    {typeof genre === 'string' ? genre : genre?.name || 'Unknown'}
+                  <span className="px-2 py-0.5 rounded backdrop-blur-sm border font-bold bg-white/10 text-white border-white/20">
+                    {media.quality.includes('2160') || media.quality.toLowerCase().includes('4k') ? '4K' :
+                      media.quality.includes('1080') || media.quality.toLowerCase().includes('hd') ? 'HD' :
+                        media.quality.includes('720') ? '720p' : 'HD'}
                   </span>
-                ))}
-              </div>
+                )}
+              </motion.div>
 
-              {/* Overview - Truncated */}
-              <p className="text-sm text-gray-300 leading-relaxed line-clamp-3">
-                {media.description || "Experience the ultimate entertainment with this amazing content. Watch now and immerse yourself in a world of endless possibilities."}
-              </p>
-
-              {/* Action Buttons - Compact */}
-              <div className="flex flex-wrap gap-2 pt-2">
-                <button
-                  onClick={handlePlay}
-                  className="flex items-center gap-1 px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg text-sm font-semibold transition-all duration-300 hover:scale-105"
+              {/* Genres */}
+              {media.genres && media.genres.length > 0 && (
+                <motion.div
+                  className="flex flex-wrap items-center gap-2"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ delay: 0.65, duration: 0.4 }}
                 >
-                  <Play className="w-4 h-4" />
-                  {hasWatchedBefore && playbackProgress > 0 ? 'Resume' : 'Play'}
-                </button>
+                  {media.genres.slice(0, 3).map((genre, index) => (
+                    <span
+                      key={index}
+                      className="px-2 py-0.5 rounded-full text-xs font-medium bg-red-600/40 border border-red-500/30 text-white backdrop-blur-md"
+                    >
+                      {typeof genre === 'string' ? genre : genre?.name || 'Unknown'}
+                    </span>
+                  ))}
+                </motion.div>
+              )}
+
+              {/* Overview */}
+              <motion.p
+                className={`text-white/70 max-w-2xl line-clamp-3 ${getGenreTextStyle(media.genres?.map(g => typeof g === 'string' ? g : g?.name).filter(Boolean) || []).className}`}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: 0.7, duration: 0.4 }}
+              >
+                {media.description || "Experience the ultimate entertainment with this amazing content. Watch now and immerse yourself in a world of endless possibilities."}
+              </motion.p>
+
+              {/* Action Buttons - Smaller with Different Icons */}
+              <motion.div
+                className="flex items-center gap-2"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.8, duration: 0.4 }}
+              >
+                <div className="group relative">
+                  <button
+                    onClick={handlePlay}
+                    className="group p-2 rounded-full bg-red-600/40 border border-red-500/30 text-white backdrop-blur-md hover:bg-red-600/60 transition-all duration-200 shadow-lg hover:shadow-xl hover:scale-110"
+                  >
+                    {hasWatchedBefore && playbackProgress > 0 ? (
+                      <PlayCircle className="w-4 h-4 fill-current" />
+                    ) : (
+                      <Play className="w-4 h-4 fill-current" />
+                    )}
+                  </button>
+                  <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 px-2 py-1 bg-black/90 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
+                    {hasWatchedBefore && playbackProgress > 0 ? 'Resume' : 'Play'}
+                  </div>
+                </div>
 
                 {hasWatchedBefore && playbackProgress > 0 && (
-                  <button
-                    onClick={handlePlayFromBeginning}
-                    className="flex items-center gap-1 px-4 py-2 bg-gray-800/80 hover:bg-gray-700 rounded-lg text-sm font-semibold transition-all duration-300 hover:scale-105"
-                  >
-                    <Play className="w-4 h-4" />
-                    From Beginning
-                  </button>
+                  <div className="group relative">
+                    <button
+                      onClick={handlePlayFromBeginning}
+                      className="group p-2 bg-white/20 text-white rounded-full backdrop-blur-md border border-white/30 hover:bg-white/30 transition-all duration-200 hover:scale-110"
+                    >
+                      <RotateCcw className="w-4 h-4" />
+                    </button>
+                    <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 px-2 py-1 bg-black/90 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
+                      From Beginning
+                    </div>
+                  </div>
                 )}
 
-                {/* Watch Trailer Button - Only show if TMDB trailer is available */}
                 {media.tmdb_trailer_url && (
-                  <button
-                    onClick={handleWatchTrailer}
-                    className="flex items-center gap-1 px-4 py-2 bg-blue-600/80 hover:bg-blue-700 rounded-lg text-sm font-semibold transition-all duration-300 hover:scale-105"
-                  >
-                    <Play className="w-4 h-4" />
-                    Watch Trailer
-                  </button>
+                  <div className="group relative">
+                    <button
+                      onClick={handleWatchTrailer}
+                      className="group p-2 bg-blue-600/40 border border-blue-500/30 text-white rounded-full backdrop-blur-md hover:bg-blue-600/60 transition-all duration-200 hover:scale-110"
+                    >
+                      <Tv className="w-4 h-4" />
+                    </button>
+                    <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 px-2 py-1 bg-black/90 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
+                      Watch Trailer
+                    </div>
+                  </div>
                 )}
 
                 <MyListTooltip
@@ -2378,17 +2837,32 @@ export default function MoviePage() {
                   onAddToCollection={(collectionId) => addToCollection(collectionId, media.id)}
                   onCollectionCreated={fetchCollections}
                 >
-                  <button className="flex items-center gap-1 px-4 py-2 bg-gray-800/80 hover:bg-gray-700 rounded-lg text-sm font-semibold transition-all duration-300 hover:scale-105">
+                  <button className="group p-2 bg-white/20 text-white rounded-full backdrop-blur-md border border-white/30 hover:bg-white/30 transition-all duration-200 hover:scale-110">
                     {isInMyListHook(media.id) ? <Check className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
-                    Watchlist
                   </button>
                 </MyListTooltip>
 
-                <button className="flex items-center gap-1 px-4 py-2 bg-gray-800/80 hover:bg-gray-700 rounded-lg text-sm font-semibold transition-all duration-300 hover:scale-105">
-                  <Share className="w-4 h-4" />
-                  Share
-                </button>
-              </div>
+                <div className="group relative">
+                  <button className="group p-2 bg-white/20 text-white rounded-full backdrop-blur-md border border-white/30 hover:bg-white/30 transition-all duration-200 hover:scale-110">
+                    <Share className="w-4 h-4" />
+                  </button>
+                  <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 px-2 py-1 bg-black/90 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
+                    Share
+                  </div>
+                </div>
+
+                <div className="group relative">
+                  <button 
+                    onClick={() => safeNavigate.push(`/settings?tab=media&media=${encodeURIComponent(JSON.stringify({ id: media.id, type: media.type || 'movie', title: media.title }))}`)}
+                    className="group p-2 bg-white/20 text-white rounded-full backdrop-blur-md border border-white/30 hover:bg-white/30 transition-all duration-200 hover:scale-110"
+                  >
+                    <Settings className="w-4 h-4" />
+                  </button>
+                  <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 px-2 py-1 bg-black/90 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
+                    Settings
+                  </div>
+                </div>
+              </motion.div>
             </div>
           </motion.div>
         </div>
@@ -2429,18 +2903,18 @@ export default function MoviePage() {
                                 </div>
                               </div>
                             )}
-                            {media.duration && (
+                            {media.duration && media.duration > 0 && (
                               <div className="flex">
                                 <span className="w-32 text-white/60 font-medium">Duration</span>
                                 <span className="text-white">{formatRuntime(Math.floor(media.duration / 60))}</span>
                               </div>
                             )}
-                            {media.director && (
+                            {media.director && media.director.length > 0 && (
                               <div className="flex">
                                 <span className="w-32 text-white/60 font-medium">Director</span>
                                 <span className="text-white">
                                   {Array.isArray(media.director)
-                                    ? media.director.filter(d => d).join(', ')
+                                    ? media.director.filter(d => d && d.trim()).join(', ')
                                     : media.director
                                   }
                                 </span>
@@ -2450,30 +2924,30 @@ export default function MoviePage() {
                               <div className="flex flex-col gap-3">
                                 <span className="text-white/60 font-medium">Cast</span>
                                 <div className="flex flex-wrap gap-2">
-                                  {media.stars.slice(0, 6).map((star: string, index: number) => (
+                                  {media.stars.filter(star => star && star.trim()).slice(0, 6).map((star: string, index: number) => (
                                     <span
                                       key={index}
                                       className="px-3 py-1.5 bg-gradient-to-r from-blue-600/20 to-blue-500/20 text-blue-300 text-sm font-medium rounded-full border border-blue-500/30 hover:from-blue-600/30 hover:to-blue-500/30 transition-all duration-200"
                                     >
-                                      {star?.trim() || star}
+                                      {star?.trim()}
                                     </span>
                                   ))}
                                 </div>
                               </div>
                             )}
-                            {media.year && (
+                            {media.year && media.year > 0 && (
                               <div className="flex">
                                 <span className="w-32 text-white/60 font-medium">Release</span>
                                 <span className="text-white">{media.year}</span>
                               </div>
                             )}
-                            {media.country && (
+                            {media.country && media.country.trim() && (
                               <div className="flex">
                                 <span className="w-32 text-white/60 font-medium">Country</span>
                                 <span className="text-white">{media.country}</span>
                               </div>
                             )}
-                            {media.language && (
+                            {media.language && media.language.trim() && (
                               <div className="flex">
                                 <span className="w-32 text-white/60 font-medium">Language</span>
                                 <span className="text-white">{media.language}</span>

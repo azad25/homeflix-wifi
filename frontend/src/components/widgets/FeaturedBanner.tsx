@@ -400,7 +400,7 @@ export default function FeaturedBanner({
                             initial={{ opacity: 0 }}
                             animate={{ opacity: 1 }}
                             transition={{ delay: 0.6 }}
-                            className="text-base md:text-lg text-white/80 mb-6 line-clamp-3 max-w-2xl"
+                            className="text-base md:text-lg text-white/80 mb-6 line-clamp-2 max-w-xl"
                         >
                             {currentMedia.description}
                         </motion.p>

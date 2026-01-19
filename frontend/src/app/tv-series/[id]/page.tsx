@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { usePageTitle } from '@/hooks/usePageTitle';
-import { ArrowLeft, Play, Plus, Check, Share, Download, Info, Star, Clock, Calendar, Globe, Users, Award, Film, Tv, User, Mic, ChevronDown, ChevronUp, Volume2, VolumeX, PlayCircle, X, Pause } from "lucide-react";
+import { ArrowLeft, Play, Plus, Check, Share, Download, Info, Star, Clock, Calendar, Globe, Users, Award, Film, Tv, User, Mic, ChevronDown, ChevronUp, Volume2, VolumeX, PlayCircle, X, Pause, Settings, RotateCcw } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Media } from '@/types/media';
 import { getApiUrl, preloadAssets } from '@/lib/api';
@@ -784,7 +784,7 @@ export default function TVSeriesPage() {
             </motion.div>
 
             {/* Series Details */}
-            <div className="flex-1 space-y-4 pb-4">
+            <div className="flex-1 space-y-4 pb-4 ml-8">
               {/* Series Title */}
               <motion.div
                 initial={{ opacity: 0, y: 50 }}
@@ -853,10 +853,15 @@ export default function TVSeriesPage() {
                 transition={{ duration: 0.6, delay: 0.2 }}
                 className="flex flex-wrap items-center gap-2 text-sm mb-3"
               >
-                {series.rating && (
+                {series.rating && series.rating > 0 ? (
                   <div className="flex items-center gap-1 bg-yellow-500/20 px-2 py-1 rounded-full">
                     <Star className="w-4 h-4 text-yellow-400 fill-current" />
                     <span className="font-semibold">{series.rating.toFixed(1)}</span>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-1 bg-gray-500/20 px-2 py-1 rounded-full">
+                    <Star className="w-4 h-4 text-gray-400" />
+                    <span className="font-semibold text-gray-400">N/A</span>
                   </div>
                 )}
 
@@ -900,9 +905,13 @@ export default function TVSeriesPage() {
               >
                 <button
                   onClick={() => handlePlay()}
-                  className="flex items-center gap-1 px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg text-sm font-semibold transition-all duration-300 hover:scale-105"
+                  className="flex items-center gap-1 px-3 py-1.5 bg-red-600 hover:bg-red-700 rounded-lg text-xs font-semibold transition-all duration-300 hover:scale-105"
                 >
-                  <Play className="w-4 h-4" />
+                  {continueWatching ? (
+                    <PlayCircle className="w-3 h-3" />
+                  ) : (
+                    <Play className="w-3 h-3" />
+                  )}
                   {continueWatching ? 'Continue' : 'Play'}
                 </button>
 
@@ -910,10 +919,10 @@ export default function TVSeriesPage() {
                 {series.tmdb_trailer_url && (
                   <button
                     onClick={handleWatchTrailer}
-                    className="flex items-center gap-1 px-4 py-2 bg-blue-600/80 hover:bg-blue-700 rounded-lg text-sm font-semibold transition-all duration-300 hover:scale-105"
+                    className="flex items-center gap-1 px-3 py-1.5 bg-blue-600/80 hover:bg-blue-700 rounded-lg text-xs font-semibold transition-all duration-300 hover:scale-105"
                   >
-                    <Play className="w-4 h-4" />
-                    Watch Trailer
+                    <Tv className="w-3 h-3" />
+                    Trailer
                   </button>
                 )}
 
@@ -925,14 +934,14 @@ export default function TVSeriesPage() {
                   onAddToCollection={(collectionId) => addToCollection(collectionId, series.id)}
                   onCollectionCreated={fetchCollections}
                 >
-                  <button className="flex items-center gap-1 px-4 py-2 bg-gray-800/80 hover:bg-gray-700 rounded-lg text-sm font-semibold transition-all duration-300 hover:scale-105">
-                    {isInMyListHook(series.id) ? <Check className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
-                    Watchlist
+                  <button className="flex items-center gap-1 px-3 py-1.5 bg-gray-800/80 hover:bg-gray-700 rounded-lg text-xs font-semibold transition-all duration-300 hover:scale-105">
+                    {isInMyListHook(series.id) ? <Check className="w-3 h-3" /> : <Plus className="w-3 h-3" />}
+                    List
                   </button>
                 </MyListTooltip>
 
-                <button className="flex items-center gap-1 px-4 py-2 bg-gray-800/80 hover:bg-gray-700 rounded-lg text-sm font-semibold transition-all duration-300 hover:scale-105">
-                  <Share className="w-4 h-4" />
+                <button className="flex items-center gap-1 px-3 py-1.5 bg-gray-800/80 hover:bg-gray-700 rounded-lg text-xs font-semibold transition-all duration-300 hover:scale-105">
+                  <Share className="w-3 h-3" />
                   Share
                 </button>
               </motion.div>

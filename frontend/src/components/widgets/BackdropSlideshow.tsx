@@ -6,6 +6,36 @@ import { Info, Star, ChevronLeft, ChevronRight, Plus, Check, Calendar, Clock, Vo
 import { Media } from '@/types/media';
 import { getApiUrl, preloadAssets } from '@/lib/api';
 import { getColorPaletteByGenre, DominantColors } from '@/types/widgets';
+
+// Genre-based text styling utility
+const getGenreTextStyle = (genres: string[] = []) => {
+  const primaryGenre = genres[0]?.toLowerCase() || '';
+  
+  // Font family based on genre
+  let fontFamily = 'font-sans'; // default
+  if (primaryGenre.includes('horror') || primaryGenre.includes('thriller')) {
+    fontFamily = 'font-mono'; // monospace for tension
+  } else if (primaryGenre.includes('romance') || primaryGenre.includes('drama')) {
+    fontFamily = 'font-serif'; // serif for elegance
+  } else if (primaryGenre.includes('sci') || primaryGenre.includes('science')) {
+    fontFamily = 'font-mono'; // monospace for tech feel
+  } else if (primaryGenre.includes('comedy')) {
+    fontFamily = 'font-sans'; // clean sans for readability
+  }
+  
+  // Text size and styling
+  const textSize = 'text-sm md:text-base'; // Reduced from lg
+  const maxWidth = 'max-w-lg'; // Reduced from 2xl to lg
+  const lineHeight = 'leading-relaxed';
+  
+  return {
+    fontFamily,
+    textSize,
+    maxWidth,
+    lineHeight,
+    className: `${fontFamily} ${textSize} ${maxWidth} ${lineHeight}`
+  };
+};
 import { useNavigate } from '@/hooks/useNavigate';
 import { navigateToMedia } from '@/lib/mediaNavigation';
 import { useMyList } from '@/hooks/useMyList';
@@ -366,13 +396,18 @@ export default function BackdropSlideshow({
                                         </div>
                                     )}
                                     
-                                    {(currentMedia.duration || currentMedia.runtime) && (
+                                    {((currentMedia.duration && currentMedia.duration > 0) || (currentMedia.runtime && currentMedia.runtime > 0)) && (
                                         <span className="text-white/70">
-                                            {Math.floor((currentMedia.duration || currentMedia.runtime!) / 3600)}h {Math.floor(((currentMedia.duration || currentMedia.runtime!) % 3600) / 60)}m
+                                            {(() => {
+                                                const duration = currentMedia.duration || currentMedia.runtime || 0;
+                                                const hours = Math.floor(duration / 3600);
+                                                const minutes = Math.floor((duration % 3600) / 60);
+                                                return `${hours}h ${minutes}m`;
+                                            })()}
                                         </span>
                                     )}
 
-                                    {currentMedia.certification && (
+                                    {currentMedia.certification && currentMedia.certification.trim() && (
                                         <span className="px-2 py-0.5 border border-white/30 rounded text-xs font-medium">
                                             {currentMedia.certification}
                                         </span>
@@ -399,7 +434,7 @@ export default function BackdropSlideshow({
 
                                 {/* Enhanced Description */}
                                 {(currentMedia.description || currentMedia.long_desc || currentMedia.short_desc) && (
-                                    <p className="text-lg text-white/90 mb-8 line-clamp-3 max-w-2xl leading-relaxed">
+                                    <p className={`text-white/90 mb-8 line-clamp-2 leading-relaxed ${getGenreTextStyle(currentMedia.genre_names || currentMedia.genres?.map(g => g.name) || []).className}`}>
                                         {currentMedia.description || currentMedia.long_desc || currentMedia.short_desc}
                                     </p>
                                 )}

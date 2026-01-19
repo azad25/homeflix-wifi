@@ -35,7 +35,7 @@ func Initialize(databaseURL string) (*gorm.DB, error) {
 
 	// Configure connection pool for optimal performance
 	sqlDB.SetMaxIdleConns(10)           // Keep 10 idle connections
-	sqlDB.SetMaxOpenConns(100)          // Allow up to 100 concurrent connections
+	sqlDB.SetMaxOpenConns(20)           // Reduce to 20 for SQLite (single writer)
 	sqlDB.SetConnMaxLifetime(time.Hour) // Recycle connections every hour
 
 	// Apply critical SQLite performance pragmas

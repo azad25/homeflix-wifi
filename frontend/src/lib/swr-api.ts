@@ -8,11 +8,11 @@ export const swrConfig: SWRConfiguration = {
   revalidateOnFocus: false,
   revalidateOnReconnect: false,
   refreshInterval: 0, // Disable auto-refresh completely
-  dedupingInterval: 120000, // 2 minute deduplication for better caching
+  dedupingInterval: 60000, // 1 minute deduplication for better caching
   errorRetryCount: 1, // Minimal retries for speed
-  errorRetryInterval: 2000, // Fast retry
-  loadingTimeout: 3000, // Reduced timeout - show content faster
-  focusThrottleInterval: 120000,
+  errorRetryInterval: 1000, // Fast retry
+  loadingTimeout: 2000, // Reduced timeout - show content faster
+  focusThrottleInterval: 60000,
   refreshWhenHidden: false,
   refreshWhenOffline: false,
   shouldRetryOnError: false, // No retries for instant loading
@@ -70,12 +70,12 @@ const fetcher = async (url: string) => {
   const fullUrl = `${baseUrl}${url}`;
 
   try {
-    // Shorter timeout for widgets to fail fast and show cached/fallback data
+    // Ultra-short timeout for widgets to fail fast and show cached/fallback data
     const isWidgetRequest = url.includes('/widgets');
     const controller = new AbortController();
     const timeoutId = setTimeout(() => {
       controller.abort();
-    }, isWidgetRequest ? 8000 : 15000); // 8s for widgets, 15s for others
+    }, isWidgetRequest ? 3000 : 8000); // 3s for widgets, 8s for others
 
     const response = await fetch(fullUrl, {
       headers: {
@@ -314,7 +314,7 @@ export function useWidgetsByPage(page: string, config?: SWRConfiguration) {
   );
 }
 
-// Hook for widgets with data by page - optimized for fast loading
+// Hook for widgets with data by page - ultra-optimized for instant loading
 export function useWidgetsWithDataByPage(page: string, config?: SWRConfiguration) {
   const key = page ? `/api/widgets/page/${page}/with-data` : null;
 
@@ -323,13 +323,12 @@ export function useWidgetsWithDataByPage(page: string, config?: SWRConfiguration
     fetcher,
     {
       ...swrConfig,
-      refreshInterval: 0, // No auto-refresh on first load
+      refreshInterval: 0, // No auto-refresh for instant loading
       revalidateOnFocus: false,
       revalidateOnReconnect: false,
-      errorRetryCount: 1,
-      errorRetryInterval: 2000,
-      shouldRetryOnError: false, // Don't retry - show what we have
-      fallbackData: [], // Provide fallback data to prevent crashes
+      errorRetryCount: 0, // No retries for instant loading
+      shouldRetryOnError: false,
+      fallbackData: [], // Always provide fallback
       onError: (error) => {
         console.error('SWR useWidgetsWithDataByPage error:', {
           page,
@@ -337,9 +336,10 @@ export function useWidgetsWithDataByPage(page: string, config?: SWRConfiguration
           error: error.message,
         });
       },
-      // Disable revalidation on mount for cached data
+      // Aggressive caching for instant loads
       revalidateIfStale: false,
       revalidateOnMount: true,
+      dedupingInterval: 30000, // 30s deduplication for ultra-fast subsequent loads
       ...config,
     }
   );

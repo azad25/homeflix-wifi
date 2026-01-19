@@ -437,9 +437,10 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		api.POST("/widgets", widgetHandler.CreateWidget)
 		api.PUT("/widgets/:id", widgetHandler.UpdateWidget)
 		api.DELETE("/widgets/:id", widgetHandler.DeleteWidget)
-		api.PUT("/widgets/reorder", widgetHandler.ReorderWidgets)
-		api.POST("/widgets/:id/toggle", widgetHandler.ToggleWidget)
+		api.POST("/widgets/reorder", widgetHandler.ReorderWidgets)
+		api.PUT("/widgets/:id/toggle", widgetHandler.ToggleWidget)
 		api.POST("/widgets/:id/duplicate", widgetHandler.DuplicateWidget)
+		api.DELETE("/widgets/cache/clear", widgetHandler.ClearCache) // Add cache clearing endpoint
 
 		// Dynamic pages endpoints
 		api.GET("/pages", pageHandler.List)

@@ -35,6 +35,36 @@ import UpcomingTVSeries from '@/components/UpcomingTVSeries';
 import { useMyList } from '@/hooks/useMyList';
 import MyListTooltip from '@/components/ui/MyListTooltip';
 
+// Genre-based text styling utility
+const getGenreTextStyle = (genres: string[] = []) => {
+  const primaryGenre = genres[0]?.toLowerCase() || '';
+  
+  // Font family based on genre
+  let fontFamily = 'font-sans'; // default
+  if (primaryGenre.includes('horror') || primaryGenre.includes('thriller')) {
+    fontFamily = 'font-mono'; // monospace for tension
+  } else if (primaryGenre.includes('romance') || primaryGenre.includes('drama')) {
+    fontFamily = 'font-serif'; // serif for elegance
+  } else if (primaryGenre.includes('sci') || primaryGenre.includes('science')) {
+    fontFamily = 'font-mono'; // monospace for tech feel
+  } else if (primaryGenre.includes('comedy')) {
+    fontFamily = 'font-sans'; // clean sans for readability
+  }
+  
+  // Text size and styling
+  const textSize = 'text-sm md:text-base'; // Reduced from lg
+  const maxWidth = 'max-w-lg'; // Reduced from xl to lg
+  const lineHeight = 'leading-relaxed';
+  
+  return {
+    fontFamily,
+    textSize,
+    maxWidth,
+    lineHeight,
+    className: `${fontFamily} ${textSize} ${maxWidth} ${lineHeight}`
+  };
+};
+
 // Related Media Component
 interface RelatedMediaProps {
   mediaId: number;
@@ -1117,7 +1147,7 @@ const TMDBMoviePage: React.FC = () => {
   };
 
   const formatRuntime = (minutes: number) => {
-    if (!minutes) return 'N/A';
+    if (!minutes || minutes <= 0) return '';
     const hours = Math.floor(minutes / 60);
     const mins = minutes % 60;
     return hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
@@ -1573,7 +1603,7 @@ const TMDBMoviePage: React.FC = () => {
                   </div>
                 )}
 
-                {mediaDetails?.media_type === 'tv' && (
+                {mediaDetails?.media_type === 'tv' && mediaDetails.number_of_seasons && mediaDetails.number_of_seasons > 0 && (
                   <div className="flex items-center gap-1 bg-purple-500/20 px-2 py-1 rounded-full">
                     <Film className="w-4 h-4 text-purple-400" />
                     <span>{mediaDetails.number_of_seasons} Season{(mediaDetails.number_of_seasons || 0) > 1 ? 's' : ''}</span>
@@ -1594,7 +1624,7 @@ const TMDBMoviePage: React.FC = () => {
               </div>
 
               {/* Overview - Truncated */}
-              <p className="text-sm text-gray-300 leading-relaxed line-clamp-3">
+              <p className={`text-gray-300 line-clamp-3 ${getGenreTextStyle(mediaDetails?.genres?.map(g => g.name) || []).className}`}>
                 {mediaDetails?.overview || `Experience this amazing ${mediaDetails?.media_type === 'tv' ? 'TV series' : 'movie'} with stunning visuals and compelling storytelling.`}
               </p>
 

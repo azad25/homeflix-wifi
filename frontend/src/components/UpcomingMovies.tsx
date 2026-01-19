@@ -81,7 +81,7 @@ const UpcomingMovies: React.FC<UpcomingMoviesProps> = ({
   };
 
   const formatRating = (rating: number) => {
-    return rating ? rating.toFixed(1) : 'N/A';
+    return rating && rating > 0 ? rating.toFixed(1) : '';
   };
 
   const formatDate = (dateString: string) => {
@@ -290,7 +290,7 @@ const UpcomingMovies: React.FC<UpcomingMoviesProps> = ({
                 />
                 
                 {/* Rating Badge */}
-                {movie.vote_average > 0 && (
+                {movie.vote_average && movie.vote_average > 0 && (
                   <div className="absolute top-2 right-2 bg-black/70 backdrop-blur-sm rounded-full px-2 py-1 flex items-center gap-1">
                     <Star className="w-3 h-3 text-yellow-400 fill-current" />
                     <span className="text-xs text-white font-medium">
@@ -323,7 +323,7 @@ const UpcomingMovies: React.FC<UpcomingMoviesProps> = ({
                 </h3>
                 <div className="flex items-center justify-between text-xs text-gray-400">
                   <span>{formatDate(movie.release_date)}</span>
-                  {movie.vote_average > 0 && (
+                  {movie.vote_average && movie.vote_average > 0 && (
                     <div className="flex items-center gap-1">
                       <Star className="w-3 h-3 text-yellow-400 fill-current" />
                       <span>{formatRating(movie.vote_average)}</span>

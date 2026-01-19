@@ -110,8 +110,8 @@ export default function Home() {
     <div className="min-h-screen bg-black">
       <Navbar onSearch={handleSearch} />
 
-      {/* HomeflixHero Section - Mixed content for homepage */}
-      <MemoizedHomeflixHero onPlay={handlePlay} onInfo={handleInfo} sortMode="mixed" />
+      {/* HomeflixHero Section - Enhanced hero with preview clips and YouTube trailers */}
+      <MemoizedHomeflixHero onPlay={handlePlay} onInfo={handleInfo} maxMovies={10} />
 
       {/* Widget System Integration - Backend Data */}
       <ErrorBoundary>

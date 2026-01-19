@@ -10,6 +10,36 @@ import { useNavigate } from '@/hooks/useNavigate';
 import { useMyList } from '@/hooks/useMyList';
 import MyListTooltip from '@/components/ui/MyListTooltip';
 
+// Genre-based text styling utility
+const getGenreTextStyle = (genres: string[] = []) => {
+  const primaryGenre = genres[0]?.toLowerCase() || '';
+  
+  // Font family based on genre
+  let fontFamily = 'font-sans'; // default
+  if (primaryGenre.includes('horror') || primaryGenre.includes('thriller')) {
+    fontFamily = 'font-mono'; // monospace for tension
+  } else if (primaryGenre.includes('romance') || primaryGenre.includes('drama')) {
+    fontFamily = 'font-serif'; // serif for elegance
+  } else if (primaryGenre.includes('sci') || primaryGenre.includes('science')) {
+    fontFamily = 'font-mono'; // monospace for tech feel
+  } else if (primaryGenre.includes('comedy')) {
+    fontFamily = 'font-sans'; // clean sans for readability
+  }
+  
+  // Text size and styling
+  const textSize = 'text-sm md:text-base'; // Reduced from lg
+  const maxWidth = 'max-w-lg'; // Reduced from 2xl to lg
+  const lineHeight = 'leading-relaxed';
+  
+  return {
+    fontFamily,
+    textSize,
+    maxWidth,
+    lineHeight,
+    className: `${fontFamily} ${textSize} ${maxWidth} ${lineHeight}`
+  };
+};
+
 interface ComingSoonBannerProps {
     movies: Media[];
     autoScroll?: boolean;
@@ -380,11 +410,11 @@ export default function ComingSoonBanner({
 
                                 {/* Enhanced Rating & Genres */}
                                 <div className="flex flex-wrap items-center gap-3 mb-4">
-                                    {rating ? (
+                                    {rating && rating > 0 ? (
                                         <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-yellow-500/20 border border-yellow-400/30">
                                             <Star className="w-3.5 h-3.5 fill-yellow-400 text-yellow-400" />
                                             <span className="font-semibold text-yellow-300 text-sm">
-                                                {rating > 0 ? rating.toFixed(1) : ''}
+                                                {rating.toFixed(1)}
                                             </span>
                                             <span className="text-yellow-200/80 text-xs">Expected</span>
                                         </div>
@@ -411,7 +441,7 @@ export default function ComingSoonBanner({
 
                                 {/* Enhanced Overview */}
                                 {overview && (
-                                    <p className="text-base md:text-lg text-white/90 line-clamp-3 mb-6 max-w-2xl leading-relaxed">
+                                    <p className={`text-white/90 line-clamp-2 mb-6 ${getGenreTextStyle(currentMovie.genre_names || []).className}`}>
                                         {overview}
                                     </p>
                                 )}

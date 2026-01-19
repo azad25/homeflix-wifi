@@ -9,6 +9,36 @@ import { getApiUrl } from "@/lib/api";
 import { Media } from "@/types/media";
 import { addToWishlist, removeFromWishlist, isInWishlist, getWishlist } from '@/lib/wishlist';
 
+// Genre-based text styling utility
+const getGenreTextStyle = (genres: string[] = []) => {
+  const primaryGenre = genres[0]?.toLowerCase() || '';
+  
+  // Font family based on genre
+  let fontFamily = 'font-sans'; // default
+  if (primaryGenre.includes('horror') || primaryGenre.includes('thriller')) {
+    fontFamily = 'font-mono'; // monospace for tension
+  } else if (primaryGenre.includes('romance') || primaryGenre.includes('drama')) {
+    fontFamily = 'font-serif'; // serif for elegance
+  } else if (primaryGenre.includes('sci') || primaryGenre.includes('science')) {
+    fontFamily = 'font-mono'; // monospace for tech feel
+  } else if (primaryGenre.includes('comedy')) {
+    fontFamily = 'font-sans'; // clean sans for readability
+  }
+  
+  // Text size and styling
+  const textSize = 'text-sm md:text-base'; // Reduced from lg
+  const maxWidth = 'max-w-lg'; // Reduced from xl to lg
+  const lineHeight = 'leading-relaxed';
+  
+  return {
+    fontFamily,
+    textSize,
+    maxWidth,
+    lineHeight,
+    className: `${fontFamily} ${textSize} ${maxWidth} ${lineHeight}`
+  };
+};
+
 // Declare global YouTube types
 declare global {
     interface Window {
@@ -431,21 +461,21 @@ const LocalMoviesHeroSlider: React.FC<LocalMoviesHeroSliderProps> = ({
                                     )}
 
                                     <div className="flex items-center gap-3 text-sm text-gray-300 mb-3">
-                                        {movie.year && <span>{movie.year}</span>}
-                                        {movie.rating && (
+                                        {movie.year && movie.year > 0 && <span>{movie.year}</span>}
+                                        {movie.rating && movie.rating > 0 && (
                                             <span className="flex items-center gap-1">
                                                 <span className="text-yellow-400">★</span>
                                                 {movie.rating.toFixed(1)}
                                             </span>
                                         )}
-                                        {movie.quality && (
+                                        {movie.quality && movie.quality.trim() && (
                                             <span className="px-2 py-0.5 border border-gray-400 rounded text-xs font-bold">
                                                 {movie.quality.toLowerCase().includes('4k') || movie.quality.toLowerCase().includes('2160p') ? '4K' : 'HD'}
                                             </span>
                                         )}
                                     </div>
 
-                                    <p className="text-sm md:text-base text-gray-200 mb-4 line-clamp-2 text-shadow-md max-w-xl">
+                                    <p className={`text-gray-200 mb-4 line-clamp-2 text-shadow-md ${getGenreTextStyle(movie.genres?.map(g => g.name) || movie.genre_names || []).className}`}>
                                         {movie.description || movie.short_desc || movie.long_desc}
                                     </p>
 

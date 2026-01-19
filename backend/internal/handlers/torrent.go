@@ -36,9 +36,12 @@ type NotificationServiceInterface interface {
 }
 
 func NewTorrentHandler(db *gorm.DB, mediaScanner MediaScannerInterface, notificationService NotificationServiceInterface) *TorrentHandler {
+	log.Printf("🔧 Initializing TorrentHandler...")
+	
 	// Get or create default config
 	var config models.TorrentConfig
 	if err := db.First(&config).Error; err != nil {
+		log.Printf("⚠️ No torrent config found, creating default: %v", err)
 		// Create default config with proper torrent download path
 		homeDir, _ := os.UserHomeDir()
 		config = models.TorrentConfig{
@@ -50,14 +53,22 @@ func NewTorrentHandler(db *gorm.DB, mediaScanner MediaScannerInterface, notifica
 			EnabledSources:     "1337x,YTS,TPB,RARBG",
 			UseProxy:           false,
 			ProxyURL:           "",
-			// High-performance defaults for fast downloads
+			// High-performance defaults for fast downloads with expanded port range
 			MaxPeerConnections: 500,
 			MaxPeerAccepts:     200,
 			PortRangeStart:     50000,
-			PortRangeEnd:       50100,
+			PortRangeEnd:       51000, // Expanded from 50100 to 51000 (1000 ports)
 			MaxOpenFiles:       1024,
 		}
 		db.Create(&config)
+	} else {
+		// Update existing config to expand port range if needed
+		if config.PortRangeEnd <= 50100 {
+			log.Printf("🔧 Expanding port range from %d-%d to 50000-51000", config.PortRangeStart, config.PortRangeEnd)
+			config.PortRangeStart = 50000
+			config.PortRangeEnd = 51000
+			db.Save(&config)
+		}
 	}
 
 	// Initialize torrent client with performance configuration
@@ -67,6 +78,7 @@ func NewTorrentHandler(db *gorm.DB, mediaScanner MediaScannerInterface, notifica
 		"port_range_start":     config.PortRangeStart,
 		"port_range_end":       config.PortRangeEnd,
 		"max_open_files":       config.MaxOpenFiles,
+		"max_downloads":        config.MaxDownloads,
 	}
 	
 	// Create a pointer to hold the notification service that will be set after handler creation
@@ -141,8 +153,10 @@ func NewTorrentHandler(db *gorm.DB, mediaScanner MediaScannerInterface, notifica
 	
 	client, err := torrent.NewTorrentClient(config.DownloadPath, mediaScanner, statusCallback, performanceConfig)
 	if err != nil {
+		log.Printf("❌ CRITICAL: Failed to initialize torrent client: %v", err)
 		panic(fmt.Sprintf("Failed to initialize torrent client: %v", err))
 	}
+	log.Printf("✅ Torrent client initialized successfully")
 
 	// Restore incomplete downloads from database
 	var incompleteDownloads []models.TorrentDownload
@@ -177,6 +191,7 @@ func NewTorrentHandler(db *gorm.DB, mediaScanner MediaScannerInterface, notifica
 	// Set the notification service pointer so the status callback can use it
 	notificationServicePtr = &notificationService
 	
+	log.Printf("✅ TorrentHandler initialized successfully")
 	return &TorrentHandler{
 		db:                  db,
 		client:              client,
@@ -234,6 +249,33 @@ func (h *TorrentHandler) SearchTorrents(c *gin.Context) {
 
 // Start downloading a torrent
 func (h *TorrentHandler) StartDownload(c *gin.Context) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("❌ PANIC in StartDownload: %v", r)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Internal server error: %v", r)})
+		}
+	}()
+	
+	log.Printf("🔥 StartDownload called")
+	
+	if h == nil {
+		log.Printf("❌ TorrentHandler is nil!")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Torrent handler not initialized"})
+		return
+	}
+	
+	if h.client == nil {
+		log.Printf("❌ Torrent client is nil!")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Torrent client not initialized"})
+		return
+	}
+	
+	if h.db == nil {
+		log.Printf("❌ Database is nil!")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database not initialized"})
+		return
+	}
+	
 	var req struct {
 		MagnetURI string `json:"magnet_uri" binding:"required"`
 		TMDBId    int    `json:"tmdb_id"`
@@ -243,16 +285,22 @@ func (h *TorrentHandler) StartDownload(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
+		log.Printf("❌ JSON binding error: %v", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	
+	log.Printf("📥 Download request: Title=%s, Type=%s, Quality=%s", req.Title, req.MediaType, req.Quality)
 
 	// Start download
 	downloadInfo, err := h.client.AddMagnet(req.MagnetURI)
 	if err != nil {
+		log.Printf("❌ Failed to add magnet: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	
+	log.Printf("✅ Magnet added successfully: %s", downloadInfo.ID)
 
 	// Save to database
 	torrentDownload := models.TorrentDownload{
@@ -270,10 +318,12 @@ func (h *TorrentHandler) StartDownload(c *gin.Context) {
 	}
 
 	if err := h.db.Create(&torrentDownload).Error; err != nil {
+		log.Printf("❌ Failed to save to database: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save download info"})
 		return
 	}
-
+	
+	log.Printf("✅ Download saved to database successfully")
 	c.JSON(http.StatusOK, downloadInfo)
 }
 
@@ -1037,8 +1087,10 @@ func (h *TorrentHandler) UpdateConfig(c *gin.Context) {
 	
 	if h.client != nil {
 		h.client.SetSpeedLimits(downloadLimitBytes, uploadLimitBytes)
+		h.client.SetDownloadLimits(config.MaxDownloads)
 		log.Printf("⚡ Applied speed limits to torrent client - Download: %d KB/s, Upload: %d KB/s", 
 			config.DownloadSpeedLimit, config.UploadSpeedLimit)
+		log.Printf("📊 Applied download limits - Max concurrent: %d", config.MaxDownloads)
 	}
 
 	c.JSON(http.StatusOK, config)
@@ -1095,5 +1147,16 @@ func (h *TorrentHandler) GetBandwidthStats(c *gin.Context) {
 	}
 
 	stats := h.client.GetBandwidthStats()
-	c.JSON(http.StatusOK, stats)
+	limits := h.client.GetDownloadLimits()
+	
+	// Combine bandwidth and download limit stats
+	combinedStats := make(map[string]interface{})
+	for k, v := range stats {
+		combinedStats[k] = v
+	}
+	for k, v := range limits {
+		combinedStats[k] = v
+	}
+	
+	c.JSON(http.StatusOK, combinedStats)
 }

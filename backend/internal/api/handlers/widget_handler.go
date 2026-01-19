@@ -67,7 +67,7 @@ func (h *WidgetHandler) GetWidgetsByPage(c *gin.Context) {
 }
 
 // GetWidgetsWithDataByPage returns widgets with their populated data for a specific page
-// Optimized with caching for fast loading
+// Ultra-optimized with multi-layer caching for sub-2s loading
 func (h *WidgetHandler) GetWidgetsWithDataByPage(c *gin.Context) {
 	page := c.Param("page")
 	if page == "" {
@@ -75,15 +75,17 @@ func (h *WidgetHandler) GetWidgetsWithDataByPage(c *gin.Context) {
 		return
 	}
 
-	// Check cache first
+	startTime := time.Now()
+
+	// Check handler-level cache first (fastest)
 	h.cacheMutex.RLock()
 	if cached, exists := h.cache[page]; exists {
 		if time.Since(cached.Timestamp) < cached.TTL {
 			h.cacheMutex.RUnlock()
-			fmt.Printf("✅ Serving cached widgets for page %s (%d widgets)\n", page, len(cached.Data))
+			fmt.Printf("⚡ Handler cache hit for page %s (%.2fms)\n", page, float64(time.Since(startTime).Microseconds())/1000)
 			
-			// Set cache headers for client-side caching
-			c.Header("Cache-Control", "public, max-age=300") // 5 minutes
+			// Set aggressive cache headers for instant loading
+			c.Header("Cache-Control", "public, max-age=120, stale-while-revalidate=300") // 2min cache, 5min stale
 			c.Header("ETag", fmt.Sprintf("\"%s-%d\"", page, cached.Timestamp.Unix()))
 			
 			c.JSON(http.StatusOK, cached.Data)
@@ -92,7 +94,7 @@ func (h *WidgetHandler) GetWidgetsWithDataByPage(c *gin.Context) {
 	}
 	h.cacheMutex.RUnlock()
 
-	fmt.Printf("🔧 Getting widgets with data for page: %s (cache miss or expired)\n", page)
+	fmt.Printf("🔧 Fetching widgets for page: %s (cache miss)\n", page)
 
 	widgetsWithData, err := h.service.GetWidgetsWithDataByPage(page)
 	if err != nil {
@@ -101,23 +103,20 @@ func (h *WidgetHandler) GetWidgetsWithDataByPage(c *gin.Context) {
 		return
 	}
 
-	// Cache the result
+	// Cache the result in handler cache
 	h.cacheMutex.Lock()
 	h.cache[page] = &WidgetCache{
 		Data:      widgetsWithData,
 		Timestamp: time.Now(),
-		TTL:       5 * time.Minute, // Cache for 5 minutes
+		TTL:       2 * time.Minute, // Reduced TTL for faster updates
 	}
 	h.cacheMutex.Unlock()
 
-	fmt.Printf("✅ Found %d widgets for page %s (cached for 5 minutes)\n", len(widgetsWithData), page)
-	for _, widget := range widgetsWithData {
-		fmt.Printf("  - Widget: %s (type: %s, data_count: %d)\n", 
-			widget.Name, widget.Type, len(widget.Data))
-	}
+	totalTime := time.Since(startTime)
+	fmt.Printf("✅ Served %d widgets for page %s in %.2fms\n", len(widgetsWithData), page, float64(totalTime.Milliseconds()))
 
 	// Set cache headers for client-side caching
-	c.Header("Cache-Control", "public, max-age=300") // 5 minutes
+	c.Header("Cache-Control", "public, max-age=120, stale-while-revalidate=300")
 	c.Header("ETag", fmt.Sprintf("\"%s-%d\"", page, time.Now().Unix()))
 
 	c.JSON(http.StatusOK, widgetsWithData)
@@ -137,6 +136,17 @@ func (h *WidgetHandler) ClearWidgetCache(page string) {
 		delete(h.cache, page)
 		fmt.Printf("🗑️ Cleared widget cache for page: %s\n", page)
 	}
+}
+
+// InvalidateWidgetCache invalidates cache when widgets are modified
+func (h *WidgetHandler) InvalidateWidgetCache(widgetPage string) {
+	// Clear handler cache
+	h.ClearWidgetCache(widgetPage)
+	
+	// Clear service cache
+	h.service.InvalidatePageCache(widgetPage)
+	
+	fmt.Printf("🔄 Invalidated all caches for page: %s\n", widgetPage)
 }
 
 // GetWidgetByID returns a single widget by ID
@@ -223,10 +233,10 @@ func (h *WidgetHandler) CreateWidget(c *gin.Context) {
 		return
 	}
 
-	// Clear cache after widget creation
-	h.ClearWidgetCache("") // Clear all cache since widget affects page data
+	// Clear cache only for the specific page where widget was added
+	h.InvalidateWidgetCache(widget.Page)
 
-	fmt.Printf("✅ Widget created successfully: ID=%d, Name=%s\n", widget.ID, widget.Name)
+	fmt.Printf("✅ Widget created successfully: ID=%d, Name=%s, Page=%s\n", widget.ID, widget.Name, widget.Page)
 	c.JSON(http.StatusCreated, widget)
 }
 
@@ -292,11 +302,16 @@ func (h *WidgetHandler) UpdateWidget(c *gin.Context) {
 		return
 	}
 
-	// Clear cache after widget update
-	h.ClearWidgetCache("") // Clear all cache since widget affects page data
+	// Get the updated widget to determine which page to invalidate
+	widget, err := h.service.GetWidgetByID(uint(id))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get updated widget"})
+		return
+	}
 
-	// Return the updated widget
-	widget, _ := h.service.GetWidgetByID(uint(id))
+	// Clear cache only for the specific page where widget was updated
+	h.InvalidateWidgetCache(widget.Page)
+
 	c.JSON(http.StatusOK, widget)
 }
 
@@ -309,13 +324,20 @@ func (h *WidgetHandler) DeleteWidget(c *gin.Context) {
 		return
 	}
 
+	// Get widget info before deletion to know which page to invalidate
+	widget, err := h.service.GetWidgetByID(uint(id))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "widget not found"})
+		return
+	}
+
 	if err := h.service.DeleteWidget(uint(id)); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	// Clear cache after widget deletion
-	h.ClearWidgetCache("")
+	// Clear cache only for the specific page where widget was deleted
+	h.InvalidateWidgetCache(widget.Page)
 
 	c.JSON(http.StatusOK, gin.H{"message": "widget deleted successfully"})
 }

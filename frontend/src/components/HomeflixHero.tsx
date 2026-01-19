@@ -954,7 +954,7 @@ const HomeflixHero: React.FC<HomeflixHeroProps> = ({
                                     )}
                                 </div>
 
-                                <p className="text-sm md:text-base text-gray-200 mb-4 line-clamp-2 text-shadow-md max-w-xl">
+                                <p className="text-sm md:text-base text-gray-200 mb-4 line-clamp-2 text-shadow-md max-w-lg">
                                     {movie.description || movie.short_desc || movie.long_desc}
                                 </p>
 

@@ -8,6 +8,36 @@ import { getApiUrl, preloadAssets } from '@/lib/api';
 import { getColorPaletteByGenre } from '@/types/widgets';
 import { useNavigate } from '@/hooks/useNavigate';
 
+// Genre-based text styling utility
+const getGenreTextStyle = (genres: string[] = []) => {
+  const primaryGenre = genres[0]?.toLowerCase() || '';
+  
+  // Font family based on genre
+  let fontFamily = 'font-sans'; // default
+  if (primaryGenre.includes('horror') || primaryGenre.includes('thriller')) {
+    fontFamily = 'font-mono'; // monospace for tension
+  } else if (primaryGenre.includes('romance') || primaryGenre.includes('drama')) {
+    fontFamily = 'font-serif'; // serif for elegance
+  } else if (primaryGenre.includes('sci') || primaryGenre.includes('science')) {
+    fontFamily = 'font-mono'; // monospace for tech feel
+  } else if (primaryGenre.includes('comedy')) {
+    fontFamily = 'font-sans'; // clean sans for readability
+  }
+  
+  // Text size and styling
+  const textSize = 'text-sm'; // Smaller for grid items
+  const maxWidth = 'max-w-full'; // Full width for grid items
+  const lineHeight = 'leading-relaxed';
+  
+  return {
+    fontFamily,
+    textSize,
+    maxWidth,
+    lineHeight,
+    className: `${fontFamily} ${textSize} ${maxWidth} ${lineHeight}`
+  };
+};
+
 interface MovieGridWidgetProps {
     media: Media[];
     title: string;
@@ -293,7 +323,7 @@ export default function MovieGridWidget({
                                                         {item.year}
                                                     </span>
                                                 )}
-                                                {item.duration && (
+                                                {item.duration && item.duration > 0 && (
                                                     <span className="flex items-center gap-1">
                                                         <Clock className="w-3 h-3" />
                                                         {Math.floor(item.duration / 3600)}h {Math.floor((item.duration % 3600) / 60)}m

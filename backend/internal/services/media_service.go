@@ -1269,7 +1269,24 @@ func (s *MediaService) DeleteGenre(id uint) error {
 // DeleteMedia removes a media entry from the database
 func (s *MediaService) DeleteMedia(id uint) error {
 	return s.DBManager.WithTx(func(tx *gorm.DB) error {
-		// First, remove all related associations
+		// First, get the media record to access file paths
+		var media models.Media
+		if err := tx.First(&media, id).Error; err != nil {
+			return fmt.Errorf("media not found: %w", err)
+		}
+		
+		log.Printf("🗑️ Deleting media: %s (ID: %d)", media.Title, id)
+		log.Printf("📁 Media file path: %s", media.FilePath)
+		
+		// Safely delete the media file BEFORE database cleanup
+		if media.FilePath != "" {
+			if err := s.safeDeleteMediaFile(media.FilePath, media.Title, "movie"); err != nil {
+				log.Printf("⚠️ Failed to delete media file %s: %v", media.FilePath, err)
+				// Continue with database cleanup even if file deletion fails
+			}
+		}
+		
+		// Remove all related associations
 		if err := tx.Exec("DELETE FROM media_genres WHERE media_id = ?", id).Error; err != nil {
 			return fmt.Errorf("failed to delete media-genre associations: %w", err)
 		}
@@ -1290,7 +1307,7 @@ func (s *MediaService) DeleteMedia(id uint) error {
 			return fmt.Errorf("failed to delete media: %w", err)
 		}
 		
-		log.Printf("Successfully deleted media with ID %d and all related data", id)
+		log.Printf("✅ Successfully deleted media '%s' (ID: %d) and all related data", media.Title, id)
 		return nil
 	})
 }
@@ -1313,6 +1330,31 @@ func (s *MediaService) DeleteSeries(id uint) error {
 		}
 		
 		log.Printf("📺 Found %d episodes to delete for series: %s", len(episodes), series.Title)
+		
+		// Safely delete each episode file BEFORE database cleanup
+		for _, episode := range episodes {
+			if episode.FilePath != "" {
+				if err := s.safeDeleteMediaFile(episode.FilePath, episode.Title, "episode"); err != nil {
+					log.Printf("⚠️ Failed to delete episode file %s: %v", episode.FilePath, err)
+					// Continue with other episodes even if one fails
+				}
+			}
+		}
+		
+		// Try to delete the series folder if it exists and is safe
+		if len(episodes) > 0 {
+			// Use the first episode's path to determine series folder
+			firstEpisodePath := episodes[0].FilePath
+			if firstEpisodePath != "" {
+				seriesFolder := s.getSeriesFolderFromEpisodePath(firstEpisodePath, series.Title)
+				if seriesFolder != "" {
+					if err := s.safeDeleteSeriesFolder(seriesFolder, series.Title); err != nil {
+						log.Printf("⚠️ Failed to delete series folder %s: %v", seriesFolder, err)
+						// Continue with database cleanup even if folder deletion fails
+					}
+				}
+			}
+		}
 		
 		// Delete each episode and its associations
 		for _, episode := range episodes {
@@ -1433,3 +1475,428 @@ func (s *MediaService) GetHighestRated(limit int) ([]models.Media, error) {
 	return media, err
 }
 
+// safeDeleteMediaFile safely deletes a media file with extensive safety checks
+func (s *MediaService) safeDeleteMediaFile(filePath, title, mediaType string) error {
+	if filePath == "" {
+		return fmt.Errorf("empty file path")
+	}
+	
+	// Convert to absolute path for safety checks
+	absPath, err := filepath.Abs(filePath)
+	if err != nil {
+		return fmt.Errorf("failed to get absolute path: %v", err)
+	}
+	
+	log.Printf("🔍 Attempting to delete %s file: %s", mediaType, absPath)
+	
+	// CRITICAL SAFETY CHECKS - Never delete system paths
+	if !s.isSafePathToDelete(absPath) {
+		return fmt.Errorf("refusing to delete unsafe path: %s", absPath)
+	}
+	
+	// Check if file exists
+	if _, err := os.Stat(absPath); os.IsNotExist(err) {
+		log.Printf("⚠️ File already doesn't exist: %s", absPath)
+		return nil // Not an error if file doesn't exist
+	}
+	
+	// Verify it's a media file by extension
+	if !s.isMediaFile(absPath) {
+		return fmt.Errorf("refusing to delete non-media file: %s", absPath)
+	}
+	
+	// Check if this file is referenced by other media entries
+	if s.isFileReferencedByOtherMedia(filePath, title) {
+		return fmt.Errorf("file is referenced by other media entries, refusing to delete: %s", absPath)
+	}
+	
+	// Perform the deletion
+	if err := os.Remove(absPath); err != nil {
+		return fmt.Errorf("failed to delete file: %v", err)
+	}
+	
+	log.Printf("🗑️ Successfully deleted %s file: %s", mediaType, absPath)
+	
+	// Try to clean up empty parent directory if it's safe
+	parentDir := filepath.Dir(absPath)
+	s.tryCleanupEmptyDirectory(parentDir, title)
+	
+	return nil
+}
+
+// safeDeleteSeriesFolder safely deletes a TV series folder after all episodes are removed
+func (s *MediaService) safeDeleteSeriesFolder(folderPath, seriesTitle string) error {
+	if folderPath == "" {
+		return fmt.Errorf("empty folder path")
+	}
+	
+	// Convert to absolute path for safety checks
+	absPath, err := filepath.Abs(folderPath)
+	if err != nil {
+		return fmt.Errorf("failed to get absolute path: %v", err)
+	}
+	
+	log.Printf("🔍 Attempting to delete series folder: %s", absPath)
+	
+	// CRITICAL SAFETY CHECKS
+	if !s.isSafePathToDelete(absPath) {
+		return fmt.Errorf("refusing to delete unsafe path: %s", absPath)
+	}
+	
+	// Check if directory exists
+	if _, err := os.Stat(absPath); os.IsNotExist(err) {
+		log.Printf("⚠️ Directory already doesn't exist: %s", absPath)
+		return nil // Not an error if directory doesn't exist
+	}
+	
+	// Verify it's a directory
+	if info, err := os.Stat(absPath); err != nil || !info.IsDir() {
+		return fmt.Errorf("path is not a directory: %s", absPath)
+	}
+	
+	// Check if folder name matches series title (safety check)
+	if !s.isFolderNameMatchingSeries(absPath, seriesTitle) {
+		return fmt.Errorf("folder name doesn't match series title, refusing to delete: %s", absPath)
+	}
+	
+	// Check if folder is empty or only contains safe files
+	if !s.isFolderSafeToDelete(absPath) {
+		return fmt.Errorf("folder contains unsafe files or other media, refusing to delete: %s", absPath)
+	}
+	
+	// Perform the deletion
+	if err := os.RemoveAll(absPath); err != nil {
+		return fmt.Errorf("failed to delete folder: %v", err)
+	}
+	
+	log.Printf("🗑️ Successfully deleted series folder: %s", absPath)
+	
+	// Try to clean up empty parent directory if it's safe
+	parentDir := filepath.Dir(absPath)
+	s.tryCleanupEmptyDirectory(parentDir, seriesTitle)
+	
+	return nil
+}
+
+// getSeriesFolderFromEpisodePath determines the series folder from an episode path
+func (s *MediaService) getSeriesFolderFromEpisodePath(episodePath, seriesTitle string) string {
+	if episodePath == "" {
+		return ""
+	}
+	
+	// Get the directory containing the episode file
+	episodeDir := filepath.Dir(episodePath)
+	
+	// Check if this directory name matches the series title
+	dirName := filepath.Base(episodeDir)
+	if s.isNameSimilar(dirName, seriesTitle, 0.7) {
+		return episodeDir
+	}
+	
+	// Check parent directory (in case episodes are in season folders)
+	parentDir := filepath.Dir(episodeDir)
+	parentName := filepath.Base(parentDir)
+	if s.isNameSimilar(parentName, seriesTitle, 0.7) {
+		return parentDir
+	}
+	
+	return ""
+}
+
+// isSafePathToDelete performs critical safety checks on paths
+func (s *MediaService) isSafePathToDelete(absPath string) bool {
+	// List of paths that should NEVER be deleted
+	unsafePaths := []string{
+		"/",
+		"/home",
+		"/usr",
+		"/var",
+		"/etc",
+		"/bin",
+		"/sbin",
+		"/lib",
+		"/opt",
+		"/root",
+		"/boot",
+		"/dev",
+		"/proc",
+		"/sys",
+		"/tmp",
+		"/mnt",
+		"/media",
+		"C:\\",
+		"C:\\Windows",
+		"C:\\Program Files",
+		"C:\\Users",
+		"C:\\System32",
+	}
+	
+	// Check against unsafe paths
+	for _, unsafePath := range unsafePaths {
+		if absPath == unsafePath || strings.HasPrefix(absPath, unsafePath+string(filepath.Separator)) {
+			log.Printf("🛡️ Blocked deletion of system path: %s", absPath)
+			return false
+		}
+	}
+	
+	// Must be at least 3 levels deep to be considered safe
+	pathParts := strings.Split(strings.Trim(absPath, string(filepath.Separator)), string(filepath.Separator))
+	if len(pathParts) < 3 {
+		log.Printf("🛡️ Path too shallow, refusing to delete: %s (parts: %d)", absPath, len(pathParts))
+		return false
+	}
+	
+	// Check if it's in a media/downloads directory (safer)
+	pathLower := strings.ToLower(absPath)
+	safeKeywords := []string{"media", "movies", "tv", "shows", "series", "download", "torrent"}
+	for _, keyword := range safeKeywords {
+		if strings.Contains(pathLower, keyword) {
+			log.Printf("✅ Path contains safe keyword '%s': %s", keyword, absPath)
+			return true
+		}
+	}
+	
+	// If no safe keywords found, be more cautious
+	log.Printf("⚠️ Path doesn't contain safe keywords, being cautious: %s", absPath)
+	return false
+}
+
+// isMediaFile checks if a file is a media file by extension
+func (s *MediaService) isMediaFile(filePath string) bool {
+	ext := strings.ToLower(filepath.Ext(filePath))
+	mediaExtensions := []string{
+		".mkv", ".mp4", ".avi", ".mov", ".wmv", ".m4v", ".flv", ".webm",
+		".mpg", ".mpeg", ".3gp", ".asf", ".rm", ".rmvb", ".vob", ".ts",
+	}
+	
+	for _, mediaExt := range mediaExtensions {
+		if ext == mediaExt {
+			return true
+		}
+	}
+	
+	log.Printf("🛡️ File is not a recognized media file: %s", filePath)
+	return false
+}
+
+// isFileReferencedByOtherMedia checks if the file is referenced by other media entries
+func (s *MediaService) isFileReferencedByOtherMedia(filePath, currentTitle string) bool {
+	var count int64
+	
+	// Check if any other media entries reference this file path
+	s.db.Model(&models.Media{}).
+		Where("file_path = ? AND title != ?", filePath, currentTitle).
+		Count(&count)
+	
+	if count > 0 {
+		log.Printf("🛡️ File is referenced by %d other media entries: %s", count, filePath)
+		return true
+	}
+	
+	return false
+}
+
+// isFolderNameMatchingSeries checks if folder name matches series title
+func (s *MediaService) isFolderNameMatchingSeries(folderPath, seriesTitle string) bool {
+	folderName := filepath.Base(folderPath)
+	return s.isNameSimilar(folderName, seriesTitle, 0.6) // 60% similarity threshold
+}
+
+// isFolderSafeToDelete checks if a folder is safe to delete (empty or contains only safe files)
+func (s *MediaService) isFolderSafeToDelete(folderPath string) bool {
+	isEmpty := true
+	hasUnsafeFiles := false
+	
+	err := filepath.Walk(folderPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil // Continue on errors
+		}
+		
+		// Skip the root folder itself
+		if path == folderPath {
+			return nil
+		}
+		
+		isEmpty = false
+		
+		// If it's a file, check if it's safe to delete
+		if !info.IsDir() {
+			if !s.isSafeFileToDelete(path) {
+				hasUnsafeFiles = true
+				return filepath.SkipDir // Stop walking
+			}
+		}
+		
+		return nil
+	})
+	
+	if err != nil {
+		log.Printf("⚠️ Error walking folder %s: %v", folderPath, err)
+		return false
+	}
+	
+	if hasUnsafeFiles {
+		log.Printf("🛡️ Folder contains unsafe files: %s", folderPath)
+		return false
+	}
+	
+	if isEmpty {
+		log.Printf("✅ Folder is empty and safe to delete: %s", folderPath)
+	} else {
+		log.Printf("✅ Folder contains only safe files: %s", folderPath)
+	}
+	
+	return true
+}
+
+// isSafeFileToDelete checks if an individual file is safe to delete
+func (s *MediaService) isSafeFileToDelete(filePath string) bool {
+	fileName := strings.ToLower(filepath.Base(filePath))
+	
+	// Never delete system or important files
+	dangerousFiles := []string{
+		"desktop.ini", "thumbs.db", ".ds_store",
+		"autorun.inf", "boot.ini", "config.sys",
+		"system.ini", "win.ini", "msdos.sys",
+		"io.sys", "pagefile.sys", "hiberfil.sys",
+	}
+	
+	for _, dangerous := range dangerousFiles {
+		if fileName == dangerous {
+			log.Printf("🛡️ Refusing to delete system file: %s", fileName)
+			return false
+		}
+	}
+	
+	// Only delete media files and related safe files
+	safeExtensions := []string{
+		".mkv", ".mp4", ".avi", ".mov", ".wmv", ".m4v", ".flv", ".webm",
+		".mpg", ".mpeg", ".3gp", ".asf", ".rm", ".rmvb", ".vob", ".ts",
+		".srt", ".vtt", ".ass", ".ssa", ".sub", ".idx",
+		".nfo", ".txt", ".jpg", ".jpeg", ".png", ".bmp",
+	}
+	
+	ext := strings.ToLower(filepath.Ext(fileName))
+	for _, safeExt := range safeExtensions {
+		if ext == safeExt {
+			return true
+		}
+	}
+	
+	log.Printf("🛡️ Refusing to delete file with unknown extension: %s", fileName)
+	return false
+}
+
+// tryCleanupEmptyDirectory attempts to remove empty parent directories
+func (s *MediaService) tryCleanupEmptyDirectory(dirPath, mediaTitle string) {
+	if dirPath == "" || dirPath == "/" || dirPath == "." {
+		return
+	}
+	
+	// Don't clean up if path is too shallow
+	pathParts := strings.Split(strings.Trim(dirPath, string(filepath.Separator)), string(filepath.Separator))
+	if len(pathParts) < 3 {
+		return
+	}
+	
+	// Check if directory is empty
+	entries, err := os.ReadDir(dirPath)
+	if err != nil {
+		return // Can't read directory, skip cleanup
+	}
+	
+	if len(entries) == 0 {
+		// Directory is empty, safe to remove
+		if err := os.Remove(dirPath); err == nil {
+			log.Printf("🧹 Cleaned up empty directory: %s", dirPath)
+			
+			// Recursively try to clean up parent directory
+			parentDir := filepath.Dir(dirPath)
+			if parentDir != dirPath { // Avoid infinite recursion
+				s.tryCleanupEmptyDirectory(parentDir, mediaTitle)
+			}
+		}
+	}
+}
+
+// isNameSimilar checks if two names are similar using fuzzy matching
+func (s *MediaService) isNameSimilar(name1, name2 string, threshold float64) bool {
+	if name1 == "" || name2 == "" {
+		return false
+	}
+	
+	// Normalize names for comparison
+	norm1 := s.normalizeName(name1)
+	norm2 := s.normalizeName(name2)
+	
+	// Calculate similarity
+	similarity := s.calculateNameSimilarity(norm1, norm2)
+	
+	return similarity >= threshold
+}
+
+// normalizeName normalizes a name for comparison
+func (s *MediaService) normalizeName(name string) string {
+	// Convert to lowercase
+	normalized := strings.ToLower(name)
+	
+	// Remove common words and characters
+	replacements := []string{
+		".", " ", "_", "-", "(", ")", "[", "]", "{", "}",
+		"the", "a", "an", "and", "or", "of", "in", "on", "at", "to", "for",
+		"2160p", "1080p", "720p", "480p", "4k", "hd", "bluray", "webrip", "hdtv",
+	}
+	
+	for _, replacement := range replacements {
+		normalized = strings.ReplaceAll(normalized, replacement, "")
+	}
+	
+	// Remove extra spaces
+	normalized = strings.TrimSpace(normalized)
+	normalized = regexp.MustCompile(`\s+`).ReplaceAllString(normalized, "")
+	
+	return normalized
+}
+
+// calculateNameSimilarity calculates similarity between two normalized names
+func (s *MediaService) calculateNameSimilarity(name1, name2 string) float64 {
+	if name1 == name2 {
+		return 1.0
+	}
+	
+	if name1 == "" || name2 == "" {
+		return 0.0
+	}
+	
+	// Simple word-based similarity
+	words1 := strings.Fields(name1)
+	words2 := strings.Fields(name2)
+	
+	if len(words1) == 0 || len(words2) == 0 {
+		return 0.0
+	}
+	
+	matchingWords := 0
+	totalWords := len(words1)
+	
+	for _, word1 := range words1 {
+		for _, word2 := range words2 {
+			if len(word1) < 3 || len(word2) < 3 {
+				continue
+			}
+			
+			if word1 == word2 || 
+			   (len(word1) > 4 && strings.Contains(word1, word2)) || 
+			   (len(word2) > 4 && strings.Contains(word2, word1)) {
+				matchingWords++
+				break
+			}
+		}
+	}
+	
+	if totalWords == 0 {
+		return 0.0
+	}
+	
+	return float64(matchingWords) / float64(totalWords)
+}

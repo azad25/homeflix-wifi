@@ -33,6 +33,36 @@ import { Media } from '@/types/media';
 import { useMyList } from '@/hooks/useMyList';
 import MyListTooltip from '@/components/ui/MyListTooltip';
 
+// Genre-based text styling utility
+const getGenreTextStyle = (genres: string[] = []) => {
+  const primaryGenre = genres[0]?.toLowerCase() || '';
+  
+  // Font family based on genre
+  let fontFamily = 'font-sans'; // default
+  if (primaryGenre.includes('horror') || primaryGenre.includes('thriller')) {
+    fontFamily = 'font-mono'; // monospace for tension
+  } else if (primaryGenre.includes('romance') || primaryGenre.includes('drama')) {
+    fontFamily = 'font-serif'; // serif for elegance
+  } else if (primaryGenre.includes('sci') || primaryGenre.includes('science')) {
+    fontFamily = 'font-mono'; // monospace for tech feel
+  } else if (primaryGenre.includes('comedy')) {
+    fontFamily = 'font-sans'; // clean sans for readability
+  }
+  
+  // Text size and styling
+  const textSize = 'text-sm md:text-base'; // Reduced from lg
+  const maxWidth = 'max-w-lg'; // Reduced from 2xl to lg
+  const lineHeight = 'leading-relaxed';
+  
+  return {
+    fontFamily,
+    textSize,
+    maxWidth,
+    lineHeight,
+    className: `${fontFamily} ${textSize} ${maxWidth} ${lineHeight}`
+  };
+};
+
 
 // Declare global YouTube types
 declare global {
@@ -1309,8 +1339,7 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
                     transition={{ delay: 0.4 }}
                     className={layoutVariant === 'third' ? 'mb-2' : 'mb-3'}
                   >
-                    <p className={`text-white/90 max-w-2xl leading-relaxed ${layoutVariant === 'third' ? 'text-xs line-clamp-1' : layoutVariant === 'half' ? 'text-sm line-clamp-2 mb-2' : 'text-sm md:text-base line-clamp-2 mb-3'
-                      }`}>
+                    <p className={`text-white/90 max-w-2xl leading-relaxed ${layoutVariant === 'third' ? 'text-xs line-clamp-1' : layoutVariant === 'half' ? 'text-sm line-clamp-2 mb-2' : 'line-clamp-2 mb-3'} ${getGenreTextStyle(currentNotification.genres || []).className}`}>
                       {currentNotification.message}
                     </p>
 
@@ -1539,7 +1568,7 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
 
                               {/* Enhanced Description - Only on full layout */}
                               {singleMovie.overview && singleMovie.overview !== 'Details not available' && layoutVariant === 'full' && (
-                                <p className="text-white/80 text-xs leading-relaxed line-clamp-2 max-w-lg">
+                                <p className={`text-white/80 line-clamp-2 ${getGenreTextStyle(singleMovie.genres?.map(g => g.name) || []).className}`}>
                                   {singleMovie.overview}
                                 </p>
                               )}

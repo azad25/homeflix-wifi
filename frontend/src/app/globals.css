@@ -19,6 +19,11 @@ body {
   margin: 0;
   padding: 0;
   overflow-x: hidden;
+  cursor: default;
+  user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
 }
 
 /* Hide scrollbars */
@@ -74,6 +79,71 @@ input[type="range"]::-moz-range-track {
 /* Smooth animations */
 * {
   box-sizing: border-box;
+  cursor: default;
+  user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+}
+
+/* Allow text selection only for specific text elements */
+input,
+textarea,
+[contenteditable="true"] {
+  cursor: text !important;
+  user-select: text !important;
+  -webkit-user-select: text !important;
+  -moz-user-select: text !important;
+  -ms-user-select: text !important;
+}
+
+/* Text elements should NOT show text cursor - keep default cursor */
+p,
+span,
+h1, h2, h3, h4, h5, h6,
+label {
+  cursor: default !important;
+  user-select: none !important;
+  -webkit-user-select: none !important;
+  -moz-user-select: none !important;
+  -ms-user-select: none !important;
+}
+
+/* Buttons and interactive elements should have pointer cursor */
+button,
+a,
+[role="button"],
+[onclick],
+.cursor-pointer,
+svg,
+path,
+circle,
+rect,
+polygon {
+  cursor: pointer !important;
+  user-select: none !important;
+  -webkit-user-select: none !important;
+  -moz-user-select: none !important;
+  -ms-user-select: none !important;
+}
+
+/* Ensure button children also get pointer cursor */
+button *,
+a *,
+[role="button"] * {
+  cursor: pointer !important;
+}
+
+/* Ensure divs and containers don't show text cursor */
+div,
+section,
+article,
+main,
+header,
+footer,
+nav,
+aside {
+  cursor: default;
 }
 
 .line-clamp-1 {

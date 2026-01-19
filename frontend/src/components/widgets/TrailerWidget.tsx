@@ -10,6 +10,36 @@ import { useNavigate } from '@/hooks/useNavigate';
 import { useMyList } from '@/hooks/useMyList';
 import MyListTooltip from '@/components/ui/MyListTooltip';
 
+// Genre-based text styling utility
+const getGenreTextStyle = (genres: string[] = []) => {
+  const primaryGenre = genres[0]?.toLowerCase() || '';
+  
+  // Font family based on genre
+  let fontFamily = 'font-sans'; // default
+  if (primaryGenre.includes('horror') || primaryGenre.includes('thriller')) {
+    fontFamily = 'font-mono'; // monospace for tension
+  } else if (primaryGenre.includes('romance') || primaryGenre.includes('drama')) {
+    fontFamily = 'font-serif'; // serif for elegance
+  } else if (primaryGenre.includes('sci') || primaryGenre.includes('science')) {
+    fontFamily = 'font-mono'; // monospace for tech feel
+  } else if (primaryGenre.includes('comedy')) {
+    fontFamily = 'font-sans'; // clean sans for readability
+  }
+  
+  // Text size and styling
+  const textSize = 'text-sm md:text-base'; // Reduced from lg
+  const maxWidth = 'max-w-lg'; // Reduced from 2xl to lg
+  const lineHeight = 'leading-relaxed';
+  
+  return {
+    fontFamily,
+    textSize,
+    maxWidth,
+    lineHeight,
+    className: `${fontFamily} ${textSize} ${maxWidth} ${lineHeight}`
+  };
+};
+
 // Declare global YouTube types
 declare global {
     interface Window {
@@ -912,13 +942,13 @@ export default function TrailerWidget({
                                     <span className="font-semibold">{currentTrailer.media.rating.toFixed(1)}</span>
                                 </div>
                             )}
-                            {currentTrailer.media.year && (
+                            {currentTrailer.media.year && currentTrailer.media.year > 0 && (
                                 <div className="flex items-center gap-1">
                                     <Calendar className="w-3 h-3 md:w-4 md:h-4" />
                                     <span>{currentTrailer.media.year}</span>
                                 </div>
                             )}
-                            {currentTrailer.media.runtime && (
+                            {currentTrailer.media.runtime && currentTrailer.media.runtime > 0 && (
                                 <span className="text-white/70">
                                     {Math.floor(currentTrailer.media.runtime / 60)}h {currentTrailer.media.runtime % 60}m
                                 </span>
@@ -950,7 +980,7 @@ export default function TrailerWidget({
                                 initial={{ opacity: 0 }}
                                 animate={{ opacity: 1 }}
                                 transition={{ delay: 0.6 }}
-                                className="hidden md:block text-sm md:text-base lg:text-lg text-white/80 mb-4 md:mb-6 line-clamp-2 md:line-clamp-3 max-w-xl lg:max-w-2xl"
+                                className={`hidden md:block text-white/80 mb-4 md:mb-6 line-clamp-2 ${getGenreTextStyle(currentTrailer.media.genre_names || []).className}`}
                             >
                                 {currentTrailer.description}
                             </motion.p>

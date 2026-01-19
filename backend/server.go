@@ -49,6 +49,11 @@ func main() {
 		log.Printf("Failed to migrate collection tables: %v", err)
 	}
 
+	// Auto-migrate torrent tables
+	if err := models.MigrateTorrentTables(db); err != nil {
+		log.Printf("Failed to migrate torrent tables: %v", err)
+	}
+
 	// Initialize music service
 	youtubeAPIKey := os.Getenv("YOUTUBE_API_KEY")
 	if youtubeAPIKey == "" {

@@ -183,13 +183,20 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
 
   // Debounced search for suggestions
   useEffect(() => {
+    console.log(`🔍 Search query changed: "${searchQuery}" (length: ${searchQuery.trim().length})`);
+    
     if (searchQuery.trim().length > 1) {
       const timeoutId = setTimeout(() => {
+        console.log(`⏰ Triggering search for: "${searchQuery.trim()}"`);
         fetchSuggestions(searchQuery.trim());
       }, 300);
 
-      return () => clearTimeout(timeoutId);
+      return () => {
+        console.log(`🚫 Clearing timeout for: "${searchQuery.trim()}"`);
+        clearTimeout(timeoutId);
+      };
     } else {
+      console.log(`❌ Query too short, clearing suggestions`);
       setSuggestions([]);
       setShowSuggestions(false);
     }
@@ -199,6 +206,8 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
     if (!query.trim()) return;
 
     setIsLoadingSuggestions(true);
+    console.log(`🔍 Fetching suggestions for: "${query}"`);
+    
     try {
       const apiUrl = getApiUrl();
       
@@ -212,63 +221,88 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
 
       // Process Local Results
       if (localRes.status === 'fulfilled' && localRes.value.ok) {
-        const localData = await localRes.value.json();
-        if (Array.isArray(localData)) {
-          const localMapped: TMDBSearchResult[] = localData.map((item: any) => ({
-            id: item.id,
-            title: item.title,
-            original_title: item.title,
-            overview: item.description || item.long_desc || item.short_desc || '',
-            release_date: item.release_date || '',
-            poster_path: item.poster_path ? `/api/posters/${item.id}` : '',
-            backdrop_path: item.backdrop_path ? `/api/backdrops/${item.id}` : '',
-            vote_average: item.rating || 0,
-            vote_count: item.vote_count || 0,
-            popularity: item.popularity || 0,
-            media_type: (item.type === 'tv' || item.type === 'series' || item.type === 'episode') ? 'tv' : 'movie',
-            adult: false,
-            genre_ids: [],
-            is_local: true,
-            logo_path: item.logo_path || ''
-          }));
-          combinedResults = [...localMapped];
+        try {
+          const localData = await localRes.value.json();
+          console.log(`📚 Local search results:`, localData);
+          
+          if (Array.isArray(localData)) {
+            const localMapped: TMDBSearchResult[] = localData.map((item: any) => ({
+              id: item.id,
+              title: item.title,
+              original_title: item.title,
+              overview: item.description || item.long_desc || item.short_desc || '',
+              release_date: item.release_date || '',
+              poster_path: item.poster_path ? `/api/posters/${item.id}` : '',
+              backdrop_path: item.backdrop_path ? `/api/backdrops/${item.id}` : '',
+              vote_average: item.rating || 0,
+              vote_count: item.vote_count || 0,
+              popularity: item.popularity || 0,
+              media_type: (item.type === 'tv' || item.type === 'series' || item.type === 'episode') ? 'tv' : 'movie',
+              adult: false,
+              genre_ids: [],
+              is_local: true,
+              logo_path: item.logo_path || ''
+            }));
+            combinedResults = [...localMapped];
+            console.log(`✅ Mapped ${localMapped.length} local results`);
+          }
+        } catch (localError) {
+          console.error("Error processing local results:", localError);
         }
+      } else if (localRes.status === 'fulfilled') {
+        console.warn(`⚠️ Local search failed with status: ${localRes.value.status}`);
+      } else {
+        console.warn(`⚠️ Local search request failed:`, localRes.reason);
       }
 
       // Process TMDB Results
       if (tmdbRes.status === 'fulfilled' && tmdbRes.value.ok) {
-        const tmdbData: TMDBSuggestionsResponse = await tmdbRes.value.json();
-        const tmdbResults = tmdbData.results || [];
-        
-        // Filter out TMDB results that are already in local results (by title and type)
-        // This prevents duplicates if a user has the movie locally
-        const localTitles = new Set(combinedResults.map(r => `${r.title.toLowerCase()}-${r.media_type}`));
-        
-        const newTmdbResults = tmdbResults.filter(item => 
-          !localTitles.has(`${item.title.toLowerCase()}-${item.media_type}`)
-        ).map(item => ({
-          ...item,
-          is_local: false // Explicitly mark as TMDB result
-        }));
-        
-        // Sort results: local first, then by popularity/vote average
-        combinedResults = [...combinedResults, ...newTmdbResults].sort((a, b) => {
-          // Local results first
-          if (a.is_local && !b.is_local) return -1;
-          if (!a.is_local && b.is_local) return 1;
+        try {
+          const tmdbData: TMDBSuggestionsResponse = await tmdbRes.value.json();
+          console.log(`🎬 TMDB search results:`, tmdbData);
           
-          // Then by vote average
-          if (b.vote_average !== a.vote_average) {
-            return b.vote_average - a.vote_average;
-          }
+          const tmdbResults = tmdbData.results || [];
           
-          // Then by popularity
-          return b.popularity - a.popularity;
-        });
+          // Filter out TMDB results that are already in local results (by title and type)
+          const localTitles = new Set(combinedResults.map(r => `${r.title.toLowerCase()}-${r.media_type}`));
+          
+          const newTmdbResults = tmdbResults.filter(item => 
+            !localTitles.has(`${item.title.toLowerCase()}-${item.media_type}`)
+          ).map(item => ({
+            ...item,
+            is_local: false // Explicitly mark as TMDB result
+          }));
+          
+          combinedResults = [...combinedResults, ...newTmdbResults];
+          console.log(`✅ Added ${newTmdbResults.length} TMDB results (${tmdbResults.length} total, ${tmdbResults.length - newTmdbResults.length} duplicates filtered)`);
+        } catch (tmdbError) {
+          console.error("Error processing TMDB results:", tmdbError);
+        }
+      } else if (tmdbRes.status === 'fulfilled') {
+        console.warn(`⚠️ TMDB search failed with status: ${tmdbRes.value.status}`);
+      } else {
+        console.warn(`⚠️ TMDB search request failed:`, tmdbRes.reason);
       }
 
+      // Sort results: local first, then by popularity/vote average
+      combinedResults.sort((a, b) => {
+        // Local results first
+        if (a.is_local && !b.is_local) return -1;
+        if (!a.is_local && b.is_local) return 1;
+        
+        // Then by vote average
+        if (b.vote_average !== a.vote_average) {
+          return b.vote_average - a.vote_average;
+        }
+        
+        // Then by popularity
+        return b.popularity - a.popularity;
+      });
+
+      console.log(`🎯 Final suggestions: ${combinedResults.length} results`);
       setSuggestions(combinedResults);
       setShowSuggestions(combinedResults.length > 0);
+      
     } catch (error) {
       console.error("Error fetching suggestions:", error);
       setSuggestions([]);
@@ -311,10 +345,12 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
+    console.log(`📝 Input changed: "${value}"`);
     setSearchQuery(value);
   };
 
   const handleInputFocus = () => {
+    console.log(`🎯 Input focused, suggestions available: ${suggestions.length}`);
     if (suggestions.length > 0) {
       setShowSuggestions(true);
     }

@@ -1030,9 +1030,9 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
             if (defaultTrack) {
               setCurrentSubtitleTrack(defaultTrack.id);
               setCurrentSubtitle(defaultTrack.url);
-              // Enable subtitles by default when tracks are available
-              setSubtitlesEnabled(true);
-              // Store the default track for later loading when video is ready
+              // Keep subtitles disabled by default - user can enable manually
+              setSubtitlesEnabled(false);
+              // Store the default track for later loading when user enables subtitles
               (window as any).pendingSubtitleTrack = defaultTrack;
             }
           } else {
@@ -1071,7 +1071,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
   // Force subtitle loading when subtitles are enabled - with media ID check
   useEffect(() => {
     if (subtitlesEnabled && currentSubtitle && media.id) {
-      // Always try to load subtitles when enabled, regardless of current text
+      // Only load subtitles when explicitly enabled by user
       const timeoutId = setTimeout(() => {
         // Double-check that we still have the same media and subtitle
         if (subtitlesEnabled && currentSubtitle && media.id) {
@@ -1083,12 +1083,12 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
     }
   }, [subtitlesEnabled, currentSubtitle, loadExternalSubtitle, media.id]);
 
-  // Additional effect to ensure subtitles load when video is ready - with media ID check
+  // Additional effect to ensure subtitles load when video is ready - only when enabled by user
   useEffect(() => {
     if (isOpen && subtitlesEnabled && currentSubtitle && videoRef.current && !isLoading && media.id) {
       const video = videoRef.current;
       if (video.readyState >= 2) {
-        // Always try to load subtitles when video is ready
+        // Only load subtitles when explicitly enabled by user
         const timeoutId = setTimeout(() => {
           // Double-check states before loading
           if (subtitlesEnabled && currentSubtitle && media.id) {
@@ -1106,7 +1106,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
     if (isOpen && media.id && subtitlesEnabled && currentSubtitle && !isLoading) {
       const video = videoRef.current;
       if (video && video.readyState >= 2) {
-        // Force reload subtitles for new media
+        // Only reload subtitles if user has explicitly enabled them
         const timeoutId = setTimeout(() => {
           if (subtitlesEnabled && currentSubtitle && media.id) {
             // Clear existing cues first
@@ -1125,7 +1125,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
     }
   }, [media.id, subtitlesEnabled, currentSubtitle, isLoading, loadExternalSubtitle, isOpen]);
 
-  // Final safety net: Ensure subtitles are loaded when everything is ready
+  // Final safety net: Only load subtitles when user has enabled them
   useEffect(() => {
     if (isOpen && media.id && subtitlesEnabled && currentSubtitle && hasInitiallyLoaded && !isLoading) {
       // Check if we have subtitles for the current media
@@ -1135,7 +1135,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
       if (!hasCorrectSubtitles) {
         const timeoutId = setTimeout(() => {
           if (subtitlesEnabled && currentSubtitle && media.id) {
-            // Force load subtitles
+            // Only load subtitles if user has explicitly enabled them
             loadExternalSubtitle(currentSubtitle, media.id);
           }
         }, 1000); // Give everything time to settle
@@ -2665,10 +2665,10 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                 setIsMuted(false);
               }
 
-              // Load subtitles when video starts playing if they haven't been loaded yet
+              // Load subtitles when video starts playing only if user has enabled them
               if (subtitlesEnabled && currentSubtitle && media.id) {
                 if (!(window as any).currentSubtitleCues?.length) {
-                  // Load subtitles if not already loaded
+                  // Load subtitles only if user has enabled them
                   setTimeout(() => {
                     if (subtitlesEnabled && currentSubtitle && media.id) {
                       loadExternalSubtitle(currentSubtitle);

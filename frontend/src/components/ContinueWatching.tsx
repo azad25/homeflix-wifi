@@ -218,7 +218,7 @@ const ContinueWatchingCard: React.FC<ContinueWatchingCardProps> = ({
             </div>
 
             {/* Rating */}
-            {item.media.rating && (
+            {item.media.rating && item.media.rating > 0 && (
               <div className="flex items-center gap-1 mt-2">
                 <Star className="w-3 h-3 text-yellow-400 fill-current" />
                 <span className="text-white text-sm font-medium">{item.media.rating.toFixed(1)}</span>
