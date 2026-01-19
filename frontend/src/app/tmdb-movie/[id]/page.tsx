@@ -24,7 +24,8 @@ import {
   Check,
   Share2,
   Download,
-  X
+  X,
+  Info
 } from 'lucide-react';
 import { getApiUrl } from '@/lib/api';
 import { addToWishlist, removeFromWishlist, isInWishlist } from '@/lib/wishlist';
@@ -34,6 +35,7 @@ import UpcomingMovies from '@/components/UpcomingMovies';
 import UpcomingTVSeries from '@/components/UpcomingTVSeries';
 import { useMyList } from '@/hooks/useMyList';
 import MyListTooltip from '@/components/ui/MyListTooltip';
+import { GradientBackground } from '@/components/scrollx';
 
 // Genre-based text styling utility
 const getGenreTextStyle = (genres: string[] = []) => {
@@ -1444,21 +1446,35 @@ const TMDBMoviePage: React.FC = () => {
         onMouseMove={handleMouseMove}
         ref={containerRef}
       >
-        {/* Background Backdrop Image - Always Show */}
+        {/* Backdrop Background Image - Shows when video not playing */}
         <div
-          className="absolute inset-0 bg-cover bg-center bg-no-repeat"
-          style={{
-            backgroundImage: `url(${getBackdropUrl(mediaDetails?.backdrop_path || '', 'original')})`,
-          }}
+          className={`absolute inset-0 pointer-events-none transition-opacity duration-1000 ${
+            trailerKey && isPlaying ? 'opacity-0' : 'opacity-100'
+          }`}
+          style={{ zIndex: 1 }}
         >
-          {/* Enhanced gradient overlay for better text readability */}
-          <div className="absolute inset-0 bg-gradient-to-r from-black/80 via-black/40 to-black/60" />
-          <div className="absolute bottom-0 left-0 right-0 h-1/2 bg-gradient-to-t from-black/90 to-transparent" />
+          <img
+            src={getBackdropUrl(mediaDetails?.backdrop_path || '', 'original')}
+            alt={mediaDetails?.title || ''}
+            className="w-full h-full object-cover"
+            loading="eager"
+            onError={(e) => {
+              const target = e.target as HTMLImageElement;
+              // Fallback to a solid color background
+              target.style.display = 'none';
+              const parent = target.parentElement;
+              if (parent) {
+                parent.style.background = 'linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%)';
+              }
+            }}
+          />
+          {/* Gradient overlay for better text readability */}
+          <div className="absolute inset-0 bg-gradient-to-r from-black/70 via-black/30 to-black/20" />
         </div>
 
         {/* HD Trailer Video - Only show when playing */}
         {trailerKey && isPlaying && (
-          <div className="absolute inset-0 overflow-hidden">
+          <div className="absolute inset-0 overflow-hidden" style={{ zIndex: 2 }}>
             <iframe
               ref={videoRef}
               src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=0&controls=0&showinfo=0&rel=0&iv_load_policy=3&modestbranding=1&enablejsapi=1&loop=1&playlist=${trailerKey}&disablekb=1&fs=0&cc_load_policy=0&start=5&origin=${typeof window !== 'undefined' ? window.location.origin : ''}&vq=hd1080&hd=1&quality=hd1080`}
@@ -1493,6 +1509,7 @@ const TMDBMoviePage: React.FC = () => {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               className="absolute inset-0 pointer-events-none"
+              style={{ zIndex: 10 }}
             >
               {/* Back Button */}
               <button
@@ -1524,13 +1541,13 @@ const TMDBMoviePage: React.FC = () => {
           )}
         </AnimatePresence>
 
-        {/* Movie Info Overlay - Bottom Left (Similar to local movie page) */}
-        <div className="absolute bottom-0 left-0 z-[20] p-8 pointer-events-auto w-2/3">
+        {/* Hero Content - Left Aligned with Poster */}
+        <div className="absolute inset-0 z-[20] flex items-center justify-start p-8 pl-16 pointer-events-auto">
           <motion.div
-            initial={{ opacity: 0, x: -50 }}
-            animate={{ opacity: 1, x: 0 }}
+            initial={{ opacity: 0, y: 50 }}
+            animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.8, delay: 0.2 }}
-            className="flex gap-6 items-end"
+            className="flex flex-col md:flex-row items-start gap-8 max-w-5xl"
           >
             {/* Movie Poster */}
             <motion.div
@@ -1539,28 +1556,35 @@ const TMDBMoviePage: React.FC = () => {
               transition={{ duration: 0.6, delay: 0.4 }}
               className="flex-shrink-0"
             >
-              <div className="relative w-48 h-72 rounded-lg overflow-hidden shadow-2xl border border-white/10">
-                <img
-                  src={getPosterUrl(mediaDetails?.poster_path || '', 'w500')}
-                  alt={mediaDetails?.title || ''}
-                  className="w-full h-full object-cover"
-                  onError={(e) => {
-                    const target = e.target as HTMLImageElement;
-                    target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjQ1MCIgdmlld0JveD0iMCAwIDMwMCA0NTAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIzMDAiIGhlaWdodD0iNDUwIiBmaWxsPSIjMzc0MTUxIi8+CjxwYXRoIGQ9Ik0xNTAgMjAwQzE4Ny4yNzkgMjAwIDIxOCAxNjkuMjc5IDIxOCAxMzJDMjE4IDk0LjcyMDggMTg3LjI3OSA2NCAxNTAgNjRDMTEyLjcyMSA2NCA4MiA5NC43MjA4IDgyIDEzMkM4MiAxNjkuMjc5IDExMi43MjEgMjAwIDE1MCAyMDBaIiBmaWxsPSIjNkI3Mjg4Ii8+CjxwYXRoIGQ9Ik04MiAyNzZDODIgMjM4LjY4IDExMi42OCAyMDggMTUwIDIwOEgxNTBDMTg3LjMyIDIwOCAyMTggMjM4LjY4IDIxOCAyNzZWMzUwSDgyVjI3NloiIGZpbGw9IiM2QjcyODgiLz4KPHN2Zz4K';
-                  }}
-                />
+              <div className="relative">
+                <div className="absolute -inset-1 bg-gradient-to-r from-red-500/30 to-purple-500/30 rounded-lg blur-lg" />
+                <div className="relative w-48 md:w-56 lg:w-64 h-72 md:h-84 lg:h-96 rounded-lg overflow-hidden shadow-2xl border border-white/10">
+                  <img
+                    src={getPosterUrl(mediaDetails?.poster_path || '', 'w500')}
+                    alt={mediaDetails?.title || ''}
+                    className="w-full h-full object-cover"
+                    loading="eager"
+                    onError={(e) => {
+                      const target = e.target as HTMLImageElement;
+                      target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjQ1MCIgdmlld0JveD0iMCAwIDMwMCA0NTAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIzMDAiIGhlaWdodD0iNDUwIiBmaWxsPSIjMzc0MTUxIi8+CjxwYXRoIGQ9Ik0xNTAgMjAwQzE4Ny4yNzkgMjAwIDIxOCAxNjkuMjc5IDIxOCAxMzJDMjE4IDk0LjcyMDggMTg3LjI3OSA2NCAxNTAgNjRDMTEyLjcyMSA2NCA4MiA5NC43MjA4IDgyIDEzMkM4MiAxNjkuMjc5IDExMi43MjEgMjAwIDE1MCAyMDBaIiBmaWxsPSIjNkI3Mjg4Ii8+CjxwYXRoIGQ9Ik04MiAyNzZDODIgMjM4LjY4IDExMi42OCAyMDggMTUwIDIwOEgxNTBDMTg3LjMyIDIwOCAyMTggMjM4LjY4IDIxOCAyNzZWMzUwSDgyVjI3NloiIGZpbGw9IiM2QjcyODgiLz4KPHN2Zz4K';
+                    }}
+                  />
+                </div>
               </div>
             </motion.div>
-
             {/* Movie Details */}
-            <div className="flex-1 space-y-4 pb-4">
-              <div>
-                {/* Movie Title - Logo or Text */}
+            <div className="flex-1 text-left space-y-6 ml-12">
+              {/* Movie Title - Logo or Text */}
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.6, delay: 0.5 }}
+              >
                 {logoUrl ? (
                   <img
                     src={logoUrl}
                     alt={mediaDetails?.title}
-                    className="max-h-20 md:max-h-28 w-auto mb-3 drop-shadow-2xl"
+                    className="max-h-16 md:max-h-24 w-auto mb-4 drop-shadow-[0_4px_20px_rgba(0,0,0,0.8)]"
                     onError={(e) => {
                       e.currentTarget.style.display = 'none';
                       const fallback = e.currentTarget.nextElementSibling as HTMLElement;
@@ -1569,105 +1593,107 @@ const TMDBMoviePage: React.FC = () => {
                   />
                 ) : null}
                 <h1
-                  className="text-3xl md:text-4xl font-bold mb-2 bg-gradient-to-r from-white to-gray-300 bg-clip-text text-transparent"
+                  className="text-3xl md:text-4xl lg:text-5xl font-bold mb-3 text-white drop-shadow-[0_4px_20px_rgba(0,0,0,0.8)]"
                   style={{ display: logoUrl ? 'none' : 'block' }}
                 >
                   {mediaDetails?.title}
                 </h1>
-
                 {mediaDetails?.tagline && (
-                  <p className="text-lg text-red-400 mb-3 italic font-medium">
+                  <p className="text-lg text-red-400 mb-4 italic font-medium">
                     "{mediaDetails.tagline}"
                   </p>
                 )}
-              </div>
-
-              {/* Stats Row - Compact */}
-              <div className="flex flex-wrap items-center gap-3 text-sm">
-                {(mediaDetails?.vote_average || 0) > 0 && (
-                  <div className="flex items-center gap-1 bg-yellow-500/20 px-2 py-1 rounded-full">
-                    <Star className="w-4 h-4 text-yellow-400 fill-current" />
-                    <span className="font-semibold">{mediaDetails.vote_average.toFixed(1)}</span>
-                  </div>
+              </motion.div>
+              {/* Stats Row */}
+              <motion.div
+                className="flex flex-wrap items-center gap-2 text-xs"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: 0.6, duration: 0.4 }}
+              >
+                {(mediaDetails?.vote_average || 0) > 0 ? (
+                  <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full font-semibold backdrop-blur-sm border bg-yellow-500/10 text-yellow-400 border-yellow-500/20">
+                    <Star className="w-3 h-3 fill-current" />
+                    {mediaDetails.vote_average.toFixed(1)}
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full font-semibold backdrop-blur-sm border bg-gray-500/10 text-gray-400 border-gray-500/20">
+                    <Star className="w-3 h-3" />
+                    N/A
+                  </span>
                 )}
-
-                <div className="flex items-center gap-1 bg-blue-500/20 px-2 py-1 rounded-full">
-                  <Calendar className="w-4 h-4 text-blue-400" />
-                  <span>{new Date(mediaDetails?.release_date || '').getFullYear()}</span>
-                </div>
-
+                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full backdrop-blur-sm border bg-blue-500/10 text-blue-400 border-blue-500/20">
+                  <Calendar className="w-3 h-3" />
+                  {new Date(mediaDetails?.release_date || '').getFullYear()}
+                </span>
                 {mediaDetails?.media_type === 'movie' && mediaDetails?.runtime && mediaDetails.runtime > 0 && (
-                  <div className="flex items-center gap-1 bg-green-500/20 px-2 py-1 rounded-full">
-                    <Clock className="w-4 h-4 text-green-400" />
-                    <span>{formatRuntime(mediaDetails.runtime)}</span>
-                  </div>
+                  <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full backdrop-blur-sm border bg-green-500/10 text-green-400 border-green-500/20">
+                    <Clock className="w-3 h-3" />
+                    {formatRuntime(mediaDetails.runtime)}
+                  </span>
                 )}
-
                 {mediaDetails?.media_type === 'tv' && mediaDetails.number_of_seasons && mediaDetails.number_of_seasons > 0 && (
-                  <div className="flex items-center gap-1 bg-purple-500/20 px-2 py-1 rounded-full">
-                    <Film className="w-4 h-4 text-purple-400" />
-                    <span>{mediaDetails.number_of_seasons} Season{(mediaDetails.number_of_seasons || 0) > 1 ? 's' : ''}</span>
-                  </div>
+                  <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full backdrop-blur-sm border bg-purple-500/10 text-purple-400 border-purple-500/20">
+                    <Film className="w-3 h-3" />
+                    {mediaDetails.number_of_seasons} Season{(mediaDetails.number_of_seasons || 0) > 1 ? 's' : ''}
+                  </span>
                 )}
-              </div>
-
-              {/* Genres - Compact */}
-              <div className="flex flex-wrap gap-1">
+              </motion.div>
+              {/* Genres */}
+              <motion.div
+                className="flex flex-wrap items-center gap-2"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: 0.65, duration: 0.4 }}
+              >
                 {mediaDetails?.genres?.slice(0, 3).map((genre) => (
                   <span
                     key={genre.id}
-                    className="px-2 py-1 bg-red-600/30 border border-red-500/50 rounded-full text-xs font-medium"
+                    className="px-2 py-0.5 rounded-full text-xs font-medium bg-red-600/40 border border-red-500/30 text-white backdrop-blur-md"
                   >
                     {genre.name}
                   </span>
                 ))}
-              </div>
-
-              {/* Overview - Truncated */}
-              <p className={`text-gray-300 line-clamp-3 ${getGenreTextStyle(mediaDetails?.genres?.map(g => g.name) || []).className}`}>
+              </motion.div>
+              {/* Overview */}
+              <motion.p
+                className={`text-white/70 max-w-2xl line-clamp-3 ${getGenreTextStyle(mediaDetails?.genres?.map(g => g.name) || []).className}`}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: 0.7, duration: 0.4 }}
+              >
                 {mediaDetails?.overview || `Experience this amazing ${mediaDetails?.media_type === 'tv' ? 'TV series' : 'movie'} with stunning visuals and compelling storytelling.`}
-              </p>
-
-              {/* Action Buttons - Compact */}
-              <div className="flex flex-wrap gap-2 pt-2">
-                <button
-                  onClick={handleDownload}
-                  className={`flex items-center gap-1 px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-300 hover:scale-105 ${downloadStatus.isDownloading
-                    ? 'bg-green-600/90 hover:bg-green-700'
-                    : downloadStatus.status === 'completed'
-                      ? 'bg-blue-600/90 hover:bg-blue-700'
-                      : 'bg-red-600/90 hover:bg-red-700'
-                    }`}
-                  disabled={downloadStatus.status === 'completed'}
-                >
-                  {downloadStatus.status === 'completed' ? (
-                    <>
+              </motion.p>
+              {/* Action Buttons - Smaller with Different Icons */}
+              <motion.div
+                className="flex items-center gap-2"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.8, duration: 0.4 }}
+              >
+                <div className="group relative">
+                  <button
+                    onClick={handleDownload}
+                    className={`group p-2 rounded-full backdrop-blur-md border transition-all duration-200 shadow-lg hover:shadow-xl hover:scale-110 ${downloadStatus.isDownloading
+                      ? 'bg-green-600/40 border-green-500/30 text-white hover:bg-green-600/60'
+                      : downloadStatus.status === 'completed'
+                        ? 'bg-blue-600/40 border-blue-500/30 text-white hover:bg-blue-600/60'
+                        : 'bg-red-600/40 border-red-500/30 text-white hover:bg-red-600/60'
+                      }`}
+                    disabled={downloadStatus.status === 'completed'}
+                  >
+                    {downloadStatus.status === 'completed' ? (
                       <Check className="w-4 h-4" />
-                      Downloaded
-                    </>
-                  ) : downloadStatus.isDownloading ? (
-                    <>
+                    ) : downloadStatus.isDownloading ? (
                       <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                      {downloadStatus.progress > 0 ? `${downloadStatus.progress.toFixed(1)}%` : 'Starting...'}
-                    </>
-                  ) : (
-                    <>
+                    ) : (
                       <Download className="w-4 h-4" />
-                      Download
-                    </>
-                  )}
-                </button>
-
-                {/* Download Progress Bar */}
-                {downloadStatus.isDownloading && downloadStatus.progress > 0 && (
-                  <div className="w-full bg-gray-800/50 rounded-full h-2 mt-2">
-                    <div
-                      className="bg-green-500 h-2 rounded-full transition-all duration-300"
-                      style={{ width: `${downloadStatus.progress}%` }}
-                    />
+                    )}
+                  </button>
+                  <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 px-2 py-1 bg-black/90 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
+                    {downloadStatus.status === 'completed' ? 'Downloaded' : downloadStatus.isDownloading ? 'Downloading...' : 'Download'}
                   </div>
-                )}
-
+                </div>
                 <MyListTooltip
                   media={mediaDetails}
                   isInMyList={isInMyListHook(tmdbPrefixedId)}
@@ -1676,261 +1702,274 @@ const TMDBMoviePage: React.FC = () => {
                   onAddToCollection={(collectionId) => addToCollection(collectionId, tmdbPrefixedId)}
                   onCollectionCreated={fetchCollections}
                 >
-                  <button className="flex items-center gap-1 px-4 py-2 bg-gray-800/80 hover:bg-gray-700 rounded-lg text-sm font-semibold transition-all duration-300 hover:scale-105">
+                  <button className="group p-2 bg-white/20 text-white rounded-full backdrop-blur-md border border-white/30 hover:bg-white/30 transition-all duration-200 hover:scale-110">
                     {isInMyListHook(tmdbPrefixedId) ? <Check className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
-                    My List
                   </button>
                 </MyListTooltip>
-                <button className="flex items-center gap-1 px-4 py-2 bg-gray-800/80 hover:bg-gray-700 rounded-lg text-sm font-semibold transition-all duration-300 hover:scale-105">
-                  <Share2 className="w-4 h-4" />
-                  Share
-                </button>
+                <div className="group relative">
+                  <button className="group p-2 bg-white/20 text-white rounded-full backdrop-blur-md border border-white/30 hover:bg-white/30 transition-all duration-200 hover:scale-110">
+                    <Share2 className="w-4 h-4" />
+                  </button>
+                  <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 px-2 py-1 bg-black/90 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
+                    Share
+                  </div>
+                </div>
                 {mediaDetails?.homepage && (
-                  <a
-                    href={mediaDetails.homepage}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-1 px-4 py-2 bg-gray-800/80 hover:bg-gray-700 rounded-lg text-sm font-semibold transition-all duration-300 hover:scale-105"
-                  >
-                    <ExternalLink className="w-4 h-4" />
-                    Official Site
-                  </a>
+                  <div className="group relative">
+                    <a
+                      href={mediaDetails.homepage}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="group p-2 bg-white/20 text-white rounded-full backdrop-blur-md border border-white/30 hover:bg-white/30 transition-all duration-200 hover:scale-110 inline-block"
+                    >
+                      <ExternalLink className="w-4 h-4" />
+                    </a>
+                    <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 px-2 py-1 bg-black/90 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
+                      Official Site
+                    </div>
+                  </div>
                 )}
-              </div>
+              </motion.div>
+              {/* Download Progress Bar */}
+              {downloadStatus.isDownloading && downloadStatus.progress > 0 && (
+                <motion.div
+                  initial={{ opacity: 0, scaleX: 0 }}
+                  animate={{ opacity: 1, scaleX: 1 }}
+                  className="w-full max-w-md bg-gray-800/50 rounded-full h-2 mt-2"
+                >
+                  <div
+                    className="bg-green-500 h-2 rounded-full transition-all duration-300"
+                    style={{ width: `${downloadStatus.progress}%` }}
+                  />
+                </motion.div>
+              )}
             </div>
           </motion.div>
         </div>
       </div>
 
-      {/* Detailed Information Section */}
-      <div className="px-8 py-16 bg-gradient-to-b from-black to-gray-900">
-        <div className="max-w-7xl mx-auto space-y-16">
+      {/* Details Section - Bottom Left */}
+      <div className="relative z-[10] bg-black pt-16 pb-24">
+        <div className="container mx-auto px-6 md:px-12 lg:px-16">
+          <div className="flex justify-start">
+            <div className="w-full">
+              {/* Media Info */}
+              <div className="bg-gradient-to-r from-black/80 via-black/60 to-transparent p-8 rounded-2xl backdrop-blur-sm border border-white/10 shadow-2xl">
+                <h2 className="text-2xl font-bold text-white mb-8">About {mediaDetails?.title}</h2>
+                {/* About Section with Poster Layout */}
+                <div className="flex flex-col lg:flex-row gap-8">
+                  {/* Left side - Text content */}
+                  <div className="flex-1">
+                    <div className="space-y-8">
 
-          {/* Cast Section - Enhanced Design */}
-          {mediaDetails?.credits?.cast && mediaDetails.credits.cast.length > 0 && (
-            <motion.section
-              initial={{ opacity: 0, y: 50 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.6 }}
-              viewport={{ once: true }}
-            >
-              <div className="flex items-center justify-between mb-8">
-                <h2 className="text-3xl font-bold flex items-center gap-3">
-                  <Users className="w-8 h-8 text-red-500" />
-                  Cast
-                </h2>
-                {(mediaDetails?.credits?.cast?.length || 0) > 8 && (
-                  <button
-                    onClick={() => setShowFullCast(!showFullCast)}
-                    className="px-4 py-2 bg-red-600/20 border border-red-500/50 rounded-lg hover:bg-red-600/30 transition-colors"
-                  >
-                    {showFullCast ? 'Show Less' : `Show All ${mediaDetails.credits.cast.length}`}
-                  </button>
-                )}
-              </div>
-
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-6">
-                {mainCast.map((actor) => (
-                  <motion.div
-                    key={actor.id}
-                    className="group bg-gray-800/50 rounded-xl overflow-hidden hover:bg-gray-700/50 transition-all duration-300 hover:scale-105"
-                    whileHover={{ y: -5 }}
-                  >
-                    <div className="aspect-[3/4] relative overflow-hidden">
-                      <ProfileImage
-                        profilePath={actor.profile_path}
-                        alt={actor.name}
-                        className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
-                        size="w300"
-                      />
-                      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-                    </div>
-                    <div className="p-4">
-                      <h3 className="font-semibold text-white mb-1 group-hover:text-red-400 transition-colors">
-                        {actor.name}
-                      </h3>
-                      <p className="text-sm text-gray-400 line-clamp-2">
-                        {actor.character}
-                      </p>
-                    </div>
-                  </motion.div>
-                ))}
-              </div>
-            </motion.section>
-          )}
-
-          {/* Crew Section */}
-          <motion.section
-            initial={{ opacity: 0, y: 50 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6 }}
-            viewport={{ once: true }}
-            className="grid grid-cols-1 lg:grid-cols-2 gap-12"
-          >
-            {/* Directors */}
-            {directors.length > 0 && (
-              <div>
-                <h3 className="text-2xl font-bold mb-6 flex items-center gap-2">
-                  <Film className="w-6 h-6 text-red-500" />
-                  Director{directors.length > 1 ? 's' : ''}
-                </h3>
-                <div className="space-y-4">
-                  {directors.map((director) => (
-                    <div key={director.id} className="flex items-center gap-4 bg-gray-800/30 rounded-lg p-4 hover:bg-gray-700/30 transition-colors">
-                      <ProfileImage
-                        profilePath={director.profile_path}
-                        alt={director.name}
-                        className="w-16 h-16 rounded-full object-cover"
-                        size="w185"
-                      />
-                      <div>
-                        <p className="font-semibold text-lg">{director.name}</p>
-                        <p className="text-gray-400">{director.job}</p>
+                      <div className="grid grid-cols-1 gap-8">
+                        <div>
+                          <div className="flex items-center gap-3 mb-6">
+                            <Info className="w-6 h-6 text-red-500" />
+                            <h3 className="text-xl font-semibold text-white">Details</h3>
+                          </div>
+                          <div className="space-y-4 pl-9">
+                            {mediaDetails?.genres && mediaDetails.genres.length > 0 && (
+                              <div className="flex flex-col gap-3">
+                                <span className="text-white/60 font-medium">Genres</span>
+                                <div className="flex flex-wrap gap-2">
+                                  {mediaDetails.genres.map((genre) => (
+                                    <span
+                                      key={genre.id}
+                                      className="px-3 py-1.5 bg-gradient-to-r from-red-600/20 to-red-500/20 text-red-300 text-sm font-medium rounded-full border border-red-500/30 hover:from-red-600/30 hover:to-red-500/30 transition-all duration-200"
+                                    >
+                                      {genre.name}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                            {mediaDetails?.media_type === 'movie' && mediaDetails?.runtime && mediaDetails.runtime > 0 && (
+                              <div className="flex">
+                                <span className="w-32 text-white/60 font-medium">Duration</span>
+                                <span className="text-white">{formatRuntime(mediaDetails.runtime)}</span>
+                              </div>
+                            )}
+                            {mediaDetails?.media_type === 'tv' && (
+                              <>
+                                <div className="flex">
+                                  <span className="w-32 text-white/60 font-medium">Seasons</span>
+                                  <span className="text-white">{mediaDetails.number_of_seasons}</span>
+                                </div>
+                                <div className="flex">
+                                  <span className="w-32 text-white/60 font-medium">Episodes</span>
+                                  <span className="text-white">{mediaDetails.number_of_episodes}</span>
+                                </div>
+                              </>
+                            )}
+                            {mediaDetails?.credits?.crew && directors.length > 0 && (
+                              <div className="flex flex-col gap-3">
+                                <span className="text-white/60 font-medium">Director{directors.length > 1 ? 's' : ''}</span>
+                                <div className="flex flex-wrap gap-2">
+                                  {directors.slice(0, 3).map((director) => (
+                                    <span
+                                      key={director.id}
+                                      className="px-3 py-1.5 bg-gradient-to-r from-blue-600/20 to-blue-500/20 text-blue-300 text-sm font-medium rounded-full border border-blue-500/30 hover:from-blue-600/30 hover:to-blue-500/30 transition-all duration-200"
+                                    >
+                                      {director.name}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                            {mediaDetails?.credits?.cast && mediaDetails.credits.cast.length > 0 && (
+                              <div className="flex flex-col gap-3">
+                                <span className="text-white/60 font-medium">Cast</span>
+                                <div className="flex flex-wrap gap-2">
+                                  {mediaDetails.credits.cast.slice(0, 6).map((actor) => (
+                                    <span
+                                      key={actor.id}
+                                      className="px-3 py-1.5 bg-gradient-to-r from-purple-600/20 to-purple-500/20 text-purple-300 text-sm font-medium rounded-full border border-purple-500/30 hover:from-purple-600/30 hover:to-purple-500/30 transition-all duration-200"
+                                    >
+                                      {actor.name}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                            <div className="flex">
+                              <span className="w-32 text-white/60 font-medium">Release</span>
+                              <span className="text-white">{formatDate(mediaDetails?.release_date || '')}</span>
+                            </div>
+                            {mediaDetails?.production_countries && mediaDetails.production_countries.length > 0 && (
+                              <div className="flex">
+                                <span className="w-32 text-white/60 font-medium">Country</span>
+                                <span className="text-white">{mediaDetails.production_countries[0].name}</span>
+                              </div>
+                            )}
+                            {mediaDetails?.spoken_languages && mediaDetails.spoken_languages.length > 0 && (
+                              <div className="flex">
+                                <span className="w-32 text-white/60 font-medium">Language</span>
+                                <span className="text-white">{mediaDetails.spoken_languages[0].name}</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Writers */}
-            {writers.length > 0 && (
-              <div>
-                <h3 className="text-2xl font-bold mb-6">Writers</h3>
-                <div className="space-y-4">
-                  {writers.slice(0, 4).map((writer) => (
-                    <div key={`${writer.id}-${writer.job}`} className="flex items-center gap-4 bg-gray-800/30 rounded-lg p-4 hover:bg-gray-700/30 transition-colors">
-                      <ProfileImage
-                        profilePath={writer.profile_path}
-                        alt={writer.name}
-                        className="w-16 h-16 rounded-full object-cover"
-                        size="w185"
-                      />
-                      <div>
-                        <p className="font-semibold text-lg">{writer.name}</p>
-                        <p className="text-gray-400">{writer.job}</p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </motion.section>
-
-          {/* Movie Details Grid */}
-          <motion.section
-            initial={{ opacity: 0, y: 50 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6 }}
-            viewport={{ once: true }}
-            className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8"
-          >
-            <div className="bg-gray-800/30 rounded-xl p-6">
-              <h3 className="text-xl font-bold mb-4 flex items-center gap-2">
-                <Calendar className="w-6 h-6 text-blue-400" />
-                Release Info
-              </h3>
-              <div className="space-y-3">
-                <div>
-                  <span className="text-gray-400">Status:</span>
-                  <span className="ml-2 font-semibold">{mediaDetails?.status}</span>
-                </div>
-                <div>
-                  <span className="text-gray-400">Release Date:</span>
-                  <span className="ml-2 font-semibold">{formatDate(mediaDetails?.release_date || '')}</span>
-                </div>
-                {mediaDetails?.media_type === 'movie' && mediaDetails?.runtime && (
-                  <div>
-                    <span className="text-gray-400">Runtime:</span>
-                    <span className="ml-2 font-semibold">{formatRuntime(mediaDetails.runtime)}</span>
-                  </div>
-                )}
-                {mediaDetails?.media_type === 'tv' && (
-                  <>
-                    <div>
-                      <span className="text-gray-400">Seasons:</span>
-                      <span className="ml-2 font-semibold">{mediaDetails.number_of_seasons}</span>
-                    </div>
-                    <div>
-                      <span className="text-gray-400">Episodes:</span>
-                      <span className="ml-2 font-semibold">{mediaDetails.number_of_episodes}</span>
-                    </div>
-                  </>
-                )}
-              </div>
-            </div>
-
-            {mediaDetails?.media_type === 'movie' && ((mediaDetails?.budget || 0) > 0 || (mediaDetails?.revenue || 0) > 0) && (
-              <div className="bg-gray-800/30 rounded-xl p-6">
-                <h3 className="text-xl font-bold mb-4 flex items-center gap-2">
-                  <DollarSign className="w-6 h-6 text-green-400" />
-                  Box Office
-                </h3>
-                <div className="space-y-3">
-                  {(mediaDetails?.budget || 0) > 0 && (
-                    <div>
-                      <span className="text-gray-400">Budget:</span>
-                      <span className="ml-2 font-semibold">{formatCurrency(mediaDetails.budget!)}</span>
-                    </div>
-                  )}
-                  {(mediaDetails?.revenue || 0) > 0 && (
-                    <div>
-                      <span className="text-gray-400">Revenue:</span>
-                      <span className="ml-2 font-semibold">{formatCurrency(mediaDetails.revenue!)}</span>
-                    </div>
-                  )}
-                  {(mediaDetails?.budget || 0) > 0 && (mediaDetails?.revenue || 0) > 0 && (
-                    <div>
-                      <span className="text-gray-400">Profit:</span>
-                      <span className="ml-2 font-semibold text-green-400">
-                        {formatCurrency(mediaDetails.revenue! - mediaDetails.budget!)}
-                      </span>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {mediaDetails?.media_type === 'tv' && mediaDetails?.networks && mediaDetails.networks.length > 0 && (
-              <div className="bg-gray-800/30 rounded-xl p-6">
-                <h3 className="text-xl font-bold mb-4 flex items-center gap-2">
-                  <Film className="w-6 h-6 text-blue-400" />
-                  Networks
-                </h3>
-                <div className="space-y-3">
-                  {mediaDetails.networks.slice(0, 3).map((network) => (
-                    <div key={network.id} className="flex items-center gap-3">
-                      {network.logo_path && (
-                        <img
-                          src={`https://image.tmdb.org/t/p/w92${network.logo_path}`}
-                          alt={network.name}
-                          className="h-8 object-contain"
-                        />
+                      {/* Box Office & Financial Information */}
+                      {mediaDetails?.media_type === 'movie' && ((mediaDetails?.budget || 0) > 0 || (mediaDetails?.revenue || 0) > 0) && (
+                        <div className="mt-8">
+                          <div className="flex items-center gap-2 mb-4">
+                            <Award className="w-5 h-5 text-green-500" />
+                            <h3 className="text-lg font-semibold text-white">Box Office & Financial</h3>
+                          </div>
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            {(mediaDetails?.budget || 0) > 0 && (
+                              <div className="bg-gradient-to-r from-blue-500/10 to-blue-600/10 p-4 rounded-lg border border-blue-500/20">
+                                <div className="text-blue-400 text-sm font-medium mb-1">Budget</div>
+                                <div className="text-white text-xl font-bold">
+                                  {formatCurrency(mediaDetails.budget!)}
+                                </div>
+                              </div>
+                            )}
+                            {(mediaDetails?.revenue || 0) > 0 && (
+                              <div className="bg-gradient-to-r from-green-500/10 to-green-600/10 p-4 rounded-lg border border-green-500/20">
+                                <div className="text-green-400 text-sm font-medium mb-1">Revenue</div>
+                                <div className="text-white text-xl font-bold">
+                                  {formatCurrency(mediaDetails.revenue!)}
+                                </div>
+                              </div>
+                            )}
+                            {(mediaDetails?.budget || 0) > 0 && (mediaDetails?.revenue || 0) > 0 && (
+                              <div className="bg-gradient-to-r from-yellow-500/10 to-yellow-600/10 p-4 rounded-lg border border-yellow-500/20">
+                                <div className="text-yellow-400 text-sm font-medium mb-1">Profit</div>
+                                <div className="text-white text-xl font-bold">
+                                  {formatCurrency(mediaDetails.revenue! - mediaDetails.budget!)}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
                       )}
-                      <span className="text-gray-300">{network.name}</span>
+                      {/* Cast Section - Enhanced Design */}
+                      {mediaDetails?.credits?.cast && mediaDetails.credits.cast.length > 0 && (
+                        <div className="mt-8">
+                          <div className="flex items-center justify-between mb-6">
+                            <div className="flex items-center gap-2">
+                              <Users className="w-5 h-5 text-red-500" />
+                              <h3 className="text-lg font-semibold text-white">Cast</h3>
+                            </div>
+                            {(mediaDetails?.credits?.cast?.length || 0) > 6 && (
+                              <button
+                                onClick={() => setShowFullCast(!showFullCast)}
+                                className="px-3 py-1 bg-red-600/20 border border-red-500/50 rounded-lg hover:bg-red-600/30 transition-colors text-sm"
+                              >
+                                {showFullCast ? 'Show Less' : `Show All ${mediaDetails.credits.cast.length}`}
+                              </button>
+                            )}
+                          </div>
+                          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+                            {mainCast.map((actor) => (
+                              <motion.div
+                                key={actor.id}
+                                className="group bg-gray-800/50 rounded-xl overflow-hidden hover:bg-gray-700/50 transition-all duration-300 hover:scale-105"
+                                whileHover={{ y: -5 }}
+                              >
+                                <div className="aspect-[3/4] relative overflow-hidden">
+                                  <ProfileImage
+                                    profilePath={actor.profile_path}
+                                    alt={actor.name}
+                                    className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
+                                    size="w300"
+                                  />
+                                  <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+                                </div>
+                                <div className="p-3">
+                                  <h4 className="font-semibold text-white mb-1 group-hover:text-red-400 transition-colors text-sm">
+                                    {actor.name}
+                                  </h4>
+                                  <p className="text-xs text-gray-400 line-clamp-2">
+                                    {actor.character}
+                                  </p>
+                                </div>
+                              </motion.div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
-                  ))}
+                  </div>
+                  {/* Right side - Movie Poster */}
+                  <div className="lg:w-64 flex-shrink-0">
+                    <div className="sticky top-8">
+                      <div className="relative w-full h-80 lg:h-96 rounded-xl overflow-hidden shadow-2xl border border-white/10">
+                        <img
+                          src={getPosterUrl(mediaDetails?.poster_path || '', 'w500')}
+                          alt={mediaDetails?.title || ''}
+                          className="w-full h-full object-cover transition-transform duration-300 hover:scale-105"
+                          loading="eager"
+                          onError={(e) => {
+                            const target = e.target as HTMLImageElement;
+                            target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjQ1MCIgdmlld0JveD0iMCAwIDMwMCA0NTAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIzMDAiIGhlaWdodD0iNDUwIiBmaWxsPSIjMzc0MTUxIi8+CjxwYXRoIGQ9Ik0xNTAgMjAwQzE4Ny4yNzkgMjAwIDIxOCAxNjkuMjc5IDIxOCAxMzJDMjE4IDk0LjcyMDggMTg3LjI3OSA2NCAxNTAgNjRDMTEyLjcyMSA2NCA4MiA5NC43MjA4IDgyIDEzMkM4MiAxNjkuMjc5IDExMi43MjEgMjAwIDE1MCAyMDBaIiBmaWxsPSIjNkI3Mjg4Ii8+CjxwYXRoIGQ9Ik04MiAyNzZDODIgMjM4LjY4IDExMi42OCAyMDggMTUwIDIwOEgxNTBDMTg3LjMyIDIwOCAyMTggMjM4LjY4IDIxOCAyNzZWMzUwSDgyVjI3NloiIGZpbGw9IiM2QjcyODgiLz4KPHN2Zz4K';
+                          }}
+                        />
+                        {/* Overlay with movie info */}
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 hover:opacity-100 transition-opacity duration-300">
+                          <div className="absolute bottom-0 left-0 right-0 p-4">
+                            <h3 className="text-white font-bold text-sm mb-1">{mediaDetails?.title}</h3>
+                            <p className="text-white/80 text-xs mb-1">{new Date(mediaDetails?.release_date || '').getFullYear()}</p>
+                            {(mediaDetails?.vote_average || 0) > 0 && (
+                              <div className="flex items-center gap-1">
+                                <Star className="w-3 h-3 text-yellow-400 fill-current" />
+                                <span className="text-white text-xs font-medium">{mediaDetails.vote_average.toFixed(1)}</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
-            )}
-
-            <div className="bg-gray-800/30 rounded-xl p-6">
-              <h3 className="text-xl font-bold mb-4 flex items-center gap-2">
-                <Globe className="w-6 h-6 text-purple-400" />
-                Languages
-              </h3>
-              <div className="space-y-2">
-                {mediaDetails?.spoken_languages?.slice(0, 3).map((lang) => (
-                  <div key={lang.iso_639_1} className="text-gray-300">
-                    {lang.name}
-                  </div>
-                ))}
-              </div>
             </div>
-          </motion.section>
+          </div>
         </div>
       </div>
-
       {/* Related Movies Section */}
       <div className="bg-gray-900 py-16">
         <div className="px-8">

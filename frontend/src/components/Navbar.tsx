@@ -9,7 +9,6 @@ import { useNavigate } from "@/hooks/useNavigate";
 import { getApiUrl } from "@/lib/api";
 import NotificationDropdown from "./NotificationDropdown";
 import { Notification, NotificationResponse, NotificationCountResponse } from "@/types/notifications";
-import Link from "next/link";
 import { getCachedNavData, cacheNavData } from "@/utils/navCache";
 
 interface NavbarProps {
@@ -185,7 +184,7 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
   useEffect(() => {
     console.log(`🔍 Search query changed: "${searchQuery}" (length: ${searchQuery.trim().length})`);
     
-    if (searchQuery.trim().length > 1) {
+    if (searchQuery.trim().length >= 2) { // Changed from > 1 to >= 2 for clarity
       const timeoutId = setTimeout(() => {
         console.log(`⏰ Triggering search for: "${searchQuery.trim()}"`);
         fetchSuggestions(searchQuery.trim());
@@ -196,7 +195,7 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
         clearTimeout(timeoutId);
       };
     } else {
-      console.log(`❌ Query too short, clearing suggestions`);
+      console.log(`❌ Query too short (${searchQuery.trim().length} chars), clearing suggestions`);
       setSuggestions([]);
       setShowSuggestions(false);
     }
@@ -206,91 +205,35 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
     if (!query.trim()) return;
 
     setIsLoadingSuggestions(true);
-    console.log(`🔍 Fetching suggestions for: "${query}"`);
+    console.log(`🔍 Fetching TMDB suggestions for: "${query}"`);
     
     try {
       const apiUrl = getApiUrl();
       
-      // Fetch from both Local and TMDB in parallel
-      const [localRes, tmdbRes] = await Promise.allSettled([
-        fetch(`${apiUrl}/api/media/search?q=${encodeURIComponent(query)}`),
-        fetch(`${apiUrl}/api/tmdb/suggestions?q=${encodeURIComponent(query)}`)
-      ]);
-
-      let combinedResults: TMDBSearchResult[] = [];
-
-      // Process Local Results
-      if (localRes.status === 'fulfilled' && localRes.value.ok) {
-        try {
-          const localData = await localRes.value.json();
-          console.log(`📚 Local search results:`, localData);
-          
-          if (Array.isArray(localData)) {
-            const localMapped: TMDBSearchResult[] = localData.map((item: any) => ({
-              id: item.id,
-              title: item.title,
-              original_title: item.title,
-              overview: item.description || item.long_desc || item.short_desc || '',
-              release_date: item.release_date || '',
-              poster_path: item.poster_path ? `/api/posters/${item.id}` : '',
-              backdrop_path: item.backdrop_path ? `/api/backdrops/${item.id}` : '',
-              vote_average: item.rating || 0,
-              vote_count: item.vote_count || 0,
-              popularity: item.popularity || 0,
-              media_type: (item.type === 'tv' || item.type === 'series' || item.type === 'episode') ? 'tv' : 'movie',
-              adult: false,
-              genre_ids: [],
-              is_local: true,
-              logo_path: item.logo_path || ''
-            }));
-            combinedResults = [...localMapped];
-            console.log(`✅ Mapped ${localMapped.length} local results`);
-          }
-        } catch (localError) {
-          console.error("Error processing local results:", localError);
-        }
-      } else if (localRes.status === 'fulfilled') {
-        console.warn(`⚠️ Local search failed with status: ${localRes.value.status}`);
-      } else {
-        console.warn(`⚠️ Local search request failed:`, localRes.reason);
+      // Fetch only TMDB results
+      const response = await fetch(`${apiUrl}/api/tmdb/suggestions?q=${encodeURIComponent(query)}`);
+      
+      if (!response.ok) {
+        console.warn(`⚠️ TMDB search failed with status: ${response.status}`);
+        setSuggestions([]);
+        setShowSuggestions(false);
+        return;
       }
 
-      // Process TMDB Results
-      if (tmdbRes.status === 'fulfilled' && tmdbRes.value.ok) {
-        try {
-          const tmdbData: TMDBSuggestionsResponse = await tmdbRes.value.json();
-          console.log(`🎬 TMDB search results:`, tmdbData);
-          
-          const tmdbResults = tmdbData.results || [];
-          
-          // Filter out TMDB results that are already in local results (by title and type)
-          const localTitles = new Set(combinedResults.map(r => `${r.title.toLowerCase()}-${r.media_type}`));
-          
-          const newTmdbResults = tmdbResults.filter(item => 
-            !localTitles.has(`${item.title.toLowerCase()}-${item.media_type}`)
-          ).map(item => ({
-            ...item,
-            is_local: false // Explicitly mark as TMDB result
-          }));
-          
-          combinedResults = [...combinedResults, ...newTmdbResults];
-          console.log(`✅ Added ${newTmdbResults.length} TMDB results (${tmdbResults.length} total, ${tmdbResults.length - newTmdbResults.length} duplicates filtered)`);
-        } catch (tmdbError) {
-          console.error("Error processing TMDB results:", tmdbError);
-        }
-      } else if (tmdbRes.status === 'fulfilled') {
-        console.warn(`⚠️ TMDB search failed with status: ${tmdbRes.value.status}`);
-      } else {
-        console.warn(`⚠️ TMDB search request failed:`, tmdbRes.reason);
-      }
+      const tmdbData: TMDBSuggestionsResponse = await response.json();
+      console.log(`🎬 TMDB search results:`, tmdbData);
+      
+      const tmdbResults = tmdbData.results || [];
+      
+      // Mark all results as TMDB (not local)
+      const processedResults = tmdbResults.map(item => ({
+        ...item,
+        is_local: false
+      }));
 
-      // Sort results: local first, then by popularity/vote average
-      combinedResults.sort((a, b) => {
-        // Local results first
-        if (a.is_local && !b.is_local) return -1;
-        if (!a.is_local && b.is_local) return 1;
-        
-        // Then by vote average
+      // Sort by popularity and vote average
+      processedResults.sort((a, b) => {
+        // First by vote average
         if (b.vote_average !== a.vote_average) {
           return b.vote_average - a.vote_average;
         }
@@ -299,12 +242,12 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
         return b.popularity - a.popularity;
       });
 
-      console.log(`🎯 Final suggestions: ${combinedResults.length} results`);
-      setSuggestions(combinedResults);
-      setShowSuggestions(combinedResults.length > 0);
+      console.log(`🎯 Final TMDB suggestions: ${processedResults.length} results`);
+      setSuggestions(processedResults);
+      setShowSuggestions(processedResults.length > 0);
       
     } catch (error) {
-      console.error("Error fetching suggestions:", error);
+      console.error("Error fetching TMDB suggestions:", error);
       setSuggestions([]);
       setShowSuggestions(false);
     } finally {
@@ -327,17 +270,8 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
   };
 
   const handleSuggestionClick = (suggestion: TMDBSearchResult) => {
-    if (suggestion.is_local) {
-      // Navigate to local content page
-      if (suggestion.media_type === 'movie') {
-        navigate.push(`/movie/${suggestion.id}`);
-      } else {
-        navigate.push(`/tv-shows/${suggestion.id}`);
-      }
-    } else {
-      // Navigate directly to TMDB movie/TV page with media type
-      navigate.push(`/tmdb-movie/${suggestion.id}?type=${suggestion.media_type}`);
-    }
+    // Navigate directly to TMDB movie/TV page with media type (all results are TMDB now)
+    navigate.push(`/tmdb-movie/${suggestion.id}?type=${suggestion.media_type}`);
     setIsSearchOpen(false);
     setShowSuggestions(false);
     setSearchQuery("");
@@ -347,6 +281,11 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
     const value = e.target.value;
     console.log(`📝 Input changed: "${value}"`);
     setSearchQuery(value);
+    
+    // Show suggestions immediately if we have cached results and user is typing
+    if (value.trim().length > 1 && suggestions.length > 0) {
+      setShowSuggestions(true);
+    }
   };
 
   const handleInputFocus = () => {
@@ -481,7 +420,7 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
                       value={searchQuery}
                       onChange={handleInputChange}
                       onFocus={handleInputFocus}
-                      placeholder="Search TMDB movies & shows..."
+                      placeholder="Search movies & TV shows..."
                       className="flex-1 bg-transparent text-white px-4 py-2 outline-none placeholder-white/50"
                       autoFocus
                     />
@@ -543,35 +482,11 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
                                     )}
                                     
                                     <div className="min-w-0 flex-1">
-                                      <div className="relative h-6 flex items-center">
-                                        {suggestion.is_local && suggestion.logo_path ? (
-                                          <img 
-                                            src={`${getApiUrl()}/api/${suggestion.logo_path}`}
-                                            alt={suggestion.title}
-                                            className="h-full w-auto max-w-full object-contain object-left"
-                                            onError={(e) => {
-                                              e.currentTarget.style.display = 'none';
-                                              const titleEl = e.currentTarget.nextElementSibling;
-                                              if (titleEl) (titleEl as HTMLElement).style.display = 'block';
-                                            }}
-                                          />
-                                        ) : null}
-                                        <h4 
-                                          className="text-white font-medium truncate group-hover:text-red-400 transition-colors"
-                                          style={{ 
-                                            display: suggestion.is_local && suggestion.logo_path ? 'none' : 'block' 
-                                          }}
-                                        >
-                                          {suggestion.title}
-                                        </h4>
-                                      </div>
+                                      <h4 className="text-white font-medium truncate group-hover:text-red-400 transition-colors">
+                                        {suggestion.title}
+                                      </h4>
                                     </div>
 
-                                    {suggestion.is_local && (
-                                      <span className="ml-2 px-1.5 py-0.5 text-[10px] font-bold bg-green-500/20 text-green-400 rounded border border-green-500/30 uppercase tracking-wider flex-shrink-0">
-                                        Library
-                                      </span>
-                                    )}
                                     <span className="text-gray-400 text-sm flex-shrink-0">
                                       {formatDate(suggestion.release_date)}
                                     </span>
@@ -582,9 +497,11 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
                                     </p>
                                   )}
                                   <div className="flex items-center gap-2 mt-1 flex-wrap">
-                                    <span className="text-yellow-400 text-sm">
-                                      ★ {suggestion.vote_average.toFixed(1)}
-                                    </span>
+                                    {suggestion.vote_average && suggestion.vote_average > 0 && (
+                                      <span className="text-yellow-400 text-sm">
+                                        ★ {suggestion.vote_average.toFixed(1)}
+                                      </span>
+                                    )}
                                     {suggestion.vote_count > 0 && (
                                       <span className="text-gray-500 text-xs">
                                         ({suggestion.vote_count.toLocaleString()} votes)
@@ -597,11 +514,6 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
                                     }`}>
                                       {suggestion.media_type === 'movie' ? 'Movie' : 'TV Show'}
                                     </span>
-                                    {suggestion.is_local && (
-                                      <span className="text-xs px-2 py-0.5 rounded-full border border-green-400/30 bg-green-500/10 text-green-400">
-                                        In Library
-                                      </span>
-                                    )}
                                   </div>
                                 </div>
                               </button>

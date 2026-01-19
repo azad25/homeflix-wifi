@@ -415,7 +415,7 @@ export default function MyListPage() {
             const tmdbId = item.media_id.toString().substring(1); // Remove the '9' prefix
             try {
               // Fetch TMDB data to reconstruct media object
-              const tmdbResponse = await fetch(`${apiUrl}/api/tmdb-movie/${tmdbId}?type=movie`);
+              const tmdbResponse = await fetch(`${apiUrl}/api/tmdb-movie/${tmdbId}`);
               if (tmdbResponse.ok) {
                 const tmdbData = await tmdbResponse.json();
                 const mediaData = tmdbData.data || tmdbData;
@@ -519,6 +519,7 @@ export default function MyListPage() {
                     poster_url: posterUrl,
                     poster_path: mediaData.poster_path,
                     description: mediaData.overview,
+                    media_type: mediaType,
                     downloadInfo: download
                   });
                 } else {
@@ -531,6 +532,7 @@ export default function MyListPage() {
                     genres: [],
                     tmdb_id: download.tmdb_id,
                     poster_url: null,
+                    media_type: download.media_type || 'movie',
                     downloadInfo: download
                   });
                 }
@@ -545,6 +547,7 @@ export default function MyListPage() {
                   genres: [],
                   tmdb_id: download.tmdb_id,
                   poster_url: null,
+                  media_type: download.media_type || 'movie',
                   downloadInfo: download
                 });
               }
@@ -583,8 +586,10 @@ export default function MyListPage() {
 
   const handlePlay = (media: Media) => {
     if (media.tmdb_id && media.id.toString().startsWith('9')) {
+      // TMDB content - navigate to info page since we can't play directly
       handleInfo(media);
     } else {
+      // Local content - open video player
       setSelectedMedia(media);
       setIsPlayerOpen(true);
     }
@@ -592,8 +597,11 @@ export default function MyListPage() {
 
   const handleInfo = (media: Media) => {
     if (media.tmdb_id && media.id.toString().startsWith('9')) {
-      navigate.push(`/tmdb-movie/${media.tmdb_id}`);
+      // TMDB content - route to TMDB movie page
+      const mediaType = media.media_type || (media.type === 'episode' ? 'tv' : 'movie');
+      navigate.push(`/tmdb-movie/${media.tmdb_id}?type=${mediaType}`);
     } else {
+      // Local content - route to local movie page
       navigate.push(`/movie/${media.id}`);
     }
   };
@@ -644,8 +652,13 @@ export default function MyListPage() {
     const progress = downloadInfo.progress || 0;
 
     const handleClick = () => {
-      if (media.tmdb_id) {
-        navigate.push(`/tmdb-movie/${media.tmdb_id}?type=${downloadInfo.media_type || 'movie'}`);
+      if (media.tmdb_id && media.id.toString().startsWith('9')) {
+        // TMDB content - route to TMDB movie page
+        const mediaType = downloadInfo.media_type || (media.type === 'episode' ? 'tv' : 'movie');
+        navigate.push(`/tmdb-movie/${media.tmdb_id}?type=${mediaType}`);
+      } else {
+        // Local content - route to local movie page
+        navigate.push(`/movie/${media.id}`);
       }
     };
 

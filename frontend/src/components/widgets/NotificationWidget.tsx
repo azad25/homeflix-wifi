@@ -1404,7 +1404,7 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
                                         </p>
                                         <div className="flex items-center justify-between mt-0.5">
                                           <span className="text-white/70 text-[10px]">{Math.round(progress)}%</span>
-                                          {movie.vote_average > 0 && (
+                                          {movie.vote_average && movie.vote_average > 0 && (
                                             <div className="flex items-center gap-0.5">
                                               <Star className="w-2 h-2 text-yellow-400 fill-current" />
                                               <span className="text-white/70 text-[10px]">{movie.vote_average.toFixed(1)}</span>
@@ -1490,7 +1490,7 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
                                   }}
                                 />
                                 {/* Rating Badge on Poster */}
-                                {singleMovie.vote_average > 0 && layoutVariant !== 'third' && (
+                                {singleMovie.vote_average && singleMovie.vote_average > 0 && layoutVariant !== 'third' && (
                                   <div className="absolute top-1 left-1">
                                     <div
                                       className="flex items-center gap-0.5 px-1 py-0.5 rounded-full backdrop-blur-md border text-xs"
@@ -1537,7 +1537,7 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
                                 )}
 
                                 {/* Rating badge for third layout */}
-                                {singleMovie.vote_average > 0 && layoutVariant === 'third' && (
+                                {singleMovie.vote_average && singleMovie.vote_average > 0 && layoutVariant === 'third' && (
                                   <div className="flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-white/10 backdrop-blur-sm border border-white/20 text-[10px]">
                                     <Star className="w-2.5 h-2.5 text-yellow-400 fill-current" />
                                     <span className="text-white font-medium">

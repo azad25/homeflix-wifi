@@ -3,6 +3,7 @@ export interface Media {
   title: string;
   original_title?: string;
   type: string; // "movie" or "episode"
+  media_type?: string; // For TMDB content: "movie" or "tv"
   file_path?: string;
   file_size?: number;
   duration?: number;
