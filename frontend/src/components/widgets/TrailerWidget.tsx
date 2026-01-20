@@ -654,15 +654,9 @@ export default function TrailerWidget({
                 return `${apiUrl}${media.logo_path}`;
             }
             
-            // For local content, construct the appropriate endpoint
-            if (media.type === 'tv' || media.type === 'series' || media.type === 'episode') {
-                // For TV series, use the series logo endpoint
-                const seriesId = media.series_id || media.id;
-                return `${apiUrl}/api/series/${seriesId}/logo`;
-            } else {
-                // For movies, use the direct logo path
-                return `${apiUrl}/api/${media.logo_path}`;
-            }
+            // For local content, use the logos endpoint
+            const filename = media.logo_path.includes('/') ? media.logo_path.split('/').pop() : media.logo_path;
+            return `${apiUrl}/api/logos/${filename}`;
         }
         
         return null;

@@ -17,6 +17,7 @@ import { cleanMovieTitle, findSimilarMovies } from '@/lib/titleUtils';
 import VideoPlayer from '@/components/VideoPlayer';
 import GenreTitle from '@/components/GenreTitle';
 import QualityBadge from '../../../components/QualityBadge';
+import QualityTags from '@/components/QualityTags';
 import { addToWishlist, removeFromWishlist, isInWishlist } from '@/lib/wishlist';
 import CastButton from '@/components/CastButton';
 import { useChromecast, CastMedia } from '@/hooks/useChromecast';
@@ -2604,31 +2605,33 @@ export default function MoviePage() {
         {/* Minimal overlay for text readability only */}
         <div className="absolute bottom-0 left-0 right-0 h-1/2 bg-gradient-to-t from-black/80 to-transparent z-[10] pointer-events-none" />
 
-        {/* Volume Control */}
-        <motion.div 
-          initial={{ opacity: 0, x: 20 }} 
-          animate={{ opacity: 1, x: 0 }} 
-          transition={{ delay: 0.5, duration: 0.4 }} 
-          className="absolute top-6 right-6 z-30"
-        >
-          <div className="group relative">
-            <button 
-              onClick={() => {
-                const video = videoRef.current;
-                if (video) {
-                  video.muted = !video.muted;
-                  setIsMuted(video.muted);
-                }
-              }} 
-              className="group p-3 rounded-full bg-black/40 backdrop-blur-md border border-white/20 hover:bg-black/60 hover:border-white/40 transition-all duration-200 hover:scale-110"
-            >
-              {isMuted ? <VolumeX className="w-5 h-5 text-white/80 group-hover:text-white transition-colors" /> : <Volume2 className="w-5 h-5 text-white/80 group-hover:text-white transition-colors" />}
-            </button>
-            <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 px-2 py-1 bg-black/90 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
-              {isMuted ? "Unmute" : "Mute"}
+        {/* Volume Control - Only show when video is not playing or is muted */}
+        {(!isVideoPlaying || isMuted) && (
+          <motion.div 
+            initial={{ opacity: 0, x: 20 }} 
+            animate={{ opacity: 1, x: 0 }} 
+            transition={{ delay: 0.5, duration: 0.4 }} 
+            className="absolute top-6 right-6 z-30"
+          >
+            <div className="group relative">
+              <button 
+                onClick={() => {
+                  const video = videoRef.current;
+                  if (video) {
+                    video.muted = !video.muted;
+                    setIsMuted(video.muted);
+                  }
+                }} 
+                className="group p-3 rounded-full bg-black/40 backdrop-blur-md border border-white/20 hover:bg-black/60 hover:border-white/40 transition-all duration-200 hover:scale-110"
+              >
+                {isMuted ? <VolumeX className="w-5 h-5 text-white/80 group-hover:text-white transition-colors" /> : <Volume2 className="w-5 h-5 text-white/80 group-hover:text-white transition-colors" />}
+              </button>
+              <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 px-2 py-1 bg-black/90 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
+                {isMuted ? "Unmute" : "Mute"}
+              </div>
             </div>
-          </div>
-        </motion.div>
+          </motion.div>
+        )}
 
         {/* Hero Content - Left Aligned with Poster */}
         <div className="absolute inset-0 z-[20] flex items-center justify-start p-8 pl-16 pointer-events-auto">
@@ -2740,12 +2743,14 @@ export default function MoviePage() {
                   </span>
                 )}
 
-                {media.quality && (
-                  <span className="px-2 py-0.5 rounded backdrop-blur-sm border font-bold bg-white/10 text-white border-white/20">
-                    {media.quality.includes('2160') || media.quality.toLowerCase().includes('4k') ? '4K' :
-                      media.quality.includes('1080') || media.quality.toLowerCase().includes('hd') ? 'HD' :
-                        media.quality.includes('720') ? '720p' : 'HD'}
-                  </span>
+                {/* Quality Tags - Netflix-style tags */}
+                {media.quality_tags && media.quality_tags.length > 0 && (
+                  <QualityTags 
+                    tags={media.quality_tags} 
+                    size="sm" 
+                    variant="compact"
+                    className="flex-wrap"
+                  />
                 )}
               </motion.div>
 

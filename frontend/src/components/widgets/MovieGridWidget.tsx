@@ -137,7 +137,19 @@ export default function MovieGridWidget({
 
     const getLogoUrl = (item: Media) => {
         if (item.logo_path) {
-            return `${apiUrl}/api/${item.logo_path}`;
+            // If it's a full URL, use it directly
+            if (item.logo_path.startsWith('http')) {
+                return item.logo_path;
+            }
+            
+            // If it's already an API path, use it directly
+            if (item.logo_path.startsWith('/api/')) {
+                return `${apiUrl}${item.logo_path}`;
+            }
+            
+            // For local content, use the logos endpoint
+            const filename = item.logo_path.includes('/') ? item.logo_path.split('/').pop() : item.logo_path;
+            return `${apiUrl}/api/logos/${filename}`;
         }
         return null;
     };

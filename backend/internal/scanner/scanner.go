@@ -22,6 +22,7 @@ import (
 
 	"homeflix-backend/internal/interfaces"
 	"homeflix-backend/internal/models"
+	"homeflix-backend/internal/utils"
 
 	"github.com/h2non/filetype"
 )
@@ -2075,6 +2076,15 @@ func (s *MediaScanner) processVideoFile(path string, info os.FileInfo) error {
 		if media.Quality == "" || needsMetadataUpdate {
 			media.Quality = metadata.Quality
 		}
+
+		// Extract quality tags from filename (Netflix-style tags like HDR, Dolby, UHD, etc.)
+		if len(media.QualityTags) == 0 || needsMetadataUpdate {
+			qualityTags := utils.ExtractQualityTags(filepath.Base(path))
+			if len(qualityTags) > 0 {
+				media.QualityTags = qualityTags
+				log.Printf("🏷️ Extracted quality tags for %s: %v", media.Title, qualityTags)
+			}
+		}
 	} else {
 		// Use cached metadata for existing media
 		metadata = s.extractMetadataWithCacheLocal(path)
@@ -2102,6 +2112,15 @@ func (s *MediaScanner) processVideoFile(path string, info os.FileInfo) error {
 		}
 		if media.Quality == "" {
 			media.Quality = metadata.Quality
+		}
+
+		// Extract quality tags from filename (Netflix-style tags like HDR, Dolby, UHD, etc.)
+		if len(media.QualityTags) == 0 {
+			qualityTags := utils.ExtractQualityTags(filepath.Base(path))
+			if len(qualityTags) > 0 {
+				media.QualityTags = qualityTags
+				log.Printf("🏷️ Extracted quality tags for %s: %v", media.Title, qualityTags)
+			}
 		}
 	}
 

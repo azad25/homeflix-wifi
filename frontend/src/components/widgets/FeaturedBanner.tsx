@@ -345,11 +345,11 @@ export default function FeaturedBanner({
                         transition={{ delay: 0.4 }}
                         className="flex items-center gap-4 mb-4 text-sm md:text-base"
                     >
-                        {showRating && (
+                        {showRating && currentMedia.rating && currentMedia.rating > 0 && (
                             <div className="flex items-center gap-1">
                                 <Star className="w-5 h-5 fill-yellow-400 text-yellow-400" />
                                 <span className="font-semibold">
-                                    {currentMedia.rating && currentMedia.rating > 0 ? currentMedia.rating.toFixed(1) : ''}
+                                    {currentMedia.rating.toFixed(1)}
                                 </span>
                             </div>
                         )}

@@ -20,6 +20,7 @@ export interface Media {
   country?: string;
   language?: string;
   quality?: string; // HD, 4K, SD, HDR
+  quality_tags?: string[]; // Netflix-style quality tags like [HDR], [Dolby], [UHD]
 
   // Cast and crew
   stars?: string[];

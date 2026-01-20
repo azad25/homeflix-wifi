@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import { useParams } from "next/navigation";
-import { ArrowLeft, Play, Info, Star, Clock, Calendar, ChevronDown, Check, Plus, ThumbsUp, Volume2, VolumeX, Film } from "lucide-react";
+import { Play, Info, Star, Clock, Calendar, ChevronDown } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Media } from '@/types/media';
 import { getApiUrl, preloadAssets } from '@/lib/api';
@@ -208,6 +208,88 @@ export default function SeasonPage() {
     }
   };
 
+  // Genre-based gradient themes
+  const getGenreTheme = (genres: any[]) => {
+    if (!genres || genres.length === 0) return 'default';
+    
+    const genreNames = genres.map(g => 
+      typeof g === 'string' ? g.toLowerCase() : (g.name || String(g)).toLowerCase()
+    );
+    
+    // Priority order for genre themes
+    if (genreNames.some(g => g.includes('horror') || g.includes('thriller'))) return 'horror';
+    if (genreNames.some(g => g.includes('sci-fi') || g.includes('science fiction') || g.includes('fantasy'))) return 'scifi';
+    if (genreNames.some(g => g.includes('action') || g.includes('adventure'))) return 'action';
+    if (genreNames.some(g => g.includes('romance') || g.includes('romantic'))) return 'romance';
+    if (genreNames.some(g => g.includes('comedy'))) return 'comedy';
+    if (genreNames.some(g => g.includes('drama'))) return 'drama';
+    if (genreNames.some(g => g.includes('crime') || g.includes('mystery'))) return 'crime';
+    if (genreNames.some(g => g.includes('documentary'))) return 'documentary';
+    
+    return 'default';
+  };
+
+  const getThemeGradients = (theme: string) => {
+    const themes = {
+      horror: {
+        primary: 'from-red-950 via-black to-purple-950',
+        secondary: 'from-red-900/20 via-black/60 to-purple-900/20',
+        accent: 'from-red-600 to-purple-600',
+        glow: 'shadow-red-500/20'
+      },
+      scifi: {
+        primary: 'from-blue-950 via-black to-cyan-950',
+        secondary: 'from-blue-900/20 via-black/60 to-cyan-900/20',
+        accent: 'from-blue-600 to-cyan-600',
+        glow: 'shadow-blue-500/20'
+      },
+      action: {
+        primary: 'from-orange-950 via-black to-red-950',
+        secondary: 'from-orange-900/20 via-black/60 to-red-900/20',
+        accent: 'from-orange-600 to-red-600',
+        glow: 'shadow-orange-500/20'
+      },
+      romance: {
+        primary: 'from-pink-950 via-black to-rose-950',
+        secondary: 'from-pink-900/20 via-black/60 to-rose-900/20',
+        accent: 'from-pink-600 to-rose-600',
+        glow: 'shadow-pink-500/20'
+      },
+      comedy: {
+        primary: 'from-yellow-950 via-black to-orange-950',
+        secondary: 'from-yellow-900/20 via-black/60 to-orange-900/20',
+        accent: 'from-yellow-600 to-orange-600',
+        glow: 'shadow-yellow-500/20'
+      },
+      drama: {
+        primary: 'from-purple-950 via-black to-indigo-950',
+        secondary: 'from-purple-900/20 via-black/60 to-indigo-900/20',
+        accent: 'from-purple-600 to-indigo-600',
+        glow: 'shadow-purple-500/20'
+      },
+      crime: {
+        primary: 'from-gray-950 via-black to-slate-950',
+        secondary: 'from-gray-900/20 via-black/60 to-slate-900/20',
+        accent: 'from-gray-600 to-slate-600',
+        glow: 'shadow-gray-500/20'
+      },
+      documentary: {
+        primary: 'from-green-950 via-black to-teal-950',
+        secondary: 'from-green-900/20 via-black/60 to-teal-900/20',
+        accent: 'from-green-600 to-teal-600',
+        glow: 'shadow-green-500/20'
+      },
+      default: {
+        primary: 'from-red-950 via-black to-black',
+        secondary: 'from-red-900/20 via-black/60 to-black',
+        accent: 'from-red-600 to-red-800',
+        glow: 'shadow-red-500/20'
+      }
+    };
+    
+    return themes[theme as keyof typeof themes] || themes.default;
+  };
+
   const formatRuntime = (minutes: number) => {
     return `${minutes}m`;
   };
@@ -278,573 +360,249 @@ export default function SeasonPage() {
   }
 
   const firstEpisode = episodes[0];
+  const genreTheme = getGenreTheme(series?.genres || []);
+  const themeGradients = getThemeGradients(genreTheme);
 
   return (
-    <div className="min-h-screen bg-black text-white">
+    <div className="h-screen bg-black text-white overflow-hidden">
       <Navbar />
       
-      {/* Netflix-Style Hero Section with Red-Black Gradient */}
-      <div className="relative w-full h-[85vh] overflow-hidden">
-        {/* Backdrop Background Image - Shows when video not playing */}
-        <div
-          className={`absolute inset-0 pointer-events-none transition-opacity duration-1000 ${
-            !isVideoLoaded || !isVideoPlaying ? 'opacity-100' : 'opacity-0'
-          }`}
-          style={{ zIndex: 2 }}
-        >
-          <img
-            src={getBackdropImageUrl(series)}
-            alt={series.title}
-            className="w-full h-full object-cover"
-            loading="eager"
-            onError={(e) => {
-              const target = e.target as HTMLImageElement;
-              const apiUrl = getApiUrl();
-              target.src = `${apiUrl}/api/thumbnails/${series?.id || 'default'}`;
+      {/* Full Screen Layout with Series Backdrop */}
+      <div className="h-full relative">
+        {/* Series Backdrop Background */}
+        <div className="absolute inset-0">
+          {/* Background Image */}
+          <div className="absolute inset-0">
+            <img
+              src={getBackdropImageUrl(series)}
+              alt={series.title}
+              className="w-full h-full object-cover"
+              loading="eager"
+              onError={(e) => {
+                const target = e.target as HTMLImageElement;
+                const apiUrl = getApiUrl();
+                target.src = `${apiUrl}/api/thumbnails/${series?.id || 'default'}`;
+              }}
+            />
+          </div>
+
+          {/* Background Video */}
+          <video
+            ref={videoRef}
+            className="absolute inset-0 w-full h-full object-cover opacity-20"
+            autoPlay
+            muted={false}
+            loop
+            playsInline
+            preload="metadata"
+            onLoadedData={() => {
+              setIsVideoLoaded(true);
+              if (videoRef.current) {
+                videoRef.current.volume = 0.2;
+                videoRef.current.play().then(() => {
+                  setIsVideoPlaying(true);
+                }).catch(() => {
+                  videoRef.current!.muted = true;
+                  videoRef.current!.play();
+                });
+              }
             }}
-          />
+            onError={() => {
+              setIsVideoLoaded(false);
+              setIsVideoPlaying(false);
+            }}
+          >
+            <source src={`${getBackgroundVideoUrl(series)}?audio=aac&quality=medium`} type="video/mp4" />
+            <source src={getBackgroundVideoUrl(series)} type="video/mp4" />
+          </video>
+
+          {/* Gradient Overlays */}
+          <div className="absolute inset-0 bg-gradient-to-r from-black/80 via-black/40 to-transparent" />
+          <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-black/30" />
         </div>
 
-        {/* Background Video */}
-        <video
-          ref={videoRef}
-          className="absolute inset-0 w-full h-full object-cover"
-          autoPlay
-          muted={false}
-          loop
-          playsInline
-          preload="metadata"
-          style={{ zIndex: 5 }}
-          onLoadedData={() => {
-            setIsVideoLoaded(true);
-            if (videoRef.current) {
-              videoRef.current.volume = 0.6;
-              videoRef.current.play().then(() => {
-                setIsVideoPlaying(true);
-              }).catch(() => {
-                videoRef.current!.muted = true;
-                videoRef.current!.play();
-              });
-            }
-          }}
-          onError={() => {
-            setIsVideoLoaded(false);
-            setIsVideoPlaying(false);
-          }}
-        >
-          <source src={`${getBackgroundVideoUrl(series)}?audio=aac&quality=medium`} type="video/mp4" />
-          <source src={getBackgroundVideoUrl(series)} type="video/mp4" />
-        </video>
-          
-        {/* Multi-layer Red-Black Gradient Overlay */}
-        <div className="absolute inset-0 bg-gradient-to-t from-black via-black/80 to-transparent z-10" />
-        <div className="absolute inset-0 bg-gradient-to-r from-black via-transparent to-black/60 z-10" />
-        <div className="absolute inset-0 bg-gradient-to-b from-red-950/30 via-transparent to-black z-10" />
-        <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-black to-transparent z-10" />
-
-        {/* Content */}
-        <div className="relative z-20 h-full flex flex-col justify-end pb-20">
-          <div className="container mx-auto px-4 md:px-8 lg:px-16">
-            {/* Back Button */}
-            <button
-              onClick={() => navigate.push(`/tv-series/${params.id}`)}
-              className="mb-6 flex items-center gap-2 text-white/80 hover:text-white transition-colors group"
-            >
-              <ArrowLeft className="w-5 h-5 group-hover:-translate-x-1 transition-transform" />
-              <span className="text-sm font-medium">Back to Series</span>
-            </button>
-
-            {/* Hero Content with Poster */}
-            <div className="flex gap-6 items-end">
-              {/* Series Poster */}
-              <motion.div
-                initial={{ scale: 0.8, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                transition={{ duration: 0.6, delay: 0.2 }}
-                className="flex-shrink-0 hidden md:block"
-              >
-                <div className="relative w-40 lg:w-48 h-60 lg:h-72 rounded-lg overflow-hidden shadow-2xl border border-white/10">
-                  {/* Use series poster */}
-                  <img
-                    src={series.tmdb_poster_url || `${getApiUrl()}/api/series/${series.id}/poster`}
-                    alt={series.title}
-                    className="w-full h-full object-cover"
-                    loading="eager"
-                    onError={(e) => {
-                      const target = e.target as HTMLImageElement;
-                      const apiUrl = getApiUrl();
-                      // Fallback chain: TMDB poster -> series poster -> series thumbnail -> gradient
-                      if (series.tmdb_poster_url && !target.src.includes('tmdb')) {
-                        target.src = series.tmdb_poster_url;
-                      } else if (!target.src.includes('/api/series/') && !target.src.includes('/poster')) {
-                        target.src = `${apiUrl}/api/series/${series.id}/poster`;
-                      } else if (!target.src.includes('/api/thumbnails/')) {
-                        target.src = `${apiUrl}/api/thumbnails/${series.id}`;
-                      } else {
-                        // Final fallback: Show gradient
-                        const parent = target.parentElement!;
-                        parent.innerHTML = `
-                          <div class="w-full h-full bg-gradient-to-br from-red-600 to-red-800 flex flex-col items-center justify-center">
-                            <span class="text-2xl font-bold text-white">${series.title.charAt(0)}</span>
-                            <span class="text-xs font-medium text-white/80 text-center px-2">S${currentSeason}</span>
-                          </div>
-                        `;
-                      }
-                    }}
-                  />
-                </div>
-              </motion.div>
-
-              {/* Series Details */}
-              <div className="flex-1 space-y-4 pb-4">
-                {/* Series Title */}
-                <motion.h1
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.6 }}
-                  className="text-3xl md:text-5xl lg:text-6xl font-bold mb-4 drop-shadow-2xl"
-                >
-                  {series.title}
-                </motion.h1>
-
-            {/* Season Selector */}
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.6, delay: 0.1 }}
-              className="mb-6"
-            >
+        {/* Main Content Layout */}
+        <div className="relative z-10 h-full flex">
+          {/* Left Side - Series Info and Logo */}
+          <div className="flex-1 flex flex-col justify-center p-8 max-w-2xl">
+            {/* Series Logo/Title */}
+            <div className="mb-8">
+              {/* Try to show series logo if available, otherwise show title */}
+              <div className="mb-4">
+                <img
+                  src={`${getApiUrl()}/api/series/${series.id}/logo`}
+                  alt={series.title}
+                  className="max-h-24 w-auto"
+                  onError={(e) => {
+                    const target = e.target as HTMLImageElement;
+                    const parent = target.parentElement!;
+                    parent.innerHTML = `<h1 class="text-5xl md:text-6xl font-bold text-white drop-shadow-2xl">${series.title}</h1>`;
+                  }}
+                />
+              </div>
+              
+              {/* Season Selector */}
               <div className="relative inline-block">
                 <select
                   value={currentSeason}
                   onChange={(e) => navigate.push(`/tv-series/${params.id}/season/${e.target.value}`)}
-                  className="appearance-none bg-black/60 backdrop-blur-sm border-2 border-white/20 hover:border-white/40 text-white px-6 py-3 pr-12 rounded text-lg font-semibold cursor-pointer transition-all focus:outline-none focus:border-red-500"
+                  className={`appearance-none bg-gradient-to-r ${themeGradients.accent} backdrop-blur-sm border-2 border-white/20 hover:border-white/40 text-white px-6 py-3 pr-12 rounded-lg text-xl font-bold cursor-pointer transition-all focus:outline-none focus:border-white/60 ${themeGradients.glow}`}
                 >
                   {Array.from({ length: totalSeasons }, (_, i) => i + 1).map((season) => (
-                    <option key={season} value={season}>
+                    <option key={season} value={season} className="bg-black">
                       Season {season}
                     </option>
                   ))}
                 </select>
-                <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 pointer-events-none" />
+                <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-6 h-6 pointer-events-none" />
               </div>
-            </motion.div>
+            </div>
 
             {/* Series Info */}
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.6, delay: 0.2 }}
-              className="flex flex-wrap items-center gap-3 mb-6 text-sm md:text-base"
-            >
+            <div className="flex items-center gap-4 mb-6 text-lg">
               {series.rating && (
-                <div className="flex items-center gap-1 bg-yellow-500/20 px-3 py-1 rounded-full">
-                  <Star className="w-4 h-4 text-yellow-400 fill-current" />
-                  <span className="font-semibold">{series.rating.toFixed(1)}</span>
+                <div className="flex items-center gap-2 bg-yellow-500/20 px-4 py-2 rounded-full">
+                  <Star className="w-5 h-5 text-yellow-400 fill-current" />
+                  <span className="font-bold">{series.rating.toFixed(1)}</span>
                 </div>
               )}
               {series.release_date && (
-                <div className="flex items-center gap-1 bg-blue-500/20 px-3 py-1 rounded-full">
-                  <Calendar className="w-4 h-4 text-blue-400" />
-                  <span>{new Date(series.release_date).getFullYear()}</span>
+                <div className="flex items-center gap-2 bg-blue-500/20 px-4 py-2 rounded-full">
+                  <Calendar className="w-5 h-5 text-blue-400" />
+                  <span className="font-semibold">{new Date(series.release_date).getFullYear()}</span>
                 </div>
               )}
-              <span className="text-white/80">
+              <span className="text-white/90 font-semibold">
                 {episodes.length} Episodes
               </span>
-            </motion.div>
+            </div>
 
             {/* Genres */}
             {series.genres && series.genres.length > 0 && (
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.6, delay: 0.25 }}
-                className="flex flex-wrap gap-2 mb-6"
-              >
+              <div className="flex gap-3 mb-6">
                 {series.genres.slice(0, 3).map((genre, index) => (
                   <span
                     key={index}
-                    className="px-3 py-1 bg-red-600/30 border border-red-500/50 rounded-full text-sm font-medium"
+                    className={`px-4 py-2 bg-gradient-to-r ${themeGradients.accent}/30 border border-white/20 rounded-full text-lg font-semibold`}
                   >
                     {typeof genre === 'string' ? genre : genre.name || String(genre)}
                   </span>
                 ))}
-              </motion.div>
+              </div>
             )}
 
-            {/* Description */}
+            {/* Series Description */}
             {series.description && (
-              <motion.p
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.6, delay: 0.3 }}
-                className="max-w-2xl text-base md:text-lg text-white/90 leading-relaxed mb-8 line-clamp-3"
-              >
-                {series.description}
-              </motion.p>
-            )}
-
-            {/* Action Buttons */}
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.6, delay: 0.4 }}
-              className="flex items-center gap-4"
-            >
-              <button
-                onClick={() => handlePlay(firstEpisode)}
-                className="bg-white hover:bg-white/90 text-black px-8 py-3 rounded flex items-center gap-3 font-semibold text-lg transition-all transform hover:scale-105"
-              >
-                <Play className="w-6 h-6 fill-current" />
-                Play
-              </button>
-              
-              <button
-                onClick={() => handleInfo(firstEpisode)}
-                className="bg-white/20 hover:bg-white/30 backdrop-blur-sm text-white px-8 py-3 rounded flex items-center gap-3 font-semibold text-lg transition-all border-2 border-white/20 hover:border-white/40"
-              >
-                <Info className="w-6 h-6" />
-                More Info
-              </button>
-            </motion.div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Episodes Section */}
-      <div className="relative bg-gradient-to-b from-black via-red-950/5 to-black">
-        <div className="container mx-auto px-4 md:px-8 lg:px-16 py-12">
-          {/* Section Header */}
-          <div className="mb-8">
-            <h2 className="text-2xl md:text-3xl font-bold mb-2">Episodes</h2>
-            <p className="text-white/60">Season {currentSeason}</p>
-          </div>
-
-          {/* Episodes List */}
-          <div className="space-y-4">
-            {episodes.map((episode, index) => (
-              <motion.div
-                key={episode.id}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.4, delay: index * 0.05 }}
-                className="group"
-              >
-                <div className="bg-zinc-900/50 hover:bg-zinc-800/70 rounded-lg overflow-hidden transition-all duration-300 border border-white/5 hover:border-red-500/30">
-                  <div className="grid grid-cols-1 md:grid-cols-12 gap-4 p-4">
-                    {/* Episode Number */}
-                    <div className="hidden md:flex items-center justify-center md:col-span-1">
-                      <span className="text-4xl font-bold text-white/20 group-hover:text-red-500/50 transition-colors">
-                        {episode.episode_number}
-                      </span>
-                    </div>
-
-                    {/* Episode Thumbnail */}
-                    <div className="md:col-span-4">
-                      <div className="relative aspect-video bg-zinc-800 rounded overflow-hidden cursor-pointer"
-                        onClick={() => handlePlay(episode)}
-                      >
-                        {episode.media ? (
-                          <>
-                            {/* Use series poster first, then fallback to episode thumbnail */}
-                            <img
-                              src={(() => {
-                                // Try multiple poster sources in order of preference
-                                if (series.tmdb_poster_url) return series.tmdb_poster_url;
-                                if (series.poster_path) return `${getApiUrl()}/api/admin/assets/${series.poster_path.split('/').pop()}`;
-                                return `${getApiUrl()}/api/series/${series.id}/poster`;
-                              })()}
-                              alt={episode.name}
-                              className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
-                              loading={index < 3 ? 'eager' : 'lazy'}
-                              onError={(e) => {
-                                const target = e.target as HTMLImageElement;
-                                const apiUrl = getApiUrl();
-                                
-                                // Comprehensive fallback chain
-                                if (series.tmdb_poster_url && target.src.includes('tmdb')) {
-                                  // TMDB failed, try local poster path
-                                  if (series.poster_path) {
-                                    target.src = `${apiUrl}/api/admin/assets/${series.poster_path.split('/').pop()}`;
-                                  } else {
-                                    target.src = `${apiUrl}/api/series/${series.id}/poster`;
-                                  }
-                                } else if (series.poster_path && target.src.includes('/api/admin/assets/')) {
-                                  // Local poster path failed, try series poster endpoint
-                                  target.src = `${apiUrl}/api/series/${series.id}/poster`;
-                                } else if (target.src.includes('/api/series/') && target.src.includes('/poster')) {
-                                  // Series poster endpoint failed, try episode thumbnail
-                                  if (episode.media) {
-                                    target.src = `${apiUrl}/api/thumbnails/${episode.media.id}`;
-                                  } else {
-                                    target.src = `${apiUrl}/api/thumbnails/${series.id}`;
-                                  }
-                                } else if (episode.media && target.src.includes(`/api/thumbnails/${episode.media.id}`)) {
-                                  // Episode thumbnail failed, try series thumbnail
-                                  target.src = `${apiUrl}/api/thumbnails/${series.id}`;
-                                } else {
-                                  // Final fallback: Show episode info overlay
-                                  const parent = target.parentElement!;
-                                  parent.innerHTML = `
-                                    <div class="w-full h-full bg-gradient-to-br from-red-600 to-red-800 flex flex-col items-center justify-center p-4">
-                                      <div class="text-center">
-                                        <div class="text-3xl font-bold text-white mb-2">E${episode.episode_number}</div>
-                                        <div class="text-sm text-white/90 font-medium line-clamp-2">${episode.name}</div>
-                                        <div class="text-xs text-white/70 mt-1">${series.title}</div>
-                                      </div>
-                                    </div>
-                                  `;
-                                }
-                              }}
-                            />
-                            
-                            {/* Play Overlay */}
-                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                              <div className="bg-white/90 rounded-full p-3 transform scale-75 group-hover:scale-100 transition-transform">
-                                <Play className="w-8 h-8 text-black fill-current" />
-                              </div>
-                            </div>
-
-                            {/* Episode Number Badge (Mobile) */}
-                            <div className="md:hidden absolute top-2 left-2 bg-black/80 backdrop-blur-sm px-3 py-1 rounded text-sm font-bold">
-                              {episode.episode_number}
-                            </div>
-
-                            {/* Duration Badge */}
-                            {episode.runtime && (
-                              <div className="absolute bottom-2 right-2 bg-black/80 backdrop-blur-sm px-2 py-1 rounded text-xs font-semibold">
-                                {formatRuntime(episode.runtime)}
-                              </div>
-                            )}
-                          </>
-                        ) : (
-                          // No episode media, show series poster
-                          <img
-                            src={(() => {
-                              // Try multiple poster sources in order of preference
-                              if (series.tmdb_poster_url) return series.tmdb_poster_url;
-                              if (series.poster_path) return `${getApiUrl()}/api/admin/assets/${series.poster_path.split('/').pop()}`;
-                              return `${getApiUrl()}/api/series/${series.id}/poster`;
-                            })()}
-                            alt={episode.name}
-                            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
-                            loading={index < 3 ? 'eager' : 'lazy'}
-                            onError={(e) => {
-                              const target = e.target as HTMLImageElement;
-                              const apiUrl = getApiUrl();
-                              
-                              // Comprehensive fallback chain
-                              if (series.tmdb_poster_url && target.src.includes('tmdb')) {
-                                // TMDB failed, try local poster path
-                                if (series.poster_path) {
-                                  target.src = `${apiUrl}/api/admin/assets/${series.poster_path.split('/').pop()}`;
-                                } else {
-                                  target.src = `${apiUrl}/api/series/${series.id}/poster`;
-                                }
-                              } else if (series.poster_path && target.src.includes('/api/admin/assets/')) {
-                                // Local poster path failed, try series poster endpoint
-                                target.src = `${apiUrl}/api/series/${series.id}/poster`;
-                              } else if (target.src.includes('/api/series/')) {
-                                // Series poster endpoint failed, try series thumbnail
-                                target.src = `${apiUrl}/api/thumbnails/${series.id}`;
-                              } else {
-                                // Final fallback
-                                const parent = target.parentElement!;
-                                parent.innerHTML = `
-                                  <div class="w-full h-full bg-gradient-to-br from-red-600 to-red-800 flex flex-col items-center justify-center p-4">
-                                    <div class="text-center">
-                                      <div class="text-3xl font-bold text-white mb-2">E${episode.episode_number}</div>
-                                      <div class="text-sm text-white/90 font-medium line-clamp-2">${episode.name}</div>
-                                      <div class="text-xs text-white/70 mt-1">${series.title}</div>
-                                    </div>
-                                  </div>
-                                `;
-                              }
-                            }}
-                          />
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Episode Info */}
-                    <div className="md:col-span-7 flex flex-col justify-between">
-                      <div>
-                        <div className="flex items-start justify-between mb-2">
-                          <h3 className="text-lg md:text-xl font-semibold text-white group-hover:text-red-400 transition-colors line-clamp-1">
-                            {episode.name}
-                          </h3>
-                          
-                          {/* Action Buttons */}
-                          <div className="flex items-center gap-2 ml-4">
-                            <button
-                              onClick={() => handlePlay(episode)}
-                              className="opacity-0 group-hover:opacity-100 transition-opacity bg-white/10 hover:bg-white/20 p-2 rounded-full"
-                              title="Play"
-                            >
-                              <Play className="w-4 h-4" />
-                            </button>
-                            <button
-                              className="opacity-0 group-hover:opacity-100 transition-opacity bg-white/10 hover:bg-white/20 p-2 rounded-full"
-                              title="Add to My List"
-                            >
-                              <Plus className="w-4 h-4" />
-                            </button>
-                            <button
-                              className="opacity-0 group-hover:opacity-100 transition-opacity bg-white/10 hover:bg-white/20 p-2 rounded-full"
-                              title="Rate"
-                            >
-                              <ThumbsUp className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </div>
-
-                        {/* Episode Metadata */}
-                        <div className="flex items-center gap-3 text-sm text-white/60 mb-3">
-                          {episode.air_date && (
-                            <span>{formatDate(episode.air_date)}</span>
-                          )}
-                          {episode.vote_average && (
-                            <span className="flex items-center gap-1 text-yellow-500">
-                              <Star className="w-3 h-3 fill-current" />
-                              {episode.vote_average.toFixed(1)}
-                            </span>
-                          )}
-                        </div>
-
-                        {/* Episode Description */}
-                        <p className="text-sm md:text-base text-white/70 leading-relaxed line-clamp-2 md:line-clamp-3">
-                          {episode.overview || `Episode ${episode.episode_number} of ${series.title} Season ${currentSeason}.`}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </motion.div>
-            ))}
-          </div>
-
-          {/* Series Metadata Section */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.4, delay: 0.3 }}
-            className="mt-16"
-          >
-            <h2 className="text-2xl md:text-3xl font-bold mb-8">About {series.title}</h2>
-
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-              {/* Series Information */}
-              <div className="bg-zinc-900/50 rounded-lg p-6 border border-white/5">
-                <h3 className="text-xl font-semibold text-white mb-4 flex items-center gap-2">
-                  <Info className="w-5 h-5 text-red-400" />
-                  Series Information
-                </h3>
-                <div className="space-y-3 text-sm">
-                  <div className="flex">
-                    <span className="w-32 text-white/60">Type</span>
-                    <span className="text-white">TV Series</span>
-                  </div>
-                  {series.genres && series.genres.length > 0 && (
-                    <div className="flex">
-                      <span className="w-32 text-white/60">Genres</span>
-                      <span className="text-white">
-                        {series.genres.map(g => typeof g === 'string' ? g : g).join(', ')}
-                      </span>
-                    </div>
-                  )}
-                  <div className="flex">
-                    <span className="w-32 text-white/60">Seasons</span>
-                    <span className="text-white">{totalSeasons}</span>
-                  </div>
-                  <div className="flex">
-                    <span className="w-32 text-white/60">Episodes</span>
-                    <span className="text-white">{episodes.length}</span>
-                  </div>
-                  {series.rating && (
-                    <div className="flex">
-                      <span className="w-32 text-white/60">Rating</span>
-                      <span className="text-white flex items-center gap-1">
-                        <Star className="w-4 h-4 text-yellow-400 fill-current" />
-                        {series.rating.toFixed(1)}
-                      </span>
-                    </div>
-                  )}
-                  {series.release_date && (
-                    <div className="flex">
-                      <span className="w-32 text-white/60">Release Year</span>
-                      <span className="text-white">{new Date(series.release_date).getFullYear()}</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Production Details */}
-              <div className="bg-zinc-900/50 rounded-lg p-6 border border-white/5">
-                <h3 className="text-xl font-semibold text-white mb-4 flex items-center gap-2">
-                  <Film className="w-5 h-5 text-red-400" />
-                  Production Details
-                </h3>
-                <div className="space-y-3 text-sm">
-                  {series.director && (
-                    <div className="flex">
-                      <span className="w-32 text-white/60">Creator</span>
-                      <span className="text-white">{series.director}</span>
-                    </div>
-                  )}
-                  {series.stars && (
-                    <div className="flex">
-                      <span className="w-32 text-white/60">Cast</span>
-                      <span className="text-white">{series.stars}</span>
-                    </div>
-                  )}
-                  {series.country && (
-                    <div className="flex">
-                      <span className="w-32 text-white/60">Country</span>
-                      <span className="text-white">{series.country}</span>
-                    </div>
-                  )}
-                  {series.language && (
-                    <div className="flex">
-                      <span className="w-32 text-white/60">Language</span>
-                      <span className="text-white">{series.language}</span>
-                    </div>
-                  )}
-                  {series.quality && (
-                    <div className="flex">
-                      <span className="w-32 text-white/60">Quality</span>
-                      <span className="text-white">{series.quality}</span>
-                    </div>
-                  )}
-                  {series.file_size && (
-                    <div className="flex">
-                      <span className="w-32 text-white/60">File Size</span>
-                      <span className="text-white">{series.file_size}</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* Full Description */}
-            {series.description && (
-              <div className="mt-8 bg-zinc-900/50 rounded-lg p-6 border border-white/5">
-                <h3 className="text-xl font-semibold text-white mb-4">Synopsis</h3>
-                <p className="text-white/80 leading-relaxed">
+              <div className="mb-8 max-w-xl">
+                <p className="text-white/90 text-lg leading-relaxed line-clamp-4">
                   {series.description}
                 </p>
               </div>
             )}
-          </motion.div>
+
+            {/* Action Buttons */}
+            <div className="flex items-center gap-4">
+              <button
+                onClick={() => handlePlay(firstEpisode)}
+                className={`bg-gradient-to-r ${themeGradients.accent} hover:opacity-90 text-white px-8 py-4 rounded-lg flex items-center gap-3 text-xl font-bold transition-all transform hover:scale-105 ${themeGradients.glow}`}
+              >
+                <Play className="w-6 h-6 fill-current" />
+                Play Season
+              </button>
+              
+              <button
+                onClick={() => navigate.push(`/tv-series/${params.id}`)}
+                className="bg-white/10 hover:bg-white/20 backdrop-blur-sm text-white px-8 py-4 rounded-lg flex items-center gap-3 text-xl font-semibold transition-all border border-white/20 hover:border-white/40"
+              >
+                <Info className="w-6 h-6" />
+                Series Info
+              </button>
+            </div>
+          </div>
+
+          {/* Right Side - Episodes Sidebar */}
+          <div className="w-96 bg-black/60 backdrop-blur-xl border-l border-white/10 flex flex-col">
+            {/* Episodes Header */}
+            <div className="p-6 border-b border-white/10">
+              <h2 className="text-2xl font-bold text-white mb-2">Episodes</h2>
+              <p className="text-white/70">Season {currentSeason}</p>
+            </div>
+
+            {/* Episodes List */}
+            <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-white/20 scrollbar-track-transparent">
+              <div className="p-4 space-y-3">
+                {episodes.map((episode, index) => (
+                  <motion.div
+                    key={episode.id}
+                    initial={{ opacity: 0, x: 20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ duration: 0.3, delay: index * 0.05 }}
+                    className="group cursor-pointer"
+                    onClick={() => handlePlay(episode)}
+                  >
+                    <div className="bg-white/5 hover:bg-white/10 rounded-lg p-4 transition-all duration-300 border border-white/5 hover:border-white/20">
+                      <div className="flex gap-3">
+                        {/* Episode Number */}
+                        <div className="flex-shrink-0 w-12 h-12 bg-white/10 rounded-lg flex items-center justify-center">
+                          <span className="text-lg font-bold text-white">
+                            {episode.episode_number}
+                          </span>
+                        </div>
+
+                        {/* Episode Info */}
+                        <div className="flex-1 min-w-0">
+                          <h3 className="text-white font-semibold text-sm line-clamp-2 mb-1 group-hover:text-white transition-colors">
+                            {episode.name}
+                          </h3>
+                          
+                          {/* Episode Metadata */}
+                          <div className="flex items-center gap-2 text-xs text-white/60 mb-2">
+                            {episode.runtime && (
+                              <span className="flex items-center gap-1">
+                                <Clock className="w-3 h-3" />
+                                {formatRuntime(episode.runtime)}
+                              </span>
+                            )}
+                            {episode.vote_average && (
+                              <span className="flex items-center gap-1 text-yellow-500">
+                                <Star className="w-3 h-3 fill-current" />
+                                {episode.vote_average.toFixed(1)}
+                              </span>
+                            )}
+                          </div>
+
+                          {/* Episode Description */}
+                          <p className="text-xs text-white/60 leading-relaxed line-clamp-2">
+                            {episode.overview || `Episode ${episode.episode_number} of ${series.title}.`}
+                          </p>
+                        </div>
+
+                        {/* Play Button */}
+                        <div className="flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handlePlay(episode);
+                            }}
+                            className={`bg-gradient-to-r ${themeGradients.accent} p-2 rounded-full transition-all hover:scale-110 ${themeGradients.glow}`}
+                          >
+                            <Play className="w-4 h-4 text-white fill-current" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </motion.div>
+                ))}
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
       {/* Video Player Modal */}
       {selectedMedia && (
         <VideoPlayer
-          key={selectedMedia.id} // Force re-render when media changes
+          key={selectedMedia.id}
           media={selectedMedia}
           isOpen={isPlayerOpen}
           onClose={() => setIsPlayerOpen(false)}
@@ -852,11 +610,9 @@ export default function SeasonPage() {
           onPlayNext={(nextMedia) => {
             console.log('🎬 Season page onPlayNext called with:', nextMedia.title);
             
-            // Find current episode index
             const currentIndex = episodes.findIndex(ep => ep.media?.id === selectedMedia.id);
             console.log('🎬 Current episode index:', currentIndex, 'of', episodes.length);
             
-            // Get next episode in the season
             if (currentIndex !== -1 && currentIndex < episodes.length - 1) {
               const nextEpisode = episodes[currentIndex + 1];
               if (nextEpisode.media) {
@@ -866,15 +622,12 @@ export default function SeasonPage() {
               }
             }
             
-            // If no next episode in current season, try to go to next season
             const nextSeasonNumber = currentSeason + 1;
             console.log('🎬 No more episodes in season, trying season', nextSeasonNumber);
             if (nextSeasonNumber <= totalSeasons) {
-              // Navigate to next season and play first episode
               console.log('🎬 Navigating to next season:', nextSeasonNumber);
               navigate.push(`/tv-series/${params.id}/season/${nextSeasonNumber}`);
             } else {
-              // No more episodes, close player
               console.log('🎬 No more seasons, closing player');
               setIsPlayerOpen(false);
             }

@@ -194,15 +194,9 @@ export default function HeroVideoWidget({
         return `${apiUrl}${m.logo_path}`;
       }
       
-      // For local content, construct the appropriate endpoint
-      if (m.type === 'tv' || m.type === 'series' || m.type === 'episode') {
-        // For TV series, use the series logo endpoint
-        const seriesId = m.series_id || m.id;
-        return `${apiUrl}/api/series/${seriesId}/logo`;
-      } else {
-        // For movies, use the direct logo path
-        return `${apiUrl}/api/${m.logo_path}`;
-      }
+      // For local content, use the logos endpoint
+      const filename = m.logo_path.includes('/') ? m.logo_path.split('/').pop() : m.logo_path;
+      return `${apiUrl}/api/logos/${filename}`;
     }
     
     return "";
@@ -784,17 +778,45 @@ export default function HeroVideoWidget({
 
   // Native Video Logic
   useEffect(() => {
-    if (!current || isTrailer(current)) { if (videoRef.current && isTrailer(current)) videoRef.current.pause(); return; }
+    if (!current || isTrailer(current)) { 
+      if (videoRef.current && isTrailer(current)) {
+        videoRef.current.pause();
+        videoRef.current.src = '';
+      }
+      return; 
+    }
     const video = videoRef.current;
     if (!video) return;
+    
     clearProgressInterval();
     advanceTriggeredRef.current = false;
     setProgress(0);
     let ended = false;
 
+    // Get the video source
+    let src = "";
+    if (mode !== 'preview' && current.trailer_path && !extractYouTubeKey(current.trailer_path)) {
+      if (current.trailer_path.startsWith('http')) {
+        src = current.trailer_path;
+      } else if (current.trailer_path.startsWith('/')) {
+        src = `${apiUrl}${current.trailer_path}`;
+      } else {
+        src = `${apiUrl}/api/assets/${current.trailer_path}`;
+      }
+    }
+    if (!src) {
+      src = `${apiUrl}/api/preview-clips/${current.id}?quality=high&format=mp4&cache=true`;
+    }
+
+    // Reset video completely before loading new source
+    video.pause();
+    video.currentTime = 0;
+    video.src = '';
+    video.load();
+
     const startPlayback = () => {
       try {
-        if (Math.abs(video.currentTime) > 0.5) video.currentTime = 0;
+        video.currentTime = 0;
       } catch { }
 
       // Attempt unmuted playback first if configured
@@ -814,7 +836,17 @@ export default function HeroVideoWidget({
       }
     };
 
-    const handleLoaded = () => startPlayback();
+    const handleCanPlay = () => {
+      if (!ended) {
+        startPlayback();
+      }
+    };
+
+    const handleLoaded = () => {
+      if (!ended) {
+        startPlayback();
+      }
+    };
 
     let lastTime = -1;
     let stalledCount = 0;
@@ -883,8 +915,13 @@ export default function HeroVideoWidget({
 
     video.muted = isMutedRef.current;
     video.volume = isMutedRef.current ? 0 : 1;
-    if (video.readyState >= 1) startPlayback();
+    
+    // Set the new source and load
+    video.src = src;
+    video.load();
 
+    // Add event listeners
+    video.addEventListener("canplay", handleCanPlay);
     video.addEventListener("loadedmetadata", handleLoaded);
     video.addEventListener("timeupdate", handleTimeUpdate);
     video.addEventListener("ended", handleEnded);
@@ -893,13 +930,14 @@ export default function HeroVideoWidget({
     return () => {
       ended = true;
       video.pause();
+      video.removeEventListener("canplay", handleCanPlay);
       video.removeEventListener("loadedmetadata", handleLoaded);
       video.removeEventListener("timeupdate", handleTimeUpdate);
       video.removeEventListener("ended", handleEnded);
       video.removeEventListener("error", handleError);
       clearAdvanceTimeout();
     };
-  }, [current, isTrailer, advanceSlide, clearProgressInterval, clearAdvanceTimeout]);
+  }, [current, isTrailer, advanceSlide, clearProgressInterval, clearAdvanceTimeout, apiUrl, mode, extractYouTubeKey]);
 
   // Reset states
   useEffect(() => { setImageLoaded(false); setYtVideoReady(false); setProgress(0); }, [current]);
@@ -918,25 +956,6 @@ export default function HeroVideoWidget({
   }, [current, getTrailerKey, ytVideoReady]);
 
   const renderNativeVideo = useCallback(() => {
-    let src = "";
-    if (current) {
-      // Check for local trailer first (if mode allows)
-      if (mode !== 'preview' && current.trailer_path && !extractYouTubeKey(current.trailer_path)) {
-        if (current.trailer_path.startsWith('http')) {
-          src = current.trailer_path;
-        } else if (current.trailer_path.startsWith('/')) {
-          src = `${apiUrl}${current.trailer_path}`;
-        } else {
-          // Relative path or filename
-          src = `${apiUrl}/api/assets/${current.trailer_path}`;
-        }
-      }
-      // Fallback to preview clip
-      if (!src) {
-        src = `${apiUrl}/api/preview-clips/${current.id}?quality=high&format=mp4&cache=true`;
-      }
-    }
-
     return (
       <motion.div
         key={`video-${current?.id || "preview"}`}
@@ -963,12 +982,11 @@ export default function HeroVideoWidget({
               minHeight: '70vw',
               pointerEvents: 'none'
             }}
-            src={src}
           />
         </div>
       </motion.div>
     );
-  }, [apiUrl, current, isMuted, mode, extractYouTubeKey]);
+  }, [current, isMuted]);
 
   if (!current) return null;
 

@@ -6,7 +6,7 @@ import { useNavigate } from '@/hooks/useNavigate';
 import Navbar from "@/components/Navbar";
 import VideoPlayer from '@/components/VideoPlayer';
 import { Media } from '@/types/media';
-import HomeflixHero from '@/components/HomeflixHero';
+import HomeflixHero from '@/components/LocalMoviesHeroSlider';
 import { WidgetManagementButton } from '@/components/widgets';
 import BackendWidgetRenderer from '@/components/widgets/BackendWidgetRenderer';
 import ErrorBoundary from "@/components/ErrorBoundary";

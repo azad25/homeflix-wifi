@@ -70,6 +70,9 @@ type Media struct {
 	Codec      string `json:"codec"`
 	Bitrate    int    `json:"bitrate"`
 	
+	// Quality tags extracted from filename (HDR, Dolby, UHD, etc.)
+	QualityTags []string `json:"quality_tags" gorm:"serializer:json"`
+	
 	// Thumbnails and previews
 	ThumbnailPath   string `json:"thumbnail_path"`
 	PreviewPath     string `json:"preview_path"`

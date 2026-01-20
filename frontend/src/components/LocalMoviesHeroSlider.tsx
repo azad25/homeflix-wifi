@@ -8,6 +8,7 @@ import { Play, Volume2, VolumeX, Info, Plus, Check } from "lucide-react";
 import { getApiUrl } from "@/lib/api";
 import { Media } from "@/types/media";
 import { addToWishlist, removeFromWishlist, isInWishlist, getWishlist } from '@/lib/wishlist';
+import QualityTags from '@/components/QualityTags';
 
 // Genre-based text styling utility
 const getGenreTextStyle = (genres: string[] = []) => {
@@ -468,10 +469,14 @@ const LocalMoviesHeroSlider: React.FC<LocalMoviesHeroSliderProps> = ({
                                                 {movie.rating.toFixed(1)}
                                             </span>
                                         )}
-                                        {movie.quality && movie.quality.trim() && (
-                                            <span className="px-2 py-0.5 border border-gray-400 rounded text-xs font-bold">
-                                                {movie.quality.toLowerCase().includes('4k') || movie.quality.toLowerCase().includes('2160p') ? '4K' : 'HD'}
-                                            </span>
+                                        {/* Quality Tags - Netflix-style tags */}
+                                        {movie.quality_tags && movie.quality_tags.length > 0 && (
+                                            <QualityTags 
+                                                tags={movie.quality_tags} 
+                                                size="sm" 
+                                                variant="compact"
+                                                className="flex-wrap"
+                                            />
                                         )}
                                     </div>
 
