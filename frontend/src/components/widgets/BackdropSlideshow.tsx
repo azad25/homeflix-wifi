@@ -381,7 +381,7 @@ export default function BackdropSlideshow({
                                         <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 backdrop-blur-sm border border-white/20">
                                             <Calendar className="w-4 h-4 text-white/80" />
                                             <span className="text-white font-medium">
-                                                {currentMedia.year || new Date(currentMedia.release_date!).getFullYear()}
+                                                {currentMedia.year && currentMedia.year > 0 ? currentMedia.year : new Date(currentMedia.release_date!).getFullYear()}
                                             </span>
                                         </div>
                                     )}

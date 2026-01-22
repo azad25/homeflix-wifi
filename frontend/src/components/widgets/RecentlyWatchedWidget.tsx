@@ -237,7 +237,7 @@ export default function RecentlyWatchedWidget({
           </div>
           <div>
             <h2 className="text-xl md:text-2xl font-bold text-white">{title}</h2>
-            <p className="text-sm text-white/50">{recentItems.length} items to continue</p>
+            <p className="text-sm text-white/50">{recentItems.length > 0 ? `${recentItems.length} items to continue` : 'No items to continue'}</p>
           </div>
         </div>
         

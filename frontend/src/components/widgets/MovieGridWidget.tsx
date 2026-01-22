@@ -170,11 +170,13 @@ export default function MovieGridWidget({
                             <p className="text-sm text-white/60 mt-1">{subtitle}</p>
                         )}
                         <div className="flex items-center gap-2 mt-1">
-                            <div className="px-2 py-1 bg-red-500/20 backdrop-blur-sm border border-red-400/30 rounded-full">
-                                <span className="text-red-300 text-xs font-semibold">
-                                    {displayMedia.length} Items
-                                </span>
-                            </div>
+                            {displayMedia.length > 0 && (
+                                <div className="px-2 py-1 bg-red-500/20 backdrop-blur-sm border border-red-400/30 rounded-full">
+                                    <span className="text-red-300 text-xs font-semibold">
+                                        {displayMedia.length} Items
+                                    </span>
+                                </div>
+                            )}
                         </div>
                     </div>
                 </div>
@@ -329,7 +331,7 @@ export default function MovieGridWidget({
 
                                             {/* Meta Info */}
                                             <div className="flex items-center gap-2 text-xs text-white/80 mb-3">
-                                                {item.year && (
+                                                {item.year && item.year > 0 && (
                                                     <span className="flex items-center gap-1">
                                                         <Calendar className="w-3 h-3" />
                                                         {item.year}

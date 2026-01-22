@@ -12,36 +12,6 @@ import { useRecommendationScore } from '@/lib/swr-api';
 import { useMyList } from '@/hooks/useMyList';
 import MyListTooltip from '@/components/ui/MyListTooltip';
 
-// Genre-based text styling utility
-const getGenreTextStyle = (genres: string[] = []) => {
-  const primaryGenre = genres[0]?.toLowerCase() || '';
-  
-  // Font family based on genre
-  let fontFamily = 'font-sans'; // default
-  if (primaryGenre.includes('horror') || primaryGenre.includes('thriller')) {
-    fontFamily = 'font-mono'; // monospace for tension
-  } else if (primaryGenre.includes('romance') || primaryGenre.includes('drama')) {
-    fontFamily = 'font-serif'; // serif for elegance
-  } else if (primaryGenre.includes('sci') || primaryGenre.includes('science')) {
-    fontFamily = 'font-mono'; // monospace for tech feel
-  } else if (primaryGenre.includes('comedy')) {
-    fontFamily = 'font-sans'; // clean sans for readability
-  }
-  
-  // Text size and styling
-  const textSize = 'text-sm md:text-base'; // Reduced from lg
-  const maxWidth = 'max-w-lg'; // Reduced from 2xl to lg
-  const lineHeight = 'leading-relaxed';
-  
-  return {
-    fontFamily,
-    textSize,
-    maxWidth,
-    lineHeight,
-    className: `${fontFamily} ${textSize} ${maxWidth} ${lineHeight}`
-  };
-};
-
 export type HeroMode = "preview" | "trailer" | "mixed";
 
 interface HeroVideoWidgetProps {
@@ -194,9 +164,15 @@ export default function HeroVideoWidget({
         return `${apiUrl}${m.logo_path}`;
       }
       
-      // For local content, use the logos endpoint
-      const filename = m.logo_path.includes('/') ? m.logo_path.split('/').pop() : m.logo_path;
-      return `${apiUrl}/api/logos/${filename}`;
+      // For local content, construct the appropriate endpoint
+      if (m.type === 'tv' || m.type === 'series' || m.type === 'episode') {
+        // For TV series, use the series logo endpoint
+        const seriesId = m.series_id || m.id;
+        return `${apiUrl}/api/series/${seriesId}/logo`;
+      } else {
+        // For movies, use the direct logo path
+        return `${apiUrl}/api/${m.logo_path}`;
+      }
     }
     
     return "";
@@ -268,10 +244,7 @@ export default function HeroVideoWidget({
     if (typeof m.rating === "number" && m.rating > 0) {
       return Math.min(10, Math.max(0, Number(m.rating.toFixed(1))));
     }
-    if (typeof (m as any).vote_average === "number" && (m as any).vote_average > 0) {
-      return Math.min(10, Math.max(0, Number(((m as any).vote_average).toFixed(1))));
-    }
-    if (typeof (m as any).vote_count === "number" && (m as any).vote_count > 0 && typeof m.popularity === "number") {
+    if (typeof m.vote_count === "number" && m.vote_count > 0 && typeof m.popularity === "number") {
       const derived = Math.min(10, m.popularity / 10);
       return Number(derived.toFixed(1));
     }
@@ -282,7 +255,7 @@ export default function HeroVideoWidget({
   const calculateMockScore = useCallback((m: Media) => {
     const rating = typeof m.rating === "number" && m.rating > 0 ? m.rating : 0;
     const popularity = typeof m.popularity === "number" ? Math.min(100, m.popularity) : 0;
-    const voteCount = typeof (m as any).vote_count === "number" ? Math.min(200, (m as any).vote_count) : 0;
+    const voteCount = typeof m.vote_count === "number" ? Math.min(200, m.vote_count) : 0;
     const viewCount = typeof (m as any).view_count === "number" ? Math.min(100, (m as any).view_count) : 0;
 
     // Enhanced calculation for local content
@@ -778,45 +751,17 @@ export default function HeroVideoWidget({
 
   // Native Video Logic
   useEffect(() => {
-    if (!current || isTrailer(current)) { 
-      if (videoRef.current && isTrailer(current)) {
-        videoRef.current.pause();
-        videoRef.current.src = '';
-      }
-      return; 
-    }
+    if (!current || isTrailer(current)) { if (videoRef.current && isTrailer(current)) videoRef.current.pause(); return; }
     const video = videoRef.current;
     if (!video) return;
-    
     clearProgressInterval();
     advanceTriggeredRef.current = false;
     setProgress(0);
     let ended = false;
 
-    // Get the video source
-    let src = "";
-    if (mode !== 'preview' && current.trailer_path && !extractYouTubeKey(current.trailer_path)) {
-      if (current.trailer_path.startsWith('http')) {
-        src = current.trailer_path;
-      } else if (current.trailer_path.startsWith('/')) {
-        src = `${apiUrl}${current.trailer_path}`;
-      } else {
-        src = `${apiUrl}/api/assets/${current.trailer_path}`;
-      }
-    }
-    if (!src) {
-      src = `${apiUrl}/api/preview-clips/${current.id}?quality=high&format=mp4&cache=true`;
-    }
-
-    // Reset video completely before loading new source
-    video.pause();
-    video.currentTime = 0;
-    video.src = '';
-    video.load();
-
     const startPlayback = () => {
       try {
-        video.currentTime = 0;
+        if (Math.abs(video.currentTime) > 0.5) video.currentTime = 0;
       } catch { }
 
       // Attempt unmuted playback first if configured
@@ -836,17 +781,7 @@ export default function HeroVideoWidget({
       }
     };
 
-    const handleCanPlay = () => {
-      if (!ended) {
-        startPlayback();
-      }
-    };
-
-    const handleLoaded = () => {
-      if (!ended) {
-        startPlayback();
-      }
-    };
+    const handleLoaded = () => startPlayback();
 
     let lastTime = -1;
     let stalledCount = 0;
@@ -915,13 +850,8 @@ export default function HeroVideoWidget({
 
     video.muted = isMutedRef.current;
     video.volume = isMutedRef.current ? 0 : 1;
-    
-    // Set the new source and load
-    video.src = src;
-    video.load();
+    if (video.readyState >= 1) startPlayback();
 
-    // Add event listeners
-    video.addEventListener("canplay", handleCanPlay);
     video.addEventListener("loadedmetadata", handleLoaded);
     video.addEventListener("timeupdate", handleTimeUpdate);
     video.addEventListener("ended", handleEnded);
@@ -930,14 +860,13 @@ export default function HeroVideoWidget({
     return () => {
       ended = true;
       video.pause();
-      video.removeEventListener("canplay", handleCanPlay);
       video.removeEventListener("loadedmetadata", handleLoaded);
       video.removeEventListener("timeupdate", handleTimeUpdate);
       video.removeEventListener("ended", handleEnded);
       video.removeEventListener("error", handleError);
       clearAdvanceTimeout();
     };
-  }, [current, isTrailer, advanceSlide, clearProgressInterval, clearAdvanceTimeout, apiUrl, mode, extractYouTubeKey]);
+  }, [current, isTrailer, advanceSlide, clearProgressInterval, clearAdvanceTimeout]);
 
   // Reset states
   useEffect(() => { setImageLoaded(false); setYtVideoReady(false); setProgress(0); }, [current]);
@@ -956,37 +885,27 @@ export default function HeroVideoWidget({
   }, [current, getTrailerKey, ytVideoReady]);
 
   const renderNativeVideo = useCallback(() => {
-    return (
-      <motion.div
-        key={`video-${current?.id || "preview"}`}
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        transition={{ duration: 0.5 }}
-        className="absolute inset-0 z-10 flex items-center justify-center overflow-hidden pointer-events-none"
-        style={{
-          clipPath: 'inset(0)',
-        }}
-      >
-        <div className="relative w-full h-full overflow-hidden">
-          <video
-            ref={videoRef}
-            autoPlay
-            muted={isMuted}
-            playsInline
-            className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 object-cover"
-            style={{
-              width: '120vw',
-              height: '120vh',
-              minWidth: '200vh',
-              minHeight: '70vw',
-              pointerEvents: 'none'
-            }}
-          />
-        </div>
-      </motion.div>
-    );
-  }, [current, isMuted]);
+    let src = "";
+    if (current) {
+      // Check for local trailer first (if mode allows)
+      if (mode !== 'preview' && current.trailer_path && !extractYouTubeKey(current.trailer_path)) {
+        if (current.trailer_path.startsWith('http')) {
+          src = current.trailer_path;
+        } else if (current.trailer_path.startsWith('/')) {
+          src = `${apiUrl}${current.trailer_path}`;
+        } else {
+          // Relative path or filename
+          src = `${apiUrl}/api/assets/${current.trailer_path}`;
+        }
+      }
+      // Fallback to preview clip
+      if (!src) {
+        src = `${apiUrl}/api/preview-clips/${current.id}?quality=high&format=mp4&cache=true`;
+      }
+    }
+
+    return <video key={current?.id || "preview"} ref={videoRef} autoPlay muted={isMuted} playsInline className="absolute inset-0 w-full h-full object-cover z-10" src={src} />;
+  }, [apiUrl, current, isMuted, mode, extractYouTubeKey]);
 
   if (!current) return null;
 
@@ -1055,9 +974,7 @@ export default function HeroVideoWidget({
       </AnimatePresence>
 
       {/* Video */}
-      <AnimatePresence mode="wait">
-        {isTrailer(current) ? renderTrailer() : renderNativeVideo()}
-      </AnimatePresence>
+      <AnimatePresence mode="wait">{isTrailer(current) ? renderTrailer() : renderNativeVideo()}</AnimatePresence>
 
       {/* Gradients */}
       <div className="absolute inset-0 bg-gradient-to-r from-black/95 via-black/60 to-transparent" />
@@ -1109,13 +1026,13 @@ export default function HeroVideoWidget({
                     {recommendationScore}% Match
                   </span>
                 )}
-                {releaseYear && releaseYear > 0 && (
+                {releaseYear && (
                   <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full backdrop-blur-sm border ${theme.bg} ${theme.text} ${theme.border}`}>
                     <Calendar className="w-3 h-3" />
                     {releaseYear}
                   </span>
                 )}
-                {displayRating && displayRating > 0 && (
+                {displayRating && (
                   <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full backdrop-blur-sm border ${theme.bg} ${theme.text} ${theme.border}`}>
                     <Star className="w-3 h-3 fill-current" />
                     {displayRating.toFixed(1)}
@@ -1144,7 +1061,7 @@ export default function HeroVideoWidget({
                 </motion.div>
               )}
 
-              <motion.p className={`text-white/70 max-w-xl line-clamp-2 mb-4 ${getGenreTextStyle(current.genre_names || current.genres?.map((g: any) => g.name) || []).className}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.6, duration: 0.4 }}>{current.description || current.short_desc || current.long_desc}</motion.p>
+              <motion.p className="text-white/70 text-xs md:text-sm max-w-xl line-clamp-2 mb-4 leading-relaxed" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.6, duration: 0.4 }}>{current.description || current.short_desc || current.long_desc}</motion.p>
 
               <motion.div className="flex items-center gap-3" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.7, duration: 0.4 }}>
                 {hasLocalFile(current) && (

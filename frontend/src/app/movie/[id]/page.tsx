@@ -1487,7 +1487,7 @@ export default function MoviePage() {
       setIsMuted(true);
     }
 
-    if (params.id) {
+    if (params?.id) {
       clearPlaybackProgress(params.id as string);
     }
     // Reset local playback state to ensure we start from beginning
@@ -1682,7 +1682,7 @@ export default function MoviePage() {
   }, [castState.isConnected, media]);
 
   const handlePlayerProgress = async (currentTime: number, duration: number) => {
-    if (!params.id || !duration) return;
+    if (!params?.id || !duration) return;
 
     try {
       // Save to backend API (same as ContinueWatching component expects)
@@ -1704,14 +1704,18 @@ export default function MoviePage() {
     }
 
     // Save to cookie-based system as fallback
-    savePlaybackProgress(params.id as string, currentTime, duration);
+    if (params?.id) {
+      savePlaybackProgress(params.id as string, currentTime, duration);
+    }
 
     // Also save to localStorage for backward compatibility
     const progressData = {
       progress: currentTime,
       timestamp: new Date().toISOString(),
     };
-    localStorage.setItem(`progress_${params.id}`, JSON.stringify(progressData));
+    if (params?.id) {
+      localStorage.setItem(`progress_${params.id}`, JSON.stringify(progressData));
+    }
   };
 
   const formatRuntime = (minutes: number) => {

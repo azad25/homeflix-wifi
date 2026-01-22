@@ -148,7 +148,7 @@ const HomeflixCard: React.FC<HomeflixCardProps> = ({
           <div className="absolute top-4 right-4 flex items-center gap-1 bg-black/70 backdrop-blur-sm px-2 py-1 rounded-full">
             {/* <Star className="w-3 h-3 text-yellow-400 fill-current" /> */}
             <span className="text-xs font-medium text-white">
-              {media.year}
+              {media.year && media.year > 0 ? media.year : ''}
             </span>
           </div>
         )}

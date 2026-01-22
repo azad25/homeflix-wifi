@@ -860,7 +860,7 @@ const TMDBMoviePage: React.FC = () => {
   // Use the new backend-connected My List hook
   const { myList, collections, isInMyList: isInMyListHook, toggleMyList: toggleMyListHook, addToCollection, fetchCollections } = useMyList();
 
-  const movieId = params.id as string;
+  const movieId = params?.id as string;
   
   // Create prefixed ID for TMDB content to distinguish from local media
   const tmdbPrefixedId = movieId ? parseInt(`9${movieId}`) : 0;
@@ -919,7 +919,7 @@ const TMDBMoviePage: React.FC = () => {
     try {
       setLoading(true);
       const apiUrl = getApiUrl();
-      const mediaType = searchParams.get('type');
+      const mediaType = searchParams?.get('type');
       const url = mediaType
         ? `${apiUrl}/api/tmdb-movie/${movieId}?type=${mediaType}`
         : `${apiUrl}/api/tmdb-movie/${movieId}`;

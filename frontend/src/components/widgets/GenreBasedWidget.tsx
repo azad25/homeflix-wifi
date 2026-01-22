@@ -251,7 +251,7 @@ export default function GenreBasedWidget({
                                         >
                                             <h4 className="text-sm font-semibold line-clamp-2 mb-1">{item.title}</h4>
                                             <div className="flex items-center gap-2 text-xs text-white/60 mb-2">
-                                                {item.year && <span>{item.year}</span>}
+                                                {item.year && item.year > 0 && <span>{item.year}</span>}
                                             </div>
                                             <div className="flex items-center gap-2">
                                                 <button

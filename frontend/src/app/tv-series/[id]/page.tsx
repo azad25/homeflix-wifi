@@ -406,12 +406,12 @@ export default function TVSeriesPage() {
   }, [destroyVideo]);
 
   useEffect(() => {
-    if (params.id) {
+    if (params?.id) {
       fetchSeriesData();
       checkMyList();
       loadPlaybackProgress();
     }
-  }, [params.id]);
+  }, [params?.id]);
 
   // Netflix-style title overlay animation
   useEffect(() => {
@@ -612,12 +612,12 @@ export default function TVSeriesPage() {
   const fetchSeriesData = async () => {
     try {
       const apiUrl = getApiUrl();
-      console.log('🔍 Fetching series data for ID:', params.id);
+      console.log('🔍 Fetching series data for ID:', params?.id);
 
       // First try to get series info from the series API
       let seriesData = null;
       try {
-        const seriesResponse = await fetch(`${apiUrl}/api/series/${params.id}`);
+        const seriesResponse = await fetch(`${apiUrl}/api/series/${params?.id}`);
         if (seriesResponse.ok) {
           seriesData = await seriesResponse.json();
           console.log('✅ Found series data:', seriesData);
@@ -629,7 +629,7 @@ export default function TVSeriesPage() {
       // If no series found, try to get it from media API
       if (!seriesData) {
         try {
-          const mediaResponse = await fetch(`${apiUrl}/api/media/${params.id}`);
+          const mediaResponse = await fetch(`${apiUrl}/api/media/${params?.id}`);
           if (mediaResponse.ok) {
             seriesData = await mediaResponse.json();
             console.log('✅ Found media data:', seriesData);
@@ -648,8 +648,8 @@ export default function TVSeriesPage() {
         // Find episodes that might belong to this series
         const possibleEpisodes = allMedia.filter((media: Media) =>
           media.type === 'episode' && (
-            media.series_id?.toString() === params.id?.toString() ||
-            media.id?.toString() === params.id?.toString()
+            media.series_id?.toString() === params?.id?.toString() ||
+            media.id?.toString() === params?.id?.toString()
           )
         );
 
@@ -657,7 +657,7 @@ export default function TVSeriesPage() {
           // Create series data from first episode
           const firstEpisode = possibleEpisodes[0];
           seriesData = {
-            id: params.id,
+            id: params?.id,
             title: firstEpisode.series?.title || firstEpisode.title.replace(/\s*-\s*S\d+E\d+.*$/i, '') || 'Unknown Series',
             description: firstEpisode.series?.description || firstEpisode.description || '',
             rating: firstEpisode.rating || 0,
@@ -675,7 +675,7 @@ export default function TVSeriesPage() {
       }
 
       if (!seriesData) {
-        console.error('❌ No series data found for ID:', params.id);
+        console.error('❌ No series data found for ID:', params?.id);
         setLoading(false);
         return;
       }
@@ -689,7 +689,7 @@ export default function TVSeriesPage() {
       // Filter episodes that belong to this series
       const seriesEpisodes = allMedia.filter((media: Media) => {
         return media.type === 'episode' && (
-          media.series_id?.toString() === params.id?.toString() ||
+          media.series_id?.toString() === params?.id?.toString() ||
           (seriesData.title && media.title.toLowerCase().includes(seriesData.title.toLowerCase())) ||
           (media.file_path && seriesData.file_path &&
             media.file_path.includes(seriesData.file_path.split('/').slice(0, -1).join('/')))
@@ -944,7 +944,7 @@ export default function TVSeriesPage() {
 
   const handleSeasonSelect = (seasonNumber: number) => {
     setSelectedSeason(seasonNumber);
-    navigate.push(`/tv-series/${params.id}/season/${seasonNumber}`);
+    navigate.push(`/tv-series/${params?.id}/season/${seasonNumber}`);
   };
 
   const toggleMyList = () => {

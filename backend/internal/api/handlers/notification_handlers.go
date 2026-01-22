@@ -38,6 +38,11 @@ func (h *NotificationHandlers) GetNotifications(c *gin.Context) {
 		return
 	}
 
+	// Add aggressive caching headers for fast page loads
+	// Cache for 30 seconds on client, revalidate after
+	c.Header("Cache-Control", "public, max-age=30, stale-while-revalidate=60")
+	c.Header("ETag", strconv.FormatInt(int64(len(notifications)), 10))
+
 	c.JSON(http.StatusOK, gin.H{
 		"notifications": notifications,
 		"count":         len(notifications),

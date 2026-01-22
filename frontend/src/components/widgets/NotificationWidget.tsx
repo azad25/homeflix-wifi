@@ -1751,7 +1751,7 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
           Recent Updates
         </h3>
         <div className="text-sm text-white/60">
-          {notifications.length} notification{notifications.length !== 1 ? 's' : ''}
+          {notifications.length > 0 ? `${notifications.length} notification${notifications.length !== 1 ? 's' : ''}` : 'No notifications'}
         </div>
       </div>
       {notifications.slice(0, widget.maxItems || 8).map((notification, index) => (

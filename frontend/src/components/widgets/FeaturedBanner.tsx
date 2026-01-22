@@ -353,18 +353,18 @@ export default function FeaturedBanner({
                                 </span>
                             </div>
                         )}
-                        {currentMedia.year && (
+                        {currentMedia.year && currentMedia.year > 0 && (
                             <div className="flex items-center gap-1">
                                 <Calendar className="w-4 h-4" />
                                 <span>{currentMedia.year}</span>
                             </div>
                         )}
-                        {currentMedia.runtime && (
+                        {currentMedia.runtime && currentMedia.runtime > 0 && (
                             <span className="text-white/70">
                                 {Math.floor(currentMedia.runtime / 60)}h {currentMedia.runtime % 60}m
                             </span>
                         )}
-                        {currentMedia.certification && (
+                        {currentMedia.certification && currentMedia.certification.trim() && (
                             <span className="px-2 py-0.5 border border-white/30 rounded text-xs font-medium">
                                 {currentMedia.certification}
                             </span>

@@ -38,27 +38,27 @@ export default function SeasonPage() {
   const videoRef = React.useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
-    if (params.id && params.season) {
-      setCurrentSeason(parseInt(params.season as string));
+    if (params?.id && params?.season) {
+      setCurrentSeason(parseInt(params?.season as string));
       fetchSeasonData();
     }
-  }, [params.id, params.season]);
+  }, [params?.id, params?.season]);
 
   const fetchSeasonData = async () => {
     try {
       const apiUrl = getApiUrl();
-      const seasonNumber = parseInt(params.season as string);
+      const seasonNumber = parseInt(params?.season as string);
       
       // First try to use the hierarchical API
       try {
         // Get series info from hierarchical API
-        const seriesResponse = await fetch(`${apiUrl}/api/series/${params.id}`);
+        const seriesResponse = await fetch(`${apiUrl}/api/series/${params?.id}`);
         if (seriesResponse.ok) {
           const seriesData = await seriesResponse.json();
           setSeries(seriesData);
 
           // Get episodes for this specific season
-          const episodesResponse = await fetch(`${apiUrl}/api/series/${params.id}/seasons/${seasonNumber}/episodes`);
+          const episodesResponse = await fetch(`${apiUrl}/api/series/${params?.id}/seasons/${seasonNumber}/episodes`);
           if (episodesResponse.ok) {
             const episodesData = await episodesResponse.json();
             
@@ -80,7 +80,7 @@ export default function SeasonPage() {
             setEpisodes(episodeList);
 
             // Get all seasons to calculate total
-            const seasonsResponse = await fetch(`${apiUrl}/api/series/${params.id}/seasons`);
+            const seasonsResponse = await fetch(`${apiUrl}/api/series/${params?.id}/seasons`);
             if (seasonsResponse.ok) {
               const seasonsData = await seasonsResponse.json();
               setTotalSeasons(seasonsData.length);
@@ -102,7 +102,7 @@ export default function SeasonPage() {
 
       // Fallback to original method
       // Get series info
-      const seriesResponse = await fetch(`${apiUrl}/api/media/${params.id}`);
+      const seriesResponse = await fetch(`${apiUrl}/api/media/${params?.id}`);
       const seriesData = await seriesResponse.json();
       setSeries(seriesData);
 
@@ -197,14 +197,14 @@ export default function SeasonPage() {
   const handleInfo = (episode: Episode) => {
     if (episode.media) {
       // Episodes should link to their individual episode page or back to season
-      navigate.push(`/tv-series/${params.id}/season/${params.season}`);
+      navigate.push(`/tv-series/${params?.id}/season/${params?.season}`);
     }
   };
 
   const navigateSeason = (direction: 'prev' | 'next') => {
     const newSeason = direction === 'prev' ? currentSeason - 1 : currentSeason + 1;
     if (newSeason >= 1 && newSeason <= totalSeasons) {
-      navigate.push(`/tv-series/${params.id}/season/${newSeason}`);
+      navigate.push(`/tv-series/${params?.id}/season/${newSeason}`);
     }
   };
 
@@ -445,7 +445,7 @@ export default function SeasonPage() {
               <div className="relative inline-block">
                 <select
                   value={currentSeason}
-                  onChange={(e) => navigate.push(`/tv-series/${params.id}/season/${e.target.value}`)}
+                  onChange={(e) => navigate.push(`/tv-series/${params?.id}/season/${e.target.value}`)}
                   className={`appearance-none bg-gradient-to-r ${themeGradients.accent} backdrop-blur-sm border-2 border-white/20 hover:border-white/40 text-white px-6 py-3 pr-12 rounded-lg text-xl font-bold cursor-pointer transition-all focus:outline-none focus:border-white/60 ${themeGradients.glow}`}
                 >
                   {Array.from({ length: totalSeasons }, (_, i) => i + 1).map((season) => (
@@ -511,7 +511,7 @@ export default function SeasonPage() {
               </button>
               
               <button
-                onClick={() => navigate.push(`/tv-series/${params.id}`)}
+                onClick={() => navigate.push(`/tv-series/${params?.id}`)}
                 className="bg-white/10 hover:bg-white/20 backdrop-blur-sm text-white px-8 py-4 rounded-lg flex items-center gap-3 text-xl font-semibold transition-all border border-white/20 hover:border-white/40"
               >
                 <Info className="w-6 h-6" />
@@ -626,7 +626,7 @@ export default function SeasonPage() {
             console.log('🎬 No more episodes in season, trying season', nextSeasonNumber);
             if (nextSeasonNumber <= totalSeasons) {
               console.log('🎬 Navigating to next season:', nextSeasonNumber);
-              navigate.push(`/tv-series/${params.id}/season/${nextSeasonNumber}`);
+              navigate.push(`/tv-series/${params?.id}/season/${nextSeasonNumber}`);
             } else {
               console.log('🎬 No more seasons, closing player');
               setIsPlayerOpen(false);

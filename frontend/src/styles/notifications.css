@@ -1,0 +1,94 @@
+/* Notification page specific styles */
+
+@keyframes tileGlow {
+  0%, 100% {
+    box-shadow: 0 8px 32px rgba(239, 68, 68, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  }
+  50% {
+    box-shadow: 0 12px 40px rgba(239, 68, 68, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.15);
+  }
+}
+
+@keyframes particleFloat {
+  0%, 100% {
+    transform: translateY(0px) translateX(0px);
+    opacity: 0;
+  }
+  50% {
+    opacity: 0.8;
+  }
+}
+
+@keyframes sparkle {
+  0%, 100% {
+    transform: scale(0) rotate(0deg);
+    opacity: 0;
+  }
+  50% {
+    transform: scale(1) rotate(180deg);
+    opacity: 1;
+  }
+}
+
+@keyframes gradientShift {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+.tile-high-priority {
+  animation: tileGlow 2s ease-in-out infinite;
+}
+
+.tile-particle {
+  animation: particleFloat 4s ease-in-out infinite;
+}
+
+.tile-sparkle {
+  animation: sparkle 2s ease-in-out infinite;
+}
+
+.tile-gradient-border {
+  background: linear-gradient(45deg, #ef4444, #f97316, #ef4444);
+  background-size: 200% 200%;
+  animation: gradientShift 3s linear infinite;
+}
+
+/* Smooth transitions for tile movements */
+.tile-container {
+  transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Hide scrollbars but keep functionality */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+/* Performance optimizations */
+.tile-container * {
+  will-change: transform, opacity;
+}
+
+/* Responsive grid adjustments */
+@media (max-width: 768px) {
+  .tile-container {
+    padding: 0.5rem;
+  }
+}
+
+@media (max-width: 1024px) {
+  .tile-container {
+    padding: 0.75rem;
+  }
+}

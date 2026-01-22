@@ -2,9 +2,15 @@
 
 Transform your media collection into a professional streaming platform! HomeFlix is a full-featured streaming platform that automatically organizes and streams your movies and TV shows with a beautiful, responsive interface. Search movies from directly TMDB and get updated on new movies or tv shows, trailers.
 
-## 🎉 **NEW in Version 3.0-Stable: Advanced Widget System!**
+## 🎉 **NEW in Version 3.5-Stable: Live Notification Feed!**
 
-**Complete customizable widget ecosystem with Netflix-style interface!** HomeFlix now features a professional widget management system with drag-and-drop configuration, performance monitoring, and beautiful glassmorphism design.
+**Netflix-quality live notification system with dynamic tile rotation!** HomeFlix now features a professional notification feed with auto-playing trailers, smart content rotation, and beautiful gradient designs that showcase trending content, new releases, and personalized recommendations.
+
+![Notification System Interface](/screenshots/preview_notifications.png)
+
+## 🎉 **Previous: Version 3.0-Stable - Advanced Widget System!**
+
+**Complete customizable widget ecosystem with Netflix-style interface!** HomeFlix features a professional widget management system with drag-and-drop configuration, performance monitoring, and beautiful glassmorphism design.
 
 ![Widget System Interface](/screenshots/preview_widget.png)
 
@@ -29,6 +35,59 @@ Transform your media collection into a professional streaming platform! HomeFlix
 ![Movie Discovery](/screenshots/preview_14.png)
 ![TV shows](/screenshots/preview_23.png)
 ![TV Shows](/screenshots/preview_24.png)
+
+---
+
+## 🚀 **Version 3.5-Stable Changelog - Live Notification Feed**
+
+### 🔔 **NEW: Professional Notification System**
+- **Live Activity Feed**: Real-time notification tiles with dynamic content rotation
+- **Netflix-Style Design**: Cinematic tile layouts with auto-playing trailers and smooth animations
+- **Smart Rotation**: Tiles automatically rotate every 5 seconds showing fresh content
+- **16 Notification Types**: Trending, Now Playing, Coming Soon, Continue Watching, and more
+- **Intelligent Caching**: Instant page loads with localStorage caching and background updates
+
+### 🎬 **NEW: Dynamic Content Tiles**
+- **Auto-Playing Trailers**: Hero and large tiles feature YouTube trailers with audio controls
+- **Gradient Backgrounds**: Beautiful genre-based color schemes with smooth transitions
+- **Poster Integration**: TMDB poster URLs with intelligent fallback to gradients
+- **Progress Tracking**: Continue watching tiles show completion percentage and time remaining
+- **Multi-Item Display**: Grid layouts showing multiple movies in single notifications
+
+### ⚡ **NEW: Performance & Optimization**
+- **Instant Loading**: <100ms page load with aggressive caching (previously 2-5 seconds)
+- **Zero 404 Errors**: Strict URL validation prevents broken image requests
+- **Smart Refresh**: Auto-refresh every 10 seconds for new notifications
+- **Concurrent Generation**: Backend generates notifications every 15 seconds
+- **100 Notification Pool**: Large variety pool ensures unique content rotation
+
+### 🎯 **NEW: Notification Types**
+- **Continue Watching**: Resume partially watched content with progress bars
+- **TMDB Trending**: Worldwide trending movies and TV shows with trailers
+- **Now Playing**: Currently in theaters with high-quality trailers
+- **Coming Soon**: Future releases with countdown timers
+- **Recently Added**: Newly added local content
+- **Local Trending**: Popular content in your library
+- **Genre-Based**: Personalized recommendations by favorite genres
+- **Now Airing TV**: Currently airing TV series episodes
+- **Upcoming TV**: New TV episodes coming soon
+- **Single Suggestions**: Curated individual movie recommendations
+
+### 🎨 **NEW: Visual Excellence**
+- **Glassmorphism Effects**: Modern glass-like design with backdrop blur
+- **Genre Color Themes**: Dynamic color palettes based on content genres
+- **Smooth Animations**: Framer Motion animations for all tile transitions
+- **Priority Badges**: "HOT" indicators for high-priority content
+- **Responsive Grid**: Perfect tile arrangement on all screen sizes
+- **Breathing Effects**: Subtle animations for high-priority notifications
+
+### 📊 **NEW: Smart Features**
+- **Click Navigation**: Tiles navigate to movie/TMDB detail pages
+- **Trailer Controls**: Unmute buttons for hero tile trailers
+- **Unique Content**: No duplicate tiles, each notification shown once
+- **Size Matching**: Smart rotation maintains layout stability
+- **Trailer Protection**: Tiles with playing trailers don't rotate
+- **Background Updates**: Notifications refresh without page reload
 
 ---
 
@@ -187,9 +246,12 @@ Transform your media collection into a professional streaming platform! HomeFlix
 - **Intelligent Metadata**: Auto-fetches movie info, posters, and descriptions from TMDB
 - **Genre Classification**: Automatically categorizes content by genre
 - **Series Organization**: Groups TV episodes by seasons and series
-- **🆕 Advanced Widget System**: Customizable Netflix-style interface with drag-and-drop configuration
-- **🆕 Performance Monitoring**: Real-time widget analytics and optimization tools
-- **🆕 Visual Editor**: Point-and-click widget management with live preview
+- **🆕 Live Notification Feed**: Netflix-quality notification system with dynamic tile rotation
+- **🆕 Smart Content Discovery**: 16 notification types showcasing trending, new, and personalized content
+- **🆕 Auto-Playing Trailers**: Hero tiles feature YouTube trailers with audio controls
+- **Advanced Widget System**: Customizable Netflix-style interface with drag-and-drop configuration
+- **Performance Monitoring**: Real-time widget analytics and optimization tools
+- **Visual Editor**: Point-and-click widget management with live preview
 - **Torrent Downloads**: One-click downloads directly from TMDB movie pages
 - **Real-time Progress**: Live download tracking with speed and ETA
 - **Automatic Integration**: Downloaded content instantly appears in library

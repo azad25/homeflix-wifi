@@ -154,11 +154,13 @@ export default function TrendingSlideshow({
                         <div>
                             <h2 className="text-xl md:text-2xl font-bold text-white">{title}</h2>
                             <div className="flex items-center gap-2 mt-1">
-                                <div className="px-2 py-1 bg-red-500/20 backdrop-blur-sm border border-red-400/30 rounded-full">
-                                    <span className="text-red-300 text-xs font-semibold uppercase tracking-wider">
-                                        Top {displayMedia.length}
-                                    </span>
-                                </div>
+                                {displayMedia.length > 0 && (
+                                    <div className="px-2 py-1 bg-red-500/20 backdrop-blur-sm border border-red-400/30 rounded-full">
+                                        <span className="text-red-300 text-xs font-semibold uppercase tracking-wider">
+                                            Top {displayMedia.length}
+                                        </span>
+                                    </div>
+                                )}
                                 <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
                             </div>
                         </div>
@@ -335,13 +337,13 @@ export default function TrendingSlideshow({
 
                                             {/* Meta Info */}
                                             <div className="flex items-center gap-2 text-xs text-white/80 mb-3">
-                                                {(item.year || item.release_date) && (
+                                                {(item.year || item.release_date) && ((item.year && item.year > 0) || (item.release_date && new Date(item.release_date).getFullYear() > 0)) && (
                                                     <span className="flex items-center gap-1">
                                                         <Calendar className="w-3 h-3" />
-                                                        {item.year || new Date(item.release_date!).getFullYear()}
+                                                        {item.year && item.year > 0 ? item.year : new Date(item.release_date!).getFullYear()}
                                                     </span>
                                                 )}
-                                                {(item.duration || item.runtime) && (
+                                                {((item.duration && item.duration > 0) || (item.runtime && item.runtime > 0)) && (
                                                     <span className="flex items-center gap-1">
                                                         <Clock className="w-3 h-3" />
                                                         {Math.floor((item.duration || item.runtime!) / 3600)}h {Math.floor(((item.duration || item.runtime!) % 3600) / 60)}m

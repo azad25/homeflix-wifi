@@ -265,13 +265,13 @@ export default function HalfWidthBanner({
                                         </span>
                                     </div>
                                 ) : null}
-                                {currentMedia.year && (
+                                {currentMedia.year && currentMedia.year > 0 && (
                                     <div className="flex items-center gap-1 text-white/70">
                                         <Calendar className="w-3 h-3" />
                                         <span>{currentMedia.year}</span>
                                     </div>
                                 )}
-                                {currentMedia.runtime && (
+                                {currentMedia.runtime && currentMedia.runtime > 0 && (
                                     <div className="flex items-center gap-1 text-white/70">
                                         <Clock className="w-3 h-3" />
                                         <span>{Math.floor(currentMedia.runtime / 60)}h {currentMedia.runtime % 60}m</span>

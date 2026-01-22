@@ -97,8 +97,8 @@ function SettingsContent() {
 
   useEffect(() => {
     // Check URL parameters for tab and media info
-    const tab = searchParams.get('tab');
-    const mediaParam = searchParams.get('media');
+    const tab = searchParams?.get('tab');
+    const mediaParam = searchParams?.get('media');
 
     if (tab) {
       setActiveTab(tab);
@@ -658,7 +658,7 @@ function SettingsContent() {
 
   // Handle auto-selection of media from URL params
   useEffect(() => {
-    const mediaParam = searchParams.get('media');
+    const mediaParam = searchParams?.get('media');
     if (mediaParam && (mediaList.length > 0 || seriesList.length > 0) && !selectedMedia) {
       try {
         const mediaInfo = JSON.parse(mediaParam);

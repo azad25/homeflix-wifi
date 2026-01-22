@@ -7,7 +7,8 @@ export const getApiUrl = () => {
     // Server-side: use Docker internal URL or localhost
     // Check if we're in dev mode (NODE_ENV or port detection)
     const isDev = process.env.NODE_ENV === 'development' || process.env.PORT === '3009';
-    const defaultPort = isDev ? '8253' : '8252';
+    // const defaultPort = isDev ? '8253' : '8252';
+    const defaultPort = '8252';
     return dockerApiUrl || `http://localhost:${defaultPort}`;
   }
 
@@ -17,11 +18,11 @@ export const getApiUrl = () => {
   
   // Determine backend port based on frontend port
   let backendPort = '8252'; // Default production port
-  if (frontendPort === '3009') {
-    backendPort = '8253'; // Dev backend port
-  } else if (frontendPort === '3008') {
-    backendPort = '8252'; // Production backend port
-  }
+  // if (frontendPort === '3009') {
+  //   backendPort = '8253'; // Dev backend port
+  // } else if (frontendPort === '3008') {
+  //   backendPort = '8252'; // Production backend port
+  // }
   
   const apiUrl = `http://${hostname}:${backendPort}`;
   

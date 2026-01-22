@@ -117,12 +117,23 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({
                     {/* Header */}
                     <div className="flex items-center justify-between p-4 border-b border-white/10">
                         <h3 className="text-white font-semibold text-lg">Notifications</h3>
-                        <button
-                            onClick={onClose}
-                            className="text-white/60 hover:text-white transition-colors"
-                        >
-                            <X className="w-5 h-5" />
-                        </button>
+                        <div className="flex items-center gap-2">
+                            <button
+                                onClick={() => {
+                                    navigate.push('/notifications');
+                                    onClose();
+                                }}
+                                className="text-red-400 hover:text-red-300 transition-colors text-sm font-medium"
+                            >
+                                View All
+                            </button>
+                            <button
+                                onClick={onClose}
+                                className="text-white/60 hover:text-white transition-colors"
+                            >
+                                <X className="w-5 h-5" />
+                            </button>
+                        </div>
                     </div>
 
                     {/* Notifications List */}
@@ -133,9 +144,18 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({
                                     <Film className="w-8 h-8 text-white/40" />
                                 </div>
                                 <p className="text-white/60">No notifications yet</p>
-                                <p className="text-white/40 text-sm mt-1">
+                                <p className="text-white/40 text-sm mt-1 mb-4">
                                     Check back later for movie recommendations
                                 </p>
+                                <button
+                                    onClick={() => {
+                                        navigate.push('/notifications');
+                                        onClose();
+                                    }}
+                                    className="text-red-400 hover:text-red-300 transition-colors text-sm font-medium"
+                                >
+                                    View Live Activity →
+                                </button>
                             </div>
                         ) : (
                             <div className="py-2">
@@ -236,6 +256,21 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({
                                         </div>
                                     </div>
                                 ))}
+                                
+                                {/* Footer with View All link */}
+                                {notifications.length > 0 && (
+                                    <div className="border-t border-white/10 p-4">
+                                        <button
+                                            onClick={() => {
+                                                navigate.push('/notifications');
+                                                onClose();
+                                            }}
+                                            className="w-full text-center text-red-400 hover:text-red-300 transition-colors text-sm font-medium py-2 hover:bg-white/5 rounded"
+                                        >
+                                            View All Notifications in Live Activity →
+                                        </button>
+                                    </div>
+                                )}
                             </div>
                         )}
                     </div>
