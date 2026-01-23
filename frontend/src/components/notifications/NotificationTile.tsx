@@ -174,7 +174,7 @@ const NotificationTile: React.FC<NotificationTileProps> = React.memo(({
             fs: 0,
             cc_load_policy: 0,
             enablejsapi: 1,
-            loop: 1,
+            loop: 0,
             playlist: enhancedNotification.trailer_key,
             origin: window.location.origin,
           },
