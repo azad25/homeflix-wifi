@@ -364,126 +364,119 @@ export default function SeasonPage() {
   const themeGradients = getThemeGradients(genreTheme);
 
   return (
-    <div className="h-screen bg-black text-white overflow-hidden">
+    <div className="min-h-screen bg-black text-white">
       <Navbar />
       
-      {/* Full Screen Layout with Series Backdrop */}
-      <div className="h-full relative">
-        {/* Series Backdrop Background */}
+      {/* Hero Section with Series Backdrop */}
+      <div className="relative h-[70vh] overflow-hidden">
+        {/* Background Image */}
         <div className="absolute inset-0">
-          {/* Background Image */}
-          <div className="absolute inset-0">
-            <img
-              src={getBackdropImageUrl(series)}
-              alt={series.title}
-              className="w-full h-full object-cover"
-              loading="eager"
-              onError={(e) => {
-                const target = e.target as HTMLImageElement;
-                const apiUrl = getApiUrl();
-                target.src = `${apiUrl}/api/thumbnails/${series?.id || 'default'}`;
-              }}
-            />
-          </div>
-
-          {/* Background Video */}
-          <video
-            ref={videoRef}
-            className="absolute inset-0 w-full h-full object-cover opacity-20"
-            autoPlay
-            muted={false}
-            loop
-            playsInline
-            preload="metadata"
-            onLoadedData={() => {
-              setIsVideoLoaded(true);
-              if (videoRef.current) {
-                videoRef.current.volume = 0.2;
-                videoRef.current.play().then(() => {
-                  setIsVideoPlaying(true);
-                }).catch(() => {
-                  videoRef.current!.muted = true;
-                  videoRef.current!.play();
-                });
-              }
+          <img
+            src={getBackdropImageUrl(series)}
+            alt={series.title}
+            className="w-full h-full object-cover"
+            loading="eager"
+            onError={(e) => {
+              const target = e.target as HTMLImageElement;
+              const apiUrl = getApiUrl();
+              target.src = `${apiUrl}/api/thumbnails/${series?.id || 'default'}`;
             }}
-            onError={() => {
-              setIsVideoLoaded(false);
-              setIsVideoPlaying(false);
-            }}
-          >
-            <source src={`${getBackgroundVideoUrl(series)}?audio=aac&quality=medium`} type="video/mp4" />
-            <source src={getBackgroundVideoUrl(series)} type="video/mp4" />
-          </video>
-
-          {/* Gradient Overlays */}
-          <div className="absolute inset-0 bg-gradient-to-r from-black/80 via-black/40 to-transparent" />
-          <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-black/30" />
+          />
         </div>
 
-        {/* Main Content Layout */}
-        <div className="relative z-10 h-full flex">
-          {/* Left Side - Series Info and Logo */}
-          <div className="flex-1 flex flex-col justify-center p-8 max-w-2xl">
+        {/* Background Video */}
+        <video
+          ref={videoRef}
+          className="absolute inset-0 w-full h-full object-cover opacity-20"
+          autoPlay
+          muted={false}
+          loop
+          playsInline
+          preload="metadata"
+          onLoadedData={() => {
+            setIsVideoLoaded(true);
+            if (videoRef.current) {
+              videoRef.current.volume = 0.2;
+              videoRef.current.play().then(() => {
+                setIsVideoPlaying(true);
+              }).catch(() => {
+                videoRef.current!.muted = true;
+                videoRef.current!.play();
+              });
+            }
+          }}
+          onError={() => {
+            setIsVideoLoaded(false);
+            setIsVideoPlaying(false);
+          }}
+        >
+          <source src={`${getBackgroundVideoUrl(series)}?audio=aac&quality=medium`} type="video/mp4" />
+          <source src={getBackgroundVideoUrl(series)} type="video/mp4" />
+        </video>
+
+        {/* Gradient Overlays */}
+        <div className="absolute inset-0 bg-gradient-to-r from-black via-black/60 to-transparent" />
+        <div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-black/40" />
+
+        {/* Content */}
+        <div className="relative z-10 h-full flex items-end">
+          <div className="container mx-auto px-8 pb-16">
             {/* Series Logo/Title */}
-            <div className="mb-8">
-              {/* Try to show series logo if available, otherwise show title */}
-              <div className="mb-4">
-                <img
-                  src={`${getApiUrl()}/api/series/${series.id}/logo`}
-                  alt={series.title}
-                  className="max-h-24 w-auto"
-                  onError={(e) => {
-                    const target = e.target as HTMLImageElement;
-                    const parent = target.parentElement!;
-                    parent.innerHTML = `<h1 class="text-5xl md:text-6xl font-bold text-white drop-shadow-2xl">${series.title}</h1>`;
-                  }}
-                />
-              </div>
-              
-              {/* Season Selector */}
-              <div className="relative inline-block">
-                <select
-                  value={currentSeason}
-                  onChange={(e) => navigate.push(`/tv-series/${params?.id}/season/${e.target.value}`)}
-                  className={`appearance-none bg-gradient-to-r ${themeGradients.accent} backdrop-blur-sm border-2 border-white/20 hover:border-white/40 text-white px-6 py-3 pr-12 rounded-lg text-xl font-bold cursor-pointer transition-all focus:outline-none focus:border-white/60 ${themeGradients.glow}`}
-                >
-                  {Array.from({ length: totalSeasons }, (_, i) => i + 1).map((season) => (
-                    <option key={season} value={season} className="bg-black">
-                      Season {season}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-6 h-6 pointer-events-none" />
-              </div>
+            <div className="mb-6">
+              <img
+                src={`${getApiUrl()}/api/series/${series.id}/logo`}
+                alt={series.title}
+                className="max-h-32 w-auto drop-shadow-2xl"
+                onError={(e) => {
+                  const target = e.target as HTMLImageElement;
+                  const parent = target.parentElement!;
+                  parent.innerHTML = `<h1 class="text-6xl font-bold text-white drop-shadow-2xl mb-4">${series.title}</h1>`;
+                }}
+              />
+            </div>
+
+            {/* Season Selector */}
+            <div className="relative inline-block mb-6">
+              <select
+                value={currentSeason}
+                onChange={(e) => navigate.push(`/tv-series/${params?.id}/season/${e.target.value}`)}
+                className={`appearance-none bg-gradient-to-r ${themeGradients.accent} backdrop-blur-sm border-2 border-white/30 hover:border-white/50 text-white px-6 py-3 pr-12 rounded-lg text-lg font-bold cursor-pointer transition-all focus:outline-none focus:border-white/70 ${themeGradients.glow}`}
+              >
+                {Array.from({ length: totalSeasons }, (_, i) => i + 1).map((season) => (
+                  <option key={season} value={season} className="bg-black">
+                    Season {season}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 pointer-events-none" />
             </div>
 
             {/* Series Info */}
-            <div className="flex items-center gap-4 mb-6 text-lg">
+            <div className="flex items-center gap-4 mb-6">
               {series.rating && (
-                <div className="flex items-center gap-2 bg-yellow-500/20 px-4 py-2 rounded-full">
-                  <Star className="w-5 h-5 text-yellow-400 fill-current" />
-                  <span className="font-bold">{series.rating.toFixed(1)}</span>
+                <div className="flex items-center gap-2 bg-yellow-500/20 backdrop-blur-sm px-3 py-1.5 rounded-full border border-yellow-500/30">
+                  <Star className="w-4 h-4 text-yellow-400 fill-current" />
+                  <span className="font-bold text-sm">{series.rating.toFixed(1)}</span>
                 </div>
               )}
               {series.release_date && (
-                <div className="flex items-center gap-2 bg-blue-500/20 px-4 py-2 rounded-full">
-                  <Calendar className="w-5 h-5 text-blue-400" />
-                  <span className="font-semibold">{new Date(series.release_date).getFullYear()}</span>
+                <div className="flex items-center gap-2 bg-blue-500/20 backdrop-blur-sm px-3 py-1.5 rounded-full border border-blue-500/30">
+                  <Calendar className="w-4 h-4 text-blue-400" />
+                  <span className="font-semibold text-sm">{new Date(series.release_date).getFullYear()}</span>
                 </div>
               )}
-              <span className="text-white/90 font-semibold">
+              <span className="text-white/90 font-semibold text-sm">
                 {episodes.length} Episodes
               </span>
             </div>
 
             {/* Genres */}
             {series.genres && series.genres.length > 0 && (
-              <div className="flex gap-3 mb-6">
+              <div className="flex gap-2 mb-6">
                 {series.genres.slice(0, 3).map((genre, index) => (
                   <span
                     key={index}
-                    className={`px-4 py-2 bg-gradient-to-r ${themeGradients.accent}/30 border border-white/20 rounded-full text-lg font-semibold`}
+                    className={`px-3 py-1.5 bg-gradient-to-r ${themeGradients.accent}/20 backdrop-blur-sm border border-white/20 rounded-full text-sm font-semibold`}
                   >
                     {typeof genre === 'string' ? genre : genre.name || String(genre)}
                   </span>
@@ -493,8 +486,8 @@ export default function SeasonPage() {
 
             {/* Series Description */}
             {series.description && (
-              <div className="mb-8 max-w-xl">
-                <p className="text-white/90 text-lg leading-relaxed line-clamp-4">
+              <div className="mb-8 max-w-2xl">
+                <p className="text-white/90 text-base leading-relaxed line-clamp-3">
                   {series.description}
                 </p>
               </div>
@@ -504,95 +497,105 @@ export default function SeasonPage() {
             <div className="flex items-center gap-4">
               <button
                 onClick={() => handlePlay(firstEpisode)}
-                className={`bg-gradient-to-r ${themeGradients.accent} hover:opacity-90 text-white px-8 py-4 rounded-lg flex items-center gap-3 text-xl font-bold transition-all transform hover:scale-105 ${themeGradients.glow}`}
+                className={`bg-gradient-to-r ${themeGradients.accent} hover:opacity-90 text-white px-8 py-3 rounded-lg flex items-center gap-3 text-lg font-bold transition-all transform hover:scale-105 ${themeGradients.glow}`}
               >
-                <Play className="w-6 h-6 fill-current" />
+                <Play className="w-5 h-5 fill-current" />
                 Play Season
               </button>
               
               <button
                 onClick={() => navigate.push(`/tv-series/${params?.id}`)}
-                className="bg-white/10 hover:bg-white/20 backdrop-blur-sm text-white px-8 py-4 rounded-lg flex items-center gap-3 text-xl font-semibold transition-all border border-white/20 hover:border-white/40"
+                className="bg-white/10 hover:bg-white/20 backdrop-blur-sm text-white px-8 py-3 rounded-lg flex items-center gap-3 text-lg font-semibold transition-all border border-white/20 hover:border-white/40"
               >
-                <Info className="w-6 h-6" />
+                <Info className="w-5 h-5" />
                 Series Info
               </button>
             </div>
           </div>
+        </div>
+      </div>
 
-          {/* Right Side - Episodes Sidebar */}
-          <div className="w-96 bg-black/60 backdrop-blur-xl border-l border-white/10 flex flex-col">
-            {/* Episodes Header */}
-            <div className="p-6 border-b border-white/10">
-              <h2 className="text-2xl font-bold text-white mb-2">Episodes</h2>
-              <p className="text-white/70">Season {currentSeason}</p>
-            </div>
+      {/* Episodes Section */}
+      <div className="container mx-auto px-8 py-12">
+        <div className="flex items-start gap-8">
+          {/* Main Content Area */}
+          <div className="flex-1">
+            <h2 className="text-3xl font-bold text-white mb-2">Episodes</h2>
+            <p className="text-white/70 mb-8">Season {currentSeason} • {episodes.length} Episodes</p>
+          </div>
 
-            {/* Episodes List */}
-            <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-white/20 scrollbar-track-transparent">
-              <div className="p-4 space-y-3">
-                {episodes.map((episode, index) => (
-                  <motion.div
-                    key={episode.id}
-                    initial={{ opacity: 0, x: 20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ duration: 0.3, delay: index * 0.05 }}
-                    className="group cursor-pointer"
-                    onClick={() => handlePlay(episode)}
-                  >
-                    <div className="bg-white/5 hover:bg-white/10 rounded-lg p-4 transition-all duration-300 border border-white/5 hover:border-white/20">
-                      <div className="flex gap-3">
-                        {/* Episode Number */}
-                        <div className="flex-shrink-0 w-12 h-12 bg-white/10 rounded-lg flex items-center justify-center">
-                          <span className="text-lg font-bold text-white">
-                            {episode.episode_number}
-                          </span>
-                        </div>
+          {/* Episodes Sidebar */}
+          <div className="w-[420px] flex-shrink-0">
+            <div className="bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 overflow-hidden sticky top-24">
+              {/* Episodes Header */}
+              <div className="px-6 py-4 border-b border-white/10 bg-white/5">
+                <h3 className="text-lg font-bold text-white">All Episodes</h3>
+              </div>
 
-                        {/* Episode Info */}
-                        <div className="flex-1 min-w-0">
-                          <h3 className="text-white font-semibold text-sm line-clamp-2 mb-1 group-hover:text-white transition-colors">
-                            {episode.name}
-                          </h3>
-                          
-                          {/* Episode Metadata */}
-                          <div className="flex items-center gap-2 text-xs text-white/60 mb-2">
-                            {episode.runtime && (
-                              <span className="flex items-center gap-1">
-                                <Clock className="w-3 h-3" />
-                                {formatRuntime(episode.runtime)}
-                              </span>
-                            )}
-                            {episode.vote_average && (
-                              <span className="flex items-center gap-1 text-yellow-500">
-                                <Star className="w-3 h-3 fill-current" />
-                                {episode.vote_average.toFixed(1)}
-                              </span>
-                            )}
+              {/* Episodes List */}
+              <div className="max-h-[600px] overflow-y-auto scrollbar-thin scrollbar-thumb-white/20 scrollbar-track-transparent">
+                <div className="p-4 space-y-2">
+                  {episodes.map((episode, index) => (
+                    <motion.div
+                      key={episode.id}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.2, delay: index * 0.03 }}
+                      className="group cursor-pointer"
+                      onClick={() => handlePlay(episode)}
+                    >
+                      <div className="bg-white/5 hover:bg-white/10 rounded-xl p-3 transition-all duration-200 border border-white/5 hover:border-white/20">
+                        <div className="flex gap-3 items-start">
+                          {/* Episode Number */}
+                          <div className="flex-shrink-0 w-10 h-10 bg-white/10 rounded-lg flex items-center justify-center">
+                            <span className="text-base font-bold text-white">
+                              {episode.episode_number}
+                            </span>
                           </div>
 
-                          {/* Episode Description */}
-                          <p className="text-xs text-white/60 leading-relaxed line-clamp-2">
-                            {episode.overview || `Episode ${episode.episode_number} of ${series.title}.`}
-                          </p>
-                        </div>
+                          {/* Episode Info */}
+                          <div className="flex-1 min-w-0">
+                            <h4 className="text-white font-semibold text-sm line-clamp-1 mb-1">
+                              {episode.name}
+                            </h4>
+                            
+                            {/* Episode Metadata */}
+                            <div className="flex items-center gap-2 text-xs text-white/60">
+                              {episode.runtime && (
+                                <span className="flex items-center gap-1">
+                                  <Clock className="w-3 h-3" />
+                                  {formatRuntime(episode.runtime)}
+                                </span>
+                              )}
+                              {episode.vote_average && (
+                                <>
+                                  <span className="text-white/30">•</span>
+                                  <span className="flex items-center gap-1 text-yellow-500">
+                                    <Star className="w-3 h-3 fill-current" />
+                                    {episode.vote_average.toFixed(1)}
+                                  </span>
+                                </>
+                              )}
+                            </div>
+                          </div>
 
-                        {/* Play Button */}
-                        <div className="flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handlePlay(episode);
-                            }}
-                            className={`bg-gradient-to-r ${themeGradients.accent} p-2 rounded-full transition-all hover:scale-110 ${themeGradients.glow}`}
-                          >
-                            <Play className="w-4 h-4 text-white fill-current" />
-                          </button>
+                          {/* Play Button */}
+                          <div className="flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handlePlay(episode);
+                              }}
+                              className={`bg-gradient-to-r ${themeGradients.accent} p-2 rounded-full transition-all hover:scale-110 ${themeGradients.glow}`}
+                            >
+                              <Play className="w-3.5 h-3.5 text-white fill-current" />
+                            </button>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  </motion.div>
-                ))}
+                    </motion.div>
+                  ))}
+                </div>
               </div>
             </div>
           </div>

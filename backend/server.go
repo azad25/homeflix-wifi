@@ -262,7 +262,7 @@ func main() {
 	r.Use(cors.New(cors.Config{
 		AllowOrigins:     []string{"*"},
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD"},
-		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization", "X-User-ID", "x-user-id", "Range", "Cache-Control", "Pragma", "Expires"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization", "X-User-ID", "x-user-id", "X-Session-ID", "x-session-id", "Range", "Cache-Control", "Pragma", "Expires"},
 		ExposeHeaders:    []string{"Content-Length", "Content-Range", "Accept-Ranges", "Content-Type", "X-Cache", "Connection"},
 		AllowCredentials: false, // Set to false when using wildcard origin
 		MaxAge:           12 * time.Hour, // Cache preflight for 12 hours
