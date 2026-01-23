@@ -31,6 +31,8 @@ interface NotificationTileProps {
   onTrailerEnd?: () => void;
   onTrailerStart?: () => void;
   onTileClick?: () => void;
+  autoPlayAudio?: boolean;
+  canPlayVideo?: boolean; // New prop to control video playback
 }
 
 // Enhanced notification interface with backend data
@@ -83,7 +85,8 @@ const NotificationTile: React.FC<NotificationTileProps> = React.memo(({
   className = '', 
   onTrailerEnd,
   onTrailerStart,
-  onTileClick
+  onTileClick,
+  canPlayVideo = true // Default to true for backward compatibility
 }) => {
   const apiUrl = getApiUrl();
   const enhancedNotification = notification as EnhancedNotification;
@@ -95,10 +98,14 @@ const NotificationTile: React.FC<NotificationTileProps> = React.memo(({
   const [ytReady, setYtReady] = useState(false);
   const [videoReady, setVideoReady] = useState(false);
   const [trailerPlaying, setTrailerPlaying] = useState(false);
+  const [usePreviewVideo, setUsePreviewVideo] = useState(false);
+  const [previewVideoLoaded, setPreviewVideoLoaded] = useState(false);
   const playerRef = useRef<any>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
   const playerInitializedRef = useRef(false);
   const imageRetryCountRef = useRef(0);
   const failedUrlsRef = useRef<Set<string>>(new Set());
+  const trailerTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Initialize image URL once
   useEffect(() => {
@@ -125,14 +132,27 @@ const NotificationTile: React.FC<NotificationTileProps> = React.memo(({
     };
   }, []);
 
-  // Initialize YouTube player - STABLE, no recreation
+  // Initialize YouTube player - STRICT SIZE AND TRAILER CHECKS
   useEffect(() => {
-    if (!ytReady || (size !== 'hero' && size !== 'large') || !enhancedNotification.trailer_key) return;
+    // STRICT CHECKS: Only hero and large tiles with explicit trailers
+    if (!ytReady || 
+        (size !== 'hero' && size !== 'large') || 
+        !enhancedNotification.trailer_key) return; // Only hero and large tiles
 
     const containerId = `yt-player-${notification.id}`;
     
     // Only initialize once per notification
     if (playerInitializedRef.current) return;
+
+    console.log(`🎬 Initializing trailer for ${size} tile:`, notification.title);
+
+    // Set timeout to fallback to preview video if trailer takes too long (5 seconds)
+    trailerTimeoutRef.current = setTimeout(() => {
+      if (!videoReady && !trailerPlaying) {
+        console.log('⏱️ Trailer timeout, switching to preview video:', notification.title);
+        setUsePreviewVideo(true);
+      }
+    }, 5000);
 
     const timer = setTimeout(() => {
       const container = document.getElementById(containerId);
@@ -163,9 +183,19 @@ const NotificationTile: React.FC<NotificationTileProps> = React.memo(({
               if (event.data === 1) { // Playing
                 setVideoReady(true);
                 setTrailerPlaying(true);
+                setUsePreviewVideo(false); // Cancel preview fallback
+                if (trailerTimeoutRef.current) {
+                  clearTimeout(trailerTimeoutRef.current);
+                }
                 onTrailerStart?.();
-              } else if (event.data === 0) { // Ended - loop it
-                event.target.playVideo();
+              } else if (event.data === 0) { // Ended
+                console.log('🎬 YouTube trailer ended for:', notification.title);
+                setVideoReady(false);
+                setTrailerPlaying(false);
+                onTrailerEnd?.(); // Notify parent that trailer ended
+                // Don't loop - let tile change after trailer ends
+              } else if (event.data === 2) { // Paused
+                setTrailerPlaying(false);
               }
             },
             onReady: (event: any) => {
@@ -173,8 +203,9 @@ const NotificationTile: React.FC<NotificationTileProps> = React.memo(({
               console.log('✅ Trailer ready:', notification.title);
             },
             onError: (event: any) => {
-              console.error('❌ Trailer error:', event.data);
+              console.error('❌ Trailer error:', event.data, '- switching to preview');
               setVideoReady(false);
+              setUsePreviewVideo(true); // Fallback to preview on error
             }
           },
         });
@@ -182,13 +213,17 @@ const NotificationTile: React.FC<NotificationTileProps> = React.memo(({
         console.log('🎬 Initialized trailer for:', notification.title);
       } catch (error) {
         console.error('Failed to initialize trailer:', error);
+        setUsePreviewVideo(true); // Fallback to preview on error
       }
     }, 800);
 
     return () => {
       clearTimeout(timer);
+      if (trailerTimeoutRef.current) {
+        clearTimeout(trailerTimeoutRef.current);
+      }
     };
-  }, [ytReady, notification.id, notification.title, enhancedNotification.trailer_key, size, onTrailerStart]);
+  }, [ytReady, notification.id, notification.title, enhancedNotification.trailer_key, size, onTrailerStart, videoReady, trailerPlaying]);
 
   const getNotificationIcon = (type: string) => {
     const iconProps = { className: "w-4 h-4" };
@@ -265,26 +300,178 @@ const NotificationTile: React.FC<NotificationTileProps> = React.memo(({
   };
 
   const getBackdropUrl = () => {
-    // STRICT: Only use valid TMDB URLs
+    const apiUrl = getApiUrl();
+    
+    // Priority 1: TMDB backdrop URL (highest quality)
     if (enhancedNotification.backdrop_url?.startsWith('https://image.tmdb.org/t/p/')) {
       if (!failedUrlsRef.current.has(enhancedNotification.backdrop_url)) {
         return enhancedNotification.backdrop_url;
       }
     }
     
-    // NO LOCAL API CALLS - they cause 404s
+    // Priority 2: Check if this is a local movie/series with movie_ids
+    if (notification.movie_ids && notification.movie_ids.length > 0) {
+      const movieId = notification.movie_ids[0];
+      
+      // Try different backdrop sources like HomeflixHero
+      const backdropSources = [
+        `${apiUrl}/api/admin/assets/banner_${movieId}.jpg`, // Banner (best for backdrop)
+        `${apiUrl}/api/admin/assets/backdrop_${movieId}.jpg`, // Direct backdrop
+        `${apiUrl}/api/thumbnails/${movieId}`, // Thumbnail fallback
+        `${apiUrl}/api/posters/${movieId}`, // Poster as last resort
+      ];
+      
+      for (const backdropUrl of backdropSources) {
+        if (!failedUrlsRef.current.has(backdropUrl)) {
+          return backdropUrl;
+        }
+      }
+    }
+    
+    // Priority 3: Check media_details for local content
+    if (enhancedNotification.media_details && enhancedNotification.media_details.length > 0) {
+      const firstMedia = enhancedNotification.media_details[0];
+      
+      // Use TMDB backdrop if available
+      if (firstMedia.backdrop_url?.startsWith('https://image.tmdb.org/t/p/')) {
+        if (!failedUrlsRef.current.has(firstMedia.backdrop_url)) {
+          return firstMedia.backdrop_url;
+        }
+      }
+      
+      // Try local media ID with different sources like HomeflixHero
+      if (firstMedia.id) {
+        const backdropSources = [
+          `${apiUrl}/api/admin/assets/banner_${firstMedia.id}.jpg`,
+          `${apiUrl}/api/admin/assets/backdrop_${firstMedia.id}.jpg`,
+          `${apiUrl}/api/thumbnails/${firstMedia.id}`,
+          `${apiUrl}/api/posters/${firstMedia.id}`,
+        ];
+        
+        for (const backdropUrl of backdropSources) {
+          if (!failedUrlsRef.current.has(backdropUrl)) {
+            return backdropUrl;
+          }
+        }
+      }
+    }
+    
     return null;
   };
 
   const getPosterUrl = () => {
-    // STRICT: Only use valid TMDB poster URLs
+    const apiUrl = getApiUrl();
+    
+    // Priority 1: TMDB poster URL
     if (enhancedNotification.poster_url?.startsWith('https://image.tmdb.org/t/p/')) {
       if (!failedUrlsRef.current.has(enhancedNotification.poster_url)) {
         return enhancedNotification.poster_url;
       }
     }
     
-    // NO LOCAL API CALLS - they cause 404s
+    // Priority 2: Check if this is a local movie/series with movie_ids
+    if (notification.movie_ids && notification.movie_ids.length > 0) {
+      const movieId = notification.movie_ids[0];
+      const posterUrl = `${apiUrl}/api/posters/${movieId}`;
+      if (!failedUrlsRef.current.has(posterUrl)) {
+        return posterUrl;
+      }
+    }
+    
+    // Priority 3: Check media_details for local content
+    if (enhancedNotification.media_details && enhancedNotification.media_details.length > 0) {
+      const firstMedia = enhancedNotification.media_details[0];
+      
+      // Use TMDB poster if available
+      if (firstMedia.poster_url?.startsWith('https://image.tmdb.org/t/p/')) {
+        if (!failedUrlsRef.current.has(firstMedia.poster_url)) {
+          return firstMedia.poster_url;
+        }
+      }
+      
+      // Try local media ID
+      if (firstMedia.id) {
+        const posterUrl = `${apiUrl}/api/posters/${firstMedia.id}`;
+        if (!failedUrlsRef.current.has(posterUrl)) {
+          return posterUrl;
+        }
+      }
+    }
+    
+    return null;
+  };
+
+  const getLogoUrl = () => {
+    const apiUrl = getApiUrl();
+    
+    // Priority 1: Check if notification has logo_url (from backend)
+    if (enhancedNotification.logo_url && enhancedNotification.logo_url.trim()) {
+      if (!failedUrlsRef.current.has(enhancedNotification.logo_url)) {
+        return enhancedNotification.logo_url;
+      }
+    }
+    
+    // Priority 2: Check if this is a local movie/series with movie_ids
+    if (notification.movie_ids && notification.movie_ids.length > 0) {
+      const movieId = notification.movie_ids[0];
+      
+      // Try different logo formats like HomeflixHero
+      const logoFormats = [
+        `${apiUrl}/api/admin/assets/logo_${movieId}.png`,
+        `${apiUrl}/api/admin/assets/logo_${movieId}.jpg`,
+        `${apiUrl}/api/admin/assets/logo_${movieId}.svg`,
+        `${apiUrl}/api/logo_path/${movieId}`, // Direct logo path endpoint
+      ];
+      
+      for (const logoUrl of logoFormats) {
+        if (!failedUrlsRef.current.has(logoUrl)) {
+          return logoUrl;
+        }
+      }
+    }
+    
+    // Priority 3: Check media_details for local content
+    if (enhancedNotification.media_details && enhancedNotification.media_details.length > 0) {
+      const firstMedia = enhancedNotification.media_details[0];
+      
+      // Try local media ID with different formats
+      if (firstMedia.id) {
+        const logoFormats = [
+          `${apiUrl}/api/admin/assets/logo_${firstMedia.id}.png`,
+          `${apiUrl}/api/admin/assets/logo_${firstMedia.id}.jpg`,
+          `${apiUrl}/api/admin/assets/logo_${firstMedia.id}.svg`,
+          `${apiUrl}/api/logo_path/${firstMedia.id}`,
+        ];
+        
+        for (const logoUrl of logoFormats) {
+          if (!failedUrlsRef.current.has(logoUrl)) {
+            return logoUrl;
+          }
+        }
+      }
+    }
+    
+    // No logo found - return null so text title will be used
+    return null;
+  };
+
+  const getPreviewVideoUrl = () => {
+    const apiUrl = getApiUrl();
+    
+    // Only for local content with movie_ids
+    if (notification.movie_ids && notification.movie_ids.length > 0) {
+      const movieId = notification.movie_ids[0];
+      return `${apiUrl}/api/preview-clips/${movieId}?quality=medium&format=mp4`;
+    }
+    
+    // Check media_details for local content
+    if (enhancedNotification.media_details && enhancedNotification.media_details.length > 0) {
+      const firstMedia = enhancedNotification.media_details[0];
+      if (firstMedia.id) {
+        return `${apiUrl}/api/preview-clips/${firstMedia.id}?quality=medium&format=mp4`;
+      }
+    }
+    
     return null;
   };
 
@@ -308,62 +495,69 @@ const NotificationTile: React.FC<NotificationTileProps> = React.memo(({
   const themeColors = getThemeColors();
   const backdropUrl = getBackdropUrl();
   const posterUrl = getPosterUrl();
+  const logoUrl = getLogoUrl();
+  const previewVideoUrl = getPreviewVideoUrl();
 
-  // Size-specific styling - optimized for better content display
+  // Debug logging for tile size and video restrictions
+  useEffect(() => {
+    console.log(`🏷️ Tile ${notification.id}: Title="${notification.title}", Size="${size}", HasTrailer="${!!enhancedNotification.trailer_key}", CanPlayVideo="${size === 'hero' || size === 'large'}"`);
+  }, [notification.id, notification.title, size, enhancedNotification.trailer_key]);
+
+  // Size-specific styling - ENHANCED for better content display at all sizes
   const getSizeClasses = () => {
     switch (size) {
       case 'hero':
         return {
           container: 'p-4 md:p-6',
-          title: 'text-xl sm:text-2xl md:text-3xl lg:text-4xl',
-          message: 'text-sm md:text-base lg:text-lg',
+          title: 'text-xl sm:text-2xl md:text-3xl font-bold',
+          message: 'text-sm sm:text-base md:text-lg',
           showDetails: true,
-          showTrailer: true,
+          showTrailer: true, // Hero tiles show trailers
           showPoster: true,
         };
       case 'banner':
         return {
           container: 'p-3 md:p-4',
-          title: 'text-lg sm:text-xl md:text-2xl',
-          message: 'text-xs sm:text-sm md:text-base',
+          title: 'text-lg sm:text-xl md:text-2xl font-bold',
+          message: 'text-sm sm:text-base',
           showDetails: true,
-          showTrailer: false,
+          showTrailer: false, // Banner tiles don't show trailers
           showPoster: true,
         };
       case 'large':
         return {
           container: 'p-3 md:p-4',
-          title: 'text-base sm:text-lg md:text-xl',
-          message: 'text-xs sm:text-sm',
+          title: 'text-base sm:text-lg md:text-xl font-bold',
+          message: 'text-sm',
           showDetails: true,
-          showTrailer: true,
+          showTrailer: true, // Large tiles show trailers
           showPoster: true,
         };
       case 'medium':
         return {
           container: 'p-2 md:p-3',
-          title: 'text-sm sm:text-base md:text-lg',
-          message: 'text-xs',
+          title: 'text-sm sm:text-base md:text-lg font-bold',
+          message: 'text-xs sm:text-sm',
           showDetails: true,
-          showTrailer: false,
+          showTrailer: false, // Medium tiles NO TRAILERS
           showPoster: true,
         };
       case 'small':
         return {
-          container: 'p-2',
-          title: 'text-xs sm:text-sm md:text-base',
-          message: 'text-xs',
-          showDetails: false,
-          showTrailer: false,
-          showPoster: true,
+          container: 'p-2 md:p-3',
+          title: 'text-sm font-bold text-white leading-tight',
+          message: 'text-xs text-white/90 leading-tight',
+          showDetails: true, // Show content for small tiles
+          showTrailer: false, // Small tiles NEVER show trailers
+          showPoster: false, // Don't show poster for small tiles to save space
         };
       default:
         return {
           container: 'p-3',
-          title: 'text-base',
+          title: 'text-base font-bold',
           message: 'text-sm',
-          showDetails: false,
-          showTrailer: false,
+          showDetails: true,
+          showTrailer: false, // Default: no trailers
           showPoster: true,
         };
     }
@@ -400,7 +594,7 @@ const NotificationTile: React.FC<NotificationTileProps> = React.memo(({
         }
       })}
     >
-      {/* Background Image or Gradient */}
+      {/* Background Image or Gradient - Show backdrop clearly when available */}
       {backdropUrl && !imageError ? (
         <motion.div
           initial={{ scale: 1.1 }}
@@ -416,20 +610,28 @@ const NotificationTile: React.FC<NotificationTileProps> = React.memo(({
               setImageLoaded(true);
               setImageError(false);
             }}
-            onError={() => handleImageError(currentImageUrl || backdropUrl)}
+            onError={() => {
+              console.warn('Backdrop failed, trying fallback');
+              handleImageError(currentImageUrl || backdropUrl);
+              // Try poster as backdrop fallback
+              if (posterUrl && currentImageUrl !== posterUrl) {
+                setCurrentImageUrl(posterUrl);
+              }
+            }}
           />
         </motion.div>
       ) : (
+        // Only show colored gradient when NO backdrop is available
         <div 
           className="absolute inset-0"
           style={{
-            background: `linear-gradient(135deg, ${themeColors.primary}15 0%, ${themeColors.secondary}10 50%, #000 100%)`
+            background: `linear-gradient(135deg, ${themeColors.primary}25 0%, ${themeColors.secondary}15 50%, #1a1a1a 100%)`
           }}
         />
       )}
 
-      {/* YouTube Player for Hero and Large tiles */}
-      {(size === 'hero' || size === 'large') && enhancedNotification.trailer_key && (
+      {/* YouTube Player - ONLY for Hero and Large tiles */}
+      {(size === 'hero' || size === 'large') && enhancedNotification.trailer_key && !usePreviewVideo && (
         <AnimatePresence mode="wait">
           <motion.div
             key={`video-${notification.id}`}
@@ -455,64 +657,221 @@ const NotificationTile: React.FC<NotificationTileProps> = React.memo(({
         </AnimatePresence>
       )}
 
-      {/* Gradient Overlays */}
-      <div className="absolute inset-0 bg-gradient-to-r from-black/90 via-black/60 to-transparent" />
-      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/20" />
-      <div
-        className="absolute bottom-0 left-0 right-0 h-32"
-        style={{
-          background: `linear-gradient(to top, ${themeColors.primary}15 0%, transparent 100%)`
-        }}
-      />
+      {/* Preview Video Player - ONLY for Hero and Large tiles */}
+      {(size === 'hero' || size === 'large') && previewVideoUrl && (usePreviewVideo || !enhancedNotification.trailer_key) && (
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={`preview-${notification.id}`}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: previewVideoLoaded ? 1 : 0 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.5 }}
+            className="absolute inset-0 z-10"
+          >
+            <video
+              ref={videoRef}
+              className="w-full h-full object-cover"
+              autoPlay
+              muted={isMuted}
+              playsInline
+              onLoadedData={() => {
+                setPreviewVideoLoaded(true);
+                console.log('✅ Preview video loaded:', notification.title);
+                onTrailerStart?.();
+              }}
+              onEnded={() => {
+                console.log('🎬 Preview video ended:', notification.title);
+                setPreviewVideoLoaded(false);
+                onTrailerEnd?.(); // Notify parent that video ended
+                // Allow tile to change after video ends
+              }}
+              onError={(e) => {
+                console.error('❌ Preview video error:', notification.title);
+                setPreviewVideoLoaded(false);
+              }}
+            >
+              <source src={previewVideoUrl} type="video/mp4" />
+            </video>
+          </motion.div>
+        </AnimatePresence>
+      )}
+
+      {/* Conditional Gradient Overlays - ONLY when backdrop exists for text readability */}
+      {backdropUrl && !imageError && imageLoaded ? (
+        <>
+          {/* Minimal gradients to preserve backdrop visibility while ensuring text readability */}
+          <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
+          <div className="absolute bottom-0 left-0 right-0 h-1/2 bg-gradient-to-t from-black/90 via-black/40 to-transparent" />
+          {/* Text area protection */}
+          <div className="absolute bottom-0 left-0 right-0 h-1/3 bg-gradient-to-t from-black/95 to-transparent" />
+        </>
+      ) : null}
 
       {/* Tile Effects */}
       <TileEffects priority={enhancedNotification.priority || 'medium'} themeColors={themeColors} />
 
-      {/* Priority Badge */}
-      {enhancedNotification.priority === 'high' && (
-        <div className="absolute top-2 right-2 z-20">
-          <div className="px-2 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-red-500 text-white shadow-lg">
-            HOT
-          </div>
-        </div>
-      )}
-
       {/* Content */}
       <div className={`absolute inset-0 flex flex-col justify-end z-20 ${sizeConfig.container}`}>
-        {/* Icon and Timestamp */}
+        {/* Icon and Timestamp with conditional visibility enhancement */}
         <div className="flex items-center gap-2 mb-2">
           <div
             className="rounded-full backdrop-blur-md border p-1.5"
             style={{
-              backgroundColor: `${themeColors.primary}30`,
-              borderColor: `${themeColors.primary}50`,
+              backgroundColor: `${themeColors.primary}40`,
+              borderColor: `${themeColors.primary}60`,
+              boxShadow: backdropUrl && !imageError && imageLoaded ? '0 2px 8px rgba(0,0,0,0.8)' : '0 1px 4px rgba(0,0,0,0.3)',
             }}
           >
             {getNotificationIcon(notification.type)}
           </div>
-          <div className="text-white/70 text-xs font-medium">
+          <div 
+            className="text-xs font-medium"
+            style={{
+              color: '#ffffff',
+              textShadow: backdropUrl && !imageError && imageLoaded ? `
+                0 1px 2px rgba(0,0,0,1), 
+                0 2px 4px rgba(0,0,0,0.8),
+                1px 1px 0px rgba(0,0,0,0.9)
+              ` : `0 1px 2px rgba(0,0,0,0.3)`, // Lighter shadow when no backdrop
+            }}
+          >
             {formatTimestamp(notification.timestamp)}
           </div>
         </div>
 
-        {/* Title */}
-        <h1
-          className={`font-bold leading-tight mb-2 ${sizeConfig.title}`}
-          style={{
-            textShadow: `0 0 30px ${themeColors.primary}60, 0 4px 15px rgba(0,0,0,0.8)`,
-            background: `linear-gradient(135deg, ${themeColors.primary} 0%, ${themeColors.accent} 100%)`,
-            WebkitBackgroundClip: 'text',
-            WebkitTextFillColor: 'transparent',
-            backgroundClip: 'text'
-          }}
-        >
-          {notification.title}
-        </h1>
+        {/* Title Section - Logo with text fallback */}
+        <div className="mb-2">
+          {/* Logo - only for larger tiles and when available */}
+          {logoUrl && size !== 'small' && (
+            <img
+              src={logoUrl}
+              alt={notification.title}
+              className={`w-auto drop-shadow-[0_4px_20px_rgba(0,0,0,0.8)] mb-2 ${
+                size === 'hero' ? 'max-h-16 md:max-h-20' :
+                size === 'large' ? 'max-h-12 md:max-h-16' :
+                size === 'banner' ? 'max-h-10 md:max-h-12' :
+                size === 'medium' ? 'max-h-8 md:max-h-10' :
+                'max-h-6 md:max-h-8'
+              }`}
+              onLoad={() => {
+                console.log('✅ Logo loaded successfully:', logoUrl);
+                // Hide text title when logo loads successfully
+                const textTitle = document.getElementById(`text-title-${notification.id}`);
+                if (textTitle) {
+                  textTitle.style.display = 'none';
+                }
+              }}
+              onError={(e) => {
+                console.log('❌ Logo failed, showing text title:', notification.title);
+                e.currentTarget.style.display = 'none';
+                // Ensure text title is visible
+                const textTitle = document.getElementById(`text-title-${notification.id}`);
+                if (textTitle) {
+                  textTitle.style.display = 'block';
+                }
+                handleImageError(logoUrl);
+              }}
+            />
+          )}
+          
+          {/* Text Title - ALWAYS present as fallback with conditional styling */}
+          <h1
+            id={`text-title-${notification.id}`}
+            className={`leading-tight ${sizeConfig.title}`}
+            style={{
+              display: 'block', // Always visible initially
+              textShadow: backdropUrl && !imageError && imageLoaded ? `
+                0 2px 4px rgba(0,0,0,1), 
+                0 4px 8px rgba(0,0,0,0.9), 
+                0 0 20px rgba(0,0,0,0.8),
+                0 0 40px rgba(0,0,0,0.6),
+                1px 1px 0px rgba(0,0,0,1),
+                -1px -1px 0px rgba(0,0,0,1),
+                1px -1px 0px rgba(0,0,0,1),
+                -1px 1px 0px rgba(0,0,0,1)
+              ` : `0 1px 2px rgba(0,0,0,0.5)`, // Lighter shadow when no backdrop
+              color: '#ef4444', // Netflix red color for titles
+              fontWeight: 'bold',
+              zIndex: 100,
+              position: 'relative',
+              lineHeight: size === 'small' ? '1.2' : '1.3',
+              // Additional text protection only when backdrop exists
+              WebkitTextStroke: backdropUrl && !imageError && imageLoaded ? '1px rgba(0,0,0,0.8)' : 'none',
+              filter: backdropUrl && !imageError && imageLoaded ? 'drop-shadow(0 2px 8px rgba(0,0,0,1))' : 'none',
+            }}
+          >
+            {notification.title}
+          </h1>
+        </div>
 
-        {/* Message */}
-        <p className={`text-white/90 leading-relaxed mb-3 line-clamp-2 ${sizeConfig.message}`}>
-          {notification.message}
-        </p>
+        {/* Enhanced Description with conditional styling based on backdrop availability */}
+        {(size === 'hero' || size === 'large' || size === 'banner') && enhancedNotification.overview ? (
+          <p 
+            className={`leading-relaxed mb-3 line-clamp-2 ${sizeConfig.message}`}
+            style={{
+              color: '#ffffff',
+              textShadow: backdropUrl && !imageError && imageLoaded ? `
+                0 1px 3px rgba(0,0,0,1), 
+                0 2px 6px rgba(0,0,0,0.9), 
+                0 0 15px rgba(0,0,0,0.7),
+                1px 1px 0px rgba(0,0,0,0.8),
+                -1px -1px 0px rgba(0,0,0,0.8)
+              ` : `0 1px 2px rgba(0,0,0,0.3)`, // Lighter shadow when no backdrop
+              filter: backdropUrl && !imageError && imageLoaded ? 'drop-shadow(0 1px 4px rgba(0,0,0,1))' : 'none',
+            }}
+          >
+            {enhancedNotification.overview.length > 100 
+              ? enhancedNotification.overview.substring(0, 100) + '...' 
+              : enhancedNotification.overview}
+          </p>
+        ) : (
+          <p 
+            className={`leading-relaxed mb-2 line-clamp-2 ${sizeConfig.message}`}
+            style={{
+              color: '#ffffff',
+              textShadow: backdropUrl && !imageError && imageLoaded ? `
+                0 1px 3px rgba(0,0,0,1), 
+                0 2px 6px rgba(0,0,0,0.9), 
+                0 0 15px rgba(0,0,0,0.7),
+                1px 1px 0px rgba(0,0,0,0.8),
+                -1px -1px 0px rgba(0,0,0,0.8)
+              ` : `0 1px 2px rgba(0,0,0,0.3)`, // Lighter shadow when no backdrop
+              filter: backdropUrl && !imageError && imageLoaded ? 'drop-shadow(0 1px 4px rgba(0,0,0,1))' : 'none',
+            }}
+          >
+            {notification.message.length > 80 
+              ? notification.message.substring(0, 80) + '...' 
+              : notification.message}
+          </p>
+        )}
+
+        {/* Movie Details Row - Rating, Year, Genres */}
+        {(size === 'hero' || size === 'large' || size === 'banner') && (
+          <div className="flex flex-wrap items-center gap-2 mb-3 text-xs">
+            {enhancedNotification.rating && enhancedNotification.rating > 0 && (
+              <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-yellow-500/20 text-yellow-400 border border-yellow-500/30">
+                <Star className="w-3 h-3 fill-current" />
+                {enhancedNotification.rating.toFixed(1)}
+              </span>
+            )}
+            {enhancedNotification.release_date && (
+              <span className="inline-flex items-center px-2 py-1 rounded-full bg-blue-500/20 text-blue-400 border border-blue-500/30">
+                {new Date(enhancedNotification.release_date).getFullYear()}
+              </span>
+            )}
+            {enhancedNotification.genres && enhancedNotification.genres.length > 0 && (
+              <span className="inline-flex items-center px-2 py-1 rounded-full bg-purple-500/20 text-purple-400 border border-purple-500/30">
+                {enhancedNotification.genres.slice(0, 2).join(' • ')}
+              </span>
+            )}
+            {enhancedNotification.runtime && enhancedNotification.runtime > 0 && (
+              <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-green-500/20 text-green-400 border border-green-500/30">
+                <Clock className="w-3 h-3" />
+                {Math.floor(enhancedNotification.runtime / 60)}h {enhancedNotification.runtime % 60}m
+              </span>
+            )}
+          </div>
+        )}
 
         {/* Continue Watching Progress */}
         {notification.type === 'continue_watching' && enhancedNotification.progress && (
@@ -534,18 +893,25 @@ const NotificationTile: React.FC<NotificationTileProps> = React.memo(({
           </div>
         )}
 
-        {/* Movie Grid for Multi-item Notifications - ONLY TMDB URLs */}
+        {/* Movie Grid for Multi-item Notifications - TMDB and Local URLs */}
         {sizeConfig.showDetails && enhancedNotification.media_details && enhancedNotification.media_details.length > 1 && (
           <div className="flex gap-2 mb-3 overflow-x-auto scrollbar-hide">
             {enhancedNotification.media_details.slice(0, size === 'hero' ? 6 : 4).map((media) => {
-              // Only show if has valid TMDB poster URL
-              if (!media.poster_url?.startsWith('https://image.tmdb.org/t/p/')) return null;
+              // Get poster URL - try TMDB first, then local
+              let mediaPosterUrl = null;
+              if (media.poster_url?.startsWith('https://image.tmdb.org/t/p/')) {
+                mediaPosterUrl = media.poster_url;
+              } else if (media.id) {
+                mediaPosterUrl = `${apiUrl}/api/posters/${media.id}`;
+              }
+              
+              if (!mediaPosterUrl) return null;
               
               return (
                 <div key={`${media.source_type}_${media.source_id}`} className="flex-shrink-0">
                   <div className="w-12 h-16 rounded overflow-hidden border border-white/20 bg-gray-800">
                     <img
-                      src={media.poster_url}
+                      src={mediaPosterUrl}
                       alt={media.title}
                       className="w-full h-full object-cover"
                       onError={(e) => {
@@ -560,7 +926,7 @@ const NotificationTile: React.FC<NotificationTileProps> = React.memo(({
           </div>
         )}
 
-        {/* Single Movie Details - ONLY TMDB URLs */}
+        {/* Single Movie Details - TMDB and Local URLs */}
         {sizeConfig.showPoster && posterUrl && !enhancedNotification.media_details && (
           <div className="flex items-start gap-3 mb-3">
             <div className="flex-shrink-0">
@@ -572,6 +938,7 @@ const NotificationTile: React.FC<NotificationTileProps> = React.memo(({
                   onError={(e) => {
                     // Just hide on error, no retries
                     e.currentTarget.style.display = 'none';
+                    handleImageError(posterUrl);
                   }}
                 />
               </div>
@@ -608,20 +975,9 @@ const NotificationTile: React.FC<NotificationTileProps> = React.memo(({
           </div>
         )}
 
-        {/* Action Buttons - Icon Only */}
-        <div className="flex items-center gap-1.5">
-          <button 
-            onClick={(e) => {
-              e.stopPropagation();
-              onTileClick?.();
-            }}
-            className="bg-white/90 hover:bg-white text-black rounded-full p-2 transition-all transform hover:scale-110 shadow-lg"
-            title="Play"
-          >
-            <Play className="w-4 h-4 fill-current" />
-          </button>
-          
-          {size === 'hero' && enhancedNotification.trailer_key && (
+        {/* Sound Control Icon - ONLY for Hero and Large tiles with video */}
+        {(size === 'hero' || size === 'large') && (enhancedNotification.trailer_key || previewVideoUrl) && (
+          <div className="absolute top-2 right-2 z-30">
             <button
               onClick={(e) => {
                 e.stopPropagation();
@@ -629,7 +985,7 @@ const NotificationTile: React.FC<NotificationTileProps> = React.memo(({
                 setIsMuted(newMutedState);
                 
                 // Control YouTube player audio
-                if (playerRef.current) {
+                if (playerRef.current && !usePreviewVideo) {
                   try {
                     if (newMutedState) {
                       playerRef.current.mute();
@@ -642,10 +998,15 @@ const NotificationTile: React.FC<NotificationTileProps> = React.memo(({
                     console.error('Failed to control audio:', error);
                   }
                 }
+                
+                // Control preview video audio
+                if (videoRef.current && (usePreviewVideo || !enhancedNotification.trailer_key)) {
+                  videoRef.current.muted = newMutedState;
+                  console.log(newMutedState ? '🔇 Muted preview' : '🔊 Unmuted preview');
+                }
               }}
-              className="backdrop-blur-md rounded-full border p-2 transition-all hover:scale-110"
+              className="backdrop-blur-md rounded-full border p-2 transition-all hover:scale-110 bg-black/50 hover:bg-black/70"
               style={{
-                backgroundColor: `${themeColors.primary}20`,
                 borderColor: `${themeColors.primary}50`
               }}
               title={isMuted ? "Unmute" : "Mute"}
@@ -655,8 +1016,10 @@ const NotificationTile: React.FC<NotificationTileProps> = React.memo(({
                 <Volume2 className="w-4 h-4 text-white" />
               }
             </button>
-          )}
-        </div>
+          </div>
+        )}
+
+        {/* No Action Buttons - Removed for cleaner tile appearance */}
       </div>
     </motion.div>
   );
