@@ -461,8 +461,14 @@ func (s *OpenSubtitlesService) DownloadSubtitle(fileID int) (*OpenSubtitlesDownl
 
 	fmt.Printf("🔗 Download link received: %s\n", downloadResp.Link)
 
-	// Download the actual subtitle file
-	fileResp, err := http.Get(downloadResp.Link)
+	// Download the actual subtitle file with proper headers
+	fileReq, err := http.NewRequest("GET", downloadResp.Link, nil)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create file download request: %v", err)
+	}
+	fileReq.Header.Set("User-Agent", "HomeFlix v1.0")
+	
+	fileResp, err := s.client.Do(fileReq)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to download subtitle file: %v", err)
 	}

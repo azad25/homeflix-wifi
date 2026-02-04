@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -337,4 +338,32 @@ func (r *RedisAssetCache) getContentType(assetType, ext string) string {
 // Close closes the Redis connection
 func (r *RedisAssetCache) Close() error {
 	return r.client.Close()
+}
+
+// GetShowcaseCache retrieves the provider showcase data
+func (r *RedisAssetCache) GetShowcaseCache() (map[string]interface{}, error) {
+	key := r.keyPrefix + "showcase"
+	val, err := r.client.Get(r.ctx, key).Result()
+	if err != nil {
+		return nil, err
+	}
+	
+	var data map[string]interface{}
+	if err := json.Unmarshal([]byte(val), &data); err != nil {
+		return nil, err
+	}
+	return data, nil
+}
+
+// SetShowcaseCache caches the provider showcase data
+func (r *RedisAssetCache) SetShowcaseCache(data map[string]interface{}) error {
+	key := r.keyPrefix + "showcase"
+	
+	bytes, err := json.Marshal(data)
+	if err != nil {
+		return err
+	}
+	
+	// 15 minutes TTL
+	return r.client.Set(r.ctx, key, string(bytes), 15*time.Minute).Err()
 }

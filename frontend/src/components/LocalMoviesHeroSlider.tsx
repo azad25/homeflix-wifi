@@ -9,35 +9,37 @@ import { getApiUrl } from "@/lib/api";
 import { Media } from "@/types/media";
 import { addToWishlist, removeFromWishlist, isInWishlist, getWishlist } from '@/lib/wishlist';
 import QualityTags from '@/components/QualityTags';
+import { useMyList } from '@/hooks/useMyList';
+import MyListTooltip from '@/components/ui/MyListTooltip';
 
 // Genre-based text styling utility
 const getGenreTextStyle = (genres: string[] = []) => {
-  const primaryGenre = genres[0]?.toLowerCase() || '';
-  
-  // Font family based on genre
-  let fontFamily = 'font-sans'; // default
-  if (primaryGenre.includes('horror') || primaryGenre.includes('thriller')) {
-    fontFamily = 'font-mono'; // monospace for tension
-  } else if (primaryGenre.includes('romance') || primaryGenre.includes('drama')) {
-    fontFamily = 'font-serif'; // serif for elegance
-  } else if (primaryGenre.includes('sci') || primaryGenre.includes('science')) {
-    fontFamily = 'font-mono'; // monospace for tech feel
-  } else if (primaryGenre.includes('comedy')) {
-    fontFamily = 'font-sans'; // clean sans for readability
-  }
-  
-  // Text size and styling
-  const textSize = 'text-sm md:text-base'; // Reduced from lg
-  const maxWidth = 'max-w-lg'; // Reduced from xl to lg
-  const lineHeight = 'leading-relaxed';
-  
-  return {
-    fontFamily,
-    textSize,
-    maxWidth,
-    lineHeight,
-    className: `${fontFamily} ${textSize} ${maxWidth} ${lineHeight}`
-  };
+    const primaryGenre = genres[0]?.toLowerCase() || '';
+
+    // Font family based on genre
+    let fontFamily = 'font-sans'; // default
+    if (primaryGenre.includes('horror') || primaryGenre.includes('thriller')) {
+        fontFamily = 'font-mono'; // monospace for tension
+    } else if (primaryGenre.includes('romance') || primaryGenre.includes('drama')) {
+        fontFamily = 'font-serif'; // serif for elegance
+    } else if (primaryGenre.includes('sci') || primaryGenre.includes('science')) {
+        fontFamily = 'font-mono'; // monospace for tech feel
+    } else if (primaryGenre.includes('comedy')) {
+        fontFamily = 'font-sans'; // clean sans for readability
+    }
+
+    // Text size and styling
+    const textSize = 'text-sm md:text-base'; // Reduced from lg
+    const maxWidth = 'max-w-lg'; // Reduced from xl to lg
+    const lineHeight = 'leading-relaxed';
+
+    return {
+        fontFamily,
+        textSize,
+        maxWidth,
+        lineHeight,
+        className: `${fontFamily} ${textSize} ${maxWidth} ${lineHeight}`
+    };
 };
 
 // Declare global YouTube types
@@ -65,11 +67,13 @@ const LocalMoviesHeroSlider: React.FC<LocalMoviesHeroSliderProps> = ({
     const [isMuted, setIsMuted] = useState(false);
     const [ytReady, setYtReady] = useState(false);
     const [videoReady, setVideoReady] = useState(false); // Track when video is actually playing
-    const [myList, setMyList] = useState<Set<number>>(new Set());
     const mainSliderRef = useRef<Splide>(null);
     const thumbsSliderRef = useRef<Splide>(null);
     const playerRef = useRef<any>(null);
     const apiUrl = getApiUrl();
+
+    // Use the new backend-connected My List hook
+    const { myList, collections, isInMyList, toggleMyList: toggleMyListHook, addToCollection, fetchCollections } = useMyList();
 
     // Load YouTube IFrame API
     useEffect(() => {
@@ -105,7 +109,6 @@ const LocalMoviesHeroSlider: React.FC<LocalMoviesHeroSliderProps> = ({
     // Fetch local movies with trailers
     useEffect(() => {
         fetchLocalMoviesWithTrailers();
-        loadMyList();
     }, []);
 
     const fetchLocalMoviesWithTrailers = async () => {
@@ -144,33 +147,10 @@ const LocalMoviesHeroSlider: React.FC<LocalMoviesHeroSliderProps> = ({
         }
     };
 
-    const loadMyList = () => {
-        const wishlistIds = getWishlist();
-        setMyList(new Set(wishlistIds));
-    };
-
-    const toggleMyList = (movie: Media) => {
-        const isInList = myList.has(movie.id);
-        let success = false;
-
-        if (isInList) {
-            success = removeFromWishlist(movie.id);
-        } else {
-            success = addToWishlist(movie.id);
-        }
-
-        if (success) {
-            setMyList((prev) => {
-                const newSet = new Set(prev);
-                if (isInList) {
-                    newSet.delete(movie.id);
-                } else {
-                    newSet.add(movie.id);
-                }
-                return newSet;
-            });
-        }
-    };
+    // Wrapper function to handle the movie parameter
+    const toggleMyList = useCallback((movie: Media) => {
+        toggleMyListHook(movie.id);
+    }, [toggleMyListHook]);
 
     const getBackdropUrl = (movie: Media): string => {
         if (movie.tmdb_backdrop_url) return movie.tmdb_backdrop_url;
@@ -269,6 +249,10 @@ const LocalMoviesHeroSlider: React.FC<LocalMoviesHeroSliderProps> = ({
                         }
                     },
                     onReady: (event: any) => {
+                        const iframe = event.target.getIframe();
+                        if (iframe) {
+                            iframe.referrerPolicy = "strict-origin-when-cross-origin";
+                        }
                         if (!isMuted) {
                             event.target.unMute();
                         }
@@ -471,9 +455,9 @@ const LocalMoviesHeroSlider: React.FC<LocalMoviesHeroSliderProps> = ({
                                         )}
                                         {/* Quality Tags - Netflix-style tags */}
                                         {movie.quality_tags && movie.quality_tags.length > 0 && (
-                                            <QualityTags 
-                                                tags={movie.quality_tags} 
-                                                size="sm" 
+                                            <QualityTags
+                                                tags={movie.quality_tags}
+                                                size="sm"
                                                 variant="compact"
                                                 className="flex-wrap"
                                             />
@@ -499,16 +483,26 @@ const LocalMoviesHeroSlider: React.FC<LocalMoviesHeroSliderProps> = ({
                                             <Info className="w-5 h-5" />
                                             More Info
                                         </button> */}
-                                        <button
-                                            onClick={() => toggleMyList(movie)}
-                                            className="p-3 rounded-full border border-white/30 bg-black/30 backdrop-blur-sm hover:bg-white/10 transition-colors"
+                                        <MyListTooltip
+                                            media={{
+                                                ...movie,
+                                                id: movie.tmdb_id ? parseInt(`9${movie.tmdb_id}`) : movie.id
+                                            }}
+                                            isInMyList={isInMyList(movie.tmdb_id ? parseInt(`9${movie.tmdb_id}`) : movie.id)}
+                                            collections={collections}
+                                            onToggleMyList={() => toggleMyList(movie)}
+                                            onAddToCollection={(collectionId) => addToCollection(collectionId, movie.tmdb_id ? parseInt(`9${movie.tmdb_id}`) : movie.id)}
+                                            onCollectionCreated={fetchCollections}
+                                            onDataRefresh={fetchCollections}
                                         >
-                                            {myList.has(movie.id) ? (
-                                                <Check className="w-5 h-5" />
-                                            ) : (
-                                                <Plus className="w-5 h-5" />
-                                            )}
-                                        </button>
+                                            <button className="p-3 rounded-full border border-white/30 bg-black/30 backdrop-blur-sm hover:bg-white/10 transition-colors">
+                                                {isInMyList(movie.tmdb_id ? parseInt(`9${movie.tmdb_id}`) : movie.id) ? (
+                                                    <Check className="w-5 h-5" />
+                                                ) : (
+                                                    <Plus className="w-5 h-5" />
+                                                )}
+                                            </button>
+                                        </MyListTooltip>
                                         <button
                                             onClick={toggleMute}
                                             className="p-3 rounded-full border border-white/30 bg-black/30 backdrop-blur-sm hover:bg-white/10 transition-colors"

@@ -40,7 +40,7 @@ import { GradientBackground } from '@/components/scrollx';
 // Genre-based text styling utility
 const getGenreTextStyle = (genres: string[] = []) => {
   const primaryGenre = genres[0]?.toLowerCase() || '';
-  
+
   // Font family based on genre
   let fontFamily = 'font-sans'; // default
   if (primaryGenre.includes('horror') || primaryGenre.includes('thriller')) {
@@ -52,12 +52,12 @@ const getGenreTextStyle = (genres: string[] = []) => {
   } else if (primaryGenre.includes('comedy')) {
     fontFamily = 'font-sans'; // clean sans for readability
   }
-  
+
   // Text size and styling
   const textSize = 'text-sm md:text-base'; // Reduced from lg
   const maxWidth = 'max-w-lg'; // Reduced from xl to lg
   const lineHeight = 'leading-relaxed';
-  
+
   return {
     fontFamily,
     textSize,
@@ -861,7 +861,7 @@ const TMDBMoviePage: React.FC = () => {
   const { myList, collections, isInMyList: isInMyListHook, toggleMyList: toggleMyListHook, addToCollection, fetchCollections } = useMyList();
 
   const movieId = params?.id as string;
-  
+
   // Create prefixed ID for TMDB content to distinguish from local media
   const tmdbPrefixedId = movieId ? parseInt(`9${movieId}`) : 0;
 
@@ -1448,9 +1448,8 @@ const TMDBMoviePage: React.FC = () => {
       >
         {/* Backdrop Background Image - Shows when video not playing */}
         <div
-          className={`absolute inset-0 pointer-events-none transition-opacity duration-1000 ${
-            trailerKey && isPlaying ? 'opacity-0' : 'opacity-100'
-          }`}
+          className={`absolute inset-0 pointer-events-none transition-opacity duration-1000 ${trailerKey && isPlaying ? 'opacity-0' : 'opacity-100'
+            }`}
           style={{ zIndex: 1 }}
         >
           <img
@@ -1481,6 +1480,7 @@ const TMDBMoviePage: React.FC = () => {
               className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2"
               allow="autoplay; encrypted-media"
               allowFullScreen
+              referrerPolicy="strict-origin-when-cross-origin"
               style={{
                 width: '120vw',
                 height: '120vh',

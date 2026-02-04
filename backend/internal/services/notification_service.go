@@ -54,30 +54,31 @@ type Notification struct {
 	TMDBTitles []string         `json:"tmdb_titles,omitempty"`
 	Timestamp  int64            `json:"timestamp"`
 	Read       bool             `json:"read"`
-	
+
 	// Enhanced data fields - populated by backend
-	BackdropURL    string              `json:"backdrop_url,omitempty"`
-	PosterURL      string              `json:"poster_url,omitempty"`
-	LogoURL        string              `json:"logo_url,omitempty"`
-	TrailerKey     string              `json:"trailer_key,omitempty"`
-	Rating         float64             `json:"rating,omitempty"`
-	ReleaseDate    string              `json:"release_date,omitempty"`
-	Runtime        int                 `json:"runtime,omitempty"`
-	Genres         []string            `json:"genres,omitempty"`
-	Overview       string              `json:"overview,omitempty"`
-	Tagline        string              `json:"tagline,omitempty"`
-	Language       string              `json:"language,omitempty"`
-	Popularity     float64             `json:"popularity,omitempty"`
-	Companies      []string            `json:"companies,omitempty"`
-	Priority       string              `json:"priority,omitempty"`
-	Category       string              `json:"category,omitempty"`
-	MediaDetails   []NotificationMedia `json:"media_details,omitempty"`
-	
+	BackdropURL  string              `json:"backdrop_url,omitempty"`
+	PosterURL    string              `json:"poster_url,omitempty"`
+	LogoURL      string              `json:"logo_url,omitempty"`
+	TrailerKey   string              `json:"trailer_key,omitempty"`
+	Rating       float64             `json:"rating,omitempty"`
+	ReleaseDate  string              `json:"release_date,omitempty"`
+	Runtime      int                 `json:"runtime,omitempty"`
+	Genres       []string            `json:"genres,omitempty"`
+	Overview     string              `json:"overview,omitempty"`
+	Tagline      string              `json:"tagline,omitempty"`
+	Language     string              `json:"language,omitempty"`
+	Popularity   float64             `json:"popularity,omitempty"`
+	Companies    []string            `json:"companies,omitempty"`
+	Priority     string              `json:"priority,omitempty"`
+	Category     string              `json:"category,omitempty"`
+	MediaDetails []NotificationMedia `json:"media_details,omitempty"`
+
 	// Continue watching specific fields
 	Progress       float64 `json:"progress,omitempty"`
 	RemainingMin   int     `json:"remaining_min,omitempty"`
 	DaysUntil      int     `json:"days_until,omitempty"` // For coming soon
 	GenreHighlight string  `json:"genre_highlight,omitempty"`
+	Year           int     `json:"year,omitempty"` // For local content year display
 }
 
 // NotificationMedia represents individual media items in notifications
@@ -105,9 +106,9 @@ type NotificationService struct {
 	ttl              time.Duration
 	maxNotifications int
 	stopChan         chan bool
-	failedPosters    map[string]bool // Track failed poster URLs
+	failedPosters    map[string]bool      // Track failed poster URLs
 	usedContent      map[string]time.Time // Track used content to prevent duplicates
-	contentMutex     sync.RWMutex // Protect usedContent map
+	contentMutex     sync.RWMutex         // Protect usedContent map
 }
 
 // NewNotificationService creates a new notification service
@@ -147,22 +148,22 @@ func NewNotificationService(redisURL string, db *gorm.DB, tmdbService *TMDBServi
 // generateContentKey creates a unique key for tracking content usage
 func (ns *NotificationService) generateContentKey(notification Notification) []string {
 	var keys []string
-	
+
 	// For local content (movies/series)
 	for _, movieID := range notification.MovieIDs {
 		keys = append(keys, fmt.Sprintf("local_%d", movieID))
 	}
-	
+
 	// For TMDB content
 	for _, tmdbID := range notification.TMDBIDs {
 		keys = append(keys, fmt.Sprintf("tmdb_%d", tmdbID))
 	}
-	
+
 	// For series content
 	if notification.SeriesID > 0 {
 		keys = append(keys, fmt.Sprintf("series_%d", notification.SeriesID))
 	}
-	
+
 	return keys
 }
 
@@ -170,10 +171,10 @@ func (ns *NotificationService) generateContentKey(notification Notification) []s
 func (ns *NotificationService) isContentRecentlyUsed(contentKeys []string) bool {
 	ns.contentMutex.RLock()
 	defer ns.contentMutex.RUnlock()
-	
+
 	now := time.Now()
 	cooldownPeriod := 2 * time.Hour // Content can't be reused for 2 hours
-	
+
 	for _, key := range contentKeys {
 		if lastUsed, exists := ns.usedContent[key]; exists {
 			if now.Sub(lastUsed) < cooldownPeriod {
@@ -182,7 +183,7 @@ func (ns *NotificationService) isContentRecentlyUsed(contentKeys []string) bool 
 			}
 		}
 	}
-	
+
 	return false
 }
 
@@ -190,7 +191,7 @@ func (ns *NotificationService) isContentRecentlyUsed(contentKeys []string) bool 
 func (ns *NotificationService) markContentAsUsed(contentKeys []string) {
 	ns.contentMutex.Lock()
 	defer ns.contentMutex.Unlock()
-	
+
 	now := time.Now()
 	for _, key := range contentKeys {
 		ns.usedContent[key] = now
@@ -202,10 +203,10 @@ func (ns *NotificationService) markContentAsUsed(contentKeys []string) {
 func (ns *NotificationService) cleanupOldUsedContent() {
 	ns.contentMutex.Lock()
 	defer ns.contentMutex.Unlock()
-	
+
 	now := time.Now()
 	maxAge := 6 * time.Hour // Keep track for 6 hours
-	
+
 	for key, lastUsed := range ns.usedContent {
 		if now.Sub(lastUsed) > maxAge {
 			delete(ns.usedContent, key)
@@ -217,7 +218,7 @@ func (ns *NotificationService) cleanupOldUsedContent() {
 func (ns *NotificationService) Start() {
 	log.Printf("🔔 Starting notification service background job...")
 	go ns.generateOptimizedNotifications()
-	
+
 	// Generate initial batch of notifications immediately for better UX
 	go func() {
 		log.Printf("🔔 Generating initial notification batch...")
@@ -234,16 +235,16 @@ func (ns *NotificationService) Stop() {
 // generateInitialNotificationBatch creates a diverse set of notifications on startup with local focus
 func (ns *NotificationService) generateInitialNotificationBatch() {
 	// Generate diverse local-focused notifications in parallel for fast startup
-	go ns.CreateSingleMovieSuggestion()      // Perfect match
-	go ns.CreateRecentlyAddedNotification()  // Recent additions
-	
+	go ns.CreateSingleMovieSuggestion()     // Perfect match
+	go ns.CreateRecentlyAddedNotification() // Recent additions
+
 	time.Sleep(300 * time.Millisecond)
-	
-	go ns.CreateGenreBasedNotification()     // Genre recommendations
+
+	go ns.CreateGenreBasedNotification()       // Genre recommendations
 	go ns.CreateContinueWatchingNotification() // Continue watching
-	
+
 	time.Sleep(300 * time.Millisecond)
-	
+
 	go ns.CreateLocalTrendingNotification()  // Local trending
 	go ns.CreateTMDBComingSoonNotification() // One TMDB notification
 }
@@ -251,9 +252,12 @@ func (ns *NotificationService) generateInitialNotificationBatch() {
 // generateOptimizedNotifications runs every 20 seconds with smart notification rotation and duplicate prevention
 func (ns *NotificationService) generateOptimizedNotifications() {
 	rand.Seed(time.Now().UnixNano())
-	
+
 	// Smart notification rotation with weights - prioritize local content and recent additions
 	localNotifications := []func() error{
+		ns.CreateAnyLocalContentNotification,     // Relaxed local content (no TMDB requirements)
+		ns.CreateAnyLocalContentNotification,     // Double weight for reliable local content
+		ns.CreateRecommendedMoviesNotification,   // High-rated recommendations
 		ns.CreateSingleMovieSuggestion,           // Perfect match single movie
 		ns.CreateRecentlyAddedNotification,       // Recently added content
 		ns.CreateGenreBasedNotification,          // Genre recommendations
@@ -263,24 +267,24 @@ func (ns *NotificationService) generateOptimizedNotifications() {
 		ns.CreateLocalTrendingNotification,       // Local trending
 		ns.CreateWatchAgainSuggestion,            // Watch again
 	}
-	
+
 	tmdbNotifications := []func() error{
-		ns.CreateTMDBComingSoonNotification,      // Coming soon movies
-		ns.CreateTMDBTrendingMoviesNotification,  // TMDB trending
-		ns.CreateSingleTMDBMovieNotification,     // Single TMDB movie
-		ns.CreateTMDBNowPlayingNotification,      // Now in theaters
-		ns.CreateTMDBUpcomingTVNotification,      // Upcoming TV
-		ns.CreateTMDBNowAiringTVNotification,     // Now airing TV
-		ns.CreateSingleTMDBTVNotification,        // Single TMDB TV
-		ns.CreateTMDBUpcomingMoviesNotification,  // TMDB upcoming movies
+		ns.CreateTMDBComingSoonNotification,     // Coming soon movies
+		ns.CreateTMDBTrendingMoviesNotification, // TMDB trending
+		ns.CreateSingleTMDBMovieNotification,    // Single TMDB movie
+		ns.CreateTMDBNowPlayingNotification,     // Now in theaters
+		ns.CreateTMDBUpcomingTVNotification,     // Upcoming TV
+		ns.CreateTMDBNowAiringTVNotification,    // Now airing TV
+		ns.CreateSingleTMDBTVNotification,       // Single TMDB TV
+		ns.CreateTMDBUpcomingMoviesNotification, // TMDB upcoming movies
 	}
-	
+
 	notificationCounter := 0
-	
+
 	for {
 		// Generate notification every 20 seconds for better pacing
 		waitDuration := 20 * time.Second
-		
+
 		select {
 		case <-ns.stopChan:
 			log.Printf("🔕 Notification service stopped")
@@ -290,10 +294,10 @@ func (ns *NotificationService) generateOptimizedNotifications() {
 			if notificationCounter%10 == 0 {
 				ns.cleanupOldUsedContent()
 			}
-			
+
 			// Smart rotation: 70% local content, 30% TMDB content
 			var notificationFunc func() error
-			
+
 			if rand.Float32() < 0.7 {
 				// Local content (70% chance)
 				notificationFunc = localNotifications[rand.Intn(len(localNotifications))]
@@ -301,17 +305,17 @@ func (ns *NotificationService) generateOptimizedNotifications() {
 				// TMDB content (30% chance)
 				notificationFunc = tmdbNotifications[rand.Intn(len(tmdbNotifications))]
 			}
-			
+
 			if err := notificationFunc(); err != nil {
 				log.Printf("⚠️ Notification generation failed: %v", err)
-				// Try a fallback local notification
-				if fallbackErr := ns.CreateSingleMovieSuggestion(); fallbackErr != nil {
+				// Try relaxed local content fallback (works with any local content)
+				if fallbackErr := ns.CreateAnyLocalContentNotification(); fallbackErr != nil {
 					log.Printf("⚠️ Fallback notification also failed: %v", fallbackErr)
 				}
 			}
-			
+
 			notificationCounter++
-			
+
 			// Trim notifications every 10 generations
 			if notificationCounter%10 == 0 {
 				ns.trimNotifications()
@@ -327,7 +331,7 @@ func (ns *NotificationService) trimNotifications() {
 	if err != nil {
 		return
 	}
-	
+
 	if count > int64(ns.maxNotifications) {
 		// Remove oldest notifications (lowest scores = oldest timestamps)
 		toRemove := count - int64(ns.maxNotifications)
@@ -336,29 +340,132 @@ func (ns *NotificationService) trimNotifications() {
 	}
 }
 
+// CreateAnyLocalContentNotification creates notification for ANY local content using local asset paths
+// This is a relaxed fallback that doesn't require TMDB metadata or specific ratings
+func (ns *NotificationService) CreateAnyLocalContentNotification() error {
+	type MediaResult struct {
+		ID          uint   `gorm:"column:id"`
+		Title       string `gorm:"column:title"`
+		Type        string `gorm:"column:type"`
+		Year        int    `gorm:"column:year"`
+		Duration    int    `gorm:"column:duration"`
+		Description string `gorm:"column:description"`
+		GenreNames  string `gorm:"column:genre_names"`
+		LogoPath    string `gorm:"column:logo_path"`
+	}
+
+	var results []MediaResult
+	// Only select actual movies (not TV episodes), with minimum duration to filter out small videos
+	// Also require rating >= 4.0 to filter out invalid/fake entries
+	err := ns.db.Raw(`
+		SELECT id, title, type, year, duration, description, genre_names, logo_path
+		FROM media
+		WHERE type = 'movie'
+		AND file_path IS NOT NULL AND file_path != ''
+		AND deleted_at IS NULL
+		AND duration > 3600
+		AND (rating >= 4.0 OR rating = 0)
+		AND title IS NOT NULL AND title != ''
+		ORDER BY RANDOM()
+		LIMIT 5
+	`).Scan(&results).Error
+
+	if err != nil || len(results) == 0 {
+		return fmt.Errorf("no local content found")
+	}
+
+	var movieIDs []uint
+	var mediaDetails []NotificationMedia
+	primary := results[0]
+
+	for _, r := range results {
+		movieIDs = append(movieIDs, r.ID)
+
+		media := NotificationMedia{
+			ID:         int(r.ID),
+			Title:      r.Title,
+			Year:       r.Year,
+			SourceType: "local",
+			SourceID:   fmt.Sprintf("%d", r.ID),
+			Overview:   r.Description,
+			// Use local asset paths
+			PosterURL:   fmt.Sprintf("/api/posters/%d", r.ID),
+			BackdropURL: fmt.Sprintf("/api/admin/assets/banner_%d.jpg", r.ID),
+		}
+
+		if r.Duration > 0 {
+			media.Runtime = r.Duration / 60
+		}
+
+		if r.GenreNames != "" {
+			var genres []string
+			if err := json.Unmarshal([]byte(r.GenreNames), &genres); err == nil {
+				media.Genres = genres
+			}
+		}
+
+		mediaDetails = append(mediaDetails, media)
+	}
+
+	message := fmt.Sprintf("Check out %s from your library!", primary.Title)
+	if len(results) > 1 {
+		message = fmt.Sprintf("%d titles from your local library to explore!", len(results))
+	}
+
+	// Build logo URL - prioritize logo_path if available
+	logoURL := ""
+	if primary.LogoPath != "" && primary.LogoPath != "null" {
+		logoURL = fmt.Sprintf("/api/%s", primary.LogoPath)
+	} else {
+		logoURL = fmt.Sprintf("/api/admin/assets/logo_%d.png", primary.ID)
+	}
+
+	notification := Notification{
+		ID:           fmt.Sprintf("local_%d_%d", primary.ID, time.Now().Unix()),
+		Type:         NotificationTypeSingleMovie,
+		Title:        primary.Title,
+		Message:      message,
+		MovieIDs:     movieIDs,
+		Timestamp:    time.Now().Unix(),
+		Read:         false,
+		Priority:     "medium",
+		Category:     "recommended",
+		MediaDetails: mediaDetails,
+		// Use local asset paths
+		PosterURL:   fmt.Sprintf("/api/posters/%d", primary.ID),
+		BackdropURL: fmt.Sprintf("/api/admin/assets/banner_%d.jpg", primary.ID),
+		LogoURL:     logoURL,
+		Overview:    primary.Description,
+		Year:        primary.Year,
+	}
+
+	log.Printf("🎬 Created relaxed local content notification: %s", primary.Title)
+	return ns.AddNotification(notification)
+}
+
 // CreateContinueWatchingNotification creates notification for partially watched content with progress and complete media info
 func (ns *NotificationService) CreateContinueWatchingNotification() error {
 	type ProgressResult struct {
-		MediaID          uint    `gorm:"column:media_id"`
-		Title            string  `gorm:"column:title"`
-		Progress         float64 `gorm:"column:progress"`
-		Duration         int     `gorm:"column:duration"`
-		LastWatched      int64   `gorm:"column:last_watched"`
-		Type             string  `gorm:"column:type"`
-		SeriesID         uint    `gorm:"column:series_id"`
-		Rating           float64 `gorm:"column:rating"`
-		Year             int     `gorm:"column:year"`
-		GenreNames       string  `gorm:"column:genre_names"`
-		PosterPath       string  `gorm:"column:poster_path"`
-		TMDBPosterURL    string  `gorm:"column:tmdb_poster_url"`
-		TMDBBackdropURL  string  `gorm:"column:tmdb_backdrop_url"`
-		TMDBTrailerURL   string  `gorm:"column:tmdb_trailer_url"`
-		Description      string  `gorm:"column:description"`
-		SeasonNumber     int     `gorm:"column:season_number"`
-		EpisodeNumber    int     `gorm:"column:episode_number"`
-		LogoPath         string  `gorm:"column:logo_path"`
+		MediaID         uint    `gorm:"column:media_id"`
+		Title           string  `gorm:"column:title"`
+		Progress        float64 `gorm:"column:progress"`
+		Duration        int     `gorm:"column:duration"`
+		LastWatched     int64   `gorm:"column:last_watched"`
+		Type            string  `gorm:"column:type"`
+		SeriesID        uint    `gorm:"column:series_id"`
+		Rating          float64 `gorm:"column:rating"`
+		Year            int     `gorm:"column:year"`
+		GenreNames      string  `gorm:"column:genre_names"`
+		PosterPath      string  `gorm:"column:poster_path"`
+		TMDBPosterURL   string  `gorm:"column:tmdb_poster_url"`
+		TMDBBackdropURL string  `gorm:"column:tmdb_backdrop_url"`
+		TMDBTrailerURL  string  `gorm:"column:tmdb_trailer_url"`
+		Description     string  `gorm:"column:description"`
+		SeasonNumber    int     `gorm:"column:season_number"`
+		EpisodeNumber   int     `gorm:"column:episode_number"`
+		LogoPath        string  `gorm:"column:logo_path"`
 	}
-	
+
 	var results []ProgressResult
 	err := ns.db.Raw(`
 		SELECT p.media_id, m.title, p.progress, m.duration, 
@@ -370,21 +477,21 @@ func (ns *NotificationService) CreateContinueWatchingNotification() error {
 		INNER JOIN media m ON p.media_id = m.id
 		WHERE p.progress BETWEEN 5 AND 90
 		AND m.file_path IS NOT NULL AND m.file_path != ''
-		AND (m.tmdb_poster_url IS NOT NULL AND m.tmdb_poster_url LIKE 'https://image.tmdb.org/t/p/%')
+		AND m.deleted_at IS NULL
 		AND p.last_watched_at > datetime('now', '-7 days')
 		ORDER BY p.last_watched_at DESC
 		LIMIT 5
 	`).Scan(&results).Error
-	
+
 	if err != nil || len(results) == 0 {
 		return fmt.Errorf("no continue watching content found")
 	}
-	
+
 	// Build media details for all continue watching items
 	var mediaDetails []NotificationMedia
 	var movieIDs []uint
 	primaryResult := results[0] // Use first result as primary
-	
+
 	for _, result := range results {
 		media := NotificationMedia{
 			ID:         int(result.MediaID),
@@ -395,24 +502,24 @@ func (ns *NotificationService) CreateContinueWatchingNotification() error {
 			SourceType: "local",
 			SourceID:   fmt.Sprintf("%d", result.MediaID),
 		}
-		
+
 		// Set poster URL - prioritize TMDB
 		if result.TMDBPosterURL != "" && strings.HasPrefix(result.TMDBPosterURL, "https://image.tmdb.org/t/p/") {
 			media.PosterURL = result.TMDBPosterURL
 		} else {
 			media.PosterURL = fmt.Sprintf("/api/posters/%d", result.MediaID)
 		}
-		
+
 		// Set backdrop URL
 		if result.TMDBBackdropURL != "" {
 			media.BackdropURL = result.TMDBBackdropURL
 		}
-		
+
 		// Set runtime in minutes
 		if result.Duration > 0 {
 			media.Runtime = result.Duration / 60
 		}
-		
+
 		// Parse genres
 		if result.GenreNames != "" {
 			var genres []string
@@ -420,11 +527,11 @@ func (ns *NotificationService) CreateContinueWatchingNotification() error {
 				media.Genres = genres
 			}
 		}
-		
+
 		mediaDetails = append(mediaDetails, media)
 		movieIDs = append(movieIDs, result.MediaID)
 	}
-	
+
 	// Use first result for primary notification data
 	result := primaryResult
 	remainingMin := 0
@@ -432,7 +539,7 @@ func (ns *NotificationService) CreateContinueWatchingNotification() error {
 		remainingSeconds := float64(result.Duration) * (100 - result.Progress) / 100
 		remainingMin = int(remainingSeconds / 60)
 	}
-	
+
 	// Build message
 	var message string
 	if len(results) == 1 {
@@ -440,13 +547,13 @@ func (ns *NotificationService) CreateContinueWatchingNotification() error {
 	} else {
 		message = fmt.Sprintf("Continue %s and %d more titles", result.Title, len(results)-1)
 	}
-	
+
 	// Get trailer key if available
 	trailerKey := ""
 	if result.TMDBTrailerURL != "" {
 		trailerKey = ns.extractYouTubeKey(result.TMDBTrailerURL)
 	}
-	
+
 	// Parse genres for theme colors
 	var genres []string
 	if result.GenreNames != "" {
@@ -468,7 +575,7 @@ func (ns *NotificationService) CreateContinueWatchingNotification() error {
 	} else {
 		posterURL = fmt.Sprintf("/api/posters/%d", result.MediaID)
 	}
-	
+
 	notification := Notification{
 		ID:           fmt.Sprintf("continue_%d_%d", result.MediaID, time.Now().Unix()),
 		Type:         NotificationTypeContinueWatching,
@@ -491,7 +598,7 @@ func (ns *NotificationService) CreateContinueWatchingNotification() error {
 		Overview:     result.Description,
 		MediaDetails: mediaDetails,
 	}
-	
+
 	return ns.AddNotification(notification)
 }
 
@@ -512,50 +619,66 @@ func (ns *NotificationService) CreateRecentlyAddedNotification() error {
 		LogoPath        string  `gorm:"column:logo_path"`
 		Duration        int     `gorm:"column:duration"`
 	}
-	
+
 	var results []MediaResult
+	// Only select actual movies (not TV episodes) with minimum duration to filter small videos
 	err := ns.db.Raw(`
 		SELECT id, title, type, rating, year, tmdb_poster_url, tmdb_backdrop_url, tmdb_trailer_url,
 		       datetime(created_at) as created_at, description, genre_names, logo_path, duration
 		FROM media
-		WHERE created_at > datetime('now', '-48 hours')
+		WHERE type = 'movie'
+		AND created_at > datetime('now', '-48 hours')
 		AND file_path IS NOT NULL AND file_path != ''
-		AND (tmdb_poster_url IS NOT NULL AND tmdb_poster_url LIKE 'https://image.tmdb.org/t/p/%')
-		AND rating >= 6.0
-		ORDER BY created_at DESC, rating DESC
+		AND deleted_at IS NULL
+		AND duration > 3600
+		AND title IS NOT NULL AND title != ''
+		ORDER BY created_at DESC
 		LIMIT 5
 	`).Scan(&results).Error
-	
+
 	if err != nil || len(results) == 0 {
-		return fmt.Errorf("no recently added content with valid posters")
+		return fmt.Errorf("no recently added content found")
 	}
-	
+
 	var movieIDs []uint
 	var mediaDetails []NotificationMedia
 	primaryMedia := results[0] // Use first result as primary
-	
+
 	for _, r := range results {
 		movieIDs = append(movieIDs, r.ID)
-		
+
 		media := NotificationMedia{
 			ID:         int(r.ID),
 			Title:      r.Title,
 			Rating:     r.Rating,
 			Year:       r.Year,
-			PosterURL:  r.TMDBPosterURL,
 			SourceType: "local",
 			SourceID:   fmt.Sprintf("%d", r.ID),
 			Overview:   r.Description,
 		}
-		
+
+		// Use TMDB poster if available, fallback to local
+		if r.TMDBPosterURL != "" && strings.HasPrefix(r.TMDBPosterURL, "https://image.tmdb.org/t/p/") {
+			media.PosterURL = r.TMDBPosterURL
+		} else {
+			media.PosterURL = fmt.Sprintf("/api/posters/%d", r.ID)
+		}
+
+		// Use TMDB backdrop if available, fallback to local
+		if r.TMDBBackdropURL != "" {
+			media.BackdropURL = r.TMDBBackdropURL
+		} else {
+			media.BackdropURL = fmt.Sprintf("/api/admin/assets/banner_%d.jpg", r.ID)
+		}
+
 		if r.TMDBBackdropURL != "" {
 			media.BackdropURL = r.TMDBBackdropURL
 		}
-		
+
 		if r.Duration > 0 {
 			media.Runtime = r.Duration / 60
 		}
-		
+
 		// Parse genres
 		if r.GenreNames != "" {
 			var genres []string
@@ -563,10 +686,10 @@ func (ns *NotificationService) CreateRecentlyAddedNotification() error {
 				media.Genres = genres
 			}
 		}
-		
+
 		mediaDetails = append(mediaDetails, media)
 	}
-	
+
 	message := fmt.Sprintf("%s was just added to your library!", primaryMedia.Title)
 	if len(results) > 1 {
 		message = fmt.Sprintf("%d new high-quality titles added recently!", len(results))
@@ -591,7 +714,7 @@ func (ns *NotificationService) CreateRecentlyAddedNotification() error {
 	if primaryMedia.GenreNames != "" {
 		json.Unmarshal([]byte(primaryMedia.GenreNames), &genres)
 	}
-	
+
 	notification := Notification{
 		ID:           fmt.Sprintf("recent_%d_%d", primaryMedia.ID, time.Now().Unix()),
 		Type:         NotificationTypeRecentlyAdded,
@@ -610,8 +733,9 @@ func (ns *NotificationService) CreateRecentlyAddedNotification() error {
 		Rating:       primaryMedia.Rating,
 		Overview:     primaryMedia.Description,
 		Genres:       genres,
+		Year:         primaryMedia.Year,
 	}
-	
+
 	return ns.AddNotification(notification)
 }
 
@@ -631,23 +755,27 @@ func (ns *NotificationService) CreateLocalTrendingNotification() error {
 		LogoPath        string  `gorm:"column:logo_path"`
 		Duration        int     `gorm:"column:duration"`
 	}
-	
+
 	var results []MediaResult
+	// Only select actual movies (not TV episodes) with minimum duration
 	err := ns.db.Raw(`
 		SELECT id, title, view_count, rating, year, tmdb_poster_url, tmdb_backdrop_url, tmdb_trailer_url,
 		       description, genre_names, logo_path, duration
 		FROM media
-		WHERE view_count > 0
+		WHERE type = 'movie'
+		AND view_count > 0
 		AND file_path IS NOT NULL AND file_path != ''
-		AND (tmdb_poster_url IS NOT NULL AND tmdb_poster_url LIKE 'https://image.tmdb.org/t/p/%')
+		AND deleted_at IS NULL
+		AND duration > 3600
+		AND title IS NOT NULL AND title != ''
 		ORDER BY view_count DESC, rating DESC
 		LIMIT 1
 	`).Scan(&results).Error
-	
+
 	if err != nil || len(results) == 0 {
 		return fmt.Errorf("no trending local content")
 	}
-	
+
 	result := results[0]
 
 	// Extract trailer key
@@ -688,8 +816,9 @@ func (ns *NotificationService) CreateLocalTrendingNotification() error {
 		Overview:    result.Description,
 		Genres:      genres,
 		Runtime:     result.Duration / 60,
+		Year:        result.Year,
 	}
-	
+
 	return ns.AddNotification(notification)
 }
 
@@ -701,19 +830,20 @@ func (ns *NotificationService) CreateGenreBasedNotification() error {
 		SELECT m.genre_names FROM media m
 		INNER JOIN playback_progress p ON m.id = p.media_id
 		WHERE m.genre_names IS NOT NULL AND m.genre_names != ''
+		AND m.deleted_at IS NULL
 		AND p.last_watched_at > datetime('now', '-30 days')
 		AND m.file_path IS NOT NULL AND m.file_path != ''
 		GROUP BY m.genre_names
 		ORDER BY COUNT(*) DESC, MAX(p.last_watched_at) DESC
 		LIMIT 1
 	`).Scan(&topGenre).Error
-	
+
 	if err != nil || topGenre == "" {
 		// Fallback to popular genres with recent content
 		genres := []string{"Action", "Comedy", "Drama", "Thriller", "Sci-Fi", "Horror", "Romance", "Adventure"}
 		topGenre = genres[rand.Intn(len(genres))]
 	}
-	
+
 	// Extract first genre from JSON array
 	genreName := topGenre
 	if strings.Contains(topGenre, "[") {
@@ -725,7 +855,7 @@ func (ns *NotificationService) CreateGenreBasedNotification() error {
 			}
 		}
 	}
-	
+
 	type MediaResult struct {
 		ID              uint    `gorm:"column:id"`
 		Title           string  `gorm:"column:title"`
@@ -736,56 +866,73 @@ func (ns *NotificationService) CreateGenreBasedNotification() error {
 		Description     string  `gorm:"column:description"`
 		GenreNames      string  `gorm:"column:genre_names"`
 	}
-	
+
 	var results []MediaResult
+	// Only select actual movies (not TV episodes) with minimum duration
 	err = ns.db.Raw(`
 		SELECT id, title, rating, year, tmdb_poster_url, tmdb_backdrop_url, description, genre_names
 		FROM media
-		WHERE genre_names LIKE ?
+		WHERE type = 'movie'
+		AND genre_names LIKE ?
 		AND file_path IS NOT NULL AND file_path != ''
-		AND (tmdb_poster_url IS NOT NULL AND tmdb_poster_url LIKE 'https://image.tmdb.org/t/p/%')
-		AND rating >= 7.0
-		AND created_at > datetime('now', '-90 days')
+		AND deleted_at IS NULL
+		AND duration > 3600
+		AND title IS NOT NULL AND title != ''
 		ORDER BY rating DESC, RANDOM()
 		LIMIT 3
 	`, "%"+genreName+"%").Scan(&results).Error
-	
+
 	if err != nil || len(results) == 0 {
 		// Fallback without date restriction
 		err = ns.db.Raw(`
 			SELECT id, title, rating, year, tmdb_poster_url, tmdb_backdrop_url, description, genre_names
 			FROM media
-			WHERE genre_names LIKE ?
+			WHERE type = 'movie'
+			AND genre_names LIKE ?
 			AND file_path IS NOT NULL AND file_path != ''
-			AND (tmdb_poster_url IS NOT NULL AND tmdb_poster_url LIKE 'https://image.tmdb.org/t/p/%')
-			AND rating >= 6.5
+			AND deleted_at IS NULL
+			AND duration > 3600
+			AND title IS NOT NULL AND title != ''
 			ORDER BY rating DESC, RANDOM()
 			LIMIT 1
 		`, "%"+genreName+"%").Scan(&results).Error
-		
+
 		if err != nil || len(results) == 0 {
 			return fmt.Errorf("no genre-based content found for %s", genreName)
 		}
 	}
-	
+
 	var movieIDs []uint
 	var mediaDetails []NotificationMedia
-	
+
 	for _, r := range results {
 		movieIDs = append(movieIDs, r.ID)
-		
+
 		media := NotificationMedia{
 			ID:          int(r.ID),
 			Title:       r.Title,
 			Rating:      r.Rating,
 			Year:        r.Year,
-			PosterURL:   r.TMDBPosterURL,
 			BackdropURL: r.TMDBBackdropURL,
 			Overview:    r.Description,
 			SourceType:  "local",
 			SourceID:    fmt.Sprintf("%d", r.ID),
 		}
-		
+
+		// Use TMDB poster if available, fallback to local
+		if r.TMDBPosterURL != "" && strings.HasPrefix(r.TMDBPosterURL, "https://image.tmdb.org/t/p/") {
+			media.PosterURL = r.TMDBPosterURL
+		} else {
+			media.PosterURL = fmt.Sprintf("/api/posters/%d", r.ID)
+		}
+
+		// Use TMDB backdrop if available, fallback to local
+		if r.TMDBBackdropURL != "" {
+			media.BackdropURL = r.TMDBBackdropURL
+		} else {
+			media.BackdropURL = fmt.Sprintf("/api/admin/assets/banner_%d.jpg", r.ID)
+		}
+
 		// Parse genres
 		if r.GenreNames != "" {
 			var genres []string
@@ -793,17 +940,17 @@ func (ns *NotificationService) CreateGenreBasedNotification() error {
 				media.Genres = genres
 			}
 		}
-		
+
 		mediaDetails = append(mediaDetails, media)
 	}
-	
+
 	var message string
 	if len(results) == 1 {
 		message = fmt.Sprintf("Perfect %s pick: %s (⭐ %.1f)", genreName, results[0].Title, results[0].Rating)
 	} else {
 		message = fmt.Sprintf("%d great %s titles you'll love!", len(results), genreName)
 	}
-	
+
 	notification := Notification{
 		ID:             fmt.Sprintf("genre_%s_%d_%d", genreName, results[0].ID, time.Now().Unix()),
 		Type:           NotificationTypeGenreBased,
@@ -816,11 +963,12 @@ func (ns *NotificationService) CreateGenreBasedNotification() error {
 		Category:       "recommended",
 		GenreHighlight: genreName,
 		MediaDetails:   mediaDetails,
-		PosterURL:      results[0].TMDBPosterURL,
-		BackdropURL:    results[0].TMDBBackdropURL,
+		PosterURL:      mediaDetails[0].PosterURL,
+		BackdropURL:    mediaDetails[0].BackdropURL,
 		Rating:         results[0].Rating,
+		Year:           results[0].Year,
 	}
-	
+
 	return ns.AddNotification(notification)
 }
 
@@ -843,7 +991,7 @@ func (ns *NotificationService) CreateTMDBComingSoonNotification() error {
 		}
 	}
 	ns.contentMutex.RUnlock()
-	
+
 	// Fetch upcoming movies from multiple pages for better selection
 	var allUpcomingMovies []TMDBMovieWithVideos
 	for page := 1; page <= 3; page++ {
@@ -854,7 +1002,7 @@ func (ns *NotificationService) CreateTMDBComingSoonNotification() error {
 		}
 		allUpcomingMovies = append(allUpcomingMovies, movies...)
 	}
-	
+
 	if len(allUpcomingMovies) == 0 {
 		return fmt.Errorf("no upcoming movies from TMDB")
 	}
@@ -864,13 +1012,13 @@ func (ns *NotificationService) CreateTMDBComingSoonNotification() error {
 	for _, id := range excludeTMDBIDs {
 		excludeMap[id] = true
 	}
-	
+
 	now := time.Now()
 	var comingSoonMovies []struct {
-		movie    TMDBMovieWithVideos
+		movie     TMDBMovieWithVideos
 		daysUntil int
 	}
-	
+
 	// Filter movies with future release dates, excluding recently used
 	for _, movie := range allUpcomingMovies {
 		// Skip if recently used
@@ -881,30 +1029,30 @@ func (ns *NotificationService) CreateTMDBComingSoonNotification() error {
 		if movie.ReleaseDate == "" {
 			continue
 		}
-		
+
 		releaseTime, err := time.Parse("2006-01-02", movie.ReleaseDate)
 		if err != nil {
 			log.Printf("⚠️ Failed to parse release date '%s' for movie '%s'", movie.ReleaseDate, movie.Title)
 			continue
 		}
-		
+
 		// Calculate days until release
 		diff := releaseTime.Sub(now)
 		days := int(diff.Hours() / 24)
-		
+
 		// Only include movies releasing in the future (1-90 days) with good ratings
 		if days > 0 && days <= 90 && movie.VoteAverage >= 6.0 && movie.Popularity >= 30 && !movie.Adult {
 			comingSoonMovies = append(comingSoonMovies, struct {
-				movie    TMDBMovieWithVideos
+				movie     TMDBMovieWithVideos
 				daysUntil int
 			}{movie, days})
 		}
 	}
-	
+
 	if len(comingSoonMovies) == 0 {
 		return fmt.Errorf("no suitable coming soon movies with future release dates (excluded %d recently used)", len(excludeTMDBIDs))
 	}
-	
+
 	// Sort by days until release (closest first) and then by rating
 	sort.Slice(comingSoonMovies, func(i, j int) bool {
 		if comingSoonMovies[i].daysUntil == comingSoonMovies[j].daysUntil {
@@ -912,16 +1060,16 @@ func (ns *NotificationService) CreateTMDBComingSoonNotification() error {
 		}
 		return comingSoonMovies[i].daysUntil < comingSoonMovies[j].daysUntil
 	})
-	
+
 	// Select the best coming soon movie
 	selected := comingSoonMovies[0]
 	comingSoon := selected.movie
 	daysUntil := selected.daysUntil
-	
+
 	// Create compelling message based on release timing
 	var message string
 	var priority string
-	
+
 	if daysUntil == 1 {
 		message = fmt.Sprintf("🎬 %s releases TOMORROW! Don't miss it!", comingSoon.Title)
 		priority = "high"
@@ -941,7 +1089,7 @@ func (ns *NotificationService) CreateTMDBComingSoonNotification() error {
 		message = fmt.Sprintf("🎬 %s coming in %d days - highly anticipated!", comingSoon.Title, daysUntil)
 		priority = "low"
 	}
-	
+
 	// Get trailer key if available
 	trailerKey := ""
 	if len(comingSoon.Videos.Results) > 0 {
@@ -952,7 +1100,7 @@ func (ns *NotificationService) CreateTMDBComingSoonNotification() error {
 			}
 		}
 	}
-	
+
 	// Build enhanced notification with media details
 	mediaDetails := []NotificationMedia{
 		{
@@ -964,7 +1112,7 @@ func (ns *NotificationService) CreateTMDBComingSoonNotification() error {
 			SourceID:   fmt.Sprintf("%d", comingSoon.ID),
 		},
 	}
-	
+
 	// Set poster and backdrop URLs
 	if comingSoon.PosterPath != "" {
 		mediaDetails[0].PosterURL = fmt.Sprintf("https://image.tmdb.org/t/p/w500%s", comingSoon.PosterPath)
@@ -972,14 +1120,14 @@ func (ns *NotificationService) CreateTMDBComingSoonNotification() error {
 	if comingSoon.BackdropPath != "" {
 		mediaDetails[0].BackdropURL = fmt.Sprintf("https://image.tmdb.org/t/p/w1280%s", comingSoon.BackdropPath)
 	}
-	
+
 	// Parse release year
 	releaseYear := 0
 	if releaseTime, err := time.Parse("2006-01-02", comingSoon.ReleaseDate); err == nil {
 		releaseYear = releaseTime.Year()
 		mediaDetails[0].Year = releaseYear
 	}
-	
+
 	notification := Notification{
 		ID:          fmt.Sprintf("coming_%d_%d", comingSoon.ID, time.Now().Unix()),
 		Type:        NotificationTypeTMDBComingSoon,
@@ -1002,10 +1150,10 @@ func (ns *NotificationService) CreateTMDBComingSoonNotification() error {
 		Popularity:   comingSoon.Popularity,
 		MediaDetails: mediaDetails,
 	}
-	
-	log.Printf("🎬 Created coming soon notification: %s releases in %d days (excluded %d recently used)", 
+
+	log.Printf("🎬 Created coming soon notification: %s releases in %d days (excluded %d recently used)",
 		comingSoon.Title, daysUntil, len(excludeTMDBIDs))
-	
+
 	return ns.AddNotification(notification)
 }
 
@@ -1028,7 +1176,7 @@ func (ns *NotificationService) CreateSingleTMDBMovieNotification() error {
 		}
 	}
 	ns.contentMutex.RUnlock()
-	
+
 	movies, err := ns.tmdbService.GetPopularMovies(1)
 	if err != nil || len(movies) == 0 {
 		return fmt.Errorf("no popular movies from TMDB")
@@ -1039,7 +1187,7 @@ func (ns *NotificationService) CreateSingleTMDBMovieNotification() error {
 	for _, id := range excludeTMDBIDs {
 		excludeMap[id] = true
 	}
-	
+
 	// Pick a random high-quality movie that hasn't been used recently
 	var selected *TMDBMovie
 	for _, movie := range movies {
@@ -1053,7 +1201,7 @@ func (ns *NotificationService) CreateSingleTMDBMovieNotification() error {
 			break
 		}
 	}
-	
+
 	if selected == nil && len(movies) > 0 {
 		// Fallback: find any unused movie
 		for _, movie := range movies {
@@ -1063,7 +1211,7 @@ func (ns *NotificationService) CreateSingleTMDBMovieNotification() error {
 			}
 		}
 	}
-	
+
 	if selected == nil {
 		return fmt.Errorf("no suitable TMDB movie found (excluded %d recently used)", len(excludeTMDBIDs))
 	}
@@ -1093,7 +1241,7 @@ func (ns *NotificationService) CreateSingleTMDBMovieNotification() error {
 	if selected.BackdropPath != "" {
 		backdropURL = fmt.Sprintf("https://image.tmdb.org/t/p/w1280%s", selected.BackdropPath)
 	}
-	
+
 	notification := Notification{
 		ID:          fmt.Sprintf("tmdb_movie_%d_%d", selected.ID, time.Now().Unix()),
 		Type:        NotificationTypeTMDBNowPlaying,
@@ -1122,12 +1270,12 @@ func (ns *NotificationService) CreateSingleTMDBTVNotification() error {
 	if ns.tmdbService == nil {
 		return fmt.Errorf("TMDB service not available")
 	}
-	
+
 	tvResponse, err := ns.tmdbService.GetUpcomingTVSeries()
 	if err != nil || tvResponse == nil {
 		return fmt.Errorf("no TV series from TMDB")
 	}
-	
+
 	var selected *TMDBTV
 	for _, tv := range tvResponse.OnTheAir {
 		if tv.VoteAverage >= 7.0 && tv.Popularity >= 50 {
@@ -1135,11 +1283,11 @@ func (ns *NotificationService) CreateSingleTMDBTVNotification() error {
 			break
 		}
 	}
-	
+
 	if selected == nil && len(tvResponse.OnTheAir) > 0 {
 		selected = &tvResponse.OnTheAir[0]
 	}
-	
+
 	if selected == nil {
 		return fmt.Errorf("no suitable TMDB TV show")
 	}
@@ -1169,7 +1317,7 @@ func (ns *NotificationService) CreateSingleTMDBTVNotification() error {
 	if selected.BackdropPath != "" {
 		backdropURL = fmt.Sprintf("https://image.tmdb.org/t/p/w1280%s", selected.BackdropPath)
 	}
-	
+
 	notification := Notification{
 		ID:          fmt.Sprintf("tmdb_tv_%d_%d", selected.ID, time.Now().Unix()),
 		Type:        NotificationTypeTMDBNowAiringTV,
@@ -1188,7 +1336,7 @@ func (ns *NotificationService) CreateSingleTMDBTVNotification() error {
 		Overview:    selected.Overview,
 		Genres:      genres,
 	}
-	
+
 	return ns.AddNotification(notification)
 }
 
@@ -1201,7 +1349,7 @@ func (ns *NotificationService) CreateLocalGenreHighlightNotification() error {
 		AvgRating   float64 `gorm:"column:avg_rating"`
 		RecentCount int     `gorm:"column:recent_count"`
 	}
-	
+
 	var genreStats []GenreStats
 	err := ns.db.Raw(`
 		WITH genre_data AS (
@@ -1210,14 +1358,15 @@ func (ns *NotificationService) CreateLocalGenreHighlightNotification() error {
 				rating,
 				CASE WHEN created_at > datetime('now', '-60 days') THEN 1 ELSE 0 END as is_recent
 			FROM media 
-			WHERE genre_names IS NOT NULL 
+			WHERE type = 'movie'
+			AND genre_names IS NOT NULL 
 			AND genre_names != '' 
 			AND genre_names != '[]'
 			AND file_path IS NOT NULL 
 			AND file_path != ''
-			AND tmdb_poster_url IS NOT NULL 
-			AND tmdb_poster_url LIKE 'https://image.tmdb.org/t/p/%'
-			AND rating >= 6.0
+			AND deleted_at IS NULL
+			AND duration > 3600
+			AND title IS NOT NULL AND title != ''
 		)
 		SELECT 
 			clean_genres as genre,
@@ -1232,17 +1381,17 @@ func (ns *NotificationService) CreateLocalGenreHighlightNotification() error {
 		ORDER BY recent_count DESC, avg_rating DESC, count DESC
 		LIMIT 5
 	`).Scan(&genreStats).Error
-	
+
 	if err != nil || len(genreStats) == 0 {
 		// Fallback to popular genres
 		genres := []string{"Action", "Comedy", "Drama", "Thriller", "Sci-Fi", "Horror", "Romance", "Adventure"}
 		selectedGenre := genres[rand.Intn(len(genres))]
 		return ns.createGenreHighlightFallback(selectedGenre)
 	}
-	
+
 	selectedGenreStats := genreStats[0]
 	selectedGenre := selectedGenreStats.Genre
-	
+
 	type MediaResult struct {
 		ID              uint    `gorm:"column:id"`
 		Title           string  `gorm:"column:title"`
@@ -1253,58 +1402,72 @@ func (ns *NotificationService) CreateLocalGenreHighlightNotification() error {
 		Description     string  `gorm:"column:description"`
 		CreatedAt       string  `gorm:"column:created_at"`
 	}
-	
+
 	var results []MediaResult
+	// Only select actual movies with minimum duration
 	err = ns.db.Raw(`
 		SELECT id, title, rating, year, tmdb_poster_url, tmdb_backdrop_url, description,
 		       datetime(created_at) as created_at
 		FROM media
-		WHERE genre_names LIKE ?
+		WHERE type = 'movie'
+		AND genre_names LIKE ?
 		AND file_path IS NOT NULL AND file_path != ''
-		AND tmdb_poster_url IS NOT NULL AND tmdb_poster_url LIKE 'https://image.tmdb.org/t/p/%'
-		AND rating >= 6.5
+		AND deleted_at IS NULL
+		AND duration > 3600
+		AND title IS NOT NULL AND title != ''
 		ORDER BY 
 			CASE WHEN created_at > datetime('now', '-30 days') THEN 2 ELSE 1 END DESC,
 			rating DESC,
 			RANDOM()
 		LIMIT 3
 	`, "%"+selectedGenre+"%").Scan(&results).Error
-	
+
 	if err != nil || len(results) == 0 {
 		return fmt.Errorf("no genre highlight content for %s", selectedGenre)
 	}
-	
+
 	var movieIDs []uint
 	var mediaDetails []NotificationMedia
-	
+
 	for _, r := range results {
 		movieIDs = append(movieIDs, r.ID)
-		
+
 		media := NotificationMedia{
-			ID:          int(r.ID),
-			Title:       r.Title,
-			Rating:      r.Rating,
-			Year:        r.Year,
-			PosterURL:   r.TMDBPosterURL,
-			BackdropURL: r.TMDBBackdropURL,
-			Overview:    r.Description,
-			SourceType:  "local",
-			SourceID:    fmt.Sprintf("%d", r.ID),
+			ID:         int(r.ID),
+			Title:      r.Title,
+			Rating:     r.Rating,
+			Year:       r.Year,
+			SourceType: "local",
+			SourceID:   fmt.Sprintf("%d", r.ID),
 		}
-		
+
+		// Use TMDB poster if available, fallback to local
+		if r.TMDBPosterURL != "" && strings.HasPrefix(r.TMDBPosterURL, "https://image.tmdb.org/t/p/") {
+			media.PosterURL = r.TMDBPosterURL
+		} else {
+			media.PosterURL = fmt.Sprintf("/api/posters/%d", r.ID)
+		}
+
+		// Use TMDB backdrop if available, fallback to local
+		if r.TMDBBackdropURL != "" {
+			media.BackdropURL = r.TMDBBackdropURL
+		} else {
+			media.BackdropURL = fmt.Sprintf("/api/admin/assets/banner_%d.jpg", r.ID)
+		}
+
 		mediaDetails = append(mediaDetails, media)
 	}
-	
+
 	// Create compelling message
 	var message string
 	if selectedGenreStats.RecentCount > 0 {
-		message = fmt.Sprintf("Your %s collection: %d titles (⭐ %.1f avg) - %d added recently!", 
+		message = fmt.Sprintf("Your %s collection: %d titles (⭐ %.1f avg) - %d added recently!",
 			selectedGenre, selectedGenreStats.Count, selectedGenreStats.AvgRating, selectedGenreStats.RecentCount)
 	} else {
-		message = fmt.Sprintf("Explore your %s collection: %d quality titles (⭐ %.1f avg)", 
+		message = fmt.Sprintf("Explore your %s collection: %d quality titles (⭐ %.1f avg)",
 			selectedGenre, selectedGenreStats.Count, selectedGenreStats.AvgRating)
 	}
-	
+
 	notification := Notification{
 		ID:             fmt.Sprintf("genre_hl_%s_%d_%d", selectedGenre, selectedGenreStats.Count, time.Now().Unix()),
 		Type:           NotificationTypeGenreBased,
@@ -1317,11 +1480,11 @@ func (ns *NotificationService) CreateLocalGenreHighlightNotification() error {
 		Category:       "recommended",
 		GenreHighlight: selectedGenre,
 		MediaDetails:   mediaDetails,
-		PosterURL:      results[0].TMDBPosterURL,
-		BackdropURL:    results[0].TMDBBackdropURL,
+		PosterURL:      mediaDetails[0].PosterURL,
+		BackdropURL:    mediaDetails[0].BackdropURL,
 		Rating:         selectedGenreStats.AvgRating,
 	}
-	
+
 	return ns.AddNotification(notification)
 }
 
@@ -1332,24 +1495,29 @@ func (ns *NotificationService) createGenreHighlightFallback(selectedGenre string
 		Title string `gorm:"column:title"`
 		Count int    `gorm:"column:count"`
 	}
-	
+
 	var results []MediaResult
+	// Only select actual movies with minimum duration
 	err := ns.db.Raw(`
 		SELECT id, title, 
-		       (SELECT COUNT(*) FROM media WHERE genre_names LIKE ?) as count
+		       (SELECT COUNT(*) FROM media WHERE type = 'movie' AND genre_names LIKE ? AND duration > 3600 AND deleted_at IS NULL) as count
 		FROM media
-		WHERE genre_names LIKE ?
+		WHERE type = 'movie'
+		AND genre_names LIKE ?
 		AND file_path IS NOT NULL AND file_path != ''
+		AND deleted_at IS NULL
+		AND duration > 3600
 		AND tmdb_poster_url IS NOT NULL AND tmdb_poster_url LIKE 'https://image.tmdb.org/t/p/%'
 		AND rating >= 6.0
+		AND title IS NOT NULL AND title != ''
 		ORDER BY rating DESC
 		LIMIT 1
 	`, "%"+selectedGenre+"%", "%"+selectedGenre+"%").Scan(&results).Error
-	
+
 	if err != nil || len(results) == 0 {
 		return fmt.Errorf("no genre highlight content")
 	}
-	
+
 	notification := Notification{
 		ID:             fmt.Sprintf("genre_hl_%s_%d", selectedGenre, time.Now().Unix()),
 		Type:           NotificationTypeGenreBased,
@@ -1362,7 +1530,7 @@ func (ns *NotificationService) createGenreHighlightFallback(selectedGenre string
 		Category:       "recommended",
 		GenreHighlight: selectedGenre,
 	}
-	
+
 	return ns.AddNotification(notification)
 }
 
@@ -1388,9 +1556,9 @@ func (ns *NotificationService) CreateRandomMovieSuggestion() error {
 		CreatedAt       string  `gorm:"column:created_at"`
 		LogoPath        string  `gorm:"column:logo_path"`
 	}
-	
+
 	var movies []MediaResult
-	
+
 	// Smart curation: mix of recent additions, high-rated, and diverse genres
 	query := `
 		SELECT m.id, m.title, m.rating, m.year, m.duration, m.view_count,
@@ -1399,12 +1567,9 @@ func (ns *NotificationService) CreateRandomMovieSuggestion() error {
 		FROM media m
 		LEFT JOIN playback_progress p ON m.id = p.media_id
 		WHERE m.type = 'movie' 
-		AND m.tmdb_poster_url IS NOT NULL 
-		AND m.tmdb_poster_url != ''
-		AND m.tmdb_poster_url LIKE 'https://image.tmdb.org/t/p/%'
 		AND m.file_path IS NOT NULL 
 		AND m.file_path != ''
-		AND m.rating >= 6.5
+		AND m.deleted_at IS NULL
 		AND m.duration > 3600
 		AND (p.progress IS NULL OR p.progress < 15)
 		ORDER BY 
@@ -1418,79 +1583,90 @@ func (ns *NotificationService) CreateRandomMovieSuggestion() error {
 			RANDOM()
 		LIMIT 8
 	`
-	
+
 	err := ns.db.Raw(query).Scan(&movies).Error
 	if err != nil || len(movies) == 0 {
-		return fmt.Errorf("no valid movies with TMDB posters found")
+		return fmt.Errorf("no valid movies found")
 	}
 
-	// Validate each movie has valid TMDB poster and curate selection
+	// Validate and curate selection
 	var validMovieIDs []uint
 	var mediaDetails []NotificationMedia
 	var totalRating float64
 	recentCount := 0
 	var primaryMovie MediaResult
-	
+
 	for i, movie := range movies {
-		if strings.HasPrefix(movie.TMDBPosterURL, "https://image.tmdb.org/t/p/") {
-			validMovieIDs = append(validMovieIDs, movie.ID)
-			totalRating += movie.Rating
-			
-			if i == 0 {
-				primaryMovie = movie // Use first movie as primary for notification title
-			}
-			
-			// Check if recent
-			if movie.CreatedAt != "" {
-				if createdTime, err := time.Parse("2006-01-02 15:04:05", movie.CreatedAt); err == nil {
-					if time.Since(createdTime).Hours() <= 30*24 { // 30 days
-						recentCount++
-					}
+		validMovieIDs = append(validMovieIDs, movie.ID)
+		totalRating += movie.Rating
+
+		if i == 0 {
+			primaryMovie = movie // Use first movie as primary for notification title
+		}
+
+		// Check if recent
+		if movie.CreatedAt != "" {
+			if createdTime, err := time.Parse("2006-01-02 15:04:05", movie.CreatedAt); err == nil {
+				if time.Since(createdTime).Hours() <= 30*24 { // 30 days
+					recentCount++
 				}
-			}
-			
-			// Build media details with complete info
-			media := NotificationMedia{
-				ID:          int(movie.ID),
-				Title:       movie.Title,
-				Rating:      movie.Rating,
-				Year:        movie.Year,
-				PosterURL:   movie.TMDBPosterURL,
-				BackdropURL: movie.TMDBBackdropURL,
-				Overview:    movie.Description,
-				SourceType:  "local",
-				SourceID:    fmt.Sprintf("%d", movie.ID),
-			}
-			
-			if movie.Duration > 0 {
-				media.Runtime = movie.Duration / 60
-			}
-			
-			// Parse genres
-			if movie.GenreNames != "" {
-				var genres []string
-				if err := json.Unmarshal([]byte(movie.GenreNames), &genres); err == nil {
-					media.Genres = genres
-				}
-			}
-			
-			mediaDetails = append(mediaDetails, media)
-			
-			// Limit to 5 movies for better UX
-			if len(validMovieIDs) >= 5 {
-				break
 			}
 		}
+
+		// Build media details with complete info
+		media := NotificationMedia{
+			ID:          int(movie.ID),
+			Title:       movie.Title,
+			Rating:      movie.Rating,
+			Year:        movie.Year,
+			BackdropURL: movie.TMDBBackdropURL,
+			Overview:    movie.Description,
+			SourceType:  "local",
+			SourceID:    fmt.Sprintf("%d", movie.ID),
+		}
+
+		// Use TMDB poster if available, fallback to local
+		if movie.TMDBPosterURL != "" && strings.HasPrefix(movie.TMDBPosterURL, "https://image.tmdb.org/t/p/") {
+			media.PosterURL = movie.TMDBPosterURL
+		} else {
+			media.PosterURL = fmt.Sprintf("/api/posters/%d", movie.ID)
+		}
+
+		// Use TMDB backdrop if available, fallback to local
+		if movie.TMDBBackdropURL != "" {
+			media.BackdropURL = movie.TMDBBackdropURL
+		} else {
+			media.BackdropURL = fmt.Sprintf("/api/admin/assets/banner_%d.jpg", movie.ID)
+		}
+
+		if movie.Duration > 0 {
+			media.Runtime = movie.Duration / 60
+		}
+
+		// Parse genres
+		if movie.GenreNames != "" {
+			var genres []string
+			if err := json.Unmarshal([]byte(movie.GenreNames), &genres); err == nil {
+				media.Genres = genres
+			}
+		}
+
+		mediaDetails = append(mediaDetails, media)
+
+		// Limit to 5 movies for better UX
+		if len(validMovieIDs) >= 5 {
+			break
+		}
 	}
-	
+
 	if len(validMovieIDs) == 0 {
-		return fmt.Errorf("no movies with valid TMDB posters")
+		return fmt.Errorf("no movies found")
 	}
 
 	// Create compelling message based on curation
 	avgRating := totalRating / float64(len(validMovieIDs))
 	var message string
-	
+
 	if recentCount > 0 && len(validMovieIDs) > 1 {
 		message = fmt.Sprintf("%d handpicked movies for you - including %d recent additions! (Avg ⭐ %.1f)", len(validMovieIDs), recentCount, avgRating)
 	} else if len(validMovieIDs) == 1 {
@@ -1531,8 +1707,8 @@ func (ns *NotificationService) CreateRandomMovieSuggestion() error {
 		Category:     "recommended",
 		MediaDetails: mediaDetails,
 		Rating:       avgRating,
-		PosterURL:    primaryMovie.TMDBPosterURL,
-		BackdropURL:  primaryMovie.TMDBBackdropURL,
+		PosterURL:    mediaDetails[0].PosterURL,
+		BackdropURL:  mediaDetails[0].BackdropURL,
 		LogoURL:      logoURL,
 		TrailerKey:   trailerKey,
 		Overview:     primaryMovie.Description,
@@ -1566,22 +1742,22 @@ func (ns *NotificationService) CreateNewMoviesNotification(movieIDs []uint, coun
 func (ns *NotificationService) AddNotification(notification Notification) error {
 	// Generate content keys for this notification
 	contentKeys := ns.generateContentKey(notification)
-	
+
 	// Check if any of the content was recently used
 	if len(contentKeys) > 0 && ns.isContentRecentlyUsed(contentKeys) {
 		log.Printf("🔄 Skipping notification - content recently used: %s", notification.Title)
 		return nil // Don't create notification, but don't return error
 	}
-	
+
 	// Check for recent duplicates based on type and primary content
 	key := ns.keyPrefix + "global"
-	
+
 	// Get recent notifications to check for duplicates
 	recentResults, err := ns.client.ZRevRangeByScore(ns.ctx, key, &redis.ZRangeBy{
 		Min: fmt.Sprintf("%d", time.Now().Unix()-3600), // Last hour
 		Max: "+inf",
 	}).Result()
-	
+
 	if err == nil {
 		for _, result := range recentResults {
 			var existingNotif Notification
@@ -1632,13 +1808,13 @@ func (ns *NotificationService) isDuplicateNotification(new, existing Notificatio
 	if new.Type != existing.Type {
 		return false
 	}
-	
+
 	// Check for exact content overlap (same movie/series/TMDB IDs)
 	if ns.hasContentOverlap(new, existing) {
 		log.Printf("🔍 Content overlap detected: %s vs %s", new.Title, existing.Title)
 		return true
 	}
-	
+
 	// Time-based duplicate prevention (within 30 minutes for same type)
 	timeDiff := new.Timestamp - existing.Timestamp
 	if timeDiff < 1800 { // 30 minutes
@@ -1663,7 +1839,7 @@ func (ns *NotificationService) isDuplicateNotification(new, existing Notificatio
 			return len(new.MovieIDs) > 0 && len(existing.MovieIDs) > 0 && new.MovieIDs[0] == existing.MovieIDs[0]
 		}
 	}
-	
+
 	return false
 }
 
@@ -1677,7 +1853,7 @@ func (ns *NotificationService) hasContentOverlap(new, existing Notification) boo
 			}
 		}
 	}
-	
+
 	// Check TMDB IDs
 	for _, newID := range new.TMDBIDs {
 		for _, existingID := range existing.TMDBIDs {
@@ -1686,12 +1862,12 @@ func (ns *NotificationService) hasContentOverlap(new, existing Notification) boo
 			}
 		}
 	}
-	
+
 	// Check series IDs
 	if new.SeriesID > 0 && existing.SeriesID > 0 && new.SeriesID == existing.SeriesID {
 		return true
 	}
-	
+
 	return false
 }
 
@@ -1700,7 +1876,7 @@ func (ns *NotificationService) hasSignificantOverlap(ids1, ids2 []uint) bool {
 	if len(ids1) == 0 || len(ids2) == 0 {
 		return false
 	}
-	
+
 	overlap := 0
 	for _, id1 := range ids1 {
 		for _, id2 := range ids2 {
@@ -1710,17 +1886,38 @@ func (ns *NotificationService) hasSignificantOverlap(ids1, ids2 []uint) bool {
 			}
 		}
 	}
-	
+
 	// Consider significant if overlap is > 50%
 	minLength := len(ids1)
 	if len(ids2) < minLength {
 		minLength = len(ids2)
 	}
-	
+
 	return float64(overlap)/float64(minLength) > 0.5
 }
 
-// GetNotifications retrieves the latest notifications with enhanced data
+// isLocalNotification returns true if the notification type is from local content
+func (ns *NotificationService) isLocalNotification(notifType NotificationType) bool {
+	switch notifType {
+	case NotificationTypeNewMovies,
+		NotificationTypeNewEpisodes,
+		NotificationTypeMovieSuggestion,
+		NotificationTypeSingleMovie,
+		NotificationTypeWatchAgain,
+		NotificationTypeDownload,
+		NotificationTypeContinueWatching,
+		NotificationTypeRecentlyAdded,
+		NotificationTypeComingSoon,
+		NotificationTypeGenreBased,
+		NotificationTypeLocalTrending:
+		return true
+	default:
+		// TMDB types: tmdb_upcoming, tmdb_now_playing, tmdb_trending, tmdb_upcoming_tv, tmdb_now_airing_tv, tmdb_coming_soon
+		return false
+	}
+}
+
+// GetNotifications retrieves the latest notifications with 50/50 local/TMDB balance
 func (ns *NotificationService) GetNotifications(limit int) ([]Notification, error) {
 	if limit <= 0 || limit > ns.maxNotifications {
 		limit = ns.maxNotifications
@@ -1728,26 +1925,73 @@ func (ns *NotificationService) GetNotifications(limit int) ([]Notification, erro
 
 	key := ns.keyPrefix + "global"
 
-	// Get notifications in reverse chronological order (newest first)
-	results, err := ns.client.ZRevRange(ns.ctx, key, 0, int64(limit-1)).Result()
+	// Fetch more notifications than needed to ensure we have enough of each type for balancing
+	fetchLimit := int64(ns.maxNotifications)
+	results, err := ns.client.ZRevRange(ns.ctx, key, 0, fetchLimit-1).Result()
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch notifications from Redis: %w", err)
 	}
 
-	notifications := make([]Notification, 0, len(results))
+	// Categorize notifications into local and TMDB
+	var localNotifications []Notification
+	var tmdbNotifications []Notification
+
 	for _, result := range results {
 		var notification Notification
 		if err := json.Unmarshal([]byte(result), &notification); err != nil {
 			log.Printf("⚠️ Failed to unmarshal notification: %v", err)
 			continue
 		}
-		
+
 		// Enhance notification with detailed data
 		enhancedNotification := ns.enhanceNotificationWithData(notification)
-		notifications = append(notifications, enhancedNotification)
+
+		if ns.isLocalNotification(notification.Type) {
+			localNotifications = append(localNotifications, enhancedNotification)
+		} else {
+			tmdbNotifications = append(tmdbNotifications, enhancedNotification)
+		}
 	}
 
-	return notifications, nil
+	log.Printf("📊 Notification distribution - Total: %d, Local: %d, TMDB: %d",
+		len(results), len(localNotifications), len(tmdbNotifications))
+
+	// Build balanced result by interleaving local and TMDB notifications (50/50)
+	balanced := make([]Notification, 0, limit)
+	localIdx, tmdbIdx := 0, 0
+	useLocal := true // Start with local
+
+	for len(balanced) < limit {
+		if useLocal {
+			if localIdx < len(localNotifications) {
+				balanced = append(balanced, localNotifications[localIdx])
+				localIdx++
+			} else if tmdbIdx < len(tmdbNotifications) {
+				// No more local, use TMDB
+				balanced = append(balanced, tmdbNotifications[tmdbIdx])
+				tmdbIdx++
+			} else {
+				break // No more notifications
+			}
+		} else {
+			if tmdbIdx < len(tmdbNotifications) {
+				balanced = append(balanced, tmdbNotifications[tmdbIdx])
+				tmdbIdx++
+			} else if localIdx < len(localNotifications) {
+				// No more TMDB, use local
+				balanced = append(balanced, localNotifications[localIdx])
+				localIdx++
+			} else {
+				break // No more notifications
+			}
+		}
+		useLocal = !useLocal // Alternate
+	}
+
+	log.Printf("🔔 Returning %d balanced notifications (local: %d, tmdb: %d)",
+		len(balanced), localIdx, tmdbIdx)
+
+	return balanced, nil
 }
 
 // GetNotificationCount returns the total count of notifications
@@ -1889,7 +2133,7 @@ func (ns *NotificationService) CreateSingleMovieSuggestion() error {
 		}
 	}
 	ns.contentMutex.RUnlock()
-	
+
 	type MediaResult struct {
 		ID              uint    `json:"id"`
 		Title           string  `json:"title"`
@@ -1905,9 +2149,9 @@ func (ns *NotificationService) CreateSingleMovieSuggestion() error {
 		CreatedAt       string  `gorm:"column:created_at"`
 		LogoPath        string  `gorm:"column:logo_path"`
 	}
-	
+
 	var movies []MediaResult
-	
+
 	// Build exclusion clause
 	excludeClause := ""
 	if len(excludeIDs) > 0 {
@@ -1917,7 +2161,7 @@ func (ns *NotificationService) CreateSingleMovieSuggestion() error {
 		}
 		excludeClause = fmt.Sprintf("AND m.id NOT IN (%s)", strings.Join(excludeIDsStr, ","))
 	}
-	
+
 	// Smart selection: prioritize recent, high-rated, unwatched movies, exclude recently used
 	query := fmt.Sprintf(`
 		SELECT m.id, m.title, m.rating, m.year, m.duration, m.view_count,
@@ -1926,13 +2170,10 @@ func (ns *NotificationService) CreateSingleMovieSuggestion() error {
 		FROM media m
 		LEFT JOIN playback_progress p ON m.id = p.media_id
 		WHERE m.type = 'movie' 
-		AND m.tmdb_poster_url IS NOT NULL 
-		AND m.tmdb_poster_url != ''
-		AND m.tmdb_poster_url LIKE 'https://image.tmdb.org/t/p/%%'
 		AND m.file_path IS NOT NULL 
 		AND m.file_path != ''
-		AND m.rating >= 7.0
-		AND m.duration > 5400
+		AND m.deleted_at IS NULL
+		AND m.duration > 3600
 		AND (p.progress IS NULL OR p.progress < 10)
 		%s
 		ORDER BY 
@@ -1945,7 +2186,7 @@ func (ns *NotificationService) CreateSingleMovieSuggestion() error {
 			RANDOM()
 		LIMIT 5
 	`, excludeClause)
-	
+
 	err := ns.db.Raw(query).Scan(&movies).Error
 	if err != nil || len(movies) == 0 {
 		// Fallback to any high-quality movie, still excluding recently used
@@ -1955,27 +2196,36 @@ func (ns *NotificationService) CreateSingleMovieSuggestion() error {
 			       datetime(m.created_at) as created_at, m.logo_path
 			FROM media m
 			WHERE m.type = 'movie' 
-			AND m.tmdb_poster_url IS NOT NULL 
-			AND m.tmdb_poster_url LIKE 'https://image.tmdb.org/t/p/%%'
 			AND m.file_path IS NOT NULL 
 			AND m.file_path != ''
-			AND m.rating >= 6.5
+			AND m.deleted_at IS NULL
 			%s
 			ORDER BY m.rating DESC, RANDOM()
 			LIMIT 1
 		`, excludeClause)
-		
+
 		err = ns.db.Raw(fallbackQuery).Scan(&movies).Error
 		if err != nil || len(movies) == 0 {
-			return fmt.Errorf("no valid single movie with TMDB poster found (excluding %d recently used)", len(excludeIDs))
+			return fmt.Errorf("no valid single movie found (excluding %d recently used)", len(excludeIDs))
 		}
 	}
 
 	movie := movies[0]
-	
-	// Validate TMDB poster URL
-	if !strings.HasPrefix(movie.TMDBPosterURL, "https://image.tmdb.org/t/p/") {
-		return fmt.Errorf("invalid TMDB poster URL")
+
+	// Use TMDB poster if available, fallback to local
+	posterURL := ""
+	if movie.TMDBPosterURL != "" && strings.HasPrefix(movie.TMDBPosterURL, "https://image.tmdb.org/t/p/") {
+		posterURL = movie.TMDBPosterURL
+	} else {
+		posterURL = fmt.Sprintf("/api/posters/%d", movie.ID)
+	}
+
+	// Use TMDB backdrop if available, fallback to local
+	backdropURL := ""
+	if movie.TMDBBackdropURL != "" {
+		backdropURL = movie.TMDBBackdropURL
+	} else {
+		backdropURL = fmt.Sprintf("/api/admin/assets/banner_%d.jpg", movie.ID)
 	}
 
 	// Create compelling message based on movie attributes
@@ -2028,8 +2278,8 @@ func (ns *NotificationService) CreateSingleMovieSuggestion() error {
 		Read:        false,
 		Priority:    "high",
 		Category:    "recommended",
-		PosterURL:   movie.TMDBPosterURL,
-		BackdropURL: movie.TMDBBackdropURL,
+		PosterURL:   posterURL,
+		BackdropURL: backdropURL,
 		LogoURL:     logoURL,
 		TrailerKey:  trailerKey,
 		Rating:      movie.Rating,
@@ -2086,7 +2336,7 @@ func (ns *NotificationService) CreateTMDBUpcomingMoviesNotification() error {
 		if releaseTime, err := time.Parse("2006-01-02", movie.ReleaseDate); err == nil {
 			diff := releaseTime.Sub(now)
 			days := int(diff.Hours() / 24)
-			
+
 			// Only include movies releasing 1-180 days in the future
 			if days > 0 && days <= 180 {
 				futureMovies = append(futureMovies, struct {
@@ -2123,11 +2373,11 @@ func (ns *NotificationService) CreateTMDBUpcomingMoviesNotification() error {
 	for i := 0; i < selectedCount; i++ {
 		selected := futureMovies[i]
 		movie := selected.movie
-		
+
 		tmdbIDs = append(tmdbIDs, movie.ID)
 		tmdbTitles = append(tmdbTitles, movie.Title)
 		totalDays += selected.daysUntil
-		
+
 		// Build media details
 		media := NotificationMedia{
 			ID:         movie.ID,
@@ -2137,7 +2387,7 @@ func (ns *NotificationService) CreateTMDBUpcomingMoviesNotification() error {
 			SourceType: "tmdb",
 			SourceID:   fmt.Sprintf("%d", movie.ID),
 		}
-		
+
 		if movie.PosterPath != "" {
 			media.PosterURL = fmt.Sprintf("https://image.tmdb.org/t/p/w500%s", movie.PosterPath)
 		}
@@ -2149,7 +2399,7 @@ func (ns *NotificationService) CreateTMDBUpcomingMoviesNotification() error {
 				media.Year = year.Year()
 			}
 		}
-		
+
 		mediaDetails = append(mediaDetails, media)
 	}
 
@@ -2167,7 +2417,7 @@ func (ns *NotificationService) CreateTMDBUpcomingMoviesNotification() error {
 	var backdropURL, posterURL, trailerKey string
 	var rating float64
 	var overview string
-	
+
 	if firstMovie.BackdropPath != "" {
 		backdropURL = fmt.Sprintf("https://image.tmdb.org/t/p/w1280%s", firstMovie.BackdropPath)
 	}
@@ -2176,7 +2426,7 @@ func (ns *NotificationService) CreateTMDBUpcomingMoviesNotification() error {
 	}
 	rating = firstMovie.VoteAverage
 	overview = firstMovie.Overview
-	
+
 	// Get trailer for the first movie
 	if len(firstMovie.Videos.Results) > 0 {
 		for _, video := range firstMovie.Videos.Results {
@@ -2270,11 +2520,11 @@ func (ns *NotificationService) CreateTMDBTrendingMoviesNotification() error {
 			curatedMovies = append(curatedMovies, movie)
 			tmdbIDs = append(tmdbIDs, movie.ID)
 			tmdbTitles = append(tmdbTitles, movie.Title)
-			
+
 			if len(curatedMovies) == 1 {
 				primaryMovie = movie // Use first movie as primary for notification title
 			}
-			
+
 			// Build media details with poster URLs
 			media := NotificationMedia{
 				ID:         movie.ID,
@@ -2284,7 +2534,7 @@ func (ns *NotificationService) CreateTMDBTrendingMoviesNotification() error {
 				SourceType: "tmdb",
 				SourceID:   fmt.Sprintf("%d", movie.ID),
 			}
-			
+
 			if movie.PosterPath != "" {
 				media.PosterURL = fmt.Sprintf("https://image.tmdb.org/t/p/w500%s", movie.PosterPath)
 			}
@@ -2296,9 +2546,9 @@ func (ns *NotificationService) CreateTMDBTrendingMoviesNotification() error {
 					media.Year = year.Year()
 				}
 			}
-			
+
 			mediaDetails = append(mediaDetails, media)
-			
+
 			// Limit to 4 top trending movies
 			if len(curatedMovies) >= 4 {
 				break
@@ -2323,7 +2573,7 @@ func (ns *NotificationService) CreateTMDBTrendingMoviesNotification() error {
 	var rating float64
 	var genres []string
 	var overview string
-	
+
 	if len(curatedMovies) > 0 {
 		firstMovie := curatedMovies[0]
 		if firstMovie.BackdropPath != "" {
@@ -2334,7 +2584,7 @@ func (ns *NotificationService) CreateTMDBTrendingMoviesNotification() error {
 		}
 		rating = firstMovie.VoteAverage
 		overview = firstMovie.Overview
-		
+
 		// Fetch trailer for the first movie
 		if details, err := ns.tmdbService.GetMovieDetailsWithExtras(firstMovie.ID); err == nil && details != nil {
 			for _, video := range details.Videos.Results {
@@ -2409,7 +2659,7 @@ func (ns *NotificationService) CreateTMDBUpcomingTVNotification() error {
 			curatedSeries = append(curatedSeries, series)
 			tmdbIDs = append(tmdbIDs, series.ID)
 			tmdbTitles = append(tmdbTitles, series.Name)
-			
+
 			// Build media details with poster URLs
 			media := NotificationMedia{
 				ID:         series.ID,
@@ -2419,7 +2669,7 @@ func (ns *NotificationService) CreateTMDBUpcomingTVNotification() error {
 				SourceType: "tmdb",
 				SourceID:   fmt.Sprintf("%d", series.ID),
 			}
-			
+
 			if series.PosterPath != "" {
 				media.PosterURL = fmt.Sprintf("https://image.tmdb.org/t/p/w500%s", series.PosterPath)
 			}
@@ -2431,9 +2681,9 @@ func (ns *NotificationService) CreateTMDBUpcomingTVNotification() error {
 					media.Year = year.Year()
 				}
 			}
-			
+
 			mediaDetails = append(mediaDetails, media)
-			
+
 			// Limit to 3 high-quality TV series
 			if len(curatedSeries) >= 3 {
 				break
@@ -2458,7 +2708,7 @@ func (ns *NotificationService) CreateTMDBUpcomingTVNotification() error {
 	var rating float64
 	var genres []string
 	var overview string
-	
+
 	if len(curatedSeries) > 0 {
 		firstSeries := curatedSeries[0]
 		if firstSeries.BackdropPath != "" {
@@ -2469,7 +2719,7 @@ func (ns *NotificationService) CreateTMDBUpcomingTVNotification() error {
 		}
 		rating = firstSeries.VoteAverage
 		overview = firstSeries.Overview
-		
+
 		// Fetch trailer for the first series
 		if details, err := ns.tmdbService.GetTVDetails(firstSeries.ID); err == nil && details != nil {
 			for _, video := range details.Videos.Results {
@@ -2544,7 +2794,7 @@ func (ns *NotificationService) CreateTMDBNowAiringTVNotification() error {
 			curatedSeries = append(curatedSeries, series)
 			tmdbIDs = append(tmdbIDs, series.ID)
 			tmdbTitles = append(tmdbTitles, series.Name)
-			
+
 			// Build media details with poster URLs
 			media := NotificationMedia{
 				ID:         series.ID,
@@ -2554,7 +2804,7 @@ func (ns *NotificationService) CreateTMDBNowAiringTVNotification() error {
 				SourceType: "tmdb",
 				SourceID:   fmt.Sprintf("%d", series.ID),
 			}
-			
+
 			if series.PosterPath != "" {
 				media.PosterURL = fmt.Sprintf("https://image.tmdb.org/t/p/w500%s", series.PosterPath)
 			}
@@ -2566,9 +2816,9 @@ func (ns *NotificationService) CreateTMDBNowAiringTVNotification() error {
 					media.Year = year.Year()
 				}
 			}
-			
+
 			mediaDetails = append(mediaDetails, media)
-			
+
 			// Limit to 3 top airing series
 			if len(curatedSeries) >= 3 {
 				break
@@ -2593,7 +2843,7 @@ func (ns *NotificationService) CreateTMDBNowAiringTVNotification() error {
 	var rating float64
 	var genres []string
 	var overview string
-	
+
 	if len(curatedSeries) > 0 {
 		firstSeries := curatedSeries[0]
 		if firstSeries.BackdropPath != "" {
@@ -2604,7 +2854,7 @@ func (ns *NotificationService) CreateTMDBNowAiringTVNotification() error {
 		}
 		rating = firstSeries.VoteAverage
 		overview = firstSeries.Overview
-		
+
 		// Fetch trailer for the first series
 		if details, err := ns.tmdbService.GetTVDetails(firstSeries.ID); err == nil && details != nil {
 			for _, video := range details.Videos.Results {
@@ -2827,7 +3077,7 @@ func (ns *NotificationService) Close() error {
 func (ns *NotificationService) enhanceNotificationWithData(notification Notification) Notification {
 	// Set priority and category based on type and age
 	hoursSinceCreated := float64(time.Now().Unix()-notification.Timestamp) / 3600.0
-	
+
 	switch notification.Type {
 	case NotificationTypeTMDBNowPlaying, NotificationTypeTMDBTrending:
 		if hoursSinceCreated < 24 {
@@ -2885,10 +3135,10 @@ func (ns *NotificationService) enhanceWithTMDBData(notification *Notification) {
 
 	// Get details for the first/primary movie
 	primaryTMDBID := notification.TMDBIDs[0]
-	
+
 	// Determine if it's TV or movie
 	isTV := notification.Type == NotificationTypeTMDBUpcomingTV || notification.Type == NotificationTypeTMDBNowAiringTV
-	
+
 	if isTV {
 		// Use TMDB service which has caching
 		tvDetails, err := ns.tmdbService.GetTVDetails(primaryTMDBID)
@@ -2907,11 +3157,11 @@ func (ns *NotificationService) enhanceWithTMDBData(notification *Notification) {
 		if tvDetails.BackdropPath != "" && !strings.Contains(tvDetails.BackdropPath, "null") {
 			notification.BackdropURL = fmt.Sprintf("https://image.tmdb.org/t/p/w1280%s", tvDetails.BackdropPath)
 		}
-		
+
 		if tvDetails.PosterPath != "" && !strings.Contains(tvDetails.PosterPath, "null") {
 			notification.PosterURL = fmt.Sprintf("https://image.tmdb.org/t/p/w500%s", tvDetails.PosterPath)
 		}
-		
+
 		notification.Overview = tvDetails.Overview
 		notification.Rating = tvDetails.VoteAverage
 		notification.ReleaseDate = tvDetails.FirstAirDate
@@ -2963,11 +3213,11 @@ func (ns *NotificationService) enhanceWithTMDBData(notification *Notification) {
 		if movieDetails.BackdropPath != "" && !strings.Contains(movieDetails.BackdropPath, "null") {
 			notification.BackdropURL = fmt.Sprintf("https://image.tmdb.org/t/p/w1280%s", movieDetails.BackdropPath)
 		}
-		
+
 		if movieDetails.PosterPath != "" && !strings.Contains(movieDetails.PosterPath, "null") {
 			notification.PosterURL = fmt.Sprintf("https://image.tmdb.org/t/p/w500%s", movieDetails.PosterPath)
 		}
-		
+
 		notification.Overview = movieDetails.Overview
 		notification.Rating = movieDetails.VoteAverage
 		notification.ReleaseDate = movieDetails.ReleaseDate
@@ -2989,7 +3239,7 @@ func (ns *NotificationService) enhanceWithTMDBData(notification *Notification) {
 			companies = append(companies, company.Name)
 		}
 		notification.Companies = companies
-		
+
 		// Fetch trailer separately with validation - uses TMDB service cache
 		if detailsWithVideos, err := ns.tmdbService.GetMovieDetailsWithExtras(primaryTMDBID); err == nil && detailsWithVideos != nil {
 			for _, video := range detailsWithVideos.Videos.Results {
@@ -3075,14 +3325,14 @@ func (ns *NotificationService) enhanceWithTMDBData(notification *Notification) {
 				}
 				media.Genres = genres
 			}
-			
+
 			// Only add if has valid poster URL AND title
 			if media.PosterURL != "" && media.Title != "" {
 				mediaDetails = append(mediaDetails, media)
 			}
 		}
 		notification.MediaDetails = mediaDetails
-		
+
 		log.Printf("📊 Enhanced TMDB notification with %d media items for: %s", len(mediaDetails), notification.Title)
 	} else {
 		log.Printf("🎬 Enhanced single TMDB notification: %s (ID: %d)", notification.Title, primaryTMDBID)
@@ -3097,31 +3347,31 @@ func (ns *NotificationService) enhanceWithLocalMediaData(notification *Notificat
 
 	// Get details for the first/primary movie
 	primaryMovieID := notification.MovieIDs[0]
-	
+
 	type MediaResult struct {
-		ID                uint    `gorm:"column:id"`
-		Title             string  `gorm:"column:title"`
-		Description       string  `gorm:"column:description"`
-		PosterPath        string  `gorm:"column:poster_path"`
-		BackdropPath      string  `gorm:"column:backdrop_path"`
-		TMDBBackdropURL   string  `gorm:"column:tmdb_backdrop_url"`
-		TMDBPosterURL     string  `gorm:"column:tmdb_poster_url"`
-		TMDBTrailerURL    string  `gorm:"column:tmdb_trailer_url"`
-		LogoPath          string  `gorm:"column:logo_path"`
-		Rating            float64 `gorm:"column:rating"`
-		Year              int     `gorm:"column:year"`
-		Duration          int     `gorm:"column:duration"`
-		GenreNames        string  `gorm:"column:genre_names"`
-		ReleaseDate       string  `gorm:"column:release_date"`
-		Tagline           string  `gorm:"column:tagline"`
-		ViewCount         int     `gorm:"column:view_count"`
-		FilePath          string  `gorm:"column:file_path"`
-		Type              string  `gorm:"column:type"`
-		SeriesID          uint    `gorm:"column:series_id"`
-		SeasonNumber      int     `gorm:"column:season_number"`
-		EpisodeNumber     int     `gorm:"column:episode_number"`
+		ID              uint    `gorm:"column:id"`
+		Title           string  `gorm:"column:title"`
+		Description     string  `gorm:"column:description"`
+		PosterPath      string  `gorm:"column:poster_path"`
+		BackdropPath    string  `gorm:"column:backdrop_path"`
+		TMDBBackdropURL string  `gorm:"column:tmdb_backdrop_url"`
+		TMDBPosterURL   string  `gorm:"column:tmdb_poster_url"`
+		TMDBTrailerURL  string  `gorm:"column:tmdb_trailer_url"`
+		LogoPath        string  `gorm:"column:logo_path"`
+		Rating          float64 `gorm:"column:rating"`
+		Year            int     `gorm:"column:year"`
+		Duration        int     `gorm:"column:duration"`
+		GenreNames      string  `gorm:"column:genre_names"`
+		ReleaseDate     string  `gorm:"column:release_date"`
+		Tagline         string  `gorm:"column:tagline"`
+		ViewCount       int     `gorm:"column:view_count"`
+		FilePath        string  `gorm:"column:file_path"`
+		Type            string  `gorm:"column:type"`
+		SeriesID        uint    `gorm:"column:series_id"`
+		SeasonNumber    int     `gorm:"column:season_number"`
+		EpisodeNumber   int     `gorm:"column:episode_number"`
 	}
-	
+
 	var media MediaResult
 	err := ns.db.Table("media").Where("id = ? AND file_path IS NOT NULL AND file_path != ''", primaryMovieID).First(&media).Error
 	if err != nil {
@@ -3136,17 +3386,17 @@ func (ns *NotificationService) enhanceWithLocalMediaData(notification *Notificat
 	}
 
 	// STRICT VALIDATION - only use TMDB URLs that are complete and valid
-	if media.TMDBBackdropURL != "" && 
-	   strings.HasPrefix(media.TMDBBackdropURL, "https://image.tmdb.org/t/p/") &&
-	   !strings.Contains(media.TMDBBackdropURL, "null") {
+	if media.TMDBBackdropURL != "" &&
+		strings.HasPrefix(media.TMDBBackdropURL, "https://image.tmdb.org/t/p/") &&
+		!strings.Contains(media.TMDBBackdropURL, "null") {
 		notification.BackdropURL = media.TMDBBackdropURL
 	}
-	
+
 	// STRICT POSTER VALIDATION - only use valid TMDB poster URLs
-	if media.TMDBPosterURL != "" && 
-	   strings.HasPrefix(media.TMDBPosterURL, "https://image.tmdb.org/t/p/") &&
-	   !strings.Contains(media.TMDBPosterURL, "null") &&
-	   !ns.failedPosters[media.TMDBPosterURL] {
+	if media.TMDBPosterURL != "" &&
+		strings.HasPrefix(media.TMDBPosterURL, "https://image.tmdb.org/t/p/") &&
+		!strings.Contains(media.TMDBPosterURL, "null") &&
+		!ns.failedPosters[media.TMDBPosterURL] {
 		notification.PosterURL = media.TMDBPosterURL
 	} else if media.PosterPath != "" && media.PosterPath != "null" {
 		posterURL := fmt.Sprintf("/api/posters/%d", media.ID)
@@ -3154,7 +3404,7 @@ func (ns *NotificationService) enhanceWithLocalMediaData(notification *Notificat
 			notification.PosterURL = posterURL
 		}
 	}
-	
+
 	// LOGO URL CONSTRUCTION - try multiple formats for better logo discovery
 	if media.LogoPath != "" && media.LogoPath != "null" && !strings.Contains(media.LogoPath, "null") {
 		// Use existing logo path
@@ -3167,11 +3417,11 @@ func (ns *NotificationService) enhanceWithLocalMediaData(notification *Notificat
 			fmt.Sprintf("/api/admin/assets/logo_%d.svg", media.ID),
 			fmt.Sprintf("/api/logo_path/%d", media.ID),
 		}
-		
+
 		// Use first format as default - frontend will handle fallbacks
 		notification.LogoURL = logoFormats[0]
 	}
-	
+
 	// Extract trailer key from URL for local media
 	if media.TMDBTrailerURL != "" && media.TMDBTrailerURL != "null" && !strings.Contains(media.TMDBTrailerURL, "null") {
 		notification.TrailerKey = ns.extractYouTubeKey(media.TMDBTrailerURL)
@@ -3179,17 +3429,17 @@ func (ns *NotificationService) enhanceWithLocalMediaData(notification *Notificat
 			log.Printf("🎬 Local media trailer found for '%s': %s", media.Title, notification.TrailerKey)
 		}
 	}
-	
+
 	notification.Rating = media.Rating
 	notification.ReleaseDate = media.ReleaseDate
 	if notification.ReleaseDate == "" && media.Year > 0 {
 		notification.ReleaseDate = fmt.Sprintf("%d-01-01", media.Year)
 	}
-	
+
 	if media.Duration > 0 {
 		notification.Runtime = media.Duration / 60 // Convert seconds to minutes
 	}
-	
+
 	notification.Overview = media.Description
 	notification.Tagline = media.Tagline
 	notification.Language = "en"
@@ -3222,12 +3472,12 @@ func (ns *NotificationService) enhanceWithLocalMediaData(notification *Notificat
 				Year:       movieMedia.Year,
 				Overview:   movieMedia.Description,
 			}
-			
+
 			// STRICT POSTER VALIDATION
-			if movieMedia.TMDBPosterURL != "" && 
-			   strings.HasPrefix(movieMedia.TMDBPosterURL, "https://image.tmdb.org/t/p/") &&
-			   !strings.Contains(movieMedia.TMDBPosterURL, "null") &&
-			   !ns.failedPosters[movieMedia.TMDBPosterURL] {
+			if movieMedia.TMDBPosterURL != "" &&
+				strings.HasPrefix(movieMedia.TMDBPosterURL, "https://image.tmdb.org/t/p/") &&
+				!strings.Contains(movieMedia.TMDBPosterURL, "null") &&
+				!ns.failedPosters[movieMedia.TMDBPosterURL] {
 				mediaItem.PosterURL = movieMedia.TMDBPosterURL
 			} else if movieMedia.PosterPath != "" && movieMedia.PosterPath != "null" {
 				posterURL := fmt.Sprintf("/api/posters/%d", movieMedia.ID)
@@ -3235,14 +3485,14 @@ func (ns *NotificationService) enhanceWithLocalMediaData(notification *Notificat
 					mediaItem.PosterURL = posterURL
 				}
 			}
-			
+
 			// STRICT BACKDROP VALIDATION
-			if movieMedia.TMDBBackdropURL != "" && 
-			   strings.HasPrefix(movieMedia.TMDBBackdropURL, "https://image.tmdb.org/t/p/") &&
-			   !strings.Contains(movieMedia.TMDBBackdropURL, "null") {
+			if movieMedia.TMDBBackdropURL != "" &&
+				strings.HasPrefix(movieMedia.TMDBBackdropURL, "https://image.tmdb.org/t/p/") &&
+				!strings.Contains(movieMedia.TMDBBackdropURL, "null") {
 				mediaItem.BackdropURL = movieMedia.TMDBBackdropURL
 			}
-			
+
 			if movieMedia.Duration > 0 {
 				mediaItem.Runtime = movieMedia.Duration / 60
 			}
@@ -3254,14 +3504,14 @@ func (ns *NotificationService) enhanceWithLocalMediaData(notification *Notificat
 					mediaItem.Genres = genres
 				}
 			}
-			
+
 			// Only add if has valid poster OR is the primary media
 			if mediaItem.PosterURL != "" || movieMedia.ID == primaryMovieID {
 				mediaDetails = append(mediaDetails, mediaItem)
 			}
 		}
 		notification.MediaDetails = mediaDetails
-		
+
 		log.Printf("📊 Enhanced notification with %d media items for: %s", len(mediaDetails), notification.Title)
 	} else {
 		log.Printf("🎬 Enhanced single media notification: %s (ID: %d)", notification.Title, media.ID)
@@ -3273,18 +3523,168 @@ func (ns *NotificationService) extractYouTubeKey(url string) string {
 	if url == "" {
 		return ""
 	}
-	
+
 	// Common YouTube URL patterns
 	patterns := []string{
 		`(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([^&?\s]+)`,
 		`^([a-zA-Z0-9_-]{11})$`,
 	}
-	
+
 	for _, pattern := range patterns {
 		if match := regexp.MustCompile(pattern).FindStringSubmatch(url); len(match) > 1 {
 			return match[1]
 		}
 	}
-	
+
 	return ""
+}
+
+// CreateRecommendedMoviesNotification creates notification for high-rated unwatched local movies
+// Uses watch history genres for smarter recommendations with variety
+func (ns *NotificationService) CreateRecommendedMoviesNotification() error {
+	type MediaResult struct {
+		ID          uint    `gorm:"column:id"`
+		Title       string  `gorm:"column:title"`
+		Rating      float64 `gorm:"column:rating"`
+		Year        int     `gorm:"column:year"`
+		Description string  `gorm:"column:description"`
+		GenreNames  string  `gorm:"column:genre_names"`
+	}
+
+	var results []MediaResult
+
+	// First, try to get recommendations based on watched genres (smart recommendations)
+	// This finds movies in genres the user has watched before
+	err := ns.db.Raw(`
+		WITH watched_genres AS (
+			SELECT DISTINCT m.genre_names
+			FROM media m
+			INNER JOIN playback_progress p ON m.id = p.media_id
+			WHERE m.type = 'movie' AND p.progress > 50
+			AND m.deleted_at IS NULL
+			AND m.genre_names IS NOT NULL AND m.genre_names != ''
+			LIMIT 5
+		)
+		SELECT DISTINCT m.id, m.title, m.rating, m.year, m.description, m.genre_names
+		FROM media m
+		LEFT JOIN playback_progress p ON m.id = p.media_id
+		WHERE m.type = 'movie' 
+		AND m.file_path IS NOT NULL 
+		AND m.file_path != ''
+		AND m.deleted_at IS NULL
+		AND m.duration > 3600
+		AND m.rating >= 6.5
+		AND m.title IS NOT NULL AND m.title != ''
+		AND (p.progress IS NULL OR p.progress < 15)
+		AND EXISTS (
+			SELECT 1 FROM watched_genres wg 
+			WHERE m.genre_names LIKE '%' || SUBSTR(wg.genre_names, 3, INSTR(SUBSTR(wg.genre_names, 3), '"') - 1) || '%'
+		)
+		ORDER BY m.rating DESC, RANDOM()
+		LIMIT 5
+	`).Scan(&results).Error
+
+	// If not enough genre-based results, add variety with discovery recommendations
+	if len(results) < 3 {
+		var discoveryResults []MediaResult
+		// Get some high-rated movies from random genres for variety/discovery
+		err = ns.db.Raw(`
+			SELECT m.id, m.title, m.rating, m.year, m.description, m.genre_names
+			FROM media m
+			LEFT JOIN playback_progress p ON m.id = p.media_id
+			WHERE m.type = 'movie' 
+			AND m.file_path IS NOT NULL 
+			AND m.file_path != ''
+			AND m.deleted_at IS NULL
+			AND m.duration > 3600
+			AND m.rating >= 6.0
+			AND m.title IS NOT NULL AND m.title != ''
+			AND (p.progress IS NULL OR p.progress < 15)
+			ORDER BY m.rating DESC, RANDOM()
+			LIMIT ?
+		`, 5-len(results)).Scan(&discoveryResults).Error
+
+		if err == nil && len(discoveryResults) > 0 {
+			results = append(results, discoveryResults...)
+		}
+	}
+
+	// Final fallback: any valid high-rated movies
+	if len(results) == 0 {
+		err = ns.db.Raw(`
+			SELECT id, title, rating, year, description, genre_names
+			FROM media
+			WHERE type = 'movie' 
+			AND file_path IS NOT NULL 
+			AND file_path != ''
+			AND deleted_at IS NULL
+			AND duration > 3600
+			AND rating >= 5.5
+			AND title IS NOT NULL AND title != ''
+			ORDER BY rating DESC, RANDOM()
+			LIMIT 3
+		`).Scan(&results).Error
+
+		if err != nil || len(results) == 0 {
+			return fmt.Errorf("no recommended movies found")
+		}
+	}
+
+	// Limit to top 3 results
+	if len(results) > 3 {
+		results = results[:3]
+	}
+
+	var movieIDs []uint
+	var mediaDetails []NotificationMedia
+
+	for _, r := range results {
+		movieIDs = append(movieIDs, r.ID)
+
+		media := NotificationMedia{
+			ID:          int(r.ID),
+			Title:       r.Title,
+			Rating:      r.Rating,
+			Year:        r.Year,
+			SourceType:  "local",
+			SourceID:    fmt.Sprintf("%d", r.ID),
+			Overview:    r.Description,
+			PosterURL:   fmt.Sprintf("/api/posters/%d", r.ID),
+			BackdropURL: fmt.Sprintf("/api/admin/assets/banner_%d.jpg", r.ID),
+		}
+
+		if r.GenreNames != "" {
+			var genres []string
+			if err := json.Unmarshal([]byte(r.GenreNames), &genres); err == nil {
+				media.Genres = genres
+			}
+		}
+
+		mediaDetails = append(mediaDetails, media)
+	}
+
+	message := fmt.Sprintf("Highly rated pick: %s (⭐ %.1f)", results[0].Title, results[0].Rating)
+	if len(results) > 1 {
+		message = fmt.Sprintf("Recommended for you: %d highly rated movies you haven't watched yet!", len(results))
+	}
+
+	notification := Notification{
+		ID:           fmt.Sprintf("rec_%d_%d", results[0].ID, time.Now().Unix()),
+		Type:         NotificationTypeMovieSuggestion, // Reusing existing type for compatibility
+		Title:        "Recommended For You",
+		Message:      message,
+		MovieIDs:     movieIDs,
+		Timestamp:    time.Now().Unix(),
+		Read:         false,
+		Priority:     "high",
+		Category:     "recommended",
+		MediaDetails: mediaDetails,
+		PosterURL:    mediaDetails[0].PosterURL,
+		BackdropURL:  mediaDetails[0].BackdropURL,
+		LogoURL:      fmt.Sprintf("/api/admin/assets/logo_%d.png", results[0].ID),
+		Rating:       results[0].Rating,
+		Year:         results[0].Year,
+	}
+
+	return ns.AddNotification(notification)
 }

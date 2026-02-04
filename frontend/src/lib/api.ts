@@ -2,7 +2,7 @@
 export const getApiUrl = () => {
   // Check if we're in Docker environment
   const dockerApiUrl = process.env.NEXT_PUBLIC_API_URL;
-  
+
   if (typeof window === 'undefined') {
     // Server-side: use Docker internal URL or localhost
     // Check if we're in dev mode (NODE_ENV or port detection)
@@ -15,28 +15,17 @@ export const getApiUrl = () => {
   // Client-side: Use the same hostname as the frontend for network access
   const hostname = window.location.hostname;
   const frontendPort = window.location.port;
-  
+
   // Determine backend port based on frontend port
-  let backendPort = '8252'; // Default production port
+  const backendPort = '8252'; // Default production port
   // if (frontendPort === '3009') {
   //   backendPort = '8253'; // Dev backend port
   // } else if (frontendPort === '3008') {
   //   backendPort = '8252'; // Production backend port
   // }
-  
+
   const apiUrl = `http://${hostname}:${backendPort}`;
-  
-  // Debug logging
-  console.log('getApiUrl called:', {
-    windowHostname: hostname,
-    windowPort: frontendPort,
-    backendPort,
-    dockerApiUrl,
-    finalUrl: apiUrl,
-    windowLocation: window.location.href,
-    isDev: frontendPort === '3009'
-  });
-  
+
   return apiUrl;
 };
 
@@ -85,36 +74,36 @@ export const API_ENDPOINTS = {
 export const getAssetUrl = (type: 'thumbnail' | 'poster' | 'preview', id: number, fallback = true) => {
   const baseUrl = getApiUrl();
   let primaryUrl: string;
-  
+
   if (type === 'preview') {
     primaryUrl = `${baseUrl}/api/preview-clips/${id}`;
   } else {
     primaryUrl = `${baseUrl}/api/${type}s/${id}`;
   }
-  
+
   if (!fallback) {
     return primaryUrl;
   }
-  
+
   // Return array of URLs to try in order with cache busting
   const timestamp = Date.now();
   const urls = [primaryUrl];
-  
+
   // Add alternative asset endpoints
   if (type !== 'preview') {
     urls.push(`${baseUrl}/api/assets/${type}s/${id}`);
   }
-  
+
   // Add cache busting version
   urls.push(`${primaryUrl}?t=${timestamp}`);
-  
+
   return urls;
 };
 
 // Netflix-like asset loading with preloading and caching (thumbnails, posters, and previews)
 export const loadAssetWithFallback = async (type: 'thumbnail' | 'poster' | 'preview', id: number): Promise<string> => {
   const urls = getAssetUrl(type, id, true) as string[];
-  
+
   for (const url of urls) {
     try {
       const response = await fetch(url, { method: 'HEAD' });
@@ -125,7 +114,7 @@ export const loadAssetWithFallback = async (type: 'thumbnail' | 'poster' | 'prev
       continue;
     }
   }
-  
+
   // Return first URL as fallback even if it fails
   return urls[0];
 };
@@ -133,7 +122,7 @@ export const loadAssetWithFallback = async (type: 'thumbnail' | 'poster' | 'prev
 // Preload assets for Netflix-like performance (thumbnails, posters, and previews)
 export const preloadAssets = (mediaList: any[], types: ('thumbnail' | 'poster' | 'preview')[] = ['poster', 'thumbnail']) => {
   const preloadPromises: Promise<void>[] = [];
-  
+
   mediaList.slice(0, 20).forEach(media => { // Preload first 20 items
     types.forEach(type => {
       const promise = loadAssetWithFallback(type, media.id)
@@ -148,22 +137,22 @@ export const preloadAssets = (mediaList: any[], types: ('thumbnail' | 'poster' |
             img.src = url;
           }
         })
-        .catch(() => {}); // Ignore preload errors
-      
+        .catch(() => { }); // Ignore preload errors
+
       preloadPromises.push(promise);
     });
   });
-  
+
   return Promise.allSettled(preloadPromises);
 };
 
 // Enhanced API call with retry logic for assets
 export const apiCallWithRetry = async (urls: string | string[], options?: RequestInit, maxRetries = 3) => {
   const urlsToTry = Array.isArray(urls) ? urls : [urls];
-  
+
   for (let i = 0; i < urlsToTry.length; i++) {
     const url = urlsToTry[i];
-    
+
     for (let retry = 0; retry < maxRetries; retry++) {
       try {
         const response = await fetch(url, {
@@ -177,23 +166,23 @@ export const apiCallWithRetry = async (urls: string | string[], options?: Reques
         if (response.ok) {
           return response;
         }
-        
+
         // If this is the last URL and last retry, throw the error
         if (i === urlsToTry.length - 1 && retry === maxRetries - 1) {
           throw new Error(`API call failed: ${response.status} ${response.statusText}`);
         }
-        
+
         // If not the last retry for this URL, wait a bit before retrying
         if (retry < maxRetries - 1) {
           await new Promise(resolve => setTimeout(resolve, 1000 * (retry + 1)));
         }
-        
+
       } catch (error) {
         // If this is the last URL and last retry, throw the error
         if (i === urlsToTry.length - 1 && retry === maxRetries - 1) {
           throw error;
         }
-        
+
         // If not the last retry for this URL, wait a bit before retrying
         if (retry < maxRetries - 1) {
           await new Promise(resolve => setTimeout(resolve, 1000 * (retry + 1)));
@@ -201,15 +190,30 @@ export const apiCallWithRetry = async (urls: string | string[], options?: Reques
       }
     }
   }
-  
+
   throw new Error('All API endpoints failed');
 };
 
-// Helper function to make API calls
-export const apiCall = async (endpoint: string, options?: RequestInit) => {
+// Simple in-memory cache
+const apiCache = new Map<string, { data: any; timestamp: number }>();
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+// Helper function to make API calls with caching
+export const apiCall = async (endpoint: string, options?: RequestInit, useCache = true) => {
   const baseUrl = getApiUrl();
   const url = `${baseUrl}${endpoint}`;
-  
+
+  // Create a cache key from url and options (if simple method)
+  const cacheKey = `${url}-${JSON.stringify(options)}`;
+
+  // Return cached response if available and fresh (for GET requests only)
+  if (useCache && (!options || !options.method || options.method === 'GET')) {
+    const cached = apiCache.get(cacheKey);
+    if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+      return cached.data;
+    }
+  }
+
   const response = await fetch(url, {
     ...options,
     headers: {
@@ -222,7 +226,14 @@ export const apiCall = async (endpoint: string, options?: RequestInit) => {
     throw new Error(`API call failed: ${response.status} ${response.statusText}`);
   }
 
-  return response.json();
+  const data = await response.json();
+
+  // Cache successful GET responses
+  if (useCache && (!options || !options.method || options.method === 'GET')) {
+    apiCache.set(cacheKey, { data, timestamp: Date.now() });
+  }
+
+  return data;
 };
 // Session management for unique recommendations
 let sessionId: string | null = null;
@@ -248,7 +259,7 @@ export const getSessionId = (): string => {
 export const apiCallWithSession = async (endpoint: string, options?: RequestInit) => {
   const baseUrl = getApiUrl();
   const url = `${baseUrl}${endpoint}`;
-  
+
   const response = await fetch(url, {
     ...options,
     headers: {
@@ -280,7 +291,7 @@ export const smartSearch = async (query: string) => {
   if (!query.trim()) {
     return [];
   }
-  
+
   try {
     return await apiCall(`/api/media/search?q=${encodeURIComponent(query.trim())}`);
   } catch (error) {

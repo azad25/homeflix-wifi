@@ -24,7 +24,7 @@ const TileEffects: React.FC<TileEffectsProps> = ({ priority, themeColors }) => {
             key={i}
             className="absolute w-1 h-1 rounded-full"
             style={{ backgroundColor: `${themeColors.accent}60` }}
-            initial={{ 
+            initial={{
               x: Math.random() * 100 + '%',
               y: Math.random() * 100 + '%',
               opacity: 0,
@@ -54,22 +54,7 @@ const TileEffects: React.FC<TileEffectsProps> = ({ priority, themeColors }) => {
         ))}
       </div>
 
-      {/* Glowing border effect */}
-      <motion.div
-        className="absolute inset-0 rounded-xl pointer-events-none"
-        style={{
-          background: `linear-gradient(45deg, ${themeColors.primary}40, ${themeColors.accent}40, ${themeColors.primary}40)`,
-          backgroundSize: '200% 200%',
-        }}
-        animate={{
-          backgroundPosition: ['0% 50%', '100% 50%', '0% 50%'],
-        }}
-        transition={{
-          duration: 3,
-          repeat: Infinity,
-          ease: "linear"
-        }}
-      />
+      {/* Glowing border effect removed as per user request */}
 
       {/* Corner sparkles */}
       {[

@@ -13,10 +13,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	"homeflix-backend/internal/interfaces"
 	"homeflix-backend/internal/models"
 	"homeflix-backend/internal/services"
+
+	"github.com/gin-gonic/gin"
 )
 
 // Media Handlers
@@ -215,11 +216,75 @@ func UpdateSeriesMetadata(mediaService *services.MediaService) gin.HandlerFunc {
 			return
 		}
 
-		var updates map[string]interface{}
-		if err := c.BindJSON(&updates); err != nil {
+		// Use a typed struct to properly map snake_case JSON to CamelCase struct fields
+		var metadata struct {
+			Title          string   `json:"title"`
+			Tagline        string   `json:"tagline"`
+			Description    string   `json:"description"`
+			Year           int      `json:"year"`
+			Rating         float32  `json:"rating"`
+			Country        string   `json:"country"`
+			Language       string   `json:"language"`
+			Quality        string   `json:"quality"`
+			Certification  string   `json:"certification"`
+			Status         string   `json:"status"`
+			Network        string   `json:"network"`
+			GenreNames     []string `json:"genre_names"`
+			GenreIDs       []uint   `json:"genre_ids"`
+			TMDBTrailerURL string   `json:"tmdb_trailer_url"`
+			TrailerURL     string   `json:"trailer_url"`
+		}
+		if err := c.BindJSON(&metadata); err != nil {
 			log.Printf("❌ Invalid request body for series %d: %v", id, err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
 			return
+		}
+
+		updates := make(map[string]interface{})
+		if metadata.Title != "" {
+			updates["title"] = metadata.Title
+		}
+		if metadata.Tagline != "" {
+			updates["tagline"] = metadata.Tagline
+		}
+		if metadata.Description != "" {
+			updates["description"] = metadata.Description
+		}
+		if metadata.Year != 0 {
+			updates["year"] = metadata.Year
+		}
+		if metadata.Rating != 0 {
+			updates["rating"] = metadata.Rating
+		}
+		if metadata.Country != "" {
+			updates["country"] = metadata.Country
+		}
+		if metadata.Language != "" {
+			updates["language"] = metadata.Language
+		}
+		if metadata.Quality != "" {
+			updates["quality"] = metadata.Quality
+		}
+		if metadata.Certification != "" {
+			updates["certification"] = metadata.Certification
+		}
+		if metadata.Status != "" {
+			updates["status"] = metadata.Status
+		}
+		if metadata.Network != "" {
+			updates["network"] = metadata.Network
+		}
+		if metadata.TMDBTrailerURL != "" {
+			updates["tmdb_trailer_url"] = metadata.TMDBTrailerURL
+		}
+		if metadata.TrailerURL != "" {
+			updates["trailer_url"] = metadata.TrailerURL
+		}
+		if len(metadata.GenreNames) > 0 {
+			updates["genre_names"] = metadata.GenreNames
+		}
+		if len(metadata.GenreIDs) > 0 {
+			updates["genre_ids"] = metadata.GenreIDs
 		}
 
 		log.Printf("🔄 Updating series %d with data: %+v", id, updates)
@@ -254,10 +319,10 @@ func UpdateSeriesWithTMDB(mediaService *services.MediaService, tmdbService *serv
 
 		// Parse request body for search parameters and TMDB data
 		var requestBody struct {
-			SearchTitle    string   `json:"searchTitle"`
-			PreserveFields []string `json:"preserveFields"`
-			TMDBId         int      `json:"tmdbId"`
-			MediaType      string   `json:"mediaType"`
+			SearchTitle    string      `json:"searchTitle"`
+			PreserveFields []string    `json:"preserveFields"`
+			TMDBId         int         `json:"tmdbId"`
+			MediaType      string      `json:"mediaType"`
 			TMDBData       interface{} `json:"tmdbData"`
 		}
 		if err := c.BindJSON(&requestBody); err != nil {
@@ -266,7 +331,7 @@ func UpdateSeriesWithTMDB(mediaService *services.MediaService, tmdbService *serv
 			return
 		}
 
-		log.Printf("📥 Received TMDB update request for series %d: TMDBId=%d, SearchTitle='%s', MediaType='%s'", 
+		log.Printf("📥 Received TMDB update request for series %d: TMDBId=%d, SearchTitle='%s', MediaType='%s'",
 			id, requestBody.TMDBId, requestBody.SearchTitle, requestBody.MediaType)
 
 		// Get existing series
@@ -361,13 +426,13 @@ func UpdateSeriesWithTMDB(mediaService *services.MediaService, tmdbService *serv
 			updates["backdrop_path"] = backdropURL
 			updates["tmdb_backdrop_url"] = backdropURL // Store TMDB URL separately
 		}
-		
+
 		// ENHANCED: Download and save poster from TMDB (like GenerateSeriesPoster does)
 		if tvDetails.PosterPath != "" {
 			posterURL := tmdbService.GetPosterURL(tvDetails.PosterPath, "w500")
 			log.Printf("🎨 TMDB poster URL found: %s", posterURL)
 			log.Printf("📥 Downloading TV series poster from TMDB for: %s", series.Title)
-			
+
 			// Download poster using TMDB service for TV series
 			posterPath, posterErr := tmdbService.DownloadTVPoster(series.Title, uint(id), "./backend/posters")
 			if posterErr != nil {
@@ -417,7 +482,7 @@ func UpdateSeriesWithTMDB(mediaService *services.MediaService, tmdbService *serv
 
 		log.Printf("✅ Series TMDB update completed for: %s", series.Title)
 		log.Printf("📊 Updated fields: %v", getMapKeys(updates))
-		
+
 		c.JSON(http.StatusOK, series)
 	}
 }
@@ -457,13 +522,13 @@ func extractYearFromDate(dateStr string) (int, error) {
 	if dateStr == "" {
 		return 0, fmt.Errorf("empty date string")
 	}
-	
+
 	// Parse date in format "2006-01-02"
 	t, err := time.Parse("2006-01-02", dateStr)
 	if err != nil {
 		return 0, err
 	}
-	
+
 	return t.Year(), nil
 }
 
@@ -474,8 +539,6 @@ func getMapKeys(m map[string]interface{}) []string {
 	}
 	return keys
 }
-
-
 
 // GetSeasonsBySeriesID returns all seasons for a specific series
 func GetSeasonsBySeriesID(mediaService *services.MediaService) gin.HandlerFunc {
@@ -501,13 +564,13 @@ func GetEpisodesBySeriesAndSeason(mediaService *services.MediaService) gin.Handl
 	return func(c *gin.Context) {
 		idStr := c.Param("id")
 		seasonStr := c.Param("season")
-		
+
 		id, err := strconv.ParseUint(idStr, 10, 32)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid series ID"})
 			return
 		}
-		
+
 		season, err := strconv.Atoi(seasonStr)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid season number"})
@@ -526,23 +589,23 @@ func GetEpisodesBySeriesAndSeason(mediaService *services.MediaService) gin.Handl
 func GetMediaByGenre(mediaService *services.MediaService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		genre := c.Param("genre")
-		
+
 		// Get page and limit from query parameters with defaults
 		page := 1
 		limit := 50
-		
+
 		if pageStr := c.Query("page"); pageStr != "" {
 			if p, err := strconv.Atoi(pageStr); err == nil && p > 0 {
 				page = p
 			}
 		}
-		
+
 		if limitStr := c.Query("limit"); limitStr != "" {
 			if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= 100 {
 				limit = l
 			}
 		}
-		
+
 		media, err := mediaService.GetMediaByGenre(genre, page, limit)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -610,9 +673,9 @@ func DeleteMedia(mediaService *services.MediaService) gin.HandlerFunc {
 		c.JSON(http.StatusOK, gin.H{
 			"message": "Media deleted successfully",
 			"deleted_media": gin.H{
-				"id": media.ID,
+				"id":    media.ID,
 				"title": media.Title,
-				"type": media.Type,
+				"type":  media.Type,
 			},
 		})
 	}
@@ -625,20 +688,20 @@ func SearchMediaAdvanced(mediaService *services.MediaService) gin.HandlerFunc {
 		genreFilter := c.Query("genre")
 		typeFilter := c.Query("type")
 		minRatingStr := c.Query("min_rating")
-		
+
 		var minRating float32 = 0
 		if minRatingStr != "" {
 			if rating, err := strconv.ParseFloat(minRatingStr, 32); err == nil {
 				minRating = float32(rating)
 			}
 		}
-		
+
 		results, err := mediaService.SearchMediaAdvanced(query, genreFilter, typeFilter, minRating)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		
+
 		c.JSON(http.StatusOK, prepareMediaForResponse(results))
 	}
 }
@@ -652,16 +715,17 @@ func GetTrendingMedia(mediaService *services.MediaService) gin.HandlerFunc {
 				limit = l
 			}
 		}
-		
+
 		media, err := mediaService.GetTrendingMedia(limit)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		
+
 		c.JSON(http.StatusOK, prepareMediaForResponse(media))
 	}
 }
+
 // performSmartSearch implements Netflix-like intelligent search
 func performSmartSearch(mediaService *services.MediaService, query string) ([]interface{}, error) {
 	// Get all media for comprehensive search
@@ -671,8 +735,8 @@ func performSmartSearch(mediaService *services.MediaService, query string) ([]in
 	}
 
 	type searchResult struct {
-		media interface{}
-		score float64
+		media     interface{}
+		score     float64
 		matchType string
 	}
 
@@ -729,7 +793,7 @@ func performSmartSearch(mediaService *services.MediaService, query string) ([]in
 				score += 30.0
 				matchTypes = append(matchTypes, "description")
 			}
-			
+
 			// Word matching in description
 			descWords := strings.Fields(descLower)
 			matchedDescWords := 0
@@ -748,11 +812,11 @@ func performSmartSearch(mediaService *services.MediaService, query string) ([]in
 
 		// Type matching
 		typeLower := strings.ToLower(media.Type)
-		if typeLower == queryLower || 
-		   (queryLower == "movie" && typeLower == "movie") ||
-		   (queryLower == "tv" && typeLower == "episode") ||
-		   (queryLower == "series" && typeLower == "episode") ||
-		   (queryLower == "show" && typeLower == "episode") {
+		if typeLower == queryLower ||
+			(queryLower == "movie" && typeLower == "movie") ||
+			(queryLower == "tv" && typeLower == "episode") ||
+			(queryLower == "series" && typeLower == "episode") ||
+			(queryLower == "show" && typeLower == "episode") {
 			score += 40.0
 			matchTypes = append(matchTypes, "type")
 		}
@@ -792,8 +856,8 @@ func performSmartSearch(mediaService *services.MediaService, query string) ([]in
 				score += float64(media.ViewCount) * 0.01 // Popularity boost
 			}
 			results = append(results, searchResult{
-				media: media,
-				score: score,
+				media:     media,
+				score:     score,
 				matchType: strings.Join(matchTypes, ","),
 			})
 		}
@@ -895,23 +959,23 @@ func GetSubtitleFile(mediaService *services.MediaService) gin.HandlerFunc {
 
 		if track.TrackType == "external" && track.FilePath != "" {
 			log.Printf("🔍 Looking for external subtitle file: %s", track.FilePath)
-			
+
 			// Verify external subtitle file exists
 			if _, err := os.Stat(track.FilePath); err != nil {
 				log.Printf("❌ External subtitle file not found: %s (error: %v)", track.FilePath, err)
-				
+
 				// Try to find the file in the same directory as the video
 				media, err := mediaService.GetMediaByID(uint(id))
 				if err == nil && media.FilePath != "" {
 					videoDir := filepath.Dir(media.FilePath)
 					subtitleFileName := filepath.Base(track.FilePath)
 					alternativePath := filepath.Join(videoDir, subtitleFileName)
-					
+
 					log.Printf("🔍 Trying alternative path: %s", alternativePath)
 					if _, err := os.Stat(alternativePath); err == nil {
 						log.Printf("✅ Found subtitle at alternative path: %s", alternativePath)
 						track.FilePath = alternativePath
-						
+
 						// Update the database with the correct path
 						go func() {
 							if err := mediaService.UpdateSubtitleTrackPath(track.ID, alternativePath); err != nil {
@@ -921,7 +985,7 @@ func GetSubtitleFile(mediaService *services.MediaService) gin.HandlerFunc {
 					} else {
 						log.Printf("❌ Subtitle file not found at alternative path either: %s", alternativePath)
 						c.JSON(http.StatusNotFound, gin.H{
-							"error": "Subtitle file not found on disk",
+							"error":   "Subtitle file not found on disk",
 							"details": fmt.Sprintf("Checked paths: %s, %s", track.FilePath, alternativePath),
 						})
 						return
@@ -929,7 +993,7 @@ func GetSubtitleFile(mediaService *services.MediaService) gin.HandlerFunc {
 				} else {
 					c.JSON(http.StatusNotFound, gin.H{
 						"error": "Subtitle file not found on disk",
-						"path": track.FilePath,
+						"path":  track.FilePath,
 					})
 					return
 				}
@@ -944,7 +1008,7 @@ func GetSubtitleFile(mediaService *services.MediaService) gin.HandlerFunc {
 			c.Header("Access-Control-Allow-Headers", "Range")
 
 			log.Printf("📄 Serving external subtitle: %s (%s)", track.FilePath, contentType)
-			
+
 			// Serve external subtitle file
 			c.File(track.FilePath)
 		} else if track.TrackType == "internal" {
@@ -1000,7 +1064,7 @@ func getSubtitleContentType(format string) string {
 // extractInternalSubtitle extracts internal subtitle track using ffmpeg with enhanced timing precision
 func extractInternalSubtitle(videoPath string, streamIndex int) ([]byte, error) {
 	log.Printf("🎬 Extracting internal subtitle: stream %d from %s", streamIndex, filepath.Base(videoPath))
-	
+
 	// First, get stream information to determine the correct mapping
 	probeCmd := exec.Command("ffprobe",
 		"-v", "quiet",
@@ -1008,12 +1072,12 @@ func extractInternalSubtitle(videoPath string, streamIndex int) ([]byte, error) 
 		"-show_streams",
 		"-select_streams", "s",
 		videoPath)
-	
+
 	probeOutput, err := probeCmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("failed to probe subtitle streams: %v", err)
 	}
-	
+
 	var probeData struct {
 		Streams []struct {
 			Index     int    `json:"index"`
@@ -1021,15 +1085,15 @@ func extractInternalSubtitle(videoPath string, streamIndex int) ([]byte, error) 
 			CodecName string `json:"codec_name"`
 		} `json:"streams"`
 	}
-	
+
 	if err := json.Unmarshal(probeOutput, &probeData); err != nil {
 		return nil, fmt.Errorf("failed to parse probe output: %v", err)
 	}
-	
+
 	// Find the actual stream index for subtitles
 	var actualStreamIndex int = -1
 	subtitleCount := 0
-	
+
 	for _, stream := range probeData.Streams {
 		if stream.CodecType == "subtitle" {
 			if subtitleCount == streamIndex {
@@ -1039,7 +1103,7 @@ func extractInternalSubtitle(videoPath string, streamIndex int) ([]byte, error) 
 			subtitleCount++
 		}
 	}
-	
+
 	// If not found using subtitle-specific index, try using the streamIndex as actual stream index
 	if actualStreamIndex == -1 {
 		// Check if the streamIndex itself is a valid subtitle stream
@@ -1051,13 +1115,13 @@ func extractInternalSubtitle(videoPath string, streamIndex int) ([]byte, error) 
 			}
 		}
 	}
-	
+
 	if actualStreamIndex == -1 {
 		return nil, fmt.Errorf("subtitle stream %d not found (checked both subtitle-specific and actual indices)", streamIndex)
 	}
-	
+
 	log.Printf("🎬 Using actual stream index %d for subtitle stream %d", actualStreamIndex, streamIndex)
-	
+
 	// Extract subtitle using the correct stream index with enhanced timing precision
 	cmd := exec.Command("ffmpeg",
 		"-v", "error", // Reduce verbosity but show errors
@@ -1066,7 +1130,7 @@ func extractInternalSubtitle(videoPath string, streamIndex int) ([]byte, error) 
 		"-c:s", "srt", // Convert to SRT format for web compatibility
 		"-f", "srt",
 		"-avoid_negative_ts", "make_zero", // Ensure no negative timestamps
-		"-copyts", // Copy timestamps precisely
+		"-copyts",        // Copy timestamps precisely
 		"-start_at_zero", // Start at zero for consistency
 		"-")
 
@@ -1091,14 +1155,14 @@ func extractInternalSubtitle(videoPath string, streamIndex int) ([]byte, error) 
 // extractInternalSubtitleAlternative tries alternative extraction methods
 func extractInternalSubtitleAlternative(videoPath string, streamIndex int) ([]byte, error) {
 	log.Printf("🔄 Trying alternative subtitle extraction for stream %d", streamIndex)
-	
+
 	// Method 1: Try without codec conversion (keep original format)
 	cmd := exec.Command("ffmpeg",
 		"-v", "error",
 		"-i", videoPath,
 		"-map", fmt.Sprintf("0:%d", streamIndex),
 		"-c:s", "copy", // Keep original subtitle format
-		"-f", "srt",    // But force SRT container
+		"-f", "srt", // But force SRT container
 		"-")
 
 	output, err := cmd.Output()
@@ -1106,7 +1170,7 @@ func extractInternalSubtitleAlternative(videoPath string, streamIndex int) ([]by
 		log.Printf("✅ Alternative method 1 succeeded: %d bytes", len(output))
 		return output, nil
 	}
-	
+
 	// Method 2: Try with text output
 	cmd = exec.Command("ffmpeg",
 		"-v", "error",
@@ -1120,7 +1184,7 @@ func extractInternalSubtitleAlternative(videoPath string, streamIndex int) ([]by
 		log.Printf("✅ Alternative method 2 succeeded: %d bytes", len(output))
 		return output, nil
 	}
-	
+
 	// Method 3: Try extracting as WebVTT and convert
 	cmd = exec.Command("ffmpeg",
 		"-v", "error",
@@ -1138,7 +1202,7 @@ func extractInternalSubtitleAlternative(videoPath string, streamIndex int) ([]by
 			return []byte(srtOutput), nil
 		}
 	}
-	
+
 	return nil, fmt.Errorf("all subtitle extraction methods failed for stream %d", streamIndex)
 }
 
@@ -1147,10 +1211,10 @@ func postProcessSRTTiming(srtData []byte) []byte {
 	content := string(srtData)
 	lines := strings.Split(content, "\n")
 	var processedLines []string
-	
+
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
-		
+
 		// Fix timestamp format issues
 		if strings.Contains(line, "-->") {
 			// Ensure proper SRT timestamp format: HH:MM:SS,mmm --> HH:MM:SS,mmm
@@ -1171,10 +1235,10 @@ func postProcessSRTTiming(srtData []byte) []byte {
 				})
 			}
 		}
-		
+
 		processedLines = append(processedLines, line)
 	}
-	
+
 	return []byte(strings.Join(processedLines, "\n"))
 }
 
@@ -1183,21 +1247,21 @@ func convertWebVTTToSRT(vttContent string) string {
 	lines := strings.Split(vttContent, "\n")
 	var srtLines []string
 	var counter int = 1
-	
+
 	for i := 0; i < len(lines); i++ {
 		line := strings.TrimSpace(lines[i])
-		
+
 		// Skip WebVTT header and empty lines
 		if line == "WEBVTT" || line == "" {
 			continue
 		}
-		
+
 		// Look for timestamp lines (contain "-->")
 		if strings.Contains(line, "-->") {
 			// Add counter
 			srtLines = append(srtLines, fmt.Sprintf("%d", counter))
 			counter++
-			
+
 			// Convert WebVTT timestamp format to SRT format with proper formatting
 			// WebVTT: 00:00:01.000 --> 00:00:04.000
 			// SRT:    00:00:01,000 --> 00:00:04,000
@@ -1221,7 +1285,7 @@ func convertWebVTTToSRT(vttContent string) string {
 				srtTimestamp := strings.ReplaceAll(line, ".", ",")
 				srtLines = append(srtLines, srtTimestamp)
 			}
-			
+
 			// Collect subtitle text until next timestamp or end
 			i++
 			var textLines []string
@@ -1235,24 +1299,24 @@ func convertWebVTTToSRT(vttContent string) string {
 					break
 				}
 				// Clean up WebVTT styling and notes
-				if !strings.HasPrefix(textLine, "NOTE") && 
-				   !strings.Contains(textLine, "align:") && 
-				   !strings.Contains(textLine, "position:") {
+				if !strings.HasPrefix(textLine, "NOTE") &&
+					!strings.Contains(textLine, "align:") &&
+					!strings.Contains(textLine, "position:") {
 					textLines = append(textLines, textLine)
 				}
 				i++
 			}
-			
+
 			// Add text lines
 			for _, textLine := range textLines {
 				srtLines = append(srtLines, textLine)
 			}
-			
+
 			// Add empty line between subtitles
 			srtLines = append(srtLines, "")
 		}
 	}
-	
+
 	return strings.Join(srtLines, "\n")
 }
 
@@ -1302,9 +1366,9 @@ func ExtractMediaTracks(mediaService *services.MediaService, scanner interface{}
 				Language    string `json:"tags.language"`
 				Title       string `json:"tags.title"`
 				Disposition struct {
-					Default  int `json:"default"`
-					Forced   int `json:"forced"`
-					Hearing  int `json:"hearing_impaired"`
+					Default int `json:"default"`
+					Forced  int `json:"forced"`
+					Hearing int `json:"hearing_impaired"`
 				} `json:"disposition"`
 				Tags struct {
 					Language string `json:"language"`
@@ -1322,7 +1386,7 @@ func ExtractMediaTracks(mediaService *services.MediaService, scanner interface{}
 		// Process subtitle streams
 		var subtitleTracks []models.SubtitleTrack
 		var audioTracks []models.AudioTrack
-		
+
 		for _, stream := range probeData.Streams {
 			if stream.CodecType == "subtitle" {
 				language := stream.Tags.Language
@@ -1350,7 +1414,7 @@ func ExtractMediaTracks(mediaService *services.MediaService, scanner interface{}
 					TrackType:   "internal",
 				}
 				subtitleTracks = append(subtitleTracks, subtitleTrack)
-				
+
 				log.Printf("📝 Found internal subtitle: %s (%s) - %s", language, stream.CodecName, title)
 			} else if stream.CodecType == "audio" {
 				language := stream.Tags.Language
@@ -1376,17 +1440,17 @@ func ExtractMediaTracks(mediaService *services.MediaService, scanner interface{}
 					TrackType:   "internal",
 				}
 				audioTracks = append(audioTracks, audioTrack)
-				
+
 				log.Printf("🎵 Found audio track: %s (%s) - %s", language, stream.CodecName, title)
 			}
 		}
 
 		// Save tracks to database
 		var results = gin.H{
-			"media_id": media.ID,
-			"title": media.Title,
+			"media_id":        media.ID,
+			"title":           media.Title,
 			"subtitle_tracks": len(subtitleTracks),
-			"audio_tracks": len(audioTracks),
+			"audio_tracks":    len(audioTracks),
 		}
 
 		if len(subtitleTracks) > 0 {
@@ -1432,7 +1496,7 @@ func GetCastImages(mediaService *services.MediaService, tmdbService *services.TM
 		// Clean the title for TMDB search
 		cleanTitle := tmdbService.CleanTitle(media.Title)
 		searchTitle := tmdbService.RemoveYearFromTitle(cleanTitle)
-		
+
 		log.Printf("🎭 Fetching cast images for: '%s' (original: '%s')", searchTitle, media.Title)
 
 		// Try to get cast images from TMDB
@@ -1452,7 +1516,7 @@ func GetCastImages(mediaService *services.MediaService, tmdbService *services.TM
 			}
 		}
 
-		log.Printf("✅ Found %d cast members and %d crew members with images", 
+		log.Printf("✅ Found %d cast members and %d crew members with images",
 			len(castMembers), len(crewMembers))
 
 		c.JSON(http.StatusOK, gin.H{
@@ -1467,8 +1531,6 @@ var (
 	upcomingMoviesCache     *services.UpcomingMoviesResponse
 	upcomingMoviesCacheTime time.Time
 )
-
-
 
 // SearchTMDB searches TMDB for movies and TV shows
 func SearchTMDB(tmdbService *services.TMDBService) gin.HandlerFunc {
@@ -1498,7 +1560,7 @@ func SearchTMDB(tmdbService *services.TMDBService) gin.HandlerFunc {
 			if err != nil {
 				log.Printf("❌ TMDB movie search failed: %v", err)
 				c.JSON(http.StatusInternalServerError, gin.H{
-					"error": "Failed to search movies",
+					"error":   "Failed to search movies",
 					"details": err.Error(),
 				})
 				return
@@ -1510,7 +1572,7 @@ func SearchTMDB(tmdbService *services.TMDBService) gin.HandlerFunc {
 			if err != nil {
 				log.Printf("❌ TMDB TV search failed: %v", err)
 				c.JSON(http.StatusInternalServerError, gin.H{
-					"error": "Failed to search TV shows",
+					"error":   "Failed to search TV shows",
 					"details": err.Error(),
 				})
 				return
@@ -1522,7 +1584,7 @@ func SearchTMDB(tmdbService *services.TMDBService) gin.HandlerFunc {
 			if err != nil {
 				log.Printf("❌ TMDB multi search failed: %v", err)
 				c.JSON(http.StatusInternalServerError, gin.H{
-					"error": "Failed to search TMDB",
+					"error":   "Failed to search TMDB",
 					"details": err.Error(),
 				})
 				return
@@ -1540,7 +1602,7 @@ func SearchTMDBSuggestions(tmdbService *services.TMDBService) gin.HandlerFunc {
 		query := c.Query("q")
 		if query == "" {
 			c.JSON(http.StatusOK, gin.H{
-				"results": []interface{}{},
+				"results":       []interface{}{},
 				"total_results": 0,
 			})
 			return
@@ -1551,7 +1613,7 @@ func SearchTMDBSuggestions(tmdbService *services.TMDBService) gin.HandlerFunc {
 		if err != nil {
 			log.Printf("❌ TMDB suggestions search failed: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{
-				"error": "Failed to get suggestions",
+				"error":   "Failed to get suggestions",
 				"details": err.Error(),
 			})
 			return
@@ -1564,7 +1626,7 @@ func SearchTMDBSuggestions(tmdbService *services.TMDBService) gin.HandlerFunc {
 		}
 
 		c.JSON(http.StatusOK, gin.H{
-			"results": limitedResults,
+			"results":       limitedResults,
 			"total_results": len(limitedResults),
 		})
 
@@ -1586,39 +1648,39 @@ func GetTMDBMovieDetails(tmdbService *services.TMDBService) gin.HandlerFunc {
 
 		// Get media type from query parameter (default to trying both)
 		mediaType := c.Query("type")
-		
+
 		// If media type is specified, use it directly
 		if mediaType == "movie" {
 			movieDetails, err := tmdbService.GetMovieDetailsWithExtras(id)
 			if err != nil {
 				log.Printf("❌ TMDB movie details failed for ID %d: %v", id, err)
 				c.JSON(http.StatusNotFound, gin.H{
-					"error": "Movie not found",
+					"error":   "Movie not found",
 					"details": err.Error(),
 				})
 				return
 			}
 			c.JSON(http.StatusOK, gin.H{
 				"media_type": "movie",
-				"data": movieDetails,
+				"data":       movieDetails,
 			})
 			log.Printf("✅ TMDB movie details retrieved for ID: %d", id)
 			return
 		}
-		
+
 		if mediaType == "tv" {
 			tvDetails, err := tmdbService.GetTVDetails(id)
 			if err != nil {
 				log.Printf("❌ TMDB TV details failed for ID %d: %v", id, err)
 				c.JSON(http.StatusNotFound, gin.H{
-					"error": "TV series not found",
+					"error":   "TV series not found",
 					"details": err.Error(),
 				})
 				return
 			}
 			c.JSON(http.StatusOK, gin.H{
 				"media_type": "tv",
-				"data": tvDetails,
+				"data":       tvDetails,
 			})
 			log.Printf("✅ TMDB TV details retrieved for ID: %d", id)
 			return
@@ -1631,7 +1693,7 @@ func GetTMDBMovieDetails(tmdbService *services.TMDBService) gin.HandlerFunc {
 			// Successfully got movie details
 			c.JSON(http.StatusOK, gin.H{
 				"media_type": "movie",
-				"data": movieDetails,
+				"data":       movieDetails,
 			})
 			log.Printf("✅ TMDB movie details retrieved for ID: %d", id)
 			return
@@ -1643,7 +1705,7 @@ func GetTMDBMovieDetails(tmdbService *services.TMDBService) gin.HandlerFunc {
 			// Successfully got TV details
 			c.JSON(http.StatusOK, gin.H{
 				"media_type": "tv",
-				"data": tvDetails,
+				"data":       tvDetails,
 			})
 			log.Printf("✅ TMDB TV details retrieved for ID: %d", id)
 			return
@@ -1652,9 +1714,9 @@ func GetTMDBMovieDetails(tmdbService *services.TMDBService) gin.HandlerFunc {
 		// Both failed
 		log.Printf("❌ TMDB details failed for ID %d - Movie error: %v, TV error: %v", id, movieErr, tvErr)
 		c.JSON(http.StatusNotFound, gin.H{
-			"error": "Movie or TV series not found",
+			"error":       "Movie or TV series not found",
 			"movie_error": movieErr.Error(),
-			"tv_error": tvErr.Error(),
+			"tv_error":    tvErr.Error(),
 		})
 	}
 }
@@ -1666,7 +1728,7 @@ func GetUpcomingMovies(tmdbService *services.TMDBService) gin.HandlerFunc {
 		if err != nil {
 			log.Printf("❌ Failed to get upcoming movies: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{
-				"error": "Failed to get upcoming movies",
+				"error":   "Failed to get upcoming movies",
 				"details": err.Error(),
 			})
 			return
@@ -1684,7 +1746,7 @@ func GetUpcomingTVSeries(tmdbService *services.TMDBService) gin.HandlerFunc {
 		if err != nil {
 			log.Printf("❌ Failed to get TV series: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{
-				"error": "Failed to get TV series",
+				"error":   "Failed to get TV series",
 				"details": err.Error(),
 			})
 			return
@@ -1703,7 +1765,7 @@ func GetLatestMovie(tmdbService *services.TMDBService) gin.HandlerFunc {
 		if err != nil {
 			log.Printf("❌ Failed to get latest movie: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{
-				"error": "Failed to get latest movie",
+				"error":   "Failed to get latest movie",
 				"details": err.Error(),
 			})
 			return
@@ -1729,15 +1791,15 @@ func GetNowPlayingMoviesList(tmdbService *services.TMDBService) gin.HandlerFunc 
 		if err != nil {
 			log.Printf("❌ Failed to get now playing movies: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{
-				"error": "Failed to get now playing movies",
+				"error":   "Failed to get now playing movies",
 				"details": err.Error(),
 			})
 			return
 		}
 
 		c.JSON(http.StatusOK, gin.H{
-			"results": movies,
-			"page": page,
+			"results":       movies,
+			"page":          page,
 			"total_results": len(movies),
 		})
 		log.Printf("✅ Retrieved %d now playing movies (page %d)", len(movies), page)
@@ -1759,15 +1821,15 @@ func GetUpcomingMoviesList(tmdbService *services.TMDBService) gin.HandlerFunc {
 		if err != nil {
 			log.Printf("❌ Failed to get upcoming movies: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{
-				"error": "Failed to get upcoming movies",
+				"error":   "Failed to get upcoming movies",
 				"details": err.Error(),
 			})
 			return
 		}
 
 		c.JSON(http.StatusOK, gin.H{
-			"results": movies,
-			"page": page,
+			"results":       movies,
+			"page":          page,
 			"total_results": len(movies),
 		})
 		log.Printf("✅ Retrieved %d upcoming movies (page %d)", len(movies), page)
@@ -1789,21 +1851,20 @@ func GetPopularMoviesList(tmdbService *services.TMDBService) gin.HandlerFunc {
 		if err != nil {
 			log.Printf("❌ Failed to get popular movies: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{
-				"error": "Failed to get popular movies",
+				"error":   "Failed to get popular movies",
 				"details": err.Error(),
 			})
 			return
 		}
 
 		c.JSON(http.StatusOK, gin.H{
-			"results": movies,
-			"page": page,
+			"results":       movies,
+			"page":          page,
 			"total_results": len(movies),
 		})
 		log.Printf("✅ Retrieved %d popular movies (page %d)", len(movies), page)
 	}
 }
-
 
 // DiscoverMoviesByFilters provides advanced filtered/sorted movie discovery
 func DiscoverMoviesByFilters(tmdbService *services.TMDBService) gin.HandlerFunc {
@@ -1822,16 +1883,16 @@ func DiscoverMoviesByFilters(tmdbService *services.TMDBService) gin.HandlerFunc 
 		if err != nil {
 			log.Printf("❌ Failed to discover movies: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{
-				"error": "Failed to discover movies",
+				"error":   "Failed to discover movies",
 				"details": err.Error(),
 			})
 			return
 		}
 
 		c.JSON(http.StatusOK, gin.H{
-			"results": movies,
+			"results":       movies,
 			"total_results": len(movies),
-			"filters": params,
+			"filters":       params,
 		})
 		log.Printf("✅ Discovered %d movies with filters", len(movies))
 	}
@@ -1853,7 +1914,7 @@ func GetMovieImagesList(tmdbService *services.TMDBService) gin.HandlerFunc {
 		if err != nil {
 			log.Printf("❌ Failed to get movie images for ID %d: %v", id, err)
 			c.JSON(http.StatusInternalServerError, gin.H{
-				"error": "Failed to get movie images",
+				"error":   "Failed to get movie images",
 				"details": err.Error(),
 			})
 			return
@@ -1919,17 +1980,17 @@ func GetRelatedMedia(tmdbService *services.TMDBService) gin.HandlerFunc {
 		if err != nil {
 			log.Printf("❌ TMDB related media failed for ID %d (%s): %v", id, mediaType, err)
 			c.JSON(http.StatusInternalServerError, gin.H{
-				"error": "Failed to get related media",
+				"error":   "Failed to get related media",
 				"details": err.Error(),
 			})
 			return
 		}
 
 		c.JSON(http.StatusOK, gin.H{
-			"results": relatedMedia,
+			"results":       relatedMedia,
 			"total_results": len(relatedMedia),
-			"media_type": mediaType,
-			"media_id": id,
+			"media_type":    mediaType,
+			"media_id":      id,
 		})
 
 		log.Printf("✅ TMDB related media retrieved: %d items for %s ID %d", len(relatedMedia), mediaType, id)
@@ -1960,7 +2021,7 @@ func GetSimilarMovies(tmdbService *services.TMDBService) gin.HandlerFunc {
 		if err != nil {
 			log.Printf("❌ TMDB similar movies failed for ID %d: %v", id, err)
 			c.JSON(http.StatusInternalServerError, gin.H{
-				"error": "Failed to get similar movies",
+				"error":   "Failed to get similar movies",
 				"details": err.Error(),
 			})
 			return
@@ -1995,7 +2056,7 @@ func GetRecommendedMovies(tmdbService *services.TMDBService) gin.HandlerFunc {
 		if err != nil {
 			log.Printf("❌ TMDB recommended movies failed for ID %d: %v", id, err)
 			c.JSON(http.StatusInternalServerError, gin.H{
-				"error": "Failed to get recommended movies",
+				"error":   "Failed to get recommended movies",
 				"details": err.Error(),
 			})
 			return
@@ -2030,7 +2091,7 @@ func GetSimilarTVShows(tmdbService *services.TMDBService) gin.HandlerFunc {
 		if err != nil {
 			log.Printf("❌ TMDB similar TV shows failed for ID %d: %v", id, err)
 			c.JSON(http.StatusInternalServerError, gin.H{
-				"error": "Failed to get similar TV shows",
+				"error":   "Failed to get similar TV shows",
 				"details": err.Error(),
 			})
 			return
@@ -2065,7 +2126,7 @@ func GetRecommendedTVShows(tmdbService *services.TMDBService) gin.HandlerFunc {
 		if err != nil {
 			log.Printf("❌ TMDB recommended TV shows failed for ID %d: %v", id, err)
 			c.JSON(http.StatusInternalServerError, gin.H{
-				"error": "Failed to get recommended TV shows",
+				"error":   "Failed to get recommended TV shows",
 				"details": err.Error(),
 			})
 			return
@@ -2092,7 +2153,7 @@ func UpdateLocalMediaWithTMDB(mediaService *services.MediaService, tmdbService *
 		if err := c.ShouldBindJSON(&requestBody); err == nil && requestBody.MediaID > 0 {
 			// Single media update
 			log.Printf("🎯 Single media update requested for ID: %d", requestBody.MediaID)
-			
+
 			media, err := mediaService.GetMediaByID(requestBody.MediaID)
 			if err != nil {
 				log.Printf("❌ Failed to get media by ID %d: %v", requestBody.MediaID, err)
@@ -2117,14 +2178,14 @@ func UpdateLocalMediaWithTMDB(mediaService *services.MediaService, tmdbService *
 			// Save updates
 			media.TMDBBackdropURL = backdropURL
 			media.TMDBTrailerURL = trailerURL
-			
+
 			if err := mediaService.UpdateMedia(media); err != nil {
 				log.Printf("❌ Failed to save media updates: %v", err)
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save updates"})
 				return
 			}
 
-			log.Printf("✅ Updated single media '%s' - Backdrop: %t, Trailer: %t", 
+			log.Printf("✅ Updated single media '%s' - Backdrop: %t, Trailer: %t",
 				media.Title, backdropURL != "", trailerURL != "")
 
 			c.JSON(http.StatusOK, gin.H{
@@ -2189,7 +2250,7 @@ func UpdateLocalMediaWithTMDB(mediaService *services.MediaService, tmdbService *
 				}
 
 				updated++
-				log.Printf("✅ Updated '%s' - Backdrop: %t, Trailer: %t", 
+				log.Printf("✅ Updated '%s' - Backdrop: %t, Trailer: %t",
 					media.Title, backdropURL != "", trailerURL != "")
 			} else {
 				log.Printf("⚠️ No TMDB data found for '%s'", media.Title)
@@ -2320,8 +2381,6 @@ func extractTVTrailerURL(details *services.TMDBTVDetails) string {
 	return ""
 }
 
-
-
 // convertMovieDetailsToMetadata converts TMDB movie details to MediaMetadata
 func convertMovieDetailsToMetadata(movieDetails *services.TMDBMovieDetailsWithExtras) *interfaces.MediaMetadata {
 	if movieDetails == nil {
@@ -2390,7 +2449,7 @@ func convertMovieDetailsToMetadata(movieDetails *services.TMDBMovieDetailsWithEx
 	if movieDetails.PosterPath != "" {
 		posterURL = "https://image.tmdb.org/t/p/w500" + movieDetails.PosterPath
 	}
-	
+
 	backdropURL := ""
 	if movieDetails.BackdropPath != "" {
 		backdropURL = "https://image.tmdb.org/t/p/w1280" + movieDetails.BackdropPath
@@ -2402,7 +2461,7 @@ func convertMovieDetailsToMetadata(movieDetails *services.TMDBMovieDetailsWithEx
 		// Look for official trailers first, then any trailers
 		var foundTrailer *services.TMDBVideo
 		var fallbackTrailer *services.TMDBVideo
-		
+
 		for _, video := range movieDetails.Videos.Results {
 			if video.Site == "YouTube" && video.Key != "" {
 				if video.Type == "Trailer" {
@@ -2420,7 +2479,7 @@ func convertMovieDetailsToMetadata(movieDetails *services.TMDBMovieDetailsWithEx
 				}
 			}
 		}
-		
+
 		// Use the best trailer found
 		if foundTrailer != nil {
 			trailerURL = fmt.Sprintf("https://www.youtube.com/watch?v=%s", foundTrailer.Key)
@@ -2554,7 +2613,7 @@ func convertTVDetailsToMetadata(tvDetails *services.TMDBTVDetails) *interfaces.M
 	if tvDetails.PosterPath != "" {
 		posterURL = "https://image.tmdb.org/t/p/w500" + tvDetails.PosterPath
 	}
-	
+
 	backdropURL := ""
 	if tvDetails.BackdropPath != "" {
 		backdropURL = "https://image.tmdb.org/t/p/w1280" + tvDetails.BackdropPath
@@ -2566,7 +2625,7 @@ func convertTVDetailsToMetadata(tvDetails *services.TMDBTVDetails) *interfaces.M
 		// Look for official trailers first, then any trailers
 		var foundTrailer *services.TMDBVideo
 		var fallbackTrailer *services.TMDBVideo
-		
+
 		for _, video := range tvDetails.Videos.Results {
 			if video.Site == "YouTube" && video.Key != "" {
 				if video.Type == "Trailer" {
@@ -2584,7 +2643,7 @@ func convertTVDetailsToMetadata(tvDetails *services.TMDBTVDetails) *interfaces.M
 				}
 			}
 		}
-		
+
 		// Use the best trailer found
 		if foundTrailer != nil {
 			trailerURL = fmt.Sprintf("https://www.youtube.com/watch?v=%s", foundTrailer.Key)
@@ -2622,12 +2681,12 @@ func convertTVDetailsToMetadata(tvDetails *services.TMDBTVDetails) *interfaces.M
 		TrailerURL:  trailerURL,
 		Runtime:     runtime,
 		// TV-specific metadata
-		Status:     tvDetails.Status,
-		Homepage:   tvDetails.Homepage,
-		Cast:       cast,
-		Crew:       crew,
-		Writers:    writers,
-		Producers:  producers,
+		Status:    tvDetails.Status,
+		Homepage:  tvDetails.Homepage,
+		Cast:      cast,
+		Crew:      crew,
+		Writers:   writers,
+		Producers: producers,
 		// Additional fields
 		Popularity: tvDetails.Popularity,
 		VoteCount:  tvDetails.VoteCount,
@@ -2650,4 +2709,3 @@ func truncateDescription(text string, maxLength int) string {
 
 	return truncated + "..."
 }
-

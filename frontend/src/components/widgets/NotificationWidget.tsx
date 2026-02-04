@@ -486,7 +486,7 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
         // API Error fallback - only use samples if we don't have cached data
         if (!cacheRef.current || cacheRef.current.data.length === 0) {
           const samples = await createSampleNotifications();
-          let processed = await enhanceNotifications(filterNotifications(samples));
+          const processed = await enhanceNotifications(filterNotifications(samples));
           setNotifications(processed);
         }
         // If we have cached data, keep using it even if API fails
@@ -499,7 +499,7 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
       // Error fallback - only use samples if we don't have cached data
       if (!cacheRef.current || cacheRef.current.data.length === 0) {
         const samples = await createSampleNotifications();
-        let processed = await enhanceNotifications(filterNotifications(samples));
+        const processed = await enhanceNotifications(filterNotifications(samples));
         setNotifications(processed);
       }
       // If we have cached data, keep using it even if there's an error

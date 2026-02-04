@@ -1,6 +1,7 @@
 export interface Media {
   id: number;
   title: string;
+  name?: string;
   original_title?: string;
   type: string; // "movie" or "episode"
   media_type?: string; // For TMDB content: "movie" or "tv"
@@ -13,10 +14,13 @@ export interface Media {
   short_desc?: string;
   long_desc?: string;
   description?: string;
+  overview?: string;
+  trailer_url?: string;
   year?: number;
   release_date?: string;
   first_air_date?: string;
   rating?: number;
+  vote_average?: number;
   country?: string;
   language?: string;
   quality?: string; // HD, 4K, SD, HDR

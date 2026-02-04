@@ -265,7 +265,7 @@ export default function HalfWidthBanner({
                                         </span>
                                     </div>
                                 ) : null}
-                                {currentMedia.year && currentMedia.year > 0 && (
+                                {currentMedia.year && currentMedia.year > 1900 && (
                                     <div className="flex items-center gap-1 text-white/70">
                                         <Calendar className="w-3 h-3" />
                                         <span>{currentMedia.year}</span>

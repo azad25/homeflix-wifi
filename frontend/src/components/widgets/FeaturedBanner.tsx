@@ -353,7 +353,7 @@ export default function FeaturedBanner({
                                 </span>
                             </div>
                         )}
-                        {currentMedia.year && currentMedia.year > 0 && (
+                        {currentMedia.year && currentMedia.year > 1900 && (
                             <div className="flex items-center gap-1">
                                 <Calendar className="w-4 h-4" />
                                 <span>{currentMedia.year}</span>

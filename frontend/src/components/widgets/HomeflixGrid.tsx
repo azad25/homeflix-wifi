@@ -61,11 +61,35 @@ const HomeflixCard: React.FC<HomeflixCardProps> = ({
   const getLogoUrl = () => {
     // Use fetched TMDB logo if available
     if (tmdbLogoUrl) return tmdbLogoUrl;
-    // Use local logo if available
+    
+    // Handle local content logos
     if (media.logo_path) {
-      if (media.logo_path.startsWith('http')) return media.logo_path;
-      return `${apiUrl}/api/logos/${media.logo_path.split('/').pop()}`;
+      // If it's a full URL, use it directly
+      if (media.logo_path.startsWith('http')) {
+        return media.logo_path;
+      }
+      
+      // If it's a TMDB path (starts with /), construct TMDB URL
+      if (media.logo_path.startsWith('/') && !media.logo_path.startsWith('/api/')) {
+        return `https://image.tmdb.org/t/p/w500${media.logo_path}`;
+      }
+      
+      // If it's already an API path, use it directly
+      if (media.logo_path.startsWith('/api/')) {
+        return `${apiUrl}${media.logo_path}`;
+      }
+      
+      // For local content, construct the appropriate endpoint
+      if (media.type === 'tv' || media.type === 'series' || media.type === 'episode') {
+        // For TV series, use the series logo endpoint
+        const seriesId = media.series_id || media.id;
+        return `${apiUrl}/api/series/${seriesId}/logo`;
+      } else {
+        // For movies, use the direct logo path
+        return `${apiUrl}/api/${media.logo_path}`;
+      }
     }
+    
     return null;
   };
 
@@ -148,7 +172,7 @@ const HomeflixCard: React.FC<HomeflixCardProps> = ({
           <div className="absolute top-4 right-4 flex items-center gap-1 bg-black/70 backdrop-blur-sm px-2 py-1 rounded-full">
             {/* <Star className="w-3 h-3 text-yellow-400 fill-current" /> */}
             <span className="text-xs font-medium text-white">
-              {media.year && media.year > 0 ? media.year : ''}
+              {media.year && media.year > 1900 ? media.year : ''}
             </span>
           </div>
         )}

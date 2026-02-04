@@ -331,7 +331,7 @@ export default function MovieGridWidget({
 
                                             {/* Meta Info */}
                                             <div className="flex items-center gap-2 text-xs text-white/80 mb-3">
-                                                {item.year && item.year > 0 && (
+                                                {item.year && item.year > 1900 && (
                                                     <span className="flex items-center gap-1">
                                                         <Calendar className="w-3 h-3" />
                                                         {item.year}

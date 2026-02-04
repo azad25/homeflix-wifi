@@ -71,27 +71,27 @@ func isRetryableError(err error) bool {
 	if err == nil {
 		return false
 	}
-	
+
 	// Don't retry for record not found errors
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return false
 	}
-	
+
 	// Don't retry for validation errors
 	errStr := err.Error()
 	if strings.Contains(errStr, "UNIQUE constraint failed") ||
-	   strings.Contains(errStr, "NOT NULL constraint failed") ||
-	   strings.Contains(errStr, "CHECK constraint failed") {
+		strings.Contains(errStr, "NOT NULL constraint failed") ||
+		strings.Contains(errStr, "CHECK constraint failed") {
 		return false
 	}
-	
+
 	// Retry for database lock and connection errors
 	if strings.Contains(errStr, "database is locked") ||
-	   strings.Contains(errStr, "database is busy") ||
-	   strings.Contains(errStr, "connection") {
+		strings.Contains(errStr, "database is busy") ||
+		strings.Contains(errStr, "connection") {
 		return true
 	}
-	
+
 	// Don't retry other errors by default
 	return false
 }
@@ -159,17 +159,17 @@ func (s *MediaService) GetMediaByID(id uint) (*models.Media, error) {
 
 func (s *MediaService) GetMediaByPath(path string) (*models.Media, error) {
 	var media models.Media
-	
+
 	// Normalize path for consistent comparison
 	normalizedPath := filepath.Clean(path)
-	
+
 	err := s.DBManager.WithReadOnly(func(db *gorm.DB) error {
 		// Try exact path match first
 		err := db.Where("file_path = ?", normalizedPath).First(&media).Error
 		if err == nil {
 			return nil
 		}
-		
+
 		// If exact match fails, try original path
 		if normalizedPath != path {
 			err = db.Where("file_path = ?", path).First(&media).Error
@@ -177,7 +177,7 @@ func (s *MediaService) GetMediaByPath(path string) (*models.Media, error) {
 				return nil
 			}
 		}
-		
+
 		return err
 	})
 
@@ -204,7 +204,7 @@ func (s *MediaService) UpsertMedia(media *models.Media) error {
 	return s.DBManager.WithTx(func(tx *gorm.DB) error {
 		// Normalize path for consistent comparison
 		normalizedPath := filepath.Clean(media.FilePath)
-		
+
 		// Try multiple path variations to find existing media
 		var existingMedia models.Media
 		pathVariations := []string{
@@ -213,7 +213,7 @@ func (s *MediaService) UpsertMedia(media *models.Media) error {
 			strings.ReplaceAll(normalizedPath, "\\", "/"),
 			strings.ReplaceAll(media.FilePath, "\\", "/"),
 		}
-		
+
 		// Remove duplicates from path variations
 		uniquePaths := make(map[string]bool)
 		var searchPaths []string
@@ -223,7 +223,7 @@ func (s *MediaService) UpsertMedia(media *models.Media) error {
 				searchPaths = append(searchPaths, path)
 			}
 		}
-		
+
 		// Try to find existing media with any of the path variations
 		var err error
 		for _, searchPath := range searchPaths {
@@ -238,7 +238,7 @@ func (s *MediaService) UpsertMedia(media *models.Media) error {
 				existingMedia.FileSize = media.FileSize
 				existingMedia.Quality = media.Quality
 				existingMedia.FilePath = normalizedPath // Use normalized path
-				
+
 				updateErr := tx.Save(&existingMedia).Error
 				if updateErr == nil {
 					// Copy the updated media back to the original pointer
@@ -248,7 +248,7 @@ func (s *MediaService) UpsertMedia(media *models.Media) error {
 				return updateErr
 			}
 		}
-		
+
 		// No existing media found, create new one
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			media.FilePath = normalizedPath // Use normalized path
@@ -257,14 +257,14 @@ func (s *MediaService) UpsertMedia(media *models.Media) error {
 				// If create fails with UNIQUE constraint, implement comprehensive recovery
 				if strings.Contains(createErr.Error(), "UNIQUE constraint failed") {
 					log.Printf("⚠️ UNIQUE constraint violation for path: %s", normalizedPath)
-					
+
 					// Strategy 1: Try exact path search with different casing
 					var allMedia []models.Media
 					tx.Find(&allMedia)
-					
+
 					for _, existing := range allMedia {
 						if strings.EqualFold(existing.FilePath, normalizedPath) ||
-						   strings.EqualFold(existing.FilePath, media.FilePath) {
+							strings.EqualFold(existing.FilePath, media.FilePath) {
 							log.Printf("🔍 Found case-insensitive match: %s", existing.FilePath)
 							// Update the existing media
 							existing.Title = media.Title
@@ -273,7 +273,7 @@ func (s *MediaService) UpsertMedia(media *models.Media) error {
 							existing.Type = media.Type
 							existing.FileSize = media.FileSize
 							existing.Quality = media.Quality
-							
+
 							updateErr := tx.Save(&existing).Error
 							if updateErr == nil {
 								*media = existing
@@ -282,7 +282,7 @@ func (s *MediaService) UpsertMedia(media *models.Media) error {
 							return updateErr
 						}
 					}
-					
+
 					// Strategy 2: Try basename matching
 					baseName := filepath.Base(normalizedPath)
 					for _, existing := range allMedia {
@@ -297,7 +297,7 @@ func (s *MediaService) UpsertMedia(media *models.Media) error {
 							existing.FileSize = media.FileSize
 							existing.Quality = media.Quality
 							existing.FilePath = normalizedPath // Update to new path
-							
+
 							updateErr := tx.Save(&existing).Error
 							if updateErr == nil {
 								*media = existing
@@ -306,7 +306,7 @@ func (s *MediaService) UpsertMedia(media *models.Media) error {
 							return updateErr
 						}
 					}
-					
+
 					// Strategy 3: If all else fails, skip this entry to prevent crash
 					log.Printf("🚨 Could not resolve UNIQUE constraint for: %s - skipping to prevent crash", normalizedPath)
 					return fmt.Errorf("UNIQUE constraint could not be resolved for path: %s", normalizedPath)
@@ -317,7 +317,7 @@ func (s *MediaService) UpsertMedia(media *models.Media) error {
 			log.Printf("✅ Created new media ID=%d: %s", media.ID, media.Title)
 			return nil
 		}
-		
+
 		// Database error
 		log.Printf("❌ Database error during upsert: %v", err)
 		return err
@@ -329,18 +329,18 @@ func (s *MediaService) GetAllMedia() ([]models.Media, error) {
 	err := s.DBManager.WithReadOnly(func(db *gorm.DB) error {
 		return db.Preload("Genres").Preload("Series").Preload("Subtitles").Find(&media).Error
 	})
-	
+
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// Add fallback thumbnail paths for all media
 	for i := range media {
 		if err := s.EnsureThumbnailFallback(&media[i]); err != nil {
 			log.Printf("Warning: Failed to ensure thumbnail fallback for media %d: %v", media[i].ID, err)
 		}
 	}
-	
+
 	return media, nil
 }
 
@@ -371,7 +371,7 @@ func (s *MediaService) GetSeriesByID(id uint) (*models.Series, error) {
 // UpdateSeries updates a TV series with new metadata
 func (s *MediaService) UpdateSeries(id uint, updates map[string]interface{}) (*models.Series, error) {
 	var series models.Series
-	
+
 	// Use direct database access instead of DBManager transaction for now
 	// First get the existing series
 	if err := s.db.Preload("Genres").First(&series, id).Error; err != nil {
@@ -420,7 +420,7 @@ func (s *MediaService) UpdateSeries(id uint, updates map[string]interface{}) (*m
 				return nil, fmt.Errorf("failed to append genre %s: %v", genreName, err)
 			}
 		}
-		
+
 		// Remove genre_names from updates map since we handled it separately
 		delete(updates, "genre_names")
 	}
@@ -432,7 +432,7 @@ func (s *MediaService) UpdateSeries(id uint, updates map[string]interface{}) (*m
 			return nil, fmt.Errorf("failed to update series: %v", err)
 		}
 	}
-	
+
 	// Save the series to persist GenreNames field
 	if err := tx.Save(&series).Error; err != nil {
 		tx.Rollback()
@@ -656,7 +656,7 @@ func (s *MediaService) SearchMedia(query string) ([]models.Media, error) {
 	err := s.DBManager.WithReadOnly(func(db *gorm.DB) error {
 		// Use LIKE instead of ILIKE for SQLite compatibility
 		return db.Preload("Genres").Preload("Series").Preload("Subtitles").
-			Where("title LIKE ? OR description LIKE ? OR EXISTS (SELECT 1 FROM media_genres mg JOIN genres g ON mg.genre_id = g.id WHERE mg.media_id = media.id AND g.name LIKE ?)", 
+			Where("title LIKE ? OR description LIKE ? OR EXISTS (SELECT 1 FROM media_genres mg JOIN genres g ON mg.genre_id = g.id WHERE mg.media_id = media.id AND g.name LIKE ?)",
 				searchPattern, searchPattern, searchPattern).
 			Order("view_count DESC, rating DESC").
 			Find(&media).Error
@@ -976,7 +976,6 @@ func (s *MediaService) GetTVShows() ([]models.Media, error) {
 	return media, err
 }
 
-
 // GetSeasonsBySeriesID returns all seasons for a specific series
 func (s *MediaService) GetSeasonsBySeriesID(seriesID uint) ([]map[string]interface{}, error) {
 	var episodes []models.Media
@@ -985,11 +984,11 @@ func (s *MediaService) GetSeasonsBySeriesID(seriesID uint) ([]map[string]interfa
 		Where("type = ?", "episode").
 		Order("COALESCE(season_number, season, 1), COALESCE(episode_number, episode, 1)").
 		Find(&episodes).Error
-	
+
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// Group episodes by season
 	seasonMap := make(map[int][]models.Media)
 	for _, ep := range episodes {
@@ -1001,19 +1000,19 @@ func (s *MediaService) GetSeasonsBySeriesID(seriesID uint) ([]map[string]interfa
 		}
 		seasonMap[season] = append(seasonMap[season], ep)
 	}
-	
+
 	// Convert to season objects
 	var seasons []map[string]interface{}
 	for seasonNum, seasonEpisodes := range seasonMap {
 		season := map[string]interface{}{
 			"season_number": seasonNum,
-			"name":         fmt.Sprintf("Season %d", seasonNum),
+			"name":          fmt.Sprintf("Season %d", seasonNum),
 			"episode_count": len(seasonEpisodes),
-			"episodes":     seasonEpisodes,
+			"episodes":      seasonEpisodes,
 		}
 		seasons = append(seasons, season)
 	}
-	
+
 	return seasons, nil
 }
 
@@ -1026,12 +1025,12 @@ func (s *MediaService) GetEpisodesBySeriesAndSeason(seriesID uint, seasonNumber 
 		Where("COALESCE(season_number, season, 1) = ?", seasonNumber).
 		Order("COALESCE(episode_number, episode, 1)").
 		Find(&episodes).Error
-	
+
 	// Add fallback thumbnail paths
 	for i := range episodes {
 		s.ensureThumbnailFallback(&episodes[i])
 	}
-	
+
 	return episodes, err
 }
 
@@ -1112,7 +1111,7 @@ func (s *MediaService) CreateAudioTrack(track *models.AudioTrack) error {
 // SaveSubtitleTracks saves multiple subtitle tracks for a media item
 func (s *MediaService) SaveSubtitleTracks(mediaID uint, tracks []models.SubtitleTrack) error {
 	log.Printf("🎬 Saving %d subtitle tracks for media ID %d", len(tracks), mediaID)
-	
+
 	return s.DBManager.WithTx(func(tx *gorm.DB) error {
 		// First, delete existing internal tracks for this media
 		result := tx.Where("media_id = ? AND track_type = ?", mediaID, "internal").Delete(&models.SubtitleTrack{})
@@ -1121,7 +1120,7 @@ func (s *MediaService) SaveSubtitleTracks(mediaID uint, tracks []models.Subtitle
 			return fmt.Errorf("failed to delete existing internal subtitle tracks: %w", result.Error)
 		}
 		log.Printf("🗑️ Deleted %d existing internal subtitle tracks for media ID %d", result.RowsAffected, mediaID)
-		
+
 		// Create new tracks
 		for i, track := range tracks {
 			track.MediaID = mediaID
@@ -1131,7 +1130,7 @@ func (s *MediaService) SaveSubtitleTracks(mediaID uint, tracks []models.Subtitle
 			}
 			log.Printf("✅ Created subtitle track: %s (%s) - stream %d", track.Language, track.TrackType, track.StreamIndex)
 		}
-		
+
 		log.Printf("✅ Successfully saved %d subtitle tracks for media ID %d", len(tracks), mediaID)
 		return nil
 	})
@@ -1140,7 +1139,7 @@ func (s *MediaService) SaveSubtitleTracks(mediaID uint, tracks []models.Subtitle
 // SaveAudioTracks saves multiple audio tracks for a media item
 func (s *MediaService) SaveAudioTracks(mediaID uint, tracks []models.AudioTrack) error {
 	log.Printf("🎵 Saving %d audio tracks for media ID %d", len(tracks), mediaID)
-	
+
 	return s.DBManager.WithTx(func(tx *gorm.DB) error {
 		// First, delete existing tracks for this media
 		result := tx.Where("media_id = ?", mediaID).Delete(&models.AudioTrack{})
@@ -1149,7 +1148,7 @@ func (s *MediaService) SaveAudioTracks(mediaID uint, tracks []models.AudioTrack)
 			return fmt.Errorf("failed to delete existing audio tracks: %w", result.Error)
 		}
 		log.Printf("🗑️ Deleted %d existing audio tracks for media ID %d", result.RowsAffected, mediaID)
-		
+
 		// Create new tracks
 		for i, track := range tracks {
 			track.MediaID = mediaID
@@ -1159,7 +1158,7 @@ func (s *MediaService) SaveAudioTracks(mediaID uint, tracks []models.AudioTrack)
 			}
 			log.Printf("✅ Created audio track: %s (%s) - stream %d, %dch", track.Language, track.CodecName, track.StreamIndex, track.Channels)
 		}
-		
+
 		log.Printf("✅ Successfully saved %d audio tracks for media ID %d", len(tracks), mediaID)
 		return nil
 	})
@@ -1177,7 +1176,7 @@ func (s *MediaService) DeleteSubtitleTrack(trackID uint) error {
 	return s.DBManager.WithTx(func(tx *gorm.DB) error {
 		// First delete any associated legacy subtitle entries
 		tx.Where("id = ?", trackID).Delete(&models.Subtitle{})
-		
+
 		// Then delete the subtitle track
 		return tx.Where("id = ?", trackID).Delete(&models.SubtitleTrack{}).Error
 	})
@@ -1240,11 +1239,11 @@ func (s *MediaService) CreateGenre(name, description string) (*models.Genre, err
 		Name:        name,
 		Description: description,
 	}
-	
+
 	err := s.DBManager.WithTx(func(tx *gorm.DB) error {
 		return tx.Create(genre).Error
 	})
-	
+
 	return genre, err
 }
 
@@ -1254,11 +1253,11 @@ func (s *MediaService) UpdateGenre(id uint, name, description string) (*models.G
 		Name:        name,
 		Description: description,
 	}
-	
+
 	err := s.DBManager.WithTx(func(tx *gorm.DB) error {
 		return tx.Save(genre).Error
 	})
-	
+
 	return genre, err
 }
 
@@ -1274,10 +1273,10 @@ func (s *MediaService) DeleteMedia(id uint) error {
 		if err := tx.First(&media, id).Error; err != nil {
 			return fmt.Errorf("media not found: %w", err)
 		}
-		
+
 		log.Printf("🗑️ Deleting media: %s (ID: %d)", media.Title, id)
 		log.Printf("📁 Media file path: %s", media.FilePath)
-		
+
 		// Safely delete the media file BEFORE database cleanup
 		if media.FilePath != "" {
 			if err := s.safeDeleteMediaFile(media.FilePath, media.Title, "movie"); err != nil {
@@ -1285,28 +1284,28 @@ func (s *MediaService) DeleteMedia(id uint) error {
 				// Continue with database cleanup even if file deletion fails
 			}
 		}
-		
+
 		// Remove all related associations
 		if err := tx.Exec("DELETE FROM media_genres WHERE media_id = ?", id).Error; err != nil {
 			return fmt.Errorf("failed to delete media-genre associations: %w", err)
 		}
-		
+
 		// Delete subtitles associated with this media
 		if err := tx.Where("media_id = ?", id).Delete(&models.Subtitle{}).Error; err != nil {
 			return fmt.Errorf("failed to delete subtitles: %w", err)
 		}
-		
+
 		// Delete playback progress records
 		if err := tx.Exec("DELETE FROM playback_progress WHERE media_id = ?", id).Error; err != nil {
 			// Log but don't fail if playback_progress table doesn't exist
 			log.Printf("Warning: Could not delete playback progress for media %d: %v", id, err)
 		}
-		
-		// Delete the media entry itself
-		if err := tx.Delete(&models.Media{}, id).Error; err != nil {
+
+		// Hard delete the media entry itself (use Unscoped to bypass soft delete)
+		if err := tx.Unscoped().Delete(&models.Media{}, id).Error; err != nil {
 			return fmt.Errorf("failed to delete media: %w", err)
 		}
-		
+
 		log.Printf("✅ Successfully deleted media '%s' (ID: %d) and all related data", media.Title, id)
 		return nil
 	})
@@ -1320,17 +1319,17 @@ func (s *MediaService) DeleteSeries(id uint) error {
 		if err := tx.First(&series, id).Error; err != nil {
 			return fmt.Errorf("series not found: %w", err)
 		}
-		
+
 		log.Printf("🗑️ Deleting TV series: %s (ID: %d)", series.Title, id)
-		
+
 		// Find all episodes (media items) associated with this series
 		var episodes []models.Media
 		if err := tx.Where("series_id = ?", id).Find(&episodes).Error; err != nil {
 			return fmt.Errorf("failed to find episodes: %w", err)
 		}
-		
+
 		log.Printf("📺 Found %d episodes to delete for series: %s", len(episodes), series.Title)
-		
+
 		// Safely delete each episode file BEFORE database cleanup
 		for _, episode := range episodes {
 			if episode.FilePath != "" {
@@ -1340,7 +1339,7 @@ func (s *MediaService) DeleteSeries(id uint) error {
 				}
 			}
 		}
-		
+
 		// Try to delete the series folder if it exists and is safe
 		if len(episodes) > 0 {
 			// Use the first episode's path to determine series folder
@@ -1355,41 +1354,41 @@ func (s *MediaService) DeleteSeries(id uint) error {
 				}
 			}
 		}
-		
+
 		// Delete each episode and its associations
 		for _, episode := range episodes {
 			// Delete media-genre associations for this episode
 			if err := tx.Exec("DELETE FROM media_genres WHERE media_id = ?", episode.ID).Error; err != nil {
 				log.Printf("⚠️ Warning: Failed to delete genre associations for episode %d: %v", episode.ID, err)
 			}
-			
+
 			// Delete subtitles for this episode
 			if err := tx.Where("media_id = ?", episode.ID).Delete(&models.Subtitle{}).Error; err != nil {
 				log.Printf("⚠️ Warning: Failed to delete subtitles for episode %d: %v", episode.ID, err)
 			}
-			
+
 			// Delete playback progress for this episode
 			if err := tx.Exec("DELETE FROM playback_progress WHERE media_id = ?", episode.ID).Error; err != nil {
 				log.Printf("⚠️ Warning: Failed to delete playback progress for episode %d: %v", episode.ID, err)
 			}
-			
-			// Delete the episode itself
-			if err := tx.Delete(&models.Media{}, episode.ID).Error; err != nil {
+
+			// Hard delete the episode itself (use Unscoped to bypass soft delete)
+			if err := tx.Unscoped().Delete(&models.Media{}, episode.ID).Error; err != nil {
 				log.Printf("❌ Error deleting episode %d: %v", episode.ID, err)
 				return fmt.Errorf("failed to delete episode %d: %w", episode.ID, err)
 			}
 		}
-		
+
 		// Delete series-genre associations
 		if err := tx.Exec("DELETE FROM series_genres WHERE series_id = ?", id).Error; err != nil {
 			log.Printf("⚠️ Warning: Failed to delete series genre associations: %v", err)
 		}
-		
+
 		// Delete the series itself
 		if err := tx.Delete(&models.Series{}, id).Error; err != nil {
 			return fmt.Errorf("failed to delete series: %w", err)
 		}
-		
+
 		log.Printf("✅ Successfully deleted series '%s' (ID: %d) with %d episodes and all related data", series.Title, id, len(episodes))
 		return nil
 	})
@@ -1398,12 +1397,12 @@ func (s *MediaService) DeleteSeries(id uint) error {
 func (s *MediaService) GetGenreStats() (map[string]interface{}, error) {
 	var totalGenres int64
 	s.db.Model(&models.Genre{}).Count(&totalGenres)
-	
+
 	var topGenre struct {
 		GenreName  string `json:"genre_name"`
 		MediaCount int    `json:"media_count"`
 	}
-	
+
 	s.db.Model(&models.Genre{}).
 		Select("genres.name as genre_name, COUNT(media_genres.media_id) as media_count").
 		Joins("LEFT JOIN media_genres ON genres.id = media_genres.genre_id").
@@ -1411,11 +1410,11 @@ func (s *MediaService) GetGenreStats() (map[string]interface{}, error) {
 		Order("media_count DESC").
 		Limit(1).
 		Scan(&topGenre)
-	
+
 	return map[string]interface{}{
-		"total_genres":     totalGenres,
-		"top_genre":        topGenre.GenreName,
-		"top_genre_count":  topGenre.MediaCount,
+		"total_genres":    totalGenres,
+		"top_genre":       topGenre.GenreName,
+		"top_genre_count": topGenre.MediaCount,
 	}, nil
 }
 
@@ -1428,12 +1427,12 @@ func (s *MediaService) GetRecentlyAdded(limit int) ([]models.Media, error) {
 			Limit(limit).
 			Find(&media).Error
 	})
-	
+
 	// Add fallback thumbnail paths
 	for i := range media {
 		s.ensureThumbnailFallback(&media[i])
 	}
-	
+
 	return media, err
 }
 
@@ -1447,12 +1446,12 @@ func (s *MediaService) GetMostWatched(limit int) ([]models.Media, error) {
 			Limit(limit).
 			Find(&media).Error
 	})
-	
+
 	// Add fallback thumbnail paths
 	for i := range media {
 		s.ensureThumbnailFallback(&media[i])
 	}
-	
+
 	return media, err
 }
 
@@ -1466,12 +1465,12 @@ func (s *MediaService) GetHighestRated(limit int) ([]models.Media, error) {
 			Limit(limit).
 			Find(&media).Error
 	})
-	
+
 	// Add fallback thumbnail paths
 	for i := range media {
 		s.ensureThumbnailFallback(&media[i])
 	}
-	
+
 	return media, err
 }
 
@@ -1480,47 +1479,47 @@ func (s *MediaService) safeDeleteMediaFile(filePath, title, mediaType string) er
 	if filePath == "" {
 		return fmt.Errorf("empty file path")
 	}
-	
+
 	// Convert to absolute path for safety checks
 	absPath, err := filepath.Abs(filePath)
 	if err != nil {
 		return fmt.Errorf("failed to get absolute path: %v", err)
 	}
-	
+
 	log.Printf("🔍 Attempting to delete %s file: %s", mediaType, absPath)
-	
+
 	// CRITICAL SAFETY CHECKS - Never delete system paths
 	if !s.isSafePathToDelete(absPath) {
 		return fmt.Errorf("refusing to delete unsafe path: %s", absPath)
 	}
-	
+
 	// Check if file exists
 	if _, err := os.Stat(absPath); os.IsNotExist(err) {
 		log.Printf("⚠️ File already doesn't exist: %s", absPath)
 		return nil // Not an error if file doesn't exist
 	}
-	
+
 	// Verify it's a media file by extension
 	if !s.isMediaFile(absPath) {
 		return fmt.Errorf("refusing to delete non-media file: %s", absPath)
 	}
-	
+
 	// Check if this file is referenced by other media entries
 	if s.isFileReferencedByOtherMedia(filePath, title) {
 		return fmt.Errorf("file is referenced by other media entries, refusing to delete: %s", absPath)
 	}
-	
+
 	// Perform the deletion
 	if err := os.Remove(absPath); err != nil {
 		return fmt.Errorf("failed to delete file: %v", err)
 	}
-	
+
 	log.Printf("🗑️ Successfully deleted %s file: %s", mediaType, absPath)
-	
+
 	// Try to clean up empty parent directory if it's safe
 	parentDir := filepath.Dir(absPath)
 	s.tryCleanupEmptyDirectory(parentDir, title)
-	
+
 	return nil
 }
 
@@ -1529,52 +1528,52 @@ func (s *MediaService) safeDeleteSeriesFolder(folderPath, seriesTitle string) er
 	if folderPath == "" {
 		return fmt.Errorf("empty folder path")
 	}
-	
+
 	// Convert to absolute path for safety checks
 	absPath, err := filepath.Abs(folderPath)
 	if err != nil {
 		return fmt.Errorf("failed to get absolute path: %v", err)
 	}
-	
+
 	log.Printf("🔍 Attempting to delete series folder: %s", absPath)
-	
+
 	// CRITICAL SAFETY CHECKS
 	if !s.isSafePathToDelete(absPath) {
 		return fmt.Errorf("refusing to delete unsafe path: %s", absPath)
 	}
-	
+
 	// Check if directory exists
 	if _, err := os.Stat(absPath); os.IsNotExist(err) {
 		log.Printf("⚠️ Directory already doesn't exist: %s", absPath)
 		return nil // Not an error if directory doesn't exist
 	}
-	
+
 	// Verify it's a directory
 	if info, err := os.Stat(absPath); err != nil || !info.IsDir() {
 		return fmt.Errorf("path is not a directory: %s", absPath)
 	}
-	
+
 	// Check if folder name matches series title (safety check)
 	if !s.isFolderNameMatchingSeries(absPath, seriesTitle) {
 		return fmt.Errorf("folder name doesn't match series title, refusing to delete: %s", absPath)
 	}
-	
+
 	// Check if folder is empty or only contains safe files
 	if !s.isFolderSafeToDelete(absPath) {
 		return fmt.Errorf("folder contains unsafe files or other media, refusing to delete: %s", absPath)
 	}
-	
+
 	// Perform the deletion
 	if err := os.RemoveAll(absPath); err != nil {
 		return fmt.Errorf("failed to delete folder: %v", err)
 	}
-	
+
 	log.Printf("🗑️ Successfully deleted series folder: %s", absPath)
-	
+
 	// Try to clean up empty parent directory if it's safe
 	parentDir := filepath.Dir(absPath)
 	s.tryCleanupEmptyDirectory(parentDir, seriesTitle)
-	
+
 	return nil
 }
 
@@ -1583,23 +1582,23 @@ func (s *MediaService) getSeriesFolderFromEpisodePath(episodePath, seriesTitle s
 	if episodePath == "" {
 		return ""
 	}
-	
+
 	// Get the directory containing the episode file
 	episodeDir := filepath.Dir(episodePath)
-	
+
 	// Check if this directory name matches the series title
 	dirName := filepath.Base(episodeDir)
 	if s.isNameSimilar(dirName, seriesTitle, 0.7) {
 		return episodeDir
 	}
-	
+
 	// Check parent directory (in case episodes are in season folders)
 	parentDir := filepath.Dir(episodeDir)
 	parentName := filepath.Base(parentDir)
 	if s.isNameSimilar(parentName, seriesTitle, 0.7) {
 		return parentDir
 	}
-	
+
 	return ""
 }
 
@@ -1622,15 +1621,18 @@ func (s *MediaService) isSafePathToDelete(absPath string) bool {
 		"/proc",
 		"/sys",
 		"/tmp",
-		"/mnt",
-		"/media",
+		// Note: /mnt and /media are intentionally NOT included here.
+		// These are mount points for external drives on Linux, and
+		// blocking them prevents file deletion on external drives.
+		// The depth check (3 levels) and safe keywords check provide
+		// adequate protection for files under these paths.
 		"C:\\",
 		"C:\\Windows",
 		"C:\\Program Files",
 		"C:\\Users",
 		"C:\\System32",
 	}
-	
+
 	// Check against unsafe paths
 	for _, unsafePath := range unsafePaths {
 		if absPath == unsafePath || strings.HasPrefix(absPath, unsafePath+string(filepath.Separator)) {
@@ -1638,14 +1640,14 @@ func (s *MediaService) isSafePathToDelete(absPath string) bool {
 			return false
 		}
 	}
-	
+
 	// Must be at least 3 levels deep to be considered safe
 	pathParts := strings.Split(strings.Trim(absPath, string(filepath.Separator)), string(filepath.Separator))
 	if len(pathParts) < 3 {
 		log.Printf("🛡️ Path too shallow, refusing to delete: %s (parts: %d)", absPath, len(pathParts))
 		return false
 	}
-	
+
 	// Check if it's in a media/downloads directory (safer)
 	pathLower := strings.ToLower(absPath)
 	safeKeywords := []string{"media", "movies", "tv", "shows", "series", "download", "torrent"}
@@ -1655,7 +1657,7 @@ func (s *MediaService) isSafePathToDelete(absPath string) bool {
 			return true
 		}
 	}
-	
+
 	// If no safe keywords found, be more cautious
 	log.Printf("⚠️ Path doesn't contain safe keywords, being cautious: %s", absPath)
 	return false
@@ -1668,13 +1670,13 @@ func (s *MediaService) isMediaFile(filePath string) bool {
 		".mkv", ".mp4", ".avi", ".mov", ".wmv", ".m4v", ".flv", ".webm",
 		".mpg", ".mpeg", ".3gp", ".asf", ".rm", ".rmvb", ".vob", ".ts",
 	}
-	
+
 	for _, mediaExt := range mediaExtensions {
 		if ext == mediaExt {
 			return true
 		}
 	}
-	
+
 	log.Printf("🛡️ File is not a recognized media file: %s", filePath)
 	return false
 }
@@ -1682,17 +1684,17 @@ func (s *MediaService) isMediaFile(filePath string) bool {
 // isFileReferencedByOtherMedia checks if the file is referenced by other media entries
 func (s *MediaService) isFileReferencedByOtherMedia(filePath, currentTitle string) bool {
 	var count int64
-	
+
 	// Check if any other media entries reference this file path
 	s.db.Model(&models.Media{}).
 		Where("file_path = ? AND title != ?", filePath, currentTitle).
 		Count(&count)
-	
+
 	if count > 0 {
 		log.Printf("🛡️ File is referenced by %d other media entries: %s", count, filePath)
 		return true
 	}
-	
+
 	return false
 }
 
@@ -1706,19 +1708,19 @@ func (s *MediaService) isFolderNameMatchingSeries(folderPath, seriesTitle string
 func (s *MediaService) isFolderSafeToDelete(folderPath string) bool {
 	isEmpty := true
 	hasUnsafeFiles := false
-	
+
 	err := filepath.Walk(folderPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return nil // Continue on errors
 		}
-		
+
 		// Skip the root folder itself
 		if path == folderPath {
 			return nil
 		}
-		
+
 		isEmpty = false
-		
+
 		// If it's a file, check if it's safe to delete
 		if !info.IsDir() {
 			if !s.isSafeFileToDelete(path) {
@@ -1726,33 +1728,33 @@ func (s *MediaService) isFolderSafeToDelete(folderPath string) bool {
 				return filepath.SkipDir // Stop walking
 			}
 		}
-		
+
 		return nil
 	})
-	
+
 	if err != nil {
 		log.Printf("⚠️ Error walking folder %s: %v", folderPath, err)
 		return false
 	}
-	
+
 	if hasUnsafeFiles {
 		log.Printf("🛡️ Folder contains unsafe files: %s", folderPath)
 		return false
 	}
-	
+
 	if isEmpty {
 		log.Printf("✅ Folder is empty and safe to delete: %s", folderPath)
 	} else {
 		log.Printf("✅ Folder contains only safe files: %s", folderPath)
 	}
-	
+
 	return true
 }
 
 // isSafeFileToDelete checks if an individual file is safe to delete
 func (s *MediaService) isSafeFileToDelete(filePath string) bool {
 	fileName := strings.ToLower(filepath.Base(filePath))
-	
+
 	// Never delete system or important files
 	dangerousFiles := []string{
 		"desktop.ini", "thumbs.db", ".ds_store",
@@ -1760,14 +1762,14 @@ func (s *MediaService) isSafeFileToDelete(filePath string) bool {
 		"system.ini", "win.ini", "msdos.sys",
 		"io.sys", "pagefile.sys", "hiberfil.sys",
 	}
-	
+
 	for _, dangerous := range dangerousFiles {
 		if fileName == dangerous {
 			log.Printf("🛡️ Refusing to delete system file: %s", fileName)
 			return false
 		}
 	}
-	
+
 	// Only delete media files and related safe files
 	safeExtensions := []string{
 		".mkv", ".mp4", ".avi", ".mov", ".wmv", ".m4v", ".flv", ".webm",
@@ -1775,14 +1777,14 @@ func (s *MediaService) isSafeFileToDelete(filePath string) bool {
 		".srt", ".vtt", ".ass", ".ssa", ".sub", ".idx",
 		".nfo", ".txt", ".jpg", ".jpeg", ".png", ".bmp",
 	}
-	
+
 	ext := strings.ToLower(filepath.Ext(fileName))
 	for _, safeExt := range safeExtensions {
 		if ext == safeExt {
 			return true
 		}
 	}
-	
+
 	log.Printf("🛡️ Refusing to delete file with unknown extension: %s", fileName)
 	return false
 }
@@ -1792,24 +1794,24 @@ func (s *MediaService) tryCleanupEmptyDirectory(dirPath, mediaTitle string) {
 	if dirPath == "" || dirPath == "/" || dirPath == "." {
 		return
 	}
-	
+
 	// Don't clean up if path is too shallow
 	pathParts := strings.Split(strings.Trim(dirPath, string(filepath.Separator)), string(filepath.Separator))
 	if len(pathParts) < 3 {
 		return
 	}
-	
+
 	// Check if directory is empty
 	entries, err := os.ReadDir(dirPath)
 	if err != nil {
 		return // Can't read directory, skip cleanup
 	}
-	
+
 	if len(entries) == 0 {
 		// Directory is empty, safe to remove
 		if err := os.Remove(dirPath); err == nil {
 			log.Printf("🧹 Cleaned up empty directory: %s", dirPath)
-			
+
 			// Recursively try to clean up parent directory
 			parentDir := filepath.Dir(dirPath)
 			if parentDir != dirPath { // Avoid infinite recursion
@@ -1824,14 +1826,14 @@ func (s *MediaService) isNameSimilar(name1, name2 string, threshold float64) boo
 	if name1 == "" || name2 == "" {
 		return false
 	}
-	
+
 	// Normalize names for comparison
 	norm1 := s.normalizeName(name1)
 	norm2 := s.normalizeName(name2)
-	
+
 	// Calculate similarity
 	similarity := s.calculateNameSimilarity(norm1, norm2)
-	
+
 	return similarity >= threshold
 }
 
@@ -1839,22 +1841,22 @@ func (s *MediaService) isNameSimilar(name1, name2 string, threshold float64) boo
 func (s *MediaService) normalizeName(name string) string {
 	// Convert to lowercase
 	normalized := strings.ToLower(name)
-	
+
 	// Remove common words and characters
 	replacements := []string{
 		".", " ", "_", "-", "(", ")", "[", "]", "{", "}",
 		"the", "a", "an", "and", "or", "of", "in", "on", "at", "to", "for",
 		"2160p", "1080p", "720p", "480p", "4k", "hd", "bluray", "webrip", "hdtv",
 	}
-	
+
 	for _, replacement := range replacements {
 		normalized = strings.ReplaceAll(normalized, replacement, "")
 	}
-	
+
 	// Remove extra spaces
 	normalized = strings.TrimSpace(normalized)
 	normalized = regexp.MustCompile(`\s+`).ReplaceAllString(normalized, "")
-	
+
 	return normalized
 }
 
@@ -1863,40 +1865,40 @@ func (s *MediaService) calculateNameSimilarity(name1, name2 string) float64 {
 	if name1 == name2 {
 		return 1.0
 	}
-	
+
 	if name1 == "" || name2 == "" {
 		return 0.0
 	}
-	
+
 	// Simple word-based similarity
 	words1 := strings.Fields(name1)
 	words2 := strings.Fields(name2)
-	
+
 	if len(words1) == 0 || len(words2) == 0 {
 		return 0.0
 	}
-	
+
 	matchingWords := 0
 	totalWords := len(words1)
-	
+
 	for _, word1 := range words1 {
 		for _, word2 := range words2 {
 			if len(word1) < 3 || len(word2) < 3 {
 				continue
 			}
-			
-			if word1 == word2 || 
-			   (len(word1) > 4 && strings.Contains(word1, word2)) || 
-			   (len(word2) > 4 && strings.Contains(word2, word1)) {
+
+			if word1 == word2 ||
+				(len(word1) > 4 && strings.Contains(word1, word2)) ||
+				(len(word2) > 4 && strings.Contains(word2, word1)) {
 				matchingWords++
 				break
 			}
 		}
 	}
-	
+
 	if totalWords == 0 {
 		return 0.0
 	}
-	
+
 	return float64(matchingWords) / float64(totalWords)
 }

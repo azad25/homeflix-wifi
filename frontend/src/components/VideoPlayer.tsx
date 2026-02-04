@@ -57,6 +57,9 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
   const containerRef = useRef<HTMLDivElement>(null);
   const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
+  // Track failed image URLs to prevent infinite retry loops
+  const failedImageUrls = useRef<Set<string>>(new Set());
+
   // State declarations
   const [showPauseScreen, setShowPauseScreen] = useState(false);
   const [videoSrc, setVideoSrc] = useState<string>('');
@@ -592,40 +595,40 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
             const allMediaResponse = await fetch(`${getApiUrl()}/api/media`);
             const allMedia = await allMediaResponse.json();
             const seriesInfo = allMedia.find((m: Media) => m.id === media.series_id || m.series_id === media.series_id);
-             if (seriesInfo) {
-               setSeriesData(seriesInfo);
-             } else {
-               // Final fallback: try TMDB API for series data
-               try {
-                 const tmdbResponse = await fetch(`${getApiUrl()}/api/tmdb/tv/${media.series_id}`);
-                 if (tmdbResponse.ok) {
-                   const tmdbData = await tmdbResponse.json();
-                   setSeriesData({
-                      id: media.series_id,
-                      title: tmdbData.name,
-                      type: 'episode', // Set type to episode for TV series
-                      description: tmdbData.overview,
-                      rating: tmdbData.vote_average,
-                      vote_count: tmdbData.vote_count,
-                      year: new Date(tmdbData.first_air_date).getFullYear(),
-                      status: tmdbData.status,
-                      poster_path: tmdbData.poster_path ? `/api/tmdb/image${tmdbData.poster_path}` : undefined,
-                      backdrop_path: tmdbData.backdrop_path ? `/api/tmdb/image${tmdbData.backdrop_path}` : undefined,
-                      tmdb_poster_url: tmdbData.poster_path ? `https://image.tmdb.org/t/p/w500${tmdbData.poster_path}` : undefined,
-                      tmdb_logo_url: tmdbData.networks?.[0]?.logo_path ? `https://image.tmdb.org/t/p/w300${tmdbData.networks[0].logo_path}` : undefined,
-                      network: tmdbData.networks?.[0]?.name,
-                      duration: tmdbData.episode_run_time?.[0],
-                      // Additional TMDB fields that might be useful
-                      first_air_date: tmdbData.first_air_date,
-                      genres: tmdbData.genres?.map((g: any) => ({ name: g.name })) || [],
-                      genre_names: tmdbData.genres?.map((g: any) => g.name) || [],
-                      popularity: tmdbData.popularity
-                    });
-                 }
-               } catch (tmdbError) {
-                 console.error("TMDB fallback failed:", tmdbError);
-               }
-             }
+            if (seriesInfo) {
+              setSeriesData(seriesInfo);
+            } else {
+              // Final fallback: try TMDB API for series data
+              try {
+                const tmdbResponse = await fetch(`${getApiUrl()}/api/tmdb/tv/${media.series_id}`);
+                if (tmdbResponse.ok) {
+                  const tmdbData = await tmdbResponse.json();
+                  setSeriesData({
+                    id: media.series_id,
+                    title: tmdbData.name,
+                    type: 'episode', // Set type to episode for TV series
+                    description: tmdbData.overview,
+                    rating: tmdbData.vote_average,
+                    vote_count: tmdbData.vote_count,
+                    year: new Date(tmdbData.first_air_date).getFullYear(),
+                    status: tmdbData.status,
+                    poster_path: tmdbData.poster_path ? `/api/tmdb/image${tmdbData.poster_path}` : undefined,
+                    backdrop_path: tmdbData.backdrop_path ? `/api/tmdb/image${tmdbData.backdrop_path}` : undefined,
+                    tmdb_poster_url: tmdbData.poster_path ? `https://image.tmdb.org/t/p/w500${tmdbData.poster_path}` : undefined,
+                    tmdb_logo_url: tmdbData.networks?.[0]?.logo_path ? `https://image.tmdb.org/t/p/w300${tmdbData.networks[0].logo_path}` : undefined,
+                    network: tmdbData.networks?.[0]?.name,
+                    duration: tmdbData.episode_run_time?.[0],
+                    // Additional TMDB fields that might be useful
+                    first_air_date: tmdbData.first_air_date,
+                    genres: tmdbData.genres?.map((g: any) => ({ name: g.name })) || [],
+                    genre_names: tmdbData.genres?.map((g: any) => g.name) || [],
+                    popularity: tmdbData.popularity
+                  });
+                }
+              } catch (tmdbError) {
+                console.error("TMDB fallback failed:", tmdbError);
+              }
+            }
           }
         } catch (error) {
           console.error("Failed to fetch series data", error);
@@ -731,6 +734,9 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
     if (isOpen && media.id) {
       const video = videoRef.current;
       if (video) {
+        // Clear failed image URLs for new media
+        failedImageUrls.current.clear();
+
         // IMMEDIATE SUBTITLE CLEANUP using complete reset for media changes
         completeSubtitleReset();
 
@@ -1448,7 +1454,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
 
 
             // First, try to find the next episode in the same season
-            let nextEpisodeInSeason = seriesEpisodes.find((m: Media) => {
+            const nextEpisodeInSeason = seriesEpisodes.find((m: Media) => {
               let season = m.season_number;
               let episode = m.episode_number;
 
@@ -3843,7 +3849,10 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                             alt={media.title}
                             className="max-h-16 w-auto object-contain mb-1"
                             onError={(e) => {
-                              e.currentTarget.style.display = 'none';
+                              // Mark URL as failed to prevent infinite retries
+                              const target = e.currentTarget;
+                              failedImageUrls.current.add(target.src);
+                              target.style.display = 'none';
                               const titleEl = document.getElementById('video-player-title-fallback');
                               if (titleEl) titleEl.style.display = 'block';
                             }}
@@ -4347,33 +4356,35 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                       {media.type === 'episode' && seriesData ? (
                         <div className="flex flex-col items-start gap-4">
                           {seriesData.logo_path || seriesData.tmdb_logo_url ? (
-                            <img 
-                              src={seriesData.tmdb_logo_url || `${getApiUrl()}/api/${seriesData.logo_path}`} 
+                            <img
+                              src={seriesData.tmdb_logo_url || `${getApiUrl()}/api/${seriesData.logo_path}`}
                               alt={seriesData.title || media.title}
                               className="max-h-32 w-auto object-contain drop-shadow-2xl"
                               onError={(e) => {
                                 const target = e.target as HTMLImageElement;
+                                // Mark URL as failed to prevent infinite retries
+                                failedImageUrls.current.add(target.src);
                                 target.style.display = 'none';
                                 const titleEl = target.nextElementSibling;
                                 if (titleEl) (titleEl as HTMLElement).style.display = 'block';
                               }}
                             />
                           ) : null}
-                          <h2 
+                          <h2
                             className="text-3xl md:text-4xl font-semibold text-white/90 drop-shadow-lg"
-                            style={{ 
-                              display: seriesData.logo_path || seriesData.tmdb_logo_url ? 'none' : 'block' 
+                            style={{
+                              display: seriesData.logo_path || seriesData.tmdb_logo_url ? 'none' : 'block'
                             }}
                           >
                             {seriesData.title || media.title}
                           </h2>
                         </div>
                       ) : media.logo_path ? (
-                         <img 
-                            src={`${getApiUrl()}/api/${media.logo_path}`} 
-                            alt={media.title}
-                            className="max-h-40 w-auto object-contain drop-shadow-2xl mb-4"
-                          />
+                        <img
+                          src={`${getApiUrl()}/api/${media.logo_path}`}
+                          alt={media.title}
+                          className="max-h-40 w-auto object-contain drop-shadow-2xl mb-4"
+                        />
                       ) : (
                         <h1 className="text-5xl md:text-6xl font-bold text-[#C0392B] leading-tight drop-shadow-lg">
                           {media.title}
@@ -4398,7 +4409,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                           <span className="w-1.5 h-1.5 bg-white/60 rounded-full"></span>
                         </>
                       )}
-                      
+
                       {/* Episode info for TV episodes */}
                       {media.type === 'episode' && (
                         <>
@@ -4408,21 +4419,21 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                           <span className="w-1.5 h-1.5 bg-white/60 rounded-full"></span>
                         </>
                       )}
-                      
+
                       {/* Rating - prefer series rating for episodes */}
                       {(media.type === 'episode' ? (seriesData?.rating || media.rating) : media.rating) && (
                         <span className="text-xl font-semibold text-yellow-500">
                           ★ {(media.type === 'episode' ? (seriesData?.rating || media.rating) : media.rating)?.toFixed(1)}
                         </span>
                       )}
-                      
+
                       {/* Genre - prefer series genre for episodes */}
                       {(media.type === 'episode' ? (seriesData?.genre_names?.[0] || media.genre_names?.[0]) : media.genre_names?.[0]) && (
                         <span className="text-xl font-semibold text-white/80">
                           {(media.type === 'episode' ? (seriesData?.genre_names?.[0] || media.genre_names?.[0]) : media.genre_names?.[0])}
                         </span>
                       )}
-                      
+
                       {/* Series rating count for episodes */}
                       {media.type === 'episode' && seriesData?.vote_count && seriesData.vote_count > 0 && (
                         <span className="text-sm text-white/60">
@@ -4440,8 +4451,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                         transition={{ delay: 0.25, duration: 0.3 }}
                         className="text-lg text-white/75 mb-8 line-clamp-4 leading-relaxed"
                       >
-                        {media.type === 'episode' && seriesData?.description 
-                          ? seriesData.description 
+                        {media.type === 'episode' && seriesData?.description
+                          ? seriesData.description
                           : media.description
                         }
                       </motion.p>
@@ -4544,21 +4555,35 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                     >
                       <img
                         src={
-                          media.type === 'episode' && seriesData 
-                            ? (seriesData.tmdb_poster_url || seriesData.poster_path 
-                                ? (seriesData.tmdb_poster_url || `${getApiUrl()}/api/${seriesData.poster_path}`)
-                                : media.poster_url || media.tmdb_poster_url || `${getApiUrl()}/api/posters/${media.id}`)
+                          media.type === 'episode' && seriesData
+                            ? (seriesData.tmdb_poster_url || seriesData.poster_path
+                              ? (seriesData.tmdb_poster_url || `${getApiUrl()}/api/${seriesData.poster_path}`)
+                              : media.poster_url || media.tmdb_poster_url || `${getApiUrl()}/api/posters/${media.id}`)
                             : (media.poster_url || media.tmdb_poster_url || `${getApiUrl()}/api/posters/${media.id}`)
                         }
                         alt={media.type === 'episode' && seriesData?.title ? seriesData.title : media.title}
                         className="w-48 h-72 object-cover rounded-xl shadow-2xl transition-transform duration-300 group-hover:scale-105"
                         onError={(e) => {
                           const target = e.target as HTMLImageElement;
+                          const failedUrl = target.src;
+
+                          // Mark URL as failed to prevent infinite retries
+                          failedImageUrls.current.add(failedUrl);
+
+                          // Placeholder SVG for when all fallbacks fail
+                          const placeholderSvg = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjQ1MCIgdmlld0JveD0iMCAwIDMwMCA0NTAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIzMDAiIGhlaWdodD0iNDUwIiBmaWxsPSIjMzc0MTUxIi8+CjxwYXRoIGQ9Ik0xNTAgMjAwQzE4Ny4yNzkgMjAwIDIxOCAxNjkuMjc5IDIxOCAxMzJDMjE4IDk0LjcyMDggMTg3LjI3OSA2NCAxNTAgNjRDMTEyLjcyMSA2NCA4MiA5NC43MjA4IDgyIDEzMkM4MiAxNjkuMjc5IDExMi43MjEgMjAwIDE1MCAyMDBaIiBmaWxsPSIjNkI3Mjg4Ii8+CjxwYXRoIGQ9Ik04MiAyNzZDODIgMjM4LjY4IDExMi42OCAyMDggMTUwIDIwOEgxNTBDMTg3LjMyIDIwOCAyMTggMjM4LjY4IDIxOCAyNzZWMzUwSDgyVjI3NloiIGZpbGw9IiM2QjcyODgiLz4KPHN2Zz4K';
+
                           // Try fallback to episode poster if series poster fails
                           if (media.type === 'episode' && seriesData) {
-                            target.src = media.poster_url || media.tmdb_poster_url || `${getApiUrl()}/api/posters/${media.id}`;
+                            const fallbackUrl = media.poster_url || media.tmdb_poster_url || `${getApiUrl()}/api/posters/${media.id}`;
+                            // Only try fallback if it hasn't failed before
+                            if (!failedImageUrls.current.has(fallbackUrl)) {
+                              target.src = fallbackUrl;
+                            } else {
+                              target.src = placeholderSvg;
+                            }
                           } else {
-                            target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjQ1MCIgdmlld0JveD0iMCAwIDMwMCA0NTAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIzMDAiIGhlaWdodD0iNDUwIiBmaWxsPSIjMzc0MTUxIi8+CjxwYXRoIGQ9Ik0xNTAgMjAwQzE4Ny4yNzkgMjAwIDIxOCAxNjkuMjc5IDIxOCAxMzJDMjE4IDk0LjcyMDggMTg3LjI3OSA2NCAxNTAgNjRDMTEyLjcyMSA2NCA4MiA5NC43MjA4IDgyIDEzMkM4MiAxNjkuMjc5IDExMi43MjEgMjAwIDE1MCAyMDBaIiBmaWxsPSIjNkI3Mjg4Ii8+CjxwYXRoIGQ9Ik04MiAyNzZDODIgMjM4LjY4IDExMi42OCAyMDggMTUwIDIwOEgxNTBDMTg3LjMyIDIwOCAyMTggMjM4LjY4IDIxOCAyNzZWMzUwSDgyVjI3NloiIGZpbGw9IiM2QjcyODgiLz4KPHN2Zz4K';
+                            target.src = placeholderSvg;
                           }
                         }}
                       />
@@ -4622,7 +4647,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                     animate={{ y: 0, opacity: 1 }}
                     exit={{ y: 30, opacity: 0 }}
                     transition={{ delay: 0.35, duration: 0.3 }}
-                    className="absolute bottom-4 text-red-100 text-sm font-bold text-center"
+                    className="absolute bottom-4 left-0 right-0 text-red-100 text-sm font-bold text-center pointer-events-none"
                   >
                     <p><span className="font-bold text-[#C0392B]">HOMEFLIX</span> Studios</p>
                   </motion.div>

@@ -29,7 +29,7 @@ import MyListTooltip from '@/components/ui/MyListTooltip';
 // Genre-based text styling utility
 const getGenreTextStyle = (genres: string[] = []) => {
   const primaryGenre = genres[0]?.toLowerCase() || '';
-  
+
   // Font family based on genre
   let fontFamily = 'font-sans'; // default
   if (primaryGenre.includes('horror') || primaryGenre.includes('thriller')) {
@@ -41,12 +41,12 @@ const getGenreTextStyle = (genres: string[] = []) => {
   } else if (primaryGenre.includes('comedy')) {
     fontFamily = 'font-sans'; // clean sans for readability
   }
-  
+
   // Text size and styling
   const textSize = 'text-sm md:text-base'; // Reduced from lg
   const maxWidth = 'max-w-lg'; // Reduced from xl to lg
   const lineHeight = 'leading-relaxed';
-  
+
   return {
     fontFamily,
     textSize,
@@ -766,7 +766,7 @@ export default function MoviePage() {
           setForceShowBackdrop(true);
           setIsVideoLoaded(false);
           setIsVideoPlaying(false);
-          
+
           // Hide video element
           const video = videoRef.current;
           if (video) {
@@ -911,10 +911,10 @@ export default function MoviePage() {
       if (video && media && !isPlayerOpen && !isShowingTrailer && !loading && !document.hidden && !forceShowBackdrop) {
         // Check if video has valid sources before attempting to play
         const sources = video.querySelectorAll('source');
-        const hasValidSources = Array.from(sources).some(source => 
+        const hasValidSources = Array.from(sources).some(source =>
           source.src && !source.style.display.includes('none')
         );
-        
+
         if (!hasValidSources) {
           console.warn('No valid video sources available, showing backdrop');
           setForceShowBackdrop(true);
@@ -2051,9 +2051,9 @@ export default function MoviePage() {
 
       {/* Hero Section */}
       <div className="relative h-screen overflow-hidden">
-        {/* Backdrop Background Image - Shows when video not playing, not loaded, or player is open */}
+        {/* Backdrop Background Image - Shows when video not playing, not loaded, player is open, or forcing backdrop (but not when using YouTube fallback) */}
         <div
-          className={`absolute inset-0 pointer-events-none transition-opacity duration-1000 ${!isVideoLoaded || !isVideoPlaying || isPlayerOpen || forceShowBackdrop || (!useYouTubeFallback && !isVideoPlaying) ? 'opacity-100' : 'opacity-0'
+          className={`absolute inset-0 pointer-events-none transition-opacity duration-1000 ${isPlayerOpen || (forceShowBackdrop && !useYouTubeFallback) || (!useYouTubeFallback && (!isVideoLoaded || !isVideoPlaying)) ? 'opacity-100' : 'opacity-0'
             }`}
           style={{ zIndex: 2 }}
         >
@@ -2160,21 +2160,21 @@ export default function MoviePage() {
           }}
           onError={(e) => {
             console.warn('Background video failed to load, trying trailer fallback');
-            
+
             // Try trailer fallback if preview fails to load
             if (media?.tmdb_trailer_url && extractYouTubeKey(media.tmdb_trailer_url)) {
               console.log('🎬 Preview failed to load, switching to trailer fallback');
               setUseYouTubeFallback(true);
               setIsVideoLoaded(false);
               setIsVideoPlaying(false);
-              setForceShowBackdrop(false);
+              setForceShowBackdrop(false); // Don't force backdrop when using trailer fallback
             } else {
               console.log('🎬 No trailer available, showing backdrop');
               setIsVideoLoaded(false);
               setIsVideoPlaying(false);
               setForceShowBackdrop(true);
             }
-            
+
             // Stop video completely on error
             const video = videoRef.current;
             if (video) {
@@ -2284,7 +2284,7 @@ export default function MoviePage() {
               }, 100);
               return null;
             }
-            
+
             return (
               <>
                 {/* Primary source: Preview clips with high quality */}
@@ -2436,6 +2436,7 @@ export default function MoviePage() {
               className={`absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 transition-opacity duration-500 ${trailerLoaded && trailerReady ? 'opacity-100' : 'opacity-0'}`}
               allow="autoplay; encrypted-media"
               allowFullScreen
+              referrerPolicy="strict-origin-when-cross-origin"
               style={{
                 width: '120vw',
                 height: '120vh',
@@ -2609,23 +2610,23 @@ export default function MoviePage() {
         {/* Minimal overlay for text readability only */}
         <div className="absolute bottom-0 left-0 right-0 h-1/2 bg-gradient-to-t from-black/80 to-transparent z-[10] pointer-events-none" />
 
-        {/* Volume Control - Only show when video is not playing or is muted */}
-        {(!isVideoPlaying || isMuted) && (
-          <motion.div 
-            initial={{ opacity: 0, x: 20 }} 
-            animate={{ opacity: 1, x: 0 }} 
-            transition={{ delay: 0.5, duration: 0.4 }} 
+        {/* Volume Control - Only show when background video is playing and NOT showing trailer */}
+        {!isShowingTrailer && (!isVideoPlaying || isMuted) && (
+          <motion.div
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: 0.5, duration: 0.4 }}
             className="absolute top-6 right-6 z-30"
           >
             <div className="group relative">
-              <button 
+              <button
                 onClick={() => {
                   const video = videoRef.current;
                   if (video) {
                     video.muted = !video.muted;
                     setIsMuted(video.muted);
                   }
-                }} 
+                }}
                 className="group p-3 rounded-full bg-black/40 backdrop-blur-md border border-white/20 hover:bg-black/60 hover:border-white/40 transition-all duration-200 hover:scale-110"
               >
                 {isMuted ? <VolumeX className="w-5 h-5 text-white/80 group-hover:text-white transition-colors" /> : <Volume2 className="w-5 h-5 text-white/80 group-hover:text-white transition-colors" />}
@@ -2749,9 +2750,9 @@ export default function MoviePage() {
 
                 {/* Quality Tags - Netflix-style tags */}
                 {media.quality_tags && media.quality_tags.length > 0 && (
-                  <QualityTags 
-                    tags={media.quality_tags} 
-                    size="sm" 
+                  <QualityTags
+                    tags={media.quality_tags}
+                    size="sm"
                     variant="compact"
                     className="flex-wrap"
                   />
@@ -2861,7 +2862,7 @@ export default function MoviePage() {
                 </div>
 
                 <div className="group relative">
-                  <button 
+                  <button
                     onClick={() => safeNavigate.push(`/settings?tab=media&media=${encodeURIComponent(JSON.stringify({ id: media.id, type: media.type || 'movie', title: media.title }))}`)}
                     className="group p-2 bg-white/20 text-white rounded-full backdrop-blur-md border border-white/30 hover:bg-white/30 transition-all duration-200 hover:scale-110"
                   >

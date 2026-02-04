@@ -667,6 +667,10 @@ const HomeflixHero: React.FC<HomeflixHeroProps> = ({
                         }
                     },
                     onReady: (event: any) => {
+                        const iframe = event.target.getIframe();
+                        if (iframe) {
+                            iframe.referrerPolicy = "strict-origin-when-cross-origin";
+                        }
                         if (!isMuted) {
                             event.target.unMute();
                         }
@@ -976,6 +980,7 @@ const HomeflixHero: React.FC<HomeflixHeroProps> = ({
                                         onToggleMyList={() => toggleMyList(movie)}
                                         onAddToCollection={(collectionId) => addToCollection(collectionId, movie.tmdb_id ? parseInt(`9${movie.tmdb_id}`) : movie.id)}
                                         onCollectionCreated={fetchCollections}
+                                        onDataRefresh={fetchCollections}
                                     >
                                         <button className="p-3 rounded-full border border-white/30 bg-black/30 backdrop-blur-sm hover:bg-white/10 transition-colors">
                                             {isInMyList(movie.tmdb_id ? parseInt(`9${movie.tmdb_id}`) : movie.id) ? (

@@ -115,6 +115,8 @@ func UpdateMediaMetadata(mediaService *services.MediaService) gin.HandlerFunc {
 			Rating      float64  `json:"rating"`
 			GenreNames  []string `json:"genre_names"`
 			GenreIDs    []uint   `json:"genre_ids"`
+			TMDBTrailerURL string `json:"tmdb_trailer_url"`
+			TrailerURL string `json:"trailer_url"`
 		}
 
 		if err := c.BindJSON(&metadata); err != nil {
@@ -148,7 +150,7 @@ func UpdateMediaMetadata(mediaService *services.MediaService) gin.HandlerFunc {
 		if len(metadata.GenreNames) > 0 {
 			media.GenreNames = metadata.GenreNames
 		}
-		// Update genres if provided
+			// Update genres if provided
 		if len(metadata.GenreIDs) > 0 {
 			// Clear existing genres and set new ones
 			media.Genres = []models.Genre{}
@@ -157,6 +159,16 @@ func UpdateMediaMetadata(mediaService *services.MediaService) gin.HandlerFunc {
 				genre.ID = genreID
 				media.Genres = append(media.Genres, genre)
 			}
+		}
+
+		// Update TMDB Trailer URL if provided
+		if metadata.TMDBTrailerURL != "" {
+			media.TMDBTrailerURL = metadata.TMDBTrailerURL
+		}
+
+		// Update Trailer URL if provided
+		if metadata.TrailerURL != "" {
+			media.TrailerPath = metadata.TrailerURL
 		}
 
 		if err := mediaService.UpdateMedia(media); err != nil {

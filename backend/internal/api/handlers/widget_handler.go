@@ -83,11 +83,13 @@ func (h *WidgetHandler) GetWidgetsWithDataByPage(c *gin.Context) {
 		if time.Since(cached.Timestamp) < cached.TTL {
 			h.cacheMutex.RUnlock()
 			fmt.Printf("⚡ Handler cache hit for page %s (%.2fms)\n", page, float64(time.Since(startTime).Microseconds())/1000)
-			
+
 			// Set aggressive cache headers for instant loading
-			c.Header("Cache-Control", "public, max-age=120, stale-while-revalidate=300") // 2min cache, 5min stale
+			// max-age=600 (10 min) allows browser to cache longer
+			// stale-while-revalidate=86400 (24h) allows serving stale data while revalidating
+			c.Header("Cache-Control", "public, max-age=600, stale-while-revalidate=86400") // 10min browser cache, 24h stale
 			c.Header("ETag", fmt.Sprintf("\"%s-%d\"", page, cached.Timestamp.Unix()))
-			
+
 			c.JSON(http.StatusOK, cached.Data)
 			return
 		}
@@ -115,8 +117,10 @@ func (h *WidgetHandler) GetWidgetsWithDataByPage(c *gin.Context) {
 	totalTime := time.Since(startTime)
 	fmt.Printf("✅ Served %d widgets for page %s in %.2fms\n", len(widgetsWithData), page, float64(totalTime.Milliseconds()))
 
-	// Set cache headers for client-side caching
-	c.Header("Cache-Control", "public, max-age=120, stale-while-revalidate=300")
+	// Set aggressive cache headers for client-side caching
+	// max-age=600 (10 min) for browser cache
+	// stale-while-revalidate=86400 (24h) allows serving stale data while revalidating in background
+	c.Header("Cache-Control", "public, max-age=600, stale-while-revalidate=86400")
 	c.Header("ETag", fmt.Sprintf("\"%s-%d\"", page, time.Now().Unix()))
 
 	c.JSON(http.StatusOK, widgetsWithData)
@@ -126,7 +130,7 @@ func (h *WidgetHandler) GetWidgetsWithDataByPage(c *gin.Context) {
 func (h *WidgetHandler) ClearWidgetCache(page string) {
 	h.cacheMutex.Lock()
 	defer h.cacheMutex.Unlock()
-	
+
 	if page == "" {
 		// Clear all cache
 		h.cache = make(map[string]*WidgetCache)
@@ -142,10 +146,10 @@ func (h *WidgetHandler) ClearWidgetCache(page string) {
 func (h *WidgetHandler) InvalidateWidgetCache(widgetPage string) {
 	// Clear handler cache
 	h.ClearWidgetCache(widgetPage)
-	
+
 	// Clear service cache
 	h.service.InvalidatePageCache(widgetPage)
-	
+
 	fmt.Printf("🔄 Invalidated all caches for page: %s\n", widgetPage)
 }
 
@@ -441,7 +445,7 @@ func (h *WidgetHandler) GetTMDBGenres(c *gin.Context) {
 
 	// Mock TMDB genres for now - in a real implementation, you'd call TMDB API
 	var genres []map[string]interface{}
-	
+
 	if mediaType == "movie" {
 		genres = []map[string]interface{}{
 			{"id": 28, "name": "Action"},
@@ -515,10 +519,10 @@ func (h *WidgetHandler) GetWidgetStatus(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"total_widgets": len(allWidgets),
-		"home_widgets": len(homeWidgets),
+		"home_widgets":  len(homeWidgets),
 		"movie_widgets": len(movieWidgets),
-		"tv_widgets": len(tvWidgets),
-		"widgets": allWidgets,
+		"tv_widgets":    len(tvWidgets),
+		"widgets":       allWidgets,
 	})
 }
 
@@ -526,11 +530,11 @@ func (h *WidgetHandler) GetWidgetStatus(c *gin.Context) {
 func (h *WidgetHandler) ClearCache(c *gin.Context) {
 	page := c.Query("page") // Optional page parameter
 	h.ClearWidgetCache(page)
-	
+
 	message := "All widget cache cleared"
 	if page != "" {
 		message = fmt.Sprintf("Widget cache cleared for page: %s", page)
 	}
-	
+
 	c.JSON(http.StatusOK, gin.H{"message": message})
 }

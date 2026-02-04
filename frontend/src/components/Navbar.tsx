@@ -67,7 +67,7 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
         }
 
         const apiUrl = getApiUrl();
-        
+
         // Load both nav pages and home page in parallel
         const [navResponse, homeResponse] = await Promise.all([
           fetch(`${apiUrl}/api/pages/nav`).then(r => r.ok ? r.json() : []),
@@ -75,10 +75,10 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
         ]);
 
         // Set dynamic pages
-        const newDynamicPages = Array.isArray(navResponse) 
+        const newDynamicPages = Array.isArray(navResponse)
           ? navResponse.map((p: any) => ({ slug: p.slug, title: p.title }))
           : [];
-        
+
         // Set home page slug
         const newHomePageSlug = (homeResponse && homeResponse.slug) ? homeResponse.slug : null;
 
@@ -183,7 +183,7 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
   // Debounced search for suggestions
   useEffect(() => {
     console.log(`🔍 Search query changed: "${searchQuery}" (length: ${searchQuery.trim().length})`);
-    
+
     if (searchQuery.trim().length >= 2) { // Changed from > 1 to >= 2 for clarity
       const timeoutId = setTimeout(() => {
         console.log(`⏰ Triggering search for: "${searchQuery.trim()}"`);
@@ -206,13 +206,13 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
 
     setIsLoadingSuggestions(true);
     console.log(`🔍 Fetching TMDB suggestions for: "${query}"`);
-    
+
     try {
       const apiUrl = getApiUrl();
-      
+
       // Fetch only TMDB results
       const response = await fetch(`${apiUrl}/api/tmdb/suggestions?q=${encodeURIComponent(query)}`);
-      
+
       if (!response.ok) {
         console.warn(`⚠️ TMDB search failed with status: ${response.status}`);
         setSuggestions([]);
@@ -222,9 +222,9 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
 
       const tmdbData: TMDBSuggestionsResponse = await response.json();
       console.log(`🎬 TMDB search results:`, tmdbData);
-      
+
       const tmdbResults = tmdbData.results || [];
-      
+
       // Mark all results as TMDB (not local)
       const processedResults = tmdbResults.map(item => ({
         ...item,
@@ -237,7 +237,7 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
         if (b.vote_average !== a.vote_average) {
           return b.vote_average - a.vote_average;
         }
-        
+
         // Then by popularity
         return b.popularity - a.popularity;
       });
@@ -245,7 +245,7 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
       console.log(`🎯 Final TMDB suggestions: ${processedResults.length} results`);
       setSuggestions(processedResults);
       setShowSuggestions(processedResults.length > 0);
-      
+
     } catch (error) {
       console.error("Error fetching TMDB suggestions:", error);
       setSuggestions([]);
@@ -281,7 +281,7 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
     const value = e.target.value;
     console.log(`📝 Input changed: "${value}"`);
     setSearchQuery(value);
-    
+
     // Show suggestions immediately if we have cached results and user is typing
     if (value.trim().length > 1 && suggestions.length > 0) {
       setShowSuggestions(true);
@@ -480,7 +480,7 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
                                     ) : (
                                       <Tv className="w-4 h-4 text-green-400 flex-shrink-0" />
                                     )}
-                                    
+
                                     <div className="min-w-0 flex-1">
                                       <h4 className="text-white font-medium truncate group-hover:text-red-400 transition-colors">
                                         {suggestion.title}
@@ -507,11 +507,10 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
                                         ({suggestion.vote_count.toLocaleString()} votes)
                                       </span>
                                     )}
-                                    <span className={`text-xs px-2 py-0.5 rounded-full border ${
-                                      suggestion.media_type === 'movie' 
-                                        ? 'text-blue-400 border-blue-400/30 bg-blue-500/10' 
-                                        : 'text-green-400 border-green-400/30 bg-green-500/10'
-                                    }`}>
+                                    <span className={`text-xs px-2 py-0.5 rounded-full border ${suggestion.media_type === 'movie'
+                                      ? 'text-blue-400 border-blue-400/30 bg-blue-500/10'
+                                      : 'text-green-400 border-green-400/30 bg-green-500/10'
+                                      }`}>
                                       {suggestion.media_type === 'movie' ? 'Movie' : 'TV Show'}
                                     </span>
                                   </div>
@@ -608,6 +607,10 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
                 <a href="/settings" className="block px-4 py-2 text-white/80 hover:text-white hover:bg-white/10 flex items-center gap-2">
                   <Settings className="w-4 h-4" />
                   Settings
+                </a>
+                <a href="/providers" className="block px-4 py-2 text-white/80 hover:text-white hover:bg-white/10 flex items-center gap-2">
+                  <Tv className="w-4 h-4" />
+                  Providers
                 </a>
                 <a href="#" className="block px-4 py-2 text-white/80 hover:text-white hover:bg-white/10 flex items-center gap-2">
                   <HelpCircle className="w-4 h-4" />

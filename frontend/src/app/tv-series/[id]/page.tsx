@@ -275,6 +275,7 @@ export default function TVSeriesPage() {
   const [playbackDuration, setPlaybackDuration] = useState(0);
   const [hasWatchedBefore, setHasWatchedBefore] = useState(false);
   const [lastWatched, setLastWatched] = useState<string | null>(null);
+  const [recentSeries, setRecentSeries] = useState<Media[]>([]);
 
   // Use the new backend-connected My List hook
   const { myList, collections, isInMyList: isInMyListHook, toggleMyList: toggleMyListHook, addToCollection, fetchCollections } = useMyList();
@@ -706,13 +707,13 @@ export default function TVSeriesPage() {
           const bSeasonNum = extractSeasonNumber(b.title) || 1;
           const aEpisodeNum = extractEpisodeNumber(a.title) || 1;
           const bEpisodeNum = extractEpisodeNumber(b.title) || 1;
-          
+
           if (aSeasonNum !== bSeasonNum) {
             return bSeasonNum - aSeasonNum; // Latest season first
           }
           return bEpisodeNum - aEpisodeNum; // Latest episode first
         });
-        
+
         setLatestEpisode(sortedEpisodes[0]);
         console.log('🎬 Latest episode:', sortedEpisodes[0].title);
       }
@@ -765,10 +766,103 @@ export default function TVSeriesPage() {
         }
       }
 
+      // Fetch recent TV series (excluding current series)
+      await fetchRecentSeries();
+
     } catch (error) {
       console.error('Error fetching series data:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchRecentSeries = async () => {
+    try {
+      const apiUrl = getApiUrl();
+      console.log('🔍 Fetching recent TV series...');
+
+      // Get all media
+      const allMediaResponse = await fetch(`${apiUrl}/api/media`);
+      const allMedia = await allMediaResponse.json();
+
+      // Group episodes by series to find unique series
+      const seriesMap = new Map<string, Media>();
+      
+      allMedia.forEach((media: Media) => {
+        if (media.type === 'episode' && media.series_id && media.series_id.toString() !== params?.id?.toString()) {
+          const seriesId = media.series_id.toString();
+          
+          // If we haven't seen this series yet, or this episode is newer, use it as the representative
+          if (!seriesMap.has(seriesId) || 
+              (media.created_at && seriesMap.get(seriesId)?.created_at && 
+               new Date(media.created_at) > new Date(seriesMap.get(seriesId)!.created_at!))) {
+            
+            // Extract series title from episode title
+            let seriesTitle = 'Unknown Series';
+            
+            // Try to get series title from media.series first
+            if (media.series?.title) {
+              seriesTitle = media.series.title;
+            } else if (media.title) {
+              // Extract series name from episode title patterns like:
+              // "Breaking Bad - S01E01 - Pilot" -> "Breaking Bad"
+              // "Game of Thrones S1E1 Winter Is Coming" -> "Game of Thrones"
+              // "The Office (US) - Season 1 Episode 1" -> "The Office (US)"
+              
+              const patterns = [
+                /^(.+?)\s*-\s*S\d+E\d+/i,           // "Series Name - S01E01"
+                /^(.+?)\s*S\d+E\d+/i,               // "Series Name S01E01"
+                /^(.+?)\s*-\s*Season\s*\d+/i,       // "Series Name - Season 1"
+                /^(.+?)\s*Season\s*\d+/i,           // "Series Name Season 1"
+                /^(.+?)\s*-\s*Episode\s*\d+/i,      // "Series Name - Episode 1"
+                /^(.+?)\s*Episode\s*\d+/i,          // "Series Name Episode 1"
+                /^(.+?)\s*\d+x\d+/i,                // "Series Name 1x01"
+                /^(.+?)\s*-\s*.+$/i,                // "Series Name - Episode Title" (fallback)
+              ];
+              
+              for (const pattern of patterns) {
+                const match = media.title.match(pattern);
+                if (match && match[1].trim()) {
+                  seriesTitle = match[1].trim();
+                  break;
+                }
+              }
+              
+              // If no pattern matched, use the full title but clean it up
+              if (seriesTitle === 'Unknown Series') {
+                seriesTitle = media.title.split(' - ')[0].split(' S')[0].split(' Episode')[0].trim();
+              }
+            }
+            
+            // Create a series representation from the episode
+            const seriesRepresentation: Media = {
+              ...media,
+              id: media.series_id,
+              type: 'series',
+              title: seriesTitle,
+              description: media.series?.description || media.description || `Watch ${seriesTitle} episodes and seasons.`,
+            };
+            
+            seriesMap.set(seriesId, seriesRepresentation);
+          }
+        }
+      });
+
+      // Convert to array and sort by most recent
+      const recentSeriesArray = Array.from(seriesMap.values())
+        .sort((a, b) => {
+          const aDate = new Date(a.created_at || a.release_date || 0);
+          const bDate = new Date(b.created_at || b.release_date || 0);
+          return bDate.getTime() - aDate.getTime();
+        })
+        .slice(0, 5); // Get top 5 recent series
+
+      console.log('✅ Found recent series:', recentSeriesArray.map(s => s.title));
+      setRecentSeries(recentSeriesArray);
+
+    } catch (error) {
+      console.error('Error fetching recent series:', error);
+      setRecentSeries([]);
     }
   };
 
@@ -1496,7 +1590,7 @@ export default function TVSeriesPage() {
           }}
           onError={(e) => {
             console.warn('Background episode preview failed to load, trying trailer fallback');
-            
+
             // Try trailer fallback if preview fails to load
             if (series?.tmdb_trailer_url && extractYouTubeKey(series.tmdb_trailer_url)) {
               console.log('🎬 Episode preview failed to load, switching to trailer fallback');
@@ -1510,7 +1604,7 @@ export default function TVSeriesPage() {
               setIsVideoPlaying(false);
               setForceShowBackdrop(true);
             }
-            
+
             // Stop video completely on error
             const video = videoRef.current;
             if (video) {
@@ -1603,9 +1697,9 @@ export default function TVSeriesPage() {
           {(() => {
             const videoUrl = getBackgroundVideoUrl(series);
             const episodeId = latestEpisode?.id || series.id;
-            
+
             console.log('🎬 Video URL:', videoUrl, 'Episode ID:', episodeId);
-            
+
             if (!videoUrl && !episodeId) {
               // No video sources available - try trailer fallback immediately
               setTimeout(() => {
@@ -1622,7 +1716,7 @@ export default function TVSeriesPage() {
               }, 100);
               return null;
             }
-            
+
             return (
               <>
                 {/* Primary source: Latest episode preview clips with high quality */}
@@ -1664,7 +1758,7 @@ export default function TVSeriesPage() {
                     // If this is the last source and it fails, trigger trailer fallback
                     const video = videoRef.current;
                     if (video) {
-                      const remainingSources = Array.from(video.querySelectorAll('source')).filter(s => 
+                      const remainingSources = Array.from(video.querySelectorAll('source')).filter(s =>
                         s.style.display !== 'none' && s !== e.currentTarget
                       );
                       if (remainingSources.length === 0) {
@@ -1697,7 +1791,7 @@ export default function TVSeriesPage() {
                     // If this is truly the last source, trigger trailer fallback
                     const video = videoRef.current;
                     if (video) {
-                      const remainingSources = Array.from(video.querySelectorAll('source')).filter(s => 
+                      const remainingSources = Array.from(video.querySelectorAll('source')).filter(s =>
                         s.style.display !== 'none' && s !== e.currentTarget
                       );
                       if (remainingSources.length === 0) {
@@ -1749,7 +1843,7 @@ export default function TVSeriesPage() {
                   pointerEvents: 'none'
                 }}
               />
-              
+
               {/* Trailer Indicator - Shows when using trailer as background */}
               <div className="absolute top-4 left-4 z-[10] bg-black/70 backdrop-blur-sm text-white px-3 py-1.5 rounded-lg pointer-events-none">
                 <div className="flex items-center gap-2">
@@ -1841,6 +1935,7 @@ export default function TVSeriesPage() {
               className={`absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 transition-opacity duration-500 ${trailerLoaded && trailerReady ? 'opacity-100' : 'opacity-0'}`}
               allow="autoplay; encrypted-media"
               allowFullScreen
+              referrerPolicy="strict-origin-when-cross-origin"
               style={{
                 width: '120vw',
                 height: '120vh',
@@ -2006,21 +2101,21 @@ export default function TVSeriesPage() {
 
         {/* Volume Control - Only show when video is not playing or is muted */}
         {(!isVideoPlaying || isMuted) && (
-          <motion.div 
-            initial={{ opacity: 0, x: 20 }} 
-            animate={{ opacity: 1, x: 0 }} 
-            transition={{ delay: 0.5, duration: 0.4 }} 
+          <motion.div
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: 0.5, duration: 0.4 }}
             className="absolute top-6 right-6 z-30"
           >
             <div className="group relative">
-              <button 
+              <button
                 onClick={() => {
                   const video = videoRef.current;
                   if (video) {
                     video.muted = !video.muted;
                     setIsMuted(video.muted);
                   }
-                }} 
+                }}
                 className="group p-3 rounded-full bg-black/40 backdrop-blur-md border border-white/20 hover:bg-black/60 hover:border-white/40 transition-all duration-200 hover:scale-110"
               >
                 {isMuted ? <VolumeX className="w-5 h-5 text-white/80 group-hover:text-white transition-colors" /> : <Volume2 className="w-5 h-5 text-white/80 group-hover:text-white transition-colors" />}
@@ -2194,9 +2289,9 @@ export default function TVSeriesPage() {
 
                   {/* Quality Tags - Netflix-style tags */}
                   {latestEpisode?.quality_tags && latestEpisode.quality_tags.length > 0 && (
-                    <QualityTags 
-                      tags={latestEpisode.quality_tags} 
-                      size="sm" 
+                    <QualityTags
+                      tags={latestEpisode.quality_tags}
+                      size="sm"
                       variant="compact"
                       className="flex-wrap"
                     />
@@ -2379,6 +2474,120 @@ export default function TVSeriesPage() {
               })}
             </div>
           </ScrollReveal>
+
+          {/* Recent TV Series Section */}
+          {recentSeries.length > 0 && (
+            <ScrollReveal direction="up" delay={0.4}>
+              <div className="mt-16">
+                <h2 className="text-3xl font-bold text-white mb-8 flex items-center gap-2">
+                  <Film className="w-8 h-8 text-red-500" />
+                  Recent TV Series
+                </h2>
+
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6">
+                  {recentSeries.map((recentSeriesItem) => (
+                    <motion.div
+                      key={recentSeriesItem.id}
+                      className="group cursor-pointer"
+                      onClick={() => safeNavigate.push(`/tv-series/${recentSeriesItem.id}`)}
+                      whileHover={{ scale: 1.05 }}
+                      transition={{ duration: 0.2 }}
+                    >
+                      <div className="relative aspect-[2/3] bg-gray-800 rounded-lg overflow-hidden mb-3 group-hover:scale-105 transition-transform duration-300">
+                        <img
+                          src={(() => {
+                            const apiUrl = getApiUrl();
+                            // Try series poster first
+                            if (recentSeriesItem.tmdb_poster_url) return recentSeriesItem.tmdb_poster_url;
+                            // Try poster path
+                            if (recentSeriesItem.poster_path) return `${apiUrl}/api/admin/assets/${recentSeriesItem.poster_path.split('/').pop()}`;
+                            // Fallback to thumbnail
+                            return `${apiUrl}/api/thumbnails/${recentSeriesItem.id}`;
+                          })()}
+                          alt={recentSeriesItem.title}
+                          className="w-full h-full object-cover"
+                          loading="lazy"
+                          onError={(e) => {
+                            const target = e.target as HTMLImageElement;
+                            const apiUrl = getApiUrl();
+                            // Fallback chain
+                            if (!target.src.includes('/api/thumbnails/')) {
+                              target.src = `${apiUrl}/api/thumbnails/${recentSeriesItem.id}`;
+                            } else {
+                              // Final fallback: Show gradient with series initial
+                              const parent = target.parentElement!;
+                              const initial = recentSeriesItem.title?.charAt(0)?.toUpperCase() || 'S';
+                              parent.innerHTML = `
+                                <div class="w-full h-full bg-gradient-to-br from-blue-600 to-blue-800 flex flex-col items-center justify-center">
+                                  <span class="text-4xl font-bold text-white">${initial}</span>
+                                  <span class="text-xs font-medium text-white/80 text-center px-2 mt-1">TV Series</span>
+                                </div>
+                              `;
+                            }
+                          }}
+                        />
+
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+
+                        {/* TV Series Badge */}
+                        <div className="absolute top-2 left-2 bg-blue-600 text-white px-2 py-1 rounded text-xs font-semibold flex items-center gap-1">
+                          <Tv className="w-3 h-3" />
+                          TV
+                        </div>
+
+                        {/* Rating Badge */}
+                        {recentSeriesItem.rating && recentSeriesItem.rating > 0 && (
+                          <div className="absolute top-2 right-2 bg-yellow-500/90 text-black px-2 py-1 rounded text-xs font-semibold flex items-center gap-1">
+                            <Star className="w-3 h-3 fill-current" />
+                            {recentSeriesItem.rating.toFixed(1)}
+                          </div>
+                        )}
+
+                        {/* Play Button Overlay */}
+                        <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              safeNavigate.push(`/tv-series/${recentSeriesItem.id}`);
+                            }}
+                            className="bg-red-600/90 backdrop-blur-sm rounded-full p-4 hover:bg-red-700/90 transition-all duration-300 hover:scale-110"
+                          >
+                            <Play className="w-6 h-6 text-white fill-current" />
+                          </button>
+                        </div>
+
+                        {/* Info Overlay */}
+                        <div className="absolute bottom-0 left-0 right-0 p-3 transform translate-y-full group-hover:translate-y-0 transition-transform duration-300">
+                          <div className="text-white text-xs text-center mb-2">
+                            {recentSeriesItem.year && `${recentSeriesItem.year} • `}
+                            {recentSeriesItem.genres && recentSeriesItem.genres.length > 0 && (
+                              <span>
+                                {recentSeriesItem.genres.slice(0, 2).map(g => 
+                                  typeof g === 'string' ? g : g?.name
+                                ).filter(Boolean).join(' • ')}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      <h3 className="text-white font-medium text-sm group-hover:text-red-400 transition-colors duration-300 line-clamp-2">
+                        {recentSeriesItem.title}
+                      </h3>
+
+                      {recentSeriesItem.description && (
+                        <p className="text-white/60 text-xs mt-1 line-clamp-2">
+                          {recentSeriesItem.description.length > 80 
+                            ? recentSeriesItem.description.substring(0, 80) + '...' 
+                            : recentSeriesItem.description}
+                        </p>
+                      )}
+                    </motion.div>
+                  ))}
+                </div>
+              </div>
+            </ScrollReveal>
+          )}
 
           {/* Series Details */}
           <ScrollReveal direction="up" delay={0.6}>

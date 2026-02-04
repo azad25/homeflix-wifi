@@ -1,12 +1,17 @@
-# HomeFlix - Streaming Platform
+# HomeFlix - Media Streaming Platform
 
 Transform your media collection into a professional streaming platform! HomeFlix is a full-featured streaming platform that automatically organizes and streams your movies and TV shows with a beautiful, responsive interface. Search movies from directly TMDB and get updated on new movies or tv shows, trailers.
+
+## 🎉 **NEW in Version 4.0
+
+!![Widget System Interface](/screenshots/preview_widgets.png)
+!![Notification Interface](/screenshots/preview_notification.png)
+!![OTT providers Interface](/screenshots/preview_provider.png)
 
 ## 🎉 **NEW in Version 3.5-Stable: Live Notification Feed!**
 
 **Netflix-quality live notification system with dynamic tile rotation!** HomeFlix now features a professional notification feed with auto-playing trailers, smart content rotation, and beautiful gradient designs that showcase trending content, new releases, and personalized recommendations.
 
-![Notification System Interface](/screenshots/preview_notifications.png)
 
 ## 🎉 **Previous: Version 3.0-Stable - Advanced Widget System!**
 
@@ -91,6 +96,52 @@ Transform your media collection into a professional streaming platform! HomeFlix
 
 ---
 
+## 🚀 **Version 3.5-Stable Changelog - Live Activity Notification System**
+
+### 🔔 **NEW: Netflix-Style Live Activity Feed**
+- **Dynamic Tile System**: Mosaic-style notification tiles with automatic layout optimization
+- **Real-Time Updates**: Live content feed that refreshes every 10 seconds with new recommendations
+- **Smart Rotation**: Tiles automatically rotate every 5 seconds showing diverse content
+- **Instant Loading**: localStorage caching provides <100ms page load times
+- **Zero Duplicates**: Intelligent deduplication ensures unique content display
+- **Full Viewport Coverage**: 95%+ screen coverage with optimized tile placement
+
+### 🎬 **NEW: Rich Notification Types**
+- **Continue Watching**: Resume content with progress bars and time remaining
+- **TMDB Trending**: Worldwide trending movies and TV shows with trailers
+- **Now Playing**: Movies currently in theaters with release information
+- **Coming Soon**: Upcoming releases with countdow
+ **Recently Added**: Latest additions to your local lib
+### 🧩 **NEW: Comprehensive Widget Library**
+- **Genre-Based**: Personalized recommendations based on viewing history
+- **Local Trending**: Popular content in your col **Featured Banner**: Hero-style banners with auto-playing trailers and metadata
+- **Trending Slideshow**: Netflix-style carousels with ranking numbers and hover effects
+- **New Episodes**: TV series updates with episode information
+
+### 🎨 **NEW: Professional Visual Design**
+- **Gradient Backgrounds**: Genre-based color schemes and visual themes
+- **Auto-Playing Trailers**: YouTube trailer integration for hero tiles
+- **Poster Display**: High-quality movie posters with fallback handling
+- **Quality Badges**: HD/4K indicators and rating displays
+- **Progress Tracking**: Visual progress bars for continue watching
+- **Smooth Animations**: Framer Motion animations for tile transitions
+
+### ⚡ **NEW: Performance Optimizations**
+- **Aggressive Caching**: 5-minute localStorage cache with background updates
+- **Concurrent Loading**: Parallel notification fetching for faster load times
+- **Smart Deduplication**: Prevents duplicate content across all notification types
+- **Optimized Rendering**: Only renders visible tiles with lazy loading
+- **Memory Management**: Efficient cleanup and garbage collection
+
+### 🎯 **NEW: Interactive Features**
+- **Click Navigation**: Tiles navigate to movie/TV detail pages
+- **Trailer Playback**: Watch trailers directly in notification tiles
+- **Audio Controls**: Unmute buttons for trailer audio
+- **Hover Effects**: Netflix-style hover animations and previews
+- **Responsive Layout**: Perfect display on desktop, tablet, and mobile
+
+---
+
 ## 🚀 **Version 3.0-Stable Changelog - Advanced Widget System**
 
 ### 🎨 **NEW: Professional Widget Management**
@@ -98,12 +149,7 @@ Transform your media collection into a professional streaming platform! HomeFlix
 - **Netflix-Style Design**: Glassmorphism interface with backdrop blur effects
 - **Performance Dashboard**: Real-time widget performance monitoring and optimization
 - **Custom Layouts**: Full-width, half-width, and third-width widget arrangements
-- **Smart Positioning**: Intelligent widget placement that doesn't interfere with hero content
-
-### 🧩 **NEW: Comprehensive Widget Library**
-- **Featured Banner**: Hero-style banners with auto-playing trailers and metadata
-- **Trending Slideshow**: Netflix-style carousels with ranking numbers and hover effects
-- **Movie Grid**: Responsive grid layouts with poster displays and action buttons
+- **Smart Positioning**: Intelligent widget placement that doesn't interfere with hero content*Movie Grid**: Responsive grid layouts with poster displays and action buttons
 - **Backdrop Slideshow**: Cinematic backdrop rotations with smooth transitions
 - **Trailer Widget**: YouTube trailer integration with auto-play and controls
 - **Genre-Based Widgets**: Dynamic content filtering by movie/TV genres
@@ -291,11 +337,12 @@ Transform your media collection into a professional streaming platform! HomeFlix
 - **TV Shows**: Organized series with season/episode navigation + TMDB TV shows
 - **My List**: Your personal watchlist with both local and TMDB content
 - **Search**: Advanced search with real-time TMDB suggestions and filters
+- **🆕 Notifications**: Live activity feed with dynamic tile system and real-time updates
 - **Now Playing**: Live TV-style channel with previews
 - **New & Popular**: Latest additions and trending content from TMDB
 - **TMDB Movie Pages**: Detailed movie/TV show pages with trailers, cast, and crew info
-- **🆕 Widget Management**: Professional widget configuration with visual editor
-- **🆕 Performance Analytics**: Real-time widget performance monitoring and optimization
+- **Widget Management**: Professional widget configuration with visual editor
+- **Performance Analytics**: Real-time widget performance monitoring and optimization
 - **Torrent Dashboard**: Complete download management with search, progress, and settings
 - **Download Progress**: Real-time tracking on movie pages and dedicated dashboard
 - **Settings Panel**: Torrent configuration with Jackett integration

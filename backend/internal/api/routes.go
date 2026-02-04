@@ -365,6 +365,22 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		api.GET("/tmdb/tv/:id/similar", handlers.GetSimilarTVShows(tmdbService))
 		api.GET("/tmdb/tv/:id/recommendations", handlers.GetRecommendedTVShows(tmdbService))
 
+		// Initialize provider service
+		providerService := services.NewProviderService()
+
+		// Streaming provider endpoints (Netflix, Prime, Disney+, Hulu, etc.)
+		api.GET("/providers", handlers.GetAllProviders(providerService))
+		api.GET("/providers/showcase", handlers.GetProviderShowcase(providerService, redisCache))
+		api.GET("/providers/:id", handlers.GetProviderByID(providerService))
+		api.GET("/providers/:id/content", handlers.GetProviderContent(providerService))
+		api.GET("/providers/:id/movies", handlers.GetProviderMovies(providerService))
+		api.GET("/providers/:id/tv", handlers.GetProviderTV(providerService))
+		api.GET("/providers/:id/trending", handlers.GetProviderTrending(providerService))
+		api.GET("/providers/:id/popular", handlers.GetProviderPopular(providerService))
+		api.GET("/providers/:id/top-rated", handlers.GetProviderTopRated(providerService))
+		api.GET("/providers/:id/new", handlers.GetProviderNewReleases(providerService))
+		api.GET("/content/:type/:id/providers", handlers.GetContentProviders(providerService))
+
 	var torrentHandler *torrentHandlers.TorrentHandler
 	if notificationService != nil {
 		// Initialize torrent handler with notification service

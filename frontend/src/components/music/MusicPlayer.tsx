@@ -30,7 +30,7 @@ export default function MusicPlayer() {
       // Draw static bars when not playing
       const barCount = 20;
       const barWidth = canvas.width / barCount;
-      
+
       ctx.fillStyle = 'rgba(220, 38, 38, 0.2)';
       for (let i = 0; i < barCount; i++) {
         const staticHeight = 2;
@@ -43,7 +43,7 @@ export default function MusicPlayer() {
     const barCount = 20;
     const barWidth = canvas.width / barCount;
     const time = Date.now() * 0.002;
-    
+
     // Create gradient
     const gradient = ctx.createLinearGradient(0, canvas.height, 0, 0);
     gradient.addColorStop(0, '#dc2626');
@@ -53,19 +53,19 @@ export default function MusicPlayer() {
     for (let i = 0; i < barCount; i++) {
       // Simulate different frequency ranges
       const frequency = i / barCount;
-      
+
       // Bass emphasis for lower frequencies
       const bassBoost = frequency < 0.3 ? 1.5 : 1;
       const midBoost = frequency >= 0.3 && frequency < 0.7 ? 1.2 : 1;
       const trebleBoost = frequency >= 0.7 ? 0.8 : 1;
-      
+
       const baseHeight = Math.sin(time * 3 + i * 0.5) * 0.3 + 0.4;
       const randomVariation = Math.sin(time * 5 + i * 0.8) * 0.2;
       const pulseEffect = Math.sin(time * 2) * 0.1 + 0.9;
-      
+
       let barHeight = (baseHeight + randomVariation) * bassBoost * midBoost * trebleBoost * pulseEffect;
       barHeight = Math.max(0.1, Math.min(1, barHeight)) * canvas.height * 0.8;
-      
+
       ctx.fillStyle = gradient;
       ctx.fillRect(i * barWidth, canvas.height - barHeight, barWidth - 1, barHeight);
     }
@@ -117,7 +117,7 @@ export default function MusicPlayer() {
 
   const handleLikeTrack = async () => {
     if (!currentTrack) return;
-    
+
     try {
       await MusicAPI.likeTrack(currentTrack.id);
       setIsLiked(!isLiked);
@@ -162,39 +162,37 @@ export default function MusicPlayer() {
           <div className="flex items-center gap-3">
             <button
               onClick={toggleShuffle}
-              className={`transition-colors transform hover:scale-110 ${
-                shuffle ? 'text-red-500' : 'text-red-300 hover:text-white'
-              }`}
+              className={`transition-colors transform hover:scale-110 ${shuffle ? 'text-red-500' : 'text-red-300 hover:text-white'
+                }`}
             >
               <Shuffle size={16} />
             </button>
-            
+
             <button
               onClick={previousTrack}
               className="text-red-300 hover:text-white transition-colors transform hover:scale-110"
             >
               <SkipBack size={20} />
             </button>
-            
+
             <button
               onClick={handlePlayPause}
               className="bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 text-white rounded-full p-2.5 transform hover:scale-110 transition-all duration-300 shadow-lg"
             >
               {isPlaying ? <Pause size={20} /> : <Play size={20} className="ml-0.5" />}
             </button>
-            
+
             <button
               onClick={nextTrack}
               className="text-red-300 hover:text-white transition-colors transform hover:scale-110"
             >
               <SkipForward size={20} />
             </button>
-            
+
             <button
               onClick={toggleRepeat}
-              className={`transition-colors transform hover:scale-110 ${
-                repeat !== 'none' ? 'text-red-500' : 'text-red-300 hover:text-white'
-              }`}
+              className={`transition-colors transform hover:scale-110 ${repeat !== 'none' ? 'text-red-500' : 'text-red-300 hover:text-white'
+                }`}
             >
               <Repeat size={16} />
             </button>
@@ -233,17 +231,17 @@ export default function MusicPlayer() {
               width={80}
               height={32}
               className="rounded"
-              style={{ 
+              style={{
                 filter: isPlaying ? 'none' : 'grayscale(100%) opacity(30%)',
                 transition: 'filter 0.3s ease'
               }}
             />
           </div>
-          
+
           <button className="text-red-300 hover:text-white transition-colors transform hover:scale-110">
             <MoreHorizontal size={18} />
           </button>
-          
+
           <div className="flex items-center gap-2">
             <button
               onClick={toggleMute}
@@ -251,7 +249,7 @@ export default function MusicPlayer() {
             >
               {isMuted || volume === 0 ? <VolumeX size={18} /> : <Volume2 size={18} />}
             </button>
-            
+
             <div className="w-16">
               <input
                 type="range"
@@ -274,6 +272,7 @@ export default function MusicPlayer() {
           src={`https://www.youtube.com/embed/${currentTrack.youtube_id}?autoplay=${isPlaying ? 1 : 0}&controls=0&showinfo=0&rel=0&iv_load_policy=3&modestbranding=1&enablejsapi=1`}
           className="hidden"
           allow="autoplay"
+          referrerPolicy="strict-origin-when-cross-origin"
         />
       )}
 

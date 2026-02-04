@@ -534,7 +534,7 @@ export default function SeasonPage() {
 
               {/* Episodes List */}
               <div className="max-h-[600px] overflow-y-auto scrollbar-thin scrollbar-thumb-white/20 scrollbar-track-transparent">
-                <div className="p-4 space-y-2">
+                <div className="p-4 space-y-3">
                   {episodes.map((episode, index) => (
                     <motion.div
                       key={episode.id}
@@ -544,37 +544,76 @@ export default function SeasonPage() {
                       className="group cursor-pointer"
                       onClick={() => handlePlay(episode)}
                     >
-                      <div className="bg-white/5 hover:bg-white/10 rounded-xl p-3 transition-all duration-200 border border-white/5 hover:border-white/20">
-                        <div className="flex gap-3 items-start">
-                          {/* Episode Number */}
-                          <div className="flex-shrink-0 w-10 h-10 bg-white/10 rounded-lg flex items-center justify-center">
-                            <span className="text-base font-bold text-white">
-                              {episode.episode_number}
-                            </span>
+                      <div className="bg-white/5 hover:bg-white/10 rounded-xl p-4 transition-all duration-200 border border-white/5 hover:border-white/20">
+                        <div className="flex gap-4 items-start">
+                          {/* Episode Thumbnail */}
+                          <div className="flex-shrink-0 relative">
+                            <div className="w-24 h-14 bg-white/10 rounded-lg overflow-hidden border border-white/10">
+                              <img
+                                src={episode.still_path ? 
+                                  (episode.still_path.startsWith('http') ? 
+                                    episode.still_path : 
+                                    `${getApiUrl()}/api/admin/assets/${episode.still_path.split('/').pop()}`
+                                  ) : 
+                                  `${getApiUrl()}/api/thumbnails/${episode.media?.id || episode.id}`
+                                }
+                                alt={episode.name}
+                                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+                                onError={(e) => {
+                                  const target = e.target as HTMLImageElement;
+                                  // Fallback to series backdrop
+                                  target.src = getBackdropImageUrl(series!);
+                                  target.onerror = () => {
+                                    // Final fallback to a placeholder
+                                    target.src = `${getApiUrl()}/api/thumbnails/default`;
+                                  };
+                                }}
+                              />
+                              {/* Play overlay */}
+                              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex items-center justify-center">
+                                <Play className="w-4 h-4 text-white fill-current" />
+                              </div>
+                            </div>
+                            {/* Episode Number Badge */}
+                            <div className="absolute -top-2 -left-2 w-6 h-6 bg-red-600 rounded-full flex items-center justify-center border-2 border-black">
+                              <span className="text-xs font-bold text-white">
+                                {episode.episode_number}
+                              </span>
+                            </div>
                           </div>
 
                           {/* Episode Info */}
                           <div className="flex-1 min-w-0">
-                            <h4 className="text-white font-semibold text-sm line-clamp-1 mb-1">
+                            <h4 className="text-white font-semibold text-sm line-clamp-1 mb-2">
                               {episode.name}
                             </h4>
                             
+                            {/* Episode Overview */}
+                            {episode.overview && (
+                              <p className="text-white/70 text-xs line-clamp-2 mb-2 leading-relaxed">
+                                {episode.overview}
+                              </p>
+                            )}
+                            
                             {/* Episode Metadata */}
-                            <div className="flex items-center gap-2 text-xs text-white/60">
+                            <div className="flex items-center gap-3 text-xs text-white/60">
                               {episode.runtime && (
                                 <span className="flex items-center gap-1">
                                   <Clock className="w-3 h-3" />
                                   {formatRuntime(episode.runtime)}
                                 </span>
                               )}
-                              {episode.vote_average && (
-                                <>
-                                  <span className="text-white/30">•</span>
-                                  <span className="flex items-center gap-1 text-yellow-500">
-                                    <Star className="w-3 h-3 fill-current" />
-                                    {episode.vote_average.toFixed(1)}
-                                  </span>
-                                </>
+                              {episode.vote_average && episode.vote_average > 0 && (
+                                <span className="flex items-center gap-1 text-yellow-500">
+                                  <Star className="w-3 h-3 fill-current" />
+                                  {episode.vote_average.toFixed(1)}
+                                </span>
+                              )}
+                              {episode.air_date && (
+                                <span className="flex items-center gap-1 text-blue-400">
+                                  <Calendar className="w-3 h-3" />
+                                  {formatDate(episode.air_date)}
+                                </span>
                               )}
                             </div>
                           </div>
@@ -586,9 +625,9 @@ export default function SeasonPage() {
                                 e.stopPropagation();
                                 handlePlay(episode);
                               }}
-                              className={`bg-gradient-to-r ${themeGradients.accent} p-2 rounded-full transition-all hover:scale-110 ${themeGradients.glow}`}
+                              className={`bg-gradient-to-r ${themeGradients.accent} p-2.5 rounded-full transition-all hover:scale-110 ${themeGradients.glow}`}
                             >
-                              <Play className="w-3.5 h-3.5 text-white fill-current" />
+                              <Play className="w-4 h-4 text-white fill-current" />
                             </button>
                           </div>
                         </div>
