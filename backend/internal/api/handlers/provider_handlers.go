@@ -427,6 +427,10 @@ func GetProviderContent(providerService *services.ProviderService) gin.HandlerFu
 			for i := range movies.Results {
 				movies.Results[i].PosterPath = providerService.BuildImageURL(movies.Results[i].PosterPath, "w500")
 				movies.Results[i].BackdropPath = providerService.BuildImageURL(movies.Results[i].BackdropPath, "w1280")
+				// Fetch trailer for top 10 items only (for hero carousel)
+				if i < 10 {
+					movies.Results[i].TrailerURL = providerService.GetTrailerURL(movies.Results[i].ID, "movie")
+				}
 			}
 			movieResults = movies.Results
 		}
@@ -437,6 +441,10 @@ func GetProviderContent(providerService *services.ProviderService) gin.HandlerFu
 			for i := range tvShows.Results {
 				tvShows.Results[i].PosterPath = providerService.BuildImageURL(tvShows.Results[i].PosterPath, "w500")
 				tvShows.Results[i].BackdropPath = providerService.BuildImageURL(tvShows.Results[i].BackdropPath, "w1280")
+				// Fetch trailer for top 10 items only (for hero carousel)
+				if i < 10 {
+					tvShows.Results[i].TrailerURL = providerService.GetTrailerURL(tvShows.Results[i].ID, "tv")
+				}
 			}
 			tvResults = tvShows.Results
 		}

@@ -943,6 +943,34 @@ export default function TVSeriesPage() {
     }
   }, [latestEpisode]);
 
+  // Check if preview is available and show backdrop if not
+  useEffect(() => {
+    if (!series || loading || isPlayerOpen || isShowingTrailer) return;
+
+    const videoUrl = getBackgroundVideoUrl(series);
+    const episodeToUse = latestEpisode || series;
+    const hasPreview = videoUrl && (
+      videoUrl.includes('/api/preview-clips/') || 
+      (episodeToUse?.preview_clip_path && episodeToUse.preview_clip_path.trim()) ||
+      (episodeToUse?.trailer_path && episodeToUse.trailer_path.trim())
+    );
+
+    if (!hasPreview) {
+      console.log('🎬 No episode preview available, checking for trailer fallback');
+      // No preview available - try trailer fallback or show backdrop
+      if (series?.tmdb_trailer_url && extractYouTubeKey(series.tmdb_trailer_url)) {
+        console.log('🎬 Using trailer fallback');
+        setUseYouTubeFallback(true);
+        setForceShowBackdrop(false);
+      } else {
+        console.log('🎬 No trailer available, showing backdrop');
+        setForceShowBackdrop(true);
+        setIsVideoLoaded(false);
+        setIsVideoPlaying(false);
+      }
+    }
+  }, [series, latestEpisode, loading, isPlayerOpen, isShowingTrailer, extractYouTubeKey]);
+
 
 
   const handlePlay = (media?: Media) => {
@@ -1281,6 +1309,32 @@ export default function TVSeriesPage() {
       console.error('Error in handleCloseTrailer:', error);
     }
   };
+
+  // Helper function to check if all video sources have failed and trigger fallback
+  const checkAllSourcesFailed = useCallback((videoElement: HTMLVideoElement | null, seriesItem: Media) => {
+    if (!videoElement) return;
+    
+    const sources = Array.from(videoElement.querySelectorAll('source'));
+    const activeSources = sources.filter(s => s.style.display !== 'none');
+    
+    if (activeSources.length === 0) {
+      // All sources have failed, try trailer fallback
+      setTimeout(() => {
+        if (seriesItem?.tmdb_trailer_url && extractYouTubeKey(seriesItem.tmdb_trailer_url)) {
+          console.log('🎬 All episode preview sources failed, switching to trailer fallback');
+          setUseYouTubeFallback(true);
+          setIsVideoLoaded(false);
+          setIsVideoPlaying(false);
+          setForceShowBackdrop(false);
+        } else {
+          console.log('🎬 No trailer available, showing backdrop');
+          setForceShowBackdrop(true);
+          setIsVideoLoaded(false);
+          setIsVideoPlaying(false);
+        }
+      }, 100);
+    }
+  }, [extractYouTubeKey]);
 
   const formatRuntime = (minutes: number) => {
     if (!minutes || minutes <= 0) return '';
@@ -1700,23 +1754,22 @@ export default function TVSeriesPage() {
 
             console.log('🎬 Video URL:', videoUrl, 'Episode ID:', episodeId);
 
-            if (!videoUrl && !episodeId) {
-              // No video sources available - try trailer fallback immediately
-              setTimeout(() => {
-                if (series?.tmdb_trailer_url && extractYouTubeKey(series.tmdb_trailer_url)) {
-                  console.log('🎬 No episode preview available, using trailer fallback');
-                  setUseYouTubeFallback(true);
-                  setForceShowBackdrop(false);
-                } else {
-                  console.log('🎬 No video sources available, showing backdrop');
-                  setForceShowBackdrop(true);
-                  setIsVideoLoaded(false);
-                  setIsVideoPlaying(false);
-                }
-              }, 100);
+            // Check if preview is actually available
+            const episodeToUse = latestEpisode || series;
+            const hasPreview = videoUrl && (
+              videoUrl.includes('/api/preview-clips/') || 
+              (episodeToUse?.preview_clip_path && episodeToUse.preview_clip_path.trim()) ||
+              (episodeToUse?.trailer_path && episodeToUse.trailer_path.trim())
+            );
+
+            // If no preview, don't render any sources - this will trigger onError
+            if (!hasPreview) {
+              console.log('🎬 No episode preview available for series:', series.id);
               return null;
             }
 
+            // Preview is available - try to load it
+            console.log('🎬 Loading episode preview for series:', series.id, 'Episode:', episodeId);
             return (
               <>
                 {/* Primary source: Latest episode preview clips with high quality */}
@@ -1726,6 +1779,7 @@ export default function TVSeriesPage() {
                   onError={(e) => {
                     console.warn('High quality episode preview clip failed to load');
                     e.currentTarget.style.display = 'none';
+                    checkAllSourcesFailed(videoRef.current, series);
                   }}
                 />
                 {/* Secondary source: Latest episode preview clips with medium quality */}
@@ -1735,85 +1789,21 @@ export default function TVSeriesPage() {
                   onError={(e) => {
                     console.warn('Medium quality episode preview clip failed to load');
                     e.currentTarget.style.display = 'none';
+                    checkAllSourcesFailed(videoRef.current, series);
                   }}
                 />
-                {/* Tertiary source: Local episode trailer/preview file */}
-                {videoUrl && (
+                {/* Tertiary source: Local episode trailer/preview file only if not an API endpoint */}
+                {videoUrl && !videoUrl.includes('/api/preview-clips/') && (
                   <source
                     src={videoUrl}
                     type="video/mp4"
                     onError={(e) => {
                       console.warn('Local episode video source failed to load');
                       e.currentTarget.style.display = 'none';
+                      checkAllSourcesFailed(videoRef.current, series);
                     }}
                   />
                 )}
-                {/* Quaternary source: Asset URL */}
-                <source
-                  src={getAssetUrl('preview', episodeId, false) as string}
-                  type="video/mp4"
-                  onError={(e) => {
-                    console.warn('Asset episode preview source failed to load - will try trailer fallback');
-                    e.currentTarget.style.display = 'none';
-                    // If this is the last source and it fails, trigger trailer fallback
-                    const video = videoRef.current;
-                    if (video) {
-                      const remainingSources = Array.from(video.querySelectorAll('source')).filter(s =>
-                        s.style.display !== 'none' && s !== e.currentTarget
-                      );
-                      if (remainingSources.length === 0) {
-                        // All sources failed, try trailer fallback
-                        setTimeout(() => {
-                          if (series?.tmdb_trailer_url && extractYouTubeKey(series.tmdb_trailer_url)) {
-                            console.log('🎬 All episode preview sources failed, switching to trailer fallback');
-                            setUseYouTubeFallback(true);
-                            setIsVideoLoaded(false);
-                            setIsVideoPlaying(false);
-                            setForceShowBackdrop(false);
-                          } else {
-                            console.log('🎬 No trailer available, showing backdrop');
-                            setForceShowBackdrop(true);
-                            setIsVideoLoaded(false);
-                            setIsVideoPlaying(false);
-                          }
-                        }, 500);
-                      }
-                    }
-                  }}
-                />
-                {/* Final fallback: Series-level preview if available */}
-                <source
-                  src={`${getApiUrl()}/api/preview-clips/${series.id}?quality=medium&format=mp4`}
-                  type="video/mp4"
-                  onError={(e) => {
-                    console.warn('Series preview source failed to load - trying trailer fallback');
-                    e.currentTarget.style.display = 'none';
-                    // If this is truly the last source, trigger trailer fallback
-                    const video = videoRef.current;
-                    if (video) {
-                      const remainingSources = Array.from(video.querySelectorAll('source')).filter(s =>
-                        s.style.display !== 'none' && s !== e.currentTarget
-                      );
-                      if (remainingSources.length === 0) {
-                        // All sources failed, try trailer fallback
-                        setTimeout(() => {
-                          if (series?.tmdb_trailer_url && extractYouTubeKey(series.tmdb_trailer_url)) {
-                            console.log('🎬 All preview sources failed, switching to trailer fallback');
-                            setUseYouTubeFallback(true);
-                            setIsVideoLoaded(false);
-                            setIsVideoPlaying(false);
-                            setForceShowBackdrop(false);
-                          } else {
-                            console.log('🎬 No trailer available, showing backdrop');
-                            setForceShowBackdrop(true);
-                            setIsVideoLoaded(false);
-                            setIsVideoPlaying(false);
-                          }
-                        }, 500);
-                      }
-                    }
-                  }}
-                />
               </>
             );
           })()}

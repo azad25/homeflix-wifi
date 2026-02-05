@@ -6,7 +6,7 @@ import { Splide, SplideSlide } from '@splidejs/react-splide';
 import '@splidejs/react-splide/css';
 import { Play, Info, Volume2, VolumeX, Plus, Check, Star } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import YouTube from 'react-youtube';
+import YouTube, { YouTubeProps } from 'react-youtube';
 import MyListTooltip from '@/components/ui/MyListTooltip';
 import { Media } from '@/types/media';
 import { addToWishlist, removeFromWishlist, isInWishlist } from '@/lib/wishlist';
@@ -46,6 +46,7 @@ const ProviderHero: React.FC<ProviderHeroProps> = ({
     const [trailerUrl, setTrailerUrl] = useState<string | null>(null);
     const [inWishlist, setInWishlist] = useState(false);
     const [logoUrl, setLogoUrl] = useState<string | null>(null);
+    const [isVideoLoaded, setIsVideoLoaded] = useState(false);
     const playerRef = useRef<any>(null);
     const timeoutRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -75,6 +76,13 @@ const ProviderHero: React.FC<ProviderHeroProps> = ({
         return `https://image.tmdb.org/t/p/original${path}`;
     };
 
+    const getYouTubeId = (url?: string) => {
+        if (!url) return null;
+        const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
+        const match = url.match(regExp);
+        return (match && match[2].length === 11) ? match[2] : null;
+    };
+
     const handlePlay = (id: number, type: string) => {
         router.push(`/tmdb-movie/${id}?type=${type || 'movie'}`);
     };
@@ -90,6 +98,7 @@ const ProviderHero: React.FC<ProviderHeroProps> = ({
         setActiveSlideIndex(newIndex);
         setShowTrailer(false);
         setIsPlaying(false);
+        setIsVideoLoaded(false);
         setLogoUrl(null); // Reset logo while fetching new one
 
         // Clear previous timeout
@@ -179,7 +188,6 @@ const ProviderHero: React.FC<ProviderHeroProps> = ({
             // No logo found
             setLogoUrl(null);
         } catch (err) {
-            console.warn('Error fetching logo:', err);
             setLogoUrl(null);
         }
     };
@@ -224,7 +232,7 @@ const ProviderHero: React.FC<ProviderHeroProps> = ({
                         }
                     }
                 } catch (err) {
-                    console.error('Failed to fetch trailer for hero', err);
+                    // Silent fail
                 }
             };
 
@@ -237,14 +245,18 @@ const ProviderHero: React.FC<ProviderHeroProps> = ({
         return undefined;
     }, [activeItem?.id, activeSlideIndex, items]);
 
-    const getYouTubeId = (url?: string) => {
-        if (!url) return null;
-        const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
-        const match = url.match(regExp);
-        return (match && match[2].length === 11) ? match[2] : null;
-    };
-
     const youtubeId = getYouTubeId(trailerUrl || activeItem?.trailer_url);
+
+    const toggleMute = () => {
+        if (playerRef.current && isPlaying) {
+            if (isMuted) {
+                playerRef.current.unMute();
+            } else {
+                playerRef.current.mute();
+            }
+        }
+        setIsMuted(!isMuted);
+    };
 
     if (!items || items.length === 0) return null;
 
@@ -267,16 +279,21 @@ const ProviderHero: React.FC<ProviderHeroProps> = ({
                 {items.map((item, index) => (
                     <SplideSlide key={`${item.id}-${index}`} className="h-full w-full">
                         <div className="relative h-full w-full">
-                            {/* Backdrop - Always visible until video is PLAYING (videoReady) */}
-                            <div className="absolute inset-0 z-0">
+                            {/* Backdrop - Always visible, fades when video plays */}
+                            <div 
+                                className="absolute inset-0 transition-opacity duration-1000"
+                                style={{ 
+                                    opacity: (index === activeSlideIndex && isPlaying && isVideoLoaded) ? 0 : 1,
+                                    zIndex: 1
+                                }}
+                            >
                                 {item.backdrop_path ? (
                                     <img
                                         src={getBackdropUrl(item.backdrop_path)}
                                         alt={item.title || item.name}
-                                        className="w-full h-full object-cover transition-opacity duration-1000"
+                                        className="w-full h-full object-cover"
                                         loading={index === 0 ? "eager" : "lazy"}
                                         onError={(e) => {
-                                            // Fallback to W1280 if original fails, or generic placeholder
                                             const target = e.target as HTMLImageElement;
                                             if (target.src.includes('original')) {
                                                 target.src = target.src.replace('original', 'w1280');
@@ -284,22 +301,33 @@ const ProviderHero: React.FC<ProviderHeroProps> = ({
                                                 target.src = '/placeholder-backdrop.jpg';
                                             }
                                         }}
-                                        style={{ opacity: 1 }}
                                     />
                                 ) : (
                                     <div className="w-full h-full bg-gradient-to-br from-gray-900 to-black" />
                                 )}
-                                {/* Gradients must be ON TOP of image but below content */}
-                                <div className="absolute inset-0 bg-gradient-to-r from-black via-black/40 to-transparent z-10" />
-                                <div className="absolute inset-0 bg-gradient-to-t from-[#141414] via-transparent to-transparent z-10" />
+                                {/* Gradients */}
+                                <div className="absolute inset-0 bg-gradient-to-r from-black via-black/40 to-transparent" />
+                                <div className="absolute inset-0 bg-gradient-to-t from-[#141414] via-transparent to-transparent" />
                             </div>
 
-                            {/* Trailer Overlay */}
+                            {/* Trailer Video Overlay */}
                             {index === activeSlideIndex && showTrailer && youtubeId && (
-                                <div className="absolute inset-0 w-full h-full overflow-hidden pointer-events-none z-0 transition-opacity duration-1000"
-                                    style={{ opacity: isPlaying ? 1 : 0 }}>
-                                    <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 pointer-events-none"
-                                        style={{ width: '120vw', height: '120vh', minWidth: '177.77vh', minHeight: '56.25vw' }}>
+                                <div 
+                                    className="absolute inset-0 w-full h-full overflow-hidden pointer-events-none transition-opacity duration-1000"
+                                    style={{ 
+                                        opacity: isPlaying && isVideoLoaded ? 1 : 0,
+                                        zIndex: 2
+                                    }}
+                                >
+                                    <div 
+                                        className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2"
+                                        style={{ 
+                                            width: '120vw', 
+                                            height: '120vh', 
+                                            minWidth: '177.77vh', 
+                                            minHeight: '56.25vw' 
+                                        }}
+                                    >
                                         <YouTube
                                             videoId={youtubeId}
                                             opts={{
@@ -314,37 +342,48 @@ const ProviderHero: React.FC<ProviderHeroProps> = ({
                                                     modestbranding: 1,
                                                     rel: 0,
                                                     showinfo: 0,
-                                                    mute: 1, // Start muted to guarantee autoplay works
+                                                    mute: 1,
                                                     loop: 1,
                                                     playlist: youtubeId,
                                                     start: 10,
                                                     origin: typeof window !== 'undefined' ? window.location.origin : undefined,
+                                                    vq: 'hd1080',
                                                 },
                                             }}
                                             onReady={(event) => {
                                                 playerRef.current = event.target;
+                                                setIsVideoLoaded(true);
                                                 event.target.playVideo();
 
-                                                // Attempt to unmute after a short delay
+                                                // Unmute after short delay
                                                 setTimeout(() => {
                                                     try {
-                                                        // Only unmute if logic says so (default isMuted=true so this effectively keeps it muted unless we change default)
-                                                        // User asked for "with sound", so we try to unmute.
-                                                        // We should update state to reflect unmuted status if successful
-                                                        if (isMuted) { // logic check based on default state
-                                                            event.target.unMute();
-                                                            setIsMuted(false);
-                                                        }
-                                                    } catch (e) { /* ignore */ }
-                                                }, 500);
+                                                        event.target.unMute();
+                                                        setIsMuted(false);
+                                                    } catch (e) {
+                                                        // Silent fail
+                                                    }
+                                                }, 1000);
                                             }}
                                             onStateChange={(event) => {
-                                                if (event.data === 1) setIsPlaying(true);
-                                                if (event.data === 0) setIsPlaying(false);
+                                                if (event.data === 1) { // Playing
+                                                    setIsPlaying(true);
+                                                }
+                                                if (event.data === 0 || event.data === 2) { // Ended or Paused
+                                                    setIsPlaying(false);
+                                                }
                                             }}
-                                            className="w-full h-full object-cover"
+                                            onError={(event) => {
+                                                setIsPlaying(false);
+                                                setIsVideoLoaded(false);
+                                            }}
+                                            className="w-full h-full"
+                                            style={{ pointerEvents: 'none' }}
                                         />
                                     </div>
+                                    {/* Gradient overlays for video */}
+                                    <div className="absolute inset-0 bg-gradient-to-r from-black/60 via-transparent to-transparent pointer-events-none" />
+                                    <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-black/80 to-transparent pointer-events-none" />
                                 </div>
                             )}
                         </div>
@@ -462,15 +501,9 @@ const ProviderHero: React.FC<ProviderHeroProps> = ({
                                     </button>
                                 </MyListTooltip>
 
-                                {showTrailer && isPlaying && (
+                                {showTrailer && isPlaying && isVideoLoaded && (
                                     <button
-                                        onClick={() => {
-                                            setIsMuted(!isMuted);
-                                            if (playerRef.current) {
-                                                if (isMuted) playerRef.current.unMute();
-                                                else playerRef.current.mute();
-                                            }
-                                        }}
+                                        onClick={toggleMute}
                                         className="p-3.5 rounded-full border border-white/30 bg-black/40 hover:bg-white/10 hover:border-white transition-all ml-2 backdrop-blur-md"
                                     >
                                         {isMuted ? <VolumeX className="w-6 h-6" /> : <Volume2 className="w-6 h-6" />}

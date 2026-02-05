@@ -76,10 +76,6 @@ const NotificationsPage: React.FC = () => {
   const tileCounterRef = useRef(0);
   const mountedRef = useRef(true);
 
-  // Video performance optimization - limit concurrent videos
-  const MAX_CONCURRENT_VIDEOS = 2; // Maximum number of video tiles at once
-  const [activeVideoTiles, setActiveVideoTiles] = useState<Set<string>>(new Set());
-
   // Debug function to monitor tile states
   const debugTileState = useCallback(() => {
     if (activeTiles.length === 0) return;
@@ -108,18 +104,18 @@ const NotificationsPage: React.FC = () => {
     }
   }, [debugTileState]);
 
-  // 24/7 Optimized grid configuration - maximum tile diversity
+  // Optimized grid configuration - reduced complexity
   const gridDimensions = useMemo(() => {
-    if (typeof window === 'undefined') return { cols: 20, rows: 12 };
+    if (typeof window === 'undefined') return { cols: 16, rows: 10 };
     const width = window.innerWidth;
     const height = window.innerHeight;
 
-    // Denser grids for more tile variety and 24/7 operation
-    if (width < 768) return { cols: 8, rows: 10 };   // Mobile: compact but varied
-    if (width < 1024) return { cols: 12, rows: 8 };  // Tablet: good variety
-    if (width < 1440) return { cols: 16, rows: 10 }; // Desktop: high variety
-    if (width < 1920) return { cols: 20, rows: 10 }; // Large: maximum variety
-    return { cols: 24, rows: 12 };                   // Ultra-wide: extreme variety
+    // Simplified grid calculations for better performance
+    if (width < 768) return { cols: 6, rows: 8 };   // Mobile: simple grid
+    if (width < 1024) return { cols: 10, rows: 8 }; // Tablet: moderate grid
+    if (width < 1440) return { cols: 14, rows: 9 }; // Desktop: good variety
+    if (width < 1920) return { cols: 16, rows: 10 }; // Large: high variety
+    return { cols: 20, rows: 10 };                   // Ultra-wide: maximum variety
   }, []);
 
   const viewportSize = useMemo(() => ({
@@ -148,8 +144,8 @@ const NotificationsPage: React.FC = () => {
     return false;
   }, []);
 
-  // Enhance notifications with proper asset URLs and metadata
-  const enhanceNotifications = useCallback(async (notifications: Notification[]): Promise<EnhancedNotification[]> => {
+  // Enhance notifications with proper asset URLs and metadata - optimized for speed
+  const enhanceNotifications = useCallback((notifications: Notification[]): EnhancedNotification[] => {
     const apiUrl = getApiUrl();
 
     return notifications.map(notification => {
@@ -220,7 +216,6 @@ const NotificationsPage: React.FC = () => {
       // Fallback URL construction for local content if not provided by backend
       if (!enhanced.backdrop_url && notification.movie_ids && notification.movie_ids.length > 0) {
         const movieId = notification.movie_ids[0];
-        // Try different backdrop sources
         enhanced.backdrop_url = `${apiUrl}/api/admin/assets/banner_${movieId}.jpg`;
       }
 
@@ -238,46 +233,85 @@ const NotificationsPage: React.FC = () => {
     });
   }, []);
 
-  // Fetch notifications with aggressive caching - refresh every 30 seconds
+  // Fetch notifications with optimized caching and timeout
   const fetchNotifications = useCallback(async (skipCache = false) => {
     if (!mountedRef.current) return;
 
     try {
       const apiUrl = getApiUrl();
-      const response = await fetch(`${apiUrl}/api/notifications?limit=50`, {
-        cache: 'force-cache', // Aggressive caching
+      
+      // Use Promise.race for timeout to prevent hanging
+      const fetchPromise = fetch(`${apiUrl}/api/notifications?limit=50`, {
+        cache: 'force-cache',
         headers: {
           'Accept': 'application/json',
         }
       });
 
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Request timeout')), 10000)
+      );
+
+      const response = await Promise.race([fetchPromise, timeoutPromise]) as Response;
+
       if (response.ok) {
         const data = await response.json();
         if (mountedRef.current) {
-          // Remove duplicates with faster algorithm
           const rawNotifications = data.notifications || [];
 
           console.log('📥 Fetched', rawNotifications.length, 'notifications');
 
-          // Enhance notifications with proper asset URLs and metadata
-          const enhancedNotifications = await enhanceNotifications(rawNotifications);
+          // Synchronous enhancement for speed
+          const enhancedNotifications = enhanceNotifications(rawNotifications);
 
           // Update state
           setNotifications(enhancedNotifications);
 
-          // Cache for next time with longer TTL
-          try {
-            localStorage.setItem('homeflix_notifications_cache', JSON.stringify({
-              data: enhancedNotifications,
-              timestamp: Date.now()
-            }));
-          } catch (e) {
-            console.warn('Failed to cache notifications:', e);
+          // Non-blocking cache save
+          if (typeof requestIdleCallback !== 'undefined') {
+            requestIdleCallback(() => {
+              try {
+                localStorage.setItem('homeflix_notifications_cache', JSON.stringify({
+                  data: enhancedNotifications,
+                  timestamp: Date.now()
+                }));
+              } catch (e) {
+                console.warn('Failed to cache notifications:', e);
+              }
+            });
+          } else {
+            setTimeout(() => {
+              try {
+                localStorage.setItem('homeflix_notifications_cache', JSON.stringify({
+                  data: enhancedNotifications,
+                  timestamp: Date.now()
+                }));
+              } catch (e) {
+                console.warn('Failed to cache notifications:', e);
+              }
+            }, 0);
           }
         }
       }
     } catch (error) {
       console.error('Failed to fetch notifications:', error);
+      // Try to use cached data on error
+      if (mountedRef.current) {
+        try {
+          const cached = localStorage.getItem('homeflix_notifications_cache');
+          if (cached) {
+            const { data, timestamp } = JSON.parse(cached);
+            const age = Date.now() - timestamp;
+            // Use cache even if old when API fails
+            if (data && data.length > 0) {
+              console.log('Using cached notifications due to API error (age:', Math.round(age / 1000), 'seconds)');
+              setNotifications(data);
+            }
+          }
+        } catch (cacheError) {
+          console.error('Failed to load cache:', cacheError);
+        }
+      }
     }
   }, [enhanceNotifications]);
 
@@ -293,10 +327,10 @@ const NotificationsPage: React.FC = () => {
       setTimeout(() => fetchNotifications(), 2000);
     }
 
-    // Refresh notifications every 58.5 seconds for 24/7 operation (increased by 30% from 45s)
+    // Optimized refresh - every 2 minutes instead of 58.5 seconds
     const refreshInterval = setInterval(() => {
       fetchNotifications();
-    }, 58500);
+    }, 120000); // 2 minutes
 
     // Prevent body scroll
     document.body.style.overflow = 'hidden';
@@ -334,29 +368,34 @@ const NotificationsPage: React.FC = () => {
     return true;
   }, []);
 
-  // Simplified position finding - ensure tiles stay within bounds
+  // Optimized position finding - faster algorithm
   const findAvailablePosition = useCallback((width: number, height: number, existingTiles: TileConfig[]): GridPosition | null => {
     const { cols, rows } = gridDimensions;
 
     // Ensure tile fits within grid
     if (width > cols || height > rows) return null;
 
+    // Create a simple occupancy grid for faster collision detection
+    const occupied = new Set<string>();
+    for (const tile of existingTiles) {
+      for (let y = tile.position.y; y < tile.position.y + tile.position.height; y++) {
+        for (let x = tile.position.x; x < tile.position.x + tile.position.width; x++) {
+          occupied.add(`${x},${y}`);
+        }
+      }
+    }
+
     // Simple grid scan - top to bottom, left to right
     for (let y = 0; y <= rows - height; y++) {
       for (let x = 0; x <= cols - width; x++) {
         let canPlace = true;
 
-        // Check overlap with existing tiles
-        for (const tile of existingTiles) {
-          const tilePos = tile.position;
-          if (!(
-            x >= tilePos.x + tilePos.width ||
-            x + width <= tilePos.x ||
-            y >= tilePos.y + tilePos.height ||
-            y + height <= tilePos.y
-          )) {
-            canPlace = false;
-            break;
+        // Check if all cells are free
+        for (let dy = 0; dy < height && canPlace; dy++) {
+          for (let dx = 0; dx < width && canPlace; dx++) {
+            if (occupied.has(`${x + dx},${y + dy}`)) {
+              canPlace = false;
+            }
           }
         }
 
@@ -369,7 +408,7 @@ const NotificationsPage: React.FC = () => {
     return null;
   }, [gridDimensions]);
 
-  // 24/7 Optimized tile sizing with extreme diversity
+  // 24/7 Optimized tile sizing with extreme diversity - FIXED BANNER PROPORTIONS
   const getTileSize = useCallback((notification: EnhancedNotification, forceSize?: TileConfig['size']): { size: TileConfig['size'], width: number, height: number, priority: number, duration: number, hasTrailer: boolean, trailerDuration?: number } => {
     const type = notification.type;
     const hasTrailer = !!(notification as any).trailer_key || !!notification.trailer_key;
@@ -385,12 +424,14 @@ const NotificationsPage: React.FC = () => {
         ],
         'large': [
           { width: Math.floor(cols * 0.3), height: Math.floor(rows * 0.4) },
-          { width: Math.floor(cols * 0.35), height: Math.floor(rows * 0.3) },
+          { width: Math.floor(cols * 0.35), height: Math.floor(rows * 0.35) },
           { width: Math.floor(cols * 0.25), height: Math.floor(rows * 0.45) },
         ],
         'banner': [
-          { width: Math.floor(cols * 0.6), height: Math.floor(rows * 0.2) },
-          { width: Math.floor(cols * 0.5), height: Math.floor(rows * 0.25) },
+          // FIXED: Proper banner proportions - wider but with adequate height for content
+          { width: Math.floor(cols * 0.45), height: Math.floor(rows * 0.35) }, // Wide banner with good height
+          { width: Math.floor(cols * 0.4), height: Math.floor(rows * 0.3) },   // Balanced banner
+          { width: Math.floor(cols * 0.5), height: Math.floor(rows * 0.3) },   // Ultra-wide banner
         ],
         'medium': [
           { width: Math.floor(cols * 0.2), height: Math.floor(rows * 0.3) },
@@ -418,13 +459,13 @@ const NotificationsPage: React.FC = () => {
       };
     }
 
-    // Random size assignment with weighted probabilities for extreme diversity
+    // Optimized size distribution - reduced small tiles for better visual appeal
     const sizeWeights = {
-      'hero': hasTrailer ? 0.15 : 0.05,    // 15% if trailer, 5% otherwise
-      'large': 0.20,                       // 20% large tiles
-      'banner': 0.10,                      // 10% banner tiles
-      'medium': 0.35,                      // 35% medium tiles
-      'small': 0.30                        // 30% small tiles
+      'hero': hasTrailer ? 0.18 : 0.08,    // 18% if trailer, 8% otherwise (increased)
+      'large': 0.28,                       // 28% large tiles (increased for prominence)
+      'banner': 0.18,                      // 18% banner tiles (increased for showcase)
+      'medium': 0.38,                      // 38% medium tiles (increased)
+      'small': 0.10                        // 10% small tiles (REDUCED from 25%)
     };
 
     const random = Math.random();
@@ -487,19 +528,19 @@ const NotificationsPage: React.FC = () => {
       small: 0
     };
 
-    // More aggressive size distribution for 24/7 operation
+    // Optimized size distribution - better visual balance with fewer small tiles
     const maxSizes = {
-      hero: Math.max(1, Math.floor(shuffled.length * 0.08)),   // 8% hero tiles
-      large: Math.max(2, Math.floor(shuffled.length * 0.15)),  // 15% large tiles
-      banner: Math.max(1, Math.floor(shuffled.length * 0.08)), // 8% banner tiles
-      medium: Math.max(3, Math.floor(shuffled.length * 0.25)), // 25% medium tiles
-      small: shuffled.length // Rest are small tiles (44%)
+      hero: Math.max(2, Math.floor(shuffled.length * 0.12)),   // 12% hero tiles (increased)
+      large: Math.max(3, Math.floor(shuffled.length * 0.25)),  // 25% large tiles (increased)
+      banner: Math.max(2, Math.floor(shuffled.length * 0.15)), // 15% banner tiles (increased)
+      medium: Math.max(4, Math.floor(shuffled.length * 0.35)), // 35% medium tiles (increased)
+      small: Math.max(1, Math.floor(shuffled.length * 0.13))   // 13% small tiles (REDUCED)
     };
 
     console.log('🎭 24/7 extreme tile distribution:', maxSizes);
 
     for (const notification of shuffled) {
-      if (filledCells >= totalCells * 0.80) break; // Leave 20% for aggressive morphing
+      if (filledCells >= totalCells * 0.85) break; // Fill to 85% (increased from 75% for better coverage)
       if (usedNotificationIds.has(notification.id)) continue;
 
       // Completely random size selection with limits
@@ -539,32 +580,34 @@ const NotificationsPage: React.FC = () => {
       }
     }
 
-    // SECOND PASS - fill remaining gaps with compact tiles (NO DUPLICATES)
+    // SECOND PASS - fill remaining gaps with medium/small tiles (NO DUPLICATES)
+    // Prioritize medium tiles over small for better visual appeal
     const gapSizes = [
+      { width: 5, height: 4, size: 'medium' as const },  // Large medium gaps
       { width: 4, height: 3, size: 'medium' as const },  // Medium gaps
-      { width: 3, height: 3, size: 'small' as const },   // Square small
+      { width: 4, height: 4, size: 'medium' as const },  // Square medium
+      { width: 3, height: 3, size: 'medium' as const },  // Compact medium
+      { width: 3, height: 3, size: 'small' as const },   // Square small (reduced priority)
       { width: 3, height: 2, size: 'small' as const },   // Wide small
       { width: 2, height: 3, size: 'small' as const },   // Tall small
-      { width: 2, height: 2, size: 'small' as const },   // Tiny square
-      { width: 1, height: 2, size: 'small' as const },   // Micro tall
-      { width: 2, height: 1, size: 'small' as const },   // Micro wide
     ];
 
     for (const notification of shuffled) {
-      if (filledCells >= totalCells * 0.95) break; // Fill to 95%
+      if (filledCells >= totalCells * 0.95) break; // Fill to 95% (increased from 88% for maximum coverage)
       if (usedNotificationIds.has(notification.id)) continue; // Skip already used
 
       for (const gapSize of gapSizes) {
         const position = findAvailablePosition(gapSize.width, gapSize.height, initialTiles);
         if (position) {
           const tileId = `tile_${Date.now()}_${tileCounterRef.current++}_${notification.id}`;
+          const tilePriority = gapSize.size === 'medium' ? 6 : 5; // Higher priority for medium
           initialTiles.push({
             id: tileId,
             notification,
             position,
             size: gapSize.size,
-            priority: 5,
-            duration: 15000,
+            priority: tilePriority,
+            duration: gapSize.size === 'medium' ? 20000 : 15000, // Longer duration for medium
             createdAt: Date.now(),
             hasTrailer: false,
             isPlayingTrailer: false
@@ -572,7 +615,7 @@ const NotificationsPage: React.FC = () => {
           usedNotificationIds.add(notification.id); // Mark as used
           filledCells += gapSize.width * gapSize.height;
 
-          console.log(`🔧 Gap filled: ${notification.title} (${gapSize.width}x${gapSize.height}) - ID: ${notification.id}`);
+          console.log(`🔧 Gap filled: ${notification.title} (${gapSize.width}x${gapSize.height} ${gapSize.size}) - ID: ${notification.id}`);
           break;
         }
       }
@@ -621,8 +664,8 @@ const NotificationsPage: React.FC = () => {
     let morphCount = 0;
 
     const scheduleMorph = () => {
-      // Reduced speed by another 40% - 9s-21s range (was 6.5s-15.6s)
-      const randomInterval = 9000 + Math.random() * 12000;
+      // Optimized morphing frequency for better performance - 15s-30s range
+      const randomInterval = 15000 + Math.random() * 15000;
 
       morphTimer = setTimeout(() => {
         if (!mountedRef.current) return;
@@ -650,8 +693,14 @@ const NotificationsPage: React.FC = () => {
               }
             }
 
-            // Increased display times by ~40% - 18s for trailer tiles, 9s for others
-            const minDisplayTime = tile.hasTrailer ? 18000 : 9000;
+            // Increased display times by ~40% - 25s for trailer tiles, 12s for others
+            const minDisplayTime = tile.hasTrailer ? 25000 : 12000;
+            
+            // EXTENDED protection for playing trailers/videos - NEVER morph during playback
+            if (tile.isPlayingTrailer || playingTrailers.has(tile.id)) {
+              return false; // Absolutely protected during playback
+            }
+            
             return displayTime >= minDisplayTime;
           });
 
@@ -683,7 +732,7 @@ const NotificationsPage: React.FC = () => {
       }, randomInterval);
     };
 
-    // 24/7 Aggressive size morphing - extreme variety
+    // 24/7 Aggressive size morphing - extreme variety with reduced small tiles
     const performAggressiveSizeMorphing = (currentTiles: TileConfig[], morphableTiles: TileConfig[]): TileConfig[] => {
       const newTiles = [...currentTiles];
       const tilesToMorph = Math.min(4, morphableTiles.length); // Morph up to 4 tiles at once
@@ -693,12 +742,24 @@ const NotificationsPage: React.FC = () => {
         const tileIndex = currentTiles.findIndex(t => t.id === tileToMorph.id);
         if (tileIndex === -1) continue;
 
-        // Random size selection for maximum variety
-        const allSizes: TileConfig['size'][] = ['small', 'medium', 'large', 'banner', 'hero'];
+        // CRITICAL: Skip tiles that are playing trailers - they should NEVER be in morphableTiles but double-check
+        if (tileToMorph.isPlayingTrailer || playingTrailers.has(tileToMorph.id)) {
+          console.warn(`   🚨 SKIPPING TRAILER TILE: ${tileToMorph.notification.title} (should not be morphable!)`);
+          continue;
+        }
+
+        // Weighted size selection - favor larger tiles, reduce small tiles
+        const sizePool: TileConfig['size'][] = [
+          'hero', 'hero',           // 2x hero
+          'large', 'large', 'large', // 3x large
+          'banner', 'banner',        // 2x banner
+          'medium', 'medium', 'medium', 'medium', // 4x medium
+          'small'                    // 1x small (reduced)
+        ];
         const currentSize = tileToMorph.size;
 
         // Exclude current size to force change
-        const otherSizes = allSizes.filter(s => s !== currentSize);
+        const otherSizes = sizePool.filter(s => s !== currentSize);
         const newSize = otherSizes[Math.floor(Math.random() * otherSizes.length)];
 
         // Get new dimensions for the target size
@@ -710,8 +771,9 @@ const NotificationsPage: React.FC = () => {
         let finalSize = newSize;
 
         if (!newPosition) {
-          // Try all other sizes if preferred doesn't fit
-          for (const fallbackSize of otherSizes) {
+          // Try all sizes if preferred doesn't fit
+          const allSizes: TileConfig['size'][] = ['hero', 'large', 'banner', 'medium', 'small'];
+          for (const fallbackSize of allSizes) {
             if (fallbackSize === newSize) continue;
             const fallbackConfig = getTileSize(tileToMorph.notification, fallbackSize);
             newPosition = findAvailablePosition(fallbackConfig.width, fallbackConfig.height, tempTiles);
@@ -723,14 +785,20 @@ const NotificationsPage: React.FC = () => {
         }
 
         if (newPosition) {
+          // CRITICAL: Preserve tile ID and trailer state to prevent resets
           const morphedTile: TileConfig = {
             ...tileToMorph,
-            id: `tile_${Date.now()}_${tileCounterRef.current++}_${tileToMorph.notification.id}`,
+            // Keep original ID to preserve trailer state tracking
             position: newPosition,
             size: finalSize,
             priority,
             duration,
-            createdAt: Date.now(),
+            // DON'T reset createdAt if trailer is playing
+            createdAt: tileToMorph.isPlayingTrailer ? tileToMorph.createdAt : Date.now(),
+            // Preserve trailer state
+            isPlayingTrailer: tileToMorph.isPlayingTrailer,
+            trailerStartTime: tileToMorph.trailerStartTime,
+            trailerDuration: tileToMorph.trailerDuration,
           };
 
           newTiles[tileIndex] = morphedTile;
@@ -742,7 +810,7 @@ const NotificationsPage: React.FC = () => {
       return newTiles;
     };
 
-    // 24/7 Aggressive content morphing with extreme size variations
+    // 24/7 Aggressive content morphing with optimized size variations
     const performAggressiveContentMorphing = (currentTiles: TileConfig[], morphableTiles: TileConfig[], availableNotifications: EnhancedNotification[]): TileConfig[] => {
       const newTiles = [...currentTiles];
       const tilesToMorph = Math.min(5, morphableTiles.length, availableNotifications.length); // Up to 5 tiles
@@ -758,6 +826,12 @@ const NotificationsPage: React.FC = () => {
 
         if (tileIndex === -1) continue;
 
+        // CRITICAL: Skip tiles that are playing trailers - they should NEVER be in morphableTiles but double-check
+        if (tileToMorph.isPlayingTrailer || playingTrailers.has(tileToMorph.id)) {
+          console.warn(`   🚨 SKIPPING TRAILER TILE: ${tileToMorph.notification.title} (should not be morphable!)`);
+          continue;
+        }
+
         // Prevent duplicates
         const wouldBeDuplicate = newTiles.some((tile, idx) =>
           idx !== tileIndex && tile.notification.id === newNotification.id
@@ -768,9 +842,15 @@ const NotificationsPage: React.FC = () => {
           continue;
         }
 
-        // Completely random size selection for extreme variety
-        const allSizes: TileConfig['size'][] = ['small', 'medium', 'large', 'banner', 'hero'];
-        const targetSize = allSizes[Math.floor(Math.random() * allSizes.length)];
+        // Weighted size selection - favor larger tiles for better visual appeal
+        const sizePool: TileConfig['size'][] = [
+          'hero', 'hero', 'hero',              // 3x hero (increased)
+          'large', 'large', 'large', 'large',  // 4x large (increased)
+          'banner', 'banner', 'banner',        // 3x banner (increased)
+          'medium', 'medium', 'medium', 'medium', 'medium', // 5x medium
+          'small'                              // 1x small (minimal)
+        ];
+        const targetSize = sizePool[Math.floor(Math.random() * sizePool.length)];
 
         const { width, height, priority, duration, hasTrailer } = getTileSize(newNotification, targetSize);
 
@@ -781,6 +861,7 @@ const NotificationsPage: React.FC = () => {
 
         if (!newPosition) {
           // Try all sizes until one fits
+          const allSizes: TileConfig['size'][] = ['hero', 'large', 'banner', 'medium', 'small'];
           for (const fallbackSize of allSizes) {
             if (fallbackSize === targetSize) continue;
             const fallbackConfig = getTileSize(newNotification, fallbackSize);
@@ -797,7 +878,7 @@ const NotificationsPage: React.FC = () => {
           continue;
         }
 
-        // Create morphed tile
+        // Create morphed tile - PRESERVE existing tiles in array to avoid gaps
         const morphedTile: TileConfig = {
           id: `tile_${Date.now()}_${tileCounterRef.current++}_${newNotification.id}`,
           notification: newNotification,
@@ -815,6 +896,13 @@ const NotificationsPage: React.FC = () => {
         morphedCount++;
 
         console.log(`   🎬 AGGRESSIVE CONTENT MORPH: ${tileToMorph.notification.title} → ${newNotification.title} (${finalSize})`);
+      }
+
+      // CRITICAL: If no tiles were morphed, keep original tiles to prevent gaps
+      if (morphedCount === 0) {
+        console.log('   ⚠️ No tiles morphed, keeping original layout');
+        scheduleMorph();
+        return currentTiles;
       }
 
       // Validation
@@ -854,18 +942,6 @@ const NotificationsPage: React.FC = () => {
       }
       return changed ? next : prev;
     });
-
-    setActiveVideoTiles(prev => {
-      const next = new Set(prev);
-      let changed = false;
-      for (const id of next) {
-        if (!activeIds.has(id)) {
-          next.delete(id);
-          changed = true;
-        }
-      }
-      return changed ? next : prev;
-    });
   }, [activeTiles]);
 
   // Handle tile click
@@ -887,11 +963,10 @@ const NotificationsPage: React.FC = () => {
     }
   }, [router]);
 
-  // Handle trailer start - ENHANCED tracking with video limits
+  // Handle trailer start - ENHANCED tracking
   const handleTrailerStart = useCallback((tileId: string) => {
     console.log('▶️ Trailer started:', tileId);
     setPlayingTrailers(prev => new Set(prev).add(tileId));
-    setActiveVideoTiles(prev => new Set(prev).add(tileId));
     setActiveTiles(prev => prev.map(tile =>
       tile.id === tileId ? {
         ...tile,
@@ -903,15 +978,10 @@ const NotificationsPage: React.FC = () => {
     ));
   }, []);
 
-  // Handle trailer end - ENHANCED tracking with video limits
+  // Handle trailer end - ENHANCED tracking
   const handleTrailerEnd = useCallback((tileId: string) => {
     console.log('⏹️ Trailer ended:', tileId);
     setPlayingTrailers(prev => {
-      const newSet = new Set(prev);
-      newSet.delete(tileId);
-      return newSet;
-    });
-    setActiveVideoTiles(prev => {
       const newSet = new Set(prev);
       newSet.delete(tileId);
       return newSet;

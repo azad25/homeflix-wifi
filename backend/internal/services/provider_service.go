@@ -98,6 +98,7 @@ type DiscoverResult struct {
 	GenreIDs         []int    `json:"genre_ids"`
 	OriginalLanguage string   `json:"original_language"`
 	MediaType        string   `json:"media_type,omitempty"`
+	TrailerURL       string   `json:"trailer_url,omitempty"`
 }
 
 // DiscoverResponse represents TMDB discover endpoint response
@@ -503,5 +504,45 @@ func (p *ProviderService) BuildImageURL(path string, size string) string {
 	if path == "" {
 		return ""
 	}
+	// If already a full URL, return as-is
+	if len(path) > 4 && path[:4] == "http" {
+		return path
+	}
 	return fmt.Sprintf("https://image.tmdb.org/t/p/%s%s", size, path)
+}
+
+// VideoResult represents a video from TMDB
+type VideoResult struct {
+	Key     string `json:"key"`
+	Site    string `json:"site"`
+	Type    string `json:"type"`
+	Official bool  `json:"official"`
+}
+
+// VideosResponse represents TMDB videos response
+type VideosResponse struct {
+	Results []VideoResult `json:"results"`
+}
+
+// GetTrailerURL fetches the trailer URL for a movie/TV show
+func (p *ProviderService) GetTrailerURL(contentID int, mediaType string) string {
+	endpoint := fmt.Sprintf("/%s/%d/videos", mediaType, contentID)
+	body, err := p.makeRequest(endpoint, url.Values{})
+	if err != nil {
+		return ""
+	}
+
+	var response VideosResponse
+	if err := json.Unmarshal(body, &response); err != nil {
+		return ""
+	}
+
+	// Find official trailer or teaser
+	for _, video := range response.Results {
+		if video.Site == "YouTube" && (video.Type == "Trailer" || video.Type == "Teaser") {
+			return fmt.Sprintf("https://www.youtube.com/watch?v=%s", video.Key)
+		}
+	}
+
+	return ""
 }

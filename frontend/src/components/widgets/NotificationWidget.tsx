@@ -169,8 +169,8 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
   const fetchControllerRef = useRef<AbortController | null>(null);
   const cacheRef = useRef<{ data: EnhancedNotification[]; timestamp: number } | null>(null);
   const refreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const CACHE_TTL = 7 * 60 * 1000; // 7 minutes cache for notifications (between 5-10 minutes)
-  const REFRESH_INTERVAL = 8 * 60 * 1000; // 8 minutes refresh interval
+  const CACHE_TTL = 5 * 60 * 1000; // 5 minutes cache for notifications
+  const REFRESH_INTERVAL = 10 * 60 * 1000; // 10 minutes refresh interval
   const STORAGE_KEY = 'homeflix_notifications_cache';
 
   // Helper function to clear expired cache
@@ -324,93 +324,94 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
     }
   }, [layoutVariant]);
 
-  // Create sample notifications when API doesn't return any
-  const createSampleNotifications = useCallback(async (): Promise<Notification[]> => {
-    try {
-      // Try to fetch some movies from the local API to create realistic notifications
-      const response = await fetch(`${apiUrl}/api/media/movies?limit=10`);
-      if (response.ok) {
-        const movies = await response.json();
-        if (movies.length > 0) {
-          return [
-            // Movie recommendation with multiple movies
-            {
-              id: 'sample_recommendations',
-              type: 'movie_suggestion',
-              title: 'Recommended Movies for You',
-              message: 'Based on your watch history, you might enjoy these!',
-              timestamp: Date.now() / 1000 - 1800,
-              movie_ids: movies.slice(0, 6).map((m: any) => m.id),
-              tmdb_ids: movies.slice(0, 6).map((m: any) => m.tmdb_id).filter(Boolean),
-              read: false
-            },
-            // Single trending movie
-            {
-              id: 'sample_trending',
-              type: 'tmdb_now_playing',
-              title: 'Trending Now',
-              message: 'This movie is getting amazing reviews!',
-              timestamp: Date.now() / 1000 - 3600,
-              tmdb_ids: [550], // Fight Club as example
-              read: false
-            },
-            // Coming soon
-            {
-              id: 'sample_upcoming',
-              type: 'tmdb_upcoming',
-              title: 'Coming Soon',
-              message: 'Get ready for this upcoming blockbuster!',
-              timestamp: Date.now() / 1000 - 7200,
-              tmdb_ids: [1003579], // Avatar: Fire and Ash
-              read: false
-            }
-          ];
-        }
-      }
-    } catch (error) {
-      // Could not fetch movies for sample notifications
-    }
-
-    // Fallback sample notifications with real TMDB IDs
+  // Lightweight sample notifications - no API calls
+  const createSampleNotifications = useCallback((): Notification[] => {
     return [
       {
-        id: 'sample_1',
+        id: 'sample_trending',
         type: 'tmdb_trending',
         title: 'Trending Worldwide',
         message: 'These movies are breaking records and getting amazing reviews!',
         timestamp: Date.now() / 1000 - 1800,
-        tmdb_ids: [550, 13, 680], // Multiple trending movies
+        tmdb_ids: [550, 13, 680],
         read: false
       },
       {
-        id: 'sample_2',
+        id: 'sample_suggestion',
         type: 'single_movie_suggestion',
         title: 'Perfect Match for You',
         message: 'Based on your viewing history, this movie is exactly what you need.',
         timestamp: Date.now() / 1000 - 3600,
-        tmdb_ids: [155], // The Dark Knight
+        tmdb_ids: [155],
         read: false
       },
       {
-        id: 'sample_3',
+        id: 'sample_upcoming',
         type: 'tmdb_upcoming',
-        title: 'Coming Soon to Theaters',
+        title: 'Coming Soon',
         message: 'Get ready for these highly anticipated blockbusters!',
         timestamp: Date.now() / 1000 - 7200,
-        tmdb_ids: [1003579, 1022789], // Multiple upcoming movies
-        read: false
-      },
-      {
-        id: 'sample_4',
-        type: 'tmdb_now_airing_tv',
-        title: 'Now Airing',
-        message: 'These popular series are currently airing new episodes!',
-        timestamp: Date.now() / 1000 - 10800,
-        tmdb_ids: [1399, 94605], // Game of Thrones, Arcane
+        tmdb_ids: [1003579],
         read: false
       }
     ];
-  }, [apiUrl]);
+  }, []);
+
+  const enhanceNotifications = (notifications: Notification[]): EnhancedNotification[] => {
+    return notifications.map(notification => {
+      let priority: 'high' | 'medium' | 'low' = 'medium';
+      let category: 'trending' | 'new' | 'recommended' | 'watchlist' = 'new';
+
+      const hoursSinceCreated = (Date.now() / 1000 - notification.timestamp) / 3600;
+
+      switch (notification.type) {
+        case 'tmdb_now_playing':
+        case 'tmdb_trending':
+        case 'tmdb_now_airing_tv':
+        case 'local_trending':
+          priority = hoursSinceCreated < 24 ? 'high' : 'medium';
+          category = 'trending';
+          break;
+        case 'tmdb_upcoming':
+        case 'tmdb_upcoming_tv':
+        case 'tmdb_coming_soon':
+          priority = 'medium';
+          category = 'new';
+          break;
+        case 'movie_suggestion':
+        case 'single_movie_suggestion':
+        case 'genre_based':
+          priority = 'medium';
+          category = 'recommended';
+          break;
+        case 'watch_again':
+        case 'continue_watching':
+          priority = 'low';
+          category = 'watchlist';
+          break;
+        case 'new_episodes':
+        case 'new_movies':
+        case 'recently_added':
+          priority = hoursSinceCreated < 12 ? 'high' : 'medium';
+          category = 'new';
+          break;
+        case 'download_complete':
+          priority = 'low';
+          category = 'new';
+          break;
+        default:
+          priority = 'medium';
+          category = 'new';
+      }
+
+      return {
+        ...notification,
+        priority,
+        category,
+        enhanced_data: {}
+      };
+    });
+  };
 
   const fetchNotifications = useCallback(async () => {
     // Check cache first for instant load
@@ -435,95 +436,127 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
         setIsRefreshing(true);
       }
 
-      const response = await fetch(
-        `${apiUrl}/api/notifications?limit=${widget.maxItems || 10}`,
-        {
+      const response = await Promise.race([
+        fetch(`${apiUrl}/api/notifications?limit=${widget.maxItems || 10}`, {
           signal: fetchControllerRef.current.signal,
           headers: { 'Content-Type': 'application/json' }
-        }
-      );
+        }),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Request timeout')), 5000)
+        )
+      ]) as Response;
 
       if (response.ok) {
         const data = await response.json();
         let filteredNotifications = filterNotifications(data.notifications || []);
 
-        if (filteredNotifications.length === 0) {
-          // Fallback to samples if no real notifications
-          const samples = await createSampleNotifications();
+        // Only use samples if API returns empty AND we have no cached data
+        if (filteredNotifications.length === 0 && (!cacheRef.current || cacheRef.current.data.length === 0)) {
+          const samples = createSampleNotifications();
           filteredNotifications = filterNotifications(samples);
         }
 
         if (filteredNotifications.length > 0) {
-          filteredNotifications = await enhanceNotifications(filteredNotifications);
+          const enhancedNotifications = enhanceNotifications(filteredNotifications);
 
-          filteredNotifications.sort((a, b) => {
+          enhancedNotifications.sort((a, b) => {
             const priorityOrder: Record<string, number> = { high: 3, medium: 2, low: 1 };
-            const aPriority = priorityOrder[(a as EnhancedNotification).priority || 'medium'];
-            const bPriority = priorityOrder[(b as EnhancedNotification).priority || 'medium'];
+            const aPriority = priorityOrder[a.priority || 'medium'];
+            const bPriority = priorityOrder[b.priority || 'medium'];
 
             if (aPriority !== bPriority) return bPriority - aPriority;
             return b.timestamp - a.timestamp;
           });
 
           // Cache the results with current timestamp
-          const cacheData = { data: filteredNotifications, timestamp: Date.now() };
+          const cacheData = { data: enhancedNotifications, timestamp: Date.now() };
           cacheRef.current = cacheData;
           
-          // Also save to localStorage for persistence across sessions
-          if (typeof window !== 'undefined') {
-            try {
-              localStorage.setItem(STORAGE_KEY, JSON.stringify(cacheData));
-            } catch (error) {
-              // localStorage might be full or disabled, ignore
-            }
+          // Non-blocking localStorage save
+          if (typeof requestIdleCallback !== 'undefined') {
+            requestIdleCallback(() => {
+              try {
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(cacheData));
+              } catch (error) {
+                // localStorage might be full or disabled, ignore
+              }
+            });
+          } else {
+            setTimeout(() => {
+              try {
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(cacheData));
+              } catch (error) {
+                // localStorage might be full or disabled, ignore
+              }
+            }, 0);
           }
           
-          setNotifications(filteredNotifications);
+          setNotifications(enhancedNotifications);
         } else {
           setNotifications([]);
         }
       } else {
-        // API Error fallback - only use samples if we don't have cached data
-        if (!cacheRef.current || cacheRef.current.data.length === 0) {
-          const samples = await createSampleNotifications();
-          const processed = await enhanceNotifications(filterNotifications(samples));
+        // API Error - keep using cached data if available
+        if (cacheRef.current && cacheRef.current.data.length > 0) {
+          console.log('API error, using cached data');
+          setNotifications(cacheRef.current.data);
+        } else {
+          // Only show samples as last resort
+          console.log('No cache available, showing samples');
+          const samples = createSampleNotifications();
+          const processed = enhanceNotifications(filterNotifications(samples));
           setNotifications(processed);
         }
-        // If we have cached data, keep using it even if API fails
       }
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') {
-        return; // Request was aborted, ignore
+        return;
       }
 
-      // Error fallback - only use samples if we don't have cached data
-      if (!cacheRef.current || cacheRef.current.data.length === 0) {
-        const samples = await createSampleNotifications();
-        const processed = await enhanceNotifications(filterNotifications(samples));
+      console.error('Notification fetch error:', error);
+      
+      // Error fallback - prefer cached data over samples
+      if (cacheRef.current && cacheRef.current.data.length > 0) {
+        console.log('Error occurred, using cached data');
+        setNotifications(cacheRef.current.data);
+      } else {
+        console.log('No cache available after error, showing samples');
+        const samples = createSampleNotifications();
+        const processed = enhanceNotifications(filterNotifications(samples));
         setNotifications(processed);
       }
-      // If we have cached data, keep using it even if there's an error
     } finally {
       setLoading(false);
       setIsRefreshing(false);
     }
   }, [apiUrl, widget.maxItems, createSampleNotifications, notifications.length]);
 
-  // Load YouTube IFrame API
+  // Load YouTube IFrame API asynchronously and non-blocking
   useEffect(() => {
     if (window.YT && window.YT.Player) {
       setYtReady(true);
       return;
     }
 
-    const tag = document.createElement('script');
-    tag.src = 'https://www.youtube.com/iframe_api';
-    const firstScriptTag = document.getElementsByTagName('script')[0];
-    firstScriptTag.parentNode?.insertBefore(tag, firstScriptTag);
+    // Use requestIdleCallback for non-blocking script loading
+    const loadYouTubeAPI = () => {
+      const tag = document.createElement('script');
+      tag.src = 'https://www.youtube.com/iframe_api';
+      tag.async = true;
+      tag.defer = true;
+      const firstScriptTag = document.getElementsByTagName('script')[0];
+      firstScriptTag.parentNode?.insertBefore(tag, firstScriptTag);
 
-    window.onYouTubeIframeAPIReady = () => {
-      setYtReady(true);
+      window.onYouTubeIframeAPIReady = () => {
+        setYtReady(true);
+      };
     };
+
+    if (typeof requestIdleCallback !== 'undefined') {
+      requestIdleCallback(loadYouTubeAPI, { timeout: 2000 });
+    } else {
+      setTimeout(loadYouTubeAPI, 100);
+    }
   }, []);
 
   // Extract YouTube video key from URL
@@ -679,68 +712,6 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
       }
     }
   }, [isMuted]);
-
-  const enhanceNotifications = async (notifications: Notification[]): Promise<EnhancedNotification[]> => {
-    return notifications.map(notification => {
-      let priority: 'high' | 'medium' | 'low' = 'medium';
-      let category: 'trending' | 'new' | 'recommended' | 'watchlist' = 'new';
-
-      const hoursSinceCreated = (Date.now() / 1000 - notification.timestamp) / 3600;
-
-      switch (notification.type) {
-        // High Priority - Trending
-        case 'tmdb_now_playing':
-        case 'tmdb_trending':
-        case 'tmdb_now_airing_tv':
-        case 'local_trending':
-          priority = hoursSinceCreated < 24 ? 'high' : 'medium';
-          category = 'trending';
-          break;
-        // Medium Priority - Coming Soon
-        case 'tmdb_upcoming':
-        case 'tmdb_upcoming_tv':
-        case 'tmdb_coming_soon':
-          priority = 'medium';
-          category = 'new';
-          break;
-        // Medium Priority - Recommendations
-        case 'movie_suggestion':
-        case 'single_movie_suggestion':
-        case 'genre_based':
-          priority = 'medium';
-          category = 'recommended';
-          break;
-        // Low Priority - Watch Again
-        case 'watch_again':
-        case 'continue_watching':
-          priority = 'low';
-          category = 'watchlist';
-          break;
-        // High Priority - New Content
-        case 'new_episodes':
-        case 'new_movies':
-        case 'recently_added':
-          priority = hoursSinceCreated < 12 ? 'high' : 'medium';
-          category = 'new';
-          break;
-        // Low Priority - System
-        case 'download_complete':
-          priority = 'low';
-          category = 'new';
-          break;
-        default:
-          priority = 'medium';
-          category = 'new';
-      }
-
-      return {
-        ...notification,
-        priority,
-        category,
-        enhanced_data: {}
-      };
-    });
-  };
 
   const filterNotifications = (notifications: Notification[]) => {
     if (!config.notificationTypes || config.notificationTypes.length === 0) {

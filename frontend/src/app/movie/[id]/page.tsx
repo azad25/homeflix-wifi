@@ -959,6 +959,33 @@ export default function MoviePage() {
     }
   }, [media, loading, isPlayerOpen, isShowingTrailer, forceShowBackdrop]);
 
+  // Check if preview is available and show backdrop if not
+  useEffect(() => {
+    if (!media || loading || isPlayerOpen || isShowingTrailer) return;
+
+    const videoUrl = getBackgroundVideoUrl(media);
+    const hasPreview = videoUrl && (
+      videoUrl.includes('/api/preview-clips/') || 
+      (media?.preview_clip_path && media.preview_clip_path.trim()) ||
+      (media?.trailer_path && media.trailer_path.trim())
+    );
+
+    if (!hasPreview) {
+      console.log('🎬 No preview available, checking for trailer fallback');
+      // No preview available - try trailer fallback or show backdrop
+      if (media?.tmdb_trailer_url && extractYouTubeKey(media.tmdb_trailer_url)) {
+        console.log('🎬 Using trailer fallback');
+        setUseYouTubeFallback(true);
+        setForceShowBackdrop(false);
+      } else {
+        console.log('🎬 No trailer available, showing backdrop');
+        setForceShowBackdrop(true);
+        setIsVideoLoaded(false);
+        setIsVideoPlaying(false);
+      }
+    }
+  }, [media, loading, isPlayerOpen, isShowingTrailer, extractYouTubeKey]);
+
   // Note: Removed duplicate video play effect - video already plays via onLoadedData and onCanPlay handlers
 
   // Cookie-based playback progress management
@@ -1718,6 +1745,32 @@ export default function MoviePage() {
     }
   };
 
+  // Helper function to check if all video sources have failed and trigger fallback
+  const checkAllSourcesFailed = useCallback((videoElement: HTMLVideoElement | null, mediaItem: Media) => {
+    if (!videoElement) return;
+    
+    const sources = Array.from(videoElement.querySelectorAll('source'));
+    const activeSources = sources.filter(s => s.style.display !== 'none');
+    
+    if (activeSources.length === 0) {
+      // All sources have failed, try trailer fallback
+      setTimeout(() => {
+        if (mediaItem?.tmdb_trailer_url && extractYouTubeKey(mediaItem.tmdb_trailer_url)) {
+          console.log('🎬 All movie preview sources failed, switching to trailer fallback');
+          setUseYouTubeFallback(true);
+          setIsVideoLoaded(false);
+          setIsVideoPlaying(false);
+          setForceShowBackdrop(false);
+        } else {
+          console.log('🎬 No trailer available, showing backdrop');
+          setForceShowBackdrop(true);
+          setIsVideoLoaded(false);
+          setIsVideoPlaying(false);
+        }
+      }, 100);
+    }
+  }, [extractYouTubeKey]);
+
   const formatRuntime = (minutes: number) => {
     if (!minutes || minutes <= 0) return '';
     const hours = Math.floor(minutes / 60);
@@ -2268,23 +2321,22 @@ export default function MoviePage() {
           {/* Preview/trailer sources - try preview clips first */}
           {(() => {
             const videoUrl = getBackgroundVideoUrl(media);
-            if (!videoUrl) {
-              // No video sources available - try trailer fallback
-              setTimeout(() => {
-                if (media?.tmdb_trailer_url && extractYouTubeKey(media.tmdb_trailer_url)) {
-                  console.log('🎬 No preview available, using trailer fallback');
-                  setUseYouTubeFallback(true);
-                  setForceShowBackdrop(false);
-                } else {
-                  console.log('🎬 No video sources available, showing backdrop');
-                  setForceShowBackdrop(true);
-                  setIsVideoLoaded(false);
-                  setIsVideoPlaying(false);
-                }
-              }, 100);
+            
+            // Check if preview is actually available
+            const hasPreview = videoUrl && (
+              videoUrl.includes('/api/preview-clips/') || 
+              (media?.preview_clip_path && media.preview_clip_path.trim()) ||
+              (media?.trailer_path && media.trailer_path.trim())
+            );
+
+            // If no preview, don't render any sources - this will trigger onError
+            if (!hasPreview) {
+              console.log('🎬 No preview available for media:', media.id);
               return null;
             }
 
+            // Preview is available - try to load it
+            console.log('🎬 Loading preview for media:', media.id, 'URL:', videoUrl);
             return (
               <>
                 {/* Primary source: Preview clips with high quality */}
@@ -2294,6 +2346,7 @@ export default function MoviePage() {
                   onError={(e) => {
                     console.warn('High quality preview clip failed to load');
                     e.currentTarget.style.display = 'none';
+                    checkAllSourcesFailed(videoRef.current, media);
                   }}
                 />
                 {/* Secondary source: Preview clips with medium quality */}
@@ -2303,26 +2356,21 @@ export default function MoviePage() {
                   onError={(e) => {
                     console.warn('Medium quality preview clip failed to load');
                     e.currentTarget.style.display = 'none';
+                    checkAllSourcesFailed(videoRef.current, media);
                   }}
                 />
-                {/* Tertiary source: Local trailer/preview file */}
-                <source
-                  src={videoUrl}
-                  type="video/mp4"
-                  onError={(e) => {
-                    console.warn('Local video source failed to load');
-                    e.currentTarget.style.display = 'none';
-                  }}
-                />
-                {/* Final fallback: Asset URL */}
-                <source
-                  src={getAssetUrl('preview', media.id, false) as string}
-                  type="video/mp4"
-                  onError={(e) => {
-                    console.warn('Asset preview source failed to load - will try trailer fallback');
-                    e.currentTarget.style.display = 'none';
-                  }}
-                />
+                {/* Tertiary source: Local trailer/preview file only if it's not an API endpoint */}
+                {videoUrl && !videoUrl.includes('/api/preview-clips/') && (
+                  <source
+                    src={videoUrl}
+                    type="video/mp4"
+                    onError={(e) => {
+                      console.warn('Local video source failed to load');
+                      e.currentTarget.style.display = 'none';
+                      checkAllSourcesFailed(videoRef.current, media);
+                    }}
+                  />
+                )}
               </>
             );
           })()}
@@ -2609,34 +2657,6 @@ export default function MoviePage() {
 
         {/* Minimal overlay for text readability only */}
         <div className="absolute bottom-0 left-0 right-0 h-1/2 bg-gradient-to-t from-black/80 to-transparent z-[10] pointer-events-none" />
-
-        {/* Volume Control - Only show when background video is playing and NOT showing trailer */}
-        {!isShowingTrailer && (!isVideoPlaying || isMuted) && (
-          <motion.div
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ delay: 0.5, duration: 0.4 }}
-            className="absolute top-6 right-6 z-30"
-          >
-            <div className="group relative">
-              <button
-                onClick={() => {
-                  const video = videoRef.current;
-                  if (video) {
-                    video.muted = !video.muted;
-                    setIsMuted(video.muted);
-                  }
-                }}
-                className="group p-3 rounded-full bg-black/40 backdrop-blur-md border border-white/20 hover:bg-black/60 hover:border-white/40 transition-all duration-200 hover:scale-110"
-              >
-                {isMuted ? <VolumeX className="w-5 h-5 text-white/80 group-hover:text-white transition-colors" /> : <Volume2 className="w-5 h-5 text-white/80 group-hover:text-white transition-colors" />}
-              </button>
-              <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 px-2 py-1 bg-black/90 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
-                {isMuted ? "Unmute" : "Mute"}
-              </div>
-            </div>
-          </motion.div>
-        )}
 
         {/* Hero Content - Left Aligned with Poster */}
         <div className="absolute inset-0 z-[20] flex items-center justify-start p-8 pl-16 pointer-events-auto">

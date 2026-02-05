@@ -2,11 +2,11 @@
 
 Transform your media collection into a professional streaming platform! HomeFlix is a full-featured streaming platform that automatically organizes and streams your movies and TV shows with a beautiful, responsive interface. Search movies from directly TMDB and get updated on new movies or tv shows, trailers.
 
-## 🎉 **NEW in Version 4.0
+## 🎉 **NEW in Version 4.0: Providers,Live Notifications Feed
 
-!![Widget System Interface](/screenshots/preview_widgets.png)
-!![Notification Interface](/screenshots/preview_notification.png)
-!![OTT providers Interface](/screenshots/preview_provider.png)
+![Widget System Interface](/screenshots/preview_widgets.png)
+![Notification Interface](/screenshots/preview_notification.png)
+![OTT providers Interface](/screenshots/preview_provider.png)
 
 ## 🎉 **NEW in Version 3.5-Stable: Live Notification Feed!**
 

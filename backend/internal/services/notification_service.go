@@ -1943,13 +1943,13 @@ func (ns *NotificationService) GetNotifications(limit int) ([]Notification, erro
 			continue
 		}
 
-		// Enhance notification with detailed data
-		enhancedNotification := ns.enhanceNotificationWithData(notification)
+		// Notifications are already enhanced when created, no need to enhance again
+		// This significantly improves API response time
 
 		if ns.isLocalNotification(notification.Type) {
-			localNotifications = append(localNotifications, enhancedNotification)
+			localNotifications = append(localNotifications, notification)
 		} else {
-			tmdbNotifications = append(tmdbNotifications, enhancedNotification)
+			tmdbNotifications = append(tmdbNotifications, notification)
 		}
 	}
 
