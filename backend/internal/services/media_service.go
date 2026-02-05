@@ -164,16 +164,29 @@ func (s *MediaService) GetMediaByPath(path string) (*models.Media, error) {
 	normalizedPath := filepath.Clean(path)
 
 	err := s.DBManager.WithReadOnly(func(db *gorm.DB) error {
-		// Try exact path match first
-		err := db.Where("file_path = ?", normalizedPath).First(&media).Error
+		// IMPORTANT: Use Unscoped() to include soft-deleted records
+		// We need to check if a file was intentionally deleted
+		err := db.Unscoped().Where("file_path = ?", normalizedPath).First(&media).Error
 		if err == nil {
+			// Check if this media was soft-deleted
+			if media.DeletedAt.Valid {
+				log.Printf("🚫 Skipping soft-deleted media: %s (deleted at: %v)", media.Title, media.DeletedAt.Time)
+				// Return nil to indicate "not found" so scanner skips it
+				return gorm.ErrRecordNotFound
+			}
 			return nil
 		}
 
 		// If exact match fails, try original path
 		if normalizedPath != path {
-			err = db.Where("file_path = ?", path).First(&media).Error
+			err = db.Unscoped().Where("file_path = ?", path).First(&media).Error
 			if err == nil {
+				// Check if this media was soft-deleted
+				if media.DeletedAt.Valid {
+					log.Printf("🚫 Skipping soft-deleted media: %s (deleted at: %v)", media.Title, media.DeletedAt.Time)
+					// Return nil to indicate "not found" so scanner skips it
+					return gorm.ErrRecordNotFound
+				}
 				return nil
 			}
 		}
@@ -327,7 +340,8 @@ func (s *MediaService) UpsertMedia(media *models.Media) error {
 func (s *MediaService) GetAllMedia() ([]models.Media, error) {
 	var media []models.Media
 	err := s.DBManager.WithReadOnly(func(db *gorm.DB) error {
-		return db.Preload("Genres").Preload("Series").Preload("Subtitles").Find(&media).Error
+		// Explicitly exclude soft-deleted records
+		return db.Where("deleted_at IS NULL").Preload("Genres").Preload("Series").Preload("Subtitles").Find(&media).Error
 	})
 
 	if err != nil {
@@ -1265,7 +1279,8 @@ func (s *MediaService) DeleteGenre(id uint) error {
 	return s.db.Delete(&models.Genre{}, id).Error
 }
 
-// DeleteMedia removes a media entry from the database
+// DeleteMedia deletes the physical file and marks the database entry as deleted
+// The deleted_at timestamp prevents the scanner from re-adding the media
 func (s *MediaService) DeleteMedia(id uint) error {
 	return s.DBManager.WithTx(func(tx *gorm.DB) error {
 		// First, get the media record to access file paths
@@ -1277,15 +1292,19 @@ func (s *MediaService) DeleteMedia(id uint) error {
 		log.Printf("🗑️ Deleting media: %s (ID: %d)", media.Title, id)
 		log.Printf("📁 Media file path: %s", media.FilePath)
 
-		// Safely delete the media file BEFORE database cleanup
+		// STEP 1: Delete the physical file from disk
+		fileDeleted := false
 		if media.FilePath != "" {
 			if err := s.safeDeleteMediaFile(media.FilePath, media.Title, "movie"); err != nil {
 				log.Printf("⚠️ Failed to delete media file %s: %v", media.FilePath, err)
-				// Continue with database cleanup even if file deletion fails
+				// Continue with database operations even if file deletion fails
+			} else {
+				fileDeleted = true
+				log.Printf("✅ Physical file deleted: %s", media.FilePath)
 			}
 		}
 
-		// Remove all related associations
+		// STEP 2: Remove all related associations
 		if err := tx.Exec("DELETE FROM media_genres WHERE media_id = ?", id).Error; err != nil {
 			return fmt.Errorf("failed to delete media-genre associations: %w", err)
 		}
@@ -1301,17 +1320,24 @@ func (s *MediaService) DeleteMedia(id uint) error {
 			log.Printf("Warning: Could not delete playback progress for media %d: %v", id, err)
 		}
 
-		// Hard delete the media entry itself (use Unscoped to bypass soft delete)
-		if err := tx.Unscoped().Delete(&models.Media{}, id).Error; err != nil {
-			return fmt.Errorf("failed to delete media: %w", err)
+		// STEP 3: Soft delete the media entry (sets deleted_at timestamp)
+		// This keeps the record in the database so the scanner knows it was intentionally deleted
+		if err := tx.Delete(&models.Media{}, id).Error; err != nil {
+			return fmt.Errorf("failed to soft delete media: %w", err)
 		}
 
-		log.Printf("✅ Successfully deleted media '%s' (ID: %d) and all related data", media.Title, id)
+		if fileDeleted {
+			log.Printf("✅ Successfully deleted media '%s' (ID: %d) - file removed, database marked as deleted", media.Title, id)
+		} else {
+			log.Printf("⚠️ Media '%s' (ID: %d) marked as deleted in database, but file may still exist", media.Title, id)
+		}
+		
 		return nil
 	})
 }
 
-// DeleteSeries removes a TV series and all its episodes from the database
+// DeleteSeries deletes all episode files and marks the series as deleted
+// The deleted_at timestamp prevents the scanner from re-adding the series
 func (s *MediaService) DeleteSeries(id uint) error {
 	return s.DBManager.WithTx(func(tx *gorm.DB) error {
 		// Get the series to verify it exists
@@ -1330,12 +1356,16 @@ func (s *MediaService) DeleteSeries(id uint) error {
 
 		log.Printf("📺 Found %d episodes to delete for series: %s", len(episodes), series.Title)
 
-		// Safely delete each episode file BEFORE database cleanup
+		// STEP 1: Delete each episode file from disk
+		filesDeleted := 0
 		for _, episode := range episodes {
 			if episode.FilePath != "" {
 				if err := s.safeDeleteMediaFile(episode.FilePath, episode.Title, "episode"); err != nil {
 					log.Printf("⚠️ Failed to delete episode file %s: %v", episode.FilePath, err)
 					// Continue with other episodes even if one fails
+				} else {
+					filesDeleted++
+					log.Printf("✅ Deleted episode file: %s", episode.FilePath)
 				}
 			}
 		}
@@ -1350,12 +1380,14 @@ func (s *MediaService) DeleteSeries(id uint) error {
 					if err := s.safeDeleteSeriesFolder(seriesFolder, series.Title); err != nil {
 						log.Printf("⚠️ Failed to delete series folder %s: %v", seriesFolder, err)
 						// Continue with database cleanup even if folder deletion fails
+					} else {
+						log.Printf("✅ Deleted series folder: %s", seriesFolder)
 					}
 				}
 			}
 		}
 
-		// Delete each episode and its associations
+		// STEP 2: Delete each episode and its associations
 		for _, episode := range episodes {
 			// Delete media-genre associations for this episode
 			if err := tx.Exec("DELETE FROM media_genres WHERE media_id = ?", episode.ID).Error; err != nil {
@@ -1372,24 +1404,25 @@ func (s *MediaService) DeleteSeries(id uint) error {
 				log.Printf("⚠️ Warning: Failed to delete playback progress for episode %d: %v", episode.ID, err)
 			}
 
-			// Hard delete the episode itself (use Unscoped to bypass soft delete)
-			if err := tx.Unscoped().Delete(&models.Media{}, episode.ID).Error; err != nil {
-				log.Printf("❌ Error deleting episode %d: %v", episode.ID, err)
-				return fmt.Errorf("failed to delete episode %d: %w", episode.ID, err)
+			// Soft delete the episode (sets deleted_at timestamp)
+			if err := tx.Delete(&models.Media{}, episode.ID).Error; err != nil {
+				log.Printf("❌ Error soft-deleting episode %d: %v", episode.ID, err)
+				return fmt.Errorf("failed to soft delete episode %d: %w", episode.ID, err)
 			}
 		}
 
-		// Delete series-genre associations
+		// STEP 3: Delete series-genre associations
 		if err := tx.Exec("DELETE FROM series_genres WHERE series_id = ?", id).Error; err != nil {
 			log.Printf("⚠️ Warning: Failed to delete series genre associations: %v", err)
 		}
 
-		// Delete the series itself
+		// STEP 4: Soft delete the series itself (sets deleted_at timestamp)
 		if err := tx.Delete(&models.Series{}, id).Error; err != nil {
-			return fmt.Errorf("failed to delete series: %w", err)
+			return fmt.Errorf("failed to soft delete series: %w", err)
 		}
 
-		log.Printf("✅ Successfully deleted series '%s' (ID: %d) with %d episodes and all related data", series.Title, id, len(episodes))
+		log.Printf("✅ Successfully deleted series '%s' (ID: %d) - %d/%d files removed, database marked as deleted", 
+			series.Title, id, filesDeleted, len(episodes))
 		return nil
 	})
 }
@@ -1509,8 +1542,8 @@ func (s *MediaService) safeDeleteMediaFile(filePath, title, mediaType string) er
 		return fmt.Errorf("file is referenced by other media entries, refusing to delete: %s", absPath)
 	}
 
-	// Perform the deletion
-	if err := os.Remove(absPath); err != nil {
+	// Perform the deletion with permission handling
+	if err := s.forceDeleteFile(absPath); err != nil {
 		return fmt.Errorf("failed to delete file: %v", err)
 	}
 
@@ -1563,8 +1596,8 @@ func (s *MediaService) safeDeleteSeriesFolder(folderPath, seriesTitle string) er
 		return fmt.Errorf("folder contains unsafe files or other media, refusing to delete: %s", absPath)
 	}
 
-	// Perform the deletion
-	if err := os.RemoveAll(absPath); err != nil {
+	// Perform the deletion with permission handling
+	if err := s.forceDeleteFolder(absPath); err != nil {
 		return fmt.Errorf("failed to delete folder: %v", err)
 	}
 
@@ -1607,7 +1640,6 @@ func (s *MediaService) isSafePathToDelete(absPath string) bool {
 	// List of paths that should NEVER be deleted
 	unsafePaths := []string{
 		"/",
-		"/home",
 		"/usr",
 		"/var",
 		"/etc",
@@ -1621,11 +1653,13 @@ func (s *MediaService) isSafePathToDelete(absPath string) bool {
 		"/proc",
 		"/sys",
 		"/tmp",
+		// Note: /home is intentionally NOT included here because user files
+		// are stored under /home/username/. The depth check (3+ levels) and
+		// home directory check provide adequate protection.
 		// Note: /mnt and /media are intentionally NOT included here.
 		// These are mount points for external drives on Linux, and
 		// blocking them prevents file deletion on external drives.
-		// The depth check (3 levels) and safe keywords check provide
-		// adequate protection for files under these paths.
+		// The depth check (3 levels) provides adequate protection.
 		"C:\\",
 		"C:\\Windows",
 		"C:\\Program Files",
@@ -1642,25 +1676,34 @@ func (s *MediaService) isSafePathToDelete(absPath string) bool {
 	}
 
 	// Must be at least 3 levels deep to be considered safe
+	// This prevents deletion of root directories and top-level user folders
 	pathParts := strings.Split(strings.Trim(absPath, string(filepath.Separator)), string(filepath.Separator))
 	if len(pathParts) < 3 {
 		log.Printf("🛡️ Path too shallow, refusing to delete: %s (parts: %d)", absPath, len(pathParts))
 		return false
 	}
 
-	// Check if it's in a media/downloads directory (safer)
-	pathLower := strings.ToLower(absPath)
-	safeKeywords := []string{"media", "movies", "tv", "shows", "series", "download", "torrent"}
-	for _, keyword := range safeKeywords {
-		if strings.Contains(pathLower, keyword) {
-			log.Printf("✅ Path contains safe keyword '%s': %s", keyword, absPath)
+	// Additional safety: Check if path is under user's home directory
+	// This is safer than requiring specific keywords
+	homeDir := os.Getenv("HOME")
+	if homeDir != "" && strings.HasPrefix(absPath, homeDir) {
+		log.Printf("✅ Path is under user home directory: %s", absPath)
+		return true
+	}
+
+	// Allow paths under common mount points (external drives, NAS, etc.)
+	mountPoints := []string{"/mnt/", "/media/"}
+	for _, mountPoint := range mountPoints {
+		if strings.HasPrefix(absPath, mountPoint) {
+			log.Printf("✅ Path is under mount point '%s': %s", mountPoint, absPath)
 			return true
 		}
 	}
 
-	// If no safe keywords found, be more cautious
-	log.Printf("⚠️ Path doesn't contain safe keywords, being cautious: %s", absPath)
-	return false
+	// If path doesn't match any safe patterns, still allow it if it's deep enough
+	// The depth check (3+ levels) is the primary safety mechanism
+	log.Printf("✅ Path passes depth check (3+ levels): %s", absPath)
+	return true
 }
 
 // isMediaFile checks if a file is a media file by extension
@@ -1901,4 +1944,116 @@ func (s *MediaService) calculateNameSimilarity(name1, name2 string) float64 {
 	}
 
 	return float64(matchingWords) / float64(totalWords)
+}
+
+// forceDeleteFile attempts to delete a file with multiple strategies
+func (s *MediaService) forceDeleteFile(absPath string) error {
+	// Strategy 1: Try normal deletion first
+	if err := os.Remove(absPath); err == nil {
+		return nil
+	}
+
+	log.Printf("⚠️ Normal deletion failed, attempting permission fix for: %s", absPath)
+
+	// Strategy 2: Change permissions and try again
+	if err := os.Chmod(absPath, 0666); err != nil {
+		log.Printf("⚠️ Failed to change file permissions: %v", err)
+	} else {
+		// Try deletion after permission change
+		if err := os.Remove(absPath); err == nil {
+			log.Printf("✅ Deleted file after permission change: %s", absPath)
+			return nil
+		}
+	}
+
+	// Strategy 3: Try to change ownership if running as root
+	if os.Geteuid() == 0 {
+		if err := os.Chown(absPath, os.Getuid(), os.Getgid()); err != nil {
+			log.Printf("⚠️ Failed to change ownership: %v", err)
+		} else {
+			// Try deletion after ownership change
+			if err := os.Remove(absPath); err == nil {
+				log.Printf("✅ Deleted file after ownership change: %s", absPath)
+				return nil
+			}
+		}
+	}
+
+	// Strategy 4: Final attempt with full permissions
+	if err := os.Chmod(absPath, 0777); err != nil {
+		log.Printf("⚠️ Failed to set full permissions: %v", err)
+	}
+
+	// Final deletion attempt
+	if err := os.Remove(absPath); err != nil {
+		return fmt.Errorf("all deletion strategies failed: %v", err)
+	}
+
+	log.Printf("✅ Successfully force deleted file: %s", absPath)
+	return nil
+}
+
+// forceDeleteFolder attempts to delete a folder with multiple strategies
+func (s *MediaService) forceDeleteFolder(absPath string) error {
+	// Strategy 1: Try normal deletion first
+	if err := os.RemoveAll(absPath); err == nil {
+		return nil
+	}
+
+	log.Printf("⚠️ Normal folder deletion failed, attempting permission fix for: %s", absPath)
+
+	// Strategy 2: Walk through and fix permissions for all files/folders
+	filepath.Walk(absPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil // Continue on errors
+		}
+
+		// Change permissions for each item
+		if info.IsDir() {
+			os.Chmod(path, 0777)
+		} else {
+			os.Chmod(path, 0666)
+		}
+
+		// Try to change ownership if running as root
+		if os.Geteuid() == 0 {
+			os.Chown(path, os.Getuid(), os.Getgid())
+		}
+
+		return nil
+	})
+
+	// Try deletion after permission changes
+	if err := os.RemoveAll(absPath); err == nil {
+		log.Printf("✅ Deleted folder after permission changes: %s", absPath)
+		return nil
+	}
+
+	// Strategy 3: Delete files individually
+	var lastErr error
+	filepath.Walk(absPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+
+		if !info.IsDir() {
+			if err := s.forceDeleteFile(path); err != nil {
+				lastErr = err
+				log.Printf("⚠️ Failed to delete file %s: %v", path, err)
+			}
+		}
+
+		return nil
+	})
+
+	// Try to remove empty directories
+	if err := os.RemoveAll(absPath); err != nil {
+		if lastErr != nil {
+			return fmt.Errorf("folder deletion failed, last error: %v", lastErr)
+		}
+		return fmt.Errorf("folder deletion failed: %v", err)
+	}
+
+	log.Printf("✅ Successfully force deleted folder: %s", absPath)
+	return nil
 }

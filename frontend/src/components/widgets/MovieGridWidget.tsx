@@ -337,12 +337,22 @@ export default function MovieGridWidget({
                                                         {item.year}
                                                     </span>
                                                 )}
-                                                {item.duration && item.duration > 0 && (
-                                                    <span className="flex items-center gap-1">
-                                                        <Clock className="w-3 h-3" />
-                                                        {Math.floor(item.duration / 3600)}h {Math.floor((item.duration % 3600) / 60)}m
-                                                    </span>
-                                                )}
+                                                {(() => {
+                                                    const duration = item.duration || item.runtime || 0;
+                                                    if (duration > 0) {
+                                                        const hours = Math.floor(duration / 3600);
+                                                        const minutes = Math.floor((duration % 3600) / 60);
+                                                        if (hours > 0 || minutes > 0) {
+                                                            return (
+                                                                <span className="flex items-center gap-1">
+                                                                    <Clock className="w-3 h-3" />
+                                                                    {hours > 0 && `${hours}h `}{minutes > 0 && `${minutes}m`}
+                                                                </span>
+                                                            );
+                                                        }
+                                                    }
+                                                    return null;
+                                                })()}
                                             </div>
 
                                             {/* Genres */}

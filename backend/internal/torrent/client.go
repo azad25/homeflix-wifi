@@ -1065,25 +1065,44 @@ func (tc *TorrentClient) RemoveDownloadWithFiles(id string, deleteFiles bool) er
 		return fmt.Errorf("download not found")
 	}
 
-	// Remove torrent from session to free the port
+	// Get the actual torrent path before removing from session
+	var torrentPath string
 	if torrent, exists := tc.torrents[id]; exists {
+		// Get the actual download path
+		torrentPath = tc.getActualTorrentPath(torrent, download.Name)
+		
+		// Remove torrent from session to free the port
 		err := tc.session.RemoveTorrent(torrent.ID())
 		if err != nil {
 			log.Printf("⚠️ Failed to remove torrent from session: %v", err)
 		} else {
-			if deleteFiles {
-				log.Printf("🗑️ Removed torrent from session (port freed): %s", download.Name)
-			} else {
-				log.Printf("🗑️ Removed torrent from session (port freed, files preserved): %s", download.Name)
-			}
+			log.Printf("🗑️ Removed torrent from session (port freed): %s", download.Name)
 		}
 		delete(tc.torrents, id)
+	}
+
+	// Delete files from disk if requested
+	if deleteFiles && torrentPath != "" {
+		log.Printf("🗑️ Deleting files from disk: %s", torrentPath)
+		
+		// Verify the path exists before attempting deletion
+		if _, err := os.Stat(torrentPath); err == nil {
+			// Delete the entire torrent directory
+			if err := os.RemoveAll(torrentPath); err != nil {
+				log.Printf("❌ Failed to delete files: %v", err)
+				// Continue anyway - torrent is already removed from session
+			} else {
+				log.Printf("✅ Successfully deleted files: %s", torrentPath)
+			}
+		} else {
+			log.Printf("⚠️ Torrent path not found, may have been moved: %s", torrentPath)
+		}
 	}
 
 	delete(tc.downloads, id)
 	
 	if deleteFiles {
-		log.Printf("🗑️ Removed torrent (with file deletion): %s", download.Name)
+		log.Printf("🗑️ Removed torrent with file deletion: %s", download.Name)
 	} else {
 		log.Printf("🗑️ Removed torrent (files preserved): %s", download.Name)
 	}

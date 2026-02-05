@@ -540,7 +540,7 @@ const NotificationsPage: React.FC = () => {
     console.log('🎭 24/7 extreme tile distribution:', maxSizes);
 
     for (const notification of shuffled) {
-      if (filledCells >= totalCells * 0.85) break; // Fill to 85% (increased from 75% for better coverage)
+      if (filledCells >= totalCells * 0.80) break; // Leave 20% for aggressive morphing
       if (usedNotificationIds.has(notification.id)) continue;
 
       // Completely random size selection with limits
@@ -593,7 +593,7 @@ const NotificationsPage: React.FC = () => {
     ];
 
     for (const notification of shuffled) {
-      if (filledCells >= totalCells * 0.95) break; // Fill to 95% (increased from 88% for maximum coverage)
+      if (filledCells >= totalCells * 0.95) break; // Fill to 95%
       if (usedNotificationIds.has(notification.id)) continue; // Skip already used
 
       for (const gapSize of gapSizes) {
@@ -664,8 +664,8 @@ const NotificationsPage: React.FC = () => {
     let morphCount = 0;
 
     const scheduleMorph = () => {
-      // Optimized morphing frequency for better performance - 15s-30s range
-      const randomInterval = 15000 + Math.random() * 15000;
+      // Reduced speed by 30% - 6.5-15.6 seconds (was 5-12 seconds)
+      const randomInterval = 6500 + Math.random() * 9100;
 
       morphTimer = setTimeout(() => {
         if (!mountedRef.current) return;
@@ -679,28 +679,17 @@ const NotificationsPage: React.FC = () => {
           // More aggressive morphing for 24/7 operation
           const morphableTiles = currentTiles.filter(tile => {
             const displayTime = now - tile.createdAt;
-
-            // ABSOLUTE protection for playing trailers - WITH TIMEOUT SAFETY
+            
+            // ABSOLUTE protection for playing trailers - NEVER morph during playback
             if (playingTrailers.has(tile.id)) {
-              // SAFETY: If playing for > 120% of duration + buffer, assume stuck and allow swap
-              const maxDuration = (tile.trailerDuration || 60000) + 10000;
-              if (tile.trailerStartTime && (now - tile.trailerStartTime > maxDuration)) {
-                console.warn(`🔓 Force unlocking stuck trailer tile: ${tile.notification.title} (played ${Math.round((now - tile.trailerStartTime) / 1000)}s)`);
-                // Fall through to standard display time check
-              } else {
-                console.log(`   🔒 TRAILER PROTECTED: ${tile.notification.title}`);
-                return false;
-              }
-            }
-
-            // Increased display times by ~40% - 25s for trailer tiles, 12s for others
-            const minDisplayTime = tile.hasTrailer ? 25000 : 12000;
-            
-            // EXTENDED protection for playing trailers/videos - NEVER morph during playback
-            if (tile.isPlayingTrailer || playingTrailers.has(tile.id)) {
-              return false; // Absolutely protected during playback
+              console.log(`   🔒 TRAILER PROTECTED: ${tile.notification.title}`);
+              return false;
             }
             
+            // Use actual trailer duration if available, otherwise default times
+            const minDisplayTime = tile.hasTrailer 
+              ? (tile.trailerDuration || 60000)  // Use trailer's actual duration or 60s default
+              : 10000; // 10s for non-trailer tiles
             return displayTime >= minDisplayTime;
           });
 
@@ -732,7 +721,7 @@ const NotificationsPage: React.FC = () => {
       }, randomInterval);
     };
 
-    // 24/7 Aggressive size morphing - extreme variety with reduced small tiles
+    // 24/7 Aggressive size morphing - extreme variety
     const performAggressiveSizeMorphing = (currentTiles: TileConfig[], morphableTiles: TileConfig[]): TileConfig[] => {
       const newTiles = [...currentTiles];
       const tilesToMorph = Math.min(4, morphableTiles.length); // Morph up to 4 tiles at once
@@ -742,24 +731,12 @@ const NotificationsPage: React.FC = () => {
         const tileIndex = currentTiles.findIndex(t => t.id === tileToMorph.id);
         if (tileIndex === -1) continue;
 
-        // CRITICAL: Skip tiles that are playing trailers - they should NEVER be in morphableTiles but double-check
-        if (tileToMorph.isPlayingTrailer || playingTrailers.has(tileToMorph.id)) {
-          console.warn(`   🚨 SKIPPING TRAILER TILE: ${tileToMorph.notification.title} (should not be morphable!)`);
-          continue;
-        }
-
-        // Weighted size selection - favor larger tiles, reduce small tiles
-        const sizePool: TileConfig['size'][] = [
-          'hero', 'hero',           // 2x hero
-          'large', 'large', 'large', // 3x large
-          'banner', 'banner',        // 2x banner
-          'medium', 'medium', 'medium', 'medium', // 4x medium
-          'small'                    // 1x small (reduced)
-        ];
+        // Random size selection for maximum variety
+        const allSizes: TileConfig['size'][] = ['small', 'medium', 'large', 'banner', 'hero'];
         const currentSize = tileToMorph.size;
 
         // Exclude current size to force change
-        const otherSizes = sizePool.filter(s => s !== currentSize);
+        const otherSizes = allSizes.filter(s => s !== currentSize);
         const newSize = otherSizes[Math.floor(Math.random() * otherSizes.length)];
 
         // Get new dimensions for the target size
@@ -785,20 +762,17 @@ const NotificationsPage: React.FC = () => {
         }
 
         if (newPosition) {
-          // CRITICAL: Preserve tile ID and trailer state to prevent resets
           const morphedTile: TileConfig = {
             ...tileToMorph,
-            // Keep original ID to preserve trailer state tracking
+            // CRITICAL: Preserve ID if tile is playing trailer to prevent remount
+            id: playingTrailers.has(tileToMorph.id) 
+              ? tileToMorph.id 
+              : `tile_${Date.now()}_${tileCounterRef.current++}_${tileToMorph.notification.id}`,
             position: newPosition,
             size: finalSize,
             priority,
             duration,
-            // DON'T reset createdAt if trailer is playing
-            createdAt: tileToMorph.isPlayingTrailer ? tileToMorph.createdAt : Date.now(),
-            // Preserve trailer state
-            isPlayingTrailer: tileToMorph.isPlayingTrailer,
-            trailerStartTime: tileToMorph.trailerStartTime,
-            trailerDuration: tileToMorph.trailerDuration,
+            createdAt: Date.now(),
           };
 
           newTiles[tileIndex] = morphedTile;
@@ -810,7 +784,7 @@ const NotificationsPage: React.FC = () => {
       return newTiles;
     };
 
-    // 24/7 Aggressive content morphing with optimized size variations
+    // 24/7 Aggressive content morphing with extreme size variations
     const performAggressiveContentMorphing = (currentTiles: TileConfig[], morphableTiles: TileConfig[], availableNotifications: EnhancedNotification[]): TileConfig[] => {
       const newTiles = [...currentTiles];
       const tilesToMorph = Math.min(5, morphableTiles.length, availableNotifications.length); // Up to 5 tiles
@@ -826,12 +800,6 @@ const NotificationsPage: React.FC = () => {
 
         if (tileIndex === -1) continue;
 
-        // CRITICAL: Skip tiles that are playing trailers - they should NEVER be in morphableTiles but double-check
-        if (tileToMorph.isPlayingTrailer || playingTrailers.has(tileToMorph.id)) {
-          console.warn(`   🚨 SKIPPING TRAILER TILE: ${tileToMorph.notification.title} (should not be morphable!)`);
-          continue;
-        }
-
         // Prevent duplicates
         const wouldBeDuplicate = newTiles.some((tile, idx) =>
           idx !== tileIndex && tile.notification.id === newNotification.id
@@ -842,15 +810,9 @@ const NotificationsPage: React.FC = () => {
           continue;
         }
 
-        // Weighted size selection - favor larger tiles for better visual appeal
-        const sizePool: TileConfig['size'][] = [
-          'hero', 'hero', 'hero',              // 3x hero (increased)
-          'large', 'large', 'large', 'large',  // 4x large (increased)
-          'banner', 'banner', 'banner',        // 3x banner (increased)
-          'medium', 'medium', 'medium', 'medium', 'medium', // 5x medium
-          'small'                              // 1x small (minimal)
-        ];
-        const targetSize = sizePool[Math.floor(Math.random() * sizePool.length)];
+        // Completely random size selection for extreme variety
+        const allSizes: TileConfig['size'][] = ['small', 'medium', 'large', 'banner', 'hero'];
+        const targetSize = allSizes[Math.floor(Math.random() * allSizes.length)];
 
         const { width, height, priority, duration, hasTrailer } = getTileSize(newNotification, targetSize);
 
@@ -878,9 +840,12 @@ const NotificationsPage: React.FC = () => {
           continue;
         }
 
-        // Create morphed tile - PRESERVE existing tiles in array to avoid gaps
+        // Create morphed tile - PRESERVE ID if playing trailer to prevent remount
         const morphedTile: TileConfig = {
-          id: `tile_${Date.now()}_${tileCounterRef.current++}_${newNotification.id}`,
+          // CRITICAL: Keep same ID if original tile is playing trailer
+          id: playingTrailers.has(tileToMorph.id)
+            ? tileToMorph.id
+            : `tile_${Date.now()}_${tileCounterRef.current++}_${newNotification.id}`,
           notification: newNotification,
           position: newPosition,
           size: finalSize,
@@ -889,7 +854,8 @@ const NotificationsPage: React.FC = () => {
           createdAt: Date.now(),
           hasTrailer,
           trailerDuration: hasTrailer ? 60000 : undefined,
-          isPlayingTrailer: false
+          isPlayingTrailer: playingTrailers.has(tileToMorph.id) ? tileToMorph.isPlayingTrailer : false,
+          trailerStartTime: playingTrailers.has(tileToMorph.id) ? tileToMorph.trailerStartTime : undefined,
         };
 
         newTiles[tileIndex] = morphedTile;
@@ -1005,33 +971,38 @@ const NotificationsPage: React.FC = () => {
         {/* Notification Tiles - Fill entire viewport */}
         <div className="absolute inset-0 z-20">
           <AnimatePresence mode="popLayout">
-            {activeTiles.map((tile, index) => (
-              <motion.div
-                key={tile.id}
-                layout
-                initial={{
-                  opacity: 0,
-                  scale: 0.98
-                }}
-                animate={{
-                  opacity: 1,
-                  scale: 1
-                }}
-                exit={{
-                  opacity: 0,
-                  scale: 0.98,
-                  transition: { duration: 0.2 }
-                }}
-                transition={{
-                  duration: 0.78, // Increased by 30% (was 0.6)
-                  ease: "easeInOut",
-                  delay: index * 0.026, // Increased by 30% (was 0.02)
-                  layout: {
-                    duration: 1.04, // Increased by 30% (was 0.8)
-                    ease: "easeInOut"
-                  }
-                }}
-                className="absolute overflow-hidden rounded-lg shadow-2xl cursor-pointer"
+            {activeTiles.map((tile, index) => {
+              const isPlayingTrailer = playingTrailers.has(tile.id);
+              
+              return (
+                <motion.div
+                  key={tile.id}
+                  layout={!isPlayingTrailer} // CRITICAL: Disable layout animation for playing trailers
+                  initial={{
+                    opacity: 0,
+                    scale: 0.98
+                  }}
+                  animate={{
+                    opacity: 1,
+                    scale: 1
+                  }}
+                  exit={{
+                    opacity: 0,
+                    scale: 0.98,
+                    transition: { duration: 0.2 }
+                  }}
+                  transition={{
+                    duration: 0.78, // Increased by 30% (was 0.6)
+                    ease: "easeInOut",
+                    delay: index * 0.026, // Increased by 30% (was 0.02)
+                    ...(isPlayingTrailer ? {} : {
+                      layout: {
+                        duration: 1.04, // Increased by 30% (was 0.8)
+                        ease: "easeInOut"
+                      }
+                    })
+                  }}
+                  className="absolute overflow-hidden rounded-lg shadow-2xl cursor-pointer"
                 style={{
                   left: `calc(${(tile.position.x / gridDimensions.cols) * 100}% + 2px)`,
                   top: `calc(${(tile.position.y / gridDimensions.rows) * 100}% + 2px)`,
@@ -1046,18 +1017,19 @@ const NotificationsPage: React.FC = () => {
                   overflow: 'hidden',
                   isolation: 'isolate', // Create new stacking context
                 }}
-              >
-                <NotificationTile
-                  notification={tile.notification}
-                  size={tile.size}
-                  className="w-full h-full tile-container"
-                  onTrailerStart={() => handleTrailerStart(tile.id)}
-                  onTrailerEnd={() => handleTrailerEnd(tile.id)}
-                  onTileClick={() => handleTileClick(tile.notification)}
-                  autoPlayAudio={index === 0} // Only first tile gets audio
-                />
-              </motion.div>
-            ))}
+                >
+                  <NotificationTile
+                    notification={tile.notification}
+                    size={tile.size}
+                    className="w-full h-full tile-container"
+                    onTrailerStart={() => handleTrailerStart(tile.id)}
+                    onTrailerEnd={() => handleTrailerEnd(tile.id)}
+                    onTileClick={() => handleTileClick(tile.notification)}
+                    autoPlayAudio={index === 0} // Only first tile gets audio
+                  />
+                </motion.div>
+              );
+            })}
           </AnimatePresence>
         </div>
 

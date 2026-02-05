@@ -3162,6 +3162,26 @@ func (ns *NotificationService) enhanceWithTMDBData(notification *Notification) {
 			notification.PosterURL = fmt.Sprintf("https://image.tmdb.org/t/p/w500%s", tvDetails.PosterPath)
 		}
 
+		// Fetch logo from TMDB images
+		if images, err := ns.tmdbService.GetTVImages(primaryTMDBID); err == nil && images != nil {
+			// Get English logo or first available logo
+			for _, logo := range images.Logos {
+				if logo.FilePath != "" {
+					// Prefer English logos
+					if logo.ISO6391 == "en" || logo.ISO6391 == "" {
+						notification.LogoURL = fmt.Sprintf("https://image.tmdb.org/t/p/w500%s", logo.FilePath)
+						log.Printf("🎨 TMDB TV logo found: %s", notification.LogoURL)
+						break
+					}
+				}
+			}
+			// Fallback to any logo if no English logo found
+			if notification.LogoURL == "" && len(images.Logos) > 0 && images.Logos[0].FilePath != "" {
+				notification.LogoURL = fmt.Sprintf("https://image.tmdb.org/t/p/w500%s", images.Logos[0].FilePath)
+				log.Printf("🎨 TMDB TV logo found (non-English): %s", notification.LogoURL)
+			}
+		}
+
 		notification.Overview = tvDetails.Overview
 		notification.Rating = tvDetails.VoteAverage
 		notification.ReleaseDate = tvDetails.FirstAirDate
@@ -3216,6 +3236,26 @@ func (ns *NotificationService) enhanceWithTMDBData(notification *Notification) {
 
 		if movieDetails.PosterPath != "" && !strings.Contains(movieDetails.PosterPath, "null") {
 			notification.PosterURL = fmt.Sprintf("https://image.tmdb.org/t/p/w500%s", movieDetails.PosterPath)
+		}
+
+		// Fetch logo from TMDB images
+		if images, err := ns.tmdbService.GetMovieImages(primaryTMDBID); err == nil && images != nil {
+			// Get English logo or first available logo
+			for _, logo := range images.Logos {
+				if logo.FilePath != "" {
+					// Prefer English logos
+					if logo.ISO6391 == "en" || logo.ISO6391 == "" {
+						notification.LogoURL = fmt.Sprintf("https://image.tmdb.org/t/p/w500%s", logo.FilePath)
+						log.Printf("🎨 TMDB movie logo found: %s", notification.LogoURL)
+						break
+					}
+				}
+			}
+			// Fallback to any logo if no English logo found
+			if notification.LogoURL == "" && len(images.Logos) > 0 && images.Logos[0].FilePath != "" {
+				notification.LogoURL = fmt.Sprintf("https://image.tmdb.org/t/p/w500%s", images.Logos[0].FilePath)
+				log.Printf("🎨 TMDB movie logo found (non-English): %s", notification.LogoURL)
+			}
 		}
 
 		notification.Overview = movieDetails.Overview

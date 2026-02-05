@@ -350,35 +350,20 @@ const NotificationTile: React.FC<NotificationTileProps> = React.memo(({
   const getBackdropUrl = () => {
     const apiUrl = getApiUrl();
 
-    // Priority 1: TMDB backdrop URL (highest quality) - ALWAYS try this first for TMDB content
-    if (enhancedNotification.backdrop_url?.startsWith('https://image.tmdb.org/t/p/')) {
-      if (!failedUrlsRef.current.has(enhancedNotification.backdrop_url)) {
-        console.log('🎬 Using TMDB backdrop:', enhancedNotification.backdrop_url.substring(0, 60) + '...');
-        return enhancedNotification.backdrop_url;
-      }
+    // Priority 1: Use backend-provided backdrop_url directly (backend handles TMDB URLs)
+    if (enhancedNotification.backdrop_url && !failedUrlsRef.current.has(enhancedNotification.backdrop_url)) {
+      console.log('🎬 Using backend backdrop URL:', enhancedNotification.backdrop_url.substring(0, 60) + '...');
+      return enhancedNotification.backdrop_url;
     }
 
-    // Priority 2: Check for TMDB content with tmdb_ids - construct TMDB URL
-    if ((notification as any).tmdb_ids && (notification as any).tmdb_ids.length > 0) {
-      const tmdbId = (notification as any).tmdb_ids[0];
-      // Use TMDB's original backdrop URL (w1280 for high quality)
-      const tmdbBackdropUrl = `https://image.tmdb.org/t/p/w1280${enhancedNotification.backdrop_url || ''}`;
-      if (enhancedNotification.backdrop_url && !failedUrlsRef.current.has(tmdbBackdropUrl)) {
-        console.log('🎬 Constructed TMDB backdrop URL:', tmdbBackdropUrl.substring(0, 60) + '...');
-        return tmdbBackdropUrl;
-      }
-    }
-
-    // Priority 3: Check media_details for TMDB content
+    // Priority 2: Check media_details for backend-provided URLs
     if (enhancedNotification.media_details && enhancedNotification.media_details.length > 0) {
       const firstMedia = enhancedNotification.media_details[0];
 
-      // Use TMDB backdrop if available
-      if (firstMedia.backdrop_url?.startsWith('https://image.tmdb.org/t/p/')) {
-        if (!failedUrlsRef.current.has(firstMedia.backdrop_url)) {
-          console.log('🎬 Using media_details TMDB backdrop:', firstMedia.backdrop_url.substring(0, 60) + '...');
-          return firstMedia.backdrop_url;
-        }
+      // Use backend-provided backdrop URL
+      if (firstMedia.backdrop_url && !failedUrlsRef.current.has(firstMedia.backdrop_url)) {
+        console.log('🎬 Using media_details backdrop URL:', firstMedia.backdrop_url.substring(0, 60) + '...');
+        return firstMedia.backdrop_url;
       }
 
       // Try local media ID with different sources for local content only
@@ -398,7 +383,7 @@ const NotificationTile: React.FC<NotificationTileProps> = React.memo(({
       }
     }
 
-    // Priority 4: Check if this is a local movie/series with movie_ids
+    // Priority 3: Check if this is a local movie/series with movie_ids
     if (notification.movie_ids && notification.movie_ids.length > 0) {
       const movieId = notification.movie_ids[0];
 
@@ -423,39 +408,35 @@ const NotificationTile: React.FC<NotificationTileProps> = React.memo(({
   const getPosterUrl = () => {
     const apiUrl = getApiUrl();
 
-    // Priority 1: TMDB poster URL
-    if (enhancedNotification.poster_url?.startsWith('https://image.tmdb.org/t/p/')) {
-      if (!failedUrlsRef.current.has(enhancedNotification.poster_url)) {
-        return enhancedNotification.poster_url;
+    // Priority 1: Use backend-provided poster_url directly (backend handles TMDB URLs)
+    if (enhancedNotification.poster_url && !failedUrlsRef.current.has(enhancedNotification.poster_url)) {
+      return enhancedNotification.poster_url;
+    }
+
+    // Priority 2: Check media_details for backend-provided URLs
+    if (enhancedNotification.media_details && enhancedNotification.media_details.length > 0) {
+      const firstMedia = enhancedNotification.media_details[0];
+
+      // Use backend-provided poster URL
+      if (firstMedia.poster_url && !failedUrlsRef.current.has(firstMedia.poster_url)) {
+        return firstMedia.poster_url;
+      }
+
+      // Try local media ID
+      if (firstMedia.source_type === 'local' && firstMedia.id) {
+        const posterUrl = `${apiUrl}/api/posters/${firstMedia.id}`;
+        if (!failedUrlsRef.current.has(posterUrl)) {
+          return posterUrl;
+        }
       }
     }
 
-    // Priority 2: Check if this is a local movie/series with movie_ids
+    // Priority 3: Check if this is a local movie/series with movie_ids
     if (notification.movie_ids && notification.movie_ids.length > 0) {
       const movieId = notification.movie_ids[0];
       const posterUrl = `${apiUrl}/api/posters/${movieId}`;
       if (!failedUrlsRef.current.has(posterUrl)) {
         return posterUrl;
-      }
-    }
-
-    // Priority 3: Check media_details for local content
-    if (enhancedNotification.media_details && enhancedNotification.media_details.length > 0) {
-      const firstMedia = enhancedNotification.media_details[0];
-
-      // Use TMDB poster if available
-      if (firstMedia.poster_url?.startsWith('https://image.tmdb.org/t/p/')) {
-        if (!failedUrlsRef.current.has(firstMedia.poster_url)) {
-          return firstMedia.poster_url;
-        }
-      }
-
-      // Try local media ID
-      if (firstMedia.id) {
-        const posterUrl = `${apiUrl}/api/posters/${firstMedia.id}`;
-        if (!failedUrlsRef.current.has(posterUrl)) {
-          return posterUrl;
-        }
       }
     }
 
@@ -475,50 +456,26 @@ const NotificationTile: React.FC<NotificationTileProps> = React.memo(({
   const getLogoUrl = () => {
     const apiUrl = getApiUrl();
 
-    // Priority 1: Check if notification has logo_url (from backend)
-    if (enhancedNotification.logo_url && enhancedNotification.logo_url.trim()) {
-      if (!failedUrlsRef.current.has(enhancedNotification.logo_url)) {
-        return enhancedNotification.logo_url;
-      }
+    // Priority 1: Use backend-provided logo_url directly (backend handles TMDB URLs)
+    if (enhancedNotification.logo_url && enhancedNotification.logo_url.trim() && !failedUrlsRef.current.has(enhancedNotification.logo_url)) {
+      console.log('🎬 Using backend logo URL:', enhancedNotification.logo_url.substring(0, 60) + '...');
+      return enhancedNotification.logo_url;
     }
 
-    // Priority 2: Check for TMDB content with tmdb_ids
-    if ((notification as any).tmdb_ids && (notification as any).tmdb_ids.length > 0) {
-      const tmdbId = (notification as any).tmdb_ids[0];
-      const mediaType = isTVSeries() ? 'tv' : 'movie'; // Determine media type for TV series
-      
-      // Try TMDB logo formats with correct media type
-      const tmdbLogoFormats = [
-        `${apiUrl}/api/tmdb/${mediaType}/${tmdbId}/logo`, // TMDB logo endpoint with correct type
-        `${apiUrl}/api/admin/assets/tmdb_${mediaType}_logo_${tmdbId}.png`, // Cached TMDB logo with type
-        `${apiUrl}/api/admin/assets/tmdb_logo_${tmdbId}.png`, // Fallback cached TMDB logo
-        `${apiUrl}/api/admin/assets/tmdb_logo_${tmdbId}.jpg`,
-      ];
-
-      for (const logoUrl of tmdbLogoFormats) {
-        if (!failedUrlsRef.current.has(logoUrl)) {
-          return logoUrl;
-        }
-      }
-    }
-
-    // Priority 3: Check media_details for TMDB content
+    // Priority 2: Check media_details for backend-provided URLs
     if (enhancedNotification.media_details && enhancedNotification.media_details.length > 0) {
       const firstMedia = enhancedNotification.media_details[0];
 
-      // Check if it's TMDB content (source_type = 'tmdb')
-      if (firstMedia.source_type === 'tmdb' && firstMedia.source_id) {
-        const tmdbId = firstMedia.source_id;
-        const mediaType = isTVSeries() ? 'tv' : 'movie'; // Determine media type for TV series
-        
-        const tmdbLogoFormats = [
-          `${apiUrl}/api/tmdb/${mediaType}/${tmdbId}/logo`, // TMDB logo endpoint with correct type
-          `${apiUrl}/api/admin/assets/tmdb_${mediaType}_logo_${tmdbId}.png`, // Cached with type
-          `${apiUrl}/api/admin/assets/tmdb_logo_${tmdbId}.png`, // Fallback cached
-          `${apiUrl}/api/admin/assets/tmdb_logo_${tmdbId}.jpg`,
+      // For local content, try local logo paths
+      if (firstMedia.source_type === 'local' && firstMedia.id) {
+        const logoFormats = [
+          `${apiUrl}/api/admin/assets/logo_${firstMedia.id}.png`,
+          `${apiUrl}/api/admin/assets/logo_${firstMedia.id}.jpg`,
+          `${apiUrl}/api/admin/assets/logo_${firstMedia.id}.svg`,
+          `${apiUrl}/api/logo_path/${firstMedia.id}`,
         ];
 
-        for (const logoUrl of tmdbLogoFormats) {
+        for (const logoUrl of logoFormats) {
           if (!failedUrlsRef.current.has(logoUrl)) {
             return logoUrl;
           }
@@ -526,7 +483,7 @@ const NotificationTile: React.FC<NotificationTileProps> = React.memo(({
       }
     }
 
-    // Priority 4: Check if this is a local movie/series with movie_ids
+    // Priority 3: Check if this is a local movie/series with movie_ids
     if (notification.movie_ids && notification.movie_ids.length > 0) {
       const movieId = notification.movie_ids[0];
 
@@ -541,27 +498,6 @@ const NotificationTile: React.FC<NotificationTileProps> = React.memo(({
       for (const logoUrl of logoFormats) {
         if (!failedUrlsRef.current.has(logoUrl)) {
           return logoUrl;
-        }
-      }
-    }
-
-    // Priority 5: Check media_details for local content
-    if (enhancedNotification.media_details && enhancedNotification.media_details.length > 0) {
-      const firstMedia = enhancedNotification.media_details[0];
-
-      // Try local media ID with different formats (only for local content)
-      if (firstMedia.source_type === 'local' && firstMedia.id) {
-        const logoFormats = [
-          `${apiUrl}/api/admin/assets/logo_${firstMedia.id}.png`,
-          `${apiUrl}/api/admin/assets/logo_${firstMedia.id}.jpg`,
-          `${apiUrl}/api/admin/assets/logo_${firstMedia.id}.svg`,
-          `${apiUrl}/api/logo_path/${firstMedia.id}`,
-        ];
-
-        for (const logoUrl of logoFormats) {
-          if (!failedUrlsRef.current.has(logoUrl)) {
-            return logoUrl;
-          }
         }
       }
     }
@@ -629,6 +565,7 @@ const NotificationTile: React.FC<NotificationTileProps> = React.memo(({
           showDetails: true,
           showTrailer: true, // Hero tiles show trailers
           showPoster: true,
+          useWhiteText: false, // Use red title
         };
       case 'banner':
         return {
@@ -638,6 +575,7 @@ const NotificationTile: React.FC<NotificationTileProps> = React.memo(({
           showDetails: true,
           showTrailer: false, // Banner tiles don't show trailers
           showPoster: true,
+          useWhiteText: false, // Use red title
         };
       case 'large':
         return {
@@ -647,6 +585,7 @@ const NotificationTile: React.FC<NotificationTileProps> = React.memo(({
           showDetails: true,
           showTrailer: true, // Large tiles show trailers
           showPoster: true,
+          useWhiteText: false, // Use red title
         };
       case 'medium':
         return {
@@ -656,6 +595,7 @@ const NotificationTile: React.FC<NotificationTileProps> = React.memo(({
           showDetails: true,
           showTrailer: false, // Medium tiles NO TRAILERS
           showPoster: true,
+          useWhiteText: false, // Use red title
         };
       case 'small':
         return {
@@ -665,6 +605,7 @@ const NotificationTile: React.FC<NotificationTileProps> = React.memo(({
           showDetails: true, // Show content for small tiles
           showTrailer: false, // Small tiles NEVER show trailers
           showPoster: false, // Don't show poster for small tiles to save space
+          useWhiteText: true, // Use white text for better readability
         };
       default:
         return {
@@ -674,6 +615,7 @@ const NotificationTile: React.FC<NotificationTileProps> = React.memo(({
           showDetails: true,
           showTrailer: false, // Default: no trailers
           showPoster: true,
+          useWhiteText: false, // Use red title
         };
     }
   };
@@ -907,11 +849,14 @@ const NotificationTile: React.FC<NotificationTileProps> = React.memo(({
             className={`${sizeConfig.title}`}
             style={{
               display: 'block', // Always visible initially
-              color: '#e50914', // Netflix red
+              color: sizeConfig.useWhiteText ? '#ffffff' : '#e50914', // White for small tiles, Netflix red for others
               fontWeight: 'bold',
               zIndex: 100,
               position: 'relative',
               lineHeight: size === 'small' ? '1.2' : '1.3',
+              textShadow: sizeConfig.useWhiteText 
+                ? '0 2px 4px rgba(0,0,0,1), 0 4px 8px rgba(0,0,0,0.9), 1px 1px 0px rgba(0,0,0,1)' // Dark shadow for white text
+                : '0 2px 4px rgba(255,255,255,0.3), 0 4px 8px rgba(255,255,255,0.2), 0 0 20px rgba(0,0,0,0.8), 1px 1px 0px rgba(0,0,0,1)', // White glow + dark shadow for red text
             }}
           >
             {notification.title}
@@ -921,27 +866,35 @@ const NotificationTile: React.FC<NotificationTileProps> = React.memo(({
         {/* Enhanced Description with strong text shadow */}
         {(size === 'hero' || size === 'large' || size === 'banner') && enhancedNotification.overview ? (
           <p
-            className={`leading-relaxed mb-3 line-clamp-2 ${sizeConfig.message}`}
+            className={`leading-relaxed mb-3 ${sizeConfig.message}`}
             style={{
               color: '#ffffff',
               textShadow: '0 1px 3px rgba(0,0,0,1), 0 2px 6px rgba(0,0,0,0.9), 1px 1px 0px rgba(0,0,0,0.8)',
+              display: '-webkit-box',
+              WebkitLineClamp: size === 'hero' ? 3 : 2,
+              WebkitBoxOrient: 'vertical',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
             }}
           >
-            {enhancedNotification.overview.length > 100
-              ? enhancedNotification.overview.substring(0, 100) + '...'
-              : enhancedNotification.overview}
+            {enhancedNotification.overview}
           </p>
         ) : (
           <p
-            className={`leading-relaxed mb-2 line-clamp-2 ${sizeConfig.message}`}
+            className={`leading-relaxed mb-2 ${sizeConfig.message}`}
             style={{
-              color: '#ffffff',
-              textShadow: '0 1px 3px rgba(0,0,0,1), 0 2px 6px rgba(0,0,0,0.9), 1px 1px 0px rgba(0,0,0,0.8)',
+              color: sizeConfig.useWhiteText ? '#ffffff' : '#ffffff',
+              textShadow: sizeConfig.useWhiteText
+                ? '0 2px 4px rgba(0,0,0,1), 0 4px 8px rgba(0,0,0,0.9), 1px 1px 0px rgba(0,0,0,1)' // Strong dark shadow for white text on small tiles
+                : '0 1px 3px rgba(0,0,0,1), 0 2px 6px rgba(0,0,0,0.9), 1px 1px 0px rgba(0,0,0,0.8)',
+              display: '-webkit-box',
+              WebkitLineClamp: size === 'medium' ? 2 : 1,
+              WebkitBoxOrient: 'vertical',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
             }}
           >
-            {notification.message.length > 80
-              ? notification.message.substring(0, 80) + '...'
-              : notification.message}
+            {notification.message}
           </p>
         )}
 

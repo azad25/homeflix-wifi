@@ -359,11 +359,21 @@ export default function FeaturedBanner({
                                 <span>{currentMedia.year}</span>
                             </div>
                         )}
-                        {currentMedia.runtime && currentMedia.runtime > 0 && (
-                            <span className="text-white/70">
-                                {Math.floor(currentMedia.runtime / 60)}h {currentMedia.runtime % 60}m
-                            </span>
-                        )}
+                        {(() => {
+                            const runtime = currentMedia.runtime || currentMedia.duration || 0;
+                            if (runtime > 0) {
+                                const hours = Math.floor(runtime / 60);
+                                const minutes = runtime % 60;
+                                if (hours > 0 || minutes > 0) {
+                                    return (
+                                        <span className="text-white/70">
+                                            {hours > 0 && `${hours}h `}{minutes > 0 && `${minutes}m`}
+                                        </span>
+                                    );
+                                }
+                            }
+                            return null;
+                        })()}
                         {currentMedia.certification && currentMedia.certification.trim() && (
                             <span className="px-2 py-0.5 border border-white/30 rounded text-xs font-medium">
                                 {currentMedia.certification}

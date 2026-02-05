@@ -268,131 +268,99 @@ const ProviderHero: React.FC<ProviderHeroProps> = ({
                     rewind: true,
                     pagination: true,
                     arrows: false,
-                    autoplay: !isPlaying,
+                    autoplay: false,
                     interval: 8000,
                     pauseOnHover: false,
                     speed: 1000,
                 }}
-                className="h-full w-full"
+                className="h-full w-full absolute inset-0"
                 onMoved={handleSlideChange}
             >
                 {items.map((item, index) => (
                     <SplideSlide key={`${item.id}-${index}`} className="h-full w-full">
-                        <div className="relative h-full w-full">
-                            {/* Backdrop - Always visible, fades when video plays */}
-                            <div 
-                                className="absolute inset-0 transition-opacity duration-1000"
-                                style={{ 
-                                    opacity: (index === activeSlideIndex && isPlaying && isVideoLoaded) ? 0 : 1,
-                                    zIndex: 1
+                        {/* Backdrop - Always visible */}
+                        {item.backdrop_path ? (
+                            <img
+                                src={getBackdropUrl(item.backdrop_path)}
+                                alt={item.title || item.name}
+                                className="absolute inset-0 w-full h-full object-cover z-0"
+                                loading={index === 0 ? "eager" : "lazy"}
+                                onError={(e) => {
+                                    const target = e.target as HTMLImageElement;
+                                    if (target.src.includes('original')) {
+                                        target.src = target.src.replace('original', 'w1280');
+                                    } else {
+                                        target.src = '/placeholder-backdrop.jpg';
+                                    }
                                 }}
-                            >
-                                {item.backdrop_path ? (
-                                    <img
-                                        src={getBackdropUrl(item.backdrop_path)}
-                                        alt={item.title || item.name}
-                                        className="w-full h-full object-cover"
-                                        loading={index === 0 ? "eager" : "lazy"}
-                                        onError={(e) => {
-                                            const target = e.target as HTMLImageElement;
-                                            if (target.src.includes('original')) {
-                                                target.src = target.src.replace('original', 'w1280');
-                                            } else {
-                                                target.src = '/placeholder-backdrop.jpg';
-                                            }
-                                        }}
-                                    />
-                                ) : (
-                                    <div className="w-full h-full bg-gradient-to-br from-gray-900 to-black" />
-                                )}
-                                {/* Gradients */}
-                                <div className="absolute inset-0 bg-gradient-to-r from-black via-black/40 to-transparent" />
-                                <div className="absolute inset-0 bg-gradient-to-t from-[#141414] via-transparent to-transparent" />
-                            </div>
+                            />
+                        ) : (
+                            <div className="absolute inset-0 w-full h-full bg-gradient-to-br from-gray-900 to-black z-0" />
+                        )}
 
-                            {/* Trailer Video Overlay */}
-                            {index === activeSlideIndex && showTrailer && youtubeId && (
+                        {/* Trailer Video Overlay */}
+                        {index === activeSlideIndex && showTrailer && youtubeId && (
+                            <div className="absolute inset-0 w-full h-full overflow-hidden pointer-events-none z-10">
                                 <div 
-                                    className="absolute inset-0 w-full h-full overflow-hidden pointer-events-none transition-opacity duration-1000"
+                                    className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2"
                                     style={{ 
-                                        opacity: isPlaying && isVideoLoaded ? 1 : 0,
-                                        zIndex: 2
+                                        width: '120vw', 
+                                        height: '120vh', 
+                                        minWidth: '177.77vh', 
+                                        minHeight: '56.25vw' 
                                     }}
                                 >
-                                    <div 
-                                        className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2"
-                                        style={{ 
-                                            width: '120vw', 
-                                            height: '120vh', 
-                                            minWidth: '177.77vh', 
-                                            minHeight: '56.25vw' 
+                                    <YouTube
+                                        videoId={youtubeId}
+                                        opts={{
+                                            height: '100%',
+                                            width: '100%',
+                                            playerVars: {
+                                                autoplay: 1,
+                                                controls: 0,
+                                                disablekb: 1,
+                                                fs: 0,
+                                                iv_load_policy: 3,
+                                                modestbranding: 1,
+                                                rel: 0,
+                                                showinfo: 0,
+                                                mute: 0,
+                                                loop: 1,
+                                                playlist: youtubeId,
+                                                start: 10,
+                                                origin: typeof window !== 'undefined' ? window.location.origin : undefined,
+                                                vq: 'hd1080',
+                                            },
                                         }}
-                                    >
-                                        <YouTube
-                                            videoId={youtubeId}
-                                            opts={{
-                                                height: '100%',
-                                                width: '100%',
-                                                playerVars: {
-                                                    autoplay: 1,
-                                                    controls: 0,
-                                                    disablekb: 1,
-                                                    fs: 0,
-                                                    iv_load_policy: 3,
-                                                    modestbranding: 1,
-                                                    rel: 0,
-                                                    showinfo: 0,
-                                                    mute: 1,
-                                                    loop: 1,
-                                                    playlist: youtubeId,
-                                                    start: 10,
-                                                    origin: typeof window !== 'undefined' ? window.location.origin : undefined,
-                                                    vq: 'hd1080',
-                                                },
-                                            }}
-                                            onReady={(event) => {
-                                                playerRef.current = event.target;
-                                                setIsVideoLoaded(true);
-                                                event.target.playVideo();
-
-                                                // Unmute after short delay
-                                                setTimeout(() => {
-                                                    try {
-                                                        event.target.unMute();
-                                                        setIsMuted(false);
-                                                    } catch (e) {
-                                                        // Silent fail
-                                                    }
-                                                }, 1000);
-                                            }}
-                                            onStateChange={(event) => {
-                                                if (event.data === 1) { // Playing
-                                                    setIsPlaying(true);
-                                                }
-                                                if (event.data === 0 || event.data === 2) { // Ended or Paused
-                                                    setIsPlaying(false);
-                                                }
-                                            }}
-                                            onError={(event) => {
+                                        onReady={(event) => {
+                                            playerRef.current = event.target;
+                                            setIsVideoLoaded(true);
+                                            event.target.playVideo();
+                                        }}
+                                        onStateChange={(event) => {
+                                            if (event.data === 1) {
+                                                setIsPlaying(true);
+                                            }
+                                            if (event.data === 0 || event.data === 2) {
                                                 setIsPlaying(false);
-                                                setIsVideoLoaded(false);
-                                            }}
-                                            className="w-full h-full"
-                                            style={{ pointerEvents: 'none' }}
-                                        />
-                                    </div>
-                                    {/* Gradient overlays for video */}
-                                    <div className="absolute inset-0 bg-gradient-to-r from-black/60 via-transparent to-transparent pointer-events-none" />
-                                    <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-black/80 to-transparent pointer-events-none" />
+                                            }
+                                        }}
+                                        onError={(event) => {
+                                            setIsPlaying(false);
+                                            setIsVideoLoaded(false);
+                                        }}
+                                        className="w-full h-full"
+                                        style={{ pointerEvents: 'none' }}
+                                    />
                                 </div>
-                            )}
-                        </div>
+                            </div>
+                        )}
                     </SplideSlide>
                 ))}
             </Splide>
 
             {/* Content Overlay */}
-            <div className="absolute inset-0 z-20 flex flex-col justify-center px-4 md:px-12 lg:px-24 pointer-events-none">
+            <div className="absolute inset-0 z-30 flex flex-col justify-center px-4 md:px-12 lg:px-24 pointer-events-none">
                 <div className="max-w-7xl w-full pointer-events-auto mt-20">
                     <motion.div
                         key={activeItem?.id}
@@ -514,8 +482,6 @@ const ProviderHero: React.FC<ProviderHeroProps> = ({
                     </motion.div>
                 </div>
             </div>
-
-            <div className="absolute bottom-0 left-0 right-0 h-40 bg-gradient-to-t from-[#141414] via-[#141414]/60 to-transparent z-10" />
         </div>
     );
 };

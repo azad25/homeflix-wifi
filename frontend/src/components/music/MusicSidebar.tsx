@@ -76,7 +76,7 @@ export default function MusicSidebar({ className = '' }: MusicSidebarProps) {
 
   if (!currentTrack) {
     return (
-      <div className={`w-96 bg-gradient-to-b from-black via-red-950 to-black border-l border-red-800/30 flex flex-col ${className}`}>
+      <div className={`w-96 bg-gradient-to-b from-black via-red-950 to-black border-l border-red-800/30 flex flex-col overflow-y-auto ${className}`}>
         <div className="p-8 text-center">
           <Music size={80} className="mx-auto text-red-600/50 mb-6" />
           <h3 className="text-white font-semibold text-xl mb-3">No music playing</h3>
@@ -87,9 +87,9 @@ export default function MusicSidebar({ className = '' }: MusicSidebarProps) {
   }
 
   return (
-    <div className={`w-96 bg-gradient-to-b from-black via-red-950 to-black border-l border-red-800/30 flex flex-col ${className} backdrop-blur-sm`}>
+    <div className={`w-96 bg-gradient-to-b from-black via-red-950 to-black border-l border-red-800/30 flex flex-col overflow-y-auto ${className} backdrop-blur-sm`}>
       {/* Now Playing Header */}
-      <div className="p-6 border-b border-red-800/30">
+      <div className="p-6 border-b border-red-800/30 flex-shrink-0">
         <div className="flex items-center justify-between">
           <h2 className="text-white font-bold text-xl bg-gradient-to-r from-red-400 to-red-600 bg-clip-text text-transparent">Now Playing</h2>
           <button

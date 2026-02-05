@@ -73,6 +73,7 @@ function musicPlayerReducer(state: MusicPlayerState, action: MusicPlayerAction):
         currentIndex: actualNextIndex,
         currentTrack: state.queue[actualNextIndex],
         currentTime: 0,
+        isPlaying: true,
       };
     case 'PREVIOUS_TRACK':
       const prevIndex = state.shuffle
@@ -84,6 +85,7 @@ function musicPlayerReducer(state: MusicPlayerState, action: MusicPlayerAction):
         currentIndex: prevIndex,
         currentTrack: state.queue[prevIndex],
         currentTime: 0,
+        isPlaying: true,
       };
     case 'SET_VOLUME':
       return { ...state, volume: action.payload };

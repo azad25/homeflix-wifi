@@ -49,9 +49,9 @@ export default function MusicPage() {
       setLoading(true);
       const [trending, liked, recent, userPlaylists] = await Promise.all([
         MusicAPI.getTrendingTracks(20),
-        MusicAPI.getLikedTracks(),
-        MusicAPI.getRecentlyPlayed(20).then(recent => recent.map(r => r.track)),
-        MusicAPI.getPlaylists()
+        MusicAPI.getLikedTracks().catch(() => []),
+        MusicAPI.getRecentlyPlayed(20).then(recent => recent.map(r => r.track)).catch(() => []),
+        MusicAPI.getPlaylists().catch(() => [])
       ]);
 
       setTrendingTracks(trending);
@@ -120,6 +120,11 @@ export default function MusicPage() {
       // Refresh liked tracks
       const liked = await MusicAPI.getLikedTracks();
       setLikedTracks(liked);
+      
+      // If we're on the liked tab, show feedback
+      if (activeTab === 'liked') {
+        console.log('Liked tracks updated');
+      }
     } catch (error) {
       console.error('Failed to like track:', error);
     }
@@ -141,55 +146,67 @@ export default function MusicPage() {
       </div>
       
       <div className="space-y-3">
-        {tracks.map((track, index) => (
-          <div
-            key={track.id}
-            className="flex items-center gap-6 p-4 rounded-xl bg-gradient-to-r from-gray-900/50 to-red-900/20 hover:from-gray-800/60 hover:to-red-800/30 transition-all duration-300 group backdrop-blur-sm border border-red-800/20"
-          >
-            <div className="text-red-400 w-10 text-center font-bold">
-              {state.currentTrack?.id === track.id && state.isPlaying ? (
-                <div className="flex items-center justify-center">
-                  <div className="flex gap-1">
-                    <div className="w-1 h-4 bg-red-500 rounded animate-pulse" style={{ animationDelay: '0ms' }} />
-                    <div className="w-1 h-6 bg-red-500 rounded animate-pulse" style={{ animationDelay: '150ms' }} />
-                    <div className="w-1 h-3 bg-red-500 rounded animate-pulse" style={{ animationDelay: '300ms' }} />
-                    <div className="w-1 h-5 bg-red-500 rounded animate-pulse" style={{ animationDelay: '450ms' }} />
+        {tracks.map((track, index) => {
+          const trackKey = track.id || track.youtube_id || `track-${index}`;
+          const isCurrentTrack = state.currentTrack?.youtube_id === track.youtube_id;
+          
+          return (
+            <div
+              key={trackKey}
+              onClick={() => handlePlayTrack(track, tracks)}
+              className="flex items-center gap-6 p-4 rounded-xl bg-gradient-to-r from-gray-900/50 to-red-900/20 hover:from-gray-800/60 hover:to-red-800/30 transition-all duration-300 group backdrop-blur-sm border border-red-800/20 cursor-pointer"
+            >
+              <div className="text-red-400 w-10 text-center font-bold">
+                {isCurrentTrack && state.isPlaying ? (
+                  <div className="flex items-center justify-center">
+                    <div className="flex gap-1">
+                      <div className="w-1 h-4 bg-red-500 rounded animate-pulse" style={{ animationDelay: '0ms' }} />
+                      <div className="w-1 h-6 bg-red-500 rounded animate-pulse" style={{ animationDelay: '150ms' }} />
+                      <div className="w-1 h-3 bg-red-500 rounded animate-pulse" style={{ animationDelay: '300ms' }} />
+                      <div className="w-1 h-5 bg-red-500 rounded animate-pulse" style={{ animationDelay: '450ms' }} />
+                    </div>
                   </div>
-                </div>
-              ) : (
-                <span className="group-hover:hidden">{index + 1}</span>
-              )}
-              <button
-                onClick={() => handlePlayTrack(track, tracks)}
-                className="hidden group-hover:block text-white hover:text-red-400 transition-colors"
-              >
-                <PlayCircle size={24} />
-              </button>
+                ) : (
+                  <span className="group-hover:hidden">{index + 1}</span>
+                )}
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handlePlayTrack(track, tracks);
+                  }}
+                  className="hidden group-hover:block text-white hover:text-red-400 transition-colors"
+                >
+                  <PlayCircle size={24} />
+                </button>
+              </div>
+              
+              <img
+                src={track.thumbnail_url}
+                alt={track.title}
+                className="w-16 h-16 rounded-lg object-cover shadow-lg"
+              />
+              
+              <div className="flex-1 min-w-0">
+                <h3 className="text-white font-semibold text-lg truncate">{track.title}</h3>
+                <p className="text-red-300 text-sm truncate">{track.artist}</p>
+              </div>
+              
+              <div className="flex items-center gap-6 text-red-300 text-sm">
+                <span>{MusicAPI.formatNumber(track.view_count)} views</span>
+                <span>{MusicAPI.formatDuration(track.duration)}</span>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleLikeTrack(track.id);
+                  }}
+                  className="hover:text-red-400 transition-colors transform hover:scale-110"
+                >
+                  <Heart size={18} className={likedTracks.some(t => t.youtube_id === track.youtube_id) ? 'fill-red-500 text-red-500' : ''} />
+                </button>
+              </div>
             </div>
-            
-            <img
-              src={track.thumbnail_url}
-              alt={track.title}
-              className="w-16 h-16 rounded-lg object-cover shadow-lg"
-            />
-            
-            <div className="flex-1 min-w-0">
-              <h3 className="text-white font-semibold text-lg truncate">{track.title}</h3>
-              <p className="text-red-300 text-sm truncate">{track.artist}</p>
-            </div>
-            
-            <div className="flex items-center gap-6 text-red-300 text-sm">
-              <span>{MusicAPI.formatNumber(track.view_count)} views</span>
-              <span>{MusicAPI.formatDuration(track.duration)}</span>
-              <button
-                onClick={() => handleLikeTrack(track.id)}
-                className="hover:text-red-400 transition-colors transform hover:scale-110"
-              >
-                <Heart size={18} className={likedTracks.some(t => t.id === track.id) ? 'fill-red-500 text-red-500' : ''} />
-              </button>
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
@@ -210,8 +227,11 @@ export default function MusicPage() {
       <Navbar onSearch={() => {}} />
       
       <div className="flex mt-12">
+        {/* Sidebar - Fixed positioning */}
+        <MusicSidebar className="hidden lg:block fixed right-0 top-16 bottom-0 z-30" />
+
         {/* Main Content */}
-        <div className="flex-1 container mx-auto px-6 py-8 max-w-7xl mt-4 mr-96 pb-24">
+        <div className="flex-1 container mx-auto px-6 py-8 max-w-7xl mt-4 lg:mr-96 pb-32">
           {/* Header */}
           <div className="mb-8">
             <h1 className="text-5xl font-bold bg-gradient-to-r from-red-500 via-red-400 to-red-600 bg-clip-text text-transparent mb-6 flex items-center gap-4">
@@ -330,9 +350,10 @@ export default function MusicPage() {
                 {likedTracks.length > 0 ? (
                   <TrackList tracks={likedTracks} title="Liked Songs" />
                 ) : (
-                  <div className="text-center text-red-300 py-16">
-                    <Heart size={64} className="mx-auto mb-6 opacity-50" />
-                    <p className="text-xl">No liked songs yet. Start liking songs to see them here!</p>
+                  <div className="text-center text-red-300 py-16 bg-gradient-to-br from-gray-900/50 to-red-900/20 rounded-2xl border border-red-800/20">
+                    <Heart size={80} className="mx-auto mb-6 text-red-500/30" />
+                    <p className="text-xl font-semibold">No liked songs yet</p>
+                    <p className="text-sm mt-2 opacity-75">Start liking songs to see them here!</p>
                   </div>
                 )}
               </div>
@@ -343,9 +364,10 @@ export default function MusicPage() {
                 {recentlyPlayed.length > 0 ? (
                   <TrackList tracks={recentlyPlayed} title="Recently Played" />
                 ) : (
-                  <div className="text-center text-red-300 py-16">
-                    <Clock size={64} className="mx-auto mb-6 opacity-50" />
-                    <p className="text-xl">No recently played songs. Start listening to see your history!</p>
+                  <div className="text-center text-red-300 py-16 bg-gradient-to-br from-gray-900/50 to-red-900/20 rounded-2xl border border-red-800/20">
+                    <Clock size={80} className="mx-auto mb-6 text-red-500/30" />
+                    <p className="text-xl font-semibold">No recently played songs</p>
+                    <p className="text-sm mt-2 opacity-75">Start listening to see your history!</p>
                   </div>
                 )}
               </div>
@@ -354,9 +376,6 @@ export default function MusicPage() {
             {activeTab === 'playlists' && <PlaylistManager />}
           </div>
         </div>
-
-        {/* Sidebar */}
-        <MusicSidebar className="lg:flex" />
       </div>
 
       {/* Music Player */}

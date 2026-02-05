@@ -109,7 +109,7 @@ export default function ProvidersPage() {
                 />
             )}
 
-            <div className="relative z-10 pb-20 -mt-12">
+            <div className="relative z-10 pb-20 pt-8">
                 {showcaseData.map((item, index) => {
                     // Skip the first one if we used it for hero? 
                     // No, show it in the list too or maybe skip if redundant. 

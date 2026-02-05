@@ -6,14 +6,66 @@ import { useMusicPlayer } from '@/contexts/MusicPlayerContext';
 import { MusicAPI } from '@/lib/musicApi';
 
 export default function MusicPlayer() {
-  const { state, pauseTrack, resumeTrack, nextTrack, previousTrack, setVolume, toggleShuffle, toggleRepeat } = useMusicPlayer();
+  const { state, pauseTrack, resumeTrack, nextTrack, previousTrack, setVolume, seekTo, toggleShuffle, toggleRepeat } = useMusicPlayer();
   const [isMuted, setIsMuted] = useState(false);
   const [isLiked, setIsLiked] = useState(false);
+  const [localCurrentTime, setLocalCurrentTime] = useState(0);
+  const [localDuration, setLocalDuration] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
   const audioRef = useRef<HTMLIFrameElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const animationRef = useRef<number | null>(null);
+  const progressIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const { currentTrack, isPlaying, volume, currentTime, duration, shuffle, repeat } = state;
+
+  // Simulate progress tracking
+  useEffect(() => {
+    if (isPlaying && currentTrack) {
+      // Simulate progress every second
+      progressIntervalRef.current = setInterval(() => {
+        setLocalCurrentTime(prev => {
+          const next = prev + 1;
+          if (next >= localDuration) {
+            nextTrack();
+            return 0;
+          }
+          return next;
+        });
+      }, 1000);
+    } else {
+      if (progressIntervalRef.current) {
+        clearInterval(progressIntervalRef.current);
+      }
+    }
+
+    return () => {
+      if (progressIntervalRef.current) {
+        clearInterval(progressIntervalRef.current);
+      }
+    };
+  }, [isPlaying, currentTrack, localDuration, nextTrack]);
+
+  // Update duration when track changes
+  useEffect(() => {
+    if (currentTrack) {
+      setLocalDuration(currentTrack.duration);
+      setLocalCurrentTime(0);
+      
+      // Check if track is liked
+      checkIfLiked();
+    }
+  }, [currentTrack]);
+
+  const checkIfLiked = async () => {
+    if (!currentTrack) return;
+    try {
+      const likedTracks = await MusicAPI.getLikedTracks();
+      setIsLiked(likedTracks.some(t => t.id === currentTrack.id));
+    } catch (error) {
+      console.error('Failed to check if track is liked:', error);
+    }
+  };
 
   // Simulated audio visualizer with better performance
   const drawSimulatedVisualizer = useCallback(() => {
@@ -121,9 +173,35 @@ export default function MusicPlayer() {
     try {
       await MusicAPI.likeTrack(currentTrack.id);
       setIsLiked(!isLiked);
+      
+      // Show feedback
+      const message = isLiked ? 'Removed from liked songs' : 'Added to liked songs';
+      console.log(message);
     } catch (error) {
       console.error('Failed to like track:', error);
     }
+  };
+
+  const handleProgressClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const percentage = x / rect.width;
+    const newTime = Math.floor(percentage * localDuration);
+    setLocalCurrentTime(newTime);
+    seekTo(newTime);
+  };
+
+  const handleProgressMouseDown = () => {
+    setIsDragging(true);
+  };
+
+  const handleProgressMouseUp = () => {
+    setIsDragging(false);
+  };
+
+  const handleProgressMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!isDragging) return;
+    handleProgressClick(e);
   };
 
   const formatTime = (seconds: number) => {
@@ -207,17 +285,26 @@ export default function MusicPlayer() {
 
           {/* Progress Bar */}
           <div className="flex items-center gap-2 w-full max-w-md">
-            <span className="text-xs text-red-300 w-8 text-right font-mono">
-              {formatTime(currentTime)}
+            <span className="text-xs text-red-300 w-10 text-right font-mono">
+              {formatTime(localCurrentTime)}
             </span>
-            <div className="flex-1 bg-red-900/30 rounded-full h-1.5 cursor-pointer">
+            <div 
+              className="flex-1 bg-red-900/30 rounded-full h-2 cursor-pointer relative group"
+              onClick={handleProgressClick}
+              onMouseDown={handleProgressMouseDown}
+              onMouseUp={handleProgressMouseUp}
+              onMouseMove={handleProgressMouseMove}
+              onMouseLeave={handleProgressMouseUp}
+            >
               <div
-                className="bg-gradient-to-r from-red-500 to-red-600 rounded-full h-1.5 transition-all duration-300 shadow-sm"
-                style={{ width: `${duration > 0 ? (currentTime / duration) * 100 : 0}%` }}
-              />
+                className="bg-gradient-to-r from-red-500 to-red-600 rounded-full h-2 transition-all duration-100 shadow-sm relative"
+                style={{ width: `${localDuration > 0 ? (localCurrentTime / localDuration) * 100 : 0}%` }}
+              >
+                <div className="absolute right-0 top-1/2 -translate-y-1/2 w-3 h-3 bg-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity shadow-lg" />
+              </div>
             </div>
-            <span className="text-xs text-red-300 w-8 font-mono">
-              {formatTime(duration)}
+            <span className="text-xs text-red-300 w-10 font-mono">
+              {formatTime(localDuration)}
             </span>
           </div>
         </div>

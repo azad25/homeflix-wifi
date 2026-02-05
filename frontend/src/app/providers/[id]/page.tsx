@@ -178,7 +178,7 @@ export default function ProviderDetailPage() {
                 onDataRefresh={handleDataRefresh}
             />
 
-            <div className="relative z-20 -mt-24 pb-12 space-y-8">
+            <div className="relative z-20 pt-8 pb-12 space-y-8">
 
                 {/* Filter Tabs */}
                 <div className="flex justify-center mb-8 sticky top-20 z-40">

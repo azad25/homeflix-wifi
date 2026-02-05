@@ -360,9 +360,24 @@ func (h *WidgetHandler) ReorderWidgets(c *gin.Context) {
 		return
 	}
 
+	// Get the page of the first widget to invalidate cache
+	var affectedPage string
+	if len(request.Widgets) > 0 {
+		widget, err := h.service.GetWidgetByID(request.Widgets[0].ID)
+		if err == nil {
+			affectedPage = widget.Page
+		}
+	}
+
 	if err := h.service.ReorderWidgetsWithPositions(request.Widgets); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
+	}
+
+	// Invalidate cache for the affected page
+	if affectedPage != "" {
+		h.InvalidateWidgetCache(affectedPage)
+		fmt.Printf("🔄 Cache invalidated for page %s after reordering\n", affectedPage)
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "widgets reordered successfully"})
@@ -385,10 +400,20 @@ func (h *WidgetHandler) ToggleWidget(c *gin.Context) {
 		return
 	}
 
+	// Get widget info before toggling to know which page to invalidate
+	widget, err := h.service.GetWidgetByID(uint(id))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "widget not found"})
+		return
+	}
+
 	if err := h.service.ToggleWidget(uint(id), request.Enabled); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+
+	// Clear cache for the specific page where widget was toggled
+	h.InvalidateWidgetCache(widget.Page)
 
 	c.JSON(http.StatusOK, gin.H{"message": "widget toggled successfully", "enabled": request.Enabled})
 }
@@ -407,6 +432,9 @@ func (h *WidgetHandler) DuplicateWidget(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+
+	// Clear cache for the specific page where widget was duplicated
+	h.InvalidateWidgetCache(widget.Page)
 
 	c.JSON(http.StatusCreated, widget)
 }

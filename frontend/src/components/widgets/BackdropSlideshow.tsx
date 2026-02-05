@@ -77,6 +77,7 @@ export default function BackdropSlideshow({
     const [isMuted, setIsMuted] = useState(true);
     const [showTrailer, setShowTrailer] = useState(false);
     const [tmdbLogos, setTmdbLogos] = useState<Record<number, string>>({});
+    const [logoError, setLogoError] = useState(false);
     const autoScrollRef = useRef<NodeJS.Timeout | null>(null);
 
     const apiUrl = getApiUrl();
@@ -120,6 +121,7 @@ export default function BackdropSlideshow({
                           currentMedia.genres?.map((g: { name: string }) => g.name) || 
                           [];
             setColors(getColorPaletteByGenre(genres));
+            setLogoError(false); // Reset logo error state when media changes
         }
     }, [currentMedia]);
 
@@ -341,47 +343,39 @@ export default function BackdropSlideshow({
                     >
                         {/* Enhanced Logo/Title Section - Reduced Logo Size */}
                         <div className="mb-6">
-                            {showLogo && getLogoUrl(currentMedia) ? (
+                            {showLogo && getLogoUrl(currentMedia) && !logoError ? (
                                 <img
                                     src={getLogoUrl(currentMedia)!}
                                     alt={`${currentMedia.title} logo`}
                                     className="max-h-12 md:max-h-16 lg:max-h-20 w-auto mb-4 drop-shadow-2xl"
                                     style={{ filter: 'drop-shadow(0 0 30px rgba(0,0,0,0.8))' }}
-                                    onError={(e) => {
-                                        const target = e.target as HTMLImageElement;
-                                        target.style.display = 'none';
-                                        const fallback = target.nextElementSibling as HTMLElement;
-                                        if (fallback && fallback.tagName === 'H2') {
-                                            fallback.style.display = 'block';
-                                        }
-                                    }}
+                                    onError={() => setLogoError(true)}
                                 />
-                            ) : null}
-                            
-                            <h2 
-                                className="text-3xl md:text-4xl lg:text-5xl font-bold mb-4" 
-                                style={{ 
-                                    display: showLogo && getLogoUrl(currentMedia) ? 'none' : 'block',
-                                    textShadow: `0 0 40px ${colors.primary}60, 0 4px 20px rgba(0,0,0,0.8)`,
-                                    background: `linear-gradient(135deg, ${colors.primary} 0%, ${colors.accent} 100%)`,
-                                    WebkitBackgroundClip: 'text',
-                                    WebkitTextFillColor: 'transparent',
-                                    backgroundClip: 'text'
-                                }}
-                            >
-                                {currentMedia.title}
-                            </h2>
+                            ) : (
+                                <h2 
+                                    className="text-3xl md:text-4xl lg:text-5xl font-bold mb-4" 
+                                    style={{ 
+                                        textShadow: `0 0 40px ${colors.primary}60, 0 4px 20px rgba(0,0,0,0.8)`,
+                                        background: `linear-gradient(135deg, ${colors.primary} 0%, ${colors.accent} 100%)`,
+                                        WebkitBackgroundClip: 'text',
+                                        WebkitTextFillColor: 'transparent',
+                                        backgroundClip: 'text'
+                                    }}
+                                >
+                                    {currentMedia.title}
+                                </h2>
+                            )}
                         </div>
 
                         {showInfo && (
                             <>
                                 {/* Enhanced Meta Information - Rating beside Year */}
                                 <div className="flex flex-wrap items-center gap-4 mb-4 text-sm md:text-base">
-                                    {(currentMedia.year || currentMedia.release_date) && (
+                                    {((currentMedia.year && currentMedia.year > 1900) || currentMedia.release_date) && (
                                         <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 backdrop-blur-sm border border-white/20">
                                             <Calendar className="w-4 h-4 text-white/80" />
                                             <span className="text-white font-medium">
-                                                {currentMedia.year && currentMedia.year > 0 ? currentMedia.year : new Date(currentMedia.release_date!).getFullYear()}
+                                                {currentMedia.year && currentMedia.year > 1900 ? currentMedia.year : new Date(currentMedia.release_date!).getFullYear()}
                                             </span>
                                         </div>
                                     )}
@@ -396,16 +390,21 @@ export default function BackdropSlideshow({
                                         </div>
                                     )}
                                     
-                                    {((currentMedia.duration && currentMedia.duration > 0) || (currentMedia.runtime && currentMedia.runtime > 0)) && (
-                                        <span className="text-white/70">
-                                            {(() => {
-                                                const duration = currentMedia.duration || currentMedia.runtime || 0;
-                                                const hours = Math.floor(duration / 3600);
-                                                const minutes = Math.floor((duration % 3600) / 60);
-                                                return `${hours}h ${minutes}m`;
-                                            })()}
-                                        </span>
-                                    )}
+                                    {(() => {
+                                        const duration = currentMedia.duration || currentMedia.runtime || 0;
+                                        if (duration > 0) {
+                                            const hours = Math.floor(duration / 3600);
+                                            const minutes = Math.floor((duration % 3600) / 60);
+                                            if (hours > 0 || minutes > 0) {
+                                                return (
+                                                    <span className="text-white/70">
+                                                        {hours > 0 && `${hours}h `}{minutes > 0 && `${minutes}m`}
+                                                    </span>
+                                                );
+                                            }
+                                        }
+                                        return null;
+                                    })()}
 
                                     {currentMedia.certification && currentMedia.certification.trim() && (
                                         <span className="px-2 py-0.5 border border-white/30 rounded text-xs font-medium">
