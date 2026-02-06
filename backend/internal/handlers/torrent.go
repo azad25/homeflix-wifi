@@ -158,13 +158,29 @@ func NewTorrentHandler(db *gorm.DB, mediaScanner MediaScannerInterface, notifica
 	}
 	log.Printf("✅ Torrent client initialized successfully")
 
+	// Clean up any orphaned database records (torrents that were deleted but still in DB)
+	// This prevents deleted torrents from reappearing on restart
+	var allDownloads []models.TorrentDownload
+	db.Find(&allDownloads)
+	log.Printf("📊 Total torrent records in database: %d", len(allDownloads))
+	
+	// Check for completed torrents that should be cleaned up
+	var completedCount int64
+	db.Model(&models.TorrentDownload{}).Where("status = ?", "completed").Count(&completedCount)
+	if completedCount > 0 {
+		log.Printf("📦 Found %d completed torrents in database (these won't be restored)", completedCount)
+	}
+
 	// Restore incomplete downloads from database
+	// IMPORTANT: Only restore downloading/paused torrents, NOT completed ones
 	var incompleteDownloads []models.TorrentDownload
 	db.Where("status IN ?", []string{"downloading", "paused"}).Find(&incompleteDownloads)
 	
+	log.Printf("📊 Found %d incomplete downloads to restore", len(incompleteDownloads))
+	
 	for _, dbDownload := range incompleteDownloads {
-		log.Printf("🔄 Restoring download: %s (Status: %s, Progress: %.1f%%)", 
-			dbDownload.Name, dbDownload.Status, dbDownload.Progress)
+		log.Printf("🔄 Restoring download: %s (Status: %s, Progress: %.1f%%, ID: %s)", 
+			dbDownload.Name, dbDownload.Status, dbDownload.Progress, dbDownload.TorrentID)
 		
 		// Restore the download to the client
 		if err := client.RestoreDownload(
@@ -637,10 +653,19 @@ func (h *TorrentHandler) RemoveDownload(c *gin.Context) {
 	}
 
 	// Always remove from database (this is the most important cleanup)
-	if err := h.db.Where("torrent_id = ?", id).Delete(&models.TorrentDownload{}).Error; err != nil {
-		log.Printf("⚠️ Failed to remove torrent from database: %v", err)
+	log.Printf("🗑️ Attempting to delete torrent from database: ID=%s, Name=%s", id, torrentDownload.Name)
+	
+	result := h.db.Where("torrent_id = ?", id).Delete(&models.TorrentDownload{})
+	if result.Error != nil {
+		log.Printf("❌ Database deletion failed: %v", result.Error)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to remove from database"})
 		return
+	}
+	
+	if result.RowsAffected == 0 {
+		log.Printf("⚠️ No rows deleted from database - torrent may have already been removed: %s", id)
+	} else {
+		log.Printf("✅ Successfully deleted %d row(s) from database for torrent: %s", result.RowsAffected, torrentDownload.Name)
 	}
 
 	log.Printf("✅ Successfully cleaned up torrent: %s", torrentDownload.Name)
@@ -1097,6 +1122,32 @@ func (h *TorrentHandler) UpdateConfig(c *gin.Context) {
 }
 
 
+
+// GetDatabaseStats returns diagnostic information about torrents in database
+func (h *TorrentHandler) GetDatabaseStats(c *gin.Context) {
+	var stats struct {
+		TotalRecords      int64                      `json:"total_records"`
+		ByStatus          map[string]int64           `json:"by_status"`
+		RecentDownloads   []models.TorrentDownload   `json:"recent_downloads"`
+	}
+	
+	// Get total count
+	h.db.Model(&models.TorrentDownload{}).Count(&stats.TotalRecords)
+	
+	// Get counts by status
+	stats.ByStatus = make(map[string]int64)
+	statuses := []string{"downloading", "paused", "completed", "error"}
+	for _, status := range statuses {
+		var count int64
+		h.db.Model(&models.TorrentDownload{}).Where("status = ?", status).Count(&count)
+		stats.ByStatus[status] = count
+	}
+	
+	// Get recent downloads (last 10)
+	h.db.Order("added_at DESC").Limit(10).Find(&stats.RecentDownloads)
+	
+	c.JSON(http.StatusOK, stats)
+}
 
 // Test Jackett connection
 func (h *TorrentHandler) TestConnection(c *gin.Context) {

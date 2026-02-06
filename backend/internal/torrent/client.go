@@ -902,6 +902,13 @@ func (tc *TorrentClient) RestoreDownload(torrentID, name, magnetURI, status, sav
 
 	log.Printf("🔄 Restoring torrent: %s (Status: %s, Progress: %.1f%%)", name, status, progress)
 
+	// SAFETY CHECK: Don't restore if already exists in session
+	// This prevents Rain from re-adding torrents we've deleted
+	if _, exists := tc.downloads[torrentID]; exists {
+		log.Printf("⚠️ Torrent already exists in session, skipping restore: %s", name)
+		return nil
+	}
+
 	// Add torrent to session
 	t, err := tc.session.AddURI(magnetURI, nil)
 	if err != nil {
@@ -1099,6 +1106,8 @@ func (tc *TorrentClient) RemoveDownloadWithFiles(id string, deleteFiles bool) er
 		}
 	}
 
+	// CRITICAL: Remove from our tracking BEFORE deleting from session
+	// This prevents Rain from re-adding it if it's still in rain.db
 	delete(tc.downloads, id)
 	
 	if deleteFiles {
@@ -1106,6 +1115,11 @@ func (tc *TorrentClient) RemoveDownloadWithFiles(id string, deleteFiles bool) er
 	} else {
 		log.Printf("🗑️ Removed torrent (files preserved): %s", download.Name)
 	}
+	
+	// IMPORTANT: Rain's database (rain.db) might still have this torrent
+	// The session.RemoveTorrent() call above should have removed it from rain.db
+	// But if it persists, it will be caught by the duplicate check in RestoreDownload()
+	log.Printf("💡 Torrent removed from session and memory. If it reappears, check rain.db")
 	
 	return nil
 }

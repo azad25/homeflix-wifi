@@ -352,6 +352,9 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
       return;
     }
 
+    // Show loading state during deletion
+    setOperationsInProgress(prev => new Set(prev).add(id));
+
     try {
       const apiUrl = getApiUrl();
       const response = await fetch(`${apiUrl}/api/torrents/downloads/${id}`, {
@@ -390,6 +393,13 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
 
       // Still refresh the list in case the backend partially cleaned up
       fetchDownloads();
+    } finally {
+      // Always clear loading state
+      setOperationsInProgress(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(id);
+        return newSet;
+      });
     }
   };
 
@@ -945,10 +955,15 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
                     )}
                     <button
                       onClick={() => removeDownload(download.id, download.name)}
-                      className="p-2 text-white/60 hover:text-[#E50914] hover:bg-white/10 rounded-lg transition-colors"
+                      disabled={operationsInProgress.has(download.id)}
+                      className="p-2 text-white/60 hover:text-[#E50914] hover:bg-white/10 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition-colors"
                       title="Ultra-safe removal (protects other torrents)"
                     >
-                      <Trash2 className="w-4 h-4" />
+                      {operationsInProgress.has(download.id) ? (
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Trash2 className="w-4 h-4" />
+                      )}
                     </button>
                   </div>
                 </div>
