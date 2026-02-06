@@ -24,6 +24,7 @@ import ImageWithFallback from '@/components/ImageWithFallback';
 import CastSection from '@/components/CastSection';
 import { useMyList } from '@/hooks/useMyList';
 import MyListTooltip from '@/components/ui/MyListTooltip';
+import { isPlaceholderVideo, checkAndHandlePlaceholder, detectPlaceholderOnLoad } from '@/lib/videoUtils';
 import {
   NetflixHorizontalRow,
   ParallaxSection,
@@ -969,6 +970,7 @@ export default function TVSeriesPage() {
         setIsVideoPlaying(false);
       }
     }
+    // Don't disable YouTube fallback here - let the video onLoadedData handler do it
   }, [series, latestEpisode, loading, isPlayerOpen, isShowingTrailer, extractYouTubeKey]);
 
 
@@ -1364,9 +1366,209 @@ export default function TVSeriesPage() {
     return date.toLocaleDateString();
   };
 
+  // Global video play event listener to catch any video that starts playing
+  useEffect(() => {
+    const handleGlobalVideoPlay = (event: Event) => {
+      const playingVideo = event.target as HTMLVideoElement;
+      const backgroundVideo = videoRef.current;
+
+      // If any video starts playing and it's not our background video, stop the background video
+      if (backgroundVideo && playingVideo !== backgroundVideo) {
+        backgroundVideo.pause();
+        backgroundVideo.muted = true;
+        backgroundVideo.volume = 0;
+        setIsVideoPlaying(false);
+        setIsMuted(true);
+      }
+    };
+
+    const handleGlobalVideoLoadStart = (event: Event) => {
+      const loadingVideo = event.target as HTMLVideoElement;
+      const backgroundVideo = videoRef.current;
+
+      // If any video starts loading and player is open, stop background video
+      if (backgroundVideo && loadingVideo !== backgroundVideo && isPlayerOpen) {
+        backgroundVideo.pause();
+        backgroundVideo.muted = true;
+        backgroundVideo.volume = 0;
+        setIsVideoPlaying(false);
+        setIsMuted(true);
+      }
+    };
+
+    // Listen for all video events in the document
+    document.addEventListener('play', handleGlobalVideoPlay, true);
+    document.addEventListener('loadstart', handleGlobalVideoLoadStart, true);
+    document.addEventListener('canplay', handleGlobalVideoPlay, true);
+
+    return () => {
+      document.removeEventListener('play', handleGlobalVideoPlay, true);
+      document.removeEventListener('loadstart', handleGlobalVideoLoadStart, true);
+      document.removeEventListener('canplay', handleGlobalVideoPlay, true);
+    };
+  }, [isPlayerOpen]);
+
+  // Stop background video when player or trailer is active (event-driven, no polling)
+  useEffect(() => {
+    if (!isPlayerOpen && !isShowingTrailer) return;
+
+    const video = videoRef.current;
+    if (!video) return;
+
+    // Stop video immediately when player opens
+    const stopAndHide = () => {
+      video.pause();
+      video.muted = true;
+      video.volume = 0;
+      video.currentTime = 0;
+      video.removeAttribute('autoplay');
+      video.removeAttribute('loop');
+      video.style.display = 'none';
+      video.style.visibility = 'hidden';
+      video.style.opacity = '0';
+      setIsVideoPlaying(false);
+      setIsMuted(true);
+    };
+
+    // Initial stop
+    stopAndHide();
+
+    // Event listener to catch any attempts to play while player is open
+    const handlePlay = () => stopAndHide();
+    video.addEventListener('play', handlePlay);
+    video.addEventListener('playing', handlePlay);
+
+    return () => {
+      video.removeEventListener('play', handlePlay);
+      video.removeEventListener('playing', handlePlay);
+    };
+  }, [isPlayerOpen, isShowingTrailer]);
+
+  // Background video control when player opens/closes or trailer shows
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    if (isPlayerOpen || isShowingTrailer) {
+      // Player opened or trailer showing - completely stop and hide background video
+      video.pause();
+      video.muted = true;
+      video.volume = 0;
+      video.currentTime = 0;
+
+      // Force stop all audio contexts
+      try {
+        video.pause();
+        video.muted = true;
+        video.volume = 0;
+        video.currentTime = 0;
+
+        // Remove all event listeners temporarily to prevent auto-restart
+        video.removeAttribute('autoplay');
+        video.removeAttribute('loop');
+
+        // Clear all sources to stop loading
+        const sources = video.querySelectorAll('source');
+        sources.forEach(source => source.remove());
+        video.src = '';
+        video.load();
+      } catch (error) {
+        console.warn('Error stopping background video:', error);
+      }
+
+      setIsVideoPlaying(false);
+      setIsMuted(true);
+      video.style.display = 'none';
+      video.style.visibility = 'hidden';
+      video.style.opacity = '0';
+    }
+  }, [isPlayerOpen, isShowingTrailer]);
+
+
+
+  // Controlled auto-play - only when appropriate and page is visible
+  useEffect(() => {
+    const forceVideoPlay = () => {
+      const video = videoRef.current;
+      // Only play if player is NOT open, trailer is NOT showing, page is visible, and video sources are available
+      if (video && series && !isPlayerOpen && !isShowingTrailer && !loading && !document.hidden && !forceShowBackdrop) {
+        // Check if video has valid sources before attempting to play
+        const sources = video.querySelectorAll('source');
+        const hasValidSources = Array.from(sources).some(source =>
+          source.src && !source.style.display.includes('none')
+        );
+
+        if (!hasValidSources) {
+          console.warn('No valid video sources available, showing backdrop');
+          setForceShowBackdrop(true);
+          setIsVideoLoaded(false);
+          setIsVideoPlaying(false);
+          return;
+        }
+
+        // Set video properties including loop
+        video.loop = true;
+        video.muted = false;
+        video.volume = 1.0;
+        video.currentTime = 0;
+        setIsMuted(false);
+
+        // Single play attempt with proper error handling
+        video.play().then(() => {
+          setIsVideoPlaying(true);
+          setForceShowBackdrop(false);
+          // Disable YouTube fallback when regular video plays successfully
+          setUseYouTubeFallback(false);
+        }).catch((error) => {
+          console.warn('Failed to play video with sound, trying muted:', error);
+          // Fallback to muted play
+          video.muted = true;
+          setIsMuted(true);
+          video.play().then(() => {
+            setIsVideoPlaying(true);
+            setForceShowBackdrop(false);
+            // Disable YouTube fallback when regular video plays successfully
+            setUseYouTubeFallback(false);
+          }).catch((muteError) => {
+            console.warn('Failed to play video even muted, trying trailer fallback:', muteError);
+            // Try trailer fallback if preview fails
+            if (series?.tmdb_trailer_url && extractYouTubeKey(series.tmdb_trailer_url)) {
+              console.log('🎬 Episode preview failed, switching to trailer fallback');
+              setUseYouTubeFallback(true);
+              setForceShowBackdrop(false);
+            } else {
+              console.log('🎬 No trailer available, showing backdrop');
+              setForceShowBackdrop(true);
+            }
+          });
+        });
+      }
+    };
+
+    // Only trigger auto-play when conditions are right and page is visible
+    if (series && !loading && !isPlayerOpen && !isShowingTrailer && !document.hidden && !forceShowBackdrop) {
+      const timer = setTimeout(forceVideoPlay, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [series, loading, isPlayerOpen, isShowingTrailer, forceShowBackdrop, extractYouTubeKey]);
+
   // Initialize YouTube background player when fallback is triggered
   useEffect(() => {
+    // Only initialize YouTube fallback if:
+    // 1. YouTube fallback is enabled
+    // 2. YouTube API is ready
+    // 3. Series exists
+    // 4. Player is not open
+    // 5. Trailer overlay is not showing
+    // 6. Regular video is NOT already playing (prevent conflict)
+    // 7. No preview video is available or it failed to load
     if (!useYouTubeFallback || !ytReady || !series || isPlayerOpen || isShowingTrailer) return;
+
+    // Don't start YouTube fallback if regular video is already playing successfully
+    if (isVideoPlaying && isVideoLoaded && !forceShowBackdrop) {
+      console.log('🎬 Regular video is playing, skipping YouTube fallback');
+      return;
+    }
 
     const videoKey = series?.tmdb_trailer_url
       ? extractYouTubeKey(series.tmdb_trailer_url)
@@ -1427,24 +1629,28 @@ export default function TVSeriesPage() {
                 setIsMuted(false);
                 setForceShowBackdrop(false);
                 setIsVideoLoaded(true);
-              } else if (event.data === 0) { // ended - restart
-                console.log('🎬 YouTube background trailer ended, restarting');
+              } else if (event.data === 0) { // ended - loop back
+                console.log('🎬 YouTube background trailer ended, looping');
                 event.target.seekTo(10);
                 event.target.playVideo();
               } else if (event.data === 2) { // paused
                 console.log('🎬 YouTube background trailer paused');
-                setIsVideoPlaying(false);
               }
             },
             onReady: (event: any) => {
               console.log('🎬 YouTube background trailer ready');
-              event.target.unMute();
-              event.target.seekTo(10, true);
-              event.target.playVideo();
-              setIsVideoPlaying(true);
-              setIsMuted(false);
-              setForceShowBackdrop(false);
-              setIsVideoLoaded(true);
+              // Triple-check that regular video isn't playing before starting YouTube
+              if (!isVideoPlaying || forceShowBackdrop) {
+                event.target.unMute();
+                event.target.seekTo(10, true);
+                event.target.playVideo();
+                setIsVideoPlaying(true);
+                setIsMuted(false);
+                setForceShowBackdrop(false);
+                setIsVideoLoaded(true);
+              } else {
+                console.log('🎬 Regular video is playing, not starting YouTube trailer');
+              }
             },
             onError: (event: any) => {
               console.error('YouTube background player error:', event.data);
@@ -1469,7 +1675,7 @@ export default function TVSeriesPage() {
     return () => {
       clearTimeout(timer);
     };
-  }, [useYouTubeFallback, ytReady, series, isPlayerOpen, isShowingTrailer, extractYouTubeKey]);
+  }, [useYouTubeFallback, ytReady, series, isPlayerOpen, isShowingTrailer, extractYouTubeKey, latestEpisode]);
   useEffect(() => {
     return () => {
       try {
@@ -1591,10 +1797,10 @@ export default function TVSeriesPage() {
             width: '100%',
             height: '100%',
             objectFit: 'cover',
-            // Hide video completely when player is open, when we want to show backdrop, or when using YouTube fallback
-            display: isPlayerOpen || !isVideoLoaded || !isVideoPlaying || forceShowBackdrop || useYouTubeFallback ? 'none' : 'block',
-            visibility: isPlayerOpen || !isVideoLoaded || !isVideoPlaying || forceShowBackdrop || useYouTubeFallback ? 'hidden' : 'visible',
-            opacity: isPlayerOpen || !isVideoLoaded || !isVideoPlaying || forceShowBackdrop || useYouTubeFallback ? 0 : 1,
+            // Hide video only when player is open, showing backdrop, or using YouTube fallback
+            display: isPlayerOpen || forceShowBackdrop || useYouTubeFallback ? 'none' : 'block',
+            visibility: isPlayerOpen || forceShowBackdrop || useYouTubeFallback ? 'hidden' : 'visible',
+            opacity: isPlayerOpen || forceShowBackdrop || useYouTubeFallback ? 0 : 1,
             transition: 'opacity 0.3s ease-in-out'
           }}
 
@@ -1602,6 +1808,17 @@ export default function TVSeriesPage() {
             setIsVideoLoaded(true);
             if (videoRef.current) {
               const video = videoRef.current;
+
+              // Check for placeholder video immediately
+              detectPlaceholderOnLoad(video, () => {
+                console.log('🎬 Placeholder detected, switching to trailer fallback');
+                if (series?.tmdb_trailer_url && extractYouTubeKey(series.tmdb_trailer_url)) {
+                  setUseYouTubeFallback(true);
+                  setForceShowBackdrop(false);
+                } else {
+                  setForceShowBackdrop(true);
+                }
+              });
 
               video.currentTime = 0;
               video.volume = 1.0;
@@ -1614,6 +1831,8 @@ export default function TVSeriesPage() {
                   setIsVideoPlaying(true);
                   setIsMuted(false);
                   setForceShowBackdrop(false);
+                  // Disable YouTube fallback when regular video plays successfully
+                  setUseYouTubeFallback(false);
                 }).catch((error) => {
                   console.warn('Episode preview failed to play with sound, trying muted:', error);
                   video.muted = true;
@@ -1621,6 +1840,8 @@ export default function TVSeriesPage() {
                   video.play().then(() => {
                     setIsVideoPlaying(true);
                     setForceShowBackdrop(false);
+                    // Disable YouTube fallback when regular video plays successfully
+                    setUseYouTubeFallback(false);
                   }).catch((muteError) => {
                     console.warn('Episode preview failed completely, trying trailer fallback:', muteError);
                     // Try trailer fallback if preview fails
@@ -1690,11 +1911,15 @@ export default function TVSeriesPage() {
                 video.play().then(() => {
                   setIsVideoPlaying(true);
                   setIsMuted(false);
+                  // Disable YouTube fallback when regular video plays successfully
+                  setUseYouTubeFallback(false);
                 }).catch(() => {
                   video.muted = true;
                   setIsMuted(true);
                   video.play().then(() => {
                     setIsVideoPlaying(true);
+                    // Disable YouTube fallback when regular video plays successfully
+                    setUseYouTubeFallback(false);
                   }).catch(() => {
                   });
                 });
@@ -1722,11 +1947,15 @@ export default function TVSeriesPage() {
                 video.play().then(() => {
                   setIsVideoPlaying(true);
                   setIsMuted(false);
+                  // Disable YouTube fallback when regular video plays successfully
+                  setUseYouTubeFallback(false);
                 }).catch(() => {
                   video.muted = true;
                   setIsMuted(true);
                   video.play().then(() => {
                     setIsVideoPlaying(true);
+                    // Disable YouTube fallback when regular video plays successfully
+                    setUseYouTubeFallback(false);
                   }).catch(() => {
                   });
                 });
@@ -1810,15 +2039,15 @@ export default function TVSeriesPage() {
           Your browser does not support the video tag.
         </video>
 
-        {/* YouTube Background Fallback Player - Only show when video is playing */}
+        {/* YouTube Background Fallback Player - Always show when active, never hide */}
         {useYouTubeFallback && !isPlayerOpen && !isShowingTrailer && extractYouTubeKey(series.tmdb_trailer_url || '') && (
           <div
             className="absolute inset-0 z-[6] flex items-center justify-center overflow-hidden pointer-events-none"
             style={{
               clipPath: 'inset(0)',
-              display: isPlayerOpen || forceShowBackdrop ? 'none' : 'block',
-              visibility: isPlayerOpen || forceShowBackdrop ? 'hidden' : 'visible',
-              opacity: isPlayerOpen || forceShowBackdrop ? 0 : 1,
+              display: 'block',
+              visibility: 'visible',
+              opacity: 1,
             }}
           >
             <div className="relative w-full h-full overflow-hidden">
@@ -1834,13 +2063,15 @@ export default function TVSeriesPage() {
                 }}
               />
 
-              {/* Trailer Indicator - Shows when using trailer as background */}
-              <div className="absolute top-4 left-4 z-[10] bg-black/70 backdrop-blur-sm text-white px-3 py-1.5 rounded-lg pointer-events-none">
-                <div className="flex items-center gap-2">
-                  <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
-                  <span className="text-xs font-semibold">Official Trailer</span>
+              {/* Trailer Indicator - Only show when trailer is not playing */}
+              {!isVideoPlaying && (
+                <div className="absolute top-4 left-4 z-[10] bg-black/70 backdrop-blur-sm text-white px-3 py-1.5 rounded-lg pointer-events-none">
+                  <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
+                    <span className="text-xs font-semibold">Official Trailer</span>
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
           </div>
         )}

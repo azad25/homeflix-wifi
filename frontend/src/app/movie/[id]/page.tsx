@@ -659,13 +659,8 @@ export default function MoviePage() {
     const handleVisibilityChange = () => {
       if (document.hidden) {
         performanceOptimizationRef.current.isInLowPowerMode = true;
-        // Force show backdrop when page is hidden to save resources
-        setForceShowBackdrop(true);
-        setIsVideoPlaying(false);
-        setIsVideoLoaded(false);
       } else {
         performanceOptimizationRef.current.isInLowPowerMode = false;
-        // Don't auto-resume video when page becomes visible - let user decide
       }
     };
 
@@ -756,30 +751,7 @@ export default function MoviePage() {
     }
   }, [params?.id]);
 
-  // Video loading timeout - show backdrop if video takes too long to load
-  useEffect(() => {
-    if (media && !isPlayerOpen && !isShowingTrailer) {
-      // Set a timeout to show backdrop if video doesn't load within 10 seconds
-      const videoLoadTimeout = setTimeout(() => {
-        if (!isVideoLoaded || !isVideoPlaying) {
-          console.warn('Video loading timeout - showing backdrop');
-          setForceShowBackdrop(true);
-          setIsVideoLoaded(false);
-          setIsVideoPlaying(false);
 
-          // Hide video element
-          const video = videoRef.current;
-          if (video) {
-            video.style.display = 'none';
-            video.style.visibility = 'hidden';
-            video.style.opacity = '0';
-          }
-        }
-      }, 10000); // 10 second timeout
-
-      return () => clearTimeout(videoLoadTimeout);
-    }
-  }, [media, isPlayerOpen, isShowingTrailer, isVideoLoaded, isVideoPlaying]);
 
   // Background video control when player opens/closes or trailer shows
   useEffect(() => {
@@ -934,6 +906,8 @@ export default function MoviePage() {
         video.play().then(() => {
           setIsVideoPlaying(true);
           setForceShowBackdrop(false);
+          // Disable YouTube fallback when regular video plays successfully
+          setUseYouTubeFallback(false);
         }).catch((error) => {
           console.warn('Failed to play video with sound, trying muted:', error);
           // Fallback to muted play
@@ -942,11 +916,21 @@ export default function MoviePage() {
           video.play().then(() => {
             setIsVideoPlaying(true);
             setForceShowBackdrop(false);
+            // Disable YouTube fallback when regular video plays successfully
+            setUseYouTubeFallback(false);
           }).catch((muteError) => {
-            console.warn('Failed to play video even muted, showing backdrop:', muteError);
-            setForceShowBackdrop(true);
-            setIsVideoLoaded(false);
-            setIsVideoPlaying(false);
+            console.warn('Failed to play video even muted, trying trailer fallback:', muteError);
+            // Try trailer fallback if preview fails
+            if (media?.tmdb_trailer_url && extractYouTubeKey(media.tmdb_trailer_url)) {
+              console.log('🎬 Preview failed, switching to trailer fallback');
+              setUseYouTubeFallback(true);
+              setForceShowBackdrop(false);
+            } else {
+              console.log('🎬 No trailer available, showing backdrop');
+              setForceShowBackdrop(true);
+              setIsVideoLoaded(false);
+              setIsVideoPlaying(false);
+            }
           });
         });
       }
@@ -957,11 +941,14 @@ export default function MoviePage() {
       const timer = setTimeout(forceVideoPlay, 500);
       return () => clearTimeout(timer);
     }
-  }, [media, loading, isPlayerOpen, isShowingTrailer, forceShowBackdrop]);
+  }, [media, loading, isPlayerOpen, isShowingTrailer, forceShowBackdrop, extractYouTubeKey]);
 
   // Check if preview is available and show backdrop if not
   useEffect(() => {
     if (!media || loading || isPlayerOpen || isShowingTrailer) return;
+    
+    // Don't change fallback state if video is already playing
+    if (isVideoPlaying) return;
 
     const videoUrl = getBackgroundVideoUrl(media);
     const hasPreview = videoUrl && (
@@ -984,7 +971,8 @@ export default function MoviePage() {
         setIsVideoPlaying(false);
       }
     }
-  }, [media, loading, isPlayerOpen, isShowingTrailer, extractYouTubeKey]);
+    // Don't disable YouTube fallback here - let the video onLoadedData handler do it
+  }, [media, loading, isPlayerOpen, isShowingTrailer, extractYouTubeKey, isVideoPlaying]);
 
   // Note: Removed duplicate video play effect - video already plays via onLoadedData and onCanPlay handlers
 
@@ -1620,7 +1608,21 @@ export default function MoviePage() {
 
   // Initialize YouTube background player when fallback is triggered
   useEffect(() => {
+    // Only initialize YouTube fallback if:
+    // 1. YouTube fallback is enabled
+    // 2. YouTube API is ready
+    // 3. Media exists
+    // 4. Player is not open
+    // 5. Trailer overlay is not showing
+    // 6. Regular video is NOT already playing (prevent conflict)
+    // 7. No preview video is available or it failed to load
     if (!useYouTubeFallback || !ytReady || !media || isPlayerOpen || isShowingTrailer) return;
+
+    // Don't start YouTube fallback if regular video is already playing successfully
+    if (isVideoPlaying && isVideoLoaded && !forceShowBackdrop) {
+      console.log('🎬 Regular video is playing, skipping YouTube fallback');
+      return;
+    }
 
     const videoKey = media?.tmdb_trailer_url
       ? extractYouTubeKey(media.tmdb_trailer_url)
@@ -1641,65 +1643,126 @@ export default function MoviePage() {
     const timer = setTimeout(() => {
       const containerId = `yt-player-background-${media.id}`;
       const container = document.getElementById(containerId);
-      if (!container) return;
+      if (!container) {
+        console.warn('YouTube background container not found');
+        return;
+      }
 
       console.log(`📺 Initializing YouTube background player for: ${media.title}`);
 
-      const player = new window.YT.Player(containerId, {
-        videoId: videoKey,
-        playerVars: {
-          autoplay: 1,
-          mute: 0,
-          controls: 0,
-          showinfo: 0,
-          rel: 0,
-          iv_load_policy: 3,
-          modestbranding: 1,
-          playsinline: 1,
-          disablekb: 1,
-          fs: 0,
-          cc_load_policy: 0,
-          cc_lang_pref: '',
-          enablejsapi: 1,
-          start: 10,
-          loop: 1,
-          playlist: videoKey,
-          origin: window.location.origin,
-        },
-        events: {
-          onStateChange: (event: any) => {
-            if (event.data === 1) { // playing
-              setIsVideoPlaying(true);
-              setIsMuted(false);
-              setForceShowBackdrop(false);
-            } else if (event.data === 0) { // ended - restart
-              event.target.seekTo(10);
-              event.target.playVideo();
-            }
+      try {
+        const player = new window.YT.Player(containerId, {
+          videoId: videoKey,
+          playerVars: {
+            autoplay: 1,
+            mute: 0,
+            controls: 0,
+            showinfo: 0,
+            rel: 0,
+            iv_load_policy: 3,
+            modestbranding: 1,
+            playsinline: 1,
+            disablekb: 1,
+            fs: 0,
+            cc_load_policy: 0,
+            cc_lang_pref: '',
+            enablejsapi: 1,
+            start: 10,
+            loop: 1,
+            playlist: videoKey,
+            origin: window.location.origin,
           },
-          onReady: (event: any) => {
-            event.target.unMute();
-            event.target.seekTo(10, true);
-            event.target.playVideo();
-            setIsVideoPlaying(true);
-            setIsMuted(false);
-            setForceShowBackdrop(false);
+          events: {
+            onStateChange: (event: any) => {
+              if (event.data === 1) { // playing
+                console.log('🎬 YouTube background trailer started playing');
+                setIsVideoPlaying(true);
+                setIsMuted(false);
+                setForceShowBackdrop(false);
+                setIsVideoLoaded(true);
+              } else if (event.data === 0) { // ended - loop back
+                console.log('🎬 YouTube background trailer ended, looping');
+                event.target.seekTo(10);
+                event.target.playVideo();
+              } else if (event.data === 2) { // paused
+                console.log('🎬 YouTube background trailer paused');
+              }
+            },
+            onReady: (event: any) => {
+              console.log('🎬 YouTube background trailer ready');
+              // Triple-check that regular video isn't playing before starting YouTube
+              if (!isVideoPlaying || forceShowBackdrop) {
+                event.target.unMute();
+                event.target.seekTo(10, true);
+                event.target.playVideo();
+                setIsVideoPlaying(true);
+                setIsMuted(false);
+                setForceShowBackdrop(false);
+                setIsVideoLoaded(true);
+              } else {
+                console.log('🎬 Regular video is playing, not starting YouTube trailer');
+              }
+            },
+            onError: (event: any) => {
+              console.error('YouTube background player error:', event.data);
+              setUseYouTubeFallback(false);
+              setForceShowBackdrop(true);
+              setIsVideoLoaded(false);
+              setIsVideoPlaying(false);
+            },
           },
-          onError: (event: any) => {
-            console.error('YouTube background player error:', event.data);
-            setUseYouTubeFallback(false);
-            setForceShowBackdrop(true);
-          },
-        },
-      });
+        });
 
-      setYtPlayerRef(player);
+        setYtPlayerRef(player);
+      } catch (error) {
+        console.error('Error creating YouTube background player:', error);
+        setUseYouTubeFallback(false);
+        setForceShowBackdrop(true);
+        setIsVideoLoaded(false);
+        setIsVideoPlaying(false);
+      }
     }, 100);
 
     return () => {
       clearTimeout(timer);
     };
   }, [useYouTubeFallback, ytReady, media, isPlayerOpen, isShowingTrailer, extractYouTubeKey]);
+
+  // Cleanup YouTube players on unmount
+  useEffect(() => {
+    return () => {
+      try {
+        // Cleanup YouTube background player
+        if (ytPlayerRef) {
+          try {
+            if (typeof ytPlayerRef.destroy === 'function') {
+              ytPlayerRef.destroy();
+            }
+          } catch (e) {
+            console.warn('Error destroying YouTube background player:', e);
+          }
+          setYtPlayerRef(null);
+        }
+
+        // Stop any background video
+        const video = videoRef.current;
+        if (video) {
+          try {
+            video.pause();
+            video.muted = true;
+            video.volume = 0;
+            video.currentTime = 0;
+            video.src = '';
+            video.load();
+          } catch (e) {
+            console.warn('Error stopping background video:', e);
+          }
+        }
+      } catch (error) {
+        console.error('Error in cleanup useEffect:', error);
+      }
+    };
+  }, [ytPlayerRef]);
 
   // Auto-start casting when connected and cast button is clicked
   React.useEffect(() => {
@@ -1752,24 +1815,28 @@ export default function MoviePage() {
     const sources = Array.from(videoElement.querySelectorAll('source'));
     const activeSources = sources.filter(s => s.style.display !== 'none');
     
-    if (activeSources.length === 0) {
+    // Only trigger fallback if ALL sources have been tried and failed
+    if (activeSources.length === 0 && sources.length > 0) {
       // All sources have failed, try trailer fallback
       setTimeout(() => {
-        if (mediaItem?.tmdb_trailer_url && extractYouTubeKey(mediaItem.tmdb_trailer_url)) {
-          console.log('🎬 All movie preview sources failed, switching to trailer fallback');
-          setUseYouTubeFallback(true);
-          setIsVideoLoaded(false);
-          setIsVideoPlaying(false);
-          setForceShowBackdrop(false);
-        } else {
-          console.log('🎬 No trailer available, showing backdrop');
-          setForceShowBackdrop(true);
-          setIsVideoLoaded(false);
-          setIsVideoPlaying(false);
+        // Double-check that video is still not playing
+        if (!isVideoPlaying && !isVideoLoaded) {
+          if (mediaItem?.tmdb_trailer_url && extractYouTubeKey(mediaItem.tmdb_trailer_url)) {
+            console.log('🎬 All movie preview sources failed, switching to trailer fallback');
+            setUseYouTubeFallback(true);
+            setIsVideoLoaded(false);
+            setIsVideoPlaying(false);
+            setForceShowBackdrop(false);
+          } else {
+            console.log('🎬 No trailer available, showing backdrop');
+            setForceShowBackdrop(true);
+            setIsVideoLoaded(false);
+            setIsVideoPlaying(false);
+          }
         }
-      }, 100);
+      }, 500); // Increased delay to ensure all sources have been tried
     }
-  }, [extractYouTubeKey]);
+  }, [extractYouTubeKey, isVideoPlaying, isVideoLoaded]);
 
   const formatRuntime = (minutes: number) => {
     if (!minutes || minutes <= 0) return '';
@@ -1890,10 +1957,8 @@ export default function MoviePage() {
       }
 
       // No valid video source found
-      console.warn('No valid background video source found for media:', media?.id);
       return null;
     } catch (error) {
-      console.error('Error getting background video URL:', error);
       return null;
     }
   };
@@ -2104,9 +2169,9 @@ export default function MoviePage() {
 
       {/* Hero Section */}
       <div className="relative h-screen overflow-hidden">
-        {/* Backdrop Background Image - Shows when video not playing, not loaded, player is open, or forcing backdrop (but not when using YouTube fallback) */}
+        {/* Backdrop Background Image - Shows when video not playing, not loaded, player is open, or forcing backdrop (but NOT when using YouTube fallback and it's playing) */}
         <div
-          className={`absolute inset-0 pointer-events-none transition-opacity duration-1000 ${isPlayerOpen || (forceShowBackdrop && !useYouTubeFallback) || (!useYouTubeFallback && (!isVideoLoaded || !isVideoPlaying)) ? 'opacity-100' : 'opacity-0'
+          className={`absolute inset-0 pointer-events-none transition-opacity duration-1000 ${isPlayerOpen || (forceShowBackdrop && !useYouTubeFallback) || (!useYouTubeFallback && (!isVideoLoaded || !isVideoPlaying)) || (useYouTubeFallback && !isVideoPlaying) ? 'opacity-100' : 'opacity-0'
             }`}
           style={{ zIndex: 2 }}
         >
@@ -2160,10 +2225,10 @@ export default function MoviePage() {
             width: '100%',
             height: '100%',
             objectFit: 'cover',
-            // Hide video completely when player is open, when we want to show backdrop, or when using YouTube fallback
-            display: isPlayerOpen || !isVideoLoaded || !isVideoPlaying || forceShowBackdrop || useYouTubeFallback ? 'none' : 'block',
-            visibility: isPlayerOpen || !isVideoLoaded || !isVideoPlaying || forceShowBackdrop || useYouTubeFallback ? 'hidden' : 'visible',
-            opacity: isPlayerOpen || !isVideoLoaded || !isVideoPlaying || forceShowBackdrop || useYouTubeFallback ? 0 : 1,
+            // Hide video only when player is open, showing backdrop, or using YouTube fallback
+            display: isPlayerOpen || forceShowBackdrop || useYouTubeFallback ? 'none' : 'block',
+            visibility: isPlayerOpen || forceShowBackdrop || useYouTubeFallback ? 'hidden' : 'visible',
+            opacity: isPlayerOpen || forceShowBackdrop || useYouTubeFallback ? 0 : 1,
             transition: 'opacity 0.3s ease-in-out'
           }}
 
@@ -2183,6 +2248,11 @@ export default function MoviePage() {
                   setIsVideoPlaying(true);
                   setIsMuted(false);
                   setForceShowBackdrop(false);
+                  // Only disable YouTube fallback if we actually have a preview
+                  const videoUrl = getBackgroundVideoUrl(media);
+                  if (videoUrl) {
+                    setUseYouTubeFallback(false);
+                  }
                 }).catch((error) => {
                   console.warn('Preview video failed to play with sound, trying muted:', error);
                   video.muted = true;
@@ -2190,6 +2260,11 @@ export default function MoviePage() {
                   video.play().then(() => {
                     setIsVideoPlaying(true);
                     setForceShowBackdrop(false);
+                    // Only disable YouTube fallback if we actually have a preview
+                    const videoUrl = getBackgroundVideoUrl(media);
+                    if (videoUrl) {
+                      setUseYouTubeFallback(false);
+                    }
                   }).catch((muteError) => {
                     console.warn('Preview video failed completely, trying trailer fallback:', muteError);
                     // Try trailer fallback if preview fails
@@ -2212,7 +2287,7 @@ export default function MoviePage() {
             }
           }}
           onError={(e) => {
-            console.warn('Background video failed to load, trying trailer fallback');
+            console.warn('Background preview failed to load, trying trailer fallback');
 
             // Try trailer fallback if preview fails to load
             if (media?.tmdb_trailer_url && extractYouTubeKey(media.tmdb_trailer_url)) {
@@ -2220,7 +2295,7 @@ export default function MoviePage() {
               setUseYouTubeFallback(true);
               setIsVideoLoaded(false);
               setIsVideoPlaying(false);
-              setForceShowBackdrop(false); // Don't force backdrop when using trailer fallback
+              setForceShowBackdrop(false);
             } else {
               console.log('🎬 No trailer available, showing backdrop');
               setIsVideoLoaded(false);
@@ -2259,11 +2334,21 @@ export default function MoviePage() {
                 video.play().then(() => {
                   setIsVideoPlaying(true);
                   setIsMuted(false);
+                  // Only disable YouTube fallback if we actually have a preview
+                  const videoUrl = getBackgroundVideoUrl(media);
+                  if (videoUrl) {
+                    setUseYouTubeFallback(false);
+                  }
                 }).catch(() => {
                   video.muted = true;
                   setIsMuted(true);
                   video.play().then(() => {
                     setIsVideoPlaying(true);
+                    // Only disable YouTube fallback if we actually have a preview
+                    const videoUrl = getBackgroundVideoUrl(media);
+                    if (videoUrl) {
+                      setUseYouTubeFallback(false);
+                    }
                   }).catch(() => {
                   });
                 });
@@ -2377,15 +2462,15 @@ export default function MoviePage() {
           Your browser does not support the video tag.
         </video>
 
-        {/* YouTube Background Fallback Player - Only show when video is playing */}
+        {/* YouTube Background Fallback Player - Always show when active, never hide */}
         {useYouTubeFallback && !isPlayerOpen && !isShowingTrailer && extractYouTubeKey(media.tmdb_trailer_url || '') && (
           <div
             className="absolute inset-0 z-[6] flex items-center justify-center overflow-hidden pointer-events-none"
             style={{
               clipPath: 'inset(0)',
-              display: isPlayerOpen || forceShowBackdrop ? 'none' : 'block',
-              visibility: isPlayerOpen || forceShowBackdrop ? 'hidden' : 'visible',
-              opacity: isPlayerOpen || forceShowBackdrop ? 0 : 1,
+              display: 'block',
+              visibility: 'visible',
+              opacity: 1,
             }}
           >
             <div className="relative w-full h-full overflow-hidden">

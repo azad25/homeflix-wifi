@@ -1971,7 +1971,7 @@ const TMDBMoviePage: React.FC = () => {
         </div>
       </div>
       {/* Related Movies Section */}
-      <div className="bg-gray-900 py-16">
+      <div className="bg-black py-16">
         <div className="px-8">
           <RelatedMedia
             mediaId={parseInt(movieId)}

@@ -623,7 +623,7 @@ const RecommendationSection: React.FC<RecommendationSectionProps> = ({
           whileHover={{ scale: 1.05, y: -5 }}
         >
           {/* Main Card */}
-          <div className="relative w-full aspect-[2/3] bg-gray-900 rounded-lg overflow-hidden shadow-lg">
+          <div className="relative w-full aspect-[2/3] bg-black rounded-lg overflow-hidden shadow-lg">
             {/* Poster/Thumbnail Image with Fallback */}
             <div className="relative w-full h-full">
               {!fallbackError ? (
@@ -666,7 +666,7 @@ const RecommendationSection: React.FC<RecommendationSectionProps> = ({
 
               {/* Loading placeholder */}
               {!imageLoaded && !fallbackError && (
-                <div className="absolute inset-0 bg-gray-800 flex items-center justify-center">
+                <div className="absolute inset-0 bg-black flex items-center justify-center">
                   <div className="text-white text-center">
                     <div className="text-3xl mb-2">🎬</div>
                     <div className="text-sm font-medium line-clamp-2 px-2">{cleanMovieTitle(media.title)}</div>
@@ -802,7 +802,7 @@ const RecommendationSection: React.FC<RecommendationSectionProps> = ({
           {canScrollLeft && (
             <motion.button
               onClick={() => scroll('left')}
-              className="absolute left-0 top-1/2 -translate-y-1/2 z-10 bg-black/80 text-white p-2 rounded-r-md opacity-0 group-hover:opacity-100 transition-opacity duration-300"
+              className="absolute left-0 top-1/2 -translate-y-1/2 z-10 bg-black/90 text-white p-2 rounded-r-md opacity-0 group-hover:opacity-100 transition-opacity duration-300"
               whileHover={{ scale: 1.1 }}
               whileTap={{ scale: 0.95 }}
             >
@@ -814,7 +814,7 @@ const RecommendationSection: React.FC<RecommendationSectionProps> = ({
           {canScrollRight && (
             <motion.button
               onClick={() => scroll('right')}
-              className="absolute right-0 top-1/2 -translate-y-1/2 z-10 bg-black/80 text-white p-2 rounded-l-md opacity-0 group-hover:opacity-100 transition-opacity duration-300"
+              className="absolute right-0 top-1/2 -translate-y-1/2 z-10 bg-black/90 text-white p-2 rounded-l-md opacity-0 group-hover:opacity-100 transition-opacity duration-300"
               whileHover={{ scale: 1.1 }}
               whileTap={{ scale: 0.95 }}
             >

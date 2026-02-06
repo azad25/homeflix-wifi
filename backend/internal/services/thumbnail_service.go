@@ -1068,29 +1068,9 @@ func (wp *WorkerPool) tryShortPreviewGeneration(videoPath, previewPath string) e
 	return cmd.Run()
 }
 
-// createPlaceholderPreview creates a simple placeholder preview (worker pool version)
+// createPlaceholderPreview returns an error instead of creating placeholder - let frontend handle trailer/backdrop fallback
 func (wp *WorkerPool) createPlaceholderPreview(mediaID uint, previewPath string) (string, error) {
-	// Create a simple black video with text using FFmpeg
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	cmd := exec.CommandContext(ctx, "ffmpeg",
-		"-f", "lavfi",
-		"-i", "color=black:size=1920x1080:duration=5:rate=25",
-		"-vf", fmt.Sprintf("drawtext=text='Preview\\nUnavailable\\nMedia %d':fontcolor=white:fontsize=48:x=(w-text_w)/2:y=(h-text_h)/2", mediaID),
-		"-c:v", "libx264",
-		"-preset", "ultrafast",
-		"-crf", "30",
-		"-pix_fmt", "yuv420p",
-		"-y",
-		previewPath,
-	)
-
-	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("all preview generation methods failed for media %d: %v", mediaID, err)
-	}
-
-	return previewPath, nil
+	return "", fmt.Errorf("no valid video source available for preview generation - media %d", mediaID)
 }
 
 // generateThumbnailFallback tries alternative methods when FFmpeg fails (original service version)
@@ -2148,26 +2128,9 @@ func (s *ThumbnailService) createVideoFromThumbnail(thumbnailPath, previewPath s
 	return cmd.Run()
 }
 
-// createPlaceholderPreview creates a simple placeholder preview
+// createPlaceholderPreview returns an error instead of creating placeholder - let frontend handle trailer/backdrop fallback
 func (s *ThumbnailService) createPlaceholderPreview(mediaID uint, previewPath string) (string, error) {
-	// Create a simple black video with text using FFmpeg
-	cmd := exec.Command("ffmpeg",
-		"-f", "lavfi",
-		"-i", "color=black:size=1920x1080:duration=5:rate=25",
-		"-vf", fmt.Sprintf("drawtext=text='Preview\\nUnavailable\\nMedia %d':fontcolor=white:fontsize=48:x=(w-text_w)/2:y=(h-text_h)/2", mediaID),
-		"-c:v", "libx264",
-		"-preset", "ultrafast",
-		"-crf", "30",
-		"-pix_fmt", "yuv420p",
-		"-y",
-		previewPath,
-	)
-
-	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("all preview generation methods failed for media %d: %v", mediaID, err)
-	}
-
-	return previewPath, nil
+	return "", fmt.Errorf("no valid video source available for preview generation - media %d", mediaID)
 }
 
 // GetJobStatus returns the status of a processing job

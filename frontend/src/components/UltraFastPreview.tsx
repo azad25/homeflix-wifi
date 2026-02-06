@@ -239,13 +239,10 @@ const UltraFastPreview: React.FC<UltraFastPreviewProps> = ({
                 </div>
             )}
 
-            {/* Error state */}
+            {/* Error state - Don't show any text, just hide the preview */}
             {hasError && (
-                <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-50">
-                    <div className="text-white text-xs text-center">
-                        <div className="mb-1">⚠️</div>
-                        <div>Preview unavailable</div>
-                    </div>
+                <div className="absolute inset-0 bg-black bg-opacity-90">
+                    {/* Silent failure - frontend will handle trailer/backdrop fallback */}
                 </div>
             )}
         </div>

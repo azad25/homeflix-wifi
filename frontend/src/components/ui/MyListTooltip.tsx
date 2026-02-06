@@ -229,7 +229,7 @@ export default function MyListTooltip({
             }`}
             style={{ width: '200px' }}
           >
-            <div className="bg-gray-900/95 backdrop-blur-sm border border-gray-700/50 rounded-lg shadow-xl overflow-hidden">
+            <div className="bg-black/95 backdrop-blur-sm border border-gray-800/50 rounded-lg shadow-xl overflow-hidden">
               <div className="p-2">
                 {/* My List Toggle */}
                 <button
@@ -258,7 +258,7 @@ export default function MyListTooltip({
                       <button
                         key={collection.id}
                         onClick={(e) => handleAddToCollection(collection.id, e)}
-                        className="w-full flex items-center gap-2 p-2 rounded text-xs hover:bg-gray-700/50 text-gray-300 hover:text-white transition-all group/item"
+                        className="w-full flex items-center gap-2 p-2 rounded text-xs hover:bg-black/50 text-gray-300 hover:text-white transition-all group/item"
                       >
                         <Folder className="w-3 h-3 text-blue-400" />
                         <span className="flex-1 truncate text-left">{collection.name}</span>
@@ -279,7 +279,7 @@ export default function MyListTooltip({
                       e.stopPropagation();
                       setShowCreateForm(true);
                     }}
-                    className="w-full flex items-center gap-2 p-2 rounded text-xs hover:bg-gray-700/50 text-gray-400 hover:text-white transition-all mt-1"
+                    className="w-full flex items-center gap-2 p-2 rounded text-xs hover:bg-black/50 text-gray-400 hover:text-white transition-all mt-1"
                   >
                     <Plus className="w-3 h-3" />
                     <span>New Collection</span>
@@ -298,14 +298,14 @@ export default function MyListTooltip({
                         }
                       }}
                       placeholder="Collection name"
-                      className="w-full px-2 py-1 bg-gray-800 text-white rounded text-xs border border-gray-600 focus:border-blue-400 focus:outline-none"
+                      className="w-full px-2 py-1 bg-black text-white rounded text-xs border border-gray-800 focus:border-blue-400 focus:outline-none"
                       autoFocus
                     />
                     <div className="flex gap-1">
                       <button
                         onClick={handleCreateCollection}
                         disabled={!collectionName.trim() || isCreating}
-                        className="flex-1 px-2 py-1 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 text-white rounded text-xs transition-colors"
+                        className="flex-1 px-2 py-1 bg-blue-600 hover:bg-blue-700 disabled:bg-black text-white rounded text-xs transition-colors"
                       >
                         {isCreating ? '...' : 'Create'}
                       </button>
@@ -314,7 +314,7 @@ export default function MyListTooltip({
                           setShowCreateForm(false);
                           setCollectionName('');
                         }}
-                        className="px-2 py-1 bg-gray-600 hover:bg-gray-500 text-white rounded text-xs transition-colors"
+                        className="px-2 py-1 bg-black hover:bg-gray-800 text-white rounded text-xs transition-colors"
                       >
                         <X className="w-3 h-3" />
                       </button>
@@ -338,7 +338,7 @@ export default function MyListTooltip({
               <div className={`absolute left-1/2 transform -translate-x-1/2 ${
                 tooltipPosition === 'top' ? 'top-full -mt-px' : 'bottom-full -mb-px'
               }`}>
-                <div className={`w-2 h-2 bg-gray-900/95 border-gray-700/50 rotate-45 ${
+                <div className={`w-2 h-2 bg-black/95 border-gray-800/50 rotate-45 ${
                   tooltipPosition === 'top' ? 'border-r border-b' : 'border-l border-t'
                 }`} />
               </div>
