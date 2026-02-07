@@ -295,14 +295,14 @@ func (ns *NotificationService) generateOptimizedNotifications() {
 				ns.cleanupOldUsedContent()
 			}
 
-			// Smart rotation: 70% local content, 30% TMDB content
+			// Smart rotation: 50% local content, 50% TMDB content
 			var notificationFunc func() error
 
-			if rand.Float32() < 0.7 {
-				// Local content (70% chance)
+			if rand.Float32() < 0.5 {
+				// Local content (50% chance)
 				notificationFunc = localNotifications[rand.Intn(len(localNotifications))]
 			} else {
-				// TMDB content (30% chance)
+				// TMDB content (50% chance)
 				notificationFunc = tmdbNotifications[rand.Intn(len(tmdbNotifications))]
 			}
 

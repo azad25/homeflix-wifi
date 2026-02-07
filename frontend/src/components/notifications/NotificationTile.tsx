@@ -35,43 +35,6 @@ interface NotificationTileProps {
   canPlayVideo?: boolean; // New prop to control video playback
 }
 
-// Enhanced notification interface with backend data
-interface EnhancedNotification extends Notification {
-  backdrop_url?: string;
-  poster_url?: string;
-  logo_url?: string;
-  trailer_key?: string;
-  rating?: number;
-  release_date?: string;
-  year?: number;
-  runtime?: number;
-  genres?: string[];
-  overview?: string;
-  tagline?: string;
-  language?: string;
-  popularity?: number;
-  companies?: string[];
-  priority?: string;
-  category?: string;
-  progress?: number;
-  remaining_min?: number;
-  days_until?: number;
-  genre_highlight?: string;
-  media_details?: Array<{
-    id: number;
-    title: string;
-    poster_url: string;
-    backdrop_url: string;
-    rating: number;
-    year: number;
-    runtime: number;
-    genres: string[];
-    overview: string;
-    source_type: string;
-    source_id: string;
-  }>;
-}
-
 // Declare global YouTube types
 declare global {
   interface Window {
@@ -90,7 +53,8 @@ const NotificationTile: React.FC<NotificationTileProps> = React.memo(({
   canPlayVideo = true // Default to true for backward compatibility
 }) => {
   const apiUrl = getApiUrl();
-  const enhancedNotification = notification as EnhancedNotification;
+  // Type alias for cleaner code - notification already has all enhanced fields
+  const enhancedNotification = notification;
 
   const [imageLoaded, setImageLoaded] = useState(false);
   const [imageError, setImageError] = useState(false);

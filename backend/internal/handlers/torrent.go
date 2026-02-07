@@ -28,6 +28,7 @@ type TorrentHandler struct {
 type MediaScannerInterface interface {
 	ScanMediaLibrary() error
 	SetMediaPaths(paths []string)
+	ProcessSingleFile(path string, info os.FileInfo) error
 }
 
 // NotificationServiceInterface defines the interface for sending notifications

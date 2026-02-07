@@ -25,6 +25,7 @@ type BandwidthMonitor struct {
 // MediaScannerInterface defines the interface for triggering media scans
 type MediaScannerInterface interface {
 	ScanMediaLibrary() error
+	ProcessSingleFile(path string, info os.FileInfo) error
 }
 
 // StatusCallback is called when a torrent's status changes
@@ -239,19 +240,70 @@ func (tc *TorrentClient) safelyMoveAndRemoveTorrent(torrentID string, torrent *r
 			tc.statusCallback(torrentID, "completed", downloadInfo.Progress, downloadInfo.Size, downloadInfo.Downloaded, downloadInfo.CompletedAt)
 		}
 		
-		// CRITICAL: Also trigger a media library scan to update file paths
-		// The scanner will detect the moved files and update the database accordingly
+		// CRITICAL: Scan only the moved content, not entire library
+		// This prevents scanning incomplete downloads in temp folder
 		if tc.mediaScanner != nil {
-			log.Printf("🔄 Triggering media scan to update file paths after move")
-			go func() {
+			log.Printf("🔄 Scanning moved content: %s", newPath)
+			go func(contentPath string) {
 				// Small delay to ensure file system operations are complete
 				time.Sleep(5 * time.Second)
-				if err := tc.mediaScanner.ScanMediaLibrary(); err != nil {
-					log.Printf("⚠️ Failed to trigger media scan after file move: %v", err)
-				} else {
-					log.Printf("✅ Media scan triggered successfully after file move")
+				
+				// Check if it's a file or folder
+				fileInfo, err := os.Stat(contentPath)
+				if err != nil {
+					log.Printf("⚠️ Failed to stat moved content: %v", err)
+					return
 				}
-			}()
+				
+				if fileInfo.IsDir() {
+					// It's a folder - scan all video files in it
+					log.Printf("📁 Scanning folder: %s", contentPath)
+					err := filepath.Walk(contentPath, func(path string, info os.FileInfo, err error) error {
+						if err != nil {
+							return nil // Continue on errors
+						}
+						
+						// Skip directories
+						if info.IsDir() {
+							return nil
+						}
+						
+						// Check if it's a video file
+						ext := strings.ToLower(filepath.Ext(path))
+						videoExts := []string{".mkv", ".mp4", ".avi", ".mov", ".wmv", ".m4v", ".flv", ".webm", ".mpg", ".mpeg"}
+						isVideo := false
+						for _, videoExt := range videoExts {
+							if ext == videoExt {
+								isVideo = true
+								break
+							}
+						}
+						
+						if isVideo {
+							log.Printf("🎬 Processing video file: %s", filepath.Base(path))
+							if err := tc.mediaScanner.ProcessSingleFile(path, info); err != nil {
+								log.Printf("⚠️ Failed to process video file: %v", err)
+							}
+						}
+						
+						return nil
+					})
+					
+					if err != nil {
+						log.Printf("⚠️ Failed to walk folder: %v", err)
+					} else {
+						log.Printf("✅ Successfully scanned folder")
+					}
+				} else {
+					// It's a single file
+					log.Printf("🎬 Processing single file: %s", filepath.Base(contentPath))
+					if err := tc.mediaScanner.ProcessSingleFile(contentPath, fileInfo); err != nil {
+						log.Printf("⚠️ Failed to scan file: %v", err)
+					} else {
+						log.Printf("✅ Successfully scanned file")
+					}
+				}
+			}(newPath)
 		}
 	}
 	
@@ -1229,11 +1281,10 @@ func (tc *TorrentClient) updateDownloadStats() {
 						log.Printf("🛑 Stopped torrent to prevent seeding: %s", downloadInfo.Name)
 					}
 					
-					// Safe port management: Move files to permanent storage then remove from session
+					// IMPORTANT: Move files to permanent storage
+					// Media scan will be triggered AFTER move completes (inside safelyMoveAndRemoveTorrent)
+					// This ensures scanner finds files in their final location, not temp folder
 					go tc.safelyMoveAndRemoveTorrent(downloadInfo.ID, t, downloadInfo.Name, downloadInfo.SavePath)
-					
-					// Trigger media scanner
-					go tc.triggerMediaScan(downloadInfo)
 				} else if downloadInfo.Size > 0 && downloadInfo.Progress > 0 {
 					// Valid download in progress
 					downloadInfo.Status = "downloading"

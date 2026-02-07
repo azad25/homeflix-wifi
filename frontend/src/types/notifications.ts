@@ -30,6 +30,41 @@ export interface Notification {
     tmdb_titles?: string[];
     timestamp: number;
     read: boolean;
+    
+    // Enhanced data fields from backend
+    backdrop_url?: string;
+    poster_url?: string;
+    logo_url?: string;
+    trailer_key?: string;
+    rating?: number;
+    release_date?: string;
+    year?: number;
+    runtime?: number;
+    genres?: string[];
+    overview?: string;
+    tagline?: string;
+    language?: string;
+    popularity?: number;
+    companies?: string[];
+    priority?: 'high' | 'medium' | 'low';
+    category?: 'trending' | 'new' | 'recommended' | 'watchlist';
+    progress?: number;
+    remaining_min?: number;
+    days_until?: number;
+    genre_highlight?: string;
+    media_details?: Array<{
+        id: number;
+        title: string;
+        poster_url: string;
+        backdrop_url: string;
+        rating: number;
+        year: number;
+        runtime: number;
+        genres: string[];
+        overview: string;
+        source_type: string;
+        source_id: string;
+    }>;
 }
 
 export interface NotificationResponse {

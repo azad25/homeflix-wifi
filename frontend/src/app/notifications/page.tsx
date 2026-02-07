@@ -9,42 +9,6 @@ import { useRouter } from 'next/navigation';
 import Navbar from '@/components/Navbar';
 import '@/styles/notifications.css';
 
-// Enhanced notification interface with backend data
-interface EnhancedNotification extends Notification {
-  backdrop_url?: string;
-  poster_url?: string;
-  logo_url?: string;
-  trailer_key?: string;
-  rating?: number;
-  release_date?: string;
-  runtime?: number;
-  genres?: string[];
-  overview?: string;
-  tagline?: string;
-  language?: string;
-  popularity?: number;
-  companies?: string[];
-  priority?: 'high' | 'medium' | 'low';
-  category?: 'trending' | 'new' | 'recommended' | 'watchlist';
-  progress?: number;
-  remaining_min?: number;
-  days_until?: number;
-  genre_highlight?: string;
-  media_details?: Array<{
-    id: number;
-    title: string;
-    poster_url: string;
-    backdrop_url: string;
-    rating: number;
-    year: number;
-    runtime: number;
-    genres: string[];
-    overview: string;
-    source_type: string;
-    source_id: string;
-  }>;
-}
-
 interface GridPosition {
   x: number;
   y: number;
@@ -54,7 +18,7 @@ interface GridPosition {
 
 interface TileConfig {
   id: string;
-  notification: EnhancedNotification;
+  notification: Notification;
   position: GridPosition;
   size: 'small' | 'medium' | 'large' | 'banner' | 'hero';
   priority: number;
@@ -68,7 +32,7 @@ interface TileConfig {
 
 const NotificationsPage: React.FC = () => {
   const router = useRouter();
-  const [notifications, setNotifications] = useState<EnhancedNotification[]>([]);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
   const [activeTiles, setActiveTiles] = useState<TileConfig[]>([]);
   const [playingTrailers, setPlayingTrailers] = useState<Set<string>>(new Set());
   const [isLoadingFresh, setIsLoadingFresh] = useState(false);
@@ -134,7 +98,7 @@ const NotificationsPage: React.FC = () => {
         // Use cache if less than 10 minutes old for faster updates
         if (age < 10 * 60 * 1000) {
           console.log('⚡ Loading from cache (age:', Math.round(age / 1000), 'seconds)');
-          setNotifications(data as EnhancedNotification[]);
+          setNotifications(data as Notification[]);
           return true;
         }
       }
@@ -145,11 +109,11 @@ const NotificationsPage: React.FC = () => {
   }, []);
 
   // Enhance notifications with proper asset URLs and metadata - optimized for speed
-  const enhanceNotifications = useCallback((notifications: Notification[]): EnhancedNotification[] => {
+  const enhanceNotifications = useCallback((notifications: Notification[]): Notification[] => {
     const apiUrl = getApiUrl();
 
     return notifications.map(notification => {
-      const enhanced: EnhancedNotification = { ...notification };
+      const enhanced: Notification = { ...notification };
 
       // Set priority and category based on type and age
       const hoursSinceCreated = (Date.now() / 1000 - notification.timestamp) / 3600;
@@ -409,9 +373,9 @@ const NotificationsPage: React.FC = () => {
   }, [gridDimensions]);
 
   // 24/7 Optimized tile sizing with extreme diversity - FIXED BANNER PROPORTIONS
-  const getTileSize = useCallback((notification: EnhancedNotification, forceSize?: TileConfig['size']): { size: TileConfig['size'], width: number, height: number, priority: number, duration: number, hasTrailer: boolean, trailerDuration?: number } => {
+  const getTileSize = useCallback((notification: Notification, forceSize?: TileConfig['size']): { size: TileConfig['size'], width: number, height: number, priority: number, duration: number, hasTrailer: boolean, trailerDuration?: number } => {
     const type = notification.type;
-    const hasTrailer = !!(notification as any).trailer_key || !!notification.trailer_key;
+    const hasTrailer = !!notification.trailer_key;
     const { rows, cols } = gridDimensions;
 
     // If forcing a specific size (for morphing), use it with random variations
@@ -785,7 +749,7 @@ const NotificationsPage: React.FC = () => {
     };
 
     // 24/7 Aggressive content morphing with extreme size variations
-    const performAggressiveContentMorphing = (currentTiles: TileConfig[], morphableTiles: TileConfig[], availableNotifications: EnhancedNotification[]): TileConfig[] => {
+    const performAggressiveContentMorphing = (currentTiles: TileConfig[], morphableTiles: TileConfig[], availableNotifications: Notification[]): TileConfig[] => {
       const newTiles = [...currentTiles];
       const tilesToMorph = Math.min(5, morphableTiles.length, availableNotifications.length); // Up to 5 tiles
       const shuffledMorphable = [...morphableTiles].sort(() => Math.random() - 0.5);
@@ -911,7 +875,7 @@ const NotificationsPage: React.FC = () => {
   }, [activeTiles]);
 
   // Handle tile click
-  const handleTileClick = useCallback((notification: EnhancedNotification) => {
+  const handleTileClick = useCallback((notification: Notification) => {
     // Handle navigation based on notification type
     if (notification.type === 'tmdb_upcoming' || notification.type === 'tmdb_now_playing' || notification.type === 'tmdb_trending') {
       if ((notification as any).tmdb_ids && (notification as any).tmdb_ids.length > 0) {
