@@ -953,7 +953,9 @@ const HomeflixHero: React.FC<HomeflixHeroProps> = ({
                                     )}
                                     {movie.quality && (
                                         <span className="px-2 py-0.5 border border-gray-400 rounded text-xs font-bold">
-                                            {movie.quality.toLowerCase().includes('4k') || movie.quality.toLowerCase().includes('2160p') ? '4K' : 'HD'}
+                                            {movie.quality.toLowerCase().includes('4k') || movie.quality.toLowerCase().includes('2160p') ? '4K' : 
+                                             movie.quality.toLowerCase().includes('1080') || movie.quality.toLowerCase().includes('hd') ? 'HD' :
+                                             movie.quality.toLowerCase().includes('720') ? '720p' : movie.quality}
                                         </span>
                                     )}
                                 </div>

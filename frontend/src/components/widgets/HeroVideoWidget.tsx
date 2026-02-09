@@ -147,7 +147,7 @@ export default function HeroVideoWidget({
       return logoUrls[m.tmdb_id];
     }
     
-    // Handle local content logos
+    // Handle local content logos - simple approach like HomeflixHero
     if (m.logo_path) {
       // If it's a full URL, use it directly
       if (m.logo_path.startsWith("http://") || m.logo_path.startsWith("https://")) {
@@ -159,20 +159,8 @@ export default function HeroVideoWidget({
         return `https://image.tmdb.org/t/p/w500${m.logo_path}`;
       }
       
-      // If it's already an API path, use it directly
-      if (m.logo_path.startsWith("/api/")) {
-        return `${apiUrl}${m.logo_path}`;
-      }
-      
-      // For local content, construct the appropriate endpoint
-      if (m.type === 'tv' || m.type === 'series' || m.type === 'episode') {
-        // For TV series, use the series logo endpoint
-        const seriesId = m.series_id || m.id;
-        return `${apiUrl}/api/series/${seriesId}/logo`;
-      } else {
-        // For movies, use the direct logo path
-        return `${apiUrl}/api/${m.logo_path}`;
-      }
+      // For local content, use simple path like HomeflixHero
+      return `${apiUrl}/api/${m.logo_path}`;
     }
     
     return "";
@@ -231,12 +219,16 @@ export default function HeroVideoWidget({
   }, [apiUrl, getBackdropUrl]);
 
   const getYear = useCallback((m: Media) => {
+    // Try year field first
+    if (m.year && m.year > 1900) return m.year;
+    
+    // Fallback to date fields
     const date = m.release_date || m.first_air_date;
     if (date) {
       const year = new Date(date).getFullYear();
-      if (!Number.isNaN(year)) return year;
+      if (!Number.isNaN(year) && year > 1900) return year;
     }
-    if (m.year && m.year > 0) return m.year;
+    
     return null;
   }, []);
 

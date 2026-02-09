@@ -454,13 +454,19 @@ const LocalMoviesHeroSlider: React.FC<LocalMoviesHeroSliderProps> = ({
                                             </span>
                                         )}
                                         {/* Quality Tags - Netflix-style tags */}
-                                        {movie.quality_tags && movie.quality_tags.length > 0 && (
+                                        {movie.quality_tags && movie.quality_tags.length > 0 ? (
                                             <QualityTags
                                                 tags={movie.quality_tags}
                                                 size="sm"
                                                 variant="compact"
                                                 className="flex-wrap"
                                             />
+                                        ) : movie.quality && (
+                                            <span className="px-2 py-0.5 border border-gray-400 rounded text-xs font-bold">
+                                                {movie.quality.toLowerCase().includes('4k') || movie.quality.toLowerCase().includes('2160p') ? '4K' : 
+                                                 movie.quality.toLowerCase().includes('1080') || movie.quality.toLowerCase().includes('hd') ? 'HD' :
+                                                 movie.quality.toLowerCase().includes('720') ? '720p' : movie.quality}
+                                            </span>
                                         )}
                                     </div>
 

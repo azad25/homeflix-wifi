@@ -40,10 +40,16 @@ declare global {
   interface Window {
     YT: any;
     onYouTubeIframeAPIReady: () => void;
+    __initializedYTPlayers?: Set<string>; // Track initialized players globally
   }
 }
 
-const NotificationTile: React.FC<NotificationTileProps> = React.memo(({
+// Initialize global player tracking
+if (typeof window !== 'undefined' && !window.__initializedYTPlayers) {
+  window.__initializedYTPlayers = new Set();
+}
+
+const NotificationTile: React.FC<NotificationTileProps> = ({
   notification,
   size,
   className = '',
@@ -72,6 +78,19 @@ const NotificationTile: React.FC<NotificationTileProps> = React.memo(({
   const failedUrlsRef = useRef<Set<string>>(new Set());
   const trailerTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const hasPlayedRef = useRef(false);
+  const containerIdRef = useRef(`yt-player-${notification.id}`); // Stable container ID
+  
+  // Store callbacks in refs to prevent re-initialization
+  const onTrailerEndRef = useRef(onTrailerEnd);
+  const onTrailerStartRef = useRef(onTrailerStart);
+  const onTileClickRef = useRef(onTileClick);
+  
+  // Update refs when callbacks change
+  useEffect(() => {
+    onTrailerEndRef.current = onTrailerEnd;
+    onTrailerStartRef.current = onTrailerStart;
+    onTileClickRef.current = onTileClick;
+  }, [onTrailerEnd, onTrailerStart, onTileClick]);
 
   // Initialize image URL once
   useEffect(() => {
@@ -105,10 +124,13 @@ const NotificationTile: React.FC<NotificationTileProps> = React.memo(({
       (size !== 'hero' && size !== 'large') ||
       !enhancedNotification.trailer_key) return; // Only hero and large tiles
 
-    const containerId = `yt-player-${notification.id}`;
+    const containerId = containerIdRef.current;
 
-    // Only initialize once per notification
-    if (playerInitializedRef.current) return;
+    // Only initialize once per notification - CRITICAL: Check if player already exists
+    if (playerInitializedRef.current || playerRef.current) {
+      console.log('🔒 Player already initialized, skipping:', notification.title);
+      return;
+    }
 
     console.log(`🎬 Initializing trailer for ${size} tile:`, notification.title);
 
@@ -164,14 +186,14 @@ const NotificationTile: React.FC<NotificationTileProps> = React.memo(({
                 if (trailerTimeoutRef.current) {
                   clearTimeout(trailerTimeoutRef.current);
                 }
-                onTrailerStart?.();
+                onTrailerStartRef.current?.();
               } else if (event.data === 0) { // Ended
                 console.log('🎬 YouTube trailer ended for:', notification.title);
                 hasPlayedRef.current = true; // Mark as played
                 event.target.stopVideo(); // FORCE STOP to prevent looping/restarting
                 setVideoReady(false);
                 setTrailerPlaying(false);
-                onTrailerEnd?.(); // Notify parent that trailer ended
+                onTrailerEndRef.current?.(); // Notify parent that trailer ended
               } else if (event.data === 2) { // Paused
                 setTrailerPlaying(false);
               }
@@ -204,7 +226,7 @@ const NotificationTile: React.FC<NotificationTileProps> = React.memo(({
                     player.stopVideo();
                     setVideoReady(false);
                     setTrailerPlaying(false);
-                    onTrailerEnd?.();
+                    onTrailerEndRef.current?.();
                   }
                 } catch (e) {
                   // Player might be destroyed
@@ -235,7 +257,7 @@ const NotificationTile: React.FC<NotificationTileProps> = React.memo(({
         clearTimeout(trailerTimeoutRef.current);
       }
     };
-  }, [ytReady, notification.id, notification.title, enhancedNotification.trailer_key, size, onTrailerStart, videoReady, trailerPlaying]);
+  }, [ytReady, notification.id, size]); // CRITICAL: Minimal dependencies to prevent re-initialization
 
   const getNotificationIcon = (type: string) => {
     const iconProps = { className: "w-4 h-4" };
@@ -525,7 +547,7 @@ const NotificationTile: React.FC<NotificationTileProps> = React.memo(({
         return {
           container: 'p-4 md:p-6',
           title: 'text-xl sm:text-2xl md:text-3xl font-bold',
-          message: 'text-sm sm:text-base md:text-lg',
+          message: 'text-xs sm:text-sm md:text-base', // Reduced from text-sm sm:text-base md:text-lg
           showDetails: true,
           showTrailer: true, // Hero tiles show trailers
           showPoster: true,
@@ -533,19 +555,19 @@ const NotificationTile: React.FC<NotificationTileProps> = React.memo(({
         };
       case 'banner':
         return {
-          container: 'p-3 md:p-4',
-          title: 'text-lg sm:text-xl md:text-2xl font-bold',
-          message: 'text-sm sm:text-base',
+          container: 'p-2 md:p-3', // Reduced padding for better space utilization
+          title: 'text-base sm:text-lg md:text-xl font-bold', // Slightly smaller title
+          message: 'text-xs', // Reduced from text-xs sm:text-sm
           showDetails: true,
           showTrailer: false, // Banner tiles don't show trailers
-          showPoster: true,
+          showPoster: false, // Hide poster to save space
           useWhiteText: false, // Use red title
         };
       case 'large':
         return {
           container: 'p-3 md:p-4',
           title: 'text-base sm:text-lg md:text-xl font-bold',
-          message: 'text-sm',
+          message: 'text-xs sm:text-sm', // Reduced from text-sm
           showDetails: true,
           showTrailer: true, // Large tiles show trailers
           showPoster: true,
@@ -555,7 +577,7 @@ const NotificationTile: React.FC<NotificationTileProps> = React.memo(({
         return {
           container: 'p-2 md:p-3',
           title: 'text-sm sm:text-base md:text-lg font-bold',
-          message: 'text-xs sm:text-sm',
+          message: 'text-xs', // Reduced from text-xs sm:text-sm
           showDetails: true,
           showTrailer: false, // Medium tiles NO TRAILERS
           showPoster: true,
@@ -596,7 +618,7 @@ const NotificationTile: React.FC<NotificationTileProps> = React.memo(({
       onClick={(e) => {
         // Only trigger if not clicking on buttons
         if ((e.target as HTMLElement).closest('button')) return;
-        onTileClick?.();
+        onTileClickRef.current?.();
       }}
       transition={{ duration: 0.2 }}
       animate={{
@@ -669,7 +691,7 @@ const NotificationTile: React.FC<NotificationTileProps> = React.memo(({
         >
           <div className="relative w-full h-full overflow-hidden">
             <div
-              id={`yt-player-${notification.id}`}
+              id={containerIdRef.current}
               className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2"
               style={{
                 width: '120vw',
@@ -701,12 +723,12 @@ const NotificationTile: React.FC<NotificationTileProps> = React.memo(({
             onLoadedData={() => {
               setPreviewVideoLoaded(true);
               console.log('✅ Preview video loaded:', notification.title);
-              onTrailerStart?.();
+              onTrailerStartRef.current?.();
             }}
             onEnded={() => {
               console.log('🎬 Preview video ended:', notification.title);
               setPreviewVideoLoaded(false);
-              onTrailerEnd?.(); // Notify parent that video ended
+              onTrailerEndRef.current?.(); // Notify parent that video ended
             }}
             onError={(e) => {
               console.error('❌ Preview video error:', notification.title);
@@ -736,9 +758,9 @@ const NotificationTile: React.FC<NotificationTileProps> = React.memo(({
       <TileEffects priority={enhancedNotification.priority || 'medium'} themeColors={themeColors} />
 
       {/* Content */}
-      <div className={`absolute inset-0 flex flex-col justify-end z-20 ${sizeConfig.container} pb-4`}>
+      <div className={`absolute inset-0 flex flex-col justify-end z-20 ${sizeConfig.container} ${size === 'banner' ? 'pb-2' : 'pb-4'}`}>
         {/* Icon and Timestamp with conditional visibility enhancement */}
-        <div className="flex items-center gap-2 mb-2">
+        <div className={`flex items-center gap-2 ${size === 'banner' ? 'mb-1' : 'mb-2'}`}>
           <div
             className="rounded-full backdrop-blur-md border p-1.5"
             style={{
@@ -774,7 +796,7 @@ const NotificationTile: React.FC<NotificationTileProps> = React.memo(({
         </div>
 
         {/* Title Section - Logo with text fallback */}
-        <div className="mb-2">
+        <div className={size === 'banner' ? 'mb-1' : 'mb-2'}>
           {/* Logo - only for larger tiles and when available */}
           {logoUrl && size !== 'small' && (
             <img
@@ -830,12 +852,12 @@ const NotificationTile: React.FC<NotificationTileProps> = React.memo(({
         {/* Enhanced Description with strong text shadow */}
         {(size === 'hero' || size === 'large' || size === 'banner') && enhancedNotification.overview ? (
           <p
-            className={`leading-relaxed mb-3 ${sizeConfig.message}`}
+            className={`leading-snug ${size === 'banner' ? 'mb-1' : 'mb-3'} ${sizeConfig.message}`}
             style={{
               color: '#ffffff',
               textShadow: '0 1px 3px rgba(0,0,0,1), 0 2px 6px rgba(0,0,0,0.9), 1px 1px 0px rgba(0,0,0,0.8)',
               display: '-webkit-box',
-              WebkitLineClamp: size === 'hero' ? 3 : 2,
+              WebkitLineClamp: size === 'hero' ? 2 : size === 'large' ? 2 : 1, // Reduced from 3:2
               WebkitBoxOrient: 'vertical',
               overflow: 'hidden',
               textOverflow: 'ellipsis',
@@ -845,14 +867,14 @@ const NotificationTile: React.FC<NotificationTileProps> = React.memo(({
           </p>
         ) : (
           <p
-            className={`leading-relaxed mb-2 ${sizeConfig.message}`}
+            className={`leading-snug mb-2 ${sizeConfig.message}`}
             style={{
               color: sizeConfig.useWhiteText ? '#ffffff' : '#ffffff',
               textShadow: sizeConfig.useWhiteText
                 ? '0 2px 4px rgba(0,0,0,1), 0 4px 8px rgba(0,0,0,0.9), 1px 1px 0px rgba(0,0,0,1)' // Strong dark shadow for white text on small tiles
                 : '0 1px 3px rgba(0,0,0,1), 0 2px 6px rgba(0,0,0,0.9), 1px 1px 0px rgba(0,0,0,0.8)',
               display: '-webkit-box',
-              WebkitLineClamp: size === 'medium' ? 2 : 1,
+              WebkitLineClamp: 1, // Always 1 line for small/medium
               WebkitBoxOrient: 'vertical',
               overflow: 'hidden',
               textOverflow: 'ellipsis',
@@ -864,7 +886,7 @@ const NotificationTile: React.FC<NotificationTileProps> = React.memo(({
 
         {/* Movie Details Row - Rating, Year, Genres, TV Tag */}
         {(size === 'hero' || size === 'large' || size === 'banner') && (
-          <div className="flex flex-wrap items-center gap-2 mb-3 text-xs">
+          <div className={`flex flex-wrap items-center gap-2 ${size === 'banner' ? 'mb-1' : 'mb-3'} text-xs`}>
             {/* TV Series Tag */}
             {isTVSeries() && (
               <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-red-500/20 text-red-400 border border-red-500/30">
@@ -1054,6 +1076,26 @@ const NotificationTile: React.FC<NotificationTileProps> = React.memo(({
       </div>
     </motion.div>
   );
+};
+
+// Custom comparison function to prevent re-renders when notification content is the same
+const MemoizedNotificationTile = React.memo(NotificationTile, (prevProps, nextProps) => {
+  // CRITICAL: Only compare notification ID and size - ignore callbacks completely
+  // Callbacks are stored in refs inside the component, so they don't need to trigger re-renders
+  const isSame = prevProps.notification.id === nextProps.notification.id &&
+                 prevProps.size === nextProps.size &&
+                 prevProps.canPlayVideo === nextProps.canPlayVideo &&
+                 prevProps.className === nextProps.className;
+  
+  if (!isSame) {
+    console.log(`🔄 NotificationTile re-rendering: ${nextProps.notification.title}`);
+  } else {
+    console.log(`✅ NotificationTile skipping re-render: ${nextProps.notification.title}`);
+  }
+  
+  return isSame; // Return true to skip re-render
 });
 
-export default NotificationTile;
+MemoizedNotificationTile.displayName = 'MemoizedNotificationTile';
+
+export default MemoizedNotificationTile;

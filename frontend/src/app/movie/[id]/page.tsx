@@ -3068,6 +3068,16 @@ export default function MoviePage() {
                                 <span className="text-white">{media.language}</span>
                               </div>
                             )}
+                            {media.quality && media.quality.trim() && (
+                              <div className="flex">
+                                <span className="w-32 text-white/60 font-medium">Quality</span>
+                                <span className="text-white">
+                                  {media.quality.toLowerCase().includes('4k') || media.quality.toLowerCase().includes('2160p') ? '4K' : 
+                                   media.quality.toLowerCase().includes('1080') || media.quality.toLowerCase().includes('hd') ? 'HD' :
+                                   media.quality.toLowerCase().includes('720') ? '720p' : media.quality}
+                                </span>
+                              </div>
+                            )}
                           </div>
                         </div>
                       </div>

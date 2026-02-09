@@ -331,22 +331,42 @@ export default function MovieGridWidget({
 
                                             {/* Meta Info */}
                                             <div className="flex items-center gap-2 text-xs text-white/80 mb-3">
-                                                {item.year && item.year > 1900 && (
-                                                    <span className="flex items-center gap-1">
-                                                        <Calendar className="w-3 h-3" />
-                                                        {item.year}
-                                                    </span>
-                                                )}
+                                                {(() => {
+                                                    // Get year from multiple sources
+                                                    let year = item.year;
+                                                    if (!year || year <= 1900) {
+                                                        if (item.release_date) {
+                                                            year = new Date(item.release_date).getFullYear();
+                                                        } else if (item.first_air_date) {
+                                                            year = new Date(item.first_air_date).getFullYear();
+                                                        }
+                                                    }
+                                                    
+                                                    if (year && year > 1900) {
+                                                        return (
+                                                            <span className="flex items-center gap-1">
+                                                                <Calendar className="w-3 h-3" />
+                                                                {year}
+                                                            </span>
+                                                        );
+                                                    }
+                                                    return null;
+                                                })()}
                                                 {(() => {
                                                     const duration = item.duration || item.runtime || 0;
                                                     if (duration > 0) {
                                                         const hours = Math.floor(duration / 3600);
                                                         const minutes = Math.floor((duration % 3600) / 60);
-                                                        if (hours > 0 || minutes > 0) {
+                                                        const timeStr = [
+                                                            hours > 0 ? `${hours}h` : '',
+                                                            minutes > 0 ? `${minutes}m` : ''
+                                                        ].filter(Boolean).join(' ');
+                                                        
+                                                        if (timeStr) {
                                                             return (
                                                                 <span className="flex items-center gap-1">
                                                                     <Clock className="w-3 h-3" />
-                                                                    {hours > 0 && `${hours}h `}{minutes > 0 && `${minutes}m`}
+                                                                    {timeStr}
                                                                 </span>
                                                             );
                                                         }

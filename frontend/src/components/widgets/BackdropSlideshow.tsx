@@ -190,24 +190,19 @@ export default function BackdropSlideshow({
                 return tmdbLogos[m.tmdb_id];
             }
             // If logo_path exists and starts with '/', it's a TMDB logo path
-            if (m.logo_path && m.logo_path.startsWith('/')) {
+            if (m.logo_path && m.logo_path.startsWith('/') && !m.logo_path.startsWith('/api/')) {
                 return `https://image.tmdb.org/t/p/w500${m.logo_path}`;
             }
         }
         
-        // Handle local logo paths
+        // Handle local logo paths - simple approach like HomeflixHero
         if (m.logo_path) {
             // Check if logo_path is already a full URL (TMDB logo)
             if (m.logo_path.startsWith('http')) {
                 return m.logo_path;
             }
-            // Handle local logo paths - could be relative or absolute
-            if (m.logo_path.startsWith('/api/')) {
-                return `${apiUrl}${m.logo_path}`;
-            }
-            // For simple filenames or relative paths
-            const filename = m.logo_path.includes('/') ? m.logo_path.split('/').pop() : m.logo_path;
-            return `${apiUrl}/api/logos/${filename}`;
+            // For local content, use simple path like HomeflixHero
+            return `${apiUrl}/api/${m.logo_path}`;
         }
         return null;
     };
@@ -351,7 +346,9 @@ export default function BackdropSlideshow({
                                     style={{ filter: 'drop-shadow(0 0 30px rgba(0,0,0,0.8))' }}
                                     onError={() => setLogoError(true)}
                                 />
-                            ) : (
+                            ) : null}
+                            
+                            {(!showLogo || !getLogoUrl(currentMedia) || logoError) && (
                                 <h2 
                                     className="text-3xl md:text-4xl lg:text-5xl font-bold mb-4" 
                                     style={{ 
@@ -396,11 +393,21 @@ export default function BackdropSlideshow({
                                             const hours = Math.floor(duration / 3600);
                                             const minutes = Math.floor((duration % 3600) / 60);
                                             if (hours > 0 || minutes > 0) {
-                                                return (
-                                                    <span className="text-white/70">
-                                                        {hours > 0 && `${hours}h `}{minutes > 0 && `${minutes}m`}
-                                                    </span>
-                                                );
+                                                const timeStr = [
+                                                    hours > 0 ? `${hours}h` : '',
+                                                    minutes > 0 ? `${minutes}m` : ''
+                                                ].filter(Boolean).join(' ');
+                                                
+                                                if (timeStr) {
+                                                    return (
+                                                        <div className="flex items-center gap-1">
+                                                            <Clock className="w-4 h-4 text-white/80" />
+                                                            <span className="text-white/70">
+                                                                {timeStr}
+                                                            </span>
+                                                        </div>
+                                                    );
+                                                }
                                             }
                                         }
                                         return null;

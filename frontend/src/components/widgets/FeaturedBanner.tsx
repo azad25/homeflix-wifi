@@ -365,11 +365,21 @@ export default function FeaturedBanner({
                                 const hours = Math.floor(runtime / 60);
                                 const minutes = runtime % 60;
                                 if (hours > 0 || minutes > 0) {
-                                    return (
-                                        <span className="text-white/70">
-                                            {hours > 0 && `${hours}h `}{minutes > 0 && `${minutes}m`}
-                                        </span>
-                                    );
+                                    const timeStr = [
+                                        hours > 0 ? `${hours}h` : '',
+                                        minutes > 0 ? `${minutes}m` : ''
+                                    ].filter(Boolean).join(' ');
+                                    
+                                    if (timeStr) {
+                                        return (
+                                            <div className="flex items-center gap-1">
+                                                <Clock className="w-4 h-4" />
+                                                <span className="text-white/70">
+                                                    {timeStr}
+                                                </span>
+                                            </div>
+                                        );
+                                    }
                                 }
                             }
                             return null;

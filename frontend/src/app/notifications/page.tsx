@@ -938,9 +938,12 @@ const NotificationsPage: React.FC = () => {
             {activeTiles.map((tile, index) => {
               const isPlayingTrailer = playingTrailers.has(tile.id);
               
+              // CRITICAL: Use notification ID as key to prevent remounting when tile morphs
+              const stableKey = `notif-${tile.notification.id}-${tile.id}`;
+              
               return (
                 <motion.div
-                  key={tile.id}
+                  key={stableKey}
                   layout={!isPlayingTrailer} // CRITICAL: Disable layout animation for playing trailers
                   initial={{
                     opacity: 0,

@@ -119,6 +119,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
   const [currentSubtitleText, setCurrentSubtitleText] = useState<string>('');
   const [audioIssueDetected, setAudioIssueDetected] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const settingsButtonRef = useRef<HTMLButtonElement>(null);
   const [currentSubtitleTrack, setCurrentSubtitleTrack] = useState<number | null>(null);
   const [currentAudioTrack, setCurrentAudioTrack] = useState<number | null>(null);
   const [playbackRate, setPlaybackRate] = useState(1);
@@ -2592,56 +2593,59 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
           }}
         >
           {/* Click overlay for play/pause functionality - only covers video area, not controls */}
-          <div
-            className="absolute inset-0 z-5 transition-all duration-300"
-            style={{
-              // Dynamically exclude control areas when they're visible
-              bottom: showControls ? '120px' : '0px',
-              top: showControls ? '80px' : '0px',
-              cursor: (showControls || !isPlaying || isDragging || showSettings) ? 'pointer' : 'none'
-            }}
-            onClick={async (e) => {
-              e.preventDefault();
-              e.stopPropagation();
+          {/* Hide overlay when pause screen is visible or user is dragging to prevent interference */}
+          {!showPauseScreen && !isDragging && (
+            <div
+              className="absolute inset-0 z-5 transition-all duration-300"
+              style={{
+                // Dynamically exclude control areas when they're visible
+                bottom: showControls ? '120px' : '0px',
+                top: showControls ? '80px' : '0px',
+                cursor: (showControls || !isPlaying || isDragging || showSettings) ? 'pointer' : 'none'
+              }}
+              onClick={async (e) => {
+                e.preventDefault();
+                e.stopPropagation();
 
-              // CHROME AUDIO FIX: Ensure sound is always enabled and unmuted
-              if (videoRef.current) {
-                const video = videoRef.current;
+                // CHROME AUDIO FIX: Ensure sound is always enabled and unmuted
+                if (videoRef.current) {
+                  const video = videoRef.current;
 
-                // Force unmute and set volume for Chrome
-                video.muted = false;
-                video.volume = volume > 0 ? volume : 1.0;
-                setIsMuted(false);
-                setVolume(video.volume);
+                  // Force unmute and set volume for Chrome
+                  video.muted = false;
+                  video.volume = volume > 0 ? volume : 1.0;
+                  setIsMuted(false);
+                  setVolume(video.volume);
 
-                // Chrome audio context fix - ensure audio is activated
-                try {
-                  if (video.paused) {
-                    // Resume playback with audio enabled
-                    await video.play();
-                  } else {
-                    // Save progress before pausing
-                    await saveCurrentProgress();
-                    video.pause();
-                  }
-                } catch (error) {
-                  // Try to enable audio context manually
+                  // Chrome audio context fix - ensure audio is activated
                   try {
-                    const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-                    if (audioContext.state === 'suspended') {
-                      await audioContext.resume();
-                    }
-                    // Retry play
                     if (video.paused) {
+                      // Resume playback with audio enabled
                       await video.play();
+                    } else {
+                      // Save progress before pausing
+                      await saveCurrentProgress();
+                      video.pause();
                     }
-                  } catch (contextError) {
-                    // Audio context fix failed
+                  } catch (error) {
+                    // Try to enable audio context manually
+                    try {
+                      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+                      if (audioContext.state === 'suspended') {
+                        await audioContext.resume();
+                      }
+                      // Retry play
+                      if (video.paused) {
+                        await video.play();
+                      }
+                    } catch (contextError) {
+                      // Audio context fix failed
+                    }
                   }
                 }
-              }
-            }}
-          />
+              }}
+            />
+          )}
 
           {/* Video */}
           <video
@@ -4206,6 +4210,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
 
                       {/* Settings Button */}
                       <button
+                        ref={settingsButtonRef}
                         type="button"
                         onClick={() => setShowSettings(true)}
                         className="text-white hover:text-white/70 transition-colors"
@@ -4302,6 +4307,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
             onPlaybackRateChange={handlePlaybackRateChange}
             onSubtitleStyleChange={setSubtitleStyle}
             subtitleStyle={subtitleStyle}
+            settingsButtonRef={settingsButtonRef}
           />
 
           {/* Pause Screen Overlay - Inside main container for fullscreen support */}

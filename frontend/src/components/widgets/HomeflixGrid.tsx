@@ -62,7 +62,7 @@ const HomeflixCard: React.FC<HomeflixCardProps> = ({
     // Use fetched TMDB logo if available
     if (tmdbLogoUrl) return tmdbLogoUrl;
     
-    // Handle local content logos
+    // Handle local content logos - simple approach like HomeflixHero
     if (media.logo_path) {
       // If it's a full URL, use it directly
       if (media.logo_path.startsWith('http')) {
@@ -74,20 +74,8 @@ const HomeflixCard: React.FC<HomeflixCardProps> = ({
         return `https://image.tmdb.org/t/p/w500${media.logo_path}`;
       }
       
-      // If it's already an API path, use it directly
-      if (media.logo_path.startsWith('/api/')) {
-        return `${apiUrl}${media.logo_path}`;
-      }
-      
-      // For local content, construct the appropriate endpoint
-      if (media.type === 'tv' || media.type === 'series' || media.type === 'episode') {
-        // For TV series, use the series logo endpoint
-        const seriesId = media.series_id || media.id;
-        return `${apiUrl}/api/series/${seriesId}/logo`;
-      } else {
-        // For movies, use the direct logo path
-        return `${apiUrl}/api/${media.logo_path}`;
-      }
+      // For local content, use simple path like HomeflixHero
+      return `${apiUrl}/api/${media.logo_path}`;
     }
     
     return null;
@@ -167,15 +155,29 @@ const HomeflixCard: React.FC<HomeflixCardProps> = ({
         {/* Gradient Overlay */}
         <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
 
-        {/* Rating Badge */}
-        {showRating && media.rating && (
-          <div className="absolute top-4 right-4 flex items-center gap-1 bg-black/70 backdrop-blur-sm px-2 py-1 rounded-full">
-            {/* <Star className="w-3 h-3 text-yellow-400 fill-current" /> */}
-            <span className="text-xs font-medium text-white">
-              {media.year && media.year > 1900 ? media.year : ''}
-            </span>
-          </div>
-        )}
+        {/* Year Badge */}
+        {(() => {
+          // Get year from multiple sources
+          let year = media.year;
+          if (!year || year <= 1900) {
+            if (media.release_date) {
+              year = new Date(media.release_date).getFullYear();
+            } else if (media.first_air_date) {
+              year = new Date(media.first_air_date).getFullYear();
+            }
+          }
+          
+          if (year && year > 1900) {
+            return (
+              <div className="absolute top-4 right-4 flex items-center gap-1 bg-black/70 backdrop-blur-sm px-2 py-1 rounded-full">
+                <span className="text-xs font-medium text-white">
+                  {year}
+                </span>
+              </div>
+            );
+          }
+          return null;
+        })()}
 
         {/* Hover Overlay */}
         <AnimatePresence>

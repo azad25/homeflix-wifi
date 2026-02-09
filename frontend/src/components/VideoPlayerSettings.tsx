@@ -76,6 +76,7 @@ interface VideoPlayerSettingsProps {
   onPlaybackRateChange: (rate: number) => void;
   onSubtitleStyleChange: (style: SubtitleStyle) => void;
   subtitleStyle: SubtitleStyle;
+  settingsButtonRef?: React.RefObject<HTMLButtonElement | null>;
 }
 
 const VideoPlayerSettings: React.FC<VideoPlayerSettingsProps> = ({
@@ -89,12 +90,14 @@ const VideoPlayerSettings: React.FC<VideoPlayerSettingsProps> = ({
   onAudioTrackChange,
   onPlaybackRateChange,
   onSubtitleStyleChange,
-  subtitleStyle
+  subtitleStyle,
+  settingsButtonRef
 }) => {
   const [activePanel, setActivePanel] = useState<string>('main');
   const [subtitleTracks, setSubtitleTracks] = useState<SubtitleTrack[]>([]);
   const [audioTracks, setAudioTracks] = useState<AudioTrack[]>([]);
   const [loading, setLoading] = useState(false);
+  const [position, setPosition] = useState({ bottom: 60, right: 20 });
 
   // Load tracks when component opens
   useEffect(() => {
@@ -102,6 +105,18 @@ const VideoPlayerSettings: React.FC<VideoPlayerSettingsProps> = ({
       loadTracks();
     }
   }, [isOpen, mediaId]);
+
+  // Calculate position based on settings button
+  useEffect(() => {
+    if (isOpen && settingsButtonRef?.current) {
+      const rect = settingsButtonRef.current.getBoundingClientRect();
+      const panelHeight = 500; // Approximate panel height
+      setPosition({
+        bottom: window.innerHeight - rect.top + rect.height + 20, // Add button height + 20px gap
+        right: window.innerWidth - rect.right - 10 // Shift slightly to the left
+      });
+    }
+  }, [isOpen, settingsButtonRef]);
 
   const loadTracks = async () => {
     setLoading(true);
@@ -166,7 +181,7 @@ const VideoPlayerSettings: React.FC<VideoPlayerSettingsProps> = ({
       {/* Subtitle Settings */}
       <button
         onClick={() => setActivePanel('subtitles')}
-        className="w-full flex items-center justify-between p-3 bg-gray-800/50 hover:bg-gray-700/50 rounded-lg transition-colors"
+        className="w-full flex items-center justify-between p-3 bg-black/80 hover:bg-red-600/20 rounded-lg transition-colors"
       >
         <div className="flex items-center gap-3">
           <Subtitles className="w-5 h-5 text-white" />
@@ -186,7 +201,7 @@ const VideoPlayerSettings: React.FC<VideoPlayerSettingsProps> = ({
       {/* Audio Settings */}
       <button
         onClick={() => setActivePanel('audio')}
-        className="w-full flex items-center justify-between p-3 bg-gray-800/50 hover:bg-gray-700/50 rounded-lg transition-colors"
+        className="w-full flex items-center justify-between p-3 bg-black/80 hover:bg-red-600/20 rounded-lg transition-colors"
       >
         <div className="flex items-center gap-3">
           <Volume2 className="w-5 h-5 text-white" />
@@ -203,7 +218,7 @@ const VideoPlayerSettings: React.FC<VideoPlayerSettingsProps> = ({
       {/* Subtitle Appearance */}
       <button
         onClick={() => setActivePanel('appearance')}
-        className="w-full flex items-center justify-between p-3 bg-gray-800/50 hover:bg-gray-700/50 rounded-lg transition-colors"
+        className="w-full flex items-center justify-between p-3 bg-black/80 hover:bg-red-600/20 rounded-lg transition-colors"
       >
         <div className="flex items-center gap-3">
           <Palette className="w-5 h-5 text-white" />
@@ -215,7 +230,7 @@ const VideoPlayerSettings: React.FC<VideoPlayerSettingsProps> = ({
       {/* Playback Speed */}
       <button
         onClick={() => setActivePanel('playback')}
-        className="w-full flex items-center justify-between p-3 bg-gray-800/50 hover:bg-gray-700/50 rounded-lg transition-colors"
+        className="w-full flex items-center justify-between p-3 bg-black/80 hover:bg-red-600/20 rounded-lg transition-colors"
       >
         <div className="flex items-center gap-3">
           <Play className="w-5 h-5 text-white" />
@@ -230,7 +245,7 @@ const VideoPlayerSettings: React.FC<VideoPlayerSettingsProps> = ({
       {/* Quality (placeholder for future implementation) */}
       <button
         onClick={() => setActivePanel('quality')}
-        className="w-full flex items-center justify-between p-3 bg-gray-800/50 hover:bg-gray-700/50 rounded-lg transition-colors"
+        className="w-full flex items-center justify-between p-3 bg-black/80 hover:bg-red-600/20 rounded-lg transition-colors"
       >
         <div className="flex items-center gap-3">
           <Monitor className="w-5 h-5 text-white" />
@@ -261,18 +276,18 @@ const VideoPlayerSettings: React.FC<VideoPlayerSettingsProps> = ({
         onClick={() => onSubtitleTrackChange(null)}
         className={`w-full flex items-center justify-between p-3 rounded-lg transition-colors ${
           currentSubtitleTrack === null 
-            ? 'bg-red-600/50 border border-red-500' 
-            : 'bg-gray-800/50 hover:bg-gray-700/50'
+            ? 'bg-red-600 border border-red-500' 
+            : 'bg-black/80 hover:bg-red-900/30'
         }`}
       >
         <span className="text-white">Off</span>
-        {currentSubtitleTrack === null && <Check className="w-4 h-4 text-red-500" />}
+        {currentSubtitleTrack === null && <Check className="w-4 h-4 text-white" />}
       </button>
 
       {/* Subtitle Tracks */}
       {loading ? (
         <div className="text-center py-4">
-          <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-white mx-auto"></div>
+          <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-red-500 mx-auto"></div>
           <p className="text-gray-400 mt-2">Loading tracks...</p>
         </div>
       ) : (
@@ -282,8 +297,8 @@ const VideoPlayerSettings: React.FC<VideoPlayerSettingsProps> = ({
             onClick={() => onSubtitleTrackChange(track.id)}
             className={`w-full flex items-center justify-between p-3 rounded-lg transition-colors ${
               currentSubtitleTrack === track.id 
-                ? 'bg-red-600/50 border border-red-500' 
-                : 'bg-gray-800/50 hover:bg-gray-700/50'
+                ? 'bg-red-600 border border-red-500' 
+                : 'bg-black/80 hover:bg-red-900/30'
             }`}
           >
             <div className="text-left">
@@ -295,7 +310,7 @@ const VideoPlayerSettings: React.FC<VideoPlayerSettingsProps> = ({
                 {track.is_hearing_impaired && ' • CC'}
               </div>
             </div>
-            {currentSubtitleTrack === track.id && <Check className="w-4 h-4 text-red-500" />}
+            {currentSubtitleTrack === track.id && <Check className="w-4 h-4 text-white" />}
           </button>
         ))
       )}
@@ -323,7 +338,7 @@ const VideoPlayerSettings: React.FC<VideoPlayerSettingsProps> = ({
       {/* Audio Tracks */}
       {loading ? (
         <div className="text-center py-4">
-          <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-white mx-auto"></div>
+          <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-red-500 mx-auto"></div>
           <p className="text-gray-400 mt-2">Loading tracks...</p>
         </div>
       ) : (
@@ -333,8 +348,8 @@ const VideoPlayerSettings: React.FC<VideoPlayerSettingsProps> = ({
             onClick={() => onAudioTrackChange(track.id)}
             className={`w-full flex items-center justify-between p-3 rounded-lg transition-colors ${
               currentAudioTrack === track.id 
-                ? 'bg-red-600/50 border border-red-500' 
-                : 'bg-gray-800/50 hover:bg-gray-700/50'
+                ? 'bg-red-600 border border-red-500' 
+                : 'bg-black/80 hover:bg-red-900/30'
             }`}
           >
             <div className="text-left">
@@ -345,7 +360,7 @@ const VideoPlayerSettings: React.FC<VideoPlayerSettingsProps> = ({
                 {track.is_default && ' • Default'}
               </div>
             </div>
-            {currentAudioTrack === track.id && <Check className="w-4 h-4 text-red-500" />}
+            {currentAudioTrack === track.id && <Check className="w-4 h-4 text-white" />}
           </button>
         ))
       )}
@@ -371,7 +386,7 @@ const VideoPlayerSettings: React.FC<VideoPlayerSettingsProps> = ({
       </div>
 
       {/* Preview */}
-      <div className="bg-gray-900 rounded-lg p-4 mb-4">
+      <div className="bg-black rounded-lg p-4 mb-4 border border-gray-800">
         <div className="text-center">
           <div 
             className="inline-block px-3 py-1 rounded"
@@ -402,7 +417,7 @@ const VideoPlayerSettings: React.FC<VideoPlayerSettingsProps> = ({
             ...subtitleStyle,
             fontSize: parseInt(e.target.value)
           })}
-          className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer"
+          className="w-full h-2 bg-gray-800 rounded-lg appearance-none cursor-pointer accent-red-600"
         />
         <div className="flex justify-between text-xs text-gray-400 mt-1">
           <span>Small</span>
@@ -425,7 +440,7 @@ const VideoPlayerSettings: React.FC<VideoPlayerSettingsProps> = ({
               className={`p-2 rounded text-sm transition-colors ${
                 subtitleStyle.fontFamily === font.value
                   ? 'bg-red-600 text-white'
-                  : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+                  : 'bg-black/80 text-gray-300 hover:bg-red-900/30'
               }`}
               style={{ fontFamily: font.value }}
             >
@@ -503,7 +518,7 @@ const VideoPlayerSettings: React.FC<VideoPlayerSettingsProps> = ({
               ...subtitleStyle,
               backgroundOpacity: parseFloat(e.target.value)
             })}
-            className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer"
+            className="w-full h-2 bg-gray-800 rounded-lg appearance-none cursor-pointer accent-red-600"
           />
           <div className="flex justify-between text-xs text-gray-400 mt-1">
             <span>Transparent</span>
@@ -564,12 +579,12 @@ const VideoPlayerSettings: React.FC<VideoPlayerSettingsProps> = ({
           onClick={() => onPlaybackRateChange(rate)}
           className={`w-full flex items-center justify-between p-3 rounded-lg transition-colors ${
             playbackRate === rate 
-              ? 'bg-red-600/50 border border-red-500' 
-              : 'bg-gray-800/50 hover:bg-gray-700/50'
+              ? 'bg-red-600 border border-red-500' 
+              : 'bg-black/80 hover:bg-red-900/30'
           }`}
         >
           <span className="text-white">{rate}x {rate === 1 ? '(Normal)' : ''}</span>
-          {playbackRate === rate && <Check className="w-4 h-4 text-red-500" />}
+          {playbackRate === rate && <Check className="w-4 h-4 text-white" />}
         </button>
       ))}
     </div>
@@ -598,36 +613,47 @@ const VideoPlayerSettings: React.FC<VideoPlayerSettingsProps> = ({
   return (
     <AnimatePresence>
       {isOpen && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
-          onClick={onClose}
-        >
+        <>
+          {/* Backdrop */}
           <motion.div
-            initial={{ scale: 0.9, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            exit={{ scale: 0.9, opacity: 0 }}
-            className="bg-gray-900/95 backdrop-blur-md rounded-xl border border-gray-700/50 w-full max-w-md mx-4 max-h-[80vh] overflow-hidden"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-40"
+            onClick={onClose}
+          />
+          
+          {/* Settings Panel */}
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95, y: 10 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.95, y: 10 }}
+            transition={{ duration: 0.15 }}
+            style={{
+              position: 'fixed',
+              bottom: `${position.bottom}px`,
+              right: `${position.right}px`,
+              zIndex: 50
+            }}
+            className="bg-black/95 backdrop-blur-md rounded-lg border border-red-900/30 w-[380px] max-h-[70vh] overflow-hidden shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Header */}
-            <div className="flex items-center justify-between p-4 border-b border-gray-700/50">
+            <div className="flex items-center justify-between p-4 border-b border-red-900/30">
               <div className="flex items-center gap-3">
-                <Settings className="w-5 h-5 text-white" />
+                <Settings className="w-5 h-5 text-red-500" />
                 <h2 className="text-lg font-semibold text-white">Player Settings</h2>
               </div>
               <button
                 onClick={onClose}
-                className="p-1 hover:bg-gray-700/50 rounded transition-colors"
+                className="p-1 hover:bg-red-900/30 rounded transition-colors"
               >
                 <X className="w-5 h-5 text-white" />
               </button>
             </div>
 
             {/* Content */}
-            <div className="p-4 overflow-y-auto max-h-[calc(80vh-80px)]">
+            <div className="p-4 overflow-y-auto max-h-[calc(70vh-80px)] custom-scrollbar">
               <AnimatePresence mode="wait">
                 <motion.div
                   key={activePanel}
@@ -646,10 +672,16 @@ const VideoPlayerSettings: React.FC<VideoPlayerSettingsProps> = ({
               </AnimatePresence>
             </div>
           </motion.div>
-        </motion.div>
+        </>
       )}
     </AnimatePresence>
   );
 };
 
 export default VideoPlayerSettings;
+
+// Add this to your global CSS or Tailwind config:
+// .custom-scrollbar::-webkit-scrollbar { width: 8px; }
+// .custom-scrollbar::-webkit-scrollbar-track { background: #1a1a1a; }
+// .custom-scrollbar::-webkit-scrollbar-thumb { background: #dc2626; border-radius: 4px; }
+// .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #ef4444; }
