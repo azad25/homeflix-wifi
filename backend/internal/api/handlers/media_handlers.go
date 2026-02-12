@@ -734,17 +734,149 @@ func performSmartSearch(mediaService *services.MediaService, query string) ([]in
 		return nil, err
 	}
 
+	// Get all series for TV show search
+	allSeries, err := mediaService.GetAllSeries()
+	if err != nil {
+		log.Printf("Warning: Failed to get series: %v", err)
+		allSeries = []models.Series{} // Continue with empty series list
+	}
+
 	type searchResult struct {
 		media     interface{}
 		score     float64
 		matchType string
+		isMovie   bool
+		isSeries  bool
 	}
 
 	var results []searchResult
 	queryLower := strings.ToLower(strings.TrimSpace(query))
 	queryWords := strings.Fields(queryLower)
 
+	// Track series we've already added to avoid duplicates
+	addedSeriesIDs := make(map[uint]bool)
+
+	// Search through series first (for TV shows)
+	for _, series := range allSeries {
+		score := 0.0
+		matchTypes := []string{}
+
+		// Title matching (highest priority)
+		titleLower := strings.ToLower(series.Title)
+		if titleLower == queryLower {
+			score += 100.0 // Exact match
+			matchTypes = append(matchTypes, "exact_title")
+		} else if strings.Contains(titleLower, queryLower) {
+			score += 80.0 // Contains query
+			matchTypes = append(matchTypes, "title_contains")
+		} else {
+			// Word-by-word title matching
+			titleWords := strings.Fields(titleLower)
+			matchedWords := 0
+			for _, queryWord := range queryWords {
+				for _, titleWord := range titleWords {
+					if strings.Contains(titleWord, queryWord) || strings.Contains(queryWord, titleWord) {
+						matchedWords++
+						break
+					}
+				}
+			}
+			if matchedWords > 0 {
+				score += float64(matchedWords) / float64(len(queryWords)) * 60.0
+				matchTypes = append(matchTypes, "title_partial")
+			}
+		}
+
+		// Genre matching
+		for _, genreName := range series.GenreNames {
+			genreLower := strings.ToLower(genreName)
+			if genreLower == queryLower {
+				score += 70.0
+				matchTypes = append(matchTypes, "exact_genre")
+			} else if strings.Contains(genreLower, queryLower) {
+				score += 50.0
+				matchTypes = append(matchTypes, "genre_contains")
+			}
+		}
+
+		// Description matching (lower priority)
+		if series.Description != "" {
+			descLower := strings.ToLower(series.Description)
+			if strings.Contains(descLower, queryLower) {
+				score += 30.0
+				matchTypes = append(matchTypes, "description")
+			}
+		}
+
+		// Type matching - boost TV series results
+		for _, queryWord := range queryWords {
+			if queryWord == "tv" || queryWord == "series" || queryWord == "show" {
+				score += 40.0
+				matchTypes = append(matchTypes, "type")
+				break
+			}
+		}
+
+		// Year matching (if query contains a year)
+		for _, queryWord := range queryWords {
+			if len(queryWord) == 4 {
+				if year, err := strconv.Atoi(queryWord); err == nil && year >= 1900 && year <= 2030 {
+					if strings.Contains(titleLower, queryWord) {
+						score += 35.0
+						matchTypes = append(matchTypes, "year")
+					}
+				}
+			}
+		}
+
+		// Only include results with meaningful matches
+		if score >= 10.0 {
+			// Boost score based on series popularity
+			if series.Rating > 0 {
+				score += float64(series.Rating) * 2.0
+			}
+			
+			// Convert series to media-like format for frontend
+			seriesAsMedia := map[string]interface{}{
+				"id":          series.ID,
+				"title":       series.Title,
+				"description": series.Description,
+				"type":        "tv", // Mark as TV series
+				"year":        series.Year,
+				"rating":      series.Rating,
+				"genres":      series.Genres,
+				"genre_names": series.GenreNames,
+				"poster_path": series.PosterPath,
+				"tmdb_poster_url": series.TMDBPosterURL,
+				"tmdb_backdrop_url": series.TMDBBackdropURL,
+				"logo_path":   series.LogoPath,
+				"series_id":   series.ID,
+			}
+			
+			results = append(results, searchResult{
+				media:     seriesAsMedia,
+				score:     score,
+				matchType: strings.Join(matchTypes, ","),
+				isSeries:  true,
+			})
+			addedSeriesIDs[series.ID] = true
+		}
+	}
+
+	// Search through movies (skip episodes to avoid duplicates with series)
 	for _, media := range allMedia {
+		// Skip episodes if their series is already in results
+		if media.Type == "episode" || media.Type == "tv" {
+			if media.SeriesID != nil && addedSeriesIDs[*media.SeriesID] {
+				continue // Skip this episode, we already have the series
+			}
+		}
+
+		// Only include movies in search results (episodes are represented by their series)
+		if media.Type != "movie" {
+			continue
+		}
+
 		score := 0.0
 		matchTypes := []string{}
 
@@ -812,11 +944,7 @@ func performSmartSearch(mediaService *services.MediaService, query string) ([]in
 
 		// Type matching
 		typeLower := strings.ToLower(media.Type)
-		if typeLower == queryLower ||
-			(queryLower == "movie" && typeLower == "movie") ||
-			(queryLower == "tv" && typeLower == "episode") ||
-			(queryLower == "series" && typeLower == "episode") ||
-			(queryLower == "show" && typeLower == "episode") {
+		if typeLower == queryLower || (queryLower == "movie" && typeLower == "movie") {
 			score += 40.0
 			matchTypes = append(matchTypes, "type")
 		}
@@ -837,7 +965,6 @@ func performSmartSearch(mediaService *services.MediaService, query string) ([]in
 		for _, queryWord := range queryWords {
 			if len(queryWord) == 4 {
 				if year, err := strconv.Atoi(queryWord); err == nil && year >= 1900 && year <= 2030 {
-					// Check if title contains this year
 					if strings.Contains(titleLower, queryWord) {
 						score += 35.0
 						matchTypes = append(matchTypes, "year")
@@ -859,6 +986,7 @@ func performSmartSearch(mediaService *services.MediaService, query string) ([]in
 				media:     media,
 				score:     score,
 				matchType: strings.Join(matchTypes, ","),
+				isMovie:   true,
 			})
 		}
 	}
@@ -880,7 +1008,10 @@ func performSmartSearch(mediaService *services.MediaService, query string) ([]in
 			break
 		}
 		// Prepare media with trimmed year for frontend
-		if media, ok := result.media.(models.Media); ok {
+		if result.isSeries {
+			// Series is already in map format
+			finalResults = append(finalResults, result.media)
+		} else if media, ok := result.media.(models.Media); ok {
 			preparedMedia := prepareSingleMediaForResponse(&media)
 			finalResults = append(finalResults, *preparedMedia)
 		} else {

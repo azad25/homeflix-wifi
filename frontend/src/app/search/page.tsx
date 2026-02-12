@@ -264,7 +264,9 @@ export default function SearchPage() {
       if (result.media_type === 'movie') {
         navigate.push(`/movie/${result.id}`);
       } else {
-        navigate.push(`/tv-shows/${result.id}`);
+        // For TV series, use series_id if available, otherwise use id
+        const seriesId = (result as any).series_id || result.id;
+        navigate.push(`/tv-series/${seriesId}`);
       }
     } else {
       // Navigate to TMDB content page
@@ -288,12 +290,23 @@ export default function SearchPage() {
   };
 
   const getPosterUrl = (result: SearchResult) => {
+    const apiUrl = getApiUrl();
+    
     // Handle local API poster paths
-    if (result._source === 'local' && result.poster_path) {
-      if (result.poster_path.startsWith('/api/')) {
-        return `${getApiUrl()}${result.poster_path}`;
+    if (result._source === 'local') {
+      // For TV series, use the series poster endpoint (same as TV series page)
+      if (result.media_type === 'tv' || result.type === 'tv' || result.type === 'series' || result.type === 'episode') {
+        const seriesId = (result as any).series_id || result.id;
+        return `${apiUrl}/api/series/${seriesId}/poster`;
       }
-      return result.poster_path;
+      
+      // For movies, use the existing poster path logic
+      if (result.poster_path) {
+        if (result.poster_path.startsWith('/api/')) {
+          return `${apiUrl}${result.poster_path}`;
+        }
+        return result.poster_path;
+      }
     }
     
     // Handle TMDB poster paths
@@ -304,7 +317,7 @@ export default function SearchPage() {
     // Fallback to backdrop if available
     if (result.backdrop_path) {
       if (result._source === 'local' && result.backdrop_path.startsWith('/api/')) {
-        return `${getApiUrl()}${result.backdrop_path}`;
+        return `${apiUrl}${result.backdrop_path}`;
       }
       return `https://image.tmdb.org/t/p/w500${result.backdrop_path}`;
     }
@@ -329,7 +342,7 @@ export default function SearchPage() {
       <Navbar onSearch={handleSearch} />
 
       {/* Main Content Container */}
-      <div className="relative bg-gradient-to-b from-red-900/20 via-black to-black min-h-screen">
+      <div className="relative bg-gradient-to-b from-red-900/20 via-black to-black min-h-screen pt-24">
         <div className="container mx-auto px-4 py-8 max-w-7xl">
           {/* Search Header */}
           <div className="mb-8">
@@ -506,7 +519,34 @@ export default function SearchPage() {
                               className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500 bg-gray-800"
                               onError={(e) => {
                                 const target = e.target as HTMLImageElement;
-                                target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjQ1MCIgdmlld0JveD0iMCAwIDMwMCA0NTAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIzMDAiIGhlaWdodD0iNDUwIiBmaWxsPSIjMzc0MTUxIi8+CjxwYXRoIGQ9Ik0xNTAgMjAwQzE4Ny4yNzkgMjAwIDIxOCAxNjkuMjc5IDIxOCAxMzJDMjE4IDk0LjcyMDggMTg3LjI3OSA2NCAxNTAgNjRDMTEyLjcyMSA2NCA4MiA5NC43MjA4IDgyIDEzMkM4MiAxNjkuMjc5IDExMi43MjEgMjAwIDE1MCAyMDBaIiBmaWxsPSIjNkI3Mjg4Ii8+CjxwYXRoIGQ9Ik04MiAyNzZDODIgMjM4LjY4IDExMi42OCAyMDggMTUwIDIwOEgxNTBDMTg3LjMyIDIwOCAyMTggMjM4LjY4IDIxOCAyNzZWMzUwSDgyVjI3NloiIGZpbGw9IiM2QjcyODgiLz4KPHN2Zz4K';
+                                const apiUrl = getApiUrl();
+                                
+                                // Try fallback sources for TV series
+                                if (result._source === 'local' && (result.media_type === 'tv' || result.type === 'tv' || result.type === 'series')) {
+                                  // First fallback: try TMDB poster if available
+                                  if (result.poster_path && !target.src.includes('tmdb')) {
+                                    target.src = `https://image.tmdb.org/t/p/w500${result.poster_path}`;
+                                    return;
+                                  }
+                                  // Second fallback: try thumbnail endpoint
+                                  if (!target.src.includes('/api/thumbnails/')) {
+                                    target.src = `${apiUrl}/api/thumbnails/${result.id}`;
+                                    return;
+                                  }
+                                }
+                                
+                                // Final fallback: clean black background with title initial
+                                const parent = target.parentElement;
+                                if (parent) {
+                                  const initial = result.title?.charAt(0)?.toUpperCase() || '?';
+                                  const mediaIcon = result.media_type === 'movie' ? '🎬' : '📺';
+                                  parent.innerHTML = `
+                                    <div class="w-full h-full bg-black flex flex-col items-center justify-center text-white">
+                                      <div class="text-5xl mb-2">${mediaIcon}</div>
+                                      <div class="text-6xl font-bold text-gray-700">${initial}</div>
+                                    </div>
+                                  `;
+                                }
                               }}
                             />
                             
@@ -551,16 +591,8 @@ export default function SearchPage() {
                               {result.title}
                             </h3>
                             
-                            <div className="flex items-center justify-between text-sm text-gray-400 mb-2">
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <span>{formatDate(result.release_date || result.first_air_date)}</span>
-                                {result.year && (
-                                  <span className="text-gray-500">• {result.year}</span>
-                                )}
-                                {result.duration && (
-                                  <span className="text-gray-500">• {Math.floor(result.duration / 60)}h {result.duration % 60}m</span>
-                                )}
-                              </div>
+                            <div className="flex items-center text-sm text-gray-400 mb-2">
+                              <span>{result.year || (result.release_date ? new Date(result.release_date).getFullYear() : new Date().getFullYear())}</span>
                             </div>
 
                             {result.overview && (

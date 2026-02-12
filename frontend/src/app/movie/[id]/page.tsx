@@ -3006,16 +3006,11 @@ export default function MoviePage() {
                             {media.genres && media.genres.length > 0 && (
                               <div className="flex flex-col gap-3">
                                 <span className="text-white/60 font-medium">Genres</span>
-                                <div className="flex flex-wrap gap-2">
-                                  {media.genres.map((genre, index) => (
-                                    <span
-                                      key={index}
-                                      className="px-3 py-1.5 bg-gradient-to-r from-red-600/20 to-red-500/20 text-red-300 text-sm font-medium rounded-full border border-red-500/30 hover:from-red-600/30 hover:to-red-500/30 transition-all duration-200"
-                                    >
-                                      {typeof genre === 'string' ? genre : genre?.name || 'Unknown'}
-                                    </span>
-                                  ))}
-                                </div>
+                                <span className="text-white">
+                                  {media.genres.map((genre, index) => 
+                                    typeof genre === 'string' ? genre : genre?.name || 'Unknown'
+                                  ).join(', ')}
+                                </span>
                               </div>
                             )}
                             {media.duration && media.duration > 0 && (
@@ -3038,16 +3033,9 @@ export default function MoviePage() {
                             {media.stars && media.stars.length > 0 && (
                               <div className="flex flex-col gap-3">
                                 <span className="text-white/60 font-medium">Cast</span>
-                                <div className="flex flex-wrap gap-2">
-                                  {media.stars.filter(star => star && star.trim()).slice(0, 6).map((star: string, index: number) => (
-                                    <span
-                                      key={index}
-                                      className="px-3 py-1.5 bg-gradient-to-r from-blue-600/20 to-blue-500/20 text-blue-300 text-sm font-medium rounded-full border border-blue-500/30 hover:from-blue-600/30 hover:to-blue-500/30 transition-all duration-200"
-                                    >
-                                      {star?.trim()}
-                                    </span>
-                                  ))}
-                                </div>
+                                <span className="text-white">
+                                  {media.stars.filter(star => star && star.trim()).slice(0, 6).join(', ')}
+                                </span>
                               </div>
                             )}
                             {media.year && media.year > 0 && (

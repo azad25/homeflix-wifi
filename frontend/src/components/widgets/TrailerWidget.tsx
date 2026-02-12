@@ -128,8 +128,18 @@ export default function TrailerWidget({
             setLoading(true);
 
             const trailerResults = media.slice(0, maxItems).map((item) => {
-                // Use TMDB trailer URL from backend
-                const videoId = item.tmdb_trailer_url ? extractYouTubeKey(item.tmdb_trailer_url) : null;
+                // Use TMDB trailer URL from backend, or local trailer_path
+                let videoId: string | null = null;
+                
+                // First try TMDB trailer URL
+                if (item.tmdb_trailer_url) {
+                    videoId = extractYouTubeKey(item.tmdb_trailer_url);
+                }
+                
+                // Fallback to local trailer_path if it's a YouTube URL
+                if (!videoId && item.trailer_path) {
+                    videoId = extractYouTubeKey(item.trailer_path);
+                }
 
                 return {
                     id: `trailer-${item.id}`,
@@ -147,7 +157,7 @@ export default function TrailerWidget({
 
             // Filter to only include trailers with actual YouTube video IDs
             const validTrailers = trailerResults.filter(trailer =>
-                trailer.videoId && trailer.media.tmdb_trailer_url
+                trailer.videoId && (trailer.media.tmdb_trailer_url || trailer.media.trailer_path)
             );
 
             console.log(`TrailerWidget: Found ${validTrailers.length} valid trailers out of ${trailerResults.length} media items`);
@@ -1000,9 +1010,9 @@ export default function TrailerWidget({
                             >
                                 <button className="bg-white/20 text-white p-2 md:p-3 rounded-full hover:bg-white/30 transition-all duration-300 border border-white/30">
                                     {isInMyList(currentTrailer.media.tmdb_id ? parseInt(`9${currentTrailer.media.tmdb_id}`) : currentTrailer.media.id) ? (
-                                        <Check className="w-4 h-4 md:w-6 md:h-6" />
+                                        <Check className="w-4 h-4 md:w-5 md:h-5" />
                                     ) : (
-                                        <Plus className="w-4 h-4 md:w-6 md:h-6" />
+                                        <Plus className="w-4 h-4 md:w-5 md:h-5" />
                                     )}
                                 </button>
                             </MyListTooltip>
@@ -1011,7 +1021,7 @@ export default function TrailerWidget({
                                 onClick={toggleMute}
                                 className="bg-white/20 text-white p-2 md:p-3 rounded-full hover:bg-white/30 transition-all duration-300 border border-white/30"
                             >
-                                {isMuted ? <VolumeX className="w-4 h-4 md:w-6 md:h-6" /> : <Volume2 className="w-4 h-4 md:w-6 md:h-6" />}
+                                {isMuted ? <VolumeX className="w-4 h-4 md:w-5 md:h-5" /> : <Volume2 className="w-4 h-4 md:w-5 md:h-5" />}
                             </button>
 
                             <button
@@ -1019,7 +1029,7 @@ export default function TrailerWidget({
                                 className="hidden md:flex bg-white/20 text-white p-2 md:p-3 rounded-full hover:bg-white/30 transition-all duration-300 border border-white/30"
                                 title="Open in YouTube"
                             >
-                                <ExternalLink className="w-4 h-4 md:w-6 md:h-6" />
+                                <ExternalLink className="w-4 h-4 md:w-5 md:h-5" />
                             </button>
                         </motion.div>
                     </div>

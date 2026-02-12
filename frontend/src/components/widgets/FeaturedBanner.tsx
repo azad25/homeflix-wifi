@@ -144,18 +144,18 @@ export default function FeaturedBanner({
                 return tmdbLogos[m.tmdb_id];
             }
             // If logo_path exists and starts with '/', it's a TMDB logo path
-            if (m.logo_path && m.logo_path.startsWith('/')) {
+            if (m.logo_path && m.logo_path.startsWith('/') && !m.logo_path.startsWith('/api/')) {
                 return `https://image.tmdb.org/t/p/w500${m.logo_path}`;
             }
         }
         
-        // Handle local logo paths
+        // Handle local logo paths - simple approach like RecentlyWatchedWidget
         if (m.logo_path) {
             // Check if logo_path is already a full URL (TMDB logo)
             if (m.logo_path.startsWith('http')) {
                 return m.logo_path;
             }
-            // Handle local logo paths - could be relative or absolute
+            // Handle API paths
             if (m.logo_path.startsWith('/api/')) {
                 return `${apiUrl}${m.logo_path}`;
             }
@@ -353,33 +353,44 @@ export default function FeaturedBanner({
                                 </span>
                             </div>
                         )}
-                        {currentMedia.year && currentMedia.year > 1900 && (
-                            <div className="flex items-center gap-1">
-                                <Calendar className="w-4 h-4" />
-                                <span>{currentMedia.year}</span>
-                            </div>
-                        )}
                         {(() => {
-                            const runtime = currentMedia.runtime || currentMedia.duration || 0;
-                            if (runtime > 0) {
+                            let year = currentMedia.year;
+                            if (!year || year <= 1900) {
+                                if (currentMedia.release_date) {
+                                    year = new Date(currentMedia.release_date).getFullYear();
+                                }
+                            }
+                            if (year && year > 1900) {
+                                return (
+                                    <div className="flex items-center gap-1">
+                                        <Calendar className="w-4 h-4" />
+                                        <span>
+                                            {year}
+                                        </span>
+                                    </div>
+                                );
+                            }
+                            return null;
+                        })()}
+                        {(() => {
+                            const runtime = currentMedia.runtime || currentMedia.duration;
+                            if (runtime && runtime > 0) {
                                 const hours = Math.floor(runtime / 60);
                                 const minutes = runtime % 60;
-                                if (hours > 0 || minutes > 0) {
-                                    const timeStr = [
-                                        hours > 0 ? `${hours}h` : '',
-                                        minutes > 0 ? `${minutes}m` : ''
-                                    ].filter(Boolean).join(' ');
-                                    
-                                    if (timeStr) {
-                                        return (
-                                            <div className="flex items-center gap-1">
-                                                <Clock className="w-4 h-4" />
-                                                <span className="text-white/70">
-                                                    {timeStr}
-                                                </span>
-                                            </div>
-                                        );
-                                    }
+                                const timeStr = [
+                                    hours > 0 ? `${hours}h` : '',
+                                    minutes > 0 ? `${minutes}m` : ''
+                                ].filter(Boolean).join(' ');
+                                
+                                if (timeStr) {
+                                    return (
+                                        <div className="flex items-center gap-1">
+                                            <Clock className="w-4 h-4" />
+                                            <span className="text-white/70">
+                                                {timeStr}
+                                            </span>
+                                        </div>
+                                    );
                                 }
                             }
                             return null;

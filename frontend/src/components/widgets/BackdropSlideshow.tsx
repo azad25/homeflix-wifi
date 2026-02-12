@@ -195,14 +195,19 @@ export default function BackdropSlideshow({
             }
         }
         
-        // Handle local logo paths - simple approach like HomeflixHero
+        // Handle local logo paths - simple approach like RecentlyWatchedWidget
         if (m.logo_path) {
             // Check if logo_path is already a full URL (TMDB logo)
             if (m.logo_path.startsWith('http')) {
                 return m.logo_path;
             }
-            // For local content, use simple path like HomeflixHero
-            return `${apiUrl}/api/${m.logo_path}`;
+            // Handle API paths
+            if (m.logo_path.startsWith('/api/')) {
+                return `${apiUrl}${m.logo_path}`;
+            }
+            // For simple filenames or relative paths
+            const filename = m.logo_path.includes('/') ? m.logo_path.split('/').pop() : m.logo_path;
+            return `${apiUrl}/api/logos/${filename}`;
         }
         return null;
     };
@@ -368,15 +373,6 @@ export default function BackdropSlideshow({
                             <>
                                 {/* Enhanced Meta Information - Rating beside Year */}
                                 <div className="flex flex-wrap items-center gap-4 mb-4 text-sm md:text-base">
-                                    {((currentMedia.year && currentMedia.year > 1900) || currentMedia.release_date) && (
-                                        <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 backdrop-blur-sm border border-white/20">
-                                            <Calendar className="w-4 h-4 text-white/80" />
-                                            <span className="text-white font-medium">
-                                                {currentMedia.year && currentMedia.year > 1900 ? currentMedia.year : new Date(currentMedia.release_date!).getFullYear()}
-                                            </span>
-                                        </div>
-                                    )}
-
                                     {/* Rating Badge */}
                                     {currentMedia.rating && currentMedia.rating > 0 && (
                                         <div className="flex items-center gap-1">
@@ -386,28 +382,46 @@ export default function BackdropSlideshow({
                                             </span>
                                         </div>
                                     )}
+
+                                    {(() => {
+                                        let year = currentMedia.year;
+                                        if (!year || year <= 1900) {
+                                            if (currentMedia.release_date) {
+                                                year = new Date(currentMedia.release_date).getFullYear();
+                                            }
+                                        }
+                                        if (year && year > 1900) {
+                                            return (
+                                                <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 backdrop-blur-sm border border-white/20">
+                                                    <Calendar className="w-4 h-4 text-white/80" />
+                                                    <span className="text-white font-medium">
+                                                        {year}
+                                                    </span>
+                                                </div>
+                                            );
+                                        }
+                                        return null;
+                                    })()}
                                     
                                     {(() => {
-                                        const duration = currentMedia.duration || currentMedia.runtime || 0;
-                                        if (duration > 0) {
+                                        const duration = currentMedia.duration || currentMedia.runtime;
+                                        if (duration && duration > 0) {
                                             const hours = Math.floor(duration / 3600);
                                             const minutes = Math.floor((duration % 3600) / 60);
-                                            if (hours > 0 || minutes > 0) {
-                                                const timeStr = [
-                                                    hours > 0 ? `${hours}h` : '',
-                                                    minutes > 0 ? `${minutes}m` : ''
-                                                ].filter(Boolean).join(' ');
-                                                
-                                                if (timeStr) {
-                                                    return (
-                                                        <div className="flex items-center gap-1">
-                                                            <Clock className="w-4 h-4 text-white/80" />
-                                                            <span className="text-white/70">
-                                                                {timeStr}
-                                                            </span>
-                                                        </div>
-                                                    );
-                                                }
+                                            const timeStr = [
+                                                hours > 0 ? `${hours}h` : '',
+                                                minutes > 0 ? `${minutes}m` : ''
+                                            ].filter(Boolean).join(' ');
+                                            
+                                            if (timeStr) {
+                                                return (
+                                                    <div className="flex items-center gap-1">
+                                                        <Clock className="w-4 h-4 text-white/80" />
+                                                        <span className="text-white/70">
+                                                            {timeStr}
+                                                        </span>
+                                                    </div>
+                                                );
                                             }
                                         }
                                         return null;

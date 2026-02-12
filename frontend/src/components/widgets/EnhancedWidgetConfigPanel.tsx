@@ -176,7 +176,7 @@ export default function EnhancedWidgetConfigPanel({
       }));
 
       const response = await fetch(`${apiUrl}/api/widgets/reorder`, {
-        method: 'PUT',
+        method: 'POST', // Changed from PUT to POST to match backend route
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ widgets: updates })
       });
@@ -186,11 +186,12 @@ export default function EnhancedWidgetConfigPanel({
         widgetCache.invalidate(page); // Invalidate cache on reorder
         onWidgetsChange?.();
       } else {
-        throw new Error('Failed to reorder widgets');
+        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+        throw new Error(errorData.error || 'Failed to reorder widgets');
       }
     } catch (error) {
       console.error('Error reordering widgets:', error);
-      setError('Failed to reorder widgets');
+      setError(`Failed to reorder widgets: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   };
 

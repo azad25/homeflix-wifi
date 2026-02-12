@@ -849,43 +849,107 @@ export default function MyListPage() {
 
 
             {filteredList.length > 0 ? (
-              <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-7 lg:grid-cols-9 xl:grid-cols-12 2xl:grid-cols-15 gap-1.5">
-                {filteredList.map((media, index) => (
-                  <div key={media.id} className="relative">
-                    <MyListTooltip
-                      media={media}
-                      isInMyList={true}
-                      collections={collections}
-                      onToggleMyList={() => {
-                        handleRemoveFromList(media.id);
-                        // Add a small delay to ensure backend is updated before refresh
-                        setTimeout(() => refreshData(), 500);
-                      }}
-                      onAddToCollection={(collectionId) => {
-                        addToCollection(collectionId, media.id);
-                        // Add a small delay to ensure backend is updated before refresh
-                        setTimeout(() => refreshData(), 500);
-                      }}
-                      onCollectionCreated={() => {
-                        fetchUserCollections();
-                        // Add a small delay to ensure backend is updated before refresh
-                        setTimeout(() => refreshData(), 500);
-                      }}
-                      onDataRefresh={refreshData}
-                    >
-                      <NetflixMediaCard
-                        media={media}
-                        onPlay={handlePlay}
-                        onInfo={handleInfo}
-                        onAddToList={() => handleRemoveFromList(media.id)}
-                        isInList={true}
-                        priority={index < 12 ? 'high' : 'normal'}
-                        showPreviewOnHover={true}
-                      />
-                    </MyListTooltip>
-                  </div>
-                ))}
-              </div>
+              <>
+                {/* Separate Local and TMDB Content */}
+                {(() => {
+                  const localContent = filteredList.filter(m => !m.tmdb_id || !m.id.toString().startsWith('9'));
+                  const tmdbContent = filteredList.filter(m => m.tmdb_id && m.id.toString().startsWith('9'));
+                  
+                  return (
+                    <>
+                      {/* Local Content Section */}
+                      {localContent.length > 0 && (
+                        <div className="mb-8">
+                          <div className="flex items-center gap-3 mb-4">
+                            <Film className="w-5 h-5 text-green-400" />
+                            <h3 className="text-xl font-bold text-white">Library</h3>
+                            <span className="text-sm text-gray-400">({localContent.length} items)</span>
+                          </div>
+                          <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-7 lg:grid-cols-9 xl:grid-cols-12 2xl:grid-cols-15 gap-1.5">
+                            {localContent.map((media, index) => (
+                              <div key={media.id} className="relative">
+                                <MyListTooltip
+                                  media={media}
+                                  isInMyList={true}
+                                  collections={collections}
+                                  onToggleMyList={() => {
+                                    handleRemoveFromList(media.id);
+                                    setTimeout(() => refreshData(), 500);
+                                  }}
+                                  onAddToCollection={(collectionId) => {
+                                    addToCollection(collectionId, media.id);
+                                    setTimeout(() => refreshData(), 500);
+                                  }}
+                                  onCollectionCreated={() => {
+                                    fetchUserCollections();
+                                    setTimeout(() => refreshData(), 500);
+                                  }}
+                                  onDataRefresh={refreshData}
+                                >
+                                  <NetflixMediaCard
+                                    media={media}
+                                    onPlay={handlePlay}
+                                    onInfo={handleInfo}
+                                    onAddToList={() => handleRemoveFromList(media.id)}
+                                    isInList={true}
+                                    priority={index < 12 ? 'high' : 'normal'}
+                                    showPreviewOnHover={true}
+                                  />
+                                </MyListTooltip>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* TMDB Content Section */}
+                      {tmdbContent.length > 0 && (
+                        <div>
+                          <div className="flex items-center gap-3 mb-4">
+                            <Tv className="w-5 h-5 text-blue-400" />
+                            <h3 className="text-xl font-bold text-white">TMDB</h3>
+                            <span className="text-sm text-gray-400">({tmdbContent.length} items)</span>
+                          </div>
+                          <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-7 lg:grid-cols-9 xl:grid-cols-12 2xl:grid-cols-15 gap-1.5">
+                            {tmdbContent.map((media, index) => (
+                              <div key={media.id} className="relative">
+                                <MyListTooltip
+                                  media={media}
+                                  isInMyList={true}
+                                  collections={collections}
+                                  onToggleMyList={() => {
+                                    handleRemoveFromList(media.id);
+                                    setTimeout(() => refreshData(), 500);
+                                  }}
+                                  onAddToCollection={(collectionId) => {
+                                    addToCollection(collectionId, media.id);
+                                    setTimeout(() => refreshData(), 500);
+                                  }}
+                                  onCollectionCreated={() => {
+                                    fetchUserCollections();
+                                    setTimeout(() => refreshData(), 500);
+                                  }}
+                                  onDataRefresh={refreshData}
+                                >
+                                  <NetflixMediaCard
+                                    media={media}
+                                    onPlay={handlePlay}
+                                    onInfo={handleInfo}
+                                    onAddToList={() => handleRemoveFromList(media.id)}
+                                    isInList={true}
+                                    priority={index < 12 ? 'high' : 'normal'}
+                                    showPreviewOnHover={true}
+                                  />
+                                </MyListTooltip>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
+              </>
             ) : (
               <div className="text-center py-16">
                 <Heart className="w-16 h-16 text-gray-600 mx-auto mb-4" />
@@ -909,7 +973,7 @@ export default function MyListPage() {
         {activeTab === 'downloads' && (
           <>
             {downloadingMedia.length > 0 ? (
-              <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-7 lg:grid-cols-9 xl:grid-cols-12 2xl:grid-cols-15 gap-1.5">
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-8 gap-4">
                 {downloadingMedia.map((media) => (
                   <DownloadingMediaCard key={`download-${media.id}`} media={media} />
                 ))}
@@ -1051,54 +1115,125 @@ export default function MyListPage() {
                         <RedLoader size="medium" />
                       </div>
                     ) : collectionItems.length > 0 ? (
-                      <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-7 lg:grid-cols-9 xl:grid-cols-12 2xl:grid-cols-15 gap-1.5">
-                        {collectionItems.map((item, index) => (
-                          <div key={item.id} className="relative">
-                            <MyListTooltip
-                              media={item.media}
-                              isInMyList={isInMyList(item.media.id)}
-                              collections={collections.filter(c => c.id !== selectedCollection?.id)}
-                              onToggleMyList={() => {
-                                toggleMyList(item.media.id);
-                                // Add a small delay to ensure backend is updated before refresh
-                                setTimeout(() => refreshData(), 500);
-                              }}
-                              onAddToCollection={(collectionId) => {
-                                addToCollection(collectionId, item.media.id);
-                                // Add a small delay to ensure backend is updated before refresh
-                                setTimeout(() => refreshData(), 500);
-                              }}
-                              onRemoveFromCollection={(collectionId) => {
-                                removeFromCollection(collectionId, item.media.id).then(() => {
-                                  // Refresh collection items
-                                  if (selectedCollection) {
-                                    fetchCollectionItems(selectedCollection.id);
-                                  }
-                                  // Add a small delay to ensure backend is updated before refresh
-                                  setTimeout(() => refreshData(), 500);
-                                });
-                              }}
-                              currentCollectionId={selectedCollection?.id}
-                              onCollectionCreated={() => {
-                                fetchUserCollections();
-                                // Add a small delay to ensure backend is updated before refresh
-                                setTimeout(() => refreshData(), 500);
-                              }}
-                              onDataRefresh={refreshData}
-                            >
-                              <NetflixMediaCard
-                                media={item.media}
-                                onPlay={handlePlay}
-                                onInfo={handleInfo}
-                                onAddToList={() => toggleMyList(item.media.id)}
-                                isInList={isInMyList(item.media.id)}
-                                priority={index < 12 ? 'high' : 'normal'}
-                                showPreviewOnHover={true}
-                              />
-                            </MyListTooltip>
-                          </div>
-                        ))}
-                      </div>
+                      <>
+                        {/* Separate Local and TMDB Content in Collections */}
+                        {(() => {
+                          const localItems = collectionItems.filter(item => !item.media.tmdb_id || !item.media.id.toString().startsWith('9'));
+                          const tmdbItems = collectionItems.filter(item => item.media.tmdb_id && item.media.id.toString().startsWith('9'));
+                          
+                          return (
+                            <>
+                              {/* Local Content Section */}
+                              {localItems.length > 0 && (
+                                <div className="mb-8">
+                                  <div className="flex items-center gap-3 mb-4">
+                                    <Film className="w-5 h-5 text-green-400" />
+                                    <h3 className="text-xl font-bold text-white">Library</h3>
+                                    <span className="text-sm text-gray-400">({localItems.length} items)</span>
+                                  </div>
+                                  <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-7 lg:grid-cols-9 xl:grid-cols-12 2xl:grid-cols-15 gap-1.5">
+                                    {localItems.map((item, index) => (
+                                      <div key={item.id} className="relative">
+                                        <MyListTooltip
+                                          media={item.media}
+                                          isInMyList={isInMyList(item.media.id)}
+                                          collections={collections.filter(c => c.id !== selectedCollection?.id)}
+                                          onToggleMyList={() => {
+                                            toggleMyList(item.media.id);
+                                            setTimeout(() => refreshData(), 500);
+                                          }}
+                                          onAddToCollection={(collectionId) => {
+                                            addToCollection(collectionId, item.media.id);
+                                            setTimeout(() => refreshData(), 500);
+                                          }}
+                                          onRemoveFromCollection={(collectionId) => {
+                                            removeFromCollection(collectionId, item.media.id).then(() => {
+                                              if (selectedCollection) {
+                                                fetchCollectionItems(selectedCollection.id);
+                                              }
+                                              setTimeout(() => refreshData(), 500);
+                                            });
+                                          }}
+                                          currentCollectionId={selectedCollection?.id}
+                                          onCollectionCreated={() => {
+                                            fetchUserCollections();
+                                            setTimeout(() => refreshData(), 500);
+                                          }}
+                                          onDataRefresh={refreshData}
+                                        >
+                                          <NetflixMediaCard
+                                            media={item.media}
+                                            onPlay={handlePlay}
+                                            onInfo={handleInfo}
+                                            onAddToList={() => toggleMyList(item.media.id)}
+                                            isInList={isInMyList(item.media.id)}
+                                            priority={index < 12 ? 'high' : 'normal'}
+                                            showPreviewOnHover={true}
+                                          />
+                                        </MyListTooltip>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* TMDB Content Section */}
+                              {tmdbItems.length > 0 && (
+                                <div>
+                                  <div className="flex items-center gap-3 mb-4">
+                                    <Tv className="w-5 h-5 text-blue-400" />
+                                    <h3 className="text-xl font-bold text-white">TMDB</h3>
+                                    <span className="text-sm text-gray-400">({tmdbItems.length} items)</span>
+                                  </div>
+                                  <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-7 lg:grid-cols-9 xl:grid-cols-12 2xl:grid-cols-15 gap-1.5">
+                                    {tmdbItems.map((item, index) => (
+                                      <div key={item.id} className="relative">
+                                        <MyListTooltip
+                                          media={item.media}
+                                          isInMyList={isInMyList(item.media.id)}
+                                          collections={collections.filter(c => c.id !== selectedCollection?.id)}
+                                          onToggleMyList={() => {
+                                            toggleMyList(item.media.id);
+                                            setTimeout(() => refreshData(), 500);
+                                          }}
+                                          onAddToCollection={(collectionId) => {
+                                            addToCollection(collectionId, item.media.id);
+                                            setTimeout(() => refreshData(), 500);
+                                          }}
+                                          onRemoveFromCollection={(collectionId) => {
+                                            removeFromCollection(collectionId, item.media.id).then(() => {
+                                              if (selectedCollection) {
+                                                fetchCollectionItems(selectedCollection.id);
+                                              }
+                                              setTimeout(() => refreshData(), 500);
+                                            });
+                                          }}
+                                          currentCollectionId={selectedCollection?.id}
+                                          onCollectionCreated={() => {
+                                            fetchUserCollections();
+                                            setTimeout(() => refreshData(), 500);
+                                          }}
+                                          onDataRefresh={refreshData}
+                                        >
+                                          <NetflixMediaCard
+                                            media={item.media}
+                                            onPlay={handlePlay}
+                                            onInfo={handleInfo}
+                                            onAddToList={() => toggleMyList(item.media.id)}
+                                            isInList={isInMyList(item.media.id)}
+                                            priority={index < 12 ? 'high' : 'normal'}
+                                            showPreviewOnHover={true}
+                                          />
+                                        </MyListTooltip>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                            </>
+                          );
+                        })()}
+                      </>
                     ) : (
                       <div className="text-center py-16">
                         <Grid3X3 className="w-16 h-16 text-gray-600 mx-auto mb-4" />

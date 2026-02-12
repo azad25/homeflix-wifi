@@ -62,7 +62,7 @@ const HomeflixCard: React.FC<HomeflixCardProps> = ({
     // Use fetched TMDB logo if available
     if (tmdbLogoUrl) return tmdbLogoUrl;
     
-    // Handle local content logos - simple approach like HomeflixHero
+    // Handle local content logos - simple approach like RecentlyWatchedWidget
     if (media.logo_path) {
       // If it's a full URL, use it directly
       if (media.logo_path.startsWith('http')) {
@@ -74,8 +74,14 @@ const HomeflixCard: React.FC<HomeflixCardProps> = ({
         return `https://image.tmdb.org/t/p/w500${media.logo_path}`;
       }
       
-      // For local content, use simple path like HomeflixHero
-      return `${apiUrl}/api/${media.logo_path}`;
+      // Handle API paths
+      if (media.logo_path.startsWith('/api/')) {
+        return `${apiUrl}${media.logo_path}`;
+      }
+      
+      // For simple filenames or relative paths
+      const filename = media.logo_path.includes('/') ? media.logo_path.split('/').pop() : media.logo_path;
+      return `${apiUrl}/api/logos/${filename}`;
     }
     
     return null;
@@ -228,7 +234,7 @@ const HomeflixCard: React.FC<HomeflixCardProps> = ({
       </div>
 
       {/* Title - Logo or Text */}
-      <div className="mt-3 px-1 h-10 flex items-center">
+      <div className="mt-1 px-1 h-10 flex items-center">
         {logoUrl && !logoError ? (
           <img
             src={logoUrl}
@@ -238,7 +244,7 @@ const HomeflixCard: React.FC<HomeflixCardProps> = ({
             onError={() => setLogoError(true)}
           />
         ) : (
-          <h3 className="text-white font-medium text-sm line-clamp-1 group-hover:text-red-400 transition-colors">
+          <h3 className="text-red-500 font-bold text-base line-clamp-1 group-hover:text-red-400 transition-colors">
             {media.title}
           </h3>
         )}

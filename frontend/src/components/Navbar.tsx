@@ -612,6 +612,10 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
                   <Tv className="w-4 h-4" />
                   Providers
                 </a>
+                <a href="/trailers" className="block px-4 py-2 text-white/80 hover:text-white hover:bg-white/10 flex items-center gap-2">
+                  <Film className="w-4 h-4" />
+                  Trailers
+                </a>
                 <a href="#" className="block px-4 py-2 text-white/80 hover:text-white hover:bg-white/10 flex items-center gap-2">
                   <HelpCircle className="w-4 h-4" />
                   Help

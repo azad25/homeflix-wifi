@@ -147,7 +147,7 @@ export default function HeroVideoWidget({
       return logoUrls[m.tmdb_id];
     }
     
-    // Handle local content logos - simple approach like HomeflixHero
+    // Handle local content logos - simple approach like RecentlyWatchedWidget
     if (m.logo_path) {
       // If it's a full URL, use it directly
       if (m.logo_path.startsWith("http://") || m.logo_path.startsWith("https://")) {
@@ -159,8 +159,14 @@ export default function HeroVideoWidget({
         return `https://image.tmdb.org/t/p/w500${m.logo_path}`;
       }
       
-      // For local content, use simple path like HomeflixHero
-      return `${apiUrl}/api/${m.logo_path}`;
+      // Handle API paths
+      if (m.logo_path.startsWith("/api/")) {
+        return `${apiUrl}${m.logo_path}`;
+      }
+      
+      // For simple filenames or relative paths
+      const filename = m.logo_path.includes('/') ? m.logo_path.split('/').pop() : m.logo_path;
+      return `${apiUrl}/api/logos/${filename}`;
     }
     
     return "";

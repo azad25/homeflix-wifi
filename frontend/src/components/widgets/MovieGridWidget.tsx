@@ -212,10 +212,10 @@ export default function MovieGridWidget({
                 </div>
             </div>
 
-            {/* Enhanced Grid/Scroll Container */}
+            {/* Enhanced Grid/Scroll Container - Allow overflow for expansion */}
             <div
                 ref={scrollContainerRef}
-                className="flex gap-3 md:gap-4 overflow-x-auto scrollbar-hide px-4 md:px-8 pb-6"
+                className="flex gap-3 md:gap-4 overflow-x-auto scrollbar-hide px-4 md:px-8 pb-6 py-8"
                 style={{ scrollSnapType: 'x mandatory' }}
             >
                 {displayMedia.map((item) => {
@@ -227,93 +227,70 @@ export default function MovieGridWidget({
                     return (
                         <motion.div
                             key={item.id}
-                            className="flex-shrink-0 relative group cursor-pointer"
-                            style={{ 
-                                scrollSnapAlign: 'start',
-                                width: `calc((100vw - 8rem) / ${Math.min(columns, 6)})`,
-                                minWidth: '140px',
-                                maxWidth: '220px',
-                            }}
+                            className="flex-shrink-0 relative cursor-pointer"
                             onMouseEnter={() => setHoveredId(item.id)}
                             onMouseLeave={() => setHoveredId(null)}
                             onClick={() => handleCardClick(item)}
-                            whileHover={{ scale: 1.05, zIndex: 20 }}
-                            transition={{ duration: 0.3, ease: "easeOut" }}
+                            animate={{
+                                width: isHovered ? '400px' : `calc((100vw - 8rem) / ${Math.min(columns, 6)})`,
+                            }}
+                            transition={{
+                                duration: 0.5,
+                                ease: [0.25, 0.1, 0.25, 1]
+                            }}
+                            style={{ 
+                                scrollSnapAlign: 'start',
+                                minWidth: '140px',
+                                maxWidth: isHovered ? '400px' : '220px',
+                                height: '330px', // Fixed height matching poster
+                            }}
                         >
-                            {/* Enhanced Card */}
-                            <div className="relative aspect-[2/3] rounded-xl overflow-hidden shadow-2xl">
-                                {/* Main Image */}
-                                <img
-                                    src={getImageUrl(item, 'poster')}
-                                    alt={item.title}
-                                    className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-110"
-                                    loading="lazy"
-                                    onError={(e) => {
-                                        const target = e.target as HTMLImageElement;
-                                        target.src = getImageUrl(item, 'backdrop');
-                                    }}
-                                />
-
-                                {/* Quality Badge */}
-                                <div className="absolute top-3 right-3">
-                                    <div className="px-2 py-1 bg-black/80 backdrop-blur-sm rounded text-xs font-bold text-white border border-white/20">
-                                        {item.type === 'movie' ? 'HD' : 'TV'}
-                                    </div>
-                                </div>
-
-                                {/* Rating Badge */}
-                                {showRating && item.rating && item.rating > 0 && (
-                                    <div className="absolute top-3 left-3">
-                                        <div 
-                                            className="flex items-center gap-1 px-2 py-1 rounded-full backdrop-blur-md border"
-                                            style={{
-                                                backgroundColor: `${colors.primary}30`,
-                                                borderColor: `${colors.primary}50`
-                                            }}
-                                        >
-                                            <Star className="w-3 h-3 text-yellow-400 fill-current" />
-                                            <span className="text-xs font-semibold text-white">
-                                                {item.rating.toFixed(1)}
-                                            </span>
+                            {/* Card - fixed height, aspect changes */}
+                            <div 
+                                className="relative rounded-xl overflow-hidden shadow-2xl w-full h-full"
+                                style={{
+                                    zIndex: isHovered ? 50 : 1,
+                                }}
+                            >
+                                {!isHovered ? (
+                                    // Poster view
+                                    <img
+                                        src={getImageUrl(item, 'poster')}
+                                        alt={item.title}
+                                        className="absolute inset-0 w-full h-full object-cover"
+                                        loading="lazy"
+                                        onError={(e) => {
+                                            const target = e.target as HTMLImageElement;
+                                            target.src = getImageUrl(item, 'backdrop');
+                                        }}
+                                    />
+                                ) : (
+                                    // Hover view - backdrop on top, info on bottom
+                                    <div className="absolute inset-0 flex flex-col">
+                                        {/* Backdrop - top 70% */}
+                                        <div className="relative" style={{ height: '70%' }}>
+                                            <img
+                                                src={getImageUrl(item, 'backdrop')}
+                                                alt={item.title}
+                                                className="absolute inset-0 w-full h-full object-cover"
+                                                loading="lazy"
+                                                onError={(e) => {
+                                                    const target = e.target as HTMLImageElement;
+                                                    target.src = getImageUrl(item, 'poster');
+                                                }}
+                                            />
+                                            <div className="absolute inset-0 bg-gradient-to-b from-transparent to-black" />
                                         </div>
-                                    </div>
-                                )}
 
-                                {/* My List Indicator */}
-                                {inMyList && (
-                                    <div className="absolute bottom-3 right-3">
-                                        <div 
-                                            className="p-2 rounded-full backdrop-blur-md border"
-                                            style={{
-                                                backgroundColor: `${colors.primary}40`,
-                                                borderColor: `${colors.primary}60`
-                                            }}
-                                        >
-                                            <Check className="w-3 h-3 text-white" />
-                                        </div>
-                                    </div>
-                                )}
-
-                                {/* Gradient Overlay */}
-                                <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-
-                                {/* Enhanced Hover Content */}
-                                <AnimatePresence>
-                                    {isHovered && (
-                                        <motion.div
-                                            initial={{ opacity: 0, y: 20 }}
-                                            animate={{ opacity: 1, y: 0 }}
-                                            exit={{ opacity: 0, y: 20 }}
-                                            transition={{ duration: 0.2 }}
-                                            className="absolute inset-0 flex flex-col justify-end p-4"
-                                        >
-                                            {/* Logo or Title */}
-                                            <div className="mb-3">
+                                        {/* Info section - bottom 30% */}
+                                        <div className="bg-black p-2 flex flex-col justify-between" style={{ height: '30%' }}>
+                                            {/* Logo/Title directly above meta */}
+                                            <div className="mb-1">
                                                 {logoUrl ? (
                                                     <img
                                                         src={logoUrl}
                                                         alt={item.title}
-                                                        className="max-h-6 w-auto drop-shadow-lg"
+                                                        className="max-h-10 w-auto drop-shadow-2xl"
                                                         onError={(e) => {
                                                             e.currentTarget.style.display = 'none';
                                                             const fallback = e.currentTarget.nextElementSibling as HTMLElement;
@@ -322,135 +299,78 @@ export default function MovieGridWidget({
                                                     />
                                                 ) : null}
                                                 <h4 
-                                                    className="text-sm font-bold line-clamp-2 text-white drop-shadow-lg"
+                                                    className="text-lg font-bold line-clamp-1 text-white drop-shadow-lg"
                                                     style={{ display: logoUrl ? 'none' : 'block' }}
                                                 >
                                                     {item.title}
                                                 </h4>
                                             </div>
 
-                                            {/* Meta Info */}
-                                            <div className="flex items-center gap-2 text-xs text-white/80 mb-3">
-                                                {(() => {
-                                                    // Get year from multiple sources
-                                                    let year = item.year;
-                                                    if (!year || year <= 1900) {
-                                                        if (item.release_date) {
-                                                            year = new Date(item.release_date).getFullYear();
-                                                        } else if (item.first_air_date) {
-                                                            year = new Date(item.first_air_date).getFullYear();
+                                            {/* Meta Info Row */}
+                                            <div className="flex items-center gap-1.5 text-xs text-white/90 mb-1 flex-wrap">
+                                                    {(() => {
+                                                        let year = item.year;
+                                                        if (!year || year <= 1900) {
+                                                            if (item.release_date) {
+                                                                year = new Date(item.release_date).getFullYear();
+                                                            } else if (item.first_air_date) {
+                                                                year = new Date(item.first_air_date).getFullYear();
+                                                            }
                                                         }
-                                                    }
-                                                    
-                                                    if (year && year > 1900) {
-                                                        return (
-                                                            <span className="flex items-center gap-1">
-                                                                <Calendar className="w-3 h-3" />
-                                                                {year}
-                                                            </span>
-                                                        );
-                                                    }
-                                                    return null;
-                                                })()}
-                                                {(() => {
-                                                    const duration = item.duration || item.runtime || 0;
-                                                    if (duration > 0) {
-                                                        const hours = Math.floor(duration / 3600);
-                                                        const minutes = Math.floor((duration % 3600) / 60);
-                                                        const timeStr = [
-                                                            hours > 0 ? `${hours}h` : '',
-                                                            minutes > 0 ? `${minutes}m` : ''
-                                                        ].filter(Boolean).join(' ');
                                                         
-                                                        if (timeStr) {
+                                                        if (year && year > 1900) {
                                                             return (
-                                                                <span className="flex items-center gap-1">
-                                                                    <Clock className="w-3 h-3" />
-                                                                    {timeStr}
+                                                                <span className="flex items-center gap-0.5 px-1 py-0.5 rounded text-white/70">
+                                                                    <Calendar className="w-2.5 h-2.5" />
+                                                                    {year}
                                                                 </span>
                                                             );
                                                         }
-                                                    }
-                                                    return null;
-                                                })()}
-                                            </div>
-
-                                            {/* Genres */}
-                                            {item.genre_names && item.genre_names.length > 0 && (
-                                                <div className="flex flex-wrap gap-1 mb-3">
-                                                    {item.genre_names.slice(0, 2).map((genre, idx) => (
-                                                        <span
-                                                            key={idx}
-                                                            className="px-2 py-1 rounded-full text-xs font-medium backdrop-blur-sm border"
-                                                            style={{
-                                                                backgroundColor: `${colors.primary}20`,
-                                                                borderColor: `${colors.primary}40`,
-                                                                color: colors.accent
-                                                            }}
-                                                        >
-                                                            {genre}
+                                                        return null;
+                                                    })()}
+                                                    {showRating && item.rating && item.rating > 0 && (
+                                                        <span className="flex items-center gap-0.5 px-1 py-0.5 rounded text-white/70">
+                                                            <Star className="w-2.5 h-2.5 text-yellow-400 fill-current" />
+                                                            {item.rating.toFixed(1)}
                                                         </span>
-                                                    ))}
+                                                    )}
+                                                    {(() => {
+                                                        const duration = item.duration || item.runtime || 0;
+                                                        if (duration > 0) {
+                                                            const hours = Math.floor(duration / 3600);
+                                                            const minutes = Math.floor((duration % 3600) / 60);
+                                                            const timeStr = [
+                                                                hours > 0 ? `${hours}h` : '',
+                                                                minutes > 0 ? `${minutes}m` : ''
+                                                            ].filter(Boolean).join(' ');
+                                                            
+                                                            if (timeStr) {
+                                                                return (
+                                                                    <span className="flex items-center gap-0.5 px-1 py-0.5 rounded text-white/70">
+                                                                        <Clock className="w-2.5 h-2.5" />
+                                                                        {timeStr}
+                                                                    </span>
+                                                                );
+                                                            }
+                                                        }
+                                                        return null;
+                                                    })()}
                                                 </div>
-                                            )}
-
-                                            {/* Action Buttons */}
-                                            <div className="flex items-center gap-2">
-                                                <motion.button 
-                                                    whileHover={{ scale: 1.05 }}
-                                                    whileTap={{ scale: 0.95 }}
-                                                    className="flex-1 flex items-center justify-center gap-1 py-2 bg-white text-black rounded-lg text-xs font-bold hover:bg-white/90 transition-colors"
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        handleCardClick(item);
-                                                    }}
-                                                >
-                                                    <Play className="w-3 h-3 fill-current" />
-                                                    {item.tmdb_id ? 'View' : 'Play'}
-                                                </motion.button>
-                                                
-                                                <motion.button
-                                                    whileHover={{ scale: 1.1 }}
-                                                    whileTap={{ scale: 0.95 }}
-                                                    onClick={(e) => toggleMyList(e, item.id)}
-                                                    className="p-2 rounded-full backdrop-blur-md border border-white/30 hover:border-white/50 transition-colors"
-                                                    style={{
-                                                        backgroundColor: inMyList ? `${colors.primary}40` : 'rgba(255,255,255,0.1)'
-                                                    }}
-                                                >
-                                                    {inMyList ? 
-                                                        <Check className="w-3 h-3 text-white" /> : 
-                                                        <Plus className="w-3 h-3 text-white" />
-                                                    }
-                                                </motion.button>
-                                                
-                                                <motion.button
-                                                    whileHover={{ scale: 1.1 }}
-                                                    whileTap={{ scale: 0.95 }}
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        handleCardClick(item);
-                                                    }}
-                                                    className="p-2 rounded-full backdrop-blur-md border border-white/30 hover:border-white/50 transition-colors bg-white/10"
-                                                >
-                                                    <Info className="w-3 h-3 text-white" />
-                                                </motion.button>
-                                            </div>
-                                        </motion.div>
-                                    )}
-                                </AnimatePresence>
-
-                                {/* Enhanced Border Accent */}
-                                <motion.div
-                                    className="absolute inset-0 pointer-events-none rounded-xl"
-                                    animate={{
-                                        boxShadow: isHovered
-                                            ? `inset 0 0 0 2px ${colors.primary}, 0 0 30px ${colors.primary}40`
-                                            : 'none'
-                                    }}
-                                    transition={{ duration: 0.3 }}
-                                />
+                                        </div>
+                                    </div>
+                                )}
                             </div>
+
+                            {/* Subtle shadow on hover */}
+                            <motion.div
+                                className="absolute inset-0 pointer-events-none rounded-xl"
+                                animate={{
+                                    boxShadow: isHovered
+                                        ? `0 10px 40px rgba(0,0,0,0.8)`
+                                        : 'none'
+                                }}
+                                transition={{ duration: 0.5 }}
+                            />
                         </motion.div>
                     );
                 })}

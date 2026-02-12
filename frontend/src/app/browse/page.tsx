@@ -14,7 +14,7 @@ import {
   MagneticButton,
   FloatingElement
 } from '@/components/scrollx';
-import LocalMoviesHeroSlider from "@/components/LocalMoviesHeroSlider";
+import HomeflixHero from "@/components/HomeflixHero";
 import { BackendWidgetRenderer } from '@/components/widgets';
 
 interface Genre {
@@ -345,9 +345,13 @@ export default function BrowsePage() {
       <Navbar onSearch={handleSearch} />
 
       {/* Hero Section */}
-      <LocalMoviesHeroSlider
+      <HomeflixHero
         onPlay={handlePlay}
         onInfo={handleInfo}
+        maxMovies={10}
+        contentFilter="movies-hd"
+        playCountPerSlide={1}
+        sortMode="latest"
       />
 
       {/* Widget System Integration - Full viewport width */}
