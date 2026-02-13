@@ -3851,47 +3851,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                   </div>
                 </div>
 
-                {/* Center Controls */}
-                <div className="absolute inset-0 flex items-center justify-center pointer-events-auto">
-                  <div className="flex items-center gap-8">
-                    {/* Skip Back 10s */}
-                    <button
-                      type="button"
-                      onClick={() => seekBackward(10)}
-                      className="bg-black/50 text-white rounded-full p-3 hover:bg-black/70 transition-all duration-200 hover:scale-110"
-                      title="Skip back 10 seconds (←)"
-                    >
-                      <RotateCcw className="w-8 h-8" />
-                    </button>
-
-                    {/* Play/Pause */}
-                    <button
-                      type="button"
-                      onClick={togglePlay}
-                      className="bg-black/50 text-white rounded-full p-4 hover:bg-black/70 transition-all duration-200 hover:scale-110 z-40"
-                      title={isPlaying ? "Pause (Space)" : "Play (Space)"}
-                    >
-                      {isPlaying ? (
-                        <Pause className="w-12 h-12" />
-                      ) : (
-                        <Play className="w-12 h-12 fill-current" />
-                      )}
-                    </button>
-
-                    {/* Skip Forward 10s */}
-                    <button
-                      type="button"
-                      onClick={() => seekForward(10)}
-                      className="bg-black/50 text-white rounded-full p-3 hover:bg-black/70 transition-all duration-200 hover:scale-110"
-                      title="Skip forward 10 seconds (→)"
-                    >
-                      <RotateCw className="w-8 h-8" />
-                    </button>
-
-                    
-                  </div>
-                </div>
-
                 {/* Bottom Controls */}
                 <div className="absolute bottom-0 left-0 right-0 p-10 pointer-events-auto z-50">
                   <div
