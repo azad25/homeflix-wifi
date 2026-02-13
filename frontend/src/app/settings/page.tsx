@@ -621,11 +621,22 @@ function SettingsContent() {
 
     setSelectedMedia(completeMedia);
     setEditingMedia({});
-    addTerminalOutput(`📂 Selected ${media.type}: ${media.title}`);
+    addTerminalOutput(`📂 Selected ${media.type === 'tv' ? 'TV series' : 'movie'}: ${media.title}`);
 
     // Fetch existing assets for this media
     try {
-      const response = await fetch(`${getApiUrl()}/api/admin/media/${media.id}/assets`);
+      let response;
+      if (media.type === 'tv') {
+        // For TV series, try series-specific endpoint first
+        response = await fetch(`${getApiUrl()}/api/series/${media.id}/assets`);
+        if (!response.ok) {
+          // Fallback to media endpoint
+          response = await fetch(`${getApiUrl()}/api/admin/media/${media.id}/assets`);
+        }
+      } else {
+        response = await fetch(`${getApiUrl()}/api/admin/media/${media.id}/assets`);
+      }
+
       if (response.ok) {
         const assets = await response.json();
         setMediaAssets(assets);
@@ -662,19 +673,28 @@ function SettingsContent() {
     if (mediaParam && (mediaList.length > 0 || seriesList.length > 0) && !selectedMedia) {
       try {
         const mediaInfo = JSON.parse(mediaParam);
+        console.log('🎯 Auto-selecting media from URL:', mediaInfo);
+        
         if (mediaInfo.id) {
           const id = typeof mediaInfo.id === 'string' ? parseInt(mediaInfo.id) : mediaInfo.id;
           const type = mediaInfo.type || 'movie';
 
+          console.log('🔍 Looking for media:', { id, type, seriesListLength: seriesList.length, mediaListLength: mediaList.length });
+
           let foundMedia;
-          if (type === 'tv') {
+          if (type === 'tv' || type === 'series') {
             foundMedia = seriesList.find(s => s.id === id);
+            console.log('📺 Found TV series:', foundMedia?.title);
           } else {
             foundMedia = mediaList.find(m => m.id === id);
+            console.log('🎬 Found movie:', foundMedia?.title);
           }
 
           if (foundMedia) {
+            console.log('✅ Auto-selecting media:', foundMedia.title);
             handleMediaSelect(foundMedia);
+          } else {
+            console.warn('❌ Media not found in lists');
           }
         }
       } catch (e) {

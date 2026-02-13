@@ -113,14 +113,6 @@ export default function Home() {
       {/* HomeflixHero Section - Enhanced hero with preview clips and YouTube trailers */}
       <MemoizedHomeflixHero onPlay={handlePlay} onInfo={handleInfo} maxMovies={10} />
 
-      {/* Widget System Integration - Backend Data */}
-      <ErrorBoundary>
-        <BackendWidgetRenderer
-          page="home"
-          className="py-8"
-        />
-      </ErrorBoundary>
-
       {/* Video Player Modal */}
       {selectedMedia && (
         <VideoPlayer

@@ -842,6 +842,14 @@ export default function TVSeriesPage() {
               type: 'series',
               title: seriesTitle,
               description: media.series?.description || media.description || `Watch ${seriesTitle} episodes and seasons.`,
+              // Use series poster if available, otherwise use episode thumbnail
+              poster_path: media.series?.poster_path || media.poster_path,
+              tmdb_poster_url: media.series?.tmdb_poster_url || media.tmdb_poster_url,
+              thumbnail_path: media.series?.thumbnail_path || media.thumbnail_path,
+              // Preserve other series metadata
+              rating: media.series?.rating || media.rating,
+              year: media.series?.year || media.year,
+              genres: media.series?.genres || media.genres,
             };
             
             seriesMap.set(seriesId, seriesRepresentation);
@@ -2539,34 +2547,34 @@ export default function TVSeriesPage() {
                 </motion.div>
               )}
 
-              {/* Action Buttons - Compact */}
+              {/* Action Buttons - Icon Only */}
               {shouldShowButtons && (
                 <motion.div
                   initial={{ opacity: 0, y: 30 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.6, delay: 0.3 }}
-                  className="flex flex-wrap gap-2 mb-4"
+                  className="flex flex-wrap gap-3 mb-4"
                 >
                   <button
                     onClick={() => handlePlay()}
-                    className="flex items-center gap-1 px-3 py-1.5 bg-red-600 hover:bg-red-700 rounded-lg text-xs font-semibold transition-all duration-300 hover:scale-105"
+                    className="flex items-center justify-center w-12 h-12 bg-white/20 hover:bg-white/30 backdrop-blur-sm border border-white/30 rounded-full transition-all duration-200 hover:scale-110"
+                    title={continueWatching ? 'Continue Watching' : 'Play'}
                   >
                     {continueWatching ? (
-                      <PlayCircle className="w-3 h-3" />
+                      <PlayCircle className="w-6 h-6 text-white" />
                     ) : (
-                      <Play className="w-3 h-3" />
+                      <Play className="w-6 h-6 text-white" />
                     )}
-                    {continueWatching ? 'Continue' : 'Play'}
                   </button>
 
                   {/* Watch Trailer Button - Only show if TMDB trailer is available */}
                   {series.tmdb_trailer_url && (
                     <button
                       onClick={handleWatchTrailer}
-                      className="flex items-center gap-1 px-3 py-1.5 bg-blue-600/80 hover:bg-blue-700 rounded-lg text-xs font-semibold transition-all duration-300 hover:scale-105"
+                      className="flex items-center justify-center w-12 h-12 bg-white/20 hover:bg-white/30 backdrop-blur-sm border border-white/30 rounded-full transition-all duration-200 hover:scale-110"
+                      title="Watch Trailer"
                     >
-                      <Tv className="w-3 h-3" />
-                      Trailer
+                      <Info className="w-6 h-6 text-white" />
                     </button>
                   )}
 
@@ -2578,15 +2586,27 @@ export default function TVSeriesPage() {
                     onAddToCollection={(collectionId) => addToCollection(collectionId, series.id)}
                     onCollectionCreated={fetchCollections}
                   >
-                    <button className="flex items-center gap-1 px-3 py-1.5 bg-gray-800/80 hover:bg-gray-700 rounded-lg text-xs font-semibold transition-all duration-300 hover:scale-105">
-                      {isInMyListHook(series.id) ? <Check className="w-3 h-3" /> : <Plus className="w-3 h-3" />}
-                      List
+                    <button 
+                      className="flex items-center justify-center w-12 h-12 bg-white/20 hover:bg-white/30 backdrop-blur-sm border border-white/30 rounded-full transition-all duration-200 hover:scale-110"
+                      title={isInMyListHook(series.id) ? 'Remove from My List' : 'Add to My List'}
+                    >
+                      {isInMyListHook(series.id) ? <Check className="w-6 h-6 text-white" /> : <Plus className="w-6 h-6 text-white" />}
                     </button>
                   </MyListTooltip>
 
-                  <button className="flex items-center gap-1 px-3 py-1.5 bg-gray-800/80 hover:bg-gray-700 rounded-lg text-xs font-semibold transition-all duration-300 hover:scale-105">
-                    <Share className="w-3 h-3" />
-                    Share
+                  <button 
+                    className="flex items-center justify-center w-12 h-12 bg-white/20 hover:bg-white/30 backdrop-blur-sm border border-white/30 rounded-full transition-all duration-200 hover:scale-110"
+                    title="Share"
+                  >
+                    <Share className="w-6 h-6 text-white" />
+                  </button>
+
+                  <button
+                    onClick={() => safeNavigate.push(`/settings?tab=media&media=${encodeURIComponent(JSON.stringify({ id: series.id, type: 'tv', title: series.title }))}`)}
+                    className="flex items-center justify-center w-12 h-12 bg-white/20 hover:bg-white/30 backdrop-blur-sm border border-white/30 rounded-full transition-all duration-200 hover:scale-110"
+                    title="Settings"
+                  >
+                    <Settings className="w-6 h-6 text-white" />
                   </button>
                 </motion.div>
               )}

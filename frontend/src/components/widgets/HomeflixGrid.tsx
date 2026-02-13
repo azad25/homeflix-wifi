@@ -234,7 +234,7 @@ const HomeflixCard: React.FC<HomeflixCardProps> = ({
       </div>
 
       {/* Title - Logo or Text */}
-      <div className="mt-1 px-1 h-10 flex items-center">
+      <div className="mt-1 px-1 h-10 flex items-center justify-center">
         {logoUrl && !logoError ? (
           <img
             src={logoUrl}
@@ -244,7 +244,7 @@ const HomeflixCard: React.FC<HomeflixCardProps> = ({
             onError={() => setLogoError(true)}
           />
         ) : (
-          <h3 className="text-red-500 font-bold text-base line-clamp-1 group-hover:text-red-400 transition-colors">
+          <h3 className="text-red-500 font-bold text-base line-clamp-1 group-hover:text-red-400 transition-colors text-center">
             {media.title}
           </h3>
         )}

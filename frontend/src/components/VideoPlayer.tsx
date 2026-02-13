@@ -3510,61 +3510,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
             }
           `}</style>
 
-          {/* Seek Indicator */}
-          <AnimatePresence>
-            {seekIndicator.show && (
-              <motion.div
-                initial={{ opacity: 0, scale: 0.5 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.8 }}
-                transition={{ duration: 0.2 }}
-                className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-50 pointer-events-none"
-              >
-                <div
-                  className="flex items-center gap-3 bg-black/80 backdrop-blur-md px-6 py-4 rounded-2xl border border-white/10"
-                  style={{
-                    animation: 'seek-indicator-pop 0.3s ease-out',
-                  }}
-                >
-                  {/* Arrow icons */}
-                  <div
-                    className="flex items-center"
-                    style={{
-                      animation: seekIndicator.direction === 'forward'
-                        ? 'seek-arrow-move 0.4s ease-in-out infinite'
-                        : 'seek-arrow-move-back 0.4s ease-in-out infinite',
-                    }}
-                  >
-                    {seekIndicator.direction === 'forward' ? (
-                      <div className="flex">
-                        <RotateCw className="w-8 h-8 text-red-500" />
-                      </div>
-                    ) : (
-                      <div className="flex">
-                        <RotateCcw className="w-8 h-8 text-red-500" />
-                      </div>
-                    )}
-                  </div>
 
-                  {/* Time amount */}
-                  <div className="flex flex-col items-start">
-                    <span
-                      className="text-3xl font-bold text-white"
-                      style={{
-                        fontFamily: "'Bebas Neue', 'Impact', sans-serif",
-                        letterSpacing: '0.05em',
-                      }}
-                    >
-                      {seekIndicator.direction === 'forward' ? '+' : '-'}{seekIndicator.amount}s
-                    </span>
-                    <span className="text-xs text-white/50 uppercase tracking-wider">
-                      {seekIndicator.direction === 'forward' ? 'Forward' : 'Rewind'}
-                    </span>
-                  </div>
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
 
           {/* HOMEFLIX Intro Animation */}
           <AnimatePresence>
@@ -3942,21 +3888,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                       <RotateCw className="w-8 h-8" />
                     </button>
 
-                    {/* Next Episode Button - Only show for episodes when next episode exists */}
-                    {nextEpisode && media.type === 'episode' && (
-                      <button
-                        type="button"
-                        onClick={() => {
-
-                          handlePlayNext();
-                        }}
-                        className="bg-black/50 text-white rounded-full p-3 hover:bg-black/70 transition-all duration-200 hover:scale-110 flex items-center gap-2"
-                        title={`Play Next Episode: ${nextEpisode.title}`}
-                      >
-                        <span className="text-sm font-medium">Next</span>
-                        <Play className="w-5 h-5" />
-                      </button>
-                    )}
+                    
                   </div>
                 </div>
 
@@ -4129,6 +4061,21 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                           <RotateCw className="w-5 h-5" />
                           <span className="text-xs">10</span>
                         </button>
+                        {/* Next Episode Button - Only show for episodes when next episode exists */}
+                        {nextEpisode && media.type === 'episode' && (
+                          <button
+                            type="button"
+                            onClick={() => {
+
+                              handlePlayNext();
+                            }}
+                            className="bg-black/50 text-white rounded-full p-3 hover:bg-black/70 transition-all duration-200 hover:scale-110 flex items-center gap-2"
+                            title={`Play Next Episode: ${nextEpisode.title}`}
+                          >
+                            <span className="text-sm font-medium">Next</span>
+                            <Play className="w-5 h-5" />
+                          </button>
+                        )}
                       </div>
 
                       <div className="flex items-center gap-4">

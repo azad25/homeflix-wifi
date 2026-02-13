@@ -3077,24 +3077,22 @@ export default function MoviePage() {
                             <Award className="w-5 h-5 text-green-500" />
                             <h3 className="text-lg font-semibold text-white">Box Office & Financial</h3>
                           </div>
-                          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                          <div className="flex flex-col gap-3">
                             {media.box_office && (
-                              <div className="bg-gradient-to-r from-green-500/10 to-green-600/10 p-4 rounded-lg border border-green-500/20">
-                                <div className="text-green-400 text-sm font-medium mb-1">Box Office</div>
-                                <div className="text-white text-xl font-bold">{media.box_office}</div>
+                              <div className="flex">
+                                <span className="w-32 text-white/60 font-medium">Box Office</span>
+                                <span className="text-white">{media.box_office}</span>
                               </div>
                             )}
                             {media.budget && media.budget > 0 && (
-                              <div className="bg-gradient-to-r from-blue-500/10 to-blue-600/10 p-4 rounded-lg border border-blue-500/20">
-                                <div className="text-blue-400 text-sm font-medium mb-1">Budget</div>
-                                <div className="text-white text-xl font-bold">
-                                  {media.budget >= 1000000000
+                              <div className="flex">
+                                <span className="w-32 text-white/60 font-medium">Budget</span>
+                                <span className="text-white">{media.budget >= 1000000000
                                     ? `$${(media.budget / 1000000000).toFixed(1)}B`
                                     : media.budget >= 1000000
                                       ? `$${(media.budget / 1000000).toFixed(1)}M`
                                       : `$${media.budget.toLocaleString()}`
-                                  }
-                                </div>
+                                  }</span>
                               </div>
                             )}
                           </div>
@@ -3270,7 +3268,7 @@ export default function MoviePage() {
       </div>
 
       {/* Related Movies Section */}
-      <div className="py-8 bg-gray-900">
+      <div className="py-8 bg-black">
         <div className="container mx-auto px-6 md:px-12 lg:px-16">
           <LocalRelatedMedia
             currentMedia={media}
@@ -3298,12 +3296,6 @@ export default function MoviePage() {
       {
         media && (() => {
           const startTimeValue = hasWatchedBefore && playbackProgress > 0 ? playbackProgress : 0;
-          // console.log('🎬 Movie Page: VideoPlayer props:', {
-          //   startTime: startTimeValue,
-          //   forceStartFromBeginning,
-          //   hasWatchedBefore,
-          //   playbackProgress
-          // });
           return (
             <VideoPlayer
               media={media}

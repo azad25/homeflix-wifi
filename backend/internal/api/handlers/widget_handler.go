@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -103,6 +104,31 @@ func (h *WidgetHandler) GetWidgetsWithDataByPage(c *gin.Context) {
 		fmt.Printf("❌ Error getting widgets with data: %v\n", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
+	}
+
+	// Format logo and backdrop paths before caching/returning
+	for i := range widgetsWithData {
+		for j := range widgetsWithData[i].Data {
+			item := &widgetsWithData[i].Data[j]
+			
+			// Format logo path
+			if item.LogoPath != "" && !strings.HasPrefix(item.LogoPath, "http") && !strings.HasPrefix(item.LogoPath, "/api/") {
+				if strings.HasPrefix(item.LogoPath, "logos/") {
+					item.LogoPath = "/api/" + item.LogoPath
+				} else if !strings.Contains(item.LogoPath, "/") {
+					item.LogoPath = "/api/logos/" + item.LogoPath
+				}
+			}
+			
+			// Format backdrop path
+			if item.BackdropPath != "" && !strings.HasPrefix(item.BackdropPath, "http") && !strings.HasPrefix(item.BackdropPath, "/api/") {
+				if strings.HasPrefix(item.BackdropPath, "backdrops/") {
+					item.BackdropPath = "/api/" + item.BackdropPath
+				} else if !strings.Contains(item.BackdropPath, "/") {
+					item.BackdropPath = "/api/backdrops/" + item.BackdropPath
+				}
+			}
+		}
 	}
 
 	// Cache the result in handler cache

@@ -129,28 +129,46 @@ export default function MovieGridWidget({
 
     const getImageUrl = (item: Media, type: 'poster' | 'backdrop' = 'poster') => {
         if (type === 'poster') {
-            return item.tmdb_poster_url || `${apiUrl}/api/posters/${item.id}`;
+            const posterUrl = item.tmdb_poster_url || `${apiUrl}/api/posters/${item.id}`;
+            // If it's a relative API path, prepend apiUrl
+            if (posterUrl.startsWith('/api/')) {
+                return `${apiUrl}${posterUrl}`;
+            }
+            return posterUrl;
         } else {
-            return item.tmdb_backdrop_url || `${apiUrl}/api/thumbnails/${item.id}`;
+            const backdropUrl = item.tmdb_backdrop_url || item.backdrop_path || `${apiUrl}/api/thumbnails/${item.id}`;
+            // If it's a relative API path, prepend apiUrl
+            if (backdropUrl.startsWith('/api/')) {
+                return `${apiUrl}${backdropUrl}`;
+            }
+            return backdropUrl;
         }
     };
 
     const getLogoUrl = (item: Media) => {
         if (item.logo_path) {
+            console.log('Logo path for', item.title, ':', item.logo_path);
+            
             // If it's a full URL, use it directly
             if (item.logo_path.startsWith('http')) {
+                console.log('Using full URL:', item.logo_path);
                 return item.logo_path;
             }
             
             // If it's already an API path, use it directly
             if (item.logo_path.startsWith('/api/')) {
-                return `${apiUrl}${item.logo_path}`;
+                const fullUrl = `${apiUrl}${item.logo_path}`;
+                console.log('Using API path:', fullUrl);
+                return fullUrl;
             }
             
             // For local content, use the logos endpoint
             const filename = item.logo_path.includes('/') ? item.logo_path.split('/').pop() : item.logo_path;
-            return `${apiUrl}/api/logos/${filename}`;
+            const fullUrl = `${apiUrl}/api/logos/${filename}`;
+            console.log('Using filename:', fullUrl);
+            return fullUrl;
         }
+        console.log('No logo path for', item.title);
         return null;
     };
 

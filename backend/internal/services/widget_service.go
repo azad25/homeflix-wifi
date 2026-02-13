@@ -2014,10 +2014,19 @@ func (s *WidgetService) convertSelectedContentToMediaItems(selectedContent []int
 							fmt.Printf("   ✅ Updated trailer path: %s\n", dbData.TrailerPath)
 						}
 						
-						// Update logo path
-						if items[i].LogoPath == "" && dbData.LogoPath != "" {
-							items[i].LogoPath = dbData.LogoPath
-							fmt.Printf("   ✅ Updated logo path: %s\n", dbData.LogoPath)
+						// Update and format logo path
+						if dbData.LogoPath != "" {
+							logoPath := dbData.LogoPath
+							// Format logo path for API access
+							if !strings.HasPrefix(logoPath, "http") && !strings.HasPrefix(logoPath, "/api/") {
+								if strings.HasPrefix(logoPath, "logos/") {
+									logoPath = "/api/" + logoPath
+								} else if !strings.Contains(logoPath, "/") {
+									logoPath = "/api/logos/" + logoPath
+								}
+							}
+							items[i].LogoPath = logoPath
+							fmt.Printf("   ✅ Updated logo path: %s\n", logoPath)
 						}
 						
 						// Update TMDB ID
@@ -2036,8 +2045,17 @@ func (s *WidgetService) convertSelectedContentToMediaItems(selectedContent []int
 						if items[i].TMDBBackdropURL == "" && dbData.TMDBBackdropURL != "" {
 							items[i].TMDBBackdropURL = dbData.TMDBBackdropURL
 						}
-						if items[i].BackdropPath == "" && dbData.BackdropPath != "" {
-							items[i].BackdropPath = dbData.BackdropPath
+						if dbData.BackdropPath != "" {
+							backdropPath := dbData.BackdropPath
+							// Format backdrop path for API access
+							if !strings.HasPrefix(backdropPath, "http") && !strings.HasPrefix(backdropPath, "/api/") {
+								if strings.HasPrefix(backdropPath, "backdrops/") {
+									backdropPath = "/api/" + backdropPath
+								} else if !strings.Contains(backdropPath, "/") {
+									backdropPath = "/api/backdrops/" + backdropPath
+								}
+							}
+							items[i].BackdropPath = backdropPath
 						}
 					} else {
 						fmt.Printf("⚠️ No DB data found for item %s (ID: %d)\n", items[i].Title, items[i].ID)
@@ -3304,6 +3322,29 @@ func cloneWidgetsWithData(src []models.WidgetWithData) []models.WidgetWithData {
 }
 
 func (s *WidgetService) convertMediaToWidgetItem(media models.Media, preferSeries bool) models.MediaItem {
+	// Format logo path for API access
+	logoPath := media.LogoPath
+	fmt.Printf("🔧 convertMediaToWidgetItem: media.ID=%d, original logo_path=%s\n", media.ID, logoPath)
+	if logoPath != "" && !strings.HasPrefix(logoPath, "http") && !strings.HasPrefix(logoPath, "/api/") {
+		if strings.HasPrefix(logoPath, "logos/") {
+			logoPath = "/api/" + logoPath
+			fmt.Printf("✅ Formatted logo_path to: %s\n", logoPath)
+		} else if !strings.Contains(logoPath, "/") {
+			logoPath = "/api/logos/" + logoPath
+			fmt.Printf("✅ Formatted logo_path (filename) to: %s\n", logoPath)
+		}
+	}
+
+	// Format backdrop path for API access
+	backdropPath := media.BackdropPath
+	if backdropPath != "" && !strings.HasPrefix(backdropPath, "http") && !strings.HasPrefix(backdropPath, "/api/") {
+		if strings.HasPrefix(backdropPath, "backdrops/") {
+			backdropPath = "/api/" + backdropPath
+		} else if !strings.Contains(backdropPath, "/") {
+			backdropPath = "/api/backdrops/" + backdropPath
+		}
+	}
+
 	item := models.MediaItem{
 		ID:              media.ID,
 		Title:           media.Title,
@@ -3314,8 +3355,8 @@ func (s *WidgetService) convertMediaToWidgetItem(media models.Media, preferSerie
 		Duration:        media.Duration,
 		ThumbnailPath:   media.ThumbnailPath,
 		PosterPath:      media.PosterPath,
-		BackdropPath:    media.BackdropPath,
-		LogoPath:        media.LogoPath,
+		BackdropPath:    backdropPath,
+		LogoPath:        logoPath,
 		TMDBBackdropURL: media.TMDBBackdropURL,
 		TMDBTrailerURL:  media.TMDBTrailerURL,
 		TrailerPath:     media.TrailerPath,
@@ -3351,10 +3392,26 @@ func (s *WidgetService) convertMediaToWidgetItem(media models.Media, preferSerie
 			item.ThumbnailPath = series.PosterPath
 		}
 		if series.BackdropPath != "" {
-			item.BackdropPath = series.BackdropPath
+			seriesBackdropPath := series.BackdropPath
+			if !strings.HasPrefix(seriesBackdropPath, "http") && !strings.HasPrefix(seriesBackdropPath, "/api/") {
+				if strings.HasPrefix(seriesBackdropPath, "backdrops/") {
+					seriesBackdropPath = "/api/" + seriesBackdropPath
+				} else if !strings.Contains(seriesBackdropPath, "/") {
+					seriesBackdropPath = "/api/backdrops/" + seriesBackdropPath
+				}
+			}
+			item.BackdropPath = seriesBackdropPath
 		}
 		if series.LogoPath != "" {
-			item.LogoPath = series.LogoPath
+			seriesLogoPath := series.LogoPath
+			if !strings.HasPrefix(seriesLogoPath, "http") && !strings.HasPrefix(seriesLogoPath, "/api/") {
+				if strings.HasPrefix(seriesLogoPath, "logos/") {
+					seriesLogoPath = "/api/" + seriesLogoPath
+				} else if !strings.Contains(seriesLogoPath, "/") {
+					seriesLogoPath = "/api/logos/" + seriesLogoPath
+				}
+			}
+			item.LogoPath = seriesLogoPath
 		}
 
 		if series.TMDBPosterURL != "" {
