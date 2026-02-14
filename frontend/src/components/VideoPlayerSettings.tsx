@@ -24,9 +24,29 @@ import {
   ChevronRight,
   ChevronLeft,
   X,
-  Check
+  Check,
+  Waves,
+  TrendingUp
 } from 'lucide-react';
 import { getApiUrl } from '@/lib/api';
+
+// Cookie utility functions
+const setCookie = (name: string, value: string, days: number = 365) => {
+  const expires = new Date();
+  expires.setTime(expires.getTime() + days * 24 * 60 * 60 * 1000);
+  document.cookie = `${name}=${value};expires=${expires.toUTCString()};path=/`;
+};
+
+const getCookie = (name: string): string | null => {
+  const nameEQ = name + "=";
+  const ca = document.cookie.split(';');
+  for (let i = 0; i < ca.length; i++) {
+    let c = ca[i];
+    while (c.charAt(0) === ' ') c = c.substring(1, c.length);
+    if (c.indexOf(nameEQ) === 0) return c.substring(nameEQ.length, c.length);
+  }
+  return null;
+};
 
 interface SubtitleTrack {
   id: number;
@@ -77,6 +97,11 @@ interface VideoPlayerSettingsProps {
   onSubtitleStyleChange: (style: SubtitleStyle) => void;
   subtitleStyle: SubtitleStyle;
   settingsButtonRef?: React.RefObject<HTMLButtonElement | null>;
+  stableVolumeEnabled?: boolean;
+  volumeBoostEnabled?: boolean;
+  volumeBoostLevel?: number;
+  onStableVolumeChange?: (enabled: boolean) => void;
+  onVolumeBoostChange?: (enabled: boolean, level: number) => void;
 }
 
 const VideoPlayerSettings: React.FC<VideoPlayerSettingsProps> = ({
@@ -91,13 +116,53 @@ const VideoPlayerSettings: React.FC<VideoPlayerSettingsProps> = ({
   onPlaybackRateChange,
   onSubtitleStyleChange,
   subtitleStyle,
-  settingsButtonRef
+  settingsButtonRef,
+  stableVolumeEnabled = false,
+  volumeBoostEnabled = false,
+  volumeBoostLevel = 1.0,
+  onStableVolumeChange,
+  onVolumeBoostChange
 }) => {
   const [activePanel, setActivePanel] = useState<string>('main');
   const [subtitleTracks, setSubtitleTracks] = useState<SubtitleTrack[]>([]);
   const [audioTracks, setAudioTracks] = useState<AudioTrack[]>([]);
   const [loading, setLoading] = useState(false);
   const [position, setPosition] = useState({ bottom: 60, right: 20 });
+
+  // Load saved settings from cookies on mount
+  useEffect(() => {
+    const savedSubtitleStyle = getCookie('homeflix_subtitle_style');
+    if (savedSubtitleStyle) {
+      try {
+        const parsed = JSON.parse(savedSubtitleStyle);
+        onSubtitleStyleChange(parsed);
+      } catch (e) {
+        // Invalid cookie data, ignore
+      }
+    }
+
+    const savedPlaybackRate = getCookie('homeflix_playback_rate');
+    if (savedPlaybackRate) {
+      const rate = parseFloat(savedPlaybackRate);
+      if (!isNaN(rate) && rate >= 0.25 && rate <= 2) {
+        onPlaybackRateChange(rate);
+      }
+    }
+  }, []);
+
+  // Save subtitle style to cookie whenever it changes
+  useEffect(() => {
+    if (subtitleStyle) {
+      setCookie('homeflix_subtitle_style', JSON.stringify(subtitleStyle));
+    }
+  }, [subtitleStyle]);
+
+  // Save playback rate to cookie whenever it changes
+  useEffect(() => {
+    if (playbackRate) {
+      setCookie('homeflix_playback_rate', playbackRate.toString());
+    }
+  }, [playbackRate]);
 
   // Load tracks when component opens
   useEffect(() => {
@@ -176,7 +241,6 @@ const VideoPlayerSettings: React.FC<VideoPlayerSettingsProps> = ({
 
   const renderMainPanel = () => (
     <div className="space-y-2">
-      <h3 className="text-lg font-semibold text-white mb-4">Settings</h3>
       
       {/* Subtitle Settings */}
       <button
@@ -198,18 +262,63 @@ const VideoPlayerSettings: React.FC<VideoPlayerSettingsProps> = ({
         </div>
       </button>
 
-      {/* Audio Settings */}
+      {/* Audio Track Settings */}
       <button
         onClick={() => setActivePanel('audio')}
         className="w-full flex items-center justify-between p-3 bg-black/80 hover:bg-red-600/20 rounded-lg transition-colors"
       >
         <div className="flex items-center gap-3">
           <Volume2 className="w-5 h-5 text-white" />
-          <span className="text-white">Audio</span>
+          <span className="text-white">Audio Track</span>
         </div>
         <div className="flex items-center gap-2">
           <span className="text-gray-400 text-sm">
             {audioTracks.find(t => t.id === currentAudioTrack)?.language || 'Default'}
+          </span>
+          <ChevronRight className="w-4 h-4 text-gray-400" />
+        </div>
+      </button>
+
+      {/* Stable Volume */}
+      <button
+        onClick={() => {
+          const newEnabled = !stableVolumeEnabled;
+          onStableVolumeChange?.(newEnabled);
+          // Save to cookie
+          setCookie('homeflix_stable_volume', newEnabled.toString());
+        }}
+        className="w-full flex items-center justify-between p-3 bg-black/80 hover:bg-red-600/20 rounded-lg transition-colors"
+      >
+        <div className="flex items-center gap-3">
+          <Waves className="w-5 h-5 text-white" />
+          <span className="text-white">Stable Volume</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className={`text-sm ${stableVolumeEnabled ? 'text-red-400' : 'text-gray-400'}`}>
+            {stableVolumeEnabled ? 'On' : 'Off'}
+          </span>
+          <div className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+            stableVolumeEnabled ? 'bg-red-600' : 'bg-gray-600'
+          }`}>
+            <span className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${
+              stableVolumeEnabled ? 'translate-x-5' : 'translate-x-1'
+            }`} />
+          </div>
+        </div>
+      </button>
+
+      {/* Volume Boost */}
+      <button
+        onClick={() => setActivePanel('volumeBoost')}
+        className="w-full flex items-center justify-between p-3 bg-black/80 hover:bg-red-600/20 rounded-lg transition-colors"
+      >
+        <div className="flex items-center gap-3">
+          <TrendingUp className="w-5 h-5 text-white" />
+          <span className="text-white">Volume Boost</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-gray-400 text-sm">
+            {volumeBoostEnabled ? `${Math.round(volumeBoostLevel * 100)}%` : 'Off'}
           </span>
           <ChevronRight className="w-4 h-4 text-gray-400" />
         </div>
@@ -413,10 +522,14 @@ const VideoPlayerSettings: React.FC<VideoPlayerSettingsProps> = ({
           min="12"
           max="32"
           value={subtitleStyle.fontSize}
-          onChange={(e) => onSubtitleStyleChange({
-            ...subtitleStyle,
-            fontSize: parseInt(e.target.value)
-          })}
+          onChange={(e) => {
+            const newStyle = {
+              ...subtitleStyle,
+              fontSize: parseInt(e.target.value)
+            };
+            onSubtitleStyleChange(newStyle);
+            setCookie('homeflix_subtitle_style', JSON.stringify(newStyle));
+          }}
           className="w-full h-2 bg-gray-800 rounded-lg appearance-none cursor-pointer accent-red-600"
         />
         <div className="flex justify-between text-xs text-gray-400 mt-1">
@@ -433,10 +546,14 @@ const VideoPlayerSettings: React.FC<VideoPlayerSettingsProps> = ({
           {fontFamilies.map((font) => (
             <button
               key={font.value}
-              onClick={() => onSubtitleStyleChange({
-                ...subtitleStyle,
-                fontFamily: font.value
-              })}
+              onClick={() => {
+                const newStyle = {
+                  ...subtitleStyle,
+                  fontFamily: font.value
+                };
+                onSubtitleStyleChange(newStyle);
+                setCookie('homeflix_subtitle_style', JSON.stringify(newStyle));
+              }}
               className={`p-2 rounded text-sm transition-colors ${
                 subtitleStyle.fontFamily === font.value
                   ? 'bg-red-600 text-white'
@@ -457,10 +574,14 @@ const VideoPlayerSettings: React.FC<VideoPlayerSettingsProps> = ({
           {colors.map((color) => (
             <button
               key={color.value}
-              onClick={() => onSubtitleStyleChange({
-                ...subtitleStyle,
-                color: color.value
-              })}
+              onClick={() => {
+                const newStyle = {
+                  ...subtitleStyle,
+                  color: color.value
+                };
+                onSubtitleStyleChange(newStyle);
+                setCookie('homeflix_subtitle_style', JSON.stringify(newStyle));
+              }}
               className={`p-2 rounded text-xs transition-colors border-2 ${
                 subtitleStyle.color === color.value
                   ? 'border-red-500'
@@ -481,10 +602,14 @@ const VideoPlayerSettings: React.FC<VideoPlayerSettingsProps> = ({
           {backgroundColors.map((bg) => (
             <button
               key={bg.value}
-              onClick={() => onSubtitleStyleChange({
-                ...subtitleStyle,
-                backgroundColor: bg.value
-              })}
+              onClick={() => {
+                const newStyle = {
+                  ...subtitleStyle,
+                  backgroundColor: bg.value
+                };
+                onSubtitleStyleChange(newStyle);
+                setCookie('homeflix_subtitle_style', JSON.stringify(newStyle));
+              }}
               className={`p-2 rounded text-xs transition-colors border-2 ${
                 subtitleStyle.backgroundColor === bg.value
                   ? 'border-red-500'
@@ -514,10 +639,14 @@ const VideoPlayerSettings: React.FC<VideoPlayerSettingsProps> = ({
             max="1"
             step="0.1"
             value={subtitleStyle.backgroundOpacity}
-            onChange={(e) => onSubtitleStyleChange({
-              ...subtitleStyle,
-              backgroundOpacity: parseFloat(e.target.value)
-            })}
+            onChange={(e) => {
+              const newStyle = {
+                ...subtitleStyle,
+                backgroundOpacity: parseFloat(e.target.value)
+              };
+              onSubtitleStyleChange(newStyle);
+              setCookie('homeflix_subtitle_style', JSON.stringify(newStyle));
+            }}
             className="w-full h-2 bg-gray-800 rounded-lg appearance-none cursor-pointer accent-red-600"
           />
           <div className="flex justify-between text-xs text-gray-400 mt-1">
@@ -536,10 +665,14 @@ const VideoPlayerSettings: React.FC<VideoPlayerSettingsProps> = ({
             <input
               type="checkbox"
               checked={subtitleStyle.textShadow}
-              onChange={(e) => onSubtitleStyleChange({
-                ...subtitleStyle,
-                textShadow: e.target.checked
-              })}
+              onChange={(e) => {
+                const newStyle = {
+                  ...subtitleStyle,
+                  textShadow: e.target.checked
+                };
+                onSubtitleStyleChange(newStyle);
+                setCookie('homeflix_subtitle_style', JSON.stringify(newStyle));
+              }}
               className="rounded"
             />
             <span className="text-white text-sm">Drop Shadow</span>
@@ -548,10 +681,14 @@ const VideoPlayerSettings: React.FC<VideoPlayerSettingsProps> = ({
             <input
               type="checkbox"
               checked={subtitleStyle.textStroke}
-              onChange={(e) => onSubtitleStyleChange({
-                ...subtitleStyle,
-                textStroke: e.target.checked
-              })}
+              onChange={(e) => {
+                const newStyle = {
+                  ...subtitleStyle,
+                  textStroke: e.target.checked
+                };
+                onSubtitleStyleChange(newStyle);
+                setCookie('homeflix_subtitle_style', JSON.stringify(newStyle));
+              }}
               className="rounded"
             />
             <span className="text-white text-sm">Text Outline</span>
@@ -576,7 +713,10 @@ const VideoPlayerSettings: React.FC<VideoPlayerSettingsProps> = ({
       {playbackRates.map((rate) => (
         <button
           key={rate}
-          onClick={() => onPlaybackRateChange(rate)}
+          onClick={() => {
+            onPlaybackRateChange(rate);
+            setCookie('homeflix_playback_rate', rate.toString());
+          }}
           className={`w-full flex items-center justify-between p-3 rounded-lg transition-colors ${
             playbackRate === rate 
               ? 'bg-red-600 border border-red-500' 
@@ -607,6 +747,84 @@ const VideoPlayerSettings: React.FC<VideoPlayerSettingsProps> = ({
         <p className="text-gray-400">Quality selection coming soon</p>
         <p className="text-gray-500 text-sm mt-2">Currently using automatic quality</p>
       </div>
+    </div>
+  );
+
+  const renderVolumeBoostPanel = () => (
+    <div className="space-y-4">
+      <div className="flex items-center gap-3 mb-4">
+        <button
+          onClick={() => setActivePanel('main')}
+          className="p-1 hover:bg-gray-700/50 rounded"
+        >
+          <ChevronLeft className="w-5 h-5 text-white" />
+        </button>
+        <h3 className="text-lg font-semibold text-white">Volume Boost</h3>
+      </div>
+
+      {/* Enable/Disable Toggle */}
+      <div className="flex items-center justify-between p-3 bg-black/80 rounded-lg">
+        <div>
+          <div className="text-white font-medium">Enable Volume Boost</div>
+          <div className="text-gray-400 text-sm">Amplify audio with bass enhancement</div>
+        </div>
+        <button
+          onClick={() => {
+            const newEnabled = !volumeBoostEnabled;
+            onVolumeBoostChange?.(newEnabled, volumeBoostLevel);
+            // Save to cookie
+            setCookie('homeflix_volume_boost', newEnabled.toString());
+          }}
+          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+            volumeBoostEnabled ? 'bg-red-600' : 'bg-gray-600'
+          }`}
+        >
+          <span
+            className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+              volumeBoostEnabled ? 'translate-x-6' : 'translate-x-1'
+            }`}
+          />
+        </button>
+      </div>
+
+      {/* Boost Level Slider */}
+      {volumeBoostEnabled && (
+        <div className="p-3 bg-black/80 rounded-lg">
+          <label className="block text-white font-medium mb-3">Boost Level</label>
+          <input
+            type="range"
+            min="1.0"
+            max="3.0"
+            step="0.1"
+            value={volumeBoostLevel}
+            onChange={(e) => {
+              const newLevel = parseFloat(e.target.value);
+              onVolumeBoostChange?.(true, newLevel);
+              // Save to cookie
+              setCookie('homeflix_volume_boost_level', newLevel.toString());
+            }}
+            className="w-full h-2 bg-gray-800 rounded-lg appearance-none cursor-pointer accent-red-600"
+          />
+          <div className="flex justify-between text-sm text-gray-400 mt-2">
+            <span>100%</span>
+            <span className="text-red-400 font-bold text-lg">{Math.round(volumeBoostLevel * 100)}%</span>
+            <span>300%</span>
+          </div>
+          
+          {/* Warning for high boost */}
+          {volumeBoostLevel > 2.0 && (
+            <div className="mt-3 p-2 bg-yellow-900/20 border border-yellow-600/30 rounded text-yellow-400 text-sm flex items-center gap-2">
+              <span>⚠️</span>
+              <span>High boost levels may cause audio distortion</span>
+            </div>
+          )}
+
+          {/* Info */}
+          <div className="mt-3 p-2 bg-red-900/10 border border-red-900/30 rounded text-gray-400 text-xs">
+            <p>Volume boost combines gain amplification with bass enhancement for richer, louder audio.</p>
+          </div>
+        </div>
+      )}
     </div>
   );
 
@@ -642,7 +860,7 @@ const VideoPlayerSettings: React.FC<VideoPlayerSettingsProps> = ({
             <div className="flex items-center justify-between p-4 border-b border-red-900/30">
               <div className="flex items-center gap-3">
                 <Settings className="w-5 h-5 text-red-500" />
-                <h2 className="text-lg font-semibold text-white">Player Settings</h2>
+                <h2 className="text-lg font-semibold text-white">Settings</h2>
               </div>
               <button
                 onClick={onClose}
@@ -668,6 +886,7 @@ const VideoPlayerSettings: React.FC<VideoPlayerSettingsProps> = ({
                   {activePanel === 'appearance' && renderAppearancePanel()}
                   {activePanel === 'playback' && renderPlaybackPanel()}
                   {activePanel === 'quality' && renderQualityPanel()}
+                  {activePanel === 'volumeBoost' && renderVolumeBoostPanel()}
                 </motion.div>
               </AnimatePresence>
             </div>

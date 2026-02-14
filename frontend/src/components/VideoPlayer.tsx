@@ -136,6 +136,37 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
   const [hoverTime, setHoverTime] = useState<number | null>(null);
   const [hoverPosition, setHoverPosition] = useState<number>(0);
 
+  // Audio Enhancement States
+  const [stableVolumeEnabled, setStableVolumeEnabled] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('homeflix_stable_volume') === 'true';
+    }
+    return false;
+  });
+  const [volumeBoostEnabled, setVolumeBoostEnabled] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('homeflix_volume_boost') === 'true';
+    }
+    return false;
+  });
+  const [volumeBoostLevel, setVolumeBoostLevel] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('homeflix_volume_boost_level');
+      return saved ? parseFloat(saved) : 1.5;
+    }
+    return 1.5;
+  });
+
+  // Web Audio API refs
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const sourceNodeRef = useRef<MediaElementAudioSourceNode | null>(null);
+  const gainNodeRef = useRef<GainNode | null>(null);
+  const compressorNodeRef = useRef<DynamicsCompressorNode | null>(null);
+  const bassBoostNodeRef = useRef<BiquadFilterNode | null>(null);
+  const limiterNodeRef = useRef<DynamicsCompressorNode | null>(null);
+  const midBoostNodeRef = useRef<BiquadFilterNode | null>(null);
+  const audioEnhancementActiveRef = useRef(false);
+
   // Chrome audio context activation helper
   const activateAudioContext = useCallback(async () => {
     try {
@@ -149,6 +180,271 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
       return false;
     }
   }, []);
+
+  // Setup Web Audio API for audio enhancement
+  const setupAudioEnhancement = useCallback(() => {
+    const video = videoRef.current;
+    if (!video || audioEnhancementActiveRef.current) return;
+
+    try {
+      // Check if Web Audio API is supported
+      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioContextClass) {
+        console.warn('Web Audio API not supported');
+        return;
+      }
+
+      // Create audio context if it doesn't exist
+      if (!audioContextRef.current) {
+        audioContextRef.current = new AudioContextClass();
+      }
+
+      const audioContext = audioContextRef.current;
+
+      // Resume context if suspended
+      if (audioContext.state === 'suspended') {
+        audioContext.resume();
+      }
+
+      // Create source node if it doesn't exist
+      if (!sourceNodeRef.current) {
+        sourceNodeRef.current = audioContext.createMediaElementSource(video);
+      }
+
+      // Create gain node for volume boost
+      if (!gainNodeRef.current) {
+        gainNodeRef.current = audioContext.createGain();
+      }
+
+      // Create compressor for stable volume (YouTube-style)
+      if (!compressorNodeRef.current) {
+        compressorNodeRef.current = audioContext.createDynamicsCompressor();
+        // High-quality compression settings (better than YouTube)
+        compressorNodeRef.current.threshold.value = -30; // Start compressing earlier for smoother results
+        compressorNodeRef.current.knee.value = 40; // Very smooth compression curve
+        compressorNodeRef.current.ratio.value = 20; // Strong but transparent compression
+        compressorNodeRef.current.attack.value = 0.001; // Ultra-fast attack (1ms) for instant response
+        compressorNodeRef.current.release.value = 0.15; // Faster release (150ms) for natural sound
+      }
+
+      // Create bass boost filter
+      if (!bassBoostNodeRef.current) {
+        bassBoostNodeRef.current = audioContext.createBiquadFilter();
+        bassBoostNodeRef.current.type = 'lowshelf';
+        bassBoostNodeRef.current.frequency.value = 150; // Boost frequencies below 150Hz for deeper bass
+        bassBoostNodeRef.current.gain.value = 0; // Will be set dynamically
+        bassBoostNodeRef.current.Q.value = 0.7; // Smooth rolloff
+      }
+
+      // Create mid-range boost for vocal clarity
+      if (!midBoostNodeRef.current) {
+        midBoostNodeRef.current = audioContext.createBiquadFilter();
+        midBoostNodeRef.current.type = 'peaking';
+        midBoostNodeRef.current.frequency.value = 2000; // Boost around 2kHz for vocal presence
+        midBoostNodeRef.current.gain.value = 0; // Will be set dynamically
+        midBoostNodeRef.current.Q.value = 1.0; // Moderate bandwidth
+      }
+
+      // Create limiter to prevent clipping and distortion
+      if (!limiterNodeRef.current) {
+        limiterNodeRef.current = audioContext.createDynamicsCompressor();
+        // Brick-wall limiter settings
+        limiterNodeRef.current.threshold.value = -1; // Limit at -1dB
+        limiterNodeRef.current.knee.value = 0; // Hard knee for brick-wall limiting
+        limiterNodeRef.current.ratio.value = 20; // Maximum ratio
+        limiterNodeRef.current.attack.value = 0.001; // Instant attack
+        limiterNodeRef.current.release.value = 0.1; // Fast release
+      }
+
+      // Connect the audio graph
+      const source = sourceNodeRef.current;
+      const gain = gainNodeRef.current;
+      const compressor = compressorNodeRef.current;
+      const bassBoost = bassBoostNodeRef.current;
+      const midBoost = midBoostNodeRef.current;
+      const limiter = limiterNodeRef.current;
+
+      // Disconnect any existing connections
+      try {
+        source.disconnect();
+        gain.disconnect();
+        compressor.disconnect();
+        bassBoost.disconnect();
+        midBoost.disconnect();
+        limiter.disconnect();
+      } catch (e) {
+        // Ignore disconnect errors
+      }
+
+      // Build high-quality audio chain: 
+      // source -> compressor (stable volume) -> bassBoost -> midBoost -> gain (volume) -> limiter (prevent clipping) -> destination
+      source.connect(compressor);
+      compressor.connect(bassBoost);
+      bassBoost.connect(midBoost);
+      midBoost.connect(gain);
+      gain.connect(limiter);
+      limiter.connect(audioContext.destination);
+
+      audioEnhancementActiveRef.current = true;
+
+      // Apply current settings
+      updateAudioEnhancement();
+
+    } catch (error) {
+      console.error('Failed to setup audio enhancement:', error);
+    }
+  }, []);
+
+  // Update audio enhancement settings
+  const updateAudioEnhancement = useCallback(() => {
+    if (!audioEnhancementActiveRef.current) return;
+
+    try {
+      // Update compressor (stable volume)
+      if (compressorNodeRef.current) {
+        // Compressor is always in the chain, but we can adjust its effectiveness
+        if (stableVolumeEnabled) {
+          // High-quality settings when enabled
+          compressorNodeRef.current.threshold.value = -30;
+          compressorNodeRef.current.ratio.value = 20;
+          compressorNodeRef.current.knee.value = 40;
+        } else {
+          // Bypass compression when disabled
+          compressorNodeRef.current.threshold.value = 0;
+          compressorNodeRef.current.ratio.value = 1;
+          compressorNodeRef.current.knee.value = 0;
+        }
+      }
+
+      // Update gain and bass boost (volume boost)
+      if (gainNodeRef.current && bassBoostNodeRef.current && midBoostNodeRef.current) {
+        if (volumeBoostEnabled) {
+          // Apply volume boost with intelligent scaling
+          gainNodeRef.current.gain.value = volumeBoostLevel;
+          
+          // Dynamic bass boost based on volume level (more natural)
+          // Scale from 0dB to +10dB based on boost level
+          const bassGain = Math.min((volumeBoostLevel - 1) * 5, 10);
+          bassBoostNodeRef.current.gain.value = bassGain;
+          
+          // Add subtle mid-range boost for clarity (prevents muddiness)
+          // Scale from 0dB to +3dB
+          const midGain = Math.min((volumeBoostLevel - 1) * 1.5, 3);
+          midBoostNodeRef.current.gain.value = midGain;
+        } else {
+          // Bypass all boosts when disabled
+          gainNodeRef.current.gain.value = 1.0;
+          bassBoostNodeRef.current.gain.value = 0;
+          midBoostNodeRef.current.gain.value = 0;
+        }
+      }
+
+    } catch (error) {
+      console.error('Failed to update audio enhancement:', error);
+    }
+  }, [stableVolumeEnabled, volumeBoostEnabled, volumeBoostLevel]);
+
+  // Cleanup audio enhancement
+  const cleanupAudioEnhancement = useCallback(() => {
+    try {
+      if (sourceNodeRef.current) {
+        sourceNodeRef.current.disconnect();
+        sourceNodeRef.current = null;
+      }
+      if (gainNodeRef.current) {
+        gainNodeRef.current.disconnect();
+        gainNodeRef.current = null;
+      }
+      if (compressorNodeRef.current) {
+        compressorNodeRef.current.disconnect();
+        compressorNodeRef.current = null;
+      }
+      if (bassBoostNodeRef.current) {
+        bassBoostNodeRef.current.disconnect();
+        bassBoostNodeRef.current = null;
+      }
+      if (midBoostNodeRef.current) {
+        midBoostNodeRef.current.disconnect();
+        midBoostNodeRef.current = null;
+      }
+      if (limiterNodeRef.current) {
+        limiterNodeRef.current.disconnect();
+        limiterNodeRef.current = null;
+      }
+      if (audioContextRef.current) {
+        audioContextRef.current.close();
+        audioContextRef.current = null;
+      }
+      audioEnhancementActiveRef.current = false;
+    } catch (error) {
+      console.error('Failed to cleanup audio enhancement:', error);
+    }
+  }, []);
+
+  // Handle stable volume toggle
+  const handleStableVolumeChange = useCallback((enabled: boolean) => {
+    setStableVolumeEnabled(enabled);
+    localStorage.setItem('homeflix_stable_volume', enabled.toString());
+    
+    if (enabled || volumeBoostEnabled) {
+      setupAudioEnhancement();
+    }
+    
+    updateAudioEnhancement();
+  }, [volumeBoostEnabled, setupAudioEnhancement, updateAudioEnhancement]);
+
+  // Handle volume boost toggle
+  const handleVolumeBoostChange = useCallback((enabled: boolean, level: number) => {
+    setVolumeBoostEnabled(enabled);
+    setVolumeBoostLevel(level);
+    localStorage.setItem('homeflix_volume_boost', enabled.toString());
+    localStorage.setItem('homeflix_volume_boost_level', level.toString());
+    
+    if (enabled || stableVolumeEnabled) {
+      setupAudioEnhancement();
+    }
+    
+    updateAudioEnhancement();
+  }, [stableVolumeEnabled, setupAudioEnhancement, updateAudioEnhancement]);
+
+  // Setup audio enhancement when video is ready
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !isOpen) return;
+
+    const handleCanPlay = () => {
+      if (stableVolumeEnabled || volumeBoostEnabled) {
+        // Small delay to ensure video is fully ready
+        setTimeout(() => {
+          setupAudioEnhancement();
+        }, 100);
+      }
+    };
+
+    if (video.readyState >= 2) {
+      handleCanPlay();
+    } else {
+      video.addEventListener('canplay', handleCanPlay, { once: true });
+    }
+
+    return () => {
+      video.removeEventListener('canplay', handleCanPlay);
+    };
+  }, [isOpen, stableVolumeEnabled, volumeBoostEnabled, setupAudioEnhancement]);
+
+  // Update audio enhancement when settings change
+  useEffect(() => {
+    if (audioEnhancementActiveRef.current) {
+      updateAudioEnhancement();
+    }
+  }, [stableVolumeEnabled, volumeBoostEnabled, volumeBoostLevel, updateAudioEnhancement]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      cleanupAudioEnhancement();
+    };
+  }, [cleanupAudioEnhancement]);
 
   // Centralized subtitle state reset function
   const resetSubtitleState = useCallback(() => {
@@ -2593,8 +2889,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
           }}
         >
           {/* Click overlay for play/pause functionality - only covers video area, not controls */}
-          {/* Hide overlay when pause screen is visible or user is dragging to prevent interference */}
-          {!showPauseScreen && !isDragging && (
+          {/* CRITICAL: Only render when video is playing and pause screen is NOT visible */}
+          {isPlaying && !showPauseScreen && (
             <div
               className="absolute inset-0 z-5 transition-all duration-300"
               style={{
@@ -2607,6 +2903,9 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                 e.preventDefault();
                 e.stopPropagation();
 
+                // Only toggle play/pause when video is actually playing
+                if (!isPlaying) return;
+
                 // CHROME AUDIO FIX: Ensure sound is always enabled and unmuted
                 if (videoRef.current) {
                   const video = videoRef.current;
@@ -2617,31 +2916,9 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                   setIsMuted(false);
                   setVolume(video.volume);
 
-                  // Chrome audio context fix - ensure audio is activated
-                  try {
-                    if (video.paused) {
-                      // Resume playback with audio enabled
-                      await video.play();
-                    } else {
-                      // Save progress before pausing
-                      await saveCurrentProgress();
-                      video.pause();
-                    }
-                  } catch (error) {
-                    // Try to enable audio context manually
-                    try {
-                      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-                      if (audioContext.state === 'suspended') {
-                        await audioContext.resume();
-                      }
-                      // Retry play
-                      if (video.paused) {
-                        await video.play();
-                      }
-                    } catch (contextError) {
-                      // Audio context fix failed
-                    }
-                  }
+                  // Save progress before pausing
+                  await saveCurrentProgress();
+                  video.pause();
                 }
               }}
             />
@@ -4214,13 +4491,17 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
             onSubtitleStyleChange={setSubtitleStyle}
             subtitleStyle={subtitleStyle}
             settingsButtonRef={settingsButtonRef}
+            stableVolumeEnabled={stableVolumeEnabled}
+            volumeBoostEnabled={volumeBoostEnabled}
+            volumeBoostLevel={volumeBoostLevel}
+            onStableVolumeChange={handleStableVolumeChange}
+            onVolumeBoostChange={handleVolumeBoostChange}
           />
 
           {/* Pause Screen Overlay - Inside main container for fullscreen support */}
           <AnimatePresence>
-            {showPauseScreen && !isLoading && !isBuffering && !isCasting && (
+            {showPauseScreen && (
               <motion.div
-                key="netflix-pause-overlay"
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
