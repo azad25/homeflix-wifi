@@ -1214,6 +1214,110 @@ func (s *MediaScanner) processSubtitleForMedia(subtitlePath string, media models
 	return nil
 }
 
+// fetchAndUpdateEpisodeMetadata fetches episode metadata from TMDB and updates the media record
+func (s *MediaScanner) fetchAndUpdateEpisodeMetadata(media *models.Media, tvID int, seasonNumber int, episodeNumber int) {
+	if s.GetTMDBService() == nil {
+		return
+	}
+
+	// Fetch episode details from TMDB
+	episode, err := s.GetTMDBService().GetEpisodeDetails(tvID, seasonNumber, episodeNumber)
+	if err != nil {
+		log.Printf("⚠️ Failed to fetch TMDB episode details for S%02dE%02d: %v", seasonNumber, episodeNumber, err)
+		return
+	}
+
+	// Update media with episode metadata
+	if episode.Name != "" {
+		// Store the episode title in a separate field or append to title
+		media.EpisodeTitle = episode.Name
+		log.Printf("📺 Episode title: %s", episode.Name)
+	}
+
+	if episode.Overview != "" {
+		media.Description = episode.Overview
+		log.Printf("📝 Episode description updated")
+	}
+
+	if episode.Runtime > 0 {
+		media.Runtime = episode.Runtime
+		log.Printf("⏱️ Episode runtime: %d minutes", episode.Runtime)
+	}
+
+	if episode.VoteAverage > 0 {
+		media.Rating = episode.VoteAverage
+		log.Printf("⭐ Episode rating: %.1f", episode.VoteAverage)
+	}
+
+	if episode.VoteCount > 0 {
+		media.VoteCount = episode.VoteCount
+	}
+
+	if episode.AirDate != "" {
+		// Parse air date and extract year
+		if parsedTime, err := time.Parse("2006-01-02", episode.AirDate); err == nil {
+			media.Year = parsedTime.Year()
+			log.Printf("📅 Episode air date: %s (year: %d)", episode.AirDate, media.Year)
+		}
+	}
+
+	// Download episode still/thumbnail if available
+	if episode.StillPath != "" {
+		stillDir := "./episode_stills"
+		stillPath, err := s.GetTMDBService().DownloadEpisodeStill(
+			episode.StillPath, 
+			tvID, 
+			seasonNumber, 
+			episodeNumber, 
+			stillDir,
+		)
+		if err != nil {
+			log.Printf("⚠️ Failed to download episode still: %v", err)
+		} else if stillPath != "" {
+			media.EpisodeStillPath = stillPath
+			log.Printf("🖼️ Episode still downloaded: %s", stillPath)
+		}
+	}
+
+	// Extract crew information (directors, writers)
+	var directors []string
+	var writers []string
+	for _, crew := range episode.Crew {
+		switch crew.Job {
+		case "Director":
+			directors = append(directors, crew.Name)
+		case "Writer", "Screenplay", "Story":
+			writers = append(writers, crew.Name)
+		}
+	}
+
+	if len(directors) > 0 {
+		media.Director = directors
+		log.Printf("🎬 Episode directors: %v", directors)
+	}
+
+	if len(writers) > 0 {
+		media.Writers = writers
+		log.Printf("✍️ Episode writers: %v", writers)
+	}
+
+	// Extract guest stars
+	if len(episode.GuestStars) > 0 {
+		var guestStars []string
+		for i, guest := range episode.GuestStars {
+			if i >= 10 { // Limit to top 10 guest stars
+				break
+			}
+			guestStars = append(guestStars, fmt.Sprintf("%s (%s)", guest.Name, guest.Character))
+		}
+		media.GuestStars = guestStars
+		log.Printf("🌟 Episode guest stars: %v", guestStars)
+	}
+
+	log.Printf("✅ Episode metadata updated from TMDB: %s S%02dE%02d - %s", 
+		media.Title, seasonNumber, episodeNumber, episode.Name)
+}
+
 // ProcessSubtitleFile processes a single subtitle file (implements SubtitleProcessor interface)
 func (s *MediaScanner) ProcessSubtitleFile(path string, info os.FileInfo) error {
 	log.Printf("📝 Processing subtitle file: %s", filepath.Base(path))
@@ -2151,6 +2255,17 @@ func (s *MediaScanner) processVideoFile(path string, info os.FileInfo) error {
 					log.Printf("⚠️ Failed to load series %d for asset processing: %v", *media.SeriesID, err)
 				} else {
 					seriesForAssets = series
+					
+					// Fetch episode metadata from TMDB if available
+					// ONLY fetch if episode doesn't already have TMDB metadata (check EpisodeTitle)
+					if s.GetTMDBService() != nil && series.TMDBID > 0 && metadata.Season > 0 && metadata.Episode > 0 {
+						if media.EpisodeTitle == "" {
+							log.Printf("📺 Fetching TMDB episode metadata for: %s S%02dE%02d (no episode title found)", series.Title, metadata.Season, metadata.Episode)
+							s.fetchAndUpdateEpisodeMetadata(media, series.TMDBID, metadata.Season, metadata.Episode)
+						} else {
+							log.Printf("✅ Episode metadata already exists for: %s S%02dE%02d - %s, skipping fetch", series.Title, metadata.Season, metadata.Episode, media.EpisodeTitle)
+						}
+					}
 				}
 			}
 		} else {
@@ -2176,6 +2291,17 @@ func (s *MediaScanner) processVideoFile(path string, info os.FileInfo) error {
 			log.Printf("📺 Episode metadata assigned - Series: %s (ID: %d), Season: %d, Episode: %d",
 				series.Title, series.ID, metadata.Season, metadata.Episode)
 			seriesForAssets = series
+			
+			// Fetch episode metadata from TMDB if available
+			// ONLY fetch if episode doesn't already have TMDB metadata (check EpisodeTitle)
+			if s.GetTMDBService() != nil && series.TMDBID > 0 && metadata.Season > 0 && metadata.Episode > 0 {
+				if media.EpisodeTitle == "" {
+					log.Printf("📺 Fetching TMDB episode metadata for new episode: %s S%02dE%02d (no episode title found)", series.Title, metadata.Season, metadata.Episode)
+					s.fetchAndUpdateEpisodeMetadata(media, series.TMDBID, metadata.Season, metadata.Episode)
+				} else {
+					log.Printf("✅ Episode metadata already exists for: %s S%02dE%02d - %s, skipping fetch", series.Title, metadata.Season, metadata.Episode, media.EpisodeTitle)
+				}
+			}
 		}
 	} else if metadata.Type == "movie" {
 		// Ensure movies don't get assigned to series
@@ -2282,7 +2408,9 @@ func (s *MediaScanner) processVideoFile(path string, info os.FileInfo) error {
 			}
 
 			// Then try to get enhanced metadata from TMDB with fallback to file-based metadata
-			if s.GetTMDBService() != nil {
+			// ONLY fetch if TMDB data doesn't exist yet (check TMDBID)
+			if s.GetTMDBService() != nil && media.TMDBID == 0 {
+				log.Printf("📥 Fetching TMDB metadata for new media: %s (no TMDB ID found)", media.Title)
 				tmdbDone := make(chan struct{}, 1)
 				var tmdbMetadata *interfaces.MediaMetadata
 				var tmdbErr error
@@ -2437,6 +2565,8 @@ func (s *MediaScanner) processVideoFile(path string, info os.FileInfo) error {
 				case <-time.After(15 * time.Second):
 					log.Printf("⚠️ Timeout fetching TMDB metadata for %s (continuing without TMDB data)", media.Title)
 				}
+			} else if s.GetTMDBService() != nil && media.TMDBID > 0 {
+				log.Printf("✅ TMDB data already exists for %s (TMDB ID: %d), skipping fetch to preserve existing metadata", media.Title, media.TMDBID)
 			}
 
 			// Update media with all collected metadata

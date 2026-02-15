@@ -53,6 +53,25 @@ const NextEpisodePreview: React.FC<NextEpisodePreviewProps> = ({
 
   if (!showPreview || !nextEpisode) return null;
 
+  // Get episode title - prioritize episode_title from TMDB
+  const episodeTitle = nextEpisode.episode_title || nextEpisode.title;
+  
+  // Get episode description - prioritize description fields
+  const episodeDescription = nextEpisode.description || nextEpisode.long_desc || nextEpisode.short_desc || 'No description available';
+
+  // Get episode still URL with fallbacks
+  const getEpisodeStillUrl = () => {
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8252';
+    
+    // First try episode still if available
+    if (nextEpisode.episode_still_path) {
+      return `${apiUrl}/api/episode-stills/${nextEpisode.id}`;
+    }
+    
+    // Fallback to thumbnail
+    return `${apiUrl}/api/thumbnails/${nextEpisode.id}`;
+  };
+
   return (
     <AnimatePresence>
       <motion.div
@@ -79,19 +98,16 @@ const NextEpisodePreview: React.FC<NextEpisodePreviewProps> = ({
           {/* Episode Info */}
           <div className="p-4">
             <div className="flex gap-4">
-              {/* Thumbnail */}
-              <div className="w-32 h-20 bg-gray-800 rounded overflow-hidden flex-shrink-0">
+              {/* Episode Still/Thumbnail */}
+              <div className="w-32 h-20 bg-black rounded overflow-hidden flex-shrink-0">
                 <img
-                  src={`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8252'}/api/thumbnails/${nextEpisode.id}`}
-                  alt={nextEpisode.title}
+                  src={getEpisodeStillUrl()}
+                  alt={episodeTitle}
                   className="w-full h-full object-cover"
                   onError={(e) => {
                     const target = e.target as HTMLImageElement;
+                    // Hide broken image, show black background
                     target.style.display = 'none';
-                    // If thumbnail also fails, hide the image
-                    target.onerror = () => {
-                      target.style.display = 'none';
-                    };
                   }}
                 />
               </div>
@@ -102,10 +118,10 @@ const NextEpisodePreview: React.FC<NextEpisodePreviewProps> = ({
                   {nextEpisode.season_number && nextEpisode.episode_number
                     ? `S${nextEpisode.season_number}:E${nextEpisode.episode_number}`
                     : ''}{' '}
-                  {nextEpisode.title}
+                  {episodeTitle}
                 </h4>
                 <p className="text-gray-400 text-xs line-clamp-2">
-                  {nextEpisode.description || 'No description available'}
+                  {episodeDescription}
                 </p>
               </div>
             </div>
@@ -130,12 +146,12 @@ const NextEpisodePreview: React.FC<NextEpisodePreviewProps> = ({
               </button>
             </div>
 
-            {/* Progress Bar */}
+            {/* Progress Bar - Fixed to count down properly */}
             <div className="mt-3 h-1 bg-gray-800 rounded-full overflow-hidden">
               <motion.div
                 className="h-full bg-red-600"
-                initial={{ width: '100%' }}
-                animate={{ width: '0%' }}
+                initial={{ width: '0%' }}
+                animate={{ width: '100%' }}
                 transition={{ duration: 15, ease: 'linear' }}
               />
             </div>

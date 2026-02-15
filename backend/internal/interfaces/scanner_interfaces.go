@@ -148,6 +148,59 @@ type TMDBServiceInterface interface {
 	DownloadTVBackdropByTitle(title string, seriesID uint, backdropDir string) (string, error)
 	GetPosterURL(posterPath string, size string) string
 	TestConnection() error
+	// Episode-specific methods
+	GetSeasonDetails(tvID int, seasonNumber int) (*TMDBSeason, error)
+	GetEpisodeDetails(tvID int, seasonNumber int, episodeNumber int) (*TMDBEpisode, error)
+	DownloadEpisodeStill(stillPath string, tvID int, seasonNumber int, episodeNumber int, stillDir string) (string, error)
+}
+
+// TMDBCrew represents crew member information from TMDB
+type TMDBCrew struct {
+	ID          int    `json:"id"`
+	Name        string `json:"name"`
+	Job         string `json:"job"`
+	Department  string `json:"department"`
+	ProfilePath string `json:"profile_path"`
+}
+
+// TMDBCast represents cast member information from TMDB
+type TMDBCast struct {
+	ID          int    `json:"id"`
+	Name        string `json:"name"`
+	Character   string `json:"character"`
+	Order       int    `json:"order"`
+	ProfilePath string `json:"profile_path"`
+}
+
+// TMDBSeason represents a TV season with episodes from TMDB
+type TMDBSeason struct {
+	ID           int           `json:"id"`
+	Name         string        `json:"name"`
+	Overview     string        `json:"overview"`
+	PosterPath   string        `json:"poster_path"`
+	SeasonNumber int           `json:"season_number"`
+	EpisodeCount int           `json:"episode_count"`
+	AirDate      string        `json:"air_date"`
+	Episodes     []TMDBEpisode `json:"episodes,omitempty"`
+}
+
+// TMDBEpisode represents a TV episode with all details from TMDB
+type TMDBEpisode struct {
+	ID             int        `json:"id"`
+	Name           string     `json:"name"`
+	Overview       string     `json:"overview"`
+	EpisodeNumber  int        `json:"episode_number"`
+	SeasonNumber   int        `json:"season_number"`
+	StillPath      string     `json:"still_path"`
+	AirDate        string     `json:"air_date"`
+	Runtime        int        `json:"runtime"`
+	VoteAverage    float64    `json:"vote_average"`
+	VoteCount      int        `json:"vote_count"`
+	Crew           []TMDBCrew `json:"crew"`
+	GuestStars     []TMDBCast `json:"guest_stars"`
+	ShowID         int        `json:"show_id"`
+	ProductionCode string     `json:"production_code"`
+	EpisodeType    string     `json:"episode_type"`
 }
 
 // RecommendationServiceInterface defines the interface for recommendation operations

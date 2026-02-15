@@ -85,6 +85,11 @@ export interface Media {
   episode?: number;
   season_number?: number;
   episode_number?: number;
+  
+  // Episode-specific metadata from TMDB
+  episode_title?: string;        // Episode name/title
+  episode_still_path?: string;   // Local path to episode thumbnail
+  guest_stars?: string[];        // Guest stars for this episode
 
   // Tracking
   view_count?: number;
@@ -110,12 +115,16 @@ export interface Series {
   id: number;
   title: string;
   description?: string;
+  overview?: string;
+  tagline?: string;
   year?: number;
   first_air_date?: string;
+  release_date?: string;
   rating?: number;
   total_seasons: number;
   total_episodes: number;
   genres?: Genre[];
+  genre_names?: string[];
   poster_path?: string;
   backdrop_path?: string;
   thumbnail_path?: string;
@@ -127,4 +136,29 @@ export interface Series {
   network?: string;
   status?: string;
   duration?: number;
+  tmdb_id?: number;
+  tmdb_trailer_url?: string;
+  certification?: string;
+  country?: string;
+  language?: string;
+  quality?: string;
+  seasons?: Season[];
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface Season {
+  id: number;
+  series_id: number;
+  season_number: number;
+  title?: string;
+  name?: string;
+  description?: string;
+  overview?: string;
+  release_date?: string;
+  air_date?: string;
+  poster_path?: string;
+  episode_count: number;
+  tmdb_id?: number;
+  episodes?: Media[];
 }

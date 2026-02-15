@@ -139,6 +139,11 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		api.Static("/static/posters", "./posters")
 		api.Static("/static/backdrops", "./backdrops") // Serve backdrop files
 		api.Static("/logos", "./logos") // Serve logo files
+		api.Static("/episode_stills", "./episode_stills") // Serve episode still files
+
+		// Episode still serving endpoint with auto-download
+		api.GET("/episode-stills/:id", handlers.GetEpisodeStillWithAutoDownload(mediaService, tmdbService))
+		api.GET("/assets/episode-stills/:id", handlers.GetEpisodeStillWithAutoDownload(mediaService, tmdbService))
 
 		// Logo scan endpoint
 		api.POST("/admin/scan/logos", handlers.ScanMovieLogos(mediaService, tmdbService))
@@ -254,6 +259,8 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		api.POST("/admin/media/:id/generate-metadata", handlers.GenerateMediaMetadata(mediaService, tmdbService))
 		api.POST("/admin/media/:id/update-with-tmdb", handlers.UpdateMediaWithTMDB(mediaService, tmdbService))
 		api.POST("/admin/series/:id/update-with-tmdb", handlers.UpdateSeriesWithTMDB(mediaService, tmdbService))
+		api.POST("/admin/episodes/:id/update-with-tmdb", handlers.UpdateEpisodeWithTMDB(mediaService, tmdbService))
+		api.POST("/admin/seasons/:seriesId/:seasonNumber/update-with-tmdb", handlers.UpdateSeasonWithTMDB(mediaService, tmdbService))
 		api.GET("/media/:id/cast-images", handlers.GetCastImages(mediaService, tmdbService))
 		api.POST("/admin/generate-recommendations", handlers.GenerateRecommendations(geminiService))
 

@@ -48,6 +48,7 @@ interface Season {
   air_date?: string;
   episode_count: number;
   episodes?: Episode[];
+  poster_path?: string;
 }
 
 interface Episode {
@@ -59,6 +60,7 @@ interface Episode {
   air_date?: string;
   runtime?: number;
   vote_average?: number;
+  guest_stars?: string[];
 }
 
 // Custom hook to manage background video lifecycle (same as movie page)
@@ -729,12 +731,13 @@ export default function TVSeriesPage() {
         seasonMap.get(seasonNum)?.push({
           id: episode.id,
           episode_number: extractEpisodeNumber(episode.title) || 1,
-          name: episode.title,
-          overview: episode.description || '',
-          still_path: episode.thumbnail_path,
+          name: episode.episode_title || episode.title, // Use episode_title if available
+          overview: episode.description || episode.long_desc || episode.short_desc || '',
+          still_path: episode.episode_still_path || episode.thumbnail_path, // Use episode_still_path if available
           air_date: episode.release_date,
           runtime: episode.duration ? Math.floor(episode.duration / 60) : undefined,
-          vote_average: episode.rating
+          vote_average: episode.rating,
+          guest_stars: episode.guest_stars // Include guest stars
         });
       });
 
@@ -782,91 +785,25 @@ export default function TVSeriesPage() {
       const apiUrl = getApiUrl();
       console.log('🔍 Fetching recent TV series...');
 
-      // Get all media
-      const allMediaResponse = await fetch(`${apiUrl}/api/media`);
-      const allMedia = await allMediaResponse.json();
-
-      // Group episodes by series to find unique series
-      const seriesMap = new Map<string, Media>();
+      // Get all series directly from the series API
+      const seriesResponse = await fetch(`${apiUrl}/api/series`);
+      if (!seriesResponse.ok) {
+        throw new Error('Failed to fetch series');
+      }
       
-      allMedia.forEach((media: Media) => {
-        if (media.type === 'episode' && media.series_id && media.series_id.toString() !== params?.id?.toString()) {
-          const seriesId = media.series_id.toString();
-          
-          // If we haven't seen this series yet, or this episode is newer, use it as the representative
-          if (!seriesMap.has(seriesId) || 
-              (media.created_at && seriesMap.get(seriesId)?.created_at && 
-               new Date(media.created_at) > new Date(seriesMap.get(seriesId)!.created_at!))) {
-            
-            // Extract series title from episode title
-            let seriesTitle = 'Unknown Series';
-            
-            // Try to get series title from media.series first
-            if (media.series?.title) {
-              seriesTitle = media.series.title;
-            } else if (media.title) {
-              // Extract series name from episode title patterns like:
-              // "Breaking Bad - S01E01 - Pilot" -> "Breaking Bad"
-              // "Game of Thrones S1E1 Winter Is Coming" -> "Game of Thrones"
-              // "The Office (US) - Season 1 Episode 1" -> "The Office (US)"
-              
-              const patterns = [
-                /^(.+?)\s*-\s*S\d+E\d+/i,           // "Series Name - S01E01"
-                /^(.+?)\s*S\d+E\d+/i,               // "Series Name S01E01"
-                /^(.+?)\s*-\s*Season\s*\d+/i,       // "Series Name - Season 1"
-                /^(.+?)\s*Season\s*\d+/i,           // "Series Name Season 1"
-                /^(.+?)\s*-\s*Episode\s*\d+/i,      // "Series Name - Episode 1"
-                /^(.+?)\s*Episode\s*\d+/i,          // "Series Name Episode 1"
-                /^(.+?)\s*\d+x\d+/i,                // "Series Name 1x01"
-                /^(.+?)\s*-\s*.+$/i,                // "Series Name - Episode Title" (fallback)
-              ];
-              
-              for (const pattern of patterns) {
-                const match = media.title.match(pattern);
-                if (match && match[1].trim()) {
-                  seriesTitle = match[1].trim();
-                  break;
-                }
-              }
-              
-              // If no pattern matched, use the full title but clean it up
-              if (seriesTitle === 'Unknown Series') {
-                seriesTitle = media.title.split(' - ')[0].split(' S')[0].split(' Episode')[0].trim();
-              }
-            }
-            
-            // Create a series representation from the episode
-            const seriesRepresentation: Media = {
-              ...media,
-              id: media.series_id,
-              type: 'series',
-              title: seriesTitle,
-              description: media.series?.description || media.description || `Watch ${seriesTitle} episodes and seasons.`,
-              // Use series poster if available, otherwise use episode thumbnail
-              poster_path: media.series?.poster_path || media.poster_path,
-              tmdb_poster_url: media.series?.tmdb_poster_url || media.tmdb_poster_url,
-              thumbnail_path: media.series?.thumbnail_path || media.thumbnail_path,
-              // Preserve other series metadata
-              rating: media.series?.rating || media.rating,
-              year: media.series?.year || media.year,
-              genres: media.series?.genres || media.genres,
-            };
-            
-            seriesMap.set(seriesId, seriesRepresentation);
-          }
-        }
-      });
-
-      // Convert to array and sort by most recent
-      const recentSeriesArray = Array.from(seriesMap.values())
-        .sort((a, b) => {
+      const allSeries = await seriesResponse.json();
+      
+      // Filter out current series and get recent ones
+      const recentSeriesArray = allSeries
+        .filter((s: Media) => s.id?.toString() !== params?.id?.toString())
+        .sort((a: Media, b: Media) => {
           const aDate = new Date(a.created_at || a.release_date || 0);
           const bDate = new Date(b.created_at || b.release_date || 0);
           return bDate.getTime() - aDate.getTime();
         })
         .slice(0, 5); // Get top 5 recent series
 
-      console.log('✅ Found recent series:', recentSeriesArray.map(s => s.title));
+      console.log('✅ Found recent series:', recentSeriesArray.map((s: Media) => s.title));
       setRecentSeries(recentSeriesArray);
 
     } catch (error) {
@@ -2634,7 +2571,7 @@ export default function TVSeriesPage() {
           <ScrollReveal direction="up" delay={0.2}>
             <h2 className="text-3xl font-bold text-white mb-8 flex items-center gap-2">
               <Tv className="w-8 h-8 text-red-500" />
-              Seasons & Episodes
+              Seasons
             </h2>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
@@ -2647,20 +2584,18 @@ export default function TVSeriesPage() {
                     whileHover={{ scale: 1.05 }}
                     transition={{ duration: 0.2 }}
                   >
-                    <div className="relative aspect-[2/3] bg-gray-800 rounded-lg overflow-hidden mb-3 group-hover:scale-105 transition-transform duration-300">
-                      {/* Use series poster for seasons */}
+                    <div className="relative aspect-video bg-gray-800 rounded-lg overflow-hidden mb-3 group-hover:scale-105 transition-transform duration-300">
+                      {/* Use series backdrop for seasons */}
                       <img
-                        src={`${getApiUrl()}/api/series/${series.id}/poster`}
+                        src={getBackdropImageUrl(series)}
                         alt={`${series?.title} ${season.name}`}
                         className="w-full h-full object-cover"
                         loading="lazy"
                         onError={(e) => {
                           const target = e.target as HTMLImageElement;
                           const apiUrl = getApiUrl();
-                          // Fallback chain: server poster -> TMDB poster -> series thumbnail -> gradient
-                          if (series.tmdb_poster_url && !target.src.includes('tmdb')) {
-                            target.src = series.tmdb_poster_url;
-                          } else if (!target.src.includes('/api/thumbnails/')) {
+                          // Fallback to thumbnail if backdrop fails
+                          if (!target.src.includes('/api/thumbnails/')) {
                             target.src = `${apiUrl}/api/thumbnails/${series.id}`;
                           } else {
                             // Final fallback: Show gradient with season number
@@ -2736,23 +2671,17 @@ export default function TVSeriesPage() {
                     >
                       <div className="relative aspect-[2/3] bg-gray-800 rounded-lg overflow-hidden mb-3 group-hover:scale-105 transition-transform duration-300">
                         <img
-                          src={(() => {
-                            const apiUrl = getApiUrl();
-                            // Try series poster first
-                            if (recentSeriesItem.tmdb_poster_url) return recentSeriesItem.tmdb_poster_url;
-                            // Try poster path
-                            if (recentSeriesItem.poster_path) return `${apiUrl}/api/admin/assets/${recentSeriesItem.poster_path.split('/').pop()}`;
-                            // Fallback to thumbnail
-                            return `${apiUrl}/api/thumbnails/${recentSeriesItem.id}`;
-                          })()}
+                          src={`${getApiUrl()}/api/series/${recentSeriesItem.id}/poster`}
                           alt={recentSeriesItem.title}
                           className="w-full h-full object-cover"
                           loading="lazy"
                           onError={(e) => {
                             const target = e.target as HTMLImageElement;
                             const apiUrl = getApiUrl();
-                            // Fallback chain
-                            if (!target.src.includes('/api/thumbnails/')) {
+                            // Fallback chain: TMDB poster -> thumbnail -> gradient
+                            if (recentSeriesItem.tmdb_poster_url && !target.src.includes('tmdb')) {
+                              target.src = recentSeriesItem.tmdb_poster_url;
+                            } else if (!target.src.includes('/api/thumbnails/')) {
                               target.src = `${apiUrl}/api/thumbnails/${recentSeriesItem.id}`;
                             } else {
                               // Final fallback: Show gradient with series initial
@@ -2831,93 +2760,6 @@ export default function TVSeriesPage() {
           )}
 
           {/* Series Details */}
-          <ScrollReveal direction="up" delay={0.6}>
-            <div className="mt-16">
-              <h2 className="text-3xl font-bold text-white mb-8 flex items-center gap-2">
-                <Info className="w-8 h-8 text-red-500" />
-                About {series.title}
-              </h2>
-
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
-                <div>
-                  <h3 className="text-xl font-semibold text-white mb-4">Series Information</h3>
-                  <div className="space-y-3">
-                    <div className="flex">
-                      <span className="w-32 text-white/60">Type</span>
-                      <span className="text-white">TV Series</span>
-                    </div>
-                    {series.genres && series.genres.length > 0 && (
-                      <div className="flex">
-                        <span className="w-32 text-white/60">Genres</span>
-                        <span className="text-white">
-                          {series.genres.map(g => typeof g === 'string' ? g : g?.name).filter(Boolean).join(', ')}
-                        </span>
-                      </div>
-                    )}
-                    <div className="flex">
-                      <span className="w-32 text-white/60">Seasons</span>
-                      <span className="text-white">{seasons.length}</span>
-                    </div>
-                    <div className="flex">
-                      <span className="w-32 text-white/60">Episodes</span>
-                      <span className="text-white">{episodes.length}</span>
-                    </div>
-                    {series.rating && (
-                      <div className="flex">
-                        <span className="w-32 text-white/60">Rating</span>
-                        <span className="text-white flex items-center gap-1">
-                          <Star className="w-4 h-4 text-yellow-400" />
-                          {series.rating.toFixed(1)}
-                        </span>
-                      </div>
-                    )}
-                    {series.year && (
-                      <div className="flex">
-                        <span className="w-32 text-white/60">Year</span>
-                        <span className="text-white">{series.year}</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                <div>
-                  <h3 className="text-xl font-semibold text-white mb-4">Production Details</h3>
-                  <div className="space-y-3">
-                    {series.director && (
-                      <div className="flex">
-                        <span className="w-32 text-white/60">Creator</span>
-                        <span className="text-white">{series.director}</span>
-                      </div>
-                    )}
-                    {series.stars && (
-                      <div className="flex">
-                        <span className="w-32 text-white/60">Cast</span>
-                        <span className="text-white">{series.stars}</span>
-                      </div>
-                    )}
-                    {series.country && (
-                      <div className="flex">
-                        <span className="w-32 text-white/60">Country</span>
-                        <span className="text-white">{series.country}</span>
-                      </div>
-                    )}
-                    {series.language && (
-                      <div className="flex">
-                        <span className="w-32 text-white/60">Language</span>
-                        <span className="text-white">{series.language}</span>
-                      </div>
-                    )}
-                    {series.quality && (
-                      <div className="flex">
-                        <span className="w-32 text-white/60">Quality</span>
-                        <span className="text-white">{series.quality}</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </ScrollReveal>
         </div>
       </div>
 

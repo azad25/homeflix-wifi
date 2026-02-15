@@ -145,9 +145,9 @@ type TMDBTVDetails struct {
 	SpokenLanguages     []TMDBLanguage `json:"spoken_languages"`
 	Credits             TMDBCredits    `json:"credits,omitempty"`
 	Videos              TMDBVideos     `json:"videos,omitempty"`
-	Homepage            string         `json:"homepage"`
-	Networks            []TMDBNetwork  `json:"networks"`
-	Seasons             []TMDBSeason   `json:"seasons"`
+	Homepage            string                `json:"homepage"`
+	Networks            []TMDBNetwork         `json:"networks"`
+	Seasons             []interfaces.TMDBSeason `json:"seasons"`
 	// Additional fields for enhanced metadata
 	Certification string   `json:"certification,omitempty"`
 	Awards        []string `json:"awards,omitempty"`
@@ -158,16 +158,6 @@ type TMDBNetwork struct {
 	Name          string `json:"name"`
 	LogoPath      string `json:"logo_path"`
 	OriginCountry string `json:"origin_country"`
-}
-
-type TMDBSeason struct {
-	ID           int    `json:"id"`
-	Name         string `json:"name"`
-	Overview     string `json:"overview"`
-	PosterPath   string `json:"poster_path"`
-	SeasonNumber int    `json:"season_number"`
-	EpisodeCount int    `json:"episode_count"`
-	AirDate      string `json:"air_date"`
 }
 
 type TMDBCollection struct {
@@ -3658,6 +3648,268 @@ func (t *TMDBService) fetchOnTheAirTVShows() ([]TMDBTV, error) {
 	return searchResp.Results, nil
 }
 
+// GetSeasonDetails fetches detailed information about a TV season including all episodes
+func (t *TMDBService) GetSeasonDetails(tvID int, seasonNumber int) (*interfaces.TMDBSeason, error) {
+	if t.apiKey == "" {
+		return nil, fmt.Errorf("TMDB API key not configured")
+	}
+
+	detailsURL := fmt.Sprintf("%s/tv/%d/season/%d", t.baseURL, tvID, seasonNumber)
+	params := url.Values{}
+	params.Add("language", "en-US")
+
+	req, err := http.NewRequest("GET", detailsURL+"?"+params.Encode(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Authorization", "Bearer "+t.apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := t.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("TMDB API error: %d", resp.StatusCode)
+	}
+
+	var season interfaces.TMDBSeason
+	if err := json.NewDecoder(resp.Body).Decode(&season); err != nil {
+		return nil, err
+	}
+
+	log.Printf("✅ TMDB: Retrieved season %d details with %d episodes for TV ID %d", 
+		seasonNumber, len(season.Episodes), tvID)
+	return &season, nil
+}
+
+// GetEpisodeDetails fetches detailed information about a specific episode
+func (t *TMDBService) GetEpisodeDetails(tvID int, seasonNumber int, episodeNumber int) (*interfaces.TMDBEpisode, error) {
+	if t.apiKey == "" {
+		return nil, fmt.Errorf("TMDB API key not configured")
+	}
+
+	detailsURL := fmt.Sprintf("%s/tv/%d/season/%d/episode/%d", t.baseURL, tvID, seasonNumber, episodeNumber)
+	params := url.Values{}
+	params.Add("language", "en-US")
+
+	req, err := http.NewRequest("GET", detailsURL+"?"+params.Encode(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Authorization", "Bearer "+t.apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := t.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("TMDB API error: %d", resp.StatusCode)
+	}
+
+	var episode interfaces.TMDBEpisode
+	if err := json.NewDecoder(resp.Body).Decode(&episode); err != nil {
+		return nil, err
+	}
+
+	log.Printf("✅ TMDB: Retrieved episode S%02dE%02d details: %s", 
+		seasonNumber, episodeNumber, episode.Name)
+	return &episode, nil
+}
+
+// GetAllSeasonsWithEpisodes fetches all seasons with episodes for a TV series
+func (t *TMDBService) GetAllSeasonsWithEpisodes(tvID int) ([]interfaces.TMDBSeason, error) {
+	if t.apiKey == "" {
+		return nil, fmt.Errorf("TMDB API key not configured")
+	}
+
+	// First get TV details to know how many seasons
+	tvDetails, err := t.GetTVDetails(tvID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get TV details: %v", err)
+	}
+
+	log.Printf("📺 Fetching %d seasons for: %s", tvDetails.NumberOfSeasons, tvDetails.Name)
+
+	var seasons []interfaces.TMDBSeason
+	for i := 1; i <= tvDetails.NumberOfSeasons; i++ {
+		season, err := t.GetSeasonDetails(tvID, i)
+		if err != nil {
+			log.Printf("⚠️ Failed to fetch season %d: %v", i, err)
+			continue
+		}
+		seasons = append(seasons, *season)
+		
+		// Small delay to respect API rate limits
+		time.Sleep(250 * time.Millisecond)
+	}
+
+	log.Printf("✅ TMDB: Retrieved %d seasons with episodes for %s", len(seasons), tvDetails.Name)
+	return seasons, nil
+}
+
+// GetMultipleSeasonsOptimized fetches multiple seasons in a single API call using append_to_response
+// This is more efficient than calling GetSeasonDetails multiple times
+// Example: seasonNumbers = []int{1, 2, 3} fetches seasons 1, 2, and 3 in one request
+func (t *TMDBService) GetMultipleSeasonsOptimized(tvID int, seasonNumbers []int) (map[int]*interfaces.TMDBSeason, error) {
+	if t.apiKey == "" {
+		return nil, fmt.Errorf("TMDB API key not configured")
+	}
+
+	if len(seasonNumbers) == 0 {
+		return nil, fmt.Errorf("no season numbers provided")
+	}
+
+	// Build append_to_response parameter (e.g., "season/1,season/2,season/3")
+	var appendParts []string
+	for _, seasonNum := range seasonNumbers {
+		appendParts = append(appendParts, fmt.Sprintf("season/%d", seasonNum))
+	}
+	appendParam := strings.Join(appendParts, ",")
+
+	detailsURL := fmt.Sprintf("%s/tv/%d", t.baseURL, tvID)
+	params := url.Values{}
+	params.Add("append_to_response", appendParam)
+	params.Add("language", "en-US")
+
+	req, err := http.NewRequest("GET", detailsURL+"?"+params.Encode(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Authorization", "Bearer "+t.apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := t.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("TMDB API error: %d", resp.StatusCode)
+	}
+
+	// Parse response - seasons will be in separate fields like "season/1", "season/2"
+	var result map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, err
+	}
+
+	// Extract seasons from the response
+	seasons := make(map[int]*interfaces.TMDBSeason)
+	for _, seasonNum := range seasonNumbers {
+		seasonKey := fmt.Sprintf("season/%d", seasonNum)
+		if seasonData, ok := result[seasonKey]; ok {
+			// Convert the interface{} back to TMDBSeason
+			seasonJSON, err := json.Marshal(seasonData)
+			if err != nil {
+				log.Printf("⚠️ Failed to marshal season %d data: %v", seasonNum, err)
+				continue
+			}
+
+			var season interfaces.TMDBSeason
+			if err := json.Unmarshal(seasonJSON, &season); err != nil {
+				log.Printf("⚠️ Failed to unmarshal season %d data: %v", seasonNum, err)
+				continue
+			}
+
+			seasons[seasonNum] = &season
+		}
+	}
+
+	log.Printf("✅ TMDB: Retrieved %d seasons in optimized batch call for TV ID %d", len(seasons), tvID)
+	return seasons, nil
+}
+
+// GetAllSeasonsOptimized fetches all seasons using batch optimization (5 seasons per request)
+// This is more efficient than GetAllSeasonsWithEpisodes for shows with many seasons
+func (t *TMDBService) GetAllSeasonsOptimized(tvID int) ([]interfaces.TMDBSeason, error) {
+	if t.apiKey == "" {
+		return nil, fmt.Errorf("TMDB API key not configured")
+	}
+
+	// First get TV details to know how many seasons
+	tvDetails, err := t.GetTVDetails(tvID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get TV details: %v", err)
+	}
+
+	log.Printf("📺 Fetching %d seasons (optimized) for: %s", tvDetails.NumberOfSeasons, tvDetails.Name)
+
+	var allSeasons []interfaces.TMDBSeason
+	batchSize := 5 // Fetch 5 seasons per request (good balance)
+
+	for i := 1; i <= tvDetails.NumberOfSeasons; i += batchSize {
+		// Build batch of season numbers
+		var batch []int
+		for j := i; j < i+batchSize && j <= tvDetails.NumberOfSeasons; j++ {
+			batch = append(batch, j)
+		}
+
+		// Fetch batch
+		seasonsMap, err := t.GetMultipleSeasonsOptimized(tvID, batch)
+		if err != nil {
+			log.Printf("⚠️ Failed to fetch season batch %v: %v", batch, err)
+			continue
+		}
+
+		// Add to results in order
+		for _, seasonNum := range batch {
+			if season, ok := seasonsMap[seasonNum]; ok {
+				allSeasons = append(allSeasons, *season)
+			}
+		}
+
+		// Small delay between batches to respect API rate limits
+		if i+batchSize <= tvDetails.NumberOfSeasons {
+			time.Sleep(500 * time.Millisecond)
+		}
+	}
+
+	log.Printf("✅ TMDB: Retrieved %d seasons (optimized) with episodes for %s", len(allSeasons), tvDetails.Name)
+	return allSeasons, nil
+}
+
+// DownloadEpisodeStill downloads an episode still/thumbnail from TMDB
+func (t *TMDBService) DownloadEpisodeStill(stillPath string, tvID int, seasonNumber int, episodeNumber int, stillDir string) (string, error) {
+	if t.apiKey == "" {
+		return "", fmt.Errorf("TMDB API key not configured")
+	}
+
+	if stillPath == "" {
+		return "", fmt.Errorf("no still path provided")
+	}
+
+	// Create still directories if they don't exist
+	if err := os.MkdirAll(stillDir, 0755); err != nil {
+		return "", fmt.Errorf("failed to create still directory: %v", err)
+	}
+
+	// Generate filename
+	filename := fmt.Sprintf("still_tv%d_s%02de%02d.jpg", tvID, seasonNumber, episodeNumber)
+	stillFilePath := filepath.Join(stillDir, filename)
+
+	// Construct full still URL (using w300 for thumbnails)
+	stillURL := "https://image.tmdb.org/t/p/w300" + stillPath
+	log.Printf("📥 TMDB: Downloading episode still from: %s", stillURL)
+
+	// Download and save
+	if err := t.savePosterToFile(stillURL, stillFilePath); err != nil {
+		return "", fmt.Errorf("failed to save episode still: %v", err)
+	}
+
+	log.Printf("✅ TMDB: Episode still saved: %s", stillFilePath)
+	return stillFilePath, nil
+}
+
 // fetchTrendingTVShows fetches trending TV shows for a given time window
 func (t *TMDBService) fetchTrendingTVShows(timeWindow string) ([]TMDBTV, error) {
 	requestURL := fmt.Sprintf("%s/trending/tv/%s", t.baseURL, timeWindow)
@@ -3974,4 +4226,3 @@ func (t *TMDBService) DownloadTVBackdropByTitle(title string, seriesID uint, bac
 
 	return t.DownloadTVBackdrop(tv.ID, seriesID, tv.Name, backdropDir)
 }
-

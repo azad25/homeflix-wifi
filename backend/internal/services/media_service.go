@@ -2057,3 +2057,32 @@ func (s *MediaService) forceDeleteFolder(absPath string) error {
 	log.Printf("✅ Successfully force deleted folder: %s", absPath)
 	return nil
 }
+
+// CreateOrUpdateSeason creates or updates a season record
+func (s *MediaService) CreateOrUpdateSeason(season *models.Season) error {
+	return s.DBManager.WithTx(func(tx *gorm.DB) error {
+		var existing models.Season
+		err := tx.Where("series_id = ? AND season_number = ?", season.SeriesID, season.SeasonNumber).First(&existing).Error
+		
+		if err == gorm.ErrRecordNotFound {
+			// Create new season
+			return tx.Create(season).Error
+		} else if err != nil {
+			return err
+		}
+		
+		// Update existing season
+		season.ID = existing.ID
+		return tx.Save(season).Error
+	})
+}
+
+// GetSeasonBySeriesAndNumber gets a season by series ID and season number
+func (s *MediaService) GetSeasonBySeriesAndNumber(seriesID uint, seasonNumber int) (*models.Season, error) {
+	var season models.Season
+	err := s.db.Where("series_id = ? AND season_number = ?", seriesID, seasonNumber).First(&season).Error
+	if err != nil {
+		return nil, err
+	}
+	return &season, nil
+}

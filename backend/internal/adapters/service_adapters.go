@@ -144,6 +144,19 @@ func (a *TMDBServiceAdapter) TestConnection() error {
 	return a.service.TestConnection()
 }
 
+// Episode-specific methods
+func (a *TMDBServiceAdapter) GetSeasonDetails(tvID int, seasonNumber int) (*interfaces.TMDBSeason, error) {
+	return a.service.GetSeasonDetails(tvID, seasonNumber)
+}
+
+func (a *TMDBServiceAdapter) GetEpisodeDetails(tvID int, seasonNumber int, episodeNumber int) (*interfaces.TMDBEpisode, error) {
+	return a.service.GetEpisodeDetails(tvID, seasonNumber, episodeNumber)
+}
+
+func (a *TMDBServiceAdapter) DownloadEpisodeStill(stillPath string, tvID int, seasonNumber int, episodeNumber int, stillDir string) (string, error) {
+	return a.service.DownloadEpisodeStill(stillPath, tvID, seasonNumber, episodeNumber, stillDir)
+}
+
 // MediaServiceAdapter adapts services.MediaService to interfaces.MediaServiceInterface
 type MediaServiceAdapter struct {
 	service *services.MediaService

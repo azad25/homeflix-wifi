@@ -3049,13 +3049,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
             ref={videoRef}
             className="w-full h-full object-contain bg-black"
             poster={(() => {
-              // For episodes, prioritize episode still, then series backdrop
-              if (media.type === 'episode') {
-                if (media.episode_still_path) return `${getApiUrl()}/api/episode-stills/${media.id}`;
-                if (seriesData?.backdrop_path) return `${getApiUrl()}/api/${seriesData.backdrop_path}`;
-                if (seriesData?.tmdb_backdrop_url) return seriesData.tmdb_backdrop_url;
-              }
-              // For movies or fallback
               if (media.backdrop_path) return `${getApiUrl()}/api/${media.backdrop_path}`;
               if (media.tmdb_backdrop_url) return media.tmdb_backdrop_url;
               if (media.thumbnail_path) return `${getApiUrl()}/api/${media.thumbnail_path}`;
@@ -4223,12 +4216,12 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                               {media.season_number ? `S${media.season_number}` : ''}
                               {media.episode_number ? `E${media.episode_number}` : ''}
                               {media.season_number && media.episode_number ? ' • ' : ''}
-                              {media.episode_title || media.title}
+                              {media.title}
                             </span>
                           )}
                         </div>
                       ) : (
-                        <h1 className="text-white text-2xl font-bold">{media.episode_title || media.title}</h1>
+                        <h1 className="text-white text-2xl font-bold">{media.title}</h1>
                       );
                     })()}
                   </div>
@@ -4762,33 +4755,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                       )}
                     </motion.div>
 
-                    {/* Episode Title for TV episodes */}
-                    {media.type === 'episode' && (media.episode_title || media.title) && (
-                      <motion.div
-                        initial={{ y: 20, opacity: 0 }}
-                        animate={{ y: 0, opacity: 1 }}
-                        exit={{ y: 20, opacity: 0 }}
-                        transition={{ delay: 0.22, duration: 0.3 }}
-                        className="mb-4"
-                      >
-                        <h4 className="text-xl font-bold text-white/90 mb-2">
-                          {media.episode_title || media.title}
-                        </h4>
-                      </motion.div>
-                    )}
-
-                    {/* Episode Description - prioritize episode description over series */}
-                    {media.type === 'episode' && (media.description || media.long_desc || media.short_desc) ? (
-                      <motion.p
-                        initial={{ y: 20, opacity: 0 }}
-                        animate={{ y: 0, opacity: 1 }}
-                        exit={{ y: 20, opacity: 0 }}
-                        transition={{ delay: 0.25, duration: 0.3 }}
-                        className="text-lg text-white/75 mb-8 line-clamp-4 leading-relaxed"
-                      >
-                        {media.description || media.long_desc || media.short_desc}
-                      </motion.p>
-                    ) : (media.type === 'episode' && seriesData?.description) || media.description ? (
+                    {/* Description - Show series description for episodes */}
+                    {(media.type === 'episode' && seriesData?.description) || media.description ? (
                       <motion.p
                         initial={{ y: 20, opacity: 0 }}
                         animate={{ y: 0, opacity: 1 }}
@@ -4802,6 +4770,21 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                         }
                       </motion.p>
                     ) : null}
+
+                    {/* Episode Title for TV episodes */}
+                    {media.type === 'episode' && media.title && (
+                      <motion.div
+                        initial={{ y: 20, opacity: 0 }}
+                        animate={{ y: 0, opacity: 1 }}
+                        exit={{ y: 20, opacity: 0 }}
+                        transition={{ delay: 0.22, duration: 0.3 }}
+                        className="mb-4"
+                      >
+                        <h4 className="text-xl font-bold text-white/90 mb-2">
+                          Episode: {media.title}
+                        </h4>
+                      </motion.div>
+                    )}
 
                     {/* Additional TV Series Info */}
                     {media.type === 'episode' && seriesData && (

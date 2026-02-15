@@ -98,6 +98,11 @@ type Media struct {
 	SeasonNumber  *int    `json:"season_number,omitempty"`
 	EpisodeNumber *int    `json:"episode_number,omitempty"`
 	
+	// Episode-specific metadata from TMDB
+	EpisodeTitle     string   `json:"episode_title,omitempty"`      // Episode name/title
+	EpisodeStillPath string   `json:"episode_still_path,omitempty"` // Episode thumbnail/still
+	GuestStars       []string `json:"guest_stars,omitempty" gorm:"serializer:json"` // Guest stars for this episode
+	
 	// Subtitles
 	Subtitles []Subtitle `json:"-"` // Exclude from JSON to prevent object rendering errors
 	
@@ -193,7 +198,9 @@ type Season struct {
 	SeasonNumber int       `json:"season_number" gorm:"not null"`
 	Title        string    `json:"title"`
 	Description  string    `json:"description"`
+	Overview     string    `json:"overview"`      // TMDB overview
 	ReleaseDate  time.Time `json:"release_date"`
+	AirDate      string    `json:"air_date"`      // TMDB air date string
 	PosterPath   string    `json:"poster_path"`
 	
 	// Relationships
@@ -201,6 +208,7 @@ type Season struct {
 	
 	// Metadata
 	EpisodeCount int `json:"episode_count"`
+	TMDBID       int `json:"tmdb_id"` // TMDB season ID
 }
 
 // BeforeCreate hook to generate UUID for Series

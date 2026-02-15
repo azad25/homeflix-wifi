@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import { useParams } from "next/navigation";
-import { Play, Info, Star, Clock, Calendar, ChevronDown } from "lucide-react";
+import { Play, Info, Star, Clock, Calendar, ChevronDown, Users } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Media } from '@/types/media';
 import { getApiUrl, preloadAssets } from '@/lib/api';
@@ -10,6 +10,19 @@ import RedLoader from '@/components/RedLoader';
 import Navbar from '@/components/Navbar';
 import VideoPlayer from '@/components/VideoPlayer';
 import { useNavigate } from "@/hooks/useNavigate";
+
+interface Season {
+  id: number;
+  season_number: number;
+  name: string;
+  overview: string;
+  description?: string; // Alternative field for season description
+  air_date?: string;
+  episode_count: number;
+  episodes?: Episode[];
+  poster_path?: string;
+  release_date?: string;
+}
 
 interface Episode {
   id: number;
@@ -27,6 +40,7 @@ export default function SeasonPage() {
   const params = useParams();
   const navigate = useNavigate();
   const [series, setSeries] = useState<Media | null>(null);
+  const [seasonData, setSeasonData] = useState<Season | null>(null);
   const [episodes, setEpisodes] = useState<Episode[]>([]);
   const [selectedMedia, setSelectedMedia] = useState<Media | null>(null);
   const [isPlayerOpen, setIsPlayerOpen] = useState(false);
@@ -57,6 +71,18 @@ export default function SeasonPage() {
           const seriesData = await seriesResponse.json();
           setSeries(seriesData);
 
+          // Try to get season-specific data
+          try {
+            const seasonResponse = await fetch(`${apiUrl}/api/series/${params?.id}/seasons/${seasonNumber}`);
+            if (seasonResponse.ok) {
+              const seasonInfo = await seasonResponse.json();
+              setSeasonData(seasonInfo);
+              console.log('✅ Loaded season data:', seasonInfo);
+            }
+          } catch (error) {
+            console.warn('Season-specific data not available:', error);
+          }
+
           // Get episodes for this specific season
           const episodesResponse = await fetch(`${apiUrl}/api/series/${params?.id}/seasons/${seasonNumber}/episodes`);
           if (episodesResponse.ok) {
@@ -67,9 +93,9 @@ export default function SeasonPage() {
               .map((media: Media, index: number) => ({
                 id: media.id,
                 episode_number: media.episode_number || extractEpisodeNumber(media.title) || index + 1,
-                name: media.title,
-                overview: media.description || '',
-                still_path: media.thumbnail_path,
+                name: media.episode_title || media.title, // Use episode_title if available
+                overview: media.description || media.long_desc || media.short_desc || '',
+                still_path: media.episode_still_path, // Use episode_still_path
                 air_date: media.release_date,
                 runtime: media.duration ? Math.floor(media.duration / 60) : undefined,
                 vote_average: media.rating,
@@ -78,6 +104,7 @@ export default function SeasonPage() {
               .sort((a: Episode, b: Episode) => a.episode_number - b.episode_number);
 
             setEpisodes(episodeList);
+            console.log(`✅ Loaded ${episodeList.length} episodes for season ${seasonNumber}`);
 
             // Get all seasons to calculate total
             const seasonsResponse = await fetch(`${apiUrl}/api/series/${params?.id}/seasons`);
@@ -130,9 +157,9 @@ export default function SeasonPage() {
         .map((media: Media) => ({
           id: media.id,
           episode_number: extractEpisodeNumber(media.title) || 1,
-          name: media.title,
-          overview: media.description || '',
-          still_path: media.thumbnail_path,
+          name: media.episode_title || media.title, // Use episode_title if available
+          overview: media.description || media.long_desc || media.short_desc || '',
+          still_path: media.episode_still_path, // Use episode_still_path
           air_date: media.release_date,
           runtime: media.duration ? Math.floor(media.duration / 60) : undefined,
           vote_average: media.rating,
@@ -141,6 +168,7 @@ export default function SeasonPage() {
         .sort((a: Episode, b: Episode) => a.episode_number - b.episode_number);
 
       setEpisodes(episodeList);
+      console.log(`✅ Loaded ${episodeList.length} episodes (fallback method)`);
 
       // Calculate total seasons
       const allSeriesEpisodes = allMedia.filter((media: Media) => {
@@ -435,6 +463,18 @@ export default function SeasonPage() {
               />
             </div>
 
+            {/* Season Title & Info */}
+            <div className="mb-6">
+              <h2 className="text-4xl font-bold text-white mb-2">
+                {seasonData?.name || `Season ${currentSeason}`}
+              </h2>
+              {(seasonData?.overview || seasonData?.description) && (
+                <p className="text-white/80 text-base max-w-3xl line-clamp-2">
+                  {seasonData.overview || seasonData.description}
+                </p>
+              )}
+            </div>
+
             {/* Season Selector */}
             <div className="relative inline-block mb-6">
               <select
@@ -459,14 +499,16 @@ export default function SeasonPage() {
                   <span className="font-bold text-sm">{series.rating.toFixed(1)}</span>
                 </div>
               )}
-              {series.release_date && (
+              {(seasonData?.air_date || seasonData?.release_date || series.release_date) && (
                 <div className="flex items-center gap-2 bg-blue-500/20 backdrop-blur-sm px-3 py-1.5 rounded-full border border-blue-500/30">
                   <Calendar className="w-4 h-4 text-blue-400" />
-                  <span className="font-semibold text-sm">{new Date(series.release_date).getFullYear()}</span>
+                  <span className="font-semibold text-sm">
+                    {new Date(seasonData?.air_date || seasonData?.release_date || series.release_date || Date.now()).getFullYear()}
+                  </span>
                 </div>
               )}
               <span className="text-white/90 font-semibold text-sm">
-                {episodes.length} Episodes
+                {episodes.length} Episode{episodes.length !== 1 ? 's' : ''}
               </span>
             </div>
 
@@ -484,11 +526,11 @@ export default function SeasonPage() {
               </div>
             )}
 
-            {/* Series Description */}
-            {series.description && (
+            {/* Series/Season Description */}
+            {(seasonData?.overview || seasonData?.description || series.description) && (
               <div className="mb-8 max-w-2xl">
                 <p className="text-white/90 text-base leading-relaxed line-clamp-3">
-                  {series.description}
+                  {seasonData?.overview || seasonData?.description || series.description}
                 </p>
               </div>
             )}
@@ -518,10 +560,102 @@ export default function SeasonPage() {
       {/* Episodes Section */}
       <div className="container mx-auto px-8 py-12">
         <div className="flex items-start gap-8">
-          {/* Main Content Area */}
+          {/* Main Content Area - Horizontal Episode Grid */}
           <div className="flex-1">
-            <h2 className="text-3xl font-bold text-white mb-2">Episodes</h2>
-            <p className="text-white/70 mb-8">Season {currentSeason} • {episodes.length} Episodes</p>
+            <div className="mb-8">
+              <h2 className="text-3xl font-bold text-white mb-2">Episodes</h2>
+              <p className="text-white/70 mb-6">Season {currentSeason} • {episodes.length} Episodes</p>
+            </div>
+
+            {/* Horizontal Episode Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+              {episodes.map((episode, index) => {
+                // Use episode_title if available, fallback to name
+                const episodeTitle = episode.media?.episode_title || episode.name;
+                // Use episode_still_path if available, fallback to thumbnail
+                const episodeStill = episode.media?.episode_still_path 
+                  ? `${getApiUrl()}/api/episode-stills/${episode.media.id}`
+                  : `${getApiUrl()}/api/thumbnails/${episode.media?.id || episode.id}`;
+                
+                return (
+                  <motion.div
+                    key={episode.id}
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.3, delay: index * 0.05 }}
+                    className="group cursor-pointer"
+                    onClick={() => handlePlay(episode)}
+                  >
+                    <div className="bg-white/5 hover:bg-white/10 rounded-xl overflow-hidden transition-all duration-200 border border-white/5 hover:border-white/20">
+                      {/* Episode Thumbnail/Still */}
+                      <div className="relative aspect-video bg-black overflow-hidden">
+                        <img
+                          src={episodeStill}
+                          alt={episodeTitle}
+                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                          onError={(e) => {
+                            const target = e.target as HTMLImageElement;
+                            // Hide broken image, show black background
+                            target.style.display = 'none';
+                          }}
+                        />
+                        
+                        {/* Play Overlay */}
+                        <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex items-center justify-center">
+                          <div className={`bg-gradient-to-r ${themeGradients.accent} p-4 rounded-full ${themeGradients.glow}`}>
+                            <Play className="w-8 h-8 text-white fill-current" />
+                          </div>
+                        </div>
+
+                        {/* Episode Number Badge */}
+                        <div className="absolute top-2 left-2 bg-black/80 backdrop-blur-sm px-3 py-1 rounded-md border border-white/20">
+                          <span className="text-sm font-bold text-white">E{episode.episode_number}</span>
+                        </div>
+
+                        {/* Runtime Badge */}
+                        {episode.runtime && (
+                          <div className="absolute top-2 right-2 bg-black/80 backdrop-blur-sm px-2 py-1 rounded-md border border-white/20">
+                            <span className="text-xs font-semibold text-white">{formatRuntime(episode.runtime)}</span>
+                          </div>
+                        )}
+
+                        {/* Rating Badge */}
+                        {episode.vote_average && episode.vote_average > 0 && (
+                          <div className="absolute bottom-2 right-2 bg-yellow-500/90 backdrop-blur-sm px-2 py-1 rounded-md border border-yellow-500/30 flex items-center gap-1">
+                            <Star className="w-3 h-3 text-black fill-current" />
+                            <span className="text-xs font-bold text-black">{episode.vote_average.toFixed(1)}</span>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Episode Info */}
+                      <div className="p-4">
+                        <h4 className="text-white font-semibold text-sm line-clamp-1 mb-1">
+                          {episodeTitle}
+                        </h4>
+                        
+                        {/* Episode Overview */}
+                        {episode.overview && (
+                          <p className="text-white/60 text-xs line-clamp-2 mb-2">
+                            {episode.overview}
+                          </p>
+                        )}
+
+                        {/* Guest Stars */}
+                        {episode.media?.guest_stars && episode.media.guest_stars.length > 0 && (
+                          <div className="flex items-center gap-1 text-xs text-white/50">
+                            <Users className="w-3 h-3" />
+                            <span className="line-clamp-1">
+                              {episode.media.guest_stars.slice(0, 2).join(', ')}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </motion.div>
+                );
+              })}
+            </div>
           </div>
 
           {/* Episodes Sidebar */}
@@ -535,105 +669,92 @@ export default function SeasonPage() {
               {/* Episodes List */}
               <div className="max-h-[600px] overflow-y-auto scrollbar-thin scrollbar-thumb-white/20 scrollbar-track-transparent">
                 <div className="p-4 space-y-3">
-                  {episodes.map((episode, index) => (
-                    <motion.div
-                      key={episode.id}
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ duration: 0.2, delay: index * 0.03 }}
-                      className="group cursor-pointer"
-                      onClick={() => handlePlay(episode)}
-                    >
-                      <div className="bg-white/5 hover:bg-white/10 rounded-xl p-4 transition-all duration-200 border border-white/5 hover:border-white/20">
-                        <div className="flex gap-4 items-start">
-                          {/* Episode Thumbnail */}
-                          <div className="flex-shrink-0 relative">
-                            <div className="w-24 h-14 bg-white/10 rounded-lg overflow-hidden border border-white/10">
-                              <img
-                                src={episode.still_path ? 
-                                  (episode.still_path.startsWith('http') ? 
-                                    episode.still_path : 
-                                    `${getApiUrl()}/api/admin/assets/${episode.still_path.split('/').pop()}`
-                                  ) : 
-                                  `${getApiUrl()}/api/thumbnails/${episode.media?.id || episode.id}`
-                                }
-                                alt={episode.name}
-                                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
-                                onError={(e) => {
-                                  const target = e.target as HTMLImageElement;
-                                  // Fallback to series backdrop
-                                  target.src = getBackdropImageUrl(series!);
-                                  target.onerror = () => {
-                                    // Final fallback to a placeholder
-                                    target.src = `${getApiUrl()}/api/thumbnails/default`;
-                                  };
-                                }}
-                              />
-                              {/* Play overlay */}
-                              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex items-center justify-center">
-                                <Play className="w-4 h-4 text-white fill-current" />
+                  {episodes.map((episode, index) => {
+                    // Use episode_title if available, fallback to name
+                    const episodeTitle = episode.media?.episode_title || episode.name;
+                    // Use episode_still_path if available, fallback to series backdrop
+                    const episodeStill = episode.media?.episode_still_path 
+                      ? `${getApiUrl()}/api/episode-stills/${episode.media.id}`
+                      : getBackdropImageUrl(series);
+                    
+                    return (
+                      <motion.div
+                        key={episode.id}
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.2, delay: index * 0.03 }}
+                        className="group cursor-pointer"
+                        onClick={() => handlePlay(episode)}
+                      >
+                        <div className="bg-white/5 hover:bg-white/10 rounded-xl p-4 transition-all duration-200 border border-white/5 hover:border-white/20">
+                          <div className="flex gap-4 items-start">
+                            {/* Episode Still/Backdrop */}
+                            <div className="flex-shrink-0 relative">
+                              <div className="w-24 h-14 bg-black rounded-lg overflow-hidden border border-white/10">
+                                <img
+                                  src={episodeStill}
+                                  alt={episodeTitle}
+                                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+                                  onError={(e) => {
+                                    const target = e.target as HTMLImageElement;
+                                    // Hide broken image, show black background
+                                    target.style.display = 'none';
+                                  }}
+                                />
+                                {/* Play overlay */}
+                                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex items-center justify-center">
+                                  <Play className="w-4 h-4 text-white fill-current" />
+                                </div>
+                              </div>
+                              {/* Episode Number Badge */}
+                              <div className="absolute -top-2 -left-2 w-6 h-6 bg-red-600 rounded-full flex items-center justify-center border-2 border-black">
+                                <span className="text-xs font-bold text-white">
+                                  {episode.episode_number}
+                                </span>
                               </div>
                             </div>
-                            {/* Episode Number Badge */}
-                            <div className="absolute -top-2 -left-2 w-6 h-6 bg-red-600 rounded-full flex items-center justify-center border-2 border-black">
-                              <span className="text-xs font-bold text-white">
-                                {episode.episode_number}
-                              </span>
-                            </div>
-                          </div>
 
-                          {/* Episode Info */}
-                          <div className="flex-1 min-w-0">
-                            <h4 className="text-white font-semibold text-sm line-clamp-1 mb-2">
-                              {episode.name}
-                            </h4>
-                            
-                            {/* Episode Overview */}
-                            {episode.overview && (
-                              <p className="text-white/70 text-xs line-clamp-2 mb-2 leading-relaxed">
-                                {episode.overview}
-                              </p>
-                            )}
-                            
-                            {/* Episode Metadata */}
-                            <div className="flex items-center gap-3 text-xs text-white/60">
-                              {episode.runtime && (
-                                <span className="flex items-center gap-1">
-                                  <Clock className="w-3 h-3" />
-                                  {formatRuntime(episode.runtime)}
-                                </span>
+                            {/* Episode Info */}
+                            <div className="flex-1 min-w-0">
+                              <h4 className="text-white font-semibold text-xs line-clamp-1 mb-1">
+                                {episodeTitle}
+                              </h4>
+                              
+                              {/* Episode Overview */}
+                              {episode.overview && (
+                                <p className="text-white/50 text-xs line-clamp-2 mb-2">
+                                  {episode.overview}
+                                </p>
                               )}
-                              {episode.vote_average && episode.vote_average > 0 && (
-                                <span className="flex items-center gap-1 text-yellow-500">
-                                  <Star className="w-3 h-3 fill-current" />
-                                  {episode.vote_average.toFixed(1)}
-                                </span>
-                              )}
-                              {episode.air_date && (
-                                <span className="flex items-center gap-1 text-blue-400">
-                                  <Calendar className="w-3 h-3" />
-                                  {formatDate(episode.air_date)}
-                                </span>
+
+                              {/* Guest Stars */}
+                              {episode.media?.guest_stars && episode.media.guest_stars.length > 0 && (
+                                <div className="flex items-center gap-1 text-xs text-white/40 mt-1">
+                                  <Users className="w-3 h-3" />
+                                  <span className="line-clamp-1">
+                                    {episode.media.guest_stars.slice(0, 2).join(', ')}
+                                  </span>
+                                </div>
                               )}
                             </div>
-                          </div>
 
-                          {/* Play Button */}
-                          <div className="flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handlePlay(episode);
-                              }}
-                              className={`bg-gradient-to-r ${themeGradients.accent} p-2.5 rounded-full transition-all hover:scale-110 ${themeGradients.glow}`}
-                            >
-                              <Play className="w-4 h-4 text-white fill-current" />
-                            </button>
+                            {/* Play Button */}
+                            <div className="flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handlePlay(episode);
+                                }}
+                                className={`bg-gradient-to-r ${themeGradients.accent} p-2.5 rounded-full transition-all hover:scale-110 ${themeGradients.glow}`}
+                              >
+                                <Play className="w-4 h-4 text-white fill-current" />
+                              </button>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    </motion.div>
-                  ))}
+                      </motion.div>
+                    );
+                  })}
                 </div>
               </div>
             </div>

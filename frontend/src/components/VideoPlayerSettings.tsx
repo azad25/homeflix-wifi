@@ -284,8 +284,6 @@ const VideoPlayerSettings: React.FC<VideoPlayerSettingsProps> = ({
         onClick={() => {
           const newEnabled = !stableVolumeEnabled;
           onStableVolumeChange?.(newEnabled);
-          // Save to cookie
-          setCookie('homeflix_stable_volume', newEnabled.toString());
         }}
         className="w-full flex items-center justify-between p-3 bg-black/80 hover:bg-red-600/20 rounded-lg transition-colors"
       >
