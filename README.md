@@ -2,6 +2,9 @@
 
 Transform your media collection into a professional streaming platform! HomeFlix is a full-featured streaming platform that automatically organizes and streams your movies and TV shows with a beautiful, responsive interface. Search movies from directly TMDB and get updated on new movies or tv shows, trailers.
 
+## Watch Demo on [Youtube](https://www.youtube.com/watch?v=_IIKlyhlE_4)!
+
+** Please give a star on this repo if you like it and want more updates!
 ## 🎉 **NEW in Version 4.0: Providers,Live Notifications Feed
 
 ![Widget System Interface](/screenshots/preview_widgets.png)
@@ -698,17 +701,6 @@ homeflix/
 - Make sure ports 3008 and 8252 are available
 - **🆕 Torrent Issues**: See [Torrent Setup Guide](documentation/COMPLETE_TORRENT_SETUP_GUIDE.md) for troubleshooting
 - **🆕 Subtitle Issues**: Check OpenSubtitles API key and account credentials in .env file
-
-## 📚 Documentation
-- **[Complete Torrent Setup Guide](documentation/COMPLETE_TORRENT_SETUP_GUIDE.md)** - Detailed torrent system setup
-- **[Jackett Integration Guide](documentation/JACKETT_INTEGRATION_GUIDE.md)** - Jackett configuration and indexers
-- **[Torrent Implementation Summary](documentation/TORRENT_IMPLEMENTATION_SUMMARY.md)** - Technical details and architecture
-- **[Media Paths System](documentation/MEDIA_PATHS_SYSTEM.md)** - File organization and paths
-- **[OpenSubtitles Integration Guide](documentation/OPENSUBTITLES_SETUP_GUIDE.md)** - Complete subtitle system setup
-- **[Subtitle API Documentation](documentation/SUBTITLE_API_REFERENCE.md)** - Developer API reference
-- **🆕 [Widget System Guide](WIDGET_REDESIGN_SUMMARY.md)** - Complete widget system documentation
-- **🆕 [Widget Performance Optimizations](WIDGET_PERFORMANCE_OPTIMIZATIONS.md)** - Performance tuning and optimization
-- **🆕 [Widget System Fixes](WIDGET_SYSTEM_FIXES.md)** - Bug fixes and improvements
 
 ---
 
