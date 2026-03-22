@@ -131,7 +131,10 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
     backgroundOpacity: 0.8,
     textShadow: true,
     textStroke: false,
-    position: 'bottom' as 'bottom' | 'top' | 'center'
+    bold: false,
+    italic: false,
+    position: 'bottom' as 'bottom' | 'top' | 'center',
+    verticalOffset: 0
   });
   const [hoverTime, setHoverTime] = useState<number | null>(null);
   const [hoverPosition, setHoverPosition] = useState<number>(0);
@@ -609,6 +612,33 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
     setCurrentSubtitleText('');
     (window as any).lastSubtitleText = '';
     // Don't mess with cues - let the subtitle system handle timing naturally
+  }, []);
+
+  // Load saved subtitle styles from cookies on component mount
+  useEffect(() => {
+    const getCookie = (name: string): string | null => {
+      const nameEQ = name + "=";
+      const ca = document.cookie.split(';');
+      for (let i = 0; i < ca.length; i++) {
+        let c = ca[i];
+        while (c.charAt(0) === ' ') c = c.substring(1, c.length);
+        if (c.indexOf(nameEQ) === 0) return c.substring(nameEQ.length, c.length);
+      }
+      return null;
+    };
+
+    const savedSubtitleStyle = getCookie('homeflix_subtitle_style');
+    if (savedSubtitleStyle) {
+      try {
+        const parsed = JSON.parse(savedSubtitleStyle);
+        setSubtitleStyle(prev => ({
+          ...prev,
+          ...parsed
+        }));
+      } catch (e) {
+        // Invalid cookie data, ignore
+      }
+    }
   }, []);
 
   // Centralized subtitle update function - call this whenever video position changes
@@ -4133,16 +4163,19 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                 exit={{ opacity: 0 }}
                 transition={{ duration: 0.1 }} // Faster transition for Chrome
                 className={`absolute z-10 pointer-events-none ${subtitleStyle.position === 'top'
-                  ? 'top-20 left-1/2 -translate-x-1/2'
+                  ? 'top-20 left-1/2'
                   : subtitleStyle.position === 'center'
-                    ? 'top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2'
-                    : 'bottom-10 left-1/2 -translate-x-1/2'
+                    ? 'top-1/2 left-1/2'
+                    : 'bottom-10 left-1/2'
                   }`}
                 style={{
+                  // Apply transform for positioning and vertical offset
+                  transform: subtitleStyle.position === 'center'
+                    ? `translateX(-50%) translateY(calc(-50% + ${subtitleStyle.verticalOffset}px))`
+                    : `translateX(-50%) translateY(${subtitleStyle.verticalOffset}px)`,
                   // Chrome-specific rendering hints
                   willChange: 'opacity, transform',
                   backfaceVisibility: 'hidden',
-                  // Remove conflicting transform - let Tailwind handle it
                 }}
               >
                 <div
@@ -4156,6 +4189,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                       : `${subtitleStyle.backgroundColor}${Math.round(subtitleStyle.backgroundOpacity * 255).toString(16).padStart(2, '0')}`,
                     textShadow: subtitleStyle.textShadow ? '2px 2px 4px rgba(0, 0, 0, 0.9)' : 'none',
                     WebkitTextStroke: subtitleStyle.textStroke ? '1px black' : 'none',
+                    fontWeight: subtitleStyle.bold ? 'bold' : 'normal',
+                    fontStyle: subtitleStyle.italic ? 'italic' : 'normal',
                     lineHeight: '1.4',
                     whiteSpace: 'pre-line',
                     // Chrome-specific rendering optimizations

@@ -81,7 +81,10 @@ interface SubtitleStyle {
   backgroundOpacity: number;
   textShadow: boolean;
   textStroke: boolean;
+  bold: boolean;
+  italic: boolean;
   position: 'bottom' | 'top' | 'center';
+  verticalOffset: number;
 }
 
 interface VideoPlayerSettingsProps {
@@ -493,22 +496,68 @@ const VideoPlayerSettings: React.FC<VideoPlayerSettingsProps> = ({
       </div>
 
       {/* Preview */}
-      <div className="bg-black rounded-lg p-4 mb-4 border border-gray-800">
-        <div className="text-center">
-          <div 
-            className="inline-block px-3 py-1 rounded"
-            style={{
-              fontSize: `${subtitleStyle.fontSize}px`,
-              fontFamily: subtitleStyle.fontFamily,
-              color: subtitleStyle.color,
-              backgroundColor: subtitleStyle.backgroundColor === 'transparent' ? 'transparent' : 
-                `${subtitleStyle.backgroundColor}${Math.round(subtitleStyle.backgroundOpacity * 255).toString(16).padStart(2, '0')}`,
-              textShadow: subtitleStyle.textShadow ? '2px 2px 4px rgba(0,0,0,0.8)' : 'none',
-              WebkitTextStroke: subtitleStyle.textStroke ? '1px black' : 'none',
-            }}
-          >
-            Sample subtitle text
-          </div>
+      <div className="bg-black rounded-lg p-4 mb-4 border border-gray-800 h-48 flex flex-col justify-between">
+        <div className="text-center opacity-30 text-gray-500 text-xs">Video Content</div>
+        <div className="flex flex-col">
+          {subtitleStyle.position === 'top' && (
+            <div 
+              className="inline-block px-3 py-1 rounded text-center mx-auto"
+              style={{
+                fontSize: `${subtitleStyle.fontSize}px`,
+                fontFamily: subtitleStyle.fontFamily,
+                color: subtitleStyle.color,
+                backgroundColor: subtitleStyle.backgroundColor === 'transparent' ? 'transparent' : 
+                  `${subtitleStyle.backgroundColor}${Math.round(subtitleStyle.backgroundOpacity * 255).toString(16).padStart(2, '0')}`,
+                textShadow: subtitleStyle.textShadow ? '2px 2px 4px rgba(0,0,0,0.8)' : 'none',
+                WebkitTextStroke: subtitleStyle.textStroke ? '1px black' : 'none',
+                fontWeight: subtitleStyle.bold ? 'bold' : 'normal',
+                fontStyle: subtitleStyle.italic ? 'italic' : 'normal',
+                marginTop: `${subtitleStyle.verticalOffset}px`,
+              }}
+            >
+              Sample subtitle
+            </div>
+          )}
+          {subtitleStyle.position === 'center' && (
+            <div className="flex items-center justify-center flex-1">
+              <div 
+                className="inline-block px-3 py-1 rounded"
+                style={{
+                  fontSize: `${subtitleStyle.fontSize}px`,
+                  fontFamily: subtitleStyle.fontFamily,
+                  color: subtitleStyle.color,
+                  backgroundColor: subtitleStyle.backgroundColor === 'transparent' ? 'transparent' : 
+                    `${subtitleStyle.backgroundColor}${Math.round(subtitleStyle.backgroundOpacity * 255).toString(16).padStart(2, '0')}`,
+                  textShadow: subtitleStyle.textShadow ? '2px 2px 4px rgba(0,0,0,0.8)' : 'none',
+                  WebkitTextStroke: subtitleStyle.textStroke ? '1px black' : 'none',
+                  fontWeight: subtitleStyle.bold ? 'bold' : 'normal',
+                  fontStyle: subtitleStyle.italic ? 'italic' : 'normal',
+                  marginTop: `${subtitleStyle.verticalOffset}px`,
+                }}
+              >
+                Sample subtitle
+              </div>
+            </div>
+          )}
+          {subtitleStyle.position === 'bottom' && (
+            <div 
+              className="inline-block px-3 py-1 rounded text-center mx-auto"
+              style={{
+                fontSize: `${subtitleStyle.fontSize}px`,
+                fontFamily: subtitleStyle.fontFamily,
+                color: subtitleStyle.color,
+                backgroundColor: subtitleStyle.backgroundColor === 'transparent' ? 'transparent' : 
+                  `${subtitleStyle.backgroundColor}${Math.round(subtitleStyle.backgroundOpacity * 255).toString(16).padStart(2, '0')}`,
+                textShadow: subtitleStyle.textShadow ? '2px 2px 4px rgba(0,0,0,0.8)' : 'none',
+                WebkitTextStroke: subtitleStyle.textStroke ? '1px black' : 'none',
+                fontWeight: subtitleStyle.bold ? 'bold' : 'normal',
+                fontStyle: subtitleStyle.italic ? 'italic' : 'normal',
+                marginTop: `${subtitleStyle.verticalOffset}px`,
+              }}
+            >
+              Sample subtitle
+            </div>
+          )}
         </div>
       </div>
 
@@ -518,7 +567,7 @@ const VideoPlayerSettings: React.FC<VideoPlayerSettingsProps> = ({
         <input
           type="range"
           min="12"
-          max="32"
+          max="48"
           value={subtitleStyle.fontSize}
           onChange={(e) => {
             const newStyle = {
@@ -534,6 +583,54 @@ const VideoPlayerSettings: React.FC<VideoPlayerSettingsProps> = ({
           <span>Small</span>
           <span>{subtitleStyle.fontSize}px</span>
           <span>Large</span>
+        </div>
+      </div>
+
+      {/* Position */}
+      <div>
+        <label className="block text-white text-sm font-medium mb-2">Position</label>
+        <div className="grid grid-cols-3 gap-2 mb-3">
+          {['top', 'center', 'bottom'].map((pos) => (
+            <button
+              key={pos}
+              onClick={() => {
+                const newStyle = {
+                  ...subtitleStyle,
+                  position: pos as 'bottom' | 'top' | 'center'
+                };
+                onSubtitleStyleChange(newStyle);
+                setCookie('homeflix_subtitle_style', JSON.stringify(newStyle));
+              }}
+              className={`p-2 rounded text-sm transition-colors capitalize ${
+                subtitleStyle.position === pos
+                  ? 'bg-red-600 text-white'
+                  : 'bg-black/80 text-gray-300 hover:bg-red-900/30'
+              }`}
+            >
+              {pos}
+            </button>
+          ))}
+        </div>
+        <label className="block text-white text-xs font-medium mb-2">Vertical Offset</label>
+        <input
+          type="range"
+          min="-100"
+          max="100"
+          value={subtitleStyle.verticalOffset}
+          onChange={(e) => {
+            const newStyle = {
+              ...subtitleStyle,
+              verticalOffset: parseInt(e.target.value)
+            };
+            onSubtitleStyleChange(newStyle);
+            setCookie('homeflix_subtitle_style', JSON.stringify(newStyle));
+          }}
+          className="w-full h-2 bg-gray-800 rounded-lg appearance-none cursor-pointer accent-red-600"
+        />
+        <div className="flex justify-between text-xs text-gray-400 mt-1">
+          <span>Move Up</span>
+          <span>{subtitleStyle.verticalOffset > 0 ? '+' : ''}{subtitleStyle.verticalOffset}px</span>
+          <span>Move Down</span>
         </div>
       </div>
 
@@ -654,6 +751,45 @@ const VideoPlayerSettings: React.FC<VideoPlayerSettingsProps> = ({
           </div>
         </div>
       )}
+
+      {/* Text Style */}
+      <div>
+        <label className="block text-white text-sm font-medium mb-2">Text Style</label>
+        <div className="space-y-2">
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={subtitleStyle.bold}
+              onChange={(e) => {
+                const newStyle = {
+                  ...subtitleStyle,
+                  bold: e.target.checked
+                };
+                onSubtitleStyleChange(newStyle);
+                setCookie('homeflix_subtitle_style', JSON.stringify(newStyle));
+              }}
+              className="rounded"
+            />
+            <span className="text-white text-sm font-semibold">Bold</span>
+          </label>
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={subtitleStyle.italic}
+              onChange={(e) => {
+                const newStyle = {
+                  ...subtitleStyle,
+                  italic: e.target.checked
+                };
+                onSubtitleStyleChange(newStyle);
+                setCookie('homeflix_subtitle_style', JSON.stringify(newStyle));
+              }}
+              className="rounded"
+            />
+            <span className="text-white text-sm italic">Italic</span>
+          </label>
+        </div>
+      </div>
 
       {/* Text Effects */}
       <div>
