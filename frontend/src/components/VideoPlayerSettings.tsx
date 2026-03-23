@@ -132,7 +132,7 @@ const VideoPlayerSettings: React.FC<VideoPlayerSettingsProps> = ({
   const [loading, setLoading] = useState(false);
   const [position, setPosition] = useState({ bottom: 60, right: 20 });
 
-  // Load saved settings from cookies on mount
+  // Load saved settings from cookies when settings opens
   useEffect(() => {
     const savedSubtitleStyle = getCookie('homeflix_subtitle_style');
     if (savedSubtitleStyle) {
@@ -151,7 +151,7 @@ const VideoPlayerSettings: React.FC<VideoPlayerSettingsProps> = ({
         onPlaybackRateChange(rate);
       }
     }
-  }, []);
+  }, [isOpen, onSubtitleStyleChange, onPlaybackRateChange]);
 
   // Save subtitle style to cookie whenever it changes
   useEffect(() => {

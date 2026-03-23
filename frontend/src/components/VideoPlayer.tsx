@@ -632,14 +632,23 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
       try {
         const parsed = JSON.parse(savedSubtitleStyle);
         setSubtitleStyle(prev => ({
-          ...prev,
-          ...parsed
+          fontSize: parsed.fontSize !== undefined ? parsed.fontSize : prev.fontSize,
+          fontFamily: parsed.fontFamily || prev.fontFamily,
+          color: parsed.color || prev.color,
+          backgroundColor: parsed.backgroundColor || prev.backgroundColor,
+          backgroundOpacity: parsed.backgroundOpacity !== undefined ? parsed.backgroundOpacity : prev.backgroundOpacity,
+          textShadow: parsed.textShadow !== undefined ? parsed.textShadow : prev.textShadow,
+          textStroke: parsed.textStroke !== undefined ? parsed.textStroke : prev.textStroke,
+          bold: parsed.bold !== undefined ? parsed.bold : prev.bold,
+          italic: parsed.italic !== undefined ? parsed.italic : prev.italic,
+          position: parsed.position || prev.position,
+          verticalOffset: parsed.verticalOffset !== undefined ? parsed.verticalOffset : prev.verticalOffset,
         }));
       } catch (e) {
         // Invalid cookie data, ignore
       }
     }
-  }, []);
+  }, [isOpen]);
 
   // Centralized subtitle update function - call this whenever video position changes
   const updateSubtitlesForCurrentTime = useCallback((currentTime?: number) => {
