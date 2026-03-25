@@ -9,8 +9,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/gin-gonic/gin"
 	"homeflix-backend/internal/services"
+
+	"github.com/gin-gonic/gin"
 )
 
 // Asset Management Handlers
@@ -30,12 +31,13 @@ func GetMediaAssets(mediaService *services.MediaService) gin.HandlerFunc {
 		}
 
 		assets := gin.H{
-			"id":           media.ID,
-			"title":        media.Title,
-			"banner_path":  media.BannerPath,
-			"poster_path":  media.PosterPath,
+			"id":             media.ID,
+			"title":          media.Title,
+			"banner_path":    media.BannerPath,
+			"backdrop_path":  media.BackdropPath,
+			"poster_path":    media.PosterPath,
 			"thumbnail_path": media.ThumbnailPath,
-			"trailer_path": media.TrailerPath,
+			"trailer_path":   media.TrailerPath,
 		}
 
 		c.JSON(http.StatusOK, assets)
@@ -96,7 +98,8 @@ func UploadMediaAsset(mediaService *services.MediaService) gin.HandlerFunc {
 
 		// Update media record
 		switch assetType {
-		case "banner":
+		case "banner", "backdrop":
+			// Both banner and backdrop types store to BannerPath (used by movie page for backdrop)
 			media.BannerPath = filePath
 		case "poster":
 			media.PosterPath = filePath
@@ -144,7 +147,8 @@ func DeleteMediaAsset(mediaService *services.MediaService) gin.HandlerFunc {
 
 		var filePath string
 		switch assetType {
-		case "banner":
+		case "banner", "backdrop":
+			// Both banner and backdrop types use BannerPath
 			filePath = media.BannerPath
 			media.BannerPath = ""
 		case "poster":
@@ -179,12 +183,12 @@ func DeleteMediaAsset(mediaService *services.MediaService) gin.HandlerFunc {
 func ServeAsset() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		filename := c.Param("filename")
-		
+
 		// Sanitize filename to prevent directory traversal
 		filename = strings.ReplaceAll(filename, "..", "")
 		filename = strings.ReplaceAll(filename, "/", "")
 		filename = strings.ReplaceAll(filename, "\\", "")
-		
+
 		filePath := filepath.Join("assets", filename)
 
 		// Check if file exists

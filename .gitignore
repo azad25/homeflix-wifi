@@ -110,3 +110,7 @@ yarn-error.log*
 /subtitles
 /optimized
 *backdrops
+*assets
+*sh
+*episode_stills
+*md

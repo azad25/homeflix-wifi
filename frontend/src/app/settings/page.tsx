@@ -23,6 +23,8 @@ interface MediaAssets {
   title?: string;
   banner?: string;
   banner_path?: string;
+  backdrop?: string;
+  backdrop_path?: string;
   thumbnail?: string;
   thumbnail_path?: string;
   poster_path?: string;
@@ -647,6 +649,7 @@ function SettingsContent() {
           id: media.id,
           title: media.title,
           banner_path: media.banner_path || '',
+          backdrop_path: media.backdrop_path || '',
           poster_path: media.poster_path || '',
           thumbnail_path: media.thumbnail_path || '',
           trailer_path: media.trailer_path || ''
@@ -659,6 +662,7 @@ function SettingsContent() {
         id: media.id,
         title: media.title,
         banner_path: media.banner_path || '',
+        backdrop_path: media.backdrop_path || '',
         poster_path: media.poster_path || '',
         thumbnail_path: media.thumbnail_path || '',
         trailer_path: media.trailer_path || ''
@@ -1675,7 +1679,7 @@ function SettingsContent() {
     setActionLoading(prev => ({ ...prev, testEndpoints: false }));
   };
 
-  const handleFileUpload = async (file: File, type: 'banner' | 'thumbnail' | 'trailer') => {
+  const handleFileUpload = async (file: File, type: 'banner' | 'backdrop' | 'thumbnail' | 'trailer') => {
     if (!selectedMedia) return;
 
     setUploading(true);
@@ -1695,9 +1699,12 @@ function SettingsContent() {
           ...prev,
           [type]: result.path
         }));
+        addTerminalOutput(`✅ ${type.charAt(0).toUpperCase() + type.slice(1)} uploaded successfully`);
+      } else {
+        addTerminalOutput(`❌ Failed to upload ${type}`);
       }
     } catch (error) {
-      console.error('Error uploading file:', error);
+      console.error('Error uploading file:', error);      addTerminalOutput(`❌ Error uploading ${type}: ${error}`);
     } finally {
       setUploading(false);
     }
@@ -2102,11 +2109,11 @@ function SettingsContent() {
     }
   };
 
-  const handleDeleteAsset = async (type: 'banner' | 'thumbnail' | 'trailer') => {
+  const handleDeleteAsset = async (type: 'banner' | 'backdrop' | 'thumbnail' | 'trailer') => {
     if (!selectedMedia) return;
 
     try {
-      const response = await fetch(`${getApiUrl()}/api/admin/media/${selectedMedia.id}/delete-asset`, {
+      const response = await fetch(`${getApiUrl()}/api/admin/media/${selectedMedia.id}/delete-asset?type=${type}`, {
         method: 'DELETE',
         headers: {
           'Content-Type': 'application/json',
@@ -2115,13 +2122,23 @@ function SettingsContent() {
       });
 
       if (response.ok) {
-        setMediaAssets(prev => ({
-          ...prev,
-          [type]: undefined
-        }));
+        // Clear both the type and type_path keys from mediaAssets
+        setMediaAssets(prev => {
+          const updated = { ...prev };
+          delete (updated as any)[type];
+          delete (updated as any)[`${type}_path`];
+          // Special case: backdrop and banner share banner_path
+          if (type === 'backdrop' || type === 'banner') {
+            delete updated.banner;
+            delete updated.banner_path;
+          }
+          return updated;
+        });
+        addTerminalOutput(`✅ ${type} deleted successfully`);
       }
     } catch (error) {
       console.error('Error deleting asset:', error);
+      addTerminalOutput(`❌ Error deleting ${type}: ${error}`);
     }
   };
 
@@ -2328,14 +2345,34 @@ function SettingsContent() {
     onDelete,
     uploading
   }: {
-    type: 'banner' | 'thumbnail' | 'trailer';
+    type: 'banner' | 'backdrop' | 'thumbnail' | 'trailer';
     label: string;
     accept: string;
     mediaAssets: MediaAssets;
-    onUpload: (file: File, type: 'banner' | 'thumbnail' | 'trailer') => void;
-    onDelete: (type: 'banner' | 'thumbnail' | 'trailer') => void;
+    onUpload: (file: File, type: 'banner' | 'backdrop' | 'thumbnail' | 'trailer') => void;
+    onDelete: (type: 'banner' | 'backdrop' | 'thumbnail' | 'trailer') => void;
     uploading: boolean;
-  }) => (
+  }) => {
+    // Check both formats: mediaAssets[type] (e.g., 'backdrop') and mediaAssets[`${type}_path`] (e.g., 'backdrop_path')
+    // Note: backdrop type is stored in banner_path in the database
+    let assetPath = mediaAssets[type] || mediaAssets[`${type}_path` as keyof MediaAssets];
+    
+    // Special case: backdrop uses banner_path in database
+    if (type === 'backdrop' && !assetPath) {
+      assetPath = mediaAssets.banner || mediaAssets.banner_path;
+    }
+
+    // Extract just the filename to avoid double "assets" path
+    // Database stores "assets/filename.jpg", but API expects just "filename.jpg"
+    const getAssetUrl = (path: string | number | undefined) => {
+      if (!path || typeof path !== 'string') return null;
+      const fileName = path.split('/').pop();
+      return fileName ? `${getApiUrl()}/api/admin/assets/${fileName}` : null;
+    };
+
+    const assetUrl = getAssetUrl(assetPath);
+
+    return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
@@ -2347,18 +2384,18 @@ function SettingsContent() {
         {label}
       </h4>
 
-      {mediaAssets[type] ? (
+      {assetUrl ? (
         <div className="space-y-4">
           <div className="relative group">
             {type === 'trailer' ? (
               <video
-                src={`${getApiUrl()}/api/admin/assets/${mediaAssets[type]}`}
+                src={assetUrl}
                 className="w-full h-40 object-cover rounded-lg"
                 controls
               />
             ) : (
               <Image
-                src={`${getApiUrl()}/api/admin/assets/${mediaAssets[type]}`}
+                src={assetUrl}
                 alt={label}
                 width={400}
                 height={160}
@@ -2382,15 +2419,9 @@ function SettingsContent() {
             {type === 'trailer' ? <Video className="w-12 h-12 mx-auto" /> : <ImageIcon className="w-12 h-12 mx-auto" />}
           </div>
           <p className="text-white/60 text-sm mb-4">No {label.toLowerCase()} uploaded</p>
-          <label className="cursor-pointer">
-            <MagneticButton
-              className="bg-[#E50914] hover:bg-[#E50914]/80 text-white px-6 py-3 rounded-lg inline-flex items-center gap-2"
-              disabled={uploading}
-            >
-              <Upload className="w-4 h-4" />
-              {uploading ? 'Uploading...' : `Upload ${label}`}
-            </MagneticButton>
+          <div className="space-y-3">
             <input
+              id={`file-input-${type}`}
               type="file"
               accept={accept}
               className="hidden"
@@ -2400,11 +2431,23 @@ function SettingsContent() {
               }}
               disabled={uploading}
             />
-          </label>
+            <MagneticButton
+              onClick={() => {
+                const fileInput = document.getElementById(`file-input-${type}`) as HTMLInputElement;
+                fileInput?.click();
+              }}
+              className="bg-[#E50914] hover:bg-[#E50914]/80 text-white px-6 py-3 rounded-lg inline-flex items-center gap-2"
+              disabled={uploading}
+            >
+              <Upload className="w-4 h-4" />
+              {uploading ? 'Uploading...' : `Upload ${label}`}
+            </MagneticButton>
+          </div>
         </div>
       )}
     </motion.div>
   );
+  };
 
   const NavButton = ({ active, onClick, icon, label }: any) => (
     <button
@@ -3428,6 +3471,15 @@ function SettingsContent() {
                               <NetflixFileUploadSection
                                 type="banner"
                                 label="Hero Banner (4K)"
+                                accept="image/*"
+                                mediaAssets={mediaAssets}
+                                onUpload={handleFileUpload}
+                                onDelete={handleDeleteAsset}
+                                uploading={uploading}
+                              />
+                              <NetflixFileUploadSection
+                                type="backdrop"
+                                label="Backdrop (1920x1080)"
                                 accept="image/*"
                                 mediaAssets={mediaAssets}
                                 onUpload={handleFileUpload}
