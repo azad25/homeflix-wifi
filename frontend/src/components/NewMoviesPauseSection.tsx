@@ -75,7 +75,7 @@ const NewMoviesPauseSection: React.FC<NewMoviesPauseSectionProps> = ({
             animate={{ y: 0, opacity: 1 }}
             exit={{ y: 20, opacity: 0 }}
             transition={{ delay: 0.4, duration: 0.3 }}
-            className="absolute bottom-24 left-1/2 -translate-x-1/2 w-full max-w-2xl px-4"
+            className="absolute bottom-24 w-full max-w-2xl px-4"
             onClick={(e) => e.stopPropagation()}
         >
             <div className="bg-black/40 backdrop-blur-sm rounded-lg p-3 border border-white/10">

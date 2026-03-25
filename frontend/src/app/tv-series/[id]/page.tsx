@@ -262,7 +262,7 @@ export default function TVSeriesPage() {
   const [isVideoLoaded, setIsVideoLoaded] = useState(false);
   const [showTitleOverlay, setShowTitleOverlay] = useState(true);
   const [isHoveringTitle, setIsHoveringTitle] = useState(false);
-  const [continueWatching, setContinueWatching] = useState<{ episode: Media, progress: number } | null>(null);
+  const [continueWatchingBySeason, setContinueWatchingBySeason] = useState<Map<number, { episode: Media, progress: number, position: number, duration: number, seasonNumber: number, episodeNumber: number, lastWatched: string }>>(new Map());
   const [isShowingTrailer, setIsShowingTrailer] = useState(false);
   const [trailerKey, setTrailerKey] = useState<string | null>(null);
   const [showControls, setShowControls] = useState(true);
@@ -753,21 +753,58 @@ export default function TVSeriesPage() {
 
       setSeasons(seasonsArray.sort((a, b) => a.season_number - b.season_number));
 
-      // Load continue watching after episodes are set
+      // Load continue watching after episodes are set - fetch progress for ALL episodes
       if (seriesEpisodes.length > 0) {
-        // Check for continue watching episode
-        const episodeWithProgress = seriesEpisodes.find((ep: Media) => {
-          const progress = localStorage.getItem(`progress_${ep.id}`);
-          return progress && JSON.parse(progress).progress > 0;
+        const apiUrl2 = getApiUrl();
+        const progressMap = new Map<number, { episode: Media, progress: number, position: number, duration: number, seasonNumber: number, episodeNumber: number, lastWatched: string }>();
+
+        // Fetch progress for all episodes in parallel
+        const progressPromises = seriesEpisodes.map(async (ep: Media) => {
+          try {
+            const resp = await fetch(`${apiUrl2}/api/playback/progress/${ep.id}`, {
+              headers: { 'X-User-ID': '1' }
+            });
+            if (resp.ok) {
+              const data = await resp.json();
+              if (data && data.position > 0 && data.duration > 0) {
+                const pct = (data.position / data.duration) * 100;
+                // Skip completed episodes (>95%)
+                if (pct < 95) {
+                  return { episode: ep, data };
+                }
+              }
+            }
+          } catch (err) {
+            // ignore individual failures
+          }
+          return null;
         });
 
-        if (episodeWithProgress) {
-          const progressData = JSON.parse(localStorage.getItem(`progress_${episodeWithProgress.id}`) || '{}');
-          setContinueWatching({
-            episode: episodeWithProgress,
-            progress: progressData.progress || 0
-          });
-        }
+        const results = await Promise.all(progressPromises);
+
+        // Group by season: keep the most recently watched episode per season
+        results.forEach((result) => {
+          if (!result) return;
+          const { episode: ep, data } = result;
+          const sNum = extractSeasonNumber(ep.title) || 1;
+          const eNum = extractEpisodeNumber(ep.title) || 1;
+          const existing = progressMap.get(sNum);
+          const lastWatched = data.last_watched || '';
+
+          if (!existing || lastWatched > existing.lastWatched) {
+            progressMap.set(sNum, {
+              episode: ep,
+              progress: (data.position / data.duration) * 100,
+              position: data.position,
+              duration: data.duration,
+              seasonNumber: sNum,
+              episodeNumber: eNum,
+              lastWatched,
+            });
+          }
+        });
+
+        setContinueWatchingBySeason(progressMap);
       }
 
       // Fetch recent TV series (excluding current series)
@@ -790,9 +827,9 @@ export default function TVSeriesPage() {
       if (!seriesResponse.ok) {
         throw new Error('Failed to fetch series');
       }
-      
+
       const allSeries = await seriesResponse.json();
-      
+
       // Filter out current series and get recent ones
       const recentSeriesArray = allSeries
         .filter((s: Media) => s.id?.toString() !== params?.id?.toString())
@@ -896,7 +933,7 @@ export default function TVSeriesPage() {
     const videoUrl = getBackgroundVideoUrl(series);
     const episodeToUse = latestEpisode || series;
     const hasPreview = videoUrl && (
-      videoUrl.includes('/api/preview-clips/') || 
+      videoUrl.includes('/api/preview-clips/') ||
       (episodeToUse?.preview_clip_path && episodeToUse.preview_clip_path.trim()) ||
       (episodeToUse?.trailer_path && episodeToUse.trailer_path.trim())
     );
@@ -946,8 +983,10 @@ export default function TVSeriesPage() {
 
     if (media) {
       setSelectedMedia(media);
-    } else if (continueWatching) {
-      setSelectedMedia(continueWatching.episode);
+    } else if (continueWatchingBySeason.size > 0) {
+      // Pick the most recently watched episode across all seasons
+      const sorted = Array.from(continueWatchingBySeason.values()).sort((a, b) => b.lastWatched.localeCompare(a.lastWatched));
+      setSelectedMedia(sorted[0].episode);
     } else if (latestEpisode) {
       // Start with latest episode
       setSelectedMedia(latestEpisode);
@@ -1260,10 +1299,10 @@ export default function TVSeriesPage() {
   // Helper function to check if all video sources have failed and trigger fallback
   const checkAllSourcesFailed = useCallback((videoElement: HTMLVideoElement | null, seriesItem: Media) => {
     if (!videoElement) return;
-    
+
     const sources = Array.from(videoElement.querySelectorAll('source'));
     const activeSources = sources.filter(s => s.style.display !== 'none');
-    
+
     if (activeSources.length === 0) {
       // All sources have failed, try trailer fallback
       setTimeout(() => {
@@ -1931,7 +1970,7 @@ export default function TVSeriesPage() {
             // Check if preview is actually available
             const episodeToUse = latestEpisode || series;
             const hasPreview = videoUrl && (
-              videoUrl.includes('/api/preview-clips/') || 
+              videoUrl.includes('/api/preview-clips/') ||
               (episodeToUse?.preview_clip_path && episodeToUse.preview_clip_path.trim()) ||
               (episodeToUse?.trailer_path && episodeToUse.trailer_path.trim())
             );
@@ -2403,7 +2442,7 @@ export default function TVSeriesPage() {
               </motion.div>
 
               {/* Continue Watching or Latest Episode */}
-              {(continueWatching || latestEpisode) && shouldShowMetadata && (
+              {(continueWatchingBySeason.size > 0 || latestEpisode) && shouldShowMetadata && (
                 <motion.div
                   initial={{ opacity: 0, y: 30 }}
                   animate={{ opacity: 1, y: 0 }}
@@ -2414,13 +2453,15 @@ export default function TVSeriesPage() {
                     <div className="flex items-center gap-2 mb-1">
                       <PlayCircle className="w-4 h-4 text-red-400" />
                       <span className="text-white font-medium text-sm">
-                        {continueWatching ? 'Continue Watching' : 'Latest Episode'}
+                        {continueWatchingBySeason.size > 0 ? 'Continue Watching' : 'Latest Episode'}
                       </span>
                     </div>
                     <p className="text-white/80 text-xs">
-                      {continueWatching ? (
-                        `${continueWatching.episode.title} • ${Math.round((continueWatching.progress / (continueWatching.episode.duration || 1)) * 100)}% complete`
-                      ) : (
+                      {continueWatchingBySeason.size > 0 ? (() => {
+                        const sorted = Array.from(continueWatchingBySeason.values()).sort((a, b) => b.lastWatched.localeCompare(a.lastWatched));
+                        const latest = sorted[0];
+                        return `S${latest.seasonNumber} E${latest.episodeNumber} • ${Math.round(latest.progress)}% complete`;
+                      })() : (
                         latestEpisode?.title || 'New Episode Available'
                       )}
                     </p>
@@ -2495,9 +2536,9 @@ export default function TVSeriesPage() {
                   <button
                     onClick={() => handlePlay()}
                     className="flex items-center justify-center w-12 h-12 bg-white/20 hover:bg-white/30 backdrop-blur-sm border border-white/30 rounded-full transition-all duration-200 hover:scale-110"
-                    title={continueWatching ? 'Continue Watching' : 'Play'}
+                    title={continueWatchingBySeason.size > 0 ? 'Continue Watching' : 'Play'}
                   >
-                    {continueWatching ? (
+                    {continueWatchingBySeason.size > 0 ? (
                       <PlayCircle className="w-6 h-6 text-white" />
                     ) : (
                       <Play className="w-6 h-6 text-white" />
@@ -2523,7 +2564,7 @@ export default function TVSeriesPage() {
                     onAddToCollection={(collectionId) => addToCollection(collectionId, series.id)}
                     onCollectionCreated={fetchCollections}
                   >
-                    <button 
+                    <button
                       className="flex items-center justify-center w-12 h-12 bg-white/20 hover:bg-white/30 backdrop-blur-sm border border-white/30 rounded-full transition-all duration-200 hover:scale-110"
                       title={isInMyListHook(series.id) ? 'Remove from My List' : 'Add to My List'}
                     >
@@ -2531,7 +2572,7 @@ export default function TVSeriesPage() {
                     </button>
                   </MyListTooltip>
 
-                  <button 
+                  <button
                     className="flex items-center justify-center w-12 h-12 bg-white/20 hover:bg-white/30 backdrop-blur-sm border border-white/30 rounded-full transition-all duration-200 hover:scale-110"
                     title="Share"
                   >
@@ -2564,6 +2605,88 @@ export default function TVSeriesPage() {
           </motion.div>
         </div>
       </div>
+
+      {/* Continue Watching Section */}
+      {continueWatchingBySeason.size > 0 && (
+        <div className="relative z-10 bg-black pt-12 pb-4">
+          <div className="container mx-auto px-6 md:px-12 lg:px-16">
+            <ScrollReveal direction="up" delay={0.1}>
+              <h2 className="text-2xl font-bold text-white mb-6 flex items-center gap-2">
+                <PlayCircle className="w-7 h-7 text-red-500" />
+                Continue Watching
+              </h2>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5">
+                {Array.from(continueWatchingBySeason.entries())
+                  .sort(([a], [b]) => a - b)
+                  .map(([seasonNum, item]) => {
+                    const episodeStill = item.episode.episode_still_path
+                      ? `${getApiUrl()}/api/episode-stills/${item.episode.id}`
+                      : `${getApiUrl()}/api/thumbnails/${item.episode.id}`;
+
+                    return (
+                      <motion.div
+                        key={`cw-s${seasonNum}`}
+                        className="group cursor-pointer"
+                        onClick={() => handlePlay(item.episode)}
+                        whileHover={{ scale: 1.03 }}
+                        transition={{ duration: 0.2 }}
+                      >
+                        <div className="bg-white/5 hover:bg-white/10 rounded-xl overflow-hidden transition-all duration-200 border border-white/5 hover:border-white/20">
+                          {/* Episode Thumbnail */}
+                          <div className="relative aspect-video bg-black overflow-hidden">
+                            <img
+                              src={episodeStill}
+                              alt={item.episode.episode_title || item.episode.title}
+                              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                              onError={(e) => {
+                                const target = e.target as HTMLImageElement;
+                                target.style.display = 'none';
+                              }}
+                            />
+
+                            {/* Play Overlay */}
+                            <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex items-center justify-center">
+                              <div className="bg-white rounded-full p-3">
+                                <Play className="w-6 h-6 text-black fill-current" />
+                              </div>
+                            </div>
+
+                            {/* Season/Episode Badge */}
+                            <div className="absolute top-2 left-2 bg-black/80 backdrop-blur-sm px-2.5 py-1 rounded-md border border-white/20">
+                              <span className="text-xs font-bold text-white">S{item.seasonNumber} · E{item.episodeNumber}</span>
+                            </div>
+
+                            {/* Progress percentage */}
+                            <div className="absolute top-2 right-2 bg-black/80 backdrop-blur-sm px-2 py-1 rounded-md border border-white/20">
+                              <span className="text-xs font-semibold text-white">{Math.round(item.progress)}%</span>
+                            </div>
+
+                            {/* Red Progress Bar */}
+                            <div className="absolute bottom-0 left-0 right-0 h-1 bg-gray-600/80">
+                              <div
+                                className="h-full bg-red-600 transition-all duration-300"
+                                style={{ width: `${Math.min(item.progress, 100)}%` }}
+                              />
+                            </div>
+                          </div>
+
+                          {/* Episode Info */}
+                          <div className="p-3">
+                            <p className="text-white/50 text-xs mb-0.5">Season {item.seasonNumber}</p>
+                            <h4 className="text-white font-semibold text-sm line-clamp-1">
+                              {item.episode.episode_title || item.episode.title}
+                            </h4>
+                          </div>
+                        </div>
+                      </motion.div>
+                    );
+                  })}
+              </div>
+            </ScrollReveal>
+          </div>
+        </div>
+      )}
 
       {/* Seasons Section */}
       <div className="relative z-10 bg-black pt-16 pb-24">
@@ -2732,7 +2855,7 @@ export default function TVSeriesPage() {
                             {recentSeriesItem.year && `${recentSeriesItem.year} • `}
                             {recentSeriesItem.genres && recentSeriesItem.genres.length > 0 && (
                               <span>
-                                {recentSeriesItem.genres.slice(0, 2).map(g => 
+                                {recentSeriesItem.genres.slice(0, 2).map(g =>
                                   typeof g === 'string' ? g : g?.name
                                 ).filter(Boolean).join(' • ')}
                               </span>
@@ -2747,8 +2870,8 @@ export default function TVSeriesPage() {
 
                       {recentSeriesItem.description && (
                         <p className="text-white/60 text-xs mt-1 line-clamp-2">
-                          {recentSeriesItem.description.length > 80 
-                            ? recentSeriesItem.description.substring(0, 80) + '...' 
+                          {recentSeriesItem.description.length > 80
+                            ? recentSeriesItem.description.substring(0, 80) + '...'
                             : recentSeriesItem.description}
                         </p>
                       )}
@@ -2769,7 +2892,7 @@ export default function TVSeriesPage() {
           media={selectedMedia}
           isOpen={isPlayerOpen}
           onClose={handlePlayerClose}
-          startTime={continueWatching?.progress || 0}
+          startTime={(() => { const sorted = Array.from(continueWatchingBySeason.values()).sort((a, b) => b.lastWatched.localeCompare(a.lastWatched)); return sorted.length > 0 ? sorted[0].position : 0; })()}
           onPlayNext={(nextMedia) => {
             console.log('Playing next episode:', nextMedia.title);
             setSelectedMedia(nextMedia);

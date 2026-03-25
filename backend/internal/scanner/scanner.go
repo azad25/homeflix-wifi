@@ -1536,8 +1536,8 @@ func (s *MediaScanner) discoverFiles() ([]FileInfo, error) {
 			}
 		}
 
-		// Skip files that are too large (>15GB) to prevent memory issues
-		if info.Size() > 15*1024*1024*1024 {
+		// Skip files that are too large (>100GB) to prevent memory issues
+		if info.Size() > 100*1024*1024*1024 {
 			log.Printf("⚠️ Skipping oversized file: %s (%d bytes)", path, info.Size())
 			return nil
 		}
@@ -1631,7 +1631,7 @@ func (s *MediaScanner) processFilesBatch(files []FileInfo) error {
 	var videoFiles, subtitleFiles []FileInfo
 	for _, file := range files {
 		// Skip files that might cause issues
-		if file.Info.Size() > 15*1024*1024*1024 { // Skip files > 15GB
+		if file.Info.Size() > 100*1024*1024*1024 { // Skip files > 100GB
 			log.Printf("⚠️ Skipping oversized file: %s (%d bytes)", file.Path, file.Info.Size())
 			s.IncrementSkippedFiles()
 			continue
@@ -1771,8 +1771,8 @@ func (s *MediaScanner) processSingleVideoBatch(batch []FileInfo, batchNum int) e
 					s.IncrementNewFiles()
 					log.Printf("✅ Batch %d: Successfully processed %s", batchNum, filepath.Base(fileInfo.Path))
 				}
-			case <-time.After(30 * time.Second): // Reduced timeout to 30 seconds per file
-				log.Printf("⚠️ Timeout processing %s after 30 seconds", fileInfo.Path)
+			case <-time.After(5 * time.Minute): // 5 min timeout for large video files (10-50GB+)
+				log.Printf("⚠️ Timeout processing %s after 5 minutes", fileInfo.Path)
 				mu.Lock()
 				batchErrors = append(batchErrors, fmt.Errorf("timeout processing %s", fileInfo.Path))
 				mu.Unlock()
@@ -2074,7 +2074,7 @@ func (s *MediaScanner) processVideoFile(path string, info os.FileInfo) error {
 	}()
 
 	// Skip files that are too large or problematic
-	if info.Size() > 15*1024*1024*1024 {
+	if info.Size() > 100*1024*1024*1024 {
 		log.Printf("⚠️ Skipping oversized file: %s (%d bytes)", path, info.Size())
 		return nil
 	}
@@ -2403,7 +2403,7 @@ func (s *MediaScanner) processVideoFile(path string, info os.FileInfo) error {
 				if err != nil {
 					log.Printf("Warning: Failed to extract video metadata for %s: %v", media.Title, err)
 				}
-			case <-time.After(10 * time.Second):
+			case <-time.After(60 * time.Second): // 60s for large files on slow storage
 				log.Printf("⚠️ Timeout extracting video metadata for %s", media.Title)
 			}
 
@@ -4314,8 +4314,8 @@ func (s *MediaScanner) measureVideoDurationWithFFmpeg(path string) int {
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	
-	// Set timeout to prevent hanging
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	// Set timeout to prevent hanging (10 min for large files - this decodes the entire file)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 	cmd = exec.CommandContext(ctx, cmd.Args[0], cmd.Args[1:]...)
 	cmd.Stderr = &stderr
@@ -4342,7 +4342,7 @@ func (s *MediaScanner) measureVideoDurationWithFFmpeg(path string) int {
 	var stderr2 bytes.Buffer
 	cmd2.Stderr = &stderr2
 	
-	ctx2, cancel2 := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx2, cancel2 := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel2()
 	cmd2 = exec.CommandContext(ctx2, cmd2.Args[0], cmd2.Args[1:]...)
 	cmd2.Stderr = &stderr2
@@ -4397,7 +4397,7 @@ func (s *MediaScanner) measureWithMediaInfo(path string) int {
 	// Try mediainfo command
 	cmd := exec.Command("mediainfo", "--Inform=General;%Duration%", path)
 	
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	cmd = exec.CommandContext(ctx, cmd.Args[0], cmd.Args[1:]...)
 	
@@ -4436,7 +4436,7 @@ func (s *MediaScanner) estimateDurationByFrameCounting(path string) int {
 		"-of", "csv=p=0",
 		path)
 	
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	cmd = exec.CommandContext(ctx, cmd.Args[0], cmd.Args[1:]...)
 	

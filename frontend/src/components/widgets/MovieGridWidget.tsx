@@ -10,32 +10,32 @@ import { useNavigate } from '@/hooks/useNavigate';
 
 // Genre-based text styling utility
 const getGenreTextStyle = (genres: string[] = []) => {
-  const primaryGenre = genres[0]?.toLowerCase() || '';
-  
-  // Font family based on genre
-  let fontFamily = 'font-sans'; // default
-  if (primaryGenre.includes('horror') || primaryGenre.includes('thriller')) {
-    fontFamily = 'font-mono'; // monospace for tension
-  } else if (primaryGenre.includes('romance') || primaryGenre.includes('drama')) {
-    fontFamily = 'font-serif'; // serif for elegance
-  } else if (primaryGenre.includes('sci') || primaryGenre.includes('science')) {
-    fontFamily = 'font-mono'; // monospace for tech feel
-  } else if (primaryGenre.includes('comedy')) {
-    fontFamily = 'font-sans'; // clean sans for readability
-  }
-  
-  // Text size and styling
-  const textSize = 'text-sm'; // Smaller for grid items
-  const maxWidth = 'max-w-full'; // Full width for grid items
-  const lineHeight = 'leading-relaxed';
-  
-  return {
-    fontFamily,
-    textSize,
-    maxWidth,
-    lineHeight,
-    className: `${fontFamily} ${textSize} ${maxWidth} ${lineHeight}`
-  };
+    const primaryGenre = genres[0]?.toLowerCase() || '';
+
+    // Font family based on genre
+    let fontFamily = 'font-sans'; // default
+    if (primaryGenre.includes('horror') || primaryGenre.includes('thriller')) {
+        fontFamily = 'font-mono'; // monospace for tension
+    } else if (primaryGenre.includes('romance') || primaryGenre.includes('drama')) {
+        fontFamily = 'font-serif'; // serif for elegance
+    } else if (primaryGenre.includes('sci') || primaryGenre.includes('science')) {
+        fontFamily = 'font-mono'; // monospace for tech feel
+    } else if (primaryGenre.includes('comedy')) {
+        fontFamily = 'font-sans'; // clean sans for readability
+    }
+
+    // Text size and styling
+    const textSize = 'text-sm'; // Smaller for grid items
+    const maxWidth = 'max-w-full'; // Full width for grid items
+    const lineHeight = 'leading-relaxed';
+
+    return {
+        fontFamily,
+        textSize,
+        maxWidth,
+        lineHeight,
+        className: `${fontFamily} ${textSize} ${maxWidth} ${lineHeight}`
+    };
 };
 
 interface MovieGridWidgetProps {
@@ -110,12 +110,9 @@ export default function MovieGridWidget({
     };
 
     const handleCardClick = (item: Media) => {
-        // Check if it's TMDB content (has tmdb_id) or local content
-        if (item.tmdb_id) {
-            // Navigate to TMDB movie page with proper media type detection
-            const mediaType = item.type === 'tv' || item.type === 'series' || item.type === 'episode' ? 'tv' : 'movie';
-            navigate.push(`/tmdb-movie/${item.tmdb_id}?type=${mediaType}`);
-        } else {
+        // Local content always routes to local pages, even if it has tmdb_id from metadata enrichment
+        const isLocal = (item as any).is_local;
+        if (isLocal || !item.tmdb_id) {
             // Navigate to local content pages
             if (item.type === 'episode' || item.type === 'tv' || item.type === 'series') {
                 const seriesId = item.series_id || item.id;
@@ -124,6 +121,10 @@ export default function MovieGridWidget({
                 // Local movie - navigate to local movie page
                 navigate.push(`/movie/${item.id}`);
             }
+        } else {
+            // Navigate to TMDB movie page with proper media type detection
+            const mediaType = item.type === 'tv' || item.type === 'series' || item.type === 'episode' ? 'tv' : 'movie';
+            navigate.push(`/tmdb-movie/${item.tmdb_id}?type=${mediaType}`);
         }
     };
 
@@ -148,20 +149,20 @@ export default function MovieGridWidget({
     const getLogoUrl = (item: Media) => {
         if (item.logo_path) {
             console.log('Logo path for', item.title, ':', item.logo_path);
-            
+
             // If it's a full URL, use it directly
             if (item.logo_path.startsWith('http')) {
                 console.log('Using full URL:', item.logo_path);
                 return item.logo_path;
             }
-            
+
             // If it's already an API path, use it directly
             if (item.logo_path.startsWith('/api/')) {
                 const fullUrl = `${apiUrl}${item.logo_path}`;
                 console.log('Using API path:', fullUrl);
                 return fullUrl;
             }
-            
+
             // For local content, use the logos endpoint
             const filename = item.logo_path.includes('/') ? item.logo_path.split('/').pop() : item.logo_path;
             const fullUrl = `${apiUrl}/api/logos/${filename}`;
@@ -206,11 +207,10 @@ export default function MovieGridWidget({
                         disabled={!canScrollLeft}
                         whileHover={{ scale: 1.1 }}
                         whileTap={{ scale: 0.95 }}
-                        className={`p-3 rounded-full backdrop-blur-md border transition-all ${
-                            !canScrollLeft 
-                                ? 'opacity-30 cursor-not-allowed bg-white/5 border-white/10' 
+                        className={`p-3 rounded-full backdrop-blur-md border transition-all ${!canScrollLeft
+                                ? 'opacity-30 cursor-not-allowed bg-white/5 border-white/10'
                                 : 'bg-white/10 hover:bg-white/20 border-white/20 hover:border-white/30'
-                        }`}
+                            }`}
                     >
                         <ChevronLeft className="w-5 h-5 text-white" />
                     </motion.button>
@@ -219,11 +219,10 @@ export default function MovieGridWidget({
                         disabled={!canScrollRight}
                         whileHover={{ scale: 1.1 }}
                         whileTap={{ scale: 0.95 }}
-                        className={`p-3 rounded-full backdrop-blur-md border transition-all ${
-                            !canScrollRight 
-                                ? 'opacity-30 cursor-not-allowed bg-white/5 border-white/10' 
+                        className={`p-3 rounded-full backdrop-blur-md border transition-all ${!canScrollRight
+                                ? 'opacity-30 cursor-not-allowed bg-white/5 border-white/10'
                                 : 'bg-white/10 hover:bg-white/20 border-white/20 hover:border-white/30'
-                        }`}
+                            }`}
                     >
                         <ChevronRight className="w-5 h-5 text-white" />
                     </motion.button>
@@ -256,7 +255,7 @@ export default function MovieGridWidget({
                                 duration: 0.5,
                                 ease: [0.25, 0.1, 0.25, 1]
                             }}
-                            style={{ 
+                            style={{
                                 scrollSnapAlign: 'start',
                                 minWidth: '140px',
                                 maxWidth: isHovered ? '400px' : '220px',
@@ -264,7 +263,7 @@ export default function MovieGridWidget({
                             }}
                         >
                             {/* Card - fixed height, aspect changes */}
-                            <div 
+                            <div
                                 className="relative rounded-xl overflow-hidden shadow-2xl w-full h-full"
                                 style={{
                                     zIndex: isHovered ? 50 : 1,
@@ -316,7 +315,7 @@ export default function MovieGridWidget({
                                                         }}
                                                     />
                                                 ) : null}
-                                                <h4 
+                                                <h4
                                                     className="text-lg font-bold line-clamp-1 text-white drop-shadow-lg"
                                                     style={{ display: logoUrl ? 'none' : 'block' }}
                                                 >
@@ -326,54 +325,54 @@ export default function MovieGridWidget({
 
                                             {/* Meta Info Row */}
                                             <div className="flex items-center gap-1.5 text-xs text-white/90 mb-1 flex-wrap">
-                                                    {(() => {
-                                                        let year = item.year;
-                                                        if (!year || year <= 1900) {
-                                                            if (item.release_date) {
-                                                                year = new Date(item.release_date).getFullYear();
-                                                            } else if (item.first_air_date) {
-                                                                year = new Date(item.first_air_date).getFullYear();
-                                                            }
+                                                {(() => {
+                                                    let year = item.year;
+                                                    if (!year || year <= 1900) {
+                                                        if (item.release_date) {
+                                                            year = new Date(item.release_date).getFullYear();
+                                                        } else if (item.first_air_date) {
+                                                            year = new Date(item.first_air_date).getFullYear();
                                                         }
-                                                        
-                                                        if (year && year > 1900) {
+                                                    }
+
+                                                    if (year && year > 1900) {
+                                                        return (
+                                                            <span className="flex items-center gap-0.5 px-1 py-0.5 rounded text-white/70">
+                                                                <Calendar className="w-2.5 h-2.5" />
+                                                                {year}
+                                                            </span>
+                                                        );
+                                                    }
+                                                    return null;
+                                                })()}
+                                                {showRating && item.rating && item.rating > 0 && (
+                                                    <span className="flex items-center gap-0.5 px-1 py-0.5 rounded text-white/70">
+                                                        <Star className="w-2.5 h-2.5 text-yellow-400 fill-current" />
+                                                        {item.rating.toFixed(1)}
+                                                    </span>
+                                                )}
+                                                {(() => {
+                                                    const duration = item.duration || item.runtime || 0;
+                                                    if (duration > 0) {
+                                                        const hours = Math.floor(duration / 3600);
+                                                        const minutes = Math.floor((duration % 3600) / 60);
+                                                        const timeStr = [
+                                                            hours > 0 ? `${hours}h` : '',
+                                                            minutes > 0 ? `${minutes}m` : ''
+                                                        ].filter(Boolean).join(' ');
+
+                                                        if (timeStr) {
                                                             return (
                                                                 <span className="flex items-center gap-0.5 px-1 py-0.5 rounded text-white/70">
-                                                                    <Calendar className="w-2.5 h-2.5" />
-                                                                    {year}
+                                                                    <Clock className="w-2.5 h-2.5" />
+                                                                    {timeStr}
                                                                 </span>
                                                             );
                                                         }
-                                                        return null;
-                                                    })()}
-                                                    {showRating && item.rating && item.rating > 0 && (
-                                                        <span className="flex items-center gap-0.5 px-1 py-0.5 rounded text-white/70">
-                                                            <Star className="w-2.5 h-2.5 text-yellow-400 fill-current" />
-                                                            {item.rating.toFixed(1)}
-                                                        </span>
-                                                    )}
-                                                    {(() => {
-                                                        const duration = item.duration || item.runtime || 0;
-                                                        if (duration > 0) {
-                                                            const hours = Math.floor(duration / 3600);
-                                                            const minutes = Math.floor((duration % 3600) / 60);
-                                                            const timeStr = [
-                                                                hours > 0 ? `${hours}h` : '',
-                                                                minutes > 0 ? `${minutes}m` : ''
-                                                            ].filter(Boolean).join(' ');
-                                                            
-                                                            if (timeStr) {
-                                                                return (
-                                                                    <span className="flex items-center gap-0.5 px-1 py-0.5 rounded text-white/70">
-                                                                        <Clock className="w-2.5 h-2.5" />
-                                                                        {timeStr}
-                                                                    </span>
-                                                                );
-                                                            }
-                                                        }
-                                                        return null;
-                                                    })()}
-                                                </div>
+                                                    }
+                                                    return null;
+                                                })()}
+                                            </div>
                                         </div>
                                     </div>
                                 )}

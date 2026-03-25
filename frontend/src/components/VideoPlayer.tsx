@@ -187,10 +187,10 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
   // Setup Web Audio API for audio enhancement
   const setupAudioEnhancement = useCallback(() => {
     const video = videoRef.current;
-    
+
     // Allow rebuild if nodes are cleared (after cleanup)
     const needsRebuild = !gainNodeRef.current || !compressorNodeRef.current;
-    
+
     if (!video || (audioEnhancementActiveRef.current && !needsRebuild)) return;
 
     try {
@@ -356,7 +356,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
     console.log('🎵 applyAudioSettings called:', { stableVolume, volumeBoost, boostLevel });
     console.log('Audio enhancement active?', audioEnhancementActiveRef.current);
     console.log('Compressor exists?', !!compressorNodeRef.current);
-    
+
     if (!audioEnhancementActiveRef.current) return;
 
     try {
@@ -383,7 +383,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
           midBoost.disconnect();
           gain.disconnect();
           limiter.disconnect();
-        } catch (e) {}
+        } catch (e) { }
 
         if (stableVolume) {
           // WITH compression
@@ -393,7 +393,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
           // WITHOUT compression (bypass)
           source.connect(bassBoost);
         }
-        
+
         // Rest of chain is the same
         bassBoost.connect(midBoost);
         midBoost.connect(gain);
@@ -425,7 +425,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
   const cleanupAudioEnhancement = useCallback(() => {
     try {
       const audioContext = audioContextRef.current;
-      
+
       if (!audioContext || audioContext.state === 'closed') {
         // Already cleaned up
         sourceNodeRef.current = null;
@@ -438,10 +438,10 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
         audioEnhancementActiveRef.current = false;
         return;
       }
-      
+
       const currentTime = audioContext.currentTime;
       const rampTime = 0.1; // 100ms smooth fade
-      
+
       // Smoothly ramp all processing to neutral/bypass state
       if (gainNodeRef.current) {
         gainNodeRef.current.gain.setTargetAtTime(1.0, currentTime, rampTime);
@@ -456,7 +456,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
         compressorNodeRef.current.threshold.setTargetAtTime(0, currentTime, rampTime);
         compressorNodeRef.current.ratio.setTargetAtTime(1, currentTime, rampTime);
       }
-      
+
       // After fade, reconnect source directly to destination (bypass all processing)
       setTimeout(() => {
         try {
@@ -476,13 +476,13 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
           if (compressorNodeRef.current) {
             compressorNodeRef.current.disconnect();
           }
-          
+
           // Connect source directly to destination (bypass mode)
           if (sourceNodeRef.current && audioContext.state !== 'closed') {
             sourceNodeRef.current.disconnect();
             sourceNodeRef.current.connect(audioContext.destination);
           }
-          
+
           // Clear processing node refs but keep source and context
           gainNodeRef.current = null;
           compressorNodeRef.current = null;
@@ -490,14 +490,14 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
           midBoostNodeRef.current = null;
           limiterNodeRef.current = null;
           audioEnhancementActiveRef.current = false;
-          
+
           // Note: We keep sourceNodeRef and audioContextRef alive
           // This prevents audio dropout since the source stays connected
         } catch (e) {
           console.error('Error during cleanup:', e);
         }
       }, rampTime * 1000 + 50);
-      
+
     } catch (error) {
       console.error('Failed to cleanup audio enhancement:', error);
     }
@@ -507,7 +507,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
   const handleStableVolumeChange = useCallback((enabled: boolean) => {
     setStableVolumeEnabled(enabled);
     localStorage.setItem('homeflix_stable_volume', enabled.toString());
-    
+
     if (enabled) {
       // Setup audio enhancement when enabling
       if (!audioEnhancementActiveRef.current) {
@@ -531,7 +531,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
     setVolumeBoostLevel(level);
     localStorage.setItem('homeflix_volume_boost', enabled.toString());
     localStorage.setItem('homeflix_volume_boost_level', level.toString());
-    
+
     if (enabled) {
       // Setup audio enhancement when enabling
       if (!audioEnhancementActiveRef.current) {
@@ -556,7 +556,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
 
     // DO NOT setup audio enhancement by default
     // Only setup when user explicitly enables a feature
-    
+
     return () => {
       // Cleanup on unmount
     };
@@ -4696,7 +4696,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                   animate={{ scale: 1, opacity: 1 }}
                   exit={{ scale: 0.95, opacity: 0 }}
                   transition={{ duration: 0.3, delay: 0.1 }}
-                  className="max-w-4xl w-full px-8 flex justify-between items-start gap-8"
+                  className="w-full max-w-7xl px-4  flex justify-between items-center gap-16 -mt-25"
                   onClick={(e) => {
                     e.stopPropagation();
                   }}
@@ -4755,6 +4755,30 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                         </h1>
                       )}
                     </motion.div>
+
+                    {/* Progress Bar & Time */}
+                    {duration > 0 && (
+                      <motion.div
+                        initial={{ y: 20, opacity: 0 }}
+                        animate={{ y: 0, opacity: 1 }}
+                        exit={{ y: 20, opacity: 0 }}
+                        transition={{ delay: 0.18, duration: 0.3 }}
+                        className="mb-8 w-full max-w-2xl"
+                      >
+                        <div className="flex items-center gap-4 text-white/80 text-sm font-medium">
+                          <span className="w-12 text-right tabular-nums">{formatTime(currentTime)}</span>
+                          <div className="flex-1 h-1.5 bg-white/20 rounded-full overflow-hidden shadow-inner">
+                            <motion.div
+                              className="h-full bg-[#C0392B] rounded-full drop-shadow-md"
+                              initial={{ width: 0 }}
+                              animate={{ width: `${Math.min((currentTime / duration) * 100, 100)}%` }}
+                              transition={{ duration: 0.5 }}
+                            />
+                          </div>
+                          <span className="w-12 text-left tabular-nums">{duration > 0 ? formatTime(duration) : 'Live'}</span>
+                        </div>
+                      </motion.div>
+                    )}
 
                     {/* Year, Rating and Type Info */}
                     <motion.div
@@ -4876,37 +4900,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                         )}
                       </motion.div>
                     )}
-
-                    {/* Progress Bar */}
-                    {duration > 0 && (
-                      <motion.div
-                        initial={{ y: 20, opacity: 0 }}
-                        animate={{ y: 0, opacity: 1 }}
-                        exit={{ y: 20, opacity: 0 }}
-                        transition={{ delay: 0.3, duration: 0.3 }}
-                        className="w-full max-w-lg h-1 bg-white/20 rounded-full mb-8 overflow-hidden"
-                      >
-                        <motion.div
-                          className="h-full bg-[#C0392B] rounded-full"
-                          initial={{ width: 0 }}
-                          animate={{ width: `${Math.min((currentTime / duration) * 100, 100)}%` }}
-                          transition={{ duration: 0.5 }}
-                        />
-                      </motion.div>
-                    )}
-
-                    {/* Time Info */}
-                    <motion.div
-                      initial={{ y: 20, opacity: 0 }}
-                      animate={{ y: 0, opacity: 1 }}
-                      exit={{ y: 20, opacity: 0 }}
-                      transition={{ delay: 0.3, duration: 0.3 }}
-                      className="text-white/60 text-sm"
-                    >
-                      <p className="font-medium">
-                        {formatTime(currentTime)} / {duration > 0 ? formatTime(duration) : 'Live'}
-                      </p>
-                    </motion.div>
                   </motion.div>
 
                   {/* Right Play Icon and Poster */}
@@ -4936,7 +4929,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                             : (media.poster_url || media.tmdb_poster_url || `${getApiUrl()}/api/posters/${media.id}`)
                         }
                         alt={media.type === 'episode' && seriesData?.title ? seriesData.title : media.title}
-                        className="w-48 h-72 object-cover rounded-xl shadow-2xl transition-transform duration-300 group-hover:scale-105"
+                        className="w-70 h-100 object-cover rounded-xl shadow-2xl transition-transform duration-300 group-hover:scale-105"
                         onError={(e) => {
                           const target = e.target as HTMLImageElement;
                           const failedUrl = target.src;

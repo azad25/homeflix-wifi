@@ -1523,6 +1523,7 @@ func (s *WidgetService) getLocalDataFromCacheOptimized(widget models.Widget, cac
 					TMDBID:          progress.Media.TMDBID,
 					ViewCount:       progress.Media.ViewCount,
 					LastViewed:      &progress.LastWatched,
+					IsLocal:         true,
 				}
 
 				if progress.Media.SeriesID != nil {
@@ -1722,6 +1723,7 @@ func (s *WidgetService) convertSelectedContentToMediaItems(selectedContent []int
 			isLocalItem := false
 			if source, ok := contentMap["_source"].(string); ok && source == "local" {
 				isLocalItem = true
+				item.IsLocal = true
 			}
 
 			// Handle TMDB ID specifically
@@ -3365,6 +3367,7 @@ func (s *WidgetService) convertMediaToWidgetItem(media models.Media, preferSerie
 		TMDBID:          media.TMDBID,
 		ViewCount:       media.ViewCount,
 		LastViewed:      media.LastViewed,
+		IsLocal:         true,
 	}
 
 	if media.SeriesID != nil {

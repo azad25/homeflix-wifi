@@ -66,6 +66,7 @@ type MediaItem struct {
 	NotificationData  interface{} `json:"notification_data,omitempty"`
 	CreatedAt         *time.Time  `json:"created_at,omitempty"`
 	FilePath          string      `json:"file_path,omitempty"`
+	IsLocal           bool        `json:"is_local,omitempty"`
 }
 
 // WidgetWithData represents a widget with its populated data

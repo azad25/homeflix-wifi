@@ -91,12 +91,9 @@ export default function GenreBasedWidget({
     };
 
     const handleCardClick = (item: Media) => {
-        // Check if it's TMDB content (has tmdb_id) or local content
-        if (item.tmdb_id) {
-            // Navigate to TMDB movie page with proper media type detection
-            const mediaType = item.type === 'tv' || item.type === 'series' || item.type === 'episode' ? 'tv' : 'movie';
-            navigate.push(`/tmdb-movie/${item.tmdb_id}?type=${mediaType}`);
-        } else {
+        // Local content always routes to local pages, even if it has tmdb_id from metadata enrichment
+        const isLocal = (item as any).is_local;
+        if (isLocal || !item.tmdb_id) {
             // Navigate to local content pages
             if (item.type === 'episode' || item.type === 'tv' || item.type === 'series') {
                 const seriesId = item.series_id || item.id;
@@ -105,6 +102,10 @@ export default function GenreBasedWidget({
                 // Local movie - navigate to local movie page
                 navigate.push(`/movie/${item.id}`);
             }
+        } else {
+            // Navigate to TMDB movie page with proper media type detection
+            const mediaType = item.type === 'tv' || item.type === 'series' || item.type === 'episode' ? 'tv' : 'movie';
+            navigate.push(`/tmdb-movie/${item.tmdb_id}?type=${mediaType}`);
         }
     };
 

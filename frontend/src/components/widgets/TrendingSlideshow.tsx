@@ -70,12 +70,9 @@ export default function TrendingSlideshow({
     };
 
     const handleCardClick = (item: Media) => {
-        // Check if it's TMDB content (has tmdb_id) or local content
-        if (item.tmdb_id) {
-            // Navigate to TMDB movie page with proper media type detection
-            const mediaType = item.type === 'tv' || item.type === 'series' || item.type === 'episode' ? 'tv' : 'movie';
-            navigate.push(`/tmdb-movie/${item.tmdb_id}?type=${mediaType}`);
-        } else {
+        // Local content always routes to local pages, even if it has tmdb_id from metadata enrichment
+        const isLocal = (item as any).is_local;
+        if (isLocal || !item.tmdb_id) {
             // Navigate to local content pages
             if (item.type === 'episode' || item.type === 'tv' || item.type === 'series') {
                 const seriesId = item.series_id || item.id;
@@ -84,6 +81,10 @@ export default function TrendingSlideshow({
                 // Local movie - navigate to local movie page
                 navigate.push(`/movie/${item.id}`);
             }
+        } else {
+            // Navigate to TMDB movie page with proper media type detection
+            const mediaType = item.type === 'tv' || item.type === 'series' || item.type === 'episode' ? 'tv' : 'movie';
+            navigate.push(`/tmdb-movie/${item.tmdb_id}?type=${mediaType}`);
         }
     };
 
@@ -123,7 +124,7 @@ export default function TrendingSlideshow({
             // This would need to be implemented as a separate API call
             // For now, fall back to local logo handling
         }
-        
+
         if (item.logo_path) {
             // Check if logo_path is already a full URL (TMDB logo)
             if (item.logo_path.startsWith('http')) {
@@ -174,11 +175,10 @@ export default function TrendingSlideshow({
                         disabled={!canScrollLeft}
                         whileHover={{ scale: 1.1 }}
                         whileTap={{ scale: 0.95 }}
-                        className={`p-3 rounded-full backdrop-blur-md border transition-all ${
-                            !canScrollLeft 
-                                ? 'opacity-30 cursor-not-allowed bg-white/5 border-white/10' 
+                        className={`p-3 rounded-full backdrop-blur-md border transition-all ${!canScrollLeft
+                                ? 'opacity-30 cursor-not-allowed bg-white/5 border-white/10'
                                 : 'bg-white/10 hover:bg-white/20 border-white/20 hover:border-white/30'
-                        }`}
+                            }`}
                     >
                         <ChevronLeft className="w-5 h-5 text-white" />
                     </motion.button>
@@ -187,11 +187,10 @@ export default function TrendingSlideshow({
                         disabled={!canScrollRight}
                         whileHover={{ scale: 1.1 }}
                         whileTap={{ scale: 0.95 }}
-                        className={`p-3 rounded-full backdrop-blur-md border transition-all ${
-                            !canScrollRight 
-                                ? 'opacity-30 cursor-not-allowed bg-white/5 border-white/10' 
+                        className={`p-3 rounded-full backdrop-blur-md border transition-all ${!canScrollRight
+                                ? 'opacity-30 cursor-not-allowed bg-white/5 border-white/10'
                                 : 'bg-white/10 hover:bg-white/20 border-white/20 hover:border-white/30'
-                        }`}
+                            }`}
                     >
                         <ChevronRight className="w-5 h-5 text-white" />
                     </motion.button>
@@ -207,7 +206,7 @@ export default function TrendingSlideshow({
                 {displayMedia.map((item, index) => {
                     const colors = getColorPaletteByGenre(item.genre_names || []);
                     const logoUrl = getLogoUrl(item);
-                    
+
                     return (
                         <motion.div
                             key={item.id}
@@ -233,7 +232,7 @@ export default function TrendingSlideshow({
                                     >
                                         {index + 1}
                                     </span>
-                                    <div 
+                                    <div
                                         className="absolute inset-0 text-6xl md:text-7xl font-black leading-none opacity-20"
                                         style={{
                                             background: `linear-gradient(135deg, ${colors.primary} 0%, ${colors.accent} 100%)`,
@@ -259,7 +258,7 @@ export default function TrendingSlideshow({
                                         onError={(e) => {
                                             const target = e.target as HTMLImageElement;
                                             const currentSrc = target.src;
-                                            
+
                                             // Try fallback sequence: poster -> backdrop -> thumbnail
                                             if (currentSrc.includes('tmdb') || currentSrc.includes('posters')) {
                                                 if (item.tmdb_backdrop_url && !currentSrc.includes('backdrop')) {
@@ -270,10 +269,10 @@ export default function TrendingSlideshow({
                                             }
                                         }}
                                     />
-                                    
+
                                     {/* Gradient Overlay */}
                                     <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-                                    
+
                                     {/* Quality Badge */}
                                     <div className="absolute top-3 right-3">
                                         <div className="px-2 py-1 bg-black/80 backdrop-blur-sm rounded text-xs font-bold text-white border border-white/20">
@@ -284,7 +283,7 @@ export default function TrendingSlideshow({
                                     {/* Rating Badge */}
                                     {item.rating && item.rating > 0 && (
                                         <div className="absolute top-3 left-3">
-                                            <div 
+                                            <div
                                                 className="flex items-center gap-1 px-2 py-1 rounded-full backdrop-blur-md border"
                                                 style={{
                                                     backgroundColor: `${colors.primary}30`,
@@ -327,7 +326,7 @@ export default function TrendingSlideshow({
                                                         }}
                                                     />
                                                 ) : null}
-                                                <h3 
+                                                <h3
                                                     className="text-sm font-bold line-clamp-2 text-white drop-shadow-lg"
                                                     style={{ display: logoUrl ? 'none' : 'block' }}
                                                 >
@@ -372,7 +371,7 @@ export default function TrendingSlideshow({
 
                                             {/* Action Buttons */}
                                             <div className="flex items-center gap-2">
-                                                <motion.button 
+                                                <motion.button
                                                     whileHover={{ scale: 1.05 }}
                                                     whileTap={{ scale: 0.95 }}
                                                     onClick={(e) => {
@@ -384,7 +383,7 @@ export default function TrendingSlideshow({
                                                     <Play className="w-3 h-3 fill-current" />
                                                     {item.tmdb_id ? 'View' : 'Play'}
                                                 </motion.button>
-                                                
+
                                                 <motion.button
                                                     whileHover={{ scale: 1.1 }}
                                                     whileTap={{ scale: 0.95 }}
@@ -394,12 +393,12 @@ export default function TrendingSlideshow({
                                                         backgroundColor: isInMyList[item.id] ? `${colors.primary}40` : 'rgba(255,255,255,0.1)'
                                                     }}
                                                 >
-                                                    {isInMyList[item.id] ? 
-                                                        <Check className="w-3 h-3 text-white" /> : 
+                                                    {isInMyList[item.id] ?
+                                                        <Check className="w-3 h-3 text-white" /> :
                                                         <Plus className="w-3 h-3 text-white" />
                                                     }
                                                 </motion.button>
-                                                
+
                                                 <motion.button
                                                     whileHover={{ scale: 1.1 }}
                                                     whileTap={{ scale: 0.95 }}

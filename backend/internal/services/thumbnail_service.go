@@ -324,7 +324,7 @@ func (wp *WorkerPool) processThumbnailOptimized(task ProcessingTask) (string, er
 	args := buildThumbnailCommand(task.VideoPath, thumbnailPath, timeStr, config)
 
 	// Use context with timeout for optimized processing
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
 
@@ -968,7 +968,7 @@ func (wp *WorkerPool) generatePreviewFallback(videoPath string, mediaID uint, pr
 // tryFFProbeMethod uses ffprobe to find a good frame, then extracts it in HD (worker pool version)
 func (wp *WorkerPool) tryFFProbeMethod(videoPath, thumbnailPath string) error {
 	// First, verify video is readable with ffprobe
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, "ffprobe", "-v", "quiet", "-show_entries", "format=duration", "-of", "csv=p=0", videoPath)
@@ -978,7 +978,7 @@ func (wp *WorkerPool) tryFFProbeMethod(videoPath, thumbnailPath string) error {
 	}
 
 	// Try extracting HD frame with minimal ffmpeg parameters
-	ctx2, cancel2 := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx2, cancel2 := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel2()
 
 	cmd = exec.CommandContext(ctx2, "ffmpeg", "-y", "-i", videoPath,
@@ -992,7 +992,7 @@ func (wp *WorkerPool) tryFFProbeMethod(videoPath, thumbnailPath string) error {
 
 // tryImageMagickMethod uses ImageMagick's convert command for HD thumbnails (worker pool version)
 func (wp *WorkerPool) tryImageMagickMethod(videoPath, thumbnailPath string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, "convert",
@@ -1008,7 +1008,7 @@ func (wp *WorkerPool) tryImageMagickMethod(videoPath, thumbnailPath string) erro
 // createPlaceholderThumbnail creates a simple placeholder image (worker pool version)
 func (wp *WorkerPool) createPlaceholderThumbnail(mediaID uint, thumbnailPath string) (string, error) {
 	// Create a Full HD placeholder image using ImageMagick
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, "convert",
@@ -1188,7 +1188,7 @@ func (s *ThumbnailService) ServePreview(mediaID uint, title string) (string, err
 
 // getVideoDurationFast gets video duration using optimized ffprobe
 func getVideoDurationFast(videoPath string) (int, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, "ffprobe",

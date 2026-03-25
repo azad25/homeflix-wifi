@@ -49,6 +49,7 @@ export default function SeasonPage() {
   const [totalSeasons, setTotalSeasons] = useState<number>(1);
   const [isVideoLoaded, setIsVideoLoaded] = useState(false);
   const [isVideoPlaying, setIsVideoPlaying] = useState(false);
+  const [episodeProgress, setEpisodeProgress] = useState<Map<number, { position: number, duration: number }>>(new Map());
   const videoRef = React.useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
@@ -58,11 +59,42 @@ export default function SeasonPage() {
     }
   }, [params?.id, params?.season]);
 
+  // Fetch playback progress for all episodes
+  useEffect(() => {
+    if (episodes.length === 0) return;
+
+    const fetchProgress = async () => {
+      const apiUrl = getApiUrl();
+      const progressMap = new Map<number, { position: number, duration: number }>();
+
+      const promises = episodes.map(async (ep) => {
+        try {
+          const resp = await fetch(`${apiUrl}/api/playback/progress/${ep.id}`, {
+            headers: { 'X-User-ID': '1' }
+          });
+          if (resp.ok) {
+            const data = await resp.json();
+            if (data && data.position > 0 && data.duration > 0) {
+              progressMap.set(ep.id, { position: data.position, duration: data.duration });
+            }
+          }
+        } catch (err) {
+          // ignore
+        }
+      });
+
+      await Promise.all(promises);
+      setEpisodeProgress(progressMap);
+    };
+
+    fetchProgress();
+  }, [episodes]);
+
   const fetchSeasonData = async () => {
     try {
       const apiUrl = getApiUrl();
       const seasonNumber = parseInt(params?.season as string);
-      
+
       // First try to use the hierarchical API
       try {
         // Get series info from hierarchical API
@@ -87,7 +119,7 @@ export default function SeasonPage() {
           const episodesResponse = await fetch(`${apiUrl}/api/series/${params?.id}/seasons/${seasonNumber}/episodes`);
           if (episodesResponse.ok) {
             const episodesData = await episodesResponse.json();
-            
+
             // Convert to Episode format and sort
             const episodeList: Episode[] = episodesData
               .map((media: Media, index: number) => ({
@@ -136,18 +168,18 @@ export default function SeasonPage() {
       // Get all episodes
       const allMediaResponse = await fetch(`${apiUrl}/api/media`);
       const allMedia = await allMediaResponse.json();
-      
+
       // Filter episodes for this series and season
       const seriesEpisodes = allMedia.filter((media: Media) => {
         const belongsToSeries = media.type === 'episode' && (
           media.title.toLowerCase().includes(seriesData.title.toLowerCase()) ||
           media.series_id === seriesData.id ||
-          (media.file_path && seriesData.file_path && 
-           media.file_path.includes(seriesData.file_path.split('/').slice(0, -1).join('/')))
+          (media.file_path && seriesData.file_path &&
+            media.file_path.includes(seriesData.file_path.split('/').slice(0, -1).join('/')))
         );
-        
+
         if (!belongsToSeries) return false;
-        
+
         const episodeSeasonNum = extractSeasonNumber(media.title);
         return episodeSeasonNum === seasonNumber;
       });
@@ -183,7 +215,7 @@ export default function SeasonPage() {
         const seasonNum = extractSeasonNumber(media.title);
         if (seasonNum) seasons.add(seasonNum);
       });
-      
+
       setTotalSeasons(Math.max(...Array.from(seasons)));
 
       // Preload assets
@@ -239,11 +271,11 @@ export default function SeasonPage() {
   // Genre-based gradient themes
   const getGenreTheme = (genres: any[]) => {
     if (!genres || genres.length === 0) return 'default';
-    
-    const genreNames = genres.map(g => 
+
+    const genreNames = genres.map(g =>
       typeof g === 'string' ? g.toLowerCase() : (g.name || String(g)).toLowerCase()
     );
-    
+
     // Priority order for genre themes
     if (genreNames.some(g => g.includes('horror') || g.includes('thriller'))) return 'horror';
     if (genreNames.some(g => g.includes('sci-fi') || g.includes('science fiction') || g.includes('fantasy'))) return 'scifi';
@@ -253,7 +285,7 @@ export default function SeasonPage() {
     if (genreNames.some(g => g.includes('drama'))) return 'drama';
     if (genreNames.some(g => g.includes('crime') || g.includes('mystery'))) return 'crime';
     if (genreNames.some(g => g.includes('documentary'))) return 'documentary';
-    
+
     return 'default';
   };
 
@@ -314,7 +346,7 @@ export default function SeasonPage() {
         glow: 'shadow-red-500/20'
       }
     };
-    
+
     return themes[theme as keyof typeof themes] || themes.default;
   };
 
@@ -332,34 +364,34 @@ export default function SeasonPage() {
 
   const getBackdropImageUrl = (media: Media) => {
     const apiUrl = getApiUrl();
-    
+
     // First try TMDB backdrop if available (high priority for backdrop)
     if (media.tmdb_backdrop_url) {
       return media.tmdb_backdrop_url;
     }
-    
+
     // Then try local banner
     if (media.banner_path) {
       return `${apiUrl}/api/admin/assets/${media.banner_path.split('/').pop()}`;
     }
-    
+
     // Fallback to thumbnail
     return `${apiUrl}/api/thumbnails/${media.id}`;
   };
 
   const getBackgroundVideoUrl = (media: Media) => {
     const apiUrl = getApiUrl();
-    
+
     // Try local trailer
     if (media.trailer_path) {
       return `${apiUrl}/api/admin/assets/${media.trailer_path.split('/').pop()}`;
     }
-    
+
     // Try preview clips
     if (media.preview_clip_path) {
       return `${apiUrl}/api/admin/assets/${media.preview_clip_path.split('/').pop()}`;
     }
-    
+
     // Fallback to preview clips endpoint
     return `${apiUrl}/api/preview-clips/${media.id}`;
   };
@@ -394,7 +426,7 @@ export default function SeasonPage() {
   return (
     <div className="min-h-screen bg-black text-white">
       <Navbar />
-      
+
       {/* Hero Section with Series Backdrop */}
       <div className="relative h-[70vh] overflow-hidden">
         {/* Background Image */}
@@ -544,7 +576,7 @@ export default function SeasonPage() {
                 <Play className="w-5 h-5 fill-current" />
                 Play Season
               </button>
-              
+
               <button
                 onClick={() => navigate.push(`/tv-series/${params?.id}`)}
                 className="bg-white/10 hover:bg-white/20 backdrop-blur-sm text-white px-8 py-3 rounded-lg flex items-center gap-3 text-lg font-semibold transition-all border border-white/20 hover:border-white/40"
@@ -573,10 +605,10 @@ export default function SeasonPage() {
                 // Use episode_title if available, fallback to name
                 const episodeTitle = episode.media?.episode_title || episode.name;
                 // Use episode_still_path if available, fallback to thumbnail
-                const episodeStill = episode.media?.episode_still_path 
+                const episodeStill = episode.media?.episode_still_path
                   ? `${getApiUrl()}/api/episode-stills/${episode.media.id}`
                   : `${getApiUrl()}/api/thumbnails/${episode.media?.id || episode.id}`;
-                
+
                 return (
                   <motion.div
                     key={episode.id}
@@ -599,7 +631,7 @@ export default function SeasonPage() {
                             target.style.display = 'none';
                           }}
                         />
-                        
+
                         {/* Play Overlay */}
                         <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex items-center justify-center">
                           <div className={`bg-gradient-to-r ${themeGradients.accent} p-4 rounded-full ${themeGradients.glow}`}>
@@ -626,6 +658,16 @@ export default function SeasonPage() {
                             <span className="text-xs font-bold text-black">{episode.vote_average.toFixed(1)}</span>
                           </div>
                         )}
+
+                        {/* Red Progress Bar */}
+                        {episodeProgress.has(episode.id) && episodeProgress.get(episode.id)!.duration > 0 && (
+                          <div className="absolute bottom-0 left-0 right-0 h-1 bg-gray-600/80 z-10">
+                            <div
+                              className="h-full bg-red-600 rounded-r-sm"
+                              style={{ width: `${Math.min((episodeProgress.get(episode.id)!.position / episodeProgress.get(episode.id)!.duration) * 100, 100)}%` }}
+                            />
+                          </div>
+                        )}
                       </div>
 
                       {/* Episode Info */}
@@ -633,7 +675,7 @@ export default function SeasonPage() {
                         <h4 className="text-white font-semibold text-sm line-clamp-1 mb-1">
                           {episodeTitle}
                         </h4>
-                        
+
                         {/* Episode Overview */}
                         {episode.overview && (
                           <p className="text-white/60 text-xs line-clamp-2 mb-2">
@@ -673,10 +715,10 @@ export default function SeasonPage() {
                     // Use episode_title if available, fallback to name
                     const episodeTitle = episode.media?.episode_title || episode.name;
                     // Use episode_still_path if available, fallback to series backdrop
-                    const episodeStill = episode.media?.episode_still_path 
+                    const episodeStill = episode.media?.episode_still_path
                       ? `${getApiUrl()}/api/episode-stills/${episode.media.id}`
                       : getBackdropImageUrl(series);
-                    
+
                     return (
                       <motion.div
                         key={episode.id}
@@ -705,6 +747,16 @@ export default function SeasonPage() {
                                 <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex items-center justify-center">
                                   <Play className="w-4 h-4 text-white fill-current" />
                                 </div>
+
+                                {/* Red Progress Bar */}
+                                {episodeProgress.has(episode.id) && episodeProgress.get(episode.id)!.duration > 0 && (
+                                  <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-gray-600/80 z-10">
+                                    <div
+                                      className="h-full bg-red-600 rounded-r-sm"
+                                      style={{ width: `${Math.min((episodeProgress.get(episode.id)!.position / episodeProgress.get(episode.id)!.duration) * 100, 100)}%` }}
+                                    />
+                                  </div>
+                                )}
                               </div>
                               {/* Episode Number Badge */}
                               <div className="absolute -top-2 -left-2 w-6 h-6 bg-red-600 rounded-full flex items-center justify-center border-2 border-black">
@@ -719,7 +771,7 @@ export default function SeasonPage() {
                               <h4 className="text-white font-semibold text-xs line-clamp-1 mb-1">
                                 {episodeTitle}
                               </h4>
-                              
+
                               {/* Episode Overview */}
                               {episode.overview && (
                                 <p className="text-white/50 text-xs line-clamp-2 mb-2">
@@ -772,10 +824,10 @@ export default function SeasonPage() {
           startTime={0}
           onPlayNext={(nextMedia) => {
             console.log('🎬 Season page onPlayNext called with:', nextMedia.title);
-            
+
             const currentIndex = episodes.findIndex(ep => ep.media?.id === selectedMedia.id);
             console.log('🎬 Current episode index:', currentIndex, 'of', episodes.length);
-            
+
             if (currentIndex !== -1 && currentIndex < episodes.length - 1) {
               const nextEpisode = episodes[currentIndex + 1];
               if (nextEpisode.media) {
@@ -784,7 +836,7 @@ export default function SeasonPage() {
                 return;
               }
             }
-            
+
             const nextSeasonNumber = currentSeason + 1;
             console.log('🎬 No more episodes in season, trying season', nextSeasonNumber);
             if (nextSeasonNumber <= totalSeasons) {
