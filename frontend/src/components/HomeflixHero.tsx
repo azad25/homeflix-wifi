@@ -270,8 +270,12 @@ const HomeflixHero: React.FC<HomeflixHeroProps> = ({
     // const toggleMyList = (movie: Media) => { ... }
 
     const getBackdropUrl = (movie: Media): string => {
+        // Local banner_path takes priority (uploaded via settings)
+        if (movie.banner_path) {
+            const fileName = movie.banner_path.split('/').pop();
+            return fileName ? `${apiUrl}/api/admin/assets/${fileName}` : `${apiUrl}${movie.banner_path}`;
+        }
         if (movie.tmdb_backdrop_url) return movie.tmdb_backdrop_url;
-        if (movie.banner_path) return `${apiUrl}${movie.banner_path}`;
         if (movie.thumbnail_path) return `${apiUrl}${movie.thumbnail_path}`;
         if (movie.poster_path) return `${apiUrl}${movie.poster_path}`;
         return "";

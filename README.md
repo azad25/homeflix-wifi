@@ -1,8 +1,15 @@
-# HomeFlix - Media Streaming Platform
+# HomeFlix - Media Streaming Platform for WEB and ANDROID TV
 
 Transform your media collection into a professional streaming platform! HomeFlix is a full-featured streaming platform that automatically organizes and streams your movies and TV shows with a beautiful, responsive interface. Search movies from directly TMDB and get updated on new movies or tv shows, trailers.
 
 ## Watch Demo on [Youtube](https://www.youtube.com/watch?v=_IIKlyhlE_4)!
+### 🖥️ **HomeFlix TV App**
+- **Native TV Application**: Dedicated TV app for the best big-screen experience
+- **Repository**: [https://github.com/azad25/homeflix-tv-app](https://github.com/azad25/homeflix-tv-app)
+- **Features**: TV-optimized interface to strem HomeFlix, remote control D-PAD support, and enhanced movies/TV-Series browsing
+- **Platform**: Built for Android TVs and TV boxes with seamless HomeFlix integration
+
+![HomeFlix TV Preview](preview-app.gif)
 
 ** Please give a star on this repo if you like it and want more updates!
 ## 🎉 **NEW in Version 4.0: Providers,Live Notifications Feed
@@ -693,6 +700,7 @@ homeflix/
 - **🆕 Local Processing**: All torrent management happens on your device
 - **🆕 Subtitle Privacy**: OpenSubtitles integration with secure API authentication
 - **🆕 Rate Limiting**: Respects service limits with intelligent retry mechanisms
+
 
 ## 📞 Support
 - Check the logs in `homeflix.log` for troubleshooting

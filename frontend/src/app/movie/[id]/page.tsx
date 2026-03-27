@@ -1879,17 +1879,17 @@ export default function MoviePage() {
     try {
       const apiUrl = getApiUrl();
 
-      // First try TMDB backdrop if available
-      if (media?.tmdb_backdrop_url && typeof media.tmdb_backdrop_url === 'string' && media.tmdb_backdrop_url.trim()) {
-        return media.tmdb_backdrop_url;
-      }
-
-      // Then try local banner
+      // First try local banner (uploaded via settings takes priority)
       if (media?.banner_path && typeof media.banner_path === 'string' && media.banner_path.trim()) {
         const fileName = media.banner_path.split('/').pop();
         if (fileName && fileName.trim()) {
           return `${apiUrl}/api/admin/assets/${fileName}`;
         }
+      }
+
+      // Then try TMDB backdrop
+      if (media?.tmdb_backdrop_url && typeof media.tmdb_backdrop_url === 'string' && media.tmdb_backdrop_url.trim()) {
+        return media.tmdb_backdrop_url;
       }
 
       // Fallback to thumbnail
@@ -1905,17 +1905,17 @@ export default function MoviePage() {
     try {
       const apiUrl = getApiUrl();
 
-      // First try TMDB backdrop if available (high priority for backdrop)
-      if (media?.tmdb_backdrop_url && typeof media.tmdb_backdrop_url === 'string' && media.tmdb_backdrop_url.trim()) {
-        return media.tmdb_backdrop_url;
-      }
-
-      // Then try local banner
+      // First try local banner (uploaded via settings takes priority)
       if (media?.banner_path && typeof media.banner_path === 'string' && media.banner_path.trim()) {
         const fileName = media.banner_path.split('/').pop();
         if (fileName && fileName.trim()) {
           return `${apiUrl}/api/admin/assets/${fileName}`;
         }
+      }
+
+      // Then try TMDB backdrop
+      if (media?.tmdb_backdrop_url && typeof media.tmdb_backdrop_url === 'string' && media.tmdb_backdrop_url.trim()) {
+        return media.tmdb_backdrop_url;
       }
 
       // Fallback to thumbnail (not poster for backdrop)
