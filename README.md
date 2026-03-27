@@ -480,6 +480,60 @@ Place your movies and TV shows in `/media/azad/Movies1` (or update the path in t
 ./start.sh
 ```
 
+### 2.1 Run HomeFlix as a Linux background service (systemd)
+
+Use the service scripts in `scripts/` so HomeFlix starts automatically on boot and runs in the background.
+
+```bash
+cd /home/azad/homeflix-local/homeflix-wifi
+chmod +x scripts/start-service.sh scripts/stop-service.sh
+```
+
+Create `/etc/systemd/system/homeflix.service`:
+
+```ini
+[Unit]
+Description=HomeFlix
+After=network-online.target redis.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=azad
+Group=azad
+WorkingDirectory=/home/azad/homeflix-local/homeflix-wifi
+ExecStart=/home/azad/homeflix-local/homeflix-wifi/scripts/start-service.sh
+ExecStop=/home/azad/homeflix-local/homeflix-wifi/scripts/stop-service.sh
+Restart=always
+RestartSec=10
+Environment=NODE_ENV=production
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/go/bin
+Environment=NODE_OPTIONS=--max-old-space-size=2048
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Set `User`, `Group`, and absolute paths to match your Linux account and install location.
+
+Enable and start the service:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable homeflix
+sudo systemctl start homeflix
+```
+
+Useful service commands:
+
+```bash
+sudo systemctl status homeflix
+sudo systemctl restart homeflix
+sudo systemctl stop homeflix
+sudo journalctl -u homeflix -f
+tail -f /home/azad/homeflix-local/homeflix-wifi/startup.log
+```
+
 ### 3. Access Your Platform
 - **Web Interface**: http://localhost:3008
 - **Network Access**: http://YOUR_IP:3008 (for other devices)
