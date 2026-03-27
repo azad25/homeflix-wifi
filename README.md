@@ -6,7 +6,7 @@ Transform your media collection into a professional streaming platform! HomeFlix
 ### 🖥️ **HomeFlix TV App**
 - **Native TV Application**: Dedicated TV app for the best big-screen experience
 - **Repository**: [https://github.com/azad25/homeflix-tv-app](https://github.com/azad25/homeflix-tv-app)
-- **Features**: TV-optimized interface to strem HomeFlix, remote control D-PAD support, and enhanced movies/TV-Series browsing
+- **Features**: TV-optimized interface to stream Media on HomeFlix, remote control D-PAD support, and enhanced movies/TV-Series browsing
 - **Platform**: Built for Android TVs and TV boxes with seamless HomeFlix integration
 
 ![HomeFlix TV Preview](preview-app.gif)
