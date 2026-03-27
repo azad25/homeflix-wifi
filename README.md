@@ -1,7 +1,7 @@
 # HomeFlix - Media Streaming Platform for WEB and ANDROID TV
 
 Transform your media collection into a professional streaming platform! HomeFlix is a full-featured streaming platform that automatically organizes and streams your movies and TV shows with a beautiful, responsive interface. Search movies from directly TMDB and get updated on new movies or tv shows, trailers.
-
+![HomeFlix Preview](homeflix.png)
 ## Watch Demo on [Youtube](https://www.youtube.com/watch?v=_IIKlyhlE_4)!
 ### 🖥️ **HomeFlix TV App**
 - **Native TV Application**: Dedicated TV app for the best big-screen experience
