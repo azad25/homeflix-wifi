@@ -1,899 +1,268 @@
 "use client";
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { createPortal } from 'react-dom';
+import React, { useState, useEffect } from 'react';
 import { Media } from '@/types/media';
 import { getApiUrl } from '@/lib/api';
-import { Play, Plus, ThumbsUp, ChevronDown, Star, Clock } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
-import Image from 'next/image';
+import { Film, Star, Clock } from 'lucide-react';
+import { motion } from 'framer-motion';
 import { cachedFetch } from '@/lib/apiCache';
-import { requestThrottler, assetLoader } from '@/lib/requestThrottler';
-import { useImageWithFallback } from '@/lib/imageUtils';
-import { cleanMovieTitle } from '@/lib/titleUtils';
-
-// Add Netflix-style scrollbar hiding and overflow handling
-const netflixScrollStyles = `
-  .netflix-scroll::-webkit-scrollbar {
-    display: none;
-  }
-  .netflix-scroll {
-    -ms-overflow-style: none;
-    scrollbar-width: none;
-  }
-  .netflix-row {
-    overflow: visible !important;
-  }
-  .netflix-card-container {
-    position: relative;
-    z-index: 1;
-  }
-  .netflix-card-container:hover {
-    z-index: 100 !important;
-  }
-`;
-
-// Inject styles
-if (typeof document !== 'undefined') {
-  const styleElement = document.createElement('style');
-  styleElement.textContent = netflixScrollStyles;
-  document.head.appendChild(styleElement);
-}
+import { useRouter } from 'next/navigation';
 
 interface RecommendationSectionProps {
   currentMedia: Media;
-  onPlay: (media: Media) => void;
-  onInfo: (media: Media) => void;
+  className?: string;
+  onPlay?: (media: Media) => void;
+  onInfo?: (media: Media) => void;
 }
 
-const RecommendationSection: React.FC<RecommendationSectionProps> = ({
-  currentMedia,
-  onPlay,
-  onInfo,
-}) => {
-  const [personalizedRecommendations, setPersonalizedRecommendations] = useState<Media[]>([]);
-  const [similarRecommendations, setSimilarRecommendations] = useState<Media[]>([]);
-  const [trendingRecommendations, setTrendingRecommendations] = useState<Media[]>([]);
-  const [continueWatching, setContinueWatching] = useState<Media[]>([]);
-  const [genreRecommendations, setGenreRecommendations] = useState<Media[]>([]);
-  const [mixedRecommendations, setMixedRecommendations] = useState<Media[]>([]);
-  const [topRatedRecommendations, setTopRatedRecommendations] = useState<Media[]>([]);
-  const [latestMoviesRecommendations, setLatestMoviesRecommendations] = useState<Media[]>([]);
+export default function RecommendationSection({ currentMedia, className = '', onPlay, onInfo }: RecommendationSectionProps) {
+  const [recommendations, setRecommendations] = useState<Media[]>([]);
   const [loading, setLoading] = useState(true);
-  const [allAvailableMedia, setAllAvailableMedia] = useState<Media[]>([]);
-  const [previousApiResponses, setPreviousApiResponses] = useState<Set<string>>(new Set());
-  const [refreshCount, setRefreshCount] = useState(0);
-
-  // Throttled API fetching functions
-  const throttledFetchRecommendations = useCallback(
-    requestThrottler.throttle(async () => {
-      // Prevent duplicate calls if already loading
-      if (loading) {
-        console.log('⏳ Recommendations already loading, skipping duplicate call');
-        return;
-      }
-
-      try {
-        console.log('🔄 Fetching recommendations for media:', currentMedia.id);
-        const apiUrl = getApiUrl();
-
-        // Try to fetch from API, but always have fallback ready
-        let apiSuccess = false;
-
-        try {
-          // Try mixed recommendations first
-          const mixedData = await cachedFetch(`${apiUrl}/api/recommendations/mixed?limit=60`);
-
-          if (mixedData && Array.isArray(mixedData) && mixedData.length > 0) {
-            const filteredData = mixedData.filter(m => m.id !== currentMedia.id);
-
-            if (filteredData.length > 0) {
-              const shuffled = shuffleArray([...filteredData]);
-
-              setPersonalizedRecommendations(shuffled.slice(0, 20));
-              setSimilarRecommendations(shuffled.slice(20, 40));
-              setTrendingRecommendations(shuffled.slice(40, 60));
-              setMixedRecommendations(shuffled.slice(0, 20));
-
-              console.log(`✅ Fetched ${filteredData.length} mixed recommendations`);
-              apiSuccess = true;
-            }
-          }
-        } catch (mixedError) {
-          console.log('Mixed recommendations API failed, trying fallback:', mixedError);
-        }
-
-        // If mixed API failed, try basic media endpoint
-        if (!apiSuccess) {
-          try {
-            const basicData = await cachedFetch(`${apiUrl}/api/media?limit=40`);
-            if (basicData && Array.isArray(basicData) && basicData.length > 0) {
-              const filteredData = basicData.filter(m => m.id !== currentMedia.id);
-              const shuffled = shuffleArray([...filteredData]);
-
-              setPersonalizedRecommendations(shuffled.slice(0, 15));
-              setSimilarRecommendations(shuffled.slice(15, 30));
-              setMixedRecommendations(shuffled.slice(0, 20));
-
-              console.log(`✅ Used basic media as recommendations: ${filteredData.length} items`);
-              apiSuccess = true;
-            }
-          } catch (basicError) {
-            console.log('Basic media API also failed:', basicError);
-          }
-        }
-
-        // Try continue watching separately (optional)
-        try {
-          const continueWatchingData = await cachedFetch(`${apiUrl}/api/recommendations/continue-watching`);
-          if (continueWatchingData && Array.isArray(continueWatchingData)) {
-            setContinueWatching(continueWatchingData.filter(m => m.id !== currentMedia.id));
-          }
-        } catch (continueError) {
-          console.log('Continue watching API failed:', continueError);
-        }
-
-      } catch (error) {
-        console.error('Error fetching recommendations:', error);
-        // Fallback to frontend recommendations if API fails
-        if (allAvailableMedia.length > 0) {
-          const topRatedFallback = generateFrontendRecommendations(allAvailableMedia, currentMedia, 'top-rated', 20);
-          const youMightLikeFallback = generateFrontendRecommendations(allAvailableMedia, currentMedia, 'you-might-like', 20);
-
-          setTopRatedRecommendations(topRatedFallback);
-          setMixedRecommendations(youMightLikeFallback);
-        }
-      }
-    }, 'recommendations', 3000), // Increased throttle to 3 seconds
-    [currentMedia.id, loading] // Added loading to dependencies
-  );
-
-  const throttledInitializeMediaCache = useCallback(
-    requestThrottler.throttle(async () => {
-      try {
-        const apiUrl = getApiUrl();
-        const data = await cachedFetch(`${apiUrl}/api/media?limit=100`);
-        if (data && Array.isArray(data)) {
-          setAllAvailableMedia(data);
-          console.log(`✅ Cached ${data.length} media items for recommendation fallback`);
-        }
-      } catch (error) {
-        console.warn('⚠️ Failed to initialize media cache for recommendations:', error);
-      }
-    }, 'media', 1000),
-    []
-  );
+  const router = useRouter();
 
   useEffect(() => {
     let isMounted = true;
 
-    const initializeAndFetch = async () => {
-      if (!isMounted) return;
-
-      setLoading(true);
-      console.log('🔄 Starting recommendations load for media:', currentMedia.id);
-
+    const fetchRecommendations = async () => {
       try {
-        // Initialize media cache and fetch recommendations in a single operation
+        setLoading(true);
         const apiUrl = getApiUrl();
-
-        // Initialize media cache first (for fallback)
+        
+        // Try the dedicated recommendations endpoint first
         try {
-          const mediaData = await cachedFetch(`${apiUrl}/api/media?limit=100`);
-          if (mediaData && Array.isArray(mediaData) && isMounted) {
-            setAllAvailableMedia(mediaData);
-            console.log(`✅ Cached ${mediaData.length} media items for fallback`);
-          }
-        } catch (cacheError) {
-          console.warn('⚠️ Failed to initialize media cache:', cacheError);
-        }
-
-        // Fetch recommendations (single call, no throttling needed here)
-        if (isMounted) {
-          try {
-            const mixedData = await cachedFetch(`${apiUrl}/api/recommendations/mixed?limit=60`);
-
-            if (mixedData && Array.isArray(mixedData) && mixedData.length > 0 && isMounted) {
-              const filteredData = mixedData.filter(m => m.id !== currentMedia.id);
-
-              if (filteredData.length > 0) {
-                const shuffled = shuffleArray([...filteredData]);
-
-                setPersonalizedRecommendations(shuffled.slice(0, 20));
-                setSimilarRecommendations(shuffled.slice(20, 40));
-                setTrendingRecommendations(shuffled.slice(40, 60));
-                setMixedRecommendations(shuffled.slice(0, 20));
-
-                console.log(`✅ Loaded ${filteredData.length} recommendations successfully`);
-              }
-            } else {
-              throw new Error('No recommendations data received');
-            }
-          } catch (apiError) {
-            console.log('API recommendations failed, using fallback:', apiError);
-            // Use fallback recommendations from cached media
-            if (allAvailableMedia.length > 0 && isMounted) {
-              const fallbackRecommendations = generateFrontendRecommendations(allAvailableMedia, currentMedia, 'you-might-like', 20);
-              setMixedRecommendations(fallbackRecommendations);
-              setPersonalizedRecommendations(fallbackRecommendations.slice(0, 10));
-              setSimilarRecommendations(fallbackRecommendations.slice(10, 20));
-              console.log('✅ Used fallback recommendations');
+          const recData = await cachedFetch(`${apiUrl}/api/recommendations/mixed?limit=30`);
+          if (recData && Array.isArray(recData) && recData.length > 0 && isMounted) {
+            const filtered = recData.filter(m => m.id !== currentMedia.id);
+            if (filtered.length > 0) {
+              setRecommendations(filtered.slice(0, 14)); // 2 rows of 7 pattern
+              setLoading(false);
+              return;
             }
           }
+        } catch (e) {
+          console.warn("Failed primary recommendation endpoint", e);
         }
 
-      } catch (error) {
-        console.error('Error in recommendation initialization:', error);
+        // Fallback to general media cleanly avoiding bloated row assignments
+        const fallbackData = await cachedFetch(`${apiUrl}/api/media?limit=100`);
+        if (fallbackData && Array.isArray(fallbackData) && isMounted) {
+           const filtered = fallbackData.filter(m => m.id !== currentMedia.id);
+           // Shuffle lightly
+           const shuffled = filtered.sort(() => 0.5 - Math.random());
+           setRecommendations(shuffled.slice(0, 14));
+        }
+
+      } catch (err) {
+        console.error("Failed to load recommendations:", err);
       } finally {
-        if (isMounted) {
-          setLoading(false);
-        }
+        if (isMounted) setLoading(false);
       }
     };
 
-    initializeAndFetch();
+    fetchRecommendations();
 
-    return () => {
-      isMounted = false;
-    };
-  }, [currentMedia.id]); // Only re-run when media changes
+    return () => { isMounted = false; };
+  }, [currentMedia.id]);
 
-  // Periodic refresh - only shuffle existing data to avoid API calls
-  useEffect(() => {
-    if (loading || allAvailableMedia.length === 0) return;
-
-    // Only shuffle existing data every 20 minutes (no API calls)
-    const interval = setInterval(() => {
-      console.log('🔄 Periodic shuffle of existing recommendations...');
-
-      if (allAvailableMedia.length > 0) {
-        const newTopRated = generateFrontendRecommendations(allAvailableMedia, currentMedia, 'top-rated', 20);
-        const newYouMightLike = generateFrontendRecommendations(allAvailableMedia, currentMedia, 'you-might-like', 20);
-        const newLatestMovies = generateLatestMoviesRecommendations(allAvailableMedia, 20);
-
-        setTopRatedRecommendations(newTopRated);
-        setMixedRecommendations(prev => prev.length > 0 ? shuffleArray([...prev]) : newYouMightLike);
-        setLatestMoviesRecommendations(newLatestMovies);
-      }
-    }, 20 * 60 * 1000); // 20 minutes - only shuffle, no API calls
-
-    return () => clearInterval(interval);
-  }, [loading, allAvailableMedia.length, currentMedia.id]);
-
-  // Shuffle array utility function
-  const shuffleArray = <T,>(array: T[]): T[] => {
-    const shuffled = [...array];
-    for (let i = shuffled.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-    }
-    return shuffled;
+  const resolveLocalAssetUrl = (path: string | undefined | null) => {
+    if (!path) return null;
+    if (path.startsWith('http') || path.startsWith('data:')) return path;
+    const apiUrl = getApiUrl();
+    if (path.includes('/api/')) return path.startsWith('/') ? `${apiUrl}${path}` : `${apiUrl}/${path}`;
+    
+    if (path.startsWith('assets/')) return `${apiUrl}/api/admin/assets/${path.replace('assets/', '')}`;
+    if (path.startsWith('backdrops/')) return `${apiUrl}/api/static/backdrops/${path.replace('backdrops/', '')}`;
+    if (path.startsWith('posters/')) return `${apiUrl}/api/static/posters/${path.replace('posters/', '')}`;
+    if (path.startsWith('thumbnails/')) return `${apiUrl}/api/static/thumbnails/${path.replace('thumbnails/', '')}`;
+    if (path.startsWith('logos/')) return `${apiUrl}/api/logos/${path.replace('logos/', '')}`;
+    
+    return path.startsWith('/') ? `${apiUrl}${path}` : `${apiUrl}/${path}`;
   };
 
-  // Generate fallback recommendations when API fails
-  const generateFallbackRecommendations = (): Media[] => {
-    console.log('🔄 Generating fallback recommendations...');
-
-    // Create some mock recommendations based on current media
-    const fallbackItems: Media[] = [];
-
-    // Generate some basic recommendations
-    for (let i = 1; i <= 20; i++) {
-      if (i === currentMedia.id) continue; // Skip current media
-
-      fallbackItems.push({
-        id: currentMedia.id + i,
-        title: `Recommended ${currentMedia.type === 'movie' ? 'Movie' : 'Show'} ${i}`,
-        type: currentMedia.type || 'movie',
-        year: (currentMedia.year || 2023) - Math.floor(Math.random() * 5),
-        rating: 7.0 + Math.random() * 2,
-        genres: currentMedia.genres || [{ id: 1, name: 'Drama' }],
-        description: `A great ${currentMedia.type || 'movie'} you might enjoy based on your interest in ${currentMedia.title}`,
-        duration: 7200 + Math.random() * 3600, // 2-3 hours
-        view_count: Math.floor(Math.random() * 10000),
-        file_path: '',
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      });
-    }
-
-    console.log(`✅ Generated ${fallbackItems.length} fallback recommendations`);
-    return fallbackItems;
-  };
-
-  // Check if API response is duplicate
-  const isApiResponseDuplicate = (media: Media[], category: string): boolean => {
-    const responseSignature = `${category}-${media.map(m => m.id).sort().join(',')}`;
-    return previousApiResponses.has(responseSignature);
-  };
-
-  // Add API response to history
-  const addApiResponseToHistory = (media: Media[], category: string) => {
-    const responseSignature = `${category}-${media.map(m => m.id).sort().join(',')}`;
-    setPreviousApiResponses(prev => new Set([...prev, responseSignature]));
-  };
-
-  // Generate intelligent frontend recommendations with enhanced latest and genre prioritization
-  const generateFrontendRecommendations = (
-    availableMedia: Media[],
-    currentMediaItem: Media,
-    category: 'top-rated' | 'you-might-like',
-    limit: number = 20
-  ): Media[] => {
-    console.log(`🔄 Generating frontend ${category} recommendations from ${availableMedia.length} available items...`);
-
-    // Filter out current media
-    const filteredMedia = availableMedia.filter(m => m.id !== currentMediaItem.id);
-
-    // Priority genres: sci-fi, action, drama, thriller
-    const priorityGenres = ['sci-fi', 'science fiction', 'action', 'drama', 'thriller', 'adventure', 'mystery', 'crime'];
-
-    // Latest and newly added content (highest IDs = most recent)
-    const latestContent = filteredMedia
-      .sort((a, b) => b.id - a.id)
-      .slice(0, Math.floor(filteredMedia.length * 0.4)); // Top 40% newest
-
-    // Priority genre content with latest preference
-    const priorityGenreContent = filteredMedia.filter(m =>
-      m.genres?.some(genre =>
-        priorityGenres.some(priority =>
-          genre.name.toLowerCase().includes(priority.toLowerCase())
-        )
-      )
-    ).sort((a, b) => b.id - a.id); // Sort by latest first
-
-    // Latest movies specifically (for movie recommendations)
-    const latestMovies = filteredMedia
-      .filter(m => m.type === 'movie')
-      .sort((a, b) => b.id - a.id)
-      .slice(0, Math.floor(filteredMedia.length * 0.3)); // Top 30% newest movies
-
-    let recommendations: Media[] = [];
-
-    if (category === 'top-rated') {
-      // Top Rated: Enhanced with latest priority genre content
-      const highRatedPriorityGenres = priorityGenreContent
-        .filter(m => (m.rating || 0) >= 7.0)
-        .slice(0, Math.floor(limit * 0.4)); // 40% latest priority genres
-
-      const latestHighRated = latestContent
-        .filter(m => (m.rating || 0) >= 6.5)
-        .slice(0, Math.floor(limit * 0.3)); // 30% latest high-rated
-
-      const generalHighRated = filteredMedia
-        .filter(m => (m.rating || 0) >= 7.5 &&
-          !highRatedPriorityGenres.some(r => r.id === m.id) &&
-          !latestHighRated.some(r => r.id === m.id))
-        .sort((a, b) => (b.rating || 0) - (a.rating || 0))
-        .slice(0, Math.floor(limit * 0.3)); // 30% general high-rated
-
-      recommendations = [
-        ...shuffleArray(highRatedPriorityGenres),
-        ...shuffleArray(latestHighRated),
-        ...shuffleArray(generalHighRated)
-      ];
-
-    } else if (category === 'you-might-like') {
-      // You Might Like: Enhanced with latest and priority genre focus
-
-      // 1. Latest priority genre content (35%)
-      const latestPriorityGenres = priorityGenreContent
-        .slice(0, Math.floor(limit * 0.35));
-
-      // 2. Latest movies if current is movie, or same genre latest (25%)
-      let contextualLatest: Media[] = [];
-      if (currentMediaItem.type === 'movie') {
-        contextualLatest = latestMovies
-          .filter(m => !latestPriorityGenres.some(r => r.id === m.id))
-          .slice(0, Math.floor(limit * 0.25));
-      } else {
-        // For TV shows, get latest same genre content
-        contextualLatest = currentMediaItem.genres ?
-          latestContent.filter(m =>
-            m.genres?.some(g => currentMediaItem.genres!.some(cg => cg.name === g.name)) &&
-            !latestPriorityGenres.some(r => r.id === m.id)
-          ).slice(0, Math.floor(limit * 0.25)) : [];
+  const getPosterUrl = (movie: Media) => {
+    try {
+      if ((movie as any)?.poster_url) return (movie as any).poster_url;
+      const posterPathRaw = (movie as any)?.poster_path;
+      if (posterPathRaw && posterPathRaw.trim() !== '') {
+          const resolved = resolveLocalAssetUrl(posterPathRaw);
+          if (resolved) return resolved;
       }
-
-      // 3. Popular latest content (20%)
-      const popularLatest = latestContent
-        .filter(m =>
-          !latestPriorityGenres.some(r => r.id === m.id) &&
-          !contextualLatest.some(r => r.id === m.id)
-        )
-        .sort((a, b) => (b.view_count || 0) - (a.view_count || 0))
-        .slice(0, Math.floor(limit * 0.2));
-
-      // 4. Same type latest content (20%)
-      const sameTypeLatest = filteredMedia
-        .filter(m =>
-          m.type === currentMediaItem.type &&
-          !latestPriorityGenres.some(r => r.id === m.id) &&
-          !contextualLatest.some(r => r.id === m.id) &&
-          !popularLatest.some(r => r.id === m.id)
-        )
-        .sort((a, b) => b.id - a.id)
-        .slice(0, Math.floor(limit * 0.2));
-
-      recommendations = [
-        ...shuffleArray(latestPriorityGenres),
-        ...shuffleArray(contextualLatest),
-        ...shuffleArray(popularLatest),
-        ...shuffleArray(sameTypeLatest)
-      ];
-    }
-
-    // Fill remaining slots with latest content prioritizing priority genres
-    const remaining = filteredMedia.filter(m =>
-      !recommendations.some(r => r.id === m.id)
-    );
-
-    // Prioritize remaining priority genre content first
-    const remainingPriorityGenres = remaining.filter(m =>
-      m.genres?.some(genre =>
-        priorityGenres.some(priority =>
-          genre.name.toLowerCase().includes(priority.toLowerCase())
-        )
-      )
-    ).sort((a, b) => b.id - a.id); // Latest first
-
-    // Then latest general content
-    const remainingLatest = remaining.filter(m =>
-      !remainingPriorityGenres.some(r => r.id === m.id)
-    ).sort((a, b) => b.id - a.id);
-
-    // Fill remaining slots
-    const slotsRemaining = limit - recommendations.length;
-    if (slotsRemaining > 0) {
-      const fillContent = [
-        ...remainingPriorityGenres.slice(0, Math.floor(slotsRemaining * 0.6)),
-        ...remainingLatest.slice(0, Math.floor(slotsRemaining * 0.4))
-      ];
-      recommendations.push(...shuffleArray(fillContent).slice(0, slotsRemaining));
-    }
-
-    // Final shuffle and limit
-    const finalRecommendations = shuffleArray(recommendations).slice(0, limit);
-    console.log(`✅ Generated ${finalRecommendations.length} frontend ${category} recommendations (${priorityGenreContent.length} priority genres, ${latestContent.length} latest items)`);
-    return finalRecommendations;
-  };
-
-  // Generate latest movies recommendations with priority genre focus
-  const generateLatestMoviesRecommendations = (availableMedia: Media[], limit: number = 20): Media[] => {
-    console.log(`🔄 Generating latest movies recommendations from ${availableMedia.length} available items...`);
-
-    // Priority genres for movies
-    const priorityGenres = ['sci-fi', 'science fiction', 'action', 'drama', 'thriller', 'adventure', 'mystery', 'crime', 'horror', 'fantasy'];
-
-    // Filter to movies only and sort by latest (highest ID = most recent)
-    const allMovies = availableMedia
-      .filter(m => m.type === 'movie')
-      .sort((a, b) => b.id - a.id);
-
-    // Latest movies with priority genres
-    const latestPriorityMovies = allMovies.filter(m =>
-      m.genres?.some(genre =>
-        priorityGenres.some(priority =>
-          genre.name.toLowerCase().includes(priority.toLowerCase())
-        )
-      )
-    ).slice(0, Math.floor(limit * 0.6)); // 60% priority genre movies
-
-    // Latest movies (all genres)
-    const latestAllMovies = allMovies
-      .filter(m => !latestPriorityMovies.some(p => p.id === m.id))
-      .slice(0, Math.floor(limit * 0.4)); // 40% other latest movies
-
-    const recommendations = [
-      ...shuffleArray(latestPriorityMovies),
-      ...shuffleArray(latestAllMovies)
-    ];
-
-    const finalRecommendations = shuffleArray(recommendations).slice(0, limit);
-    console.log(`✅ Generated ${finalRecommendations.length} latest movies recommendations (${latestPriorityMovies.length} priority genres, ${latestAllMovies.length} other movies)`);
-    return finalRecommendations;
-  };
-
-  // Netflix-style Card Component
-  const NetflixCard: React.FC<{ media: Media; index: number }> = ({ media, index }) => {
-    const [isHovered, setIsHovered] = useState(false);
-    const [imageLoaded, setImageLoaded] = useState(false);
-    const [imageError, setImageError] = useState(false);
-    const [fallbackError, setFallbackError] = useState(false);
-    const [videoLoaded, setVideoLoaded] = useState(false);
-    const [showVideo, setShowVideo] = useState(false);
-    const [cardPosition, setCardPosition] = useState({ top: 0, left: 0, width: 0 });
-    const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-    const videoTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-    const videoRef = useRef<HTMLVideoElement>(null);
-    const cardRef = useRef<HTMLDivElement>(null);
-
-    const { primarySrc, fallbackSrc } = useImageWithFallback(media.id);
-
-    const handleMouseEnter = () => {
-      // Calculate card position for portal
-      if (cardRef.current) {
-        const rect = cardRef.current.getBoundingClientRect();
-        setCardPosition({
-          top: rect.top + window.scrollY,
-          left: rect.left + window.scrollX,
-          width: rect.width
-        });
-      }
-
-      hoverTimeoutRef.current = setTimeout(() => {
-        setIsHovered(true);
-        // Start video preview after additional delay
-        videoTimeoutRef.current = setTimeout(() => {
-          setShowVideo(true);
-          if (videoRef.current) {
-            videoRef.current.play().catch(() => {
-              console.log('Video autoplay failed for preview');
-            });
-          }
-        }, 800); // Additional delay for video preview
-      }, 300); // Delay hover effect like Netflix
-    };
-
-    const handleMouseLeave = () => {
-      if (hoverTimeoutRef.current) {
-        clearTimeout(hoverTimeoutRef.current);
-      }
-      if (videoTimeoutRef.current) {
-        clearTimeout(videoTimeoutRef.current);
-      }
-      setIsHovered(false);
-      setShowVideo(false);
-      if (videoRef.current) {
-        videoRef.current.pause();
-        videoRef.current.currentTime = 0;
-      }
-    };
-
-    const handleImageError = (event: React.SyntheticEvent<HTMLImageElement>) => {
-      const img = event.currentTarget;
-
-      if (img.src === primarySrc && !imageError) {
-        // First error: poster failed, try thumbnail
-        setImageError(true);
-        img.src = fallbackSrc;
-      } else if (!fallbackError) {
-        // Second error: thumbnail also failed
-        setFallbackError(true);
-      }
-    };
-
-    const getPreviewVideoUrl = (media: Media) => {
+      
       const apiUrl = getApiUrl();
-      // Try preview clips first (optimized for previews)
-      if (media.preview_clip_path) {
-        return `${apiUrl}/api/admin/assets/${media.preview_clip_path.split('/').pop()}`;
+      if (!apiUrl || !movie?.id) return 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjQ1MCIgdmlld0JveD0iMCAwIDMwMCA0NTAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIzMDAiIGhlaWdodD0iNDUwIiBmaWxsPSIjMzc0MTUxIi8+CjxwYXRoIGQ9Ik0xNTAgMjAwQzE4Ny4yNzkgMjAwIDIxOCAxNjkuMjc5IDIxOCAxMzJDMjE4IDk0LjcyMDggMTg3LjI3OSA2NCAxNTAgNjRDMTEyLjcyMSA2NCA4MiA5NC43MjA4IDgyIDEzMkM4MiAxNjkuMjc5IDExMi43MjEgMjAwIDE1MCAyMDBaIiBmaWxsPSIjNkI3Mjg4Ii8+CjxwYXRoIGQ9Ik04MiAyNzZDODIgMjM4LjY4IDExMi42OCAyMDggMTUwIDIwOEgxNTBDMTg3LjMyIDIwOCAyMTggMjM4LjY4IDIxOCAyNzZWMzUwSDgyVjI3NloiIGZpbGw9IiM2QjcyODgiLz4KPHN2Zz4K';
+      if (movie.type === 'tv' || movie.type === 'series' || movie.type === 'episode') {
+         return `${apiUrl}/api/series/${movie.id}/poster`;
       }
-      // Fallback to preview clips endpoint
-      return `${apiUrl}/api/preview-clips/${media.id}`;
-    };
-
-    // Cleanup timeouts on unmount
-    useEffect(() => {
-      return () => {
-        if (hoverTimeoutRef.current) {
-          clearTimeout(hoverTimeoutRef.current);
-        }
-        if (videoTimeoutRef.current) {
-          clearTimeout(videoTimeoutRef.current);
-        }
-      };
-    }, []);
-
-    const formatRuntime = (minutes: number) => {
-      const hours = Math.floor(minutes / 60);
-      const mins = minutes % 60;
-      if (hours > 0) {
-        return `${hours}h ${mins}m`;
-      }
-      return `${mins}m`;
-    };
-
-    const handleRecommendationClick = useCallback(
-      requestThrottler.throttle(async () => {
-        try {
-          const apiUrl = getApiUrl();
-          await cachedFetch(`${apiUrl}/api/recommendations/track-click/${media.id}`, {
-            method: 'POST'
-          });
-        } catch (error) {
-          console.error('Error tracking recommendation click:', error);
-        }
-        onInfo(media);
-      }, 'analytics', 500),
-      [onInfo]
-    );
-
-    return (
-      <>
-        <motion.div
-          ref={cardRef}
-          className="relative group cursor-pointer"
-          onMouseEnter={handleMouseEnter}
-          onMouseLeave={handleMouseLeave}
-          onClick={() => onInfo(media)}
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.3, delay: index * 0.1 }}
-          whileHover={{ scale: 1.05, y: -5 }}
-        >
-          {/* Main Card */}
-          <div className="relative w-full aspect-[2/3] bg-black rounded-lg overflow-hidden shadow-lg">
-            {/* Poster/Thumbnail Image with Fallback */}
-            <div className="relative w-full h-full">
-              {!fallbackError ? (
-                <Image
-                  src={primarySrc}
-                  alt={media.title}
-                  fill
-                  className={`object-cover transition-opacity duration-300 ${imageLoaded ? (showVideo && videoLoaded ? 'opacity-0' : 'opacity-100') : 'opacity-0'
-                    }`}
-                  onLoad={() => setImageLoaded(true)}
-                  onError={handleImageError}
-                  sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
-                />
-              ) : (
-                /* Fallback: solid black background when both poster and thumbnail fail */
-                <div className="absolute inset-0 bg-black" />
-              )}
-
-              {/* Preview Video - Only load when actually showing */}
-              {showVideo && (
-                <video
-                  ref={videoRef}
-                  className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-500 ${videoLoaded ? 'opacity-100' : 'opacity-0'
-                    }`}
-                  autoPlay
-                  muted
-                  loop
-                  playsInline
-                  preload="none"
-                  onLoadedData={() => setVideoLoaded(true)}
-                  onError={() => {
-                    console.log('Preview video failed to load');
-                    setShowVideo(false);
-                  }}
-                >
-                  <source src={`${getPreviewVideoUrl(media)}?quality=preview`} type="video/mp4" />
-                  <source src={getPreviewVideoUrl(media)} type="video/mp4" />
-                </video>
-              )}
-
-              {/* Loading placeholder */}
-              {!imageLoaded && !fallbackError && (
-                <div className="absolute inset-0 bg-black flex items-center justify-center">
-                  <div className="text-white text-center">
-                    <div className="text-3xl mb-2">🎬</div>
-                    <div className="text-sm font-medium line-clamp-2 px-2">{cleanMovieTitle(media.title)}</div>
-                    <div className="text-xs text-gray-400 mt-1">Loading...</div>
-                  </div>
-                </div>
-              )}
-
-              {/* Quality Badge - Top Right */}
-              <div className="absolute top-3 right-3 z-10">
-                <span className="border border-white/50 text-white text-[10px] px-1.5 py-0.5 rounded font-medium backdrop-blur-sm shadow-lg">
-                  {media.quality && (media.quality.includes('2160') || media.quality.toLowerCase().includes('4k')) ? '4K' : 'HD'}
-                </span>
-              </div>
-
-              {/* Gradient overlay for text */}
-              <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent" />
-
-              {/* Play button overlay */}
-              <div className={`absolute inset-0 flex items-center justify-center transition-opacity duration-300 ${isHovered ? 'opacity-100' : 'opacity-0'}`}>
-                <motion.button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onPlay(media);
-                  }}
-                  className="bg-red-600/90 backdrop-blur-sm rounded-full p-4 hover:bg-red-600 transition-colors shadow-xl"
-                  whileHover={{ scale: 1.1 }}
-                  whileTap={{ scale: 0.95 }}
-                >
-                  <Play className="w-6 h-6 text-white fill-white" />
-                </motion.button>
-              </div>
-
-              {/* Content Overlay - Bottom */}
-              <div className="absolute bottom-0 left-0 right-0 p-4 z-10">
-                {/* Title */}
-                <h3 className="text-white font-bold text-sm line-clamp-2 mb-2 drop-shadow-lg">
-                  {cleanMovieTitle(media.title)}
-                </h3>
-
-                {/* Year and Rating Row */}
-                <div className="flex items-center justify-between mb-3">
-                  <span className="text-gray-300 text-sm font-medium drop-shadow">
-                    {media.year}
-                  </span>
-                  {media.rating && (
-                    <div className="flex items-center gap-1 bg-black/50 px-2 py-1 rounded-md">
-                      <Star className="w-3 h-3 text-yellow-400 fill-current" />
-                      <span className="text-white text-sm font-medium">{media.rating.toFixed(1)}</span>
-                    </div>
-                  )}
-                </div>
-
-                {/* Genres Row */}
-                {media.genres && media.genres.length > 0 && (
-                  <div className="flex flex-wrap gap-1">
-                    {media.genres.slice(0, 2).map((genre, index) => (
-                      <span
-                        key={genre.id || index}
-                        className="text-xs text-white bg-red-600/80 px-2 py-1 rounded-md font-medium backdrop-blur-sm"
-                      >
-                        {genre.name}
-                      </span>
-                    ))}
-                  </div>
-                )}
-
-                {/* Duration */}
-                {media.duration && (
-                  <div className="flex items-center gap-1 mt-2 text-gray-300 text-xs">
-                    <Clock className="w-3 h-3" />
-                    <span>{formatRuntime(Math.floor(media.duration / 60))}</span>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-
-        </motion.div>
-
-
-      </>
-    );
+      return `${apiUrl}/api/posters/${movie.id}`;
+    } catch {
+      return '';
+    }
   };
 
-  // Netflix-style Row Component
-  const NetflixRow: React.FC<{ title: string; media: Media[] }> = ({ title, media }) => {
-    const scrollRef = useRef<HTMLDivElement>(null);
-    const [canScrollLeft, setCanScrollLeft] = useState(false);
-    const [canScrollRight, setCanScrollRight] = useState(true);
-
-    const checkScrollButtons = () => {
-      if (scrollRef.current) {
-        const { scrollLeft, scrollWidth, clientWidth } = scrollRef.current;
-        setCanScrollLeft(scrollLeft > 0);
-        setCanScrollRight(scrollLeft < scrollWidth - clientWidth - 10);
+  const getBackdropUrl = (movie: Media) => {
+    try {
+      if ((movie as any)?.banner_url || (movie as any)?.banner_path) {
+         const bannerRaw = (movie as any).banner_url || (movie as any).banner_path;
+         const resolved = resolveLocalAssetUrl(bannerRaw);
+         if (resolved) return resolved;
       }
-    };
-
-    const scroll = (direction: 'left' | 'right') => {
-      if (scrollRef.current) {
-        const scrollAmount = scrollRef.current.clientWidth * 0.8;
-        const newScrollLeft = direction === 'left'
-          ? scrollRef.current.scrollLeft - scrollAmount
-          : scrollRef.current.scrollLeft + scrollAmount;
-
-        scrollRef.current.scrollTo({
-          left: newScrollLeft,
-          behavior: 'smooth'
-        });
+      if ((movie as any)?.backdrop_url || (movie as any)?.backdrop_path) {
+         const backdropRaw = (movie as any).backdrop_url || (movie as any).backdrop_path;
+         const resolved = resolveLocalAssetUrl(backdropRaw);
+         if (resolved) return resolved;
       }
-    };
-
-    useEffect(() => {
-      checkScrollButtons();
-      const scrollElement = scrollRef.current;
-      if (scrollElement) {
-        scrollElement.addEventListener('scroll', checkScrollButtons);
-        return () => scrollElement.removeEventListener('scroll', checkScrollButtons);
+      
+      const tmdbUrl = (movie as any)?.tmdb_backdrop_url;
+      if (tmdbUrl) {
+         return tmdbUrl.startsWith('/') && !tmdbUrl.startsWith('//') ? `https://image.tmdb.org/t/p/w1280${tmdbUrl}` : tmdbUrl;
       }
-    }, [media]);
+      
+      const apiUrl = getApiUrl();
+      if (!apiUrl || !movie?.id) return getPosterUrl(movie);
+      return `${apiUrl}/api/thumbnails/${movie.id}`;
+    } catch {
+      return getPosterUrl(movie);
+    }
+  };
 
-    if (media.length === 0) return null;
+  const cleanTitle = (title: string | undefined | null) => {
+     if (!title) return 'Unknown Title';
+     return title.replace(/\[.*?\]|\(.*?\)/g, '').trim() || title;
+  };
 
-    return (
-      <div className="relative group mb-8">
-        <h2 className="text-white text-xl font-semibold mb-3 px-4 md:px-0">
-          {title}
-        </h2>
-
-        <div className="relative">
-          {/* Left scroll button */}
-          {canScrollLeft && (
-            <motion.button
-              onClick={() => scroll('left')}
-              className="absolute left-0 top-1/2 -translate-y-1/2 z-10 bg-black/90 text-white p-2 rounded-r-md opacity-0 group-hover:opacity-100 transition-opacity duration-300"
-              whileHover={{ scale: 1.1 }}
-              whileTap={{ scale: 0.95 }}
-            >
-              <ChevronDown className="w-6 h-6 rotate-90" />
-            </motion.button>
-          )}
-
-          {/* Right scroll button */}
-          {canScrollRight && (
-            <motion.button
-              onClick={() => scroll('right')}
-              className="absolute right-0 top-1/2 -translate-y-1/2 z-10 bg-black/90 text-white p-2 rounded-l-md opacity-0 group-hover:opacity-100 transition-opacity duration-300"
-              whileHover={{ scale: 1.1 }}
-              whileTap={{ scale: 0.95 }}
-            >
-              <ChevronDown className="w-6 h-6 -rotate-90" />
-            </motion.button>
-          )}
-
-          {/* Scrollable container */}
-          <div
-            ref={scrollRef}
-            className="flex gap-4 overflow-x-auto pb-4 px-4 md:px-0 netflix-scroll"
-            style={{
-              scrollbarWidth: 'none',
-              msOverflowStyle: 'none'
-            }}
-          >
-            {media.map((item, index) => (
-              <div key={item.id} className="flex-none w-56 md:w-64">
-                <NetflixCard media={item} index={index} />
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-    );
+  const formatRuntime = (minutes: number) => {
+    if (!minutes || minutes <= 0) return '';
+    const hours = Math.floor(minutes / 60);
+    const mins = minutes % 60;
+    return hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
   };
 
   if (loading) {
     return (
-      <div className="py-8 text-center text-white/60">
-        <div className="flex items-center justify-center gap-2">
-          <div className="w-6 h-6 border-2 border-red-600 border-t-transparent rounded-full animate-spin" />
-          Loading personalized recommendations...
-        </div>
+      <div className={`py-12 flex justify-center ${className}`}>
+        <div className="w-8 h-8 border-4 border-red-600 border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }
 
+  if (recommendations.length === 0) {
+    return null;
+  }
+
   return (
-    <div className="space-y-8">
-      {/* Personalized Recommendations */}
-      {personalizedRecommendations.length > 0 && (
-        <NetflixRow title="Recommended For You" media={personalizedRecommendations} />
-      )}
+    <div className={`w-full ${className}`}>
+      <div className="relative">
+        <h2 className="text-2xl font-black tracking-tight text-white mb-6 flex items-center gap-2">
+          <Film className="w-6 h-6 text-red-500" />
+          You Might Also Like
+        </h2>
 
-      {/* Similar Content */}
-      {similarRecommendations.length > 0 && (
-        <NetflixRow title="More Like This" media={similarRecommendations} />
-      )}
+        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 md:gap-4 lg:gap-5 auto-rows-[140px] md:auto-rows-[180px] lg:auto-rows-[200px] grid-flow-row-dense">
+          {recommendations.map((movie, index) => {
+            if (!movie?.id) return null;
 
-      {/* Genre-based Recommendations */}
-      {genreRecommendations.length > 0 && currentMedia.genres && currentMedia.genres.length > 0 && (
-        <NetflixRow
-          title={`More ${currentMedia.genres[0].name} ${currentMedia.type === 'movie' ? 'Movies' : 'Shows'}`}
-          media={genreRecommendations}
-        />
-      )}
+            // Pattern repeating every 7 items for beautiful masonry layout
+            const pattern = index % 7;
+            let spanClass = "col-span-1 row-span-2 aspect-[2/3]"; // Default fallback poster
+            let imageSrc = getPosterUrl(movie);
+            let isBackdrop = false;
 
-      {/* Trending Now */}
-      {trendingRecommendations.length > 0 && (
-        <NetflixRow title="Trending Now" media={trendingRecommendations} />
-      )}
+            if (pattern === 0) {
+              // Large Featured Backdrop
+              spanClass = "col-span-2 md:col-span-4 lg:col-span-4 row-span-2";
+              imageSrc = getBackdropUrl(movie);
+              isBackdrop = true;
+            } else if (pattern === 1 || pattern === 2) {
+              // Standard Posters (row 1 right side)
+              spanClass = "col-span-1 md:col-span-2 lg:col-span-1 row-span-2";
+              imageSrc = getPosterUrl(movie);
+            } else if (pattern === 3 || pattern === 4) {
+              // Small Backdrops
+              spanClass = "col-span-2 md:col-span-2 lg:col-span-2 row-span-1";
+              imageSrc = getBackdropUrl(movie);
+              isBackdrop = true;
+            } else {
+              // Small regular posters
+              spanClass = "col-span-1 md:col-span-1 lg:col-span-1 row-span-1";
+              imageSrc = getPosterUrl(movie);
+              isBackdrop = false;
+            }
 
-      {/* Latest Movies */}
-      {latestMoviesRecommendations.length > 0 && (
-        <NetflixRow title="Latest Movies" media={latestMoviesRecommendations} />
-      )}
+            return (
+              <motion.div
+                key={movie.id}
+                className={`group cursor-pointer relative rounded-xl overflow-hidden shadow-2xl border border-white/5 hover:border-white/20 transition-all ${spanClass}`}
+                whileHover={{ scale: 1.02, zIndex: 10 }}
+                transition={{ duration: 0.3, ease: "easeOut" }}
+                onClick={() => {
+                   if (onInfo) {
+                     onInfo(movie);
+                     return;
+                   }
+                   if (movie.type === 'tv' || movie.type === 'series') router.push(`/tv-series/${movie.id}`);
+                   else if ((movie as any).tmdb_id && !(movie as any).file_path) router.push(`/tmdb-movie/${(movie as any).tmdb_id}`);
+                   else router.push(`/movie/${movie.id}`);
+                }}
+              >
+                <img
+                  src={imageSrc}
+                  alt={cleanTitle(movie.title || (movie as any).name)}
+                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700 ease-out"
+                  loading="lazy"
+                  onError={(e) => {
+                    const target = e.target as HTMLImageElement;
+                    target.onerror = null;
+                    target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjQ1MCIgdmlld0JveD0iMCAwIDMwMCA0NTAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIzMDAiIGhlaWdodD0iNDUwIiBmaWxsPSIjMzc0MTUxIi8+CjxwYXRoIGQ9Ik0xNTAgMjAwQzE4Ny4yNzkgMjAwIDIxOCAxNjkuMjc5IDIxOCAxMzJDMjE4IDk0LjcyMDggMTg3LjI3OSA2NCAxNTAgNjRDMTEyLjcyMSA2NCA4MiA5NC43MjA4IDgyIDEzMkM4MiAxNjkuMjc5IDExMi43MjEgMjAwIDE1MCAyMDBaIiBmaWxsPSIjNkI3Mjg4Ii8+CjxwYXRoIGQ9Ik04MiAyNzZDODIgMjM4LjY4IDExMi42OCAyMDggMTUwIDIwOEgxNTBDMTg3LjMyIDIwOCAyMTggMjM4LjY4IDIxOCAyNzZWMzUwSDgyVjI3NloiIGZpbGw9IiM2QjcyODgiLz4KPHN2Zz4K';
+                  }}
+                />
 
-      {/* Top Rated Content */}
-      {topRatedRecommendations.length > 0 && (
-        <NetflixRow title="Top Rated" media={topRatedRecommendations} />
-      )}
+                {/* Dark Vignette Overlay */}
+                <div className={`absolute inset-0 bg-gradient-to-t ${isBackdrop ? 'from-black/90 via-black/20 to-transparent' : 'from-black/90 via-transparent to-transparent'} opacity-80 group-hover:opacity-90 transition-opacity duration-300`} />
 
-      {/* Mixed Recommendations - Fallback section */}
-      {mixedRecommendations.length > 0 && (
-        <NetflixRow title="You Might Also Like" media={mixedRecommendations} />
-      )}
+                {/* Top Quick Info */}
+                <div className="absolute top-3 right-3 flex items-center gap-2">
+                  {movie.rating && movie.rating > 0 && (
+                    <div className="bg-black/60 backdrop-blur-md rounded-full px-2.5 py-1 flex items-center gap-1.5 shadow-lg">
+                      <Star className="w-3.5 h-3.5 text-yellow-400 fill-current" />
+                      <span className="text-xs font-bold text-white">
+                        {movie.rating.toFixed(1)}
+                      </span>
+                    </div>
+                  )}
+                  {movie.quality && (
+                    <div className="bg-red-600/80 backdrop-blur-md rounded px-1.5 py-0.5 flex items-center shadow-lg">
+                      <span className="text-[10px] font-bold text-white uppercase tracking-wider">
+                        {movie.quality}
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Bottom Content Info */}
+                <div className="absolute bottom-0 left-0 right-0 p-4 transform translate-y-2 group-hover:translate-y-0 transition-transform duration-300">
+                  <h3 className={`font-bold text-white drop-shadow-xl ${isBackdrop ? 'text-xl md:text-2xl mb-1' : 'text-sm md:text-base mb-1'} line-clamp-1`}>
+                    {cleanTitle(movie.title || (movie as any).name)}
+                  </h3>
+                  
+                  <div className="flex items-center gap-3 text-white/80 text-xs font-medium">
+                    {movie.year && (
+                      <span className="bg-white/20 backdrop-blur-md px-1.5 py-0.5 rounded shadow-sm">
+                        {movie.year}
+                      </span>
+                    )}
+                    {movie.duration && movie.duration > 0 && (
+                      <div className="flex items-center gap-1 drop-shadow-md">
+                        <Clock className="w-3 h-3 text-red-400" />
+                        {formatRuntime(Math.floor(movie.duration / 60))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </motion.div>
+            );
+          })}
+        </div>
+      </div>
     </div>
   );
-};
-
-export default RecommendationSection;
+}

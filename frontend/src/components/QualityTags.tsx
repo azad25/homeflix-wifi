@@ -95,64 +95,7 @@ const getQualityTagIcon = (tag: string) => {
 };
 // Get the appropriate color class for a quality tag (Transparent Netflix-style)
 const getQualityTagColor = (tag: string): string => {
-  const upperTag = tag.toUpperCase();
-  
-  switch (upperTag) {
-    case '4K':
-    case 'UHD':
-      return 'bg-purple-500/20 text-purple-300 border-purple-400/30 hover:bg-purple-500/30 hover:border-purple-400/50';
-    
-    case 'HDR':
-    case 'HDR10':
-    case 'HDR10+':
-    case 'DOLBY VISION':
-      return 'bg-yellow-500/20 text-yellow-300 border-yellow-400/30 hover:bg-yellow-500/30 hover:border-yellow-400/50';
-    
-    case 'DOLBY ATMOS':
-    case 'DTS:X':
-    case 'TRUEHD':
-    case 'DOLBY':
-      return 'bg-blue-500/20 text-blue-300 border-blue-400/30 hover:bg-blue-500/30 hover:border-blue-400/50';
-    
-    case 'IMAX':
-      return 'bg-red-500/20 text-red-300 border-red-400/30 hover:bg-red-500/30 hover:border-red-400/50';
-    
-    case 'REMUX':
-    case 'BLU-RAY':
-    case 'BLURAY':
-      return 'bg-green-500/20 text-green-300 border-green-400/30 hover:bg-green-500/30 hover:border-green-400/50';
-    
-    case 'HEVC':
-    case 'AV1':
-    case 'H.264':
-    case 'VP9':
-      return 'bg-indigo-500/20 text-indigo-300 border-indigo-400/30 hover:bg-indigo-500/30 hover:border-indigo-400/50';
-    
-    case 'WEB-DL':
-    case 'WEB':
-    case 'WEBRIP':
-      return 'bg-cyan-500/20 text-cyan-300 border-cyan-400/30 hover:bg-cyan-500/30 hover:border-cyan-400/50';
-    
-    case 'HD':
-      return 'bg-gray-500/20 text-gray-300 border-gray-400/30 hover:bg-gray-500/30 hover:border-gray-400/50';
-    
-    case 'EXTENDED':
-    case 'UNCUT':
-    case 'REMASTERED':
-    case 'CRITERION':
-      return 'bg-amber-500/20 text-amber-300 border-amber-400/30 hover:bg-amber-500/30 hover:border-amber-400/50';
-    
-    case 'DTS-HD':
-    case 'DTS':
-      return 'bg-teal-500/20 text-teal-300 border-teal-400/30 hover:bg-teal-500/30 hover:border-teal-400/50';
-    
-    case 'DD+':
-    case 'AAC':
-      return 'bg-orange-500/20 text-orange-300 border-orange-400/30 hover:bg-orange-500/30 hover:border-orange-400/50';
-    
-    default:
-      return 'bg-white/10 text-white/80 border-white/20 hover:bg-white/20 hover:border-white/30';
-  }
+  return 'bg-transparent text-white/80 border-white/30 hover:bg-white/10 hover:border-white/50 hover:text-white transition-colors duration-300 shadow-sm backdrop-blur-sm';
 };
 
 // Get size classes based on variant

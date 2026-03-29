@@ -44,7 +44,7 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
   const [isScrolled, setIsScrolled] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [suggestions, setSuggestions] = useState<TMDBSearchResult[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(false);
@@ -340,7 +340,7 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
           <div className="flex items-center gap-8">
             <NavigationLink
               href="/"
-              className="text-red-600 text-2xl font-bold hover:text-red-500 transition-colors cursor-pointer"
+              className="text-2xl font-black tracking-tight text-white drop-shadow-md hover:scale-105 transition-transform cursor-pointer flex items-center"
               onClick={(e) => {
                 // If we are already on the home page, force a reload to refresh content and fix stuck spinner
                 if (pathname === "/") {
@@ -355,50 +355,8 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
                 }
               }}
             >
-              HomeFlix
+              Home<span className="text-red-500">Flix</span>
             </NavigationLink>
-
-            {/* Desktop Navigation - Home page is filtered out of this list by backend (is_nav_visible=false) */}
-            <div className="hidden md:flex items-center gap-6">
-              {!isInitialLoad && [...navItems, ...dynamicPages.map(p => ({ name: p.title, href: `/${p.slug}` }))].map((item) => {
-                const isActive = pathname === item.href;
-                return (
-                  <NavigationLink
-                    key={item.name}
-                    href={item.href}
-                    target={item.href == "/now-playing" ? "_blank" : ""}
-                    className={`transition-colors text-sm font-medium ${isActive
-                      ? "text-red-500"
-                      : "text-white/80 hover:text-white hover:text-red-400"
-                      }`}
-                  >
-                    {item.name}
-                  </NavigationLink>
-                );
-              })}
-              {isInitialLoad && (
-                <>
-                  {navItems.map((item) => {
-                    const isActive = pathname === item.href;
-                    return (
-                      <NavigationLink
-                        key={item.name}
-                        href={item.href}
-                        target={item.href == "/now-playing" ? "_blank" : ""}
-                        className={`transition-colors text-sm font-medium ${isActive
-                          ? "text-red-500"
-                          : "text-white/80 hover:text-white hover:text-red-400"
-                          }`}
-                      >
-                        {item.name}
-                      </NavigationLink>
-                    );
-                  })}
-                  {/* Loading placeholder for dynamic pages */}
-                  <div className="w-16 h-4 bg-gray-700/50 animate-pulse rounded"></div>
-                </>
-              )}
-            </div>
           </div>
 
           {/* Right Side */}
@@ -581,99 +539,123 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
             </div>
 
 
-            {/* Profile */}
-            <div className="relative group">
-              <button className="flex items-center gap-2 text-white/80 hover:text-white transition-colors">
-                <div className="w-8 h-8 bg-red-600 rounded-full flex items-center justify-center">
-                  <User className="w-4 h-4" />
-                </div>
-              </button>
-
-              {/* Profile Dropdown */}
-              <div className="absolute right-0 top-full mt-2 w-56 bg-black/90 rounded-lg py-2 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200">
-                <a href="/music" className="block px-4 py-2 text-white/80 hover:text-white hover:bg-white/10 flex items-center gap-2">
-                  <Music className="w-4 h-4" />
-                  Music
-                </a>
-                <a href="/my-list" className="block px-4 py-2 text-white/80 hover:text-white hover:bg-white/10 flex items-center gap-2">
-                  <List className="w-4 h-4" />
-                  My List
-                </a>
-                <a href="/browse" className="block px-4 py-2 text-white/80 hover:text-white hover:bg-white/10 flex items-center gap-2">
-                  <Compass className="w-4 h-4" />
-                  Browse
-                </a>
-                <hr className="border-white/20 my-2" />
-                <a href="/settings" className="block px-4 py-2 text-white/80 hover:text-white hover:bg-white/10 flex items-center gap-2">
-                  <Settings className="w-4 h-4" />
-                  Settings
-                </a>
-                <a href="/providers" className="block px-4 py-2 text-white/80 hover:text-white hover:bg-white/10 flex items-center gap-2">
-                  <Tv className="w-4 h-4" />
-                  Providers
-                </a>
-                <a href="/trailers" className="block px-4 py-2 text-white/80 hover:text-white hover:bg-white/10 flex items-center gap-2">
-                  <Film className="w-4 h-4" />
-                  Trailers
-                </a>
-                <a href="#" className="block px-4 py-2 text-white/80 hover:text-white hover:bg-white/10 flex items-center gap-2">
-                  <HelpCircle className="w-4 h-4" />
-                  Help
-                </a>
-                <hr className="border-white/20 my-2" />
-                <a href="#" className="block px-4 py-2 text-white/80 hover:text-white hover:bg-white/10 flex items-center gap-2">
-                  <LogOut className="w-4 h-4" />
-                  Sign Out
-                </a>
-              </div>
-            </div>
-
-            {/* Mobile Menu Button */}
+            {/* Hamburger Sidebar Trigger */}
             <button
-              onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-              className="text-white/80 hover:text-white transition-colors md:hidden"
+              onClick={() => setIsSidebarOpen(true)}
+              className="flex items-center gap-2 text-white/80 hover:text-white transition-all duration-300 hover:rotate-90 group p-1"
             >
-              {isMobileMenuOpen ? (
-                <X className="w-6 h-6" />
-              ) : (
-                <Menu className="w-6 h-6" />
-              )}
+              <Menu className="w-6 h-6 md:w-7 md:h-7" />
             </button>
           </div>
         </div>
 
-        {/* Mobile Menu */}
-        {isMobileMenuOpen && (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: "auto" }}
-            exit={{ opacity: 0, height: 0 }}
-            className="md:hidden bg-black/95 rounded-lg mt-2 py-4"
-          >
-            {[...navItems, ...dynamicPages.map(p => ({ name: p.title, href: `/${p.slug}` }))].map((item) => {
-              const isActive = pathname === item.href;
-              return (
-                <NavigationLink
-                  key={item.name}
-                  href={item.href}
-                  target={item.href == "/now-playing" ? "_blank" : ""}
-                  className={`block px-4 py-3 transition-colors ${isActive
-                    ? "text-red-500 bg-red-500/10 border-l-4 border-red-500"
-                    : "text-white/80 hover:text-white hover:bg-white/10 hover:text-red-400"
-                    }`}
-                  onClick={() => setIsMobileMenuOpen(false)}
-                >
-                  {item.name}
-                </NavigationLink>
-              );
-            })}
-            {isInitialLoad && dynamicPages.length === 0 && (
-              <div className="px-4 py-3">
-                <div className="w-24 h-4 bg-gray-700/50 animate-pulse rounded"></div>
-              </div>
-            )}
-          </motion.div>
-        )}
+        {/* Premium Global Sidebar Menu */}
+        <AnimatePresence>
+          {isSidebarOpen && (
+            <>
+              {/* Backdrop */}
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.3 }}
+                className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[50]"
+                onClick={() => setIsSidebarOpen(false)}
+              />
+
+              {/* Sidebar Panel sliding from right edge */}
+              <motion.div
+                initial={{ x: "100%" }}
+                animate={{ x: 0 }}
+                exit={{ x: "100%" }}
+                transition={{ type: "tween", duration: 0.3, ease: "easeOut" }}
+                className="fixed inset-y-0 right-0 w-80 max-w-[85vw] bg-black/80 backdrop-blur-2xl border-l border-white/10 z-[60] shadow-[-10px_0_30px_rgba(0,0,0,0.5)] flex flex-col h-screen overflow-hidden"
+              >
+                {/* Header */}
+                <div className="flex items-center justify-between p-6 border-b border-white/10 bg-gradient-to-b from-black/50 to-transparent">
+                  <span className="text-2xl font-black tracking-tight text-white drop-shadow-md">
+                    Home<span className="text-red-500">Flix</span>
+                  </span>
+                  <button
+                    onClick={() => setIsSidebarOpen(false)}
+                    className="p-2 text-white/70 hover:text-white hover:bg-white/10 rounded-full transition-all duration-300 hover:rotate-90"
+                  >
+                    <X className="w-6 h-6" />
+                  </button>
+                </div>
+
+                {/* Scrollable Content */}
+                <div className="flex-1 overflow-y-auto py-6 px-4 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+
+                  {/* Dynamic Links Section */}
+                  <div className="mb-8">
+                    <h3 className="px-3 mb-3 text-xs font-bold text-gray-500 uppercase tracking-widest flex items-center gap-2">
+                      <Compass className="w-4 h-4" /> Browse
+                    </h3>
+                    <div className="flex flex-col gap-1">
+                      {[...navItems, ...dynamicPages.map(p => ({ name: p.title, href: `/${p.slug}` }))].map((item) => {
+                        const isActive = pathname === item.href;
+                        return (
+                          <NavigationLink
+                            key={item.name}
+                            href={item.href}
+                            target={item.href === "/now-playing" ? "_blank" : ""}
+                            className={`flex items-center w-full px-4 py-3 rounded-xl transition-all duration-300 group ${isActive
+                              ? "bg-gradient-to-r from-red-600/20 to-transparent text-red-500 font-semibold border-l-2 border-red-500"
+                              : "text-gray-300 hover:text-white hover:bg-white/5"
+                              }`}
+                            onClick={() => setIsSidebarOpen(false)}
+                          >
+                            <span className="group-hover:translate-x-1 transition-transform">{item.name}</span>
+                          </NavigationLink>
+                        );
+                      })}
+                    </div>
+                    {isInitialLoad && dynamicPages.length === 0 && (
+                      <div className="px-4 py-3">
+                        <div className="w-3/4 h-5 bg-white/10 animate-pulse rounded-full"></div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Account & Settings Section */}
+                  <div className="mb-8">
+                    <h3 className="px-3 mb-3 text-xs font-bold text-gray-500 uppercase tracking-widest flex items-center gap-2">
+                      <Settings className="w-4 h-4" /> Account & Settings
+                    </h3>
+                    <div className="flex flex-col gap-1">
+                      {[
+                        { name: 'Music', icon: Music, href: '/music' },
+                        { name: 'My List', icon: List, href: '/my-list' },
+                        { name: 'Providers', icon: Tv, href: '/providers' },
+                        { name: 'Trailers', icon: Film, href: '/trailers' },
+                        { name: 'Settings', icon: Settings, href: '/settings' },
+                        { name: 'Library', icon: List, href: '/browse' }
+                      ].map((item) => (
+                        <a
+                          key={item.name}
+                          href={item.href}
+                          className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-gray-300 hover:text-white hover:bg-white/5 transition-all duration-300 group"
+                        >
+                          <item.icon className="w-5 h-5 opacity-70 group-hover:opacity-100 transition-opacity" />
+                          <span className="group-hover:translate-x-1 transition-transform font-medium">{item.name}</span>
+                        </a>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Footer / Sign Out */}
+                <div className="p-6 border-t border-white/10 bg-black/40">
+                  <a href="#" className="flex items-center justify-center gap-3 w-full px-4 py-3 rounded-xl bg-red-600/10 hover:bg-red-600/20 text-red-500 hover:text-red-400 transition-all duration-300 font-semibold shadow-lg">
+                    <LogOut className="w-5 h-5" />
+                    <span>Sign Out</span>
+                  </a>
+                </div>
+              </motion.div>
+            </>
+          )}
+        </AnimatePresence>
       </div>
     </motion.nav>
   );

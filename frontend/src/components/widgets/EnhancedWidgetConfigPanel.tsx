@@ -32,6 +32,8 @@ export default function EnhancedWidgetConfigPanel({
   const [showPerformance, setShowPerformance] = useState(false);
   const [selectedContent, setSelectedContent] = useState<any[]>([]);
   const [selectedGenres, setSelectedGenres] = useState<number[]>([]);
+  const [selectedLanguages, setSelectedLanguages] = useState<string[]>([]);
+  const [selectedCountries, setSelectedCountries] = useState<string[]>([]);
   const [genres, setGenres] = useState<{ id: number; name: string }[]>([]);
 
   const apiUrl = getApiUrl();
@@ -47,6 +49,8 @@ export default function EnhancedWidgetConfigPanel({
     if (!editingWidget) {
       setSelectedContent([]);
       setSelectedGenres([]);
+      setSelectedLanguages([]);
+      setSelectedCountries([]);
       return;
     }
 
@@ -64,10 +68,28 @@ export default function EnhancedWidgetConfigPanel({
       } else {
         setSelectedGenres([]);
       }
+
+      if (Array.isArray(parsedConfig.selectedLanguages)) {
+        setSelectedLanguages(parsedConfig.selectedLanguages.filter((language: unknown) => typeof language === 'string'));
+      } else if (Array.isArray(parsedConfig.languageFilter)) {
+        setSelectedLanguages(parsedConfig.languageFilter.filter((language: unknown) => typeof language === 'string'));
+      } else {
+        setSelectedLanguages([]);
+      }
+
+      if (Array.isArray(parsedConfig.selectedCountries)) {
+        setSelectedCountries(parsedConfig.selectedCountries.filter((country: unknown) => typeof country === 'string'));
+      } else if (Array.isArray(parsedConfig.countryFilter)) {
+        setSelectedCountries(parsedConfig.countryFilter.filter((country: unknown) => typeof country === 'string'));
+      } else {
+        setSelectedCountries([]);
+      }
     } catch (err) {
       console.error('Error parsing widget config for selected content:', err);
       setSelectedContent([]);
       setSelectedGenres([]);
+      setSelectedLanguages([]);
+      setSelectedCountries([]);
     }
   }, [editingWidget]);
 
@@ -248,7 +270,11 @@ export default function EnhancedWidgetConfigPanel({
       config: JSON.stringify({
         selectedContent,
         selectedGenres,
+        selectedLanguages,
+        selectedCountries,
         genreFilter: genreNames, // Add genreFilter for backend compatibility
+        languageFilter: selectedLanguages,
+        countryFilter: selectedCountries,
         notificationTypes: defaultNotificationTypes, // Add all notification types by default
         show_logo: true,
         show_description: true,
@@ -403,6 +429,8 @@ export default function EnhancedWidgetConfigPanel({
             onOpenContentSelector={() => setShowContentSelector(true)}
             selectedContent={selectedContent}
             selectedGenres={selectedGenres}
+            selectedLanguages={selectedLanguages}
+            selectedCountries={selectedCountries}
             genres={genres}
             onGenreToggle={handleGenreToggle}
             onContentToggle={handleContentToggle}
@@ -417,6 +445,10 @@ export default function EnhancedWidgetConfigPanel({
           onContentChange={setSelectedContent}
           selectedGenres={selectedGenres}
           onGenresChange={setSelectedGenres}
+          selectedLanguages={selectedLanguages}
+          onLanguagesChange={setSelectedLanguages}
+          selectedCountries={selectedCountries}
+          onCountriesChange={setSelectedCountries}
         />
 
         {/* Performance Dashboard */}

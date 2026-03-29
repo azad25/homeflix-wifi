@@ -200,7 +200,7 @@ export default function TrendingSlideshow({
             {/* Enhanced Scrollable Container */}
             <div
                 ref={scrollContainerRef}
-                className="flex gap-4 overflow-x-auto scrollbar-hide px-4 md:px-8 pb-6"
+                className="flex gap-2 md:gap-4 overflow-x-auto scrollbar-hide px-4 md:px-8 pb-12 pt-8"
                 style={{ scrollSnapType: 'x mandatory' }}
             >
                 {displayMedia.map((item, index) => {
@@ -210,7 +210,7 @@ export default function TrendingSlideshow({
                     return (
                         <motion.div
                             key={item.id}
-                            className="flex-shrink-0 relative group cursor-pointer"
+                            className="flex-shrink-0 relative group cursor-pointer flex items-end ml-2 lg:ml-6"
                             style={{ scrollSnapAlign: 'start' }}
                             onMouseEnter={() => setHoveredIndex(index)}
                             onMouseLeave={() => setHoveredIndex(null)}
@@ -218,38 +218,25 @@ export default function TrendingSlideshow({
                             whileHover={{ scale: 1.05, zIndex: 20 }}
                             transition={{ duration: 0.3, ease: "easeOut" }}
                         >
-                            {/* Enhanced Ranking Number */}
-                            <div className="absolute -left-6 bottom-0 z-10">
-                                <div className="relative">
-                                    <span
-                                        className="text-6xl md:text-7xl font-black leading-none"
-                                        style={{
-                                            WebkitTextStroke: '3px rgba(0,0,0,0.8)',
-                                            WebkitTextFillColor: 'transparent',
-                                            fontFamily: 'system-ui, -apple-system, sans-serif',
-                                            filter: 'drop-shadow(0 0 10px rgba(0,0,0,0.5))'
-                                        }}
-                                    >
-                                        {index + 1}
-                                    </span>
-                                    <div
-                                        className="absolute inset-0 text-6xl md:text-7xl font-black leading-none opacity-20"
-                                        style={{
-                                            background: `linear-gradient(135deg, ${colors.primary} 0%, ${colors.accent} 100%)`,
-                                            WebkitBackgroundClip: 'text',
-                                            WebkitTextFillColor: 'transparent',
-                                            backgroundClip: 'text'
-                                        }}
-                                    >
-                                        {index + 1}
-                                    </div>
-                                </div>
+                            {/* Netflix Style Ranking Number */}
+                            <div className="relative z-0 -mr-[18%] md:-mr-[22%] mb-[-4%] md:mb-[-6%] pointer-events-none">
+                                <span
+                                    className="text-[120px] md:text-[160px] lg:text-[220px] font-black leading-none tracking-tighter select-none"
+                                    style={{
+                                        color: '#000000',
+                                        WebkitTextStroke: index + 1 === 10 ? '3px #595959' : '4px #595959',
+                                        fontFamily: 'system-ui, -apple-system, sans-serif',
+                                        textShadow: '0 0 20px rgba(0,0,0,0.5)'
+                                    }}
+                                >
+                                    {index + 1}
+                                </span>
                             </div>
 
-                            {/* Enhanced Card */}
-                            <div className="relative w-36 md:w-44 h-52 md:h-64 ml-8">
+                            {/* Standard 2:3 Poster Card */}
+                            <div className="relative w-[120px] md:w-[150px] lg:w-[180px] aspect-[2/3] z-10">
                                 {/* Main Image */}
-                                <div className="relative w-full h-full rounded-xl overflow-hidden shadow-2xl">
+                                <div className="relative w-full h-full rounded-md overflow-hidden shadow-2xl border border-white/5 group-hover:border-white/20 transition-colors bg-gray-900">
                                     <img
                                         src={getImageUrl(item, 'poster')}
                                         alt={item.title}
@@ -271,145 +258,94 @@ export default function TrendingSlideshow({
                                     />
 
                                     {/* Gradient Overlay */}
-                                    <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-
-                                    {/* Quality Badge */}
-                                    <div className="absolute top-3 right-3">
-                                        <div className="px-2 py-1 bg-black/80 backdrop-blur-sm rounded text-xs font-bold text-white border border-white/20">
-                                            HD
-                                        </div>
-                                    </div>
-
-                                    {/* Rating Badge */}
-                                    {item.rating && item.rating > 0 && (
-                                        <div className="absolute top-3 left-3">
-                                            <div
-                                                className="flex items-center gap-1 px-2 py-1 rounded-full backdrop-blur-md border"
-                                                style={{
-                                                    backgroundColor: `${colors.primary}30`,
-                                                    borderColor: `${colors.primary}50`
-                                                }}
-                                            >
-                                                <Star className="w-3 h-3 text-yellow-400 fill-current" />
-                                                <span className="text-xs font-semibold text-white">
-                                                    {item.rating.toFixed(1)}
-                                                </span>
-                                            </div>
-                                        </div>
-                                    )}
+                                    <div className="absolute inset-0 bg-gradient-to-t from-black via-black/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none" />
                                 </div>
 
                                 {/* Enhanced Hover Content */}
                                 <AnimatePresence>
                                     {hoveredIndex === index && (
                                         <motion.div
-                                            initial={{ opacity: 0, y: 20 }}
-                                            animate={{ opacity: 1, y: 0 }}
-                                            exit={{ opacity: 0, y: 20 }}
+                                            initial={{ opacity: 0 }}
+                                            animate={{ opacity: 1 }}
+                                            exit={{ opacity: 0 }}
                                             transition={{ duration: 0.2 }}
-                                            className="absolute inset-0 flex flex-col justify-end p-4"
+                                            className="absolute inset-0 flex flex-col justify-end p-3 pointer-events-auto"
                                         >
-                                            {/* Logo or Title */}
-                                            <div className="mb-3">
-                                                {logoUrl ? (
-                                                    <img
-                                                        src={logoUrl}
-                                                        alt={`${item.title} logo`}
-                                                        className="max-h-8 w-auto drop-shadow-lg"
-                                                        onError={(e) => {
-                                                            const target = e.target as HTMLImageElement;
-                                                            target.style.display = 'none';
-                                                            const fallback = target.nextElementSibling as HTMLElement;
-                                                            if (fallback && fallback.tagName === 'H3') {
-                                                                fallback.style.display = 'block';
-                                                            }
+                                            {/* Extra inner gradient to ensure bottom content legibility */}
+                                            <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-black via-black/80 to-transparent pointer-events-none rounded-b-md" />
+
+                                            <div className="relative z-10 w-full">
+                                                {/* Action Buttons Row */}
+                                                <div className="flex items-center gap-2 mb-3">
+                                                    <motion.button
+                                                        whileHover={{ scale: 1.1 }}
+                                                        whileTap={{ scale: 0.9 }}
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            handleCardClick(item);
                                                         }}
-                                                    />
-                                                ) : null}
-                                                <h3
-                                                    className="text-sm font-bold line-clamp-2 text-white drop-shadow-lg"
-                                                    style={{ display: logoUrl ? 'none' : 'block' }}
-                                                >
-                                                    {item.title}
-                                                </h3>
-                                            </div>
+                                                        className="w-8 h-8 flex items-center justify-center bg-white text-black rounded-full shadow-lg hover:bg-white/80 transition-colors"
+                                                    >
+                                                        <Play className="w-4 h-4 fill-current ml-0.5" />
+                                                    </motion.button>
+                                                    
+                                                    <motion.button
+                                                        whileHover={{ scale: 1.1 }}
+                                                        whileTap={{ scale: 0.9 }}
+                                                        onClick={(e) => toggleMyList(item.id, e)}
+                                                        className="w-8 h-8 flex items-center justify-center rounded-full border-2 border-white/50 bg-black/60 text-white hover:border-white transition-colors"
+                                                        style={{
+                                                            borderColor: isInMyList[item.id] ? colors.primary : undefined
+                                                        }}
+                                                    >
+                                                        {isInMyList[item.id] ?
+                                                            <Check className="w-4 h-4" /> :
+                                                            <Plus className="w-4 h-4" />
+                                                        }
+                                                    </motion.button>
 
-                                            {/* Meta Info */}
-                                            <div className="flex items-center gap-2 text-xs text-white/80 mb-3">
-                                                {(item.year || item.release_date) && ((item.year && item.year > 0) || (item.release_date && new Date(item.release_date).getFullYear() > 0)) && (
-                                                    <span className="flex items-center gap-1">
-                                                        <Calendar className="w-3 h-3" />
-                                                        {item.year && item.year > 0 ? item.year : new Date(item.release_date!).getFullYear()}
-                                                    </span>
-                                                )}
-                                                {((item.duration && item.duration > 0) || (item.runtime && item.runtime > 0)) && (
-                                                    <span className="flex items-center gap-1">
-                                                        <Clock className="w-3 h-3" />
-                                                        {Math.floor((item.duration || item.runtime!) / 3600)}h {Math.floor(((item.duration || item.runtime!) % 3600) / 60)}m
-                                                    </span>
-                                                )}
-                                            </div>
-
-                                            {/* Genres */}
-                                            {(item.genre_names || item.genres) && (item.genre_names || item.genres)!.length > 0 && (
-                                                <div className="flex flex-wrap gap-1 mb-3">
-                                                    {(item.genre_names || item.genres?.map(g => g.name) || []).slice(0, 2).map((genre, idx) => (
-                                                        <span
-                                                            key={idx}
-                                                            className="px-2 py-1 rounded-full text-xs font-medium backdrop-blur-sm border"
-                                                            style={{
-                                                                backgroundColor: `${colors.primary}20`,
-                                                                borderColor: `${colors.primary}40`,
-                                                                color: colors.accent
-                                                            }}
-                                                        >
-                                                            {genre}
-                                                        </span>
-                                                    ))}
+                                                    <motion.button
+                                                        whileHover={{ scale: 1.1 }}
+                                                        whileTap={{ scale: 0.9 }}
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            handleCardClick(item);
+                                                        }}
+                                                        className="w-8 h-8 flex items-center justify-center rounded-full border-2 border-white/50 bg-black/60 text-white hover:border-white transition-colors ml-auto"
+                                                    >
+                                                        <Info className="w-4 h-4" />
+                                                    </motion.button>
                                                 </div>
-                                            )}
 
-                                            {/* Action Buttons */}
-                                            <div className="flex items-center gap-2">
-                                                <motion.button
-                                                    whileHover={{ scale: 1.05 }}
-                                                    whileTap={{ scale: 0.95 }}
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        handleCardClick(item);
-                                                    }}
-                                                    className="flex-1 flex items-center justify-center gap-1 py-2 bg-white text-black rounded-lg text-xs font-bold hover:bg-white/90 transition-colors"
-                                                >
-                                                    <Play className="w-3 h-3 fill-current" />
-                                                    {item.tmdb_id ? 'View' : 'Play'}
-                                                </motion.button>
+                                                {/* Meta Info */}
+                                                <div className="flex items-center gap-1.5 text-[10px] font-bold text-white mb-1.5 leading-none">
+                                                    <span className="text-green-500 font-extrabold max-w-[60%] truncate">
+                                                        {item.rating ? `${Math.round(item.rating * 10)}% Match` : 'New'}
+                                                    </span>
+                                                    <span className="px-1 border border-white/40 text-white/90 rounded-[3px] bg-white/10 shrink-0">
+                                                        HD
+                                                    </span>
+                                                    {((item.duration || item.runtime) && (item.duration || item.runtime)! > 0) ? (
+                                                        <span className="text-white shrink-0">
+                                                            {Math.floor((item.duration || item.runtime!) / 3600) > 0 ? `${Math.floor((item.duration || item.runtime!) / 3600)}h ` : ''}
+                                                            {Math.floor(((item.duration || item.runtime!) % 3600) / 60)}m
+                                                        </span>
+                                                    ) : null}
+                                                </div>
 
-                                                <motion.button
-                                                    whileHover={{ scale: 1.1 }}
-                                                    whileTap={{ scale: 0.95 }}
-                                                    onClick={(e) => toggleMyList(item.id, e)}
-                                                    className="p-2 rounded-full backdrop-blur-md border border-white/30 hover:border-white/50 transition-colors"
-                                                    style={{
-                                                        backgroundColor: isInMyList[item.id] ? `${colors.primary}40` : 'rgba(255,255,255,0.1)'
-                                                    }}
-                                                >
-                                                    {isInMyList[item.id] ?
-                                                        <Check className="w-3 h-3 text-white" /> :
-                                                        <Plus className="w-3 h-3 text-white" />
-                                                    }
-                                                </motion.button>
-
-                                                <motion.button
-                                                    whileHover={{ scale: 1.1 }}
-                                                    whileTap={{ scale: 0.95 }}
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        handleCardClick(item);
-                                                    }}
-                                                    className="p-2 rounded-full backdrop-blur-md border border-white/30 hover:border-white/50 transition-colors bg-white/10"
-                                                >
-                                                    <Info className="w-3 h-3 text-white" />
-                                                </motion.button>
+                                                {/* Genres */}
+                                                {(item.genre_names || item.genres) && (item.genre_names || item.genres)!.length > 0 && (
+                                                    <div className="flex flex-wrap items-center gap-1.5 min-w-0">
+                                                        {(item.genre_names || item.genres?.map(g => g.name) || []).slice(0, 3).map((genre, idx, arr) => (
+                                                            <React.Fragment key={idx}>
+                                                                <span className="text-[10px] text-white font-medium hover:text-white/80 transition-colors truncate max-w-full leading-none">
+                                                                    {genre}
+                                                                </span>
+                                                                {idx < arr.length - 1 && <span className="w-1 h-1 rounded-full bg-white/40 shrink-0" />}
+                                                            </React.Fragment>
+                                                        ))}
+                                                    </div>
+                                                )}
                                             </div>
                                         </motion.div>
                                     )}

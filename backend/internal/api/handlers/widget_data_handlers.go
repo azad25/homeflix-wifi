@@ -5,46 +5,50 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"homeflix-backend/internal/services"
+
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
 
 // WidgetDataHandlers handles widget data endpoints
 type WidgetDataHandlers struct {
-	db           *gorm.DB
-	tmdbService  *services.TMDBService
+	db          *gorm.DB
+	tmdbService *services.TMDBService
 }
 
 // MediaResult represents a media item from the database
 type MediaResult struct {
-	ID                uint
-	Title             string
-	Type              string
-	Description       string
-	PosterPath        string
-	BackdropPath      string
-	TMDBBackdropURL   string
-	TMDBPosterURL     string
-	TMDBTrailerURL    string
-	LogoPath          string
-	TrailerPath       string
-	Rating            float64
-	Year              int
-	Duration          int
-	GenreNames        string
-	ReleaseDate       string
-	Tagline           string
-	ViewCount         int
-	Quality           string
-	Popularity        float64
-	VoteCount         int
-	SeriesID          *uint
-	FilePath          string
-	PreviewPath       string
-	PreviewClipPath   string
-	TMDBID            int
+	ID              uint
+	Title           string
+	Type            string
+	Description     string
+	PosterPath      string
+	BackdropPath    string
+	TMDBBackdropURL string
+	TMDBPosterURL   string
+	TMDBTrailerURL  string
+	LogoPath        string
+	TrailerPath     string
+	Rating          float64
+	Year            int
+	Duration        int
+	GenreNames      string
+	ReleaseDate     string
+	Tagline         string
+	ViewCount       int
+	Quality         string
+	Popularity      float64
+	VoteCount       int
+	SeriesID        *uint
+	FilePath        string
+	PreviewPath     string
+	PreviewClipPath string
+	TMDBID          int
+	Language        string
+	Country         string
 }
 
 // NewWidgetDataHandlers creates a new widget data handlers instance
@@ -88,9 +92,13 @@ type WidgetContent struct {
 
 // WidgetConfigData represents the parsed widget config
 type WidgetConfigData struct {
-	SelectedContent []WidgetContent `json:"selectedContent"`
-	SelectedGenres  []int           `json:"selectedGenres"`
-	GenreFilter     []string        `json:"genreFilter"`
+	SelectedContent   []WidgetContent `json:"selectedContent"`
+	SelectedGenres    []int           `json:"selectedGenres"`
+	GenreFilter       []string        `json:"genreFilter"`
+	SelectedLanguages []string        `json:"selectedLanguages"`
+	LanguageFilter    []string        `json:"languageFilter"`
+	SelectedCountries []string        `json:"selectedCountries"`
+	CountryFilter     []string        `json:"countryFilter"`
 	// ...other config fields
 }
 
@@ -126,13 +134,25 @@ func (h *WidgetDataHandlers) GetWidgetData(c *gin.Context) {
 
 	// Fetch content
 	var results []map[string]interface{}
+	languageFilter := configData.LanguageFilter
+	if len(languageFilter) == 0 && len(configData.SelectedLanguages) > 0 {
+		languageFilter = configData.SelectedLanguages
+	}
+	countryFilter := configData.CountryFilter
+	if len(countryFilter) == 0 && len(configData.SelectedCountries) > 0 {
+		countryFilter = configData.SelectedCountries
+	}
 
 	if len(configData.SelectedContent) > 0 {
 		results = h.getMixedContent(configData.SelectedContent)
+		results = applyLocalLanguageFilter(results, languageFilter)
+		results = applyLocalCountryFilter(results, countryFilter)
 	} else if len(configData.SelectedGenres) > 0 {
-		results = h.getContentByGenres(configData.SelectedGenres, "local")
+		results = h.getContentByGenres(configData.SelectedGenres, "local", languageFilter, countryFilter)
 	} else if len(configData.GenreFilter) > 0 {
-		results = h.getContentByGenreNames(configData.GenreFilter)
+		results = h.getContentByGenreNames(configData.GenreFilter, languageFilter, countryFilter)
+	} else if len(languageFilter) > 0 || len(countryFilter) > 0 {
+		results = h.getContentByLanguagesAndCountries(languageFilter, countryFilter)
 	} else {
 		results = []map[string]interface{}{}
 	}
@@ -152,29 +172,19 @@ func (h *WidgetDataHandlers) getMixedContent(selectedContent []WidgetContent) []
 
 	// 1. Identify Local items to fetch from DB
 	var localIDs []int
-	// Map to preserve order and merge data later
-	contentMap := make(map[string]WidgetContent)
-	
 	for i, content := range selectedContent {
-		// Create a unique key for the item
-		key := fmt.Sprintf("%s_%d", content.Source, content.ID)
 		if content.Source == "" {
-			// Fallback: assume local if it has ID but no TMDB specific fields, otherwise TMDB
-			if content.TMDBID == 0 {
+			if isLikelyLocalWidgetContent(content) {
 				content.Source = "local"
 			} else {
 				content.Source = "tmdb"
 			}
-			key = fmt.Sprintf("%s_%d", content.Source, content.ID)
 		}
-		
-		contentMap[key] = content
-		
+
 		if content.Source == "local" && content.ID > 0 {
 			localIDs = append(localIDs, content.ID)
 		}
-		
-		// Ensure index is preserved for sorting
+
 		selectedContent[i].Source = content.Source
 	}
 
@@ -183,7 +193,7 @@ func (h *WidgetDataHandlers) getMixedContent(selectedContent []WidgetContent) []
 	if len(localIDs) > 0 {
 		var results []MediaResult
 		if err := h.db.Table("media").
-			Select("id, title, type, description, poster_path, backdrop_path, tmdb_backdrop_url, tmdb_poster_url, tmdb_trailer_url, logo_path, trailer_path, rating, year, duration, genre_names, release_date, tagline, view_count, quality, popularity, vote_count, series_id, file_path, preview_path, preview_clip_path, tmdb_id").
+			Select("id, title, type, description, language, country, poster_path, backdrop_path, tmdb_backdrop_url, tmdb_poster_url, tmdb_trailer_url, logo_path, trailer_path, rating, year, duration, genre_names, release_date, tagline, view_count, quality, popularity, vote_count, series_id, file_path, preview_path, preview_clip_path, tmdb_id").
 			Where("id IN ?", localIDs).
 			Find(&results).Error; err == nil {
 			for _, r := range results {
@@ -207,7 +217,7 @@ func (h *WidgetDataHandlers) getMixedContent(selectedContent []WidgetContent) []
 				// Fallback to config data if valid
 				// This handles cases where local item might be deleted but still in config?
 				// Or we can skip it. For now let's skip if not in DB to avoid broken links
-				continue 
+				continue
 			}
 		} else {
 			// TMDB Item - Use data from config
@@ -258,7 +268,7 @@ func (h *WidgetDataHandlers) getMixedContent(selectedContent []WidgetContent) []
 				item["rating"] = content.Rating
 			}
 		}
-		
+
 		finalResults = append(finalResults, item)
 	}
 
@@ -266,14 +276,14 @@ func (h *WidgetDataHandlers) getMixedContent(selectedContent []WidgetContent) []
 }
 
 // getContentByGenres retrieves content filtered by genre IDs
-func (h *WidgetDataHandlers) getContentByGenres(genreIDs []int, source string) []map[string]interface{} {
+func (h *WidgetDataHandlers) getContentByGenres(genreIDs []int, source string, languages []string, countries []string) []map[string]interface{} {
 	if len(genreIDs) == 0 {
 		return []map[string]interface{}{}
 	}
 
 	var results []MediaResult
 	query := h.db.Table("media").
-		Select("id, title, type, description, poster_path, backdrop_path, tmdb_backdrop_url, tmdb_poster_url, tmdb_trailer_url, logo_path, trailer_path, rating, year, duration, genre_names, release_date, tagline, view_count, quality, popularity, vote_count, series_id, file_path, preview_path, preview_clip_path, tmdb_id")
+		Select("id, title, type, description, language, country, poster_path, backdrop_path, tmdb_backdrop_url, tmdb_poster_url, tmdb_trailer_url, logo_path, trailer_path, rating, year, duration, genre_names, release_date, tagline, view_count, quality, popularity, vote_count, series_id, file_path, preview_path, preview_clip_path, tmdb_id")
 
 	if source == "local" {
 		// For local content, check genre_names field (JSON array)
@@ -290,6 +300,13 @@ func (h *WidgetDataHandlers) getContentByGenres(genreIDs []int, source string) [
 		}
 	}
 
+	if len(languages) > 0 {
+		query = query.Where("LOWER(language) IN ?", toLowerStrings(languages))
+	}
+	if len(countries) > 0 {
+		query = query.Where("LOWER(country) IN ?", toLowerStrings(countries))
+	}
+
 	if err := query.
 		Where("file_path IS NOT NULL AND file_path != ''").
 		Order("rating DESC, popularity DESC").
@@ -302,14 +319,14 @@ func (h *WidgetDataHandlers) getContentByGenres(genreIDs []int, source string) [
 }
 
 // getContentByGenreNames retrieves content filtered by genre names
-func (h *WidgetDataHandlers) getContentByGenreNames(genreNames []string) []map[string]interface{} {
+func (h *WidgetDataHandlers) getContentByGenreNames(genreNames []string, languages []string, countries []string) []map[string]interface{} {
 	if len(genreNames) == 0 {
 		return []map[string]interface{}{}
 	}
 
 	var results []MediaResult
 	query := h.db.Table("media").
-		Select("id, title, type, description, poster_path, backdrop_path, tmdb_backdrop_url, tmdb_poster_url, tmdb_trailer_url, logo_path, trailer_path, rating, year, duration, genre_names, release_date, tagline, view_count, quality, popularity, vote_count, series_id, file_path, preview_path, preview_clip_path, tmdb_id")
+		Select("id, title, type, description, language, country, poster_path, backdrop_path, tmdb_backdrop_url, tmdb_poster_url, tmdb_trailer_url, logo_path, trailer_path, rating, year, duration, genre_names, release_date, tagline, view_count, quality, popularity, vote_count, series_id, file_path, preview_path, preview_clip_path, tmdb_id")
 
 	// Filter by genre names
 	genreFilter := ""
@@ -323,6 +340,12 @@ func (h *WidgetDataHandlers) getContentByGenreNames(genreNames []string) []map[s
 	if genreFilter != "" {
 		query = query.Where(genreFilter)
 	}
+	if len(languages) > 0 {
+		query = query.Where("LOWER(language) IN ?", toLowerStrings(languages))
+	}
+	if len(countries) > 0 {
+		query = query.Where("LOWER(country) IN ?", toLowerStrings(countries))
+	}
 
 	if err := query.
 		Where("file_path IS NOT NULL AND file_path != ''").
@@ -332,6 +355,31 @@ func (h *WidgetDataHandlers) getContentByGenreNames(genreNames []string) []map[s
 		return []map[string]interface{}{}
 	}
 
+	return h.formatMediaResults(results)
+}
+
+func (h *WidgetDataHandlers) getContentByLanguagesAndCountries(languages []string, countries []string) []map[string]interface{} {
+	if len(languages) == 0 && len(countries) == 0 {
+		return []map[string]interface{}{}
+	}
+
+	query := h.db.Table("media").
+		Select("id, title, type, description, language, country, poster_path, backdrop_path, tmdb_backdrop_url, tmdb_poster_url, tmdb_trailer_url, logo_path, trailer_path, rating, year, duration, genre_names, release_date, tagline, view_count, quality, popularity, vote_count, series_id, file_path, preview_path, preview_clip_path, tmdb_id").
+		Where("file_path IS NOT NULL AND file_path != ''")
+	if len(languages) > 0 {
+		query = query.Where("LOWER(language) IN ?", toLowerStrings(languages))
+	}
+	if len(countries) > 0 {
+		query = query.Where("LOWER(country) IN ?", toLowerStrings(countries))
+	}
+
+	var results []MediaResult
+	if err := query.
+		Order("rating DESC, popularity DESC").
+		Limit(20).
+		Find(&results).Error; err != nil {
+		return []map[string]interface{}{}
+	}
 	return h.formatMediaResults(results)
 }
 
@@ -373,6 +421,8 @@ func (h *WidgetDataHandlers) formatMediaResult(result MediaResult) map[string]in
 		"preview_path":      result.PreviewPath,
 		"preview_clip_path": result.PreviewClipPath,
 		"tmdb_id":           result.TMDBID,
+		"original_language": result.Language,
+		"country":           result.Country,
 		"_source":           "local",
 	}
 }
@@ -387,4 +437,75 @@ func (h *WidgetDataHandlers) buildIDList(ids []int) string {
 		idStr += fmt.Sprintf("%d", id)
 	}
 	return idStr
+}
+
+func isLikelyLocalWidgetContent(content WidgetContent) bool {
+	if strings.EqualFold(content.Source, "local") {
+		return true
+	}
+	pathFields := []string{
+		content.PosterPath,
+		content.BackdropPath,
+		content.LogoPath,
+		content.TrailerPath,
+	}
+	for _, path := range pathFields {
+		if strings.HasPrefix(path, "/api/") {
+			return true
+		}
+	}
+	return content.TMDBID == 0
+}
+
+func toLowerStrings(values []string) []string {
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed != "" {
+			result = append(result, strings.ToLower(trimmed))
+		}
+	}
+	return result
+}
+
+func applyLocalLanguageFilter(items []map[string]interface{}, languages []string) []map[string]interface{} {
+	if len(languages) == 0 {
+		return items
+	}
+	allowed := make(map[string]bool)
+	for _, language := range languages {
+		normalized := strings.ToLower(strings.TrimSpace(language))
+		if normalized != "" {
+			allowed[normalized] = true
+		}
+	}
+	filtered := make([]map[string]interface{}, 0, len(items))
+	for _, item := range items {
+		language, _ := item["original_language"].(string)
+		if allowed[strings.ToLower(strings.TrimSpace(language))] {
+			filtered = append(filtered, item)
+		}
+	}
+	return filtered
+}
+
+func applyLocalCountryFilter(items []map[string]interface{}, countries []string) []map[string]interface{} {
+	if len(countries) == 0 {
+		return items
+	}
+	allowed := make(map[string]bool)
+	for _, country := range countries {
+		normalized := strings.ToLower(strings.TrimSpace(country))
+		if normalized != "" {
+			allowed[normalized] = true
+		}
+	}
+	filtered := make([]map[string]interface{}, 0, len(items))
+	for _, item := range items {
+		country, _ := item["country"].(string)
+		if allowed[strings.ToLower(strings.TrimSpace(country))] {
+			filtered = append(filtered, item)
+		}
+	}
+	return filtered
 }

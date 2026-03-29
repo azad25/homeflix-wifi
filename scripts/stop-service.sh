@@ -1,38 +1,28 @@
 #!/bin/bash
 
 # HomeFlix Service Stop Script
+SCRIPT_DIR=/home/azad/homeflix-local/homeflix-wifi
 
-HOMEFLIX_DIR="/home/azad/homeflix-local/homeflix-wifi"
-PID_FILE="$HOMEFLIX_DIR/homeflix.pid"
-LOG_FILE="$HOMEFLIX_DIR/homeflix.log"
+echo "$(date '+%Y-%m-%d %H:%M:%S') - Stopping HomeFlix services..." >> "$SCRIPT_DIR/startup.log"
 
-cd "$HOMEFLIX_DIR"
-
-echo "$(date): 🛑 Stopping HomeFlix Service..." >> "$LOG_FILE"
-
-# Read PIDs from file
-if [ -f "$PID_FILE" ]; then
-    PIDS=$(cat "$PID_FILE")
-    for PID in $PIDS; do
-        if kill -0 "$PID" 2>/dev/null; then
-            echo "$(date): Stopping process $PID" >> "$LOG_FILE"
-            kill "$PID"
-            # Wait a bit for graceful shutdown
-            sleep 2
-            # Force kill if still running
-            if kill -0 "$PID" 2>/dev/null; then
-                kill -9 "$PID"
-            fi
-        fi
-    done
-    rm -f "$PID_FILE"
+# Stop frontend
+if [ -f "$SCRIPT_DIR/.frontend.pid" ]; then
+    FRONTEND_PID=$(cat "$SCRIPT_DIR/.frontend.pid")
+    if kill -0 $FRONTEND_PID 2>/dev/null; then
+        kill $FRONTEND_PID 2>/dev/null
+        echo "$(date '+%Y-%m-%d %H:%M:%S') - Frontend stopped (PID: $FRONTEND_PID)" >> "$SCRIPT_DIR/startup.log"
+    fi
+    rm -f "$SCRIPT_DIR/.frontend.pid"
 fi
 
-# Also kill any remaining processes
-pkill -f "go run server.go"
-pkill -f "npm run start"
+# Stop backend
+if [ -f "$SCRIPT_DIR/.backend.pid" ]; then
+    BACKEND_PID=$(cat "$SCRIPT_DIR/.backend.pid")
+    if kill -0 $BACKEND_PID 2>/dev/null; then
+        kill $BACKEND_PID 2>/dev/null
+        echo "$(date '+%Y-%m-%d %H:%M:%S') - Backend stopped (PID: $BACKEND_PID)" >> "$SCRIPT_DIR/startup.log"
+    fi
+    rm -f "$SCRIPT_DIR/.backend.pid"
+fi
 
-# Clean up individual PID files
-rm -f backend.pid frontend.pid
-
-echo "$(date): ✅ HomeFlix service stopped" >> "$LOG_FILE"
+echo "$(date '+%Y-%m-%d %H:%M:%S') - HomeFlix services stopped" >> "$SCRIPT_DIR/startup.log"

@@ -57,6 +57,7 @@ interface MediaItem {
     tmdb_poster_url?: string;
     tmdb_backdrop_url?: string;
     tmdb_trailer_url?: string;
+    media_type?: string;
     preview_path?: string;
     preview_clip_path?: string;
     trailer_path?: string;
@@ -75,6 +76,8 @@ interface MediaItem {
     certification?: string;
     tagline?: string;
     genres?: Array<{ id: number; name: string }>;
+    is_local?: boolean;
+    file_path?: string;
     notification_data?: any; // Add notification data
 }
 
@@ -86,6 +89,7 @@ const convertToFrontendMedia = (items: MediaItem[]) => {
         title: item.title,
         description: item.description || '',
         type: item.type,
+        media_type: item.media_type,
         rating: item.rating || 0,
         year: item.year || 0,
         duration: item.duration || 0,
@@ -115,9 +119,10 @@ const convertToFrontendMedia = (items: MediaItem[]) => {
         certification: item.certification,
         tagline: item.tagline,
         genres: item.genres || [],
+        is_local: item.is_local || false,
         poster_url: item.tmdb_poster_url || item.poster_path,
         banner_path: item.tmdb_backdrop_url || item.backdrop_path,
-        file_path: undefined,
+        file_path: item.file_path,
         notification_data: item.notification_data, // Pass through notification data
     }));
 };
@@ -216,26 +221,22 @@ export default function BackendWidgetRenderer({
             const config = parseConfig(widgetWithData.config);
             let media = convertToFrontendMedia(widgetWithData.data || []);
 
-            // Sanitize local content to prevent TMDB ID collisions
             if (config.selectedContent && Array.isArray(config.selectedContent)) {
                 media = media.map(item => {
-                    const selectedItem = config.selectedContent.find((c: any) => c.id === item.id);
-                    // Check if it's explicitly marked as local OR purely matched by ID and we know it's a local widget type
-                    // The safest check is if _source is 'local' or if the selected item has type but no media_type (legacy local)
-                    const isLocal = selectedItem && (selectedItem._source === 'local' || (selectedItem.type && !selectedItem.media_type));
+                    const selectedItem = config.selectedContent.find((c: any) => c.id === item.id && c?._source === 'local');
+                    const isLocal = Boolean(item.is_local || selectedItem);
 
                     if (isLocal) {
-                        // Strip TMDB data to force local metadata usage
                         return {
                             ...item,
-                            tmdb_id: undefined,
-                            tmdb_poster_url: undefined,
-                            tmdb_backdrop_url: undefined,
-                            tmdb_trailer_url: undefined, // Prevent random trailer from showing
-                            // Ensure we keep the local paths
+                            is_local: true,
                             poster_path: item.poster_path,
                             backdrop_path: item.backdrop_path,
-                            logo_path: undefined, // Clear potential random logo 
+                            logo_path: item.logo_path,
+                            trailer_path: item.trailer_path,
+                            tmdb_trailer_url: item.tmdb_trailer_url,
+                            tmdb_poster_url: item.tmdb_poster_url,
+                            tmdb_backdrop_url: item.tmdb_backdrop_url,
                         };
                     }
                     return item;

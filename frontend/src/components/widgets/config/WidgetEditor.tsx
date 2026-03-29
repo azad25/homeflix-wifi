@@ -13,6 +13,8 @@ interface WidgetEditorProps {
   onOpenContentSelector: () => void;
   selectedContent: any[];
   selectedGenres: number[];
+  selectedLanguages: string[];
+  selectedCountries: string[];
   genres: Genre[];
   onGenreToggle: (genreId: number) => void;
   onContentToggle: (content: any) => void;
@@ -72,6 +74,8 @@ export default function WidgetEditor({
   onOpenContentSelector,
   selectedContent,
   selectedGenres,
+  selectedLanguages,
+  selectedCountries,
   genres,
   onGenreToggle,
   onContentToggle
@@ -152,7 +156,11 @@ export default function WidgetEditor({
     const updatedConfig: any = {
       ...config,
       selectedContent,
-      selectedGenres
+      selectedGenres,
+      selectedLanguages,
+      selectedCountries,
+      languageFilter: selectedLanguages,
+      countryFilter: selectedCountries
     };
 
     // Add genreFilter for backend compatibility
@@ -404,8 +412,8 @@ export default function WidgetEditor({
                     <div className="text-left">
                       <div className="font-medium text-white">Advanced Content Selection</div>
                       <div className="text-sm text-white/60">
-                        {selectedContent.length > 0 || selectedGenres.length > 0
-                          ? `${selectedContent.length} items, ${selectedGenres.length} genres selected`
+                        {selectedContent.length > 0 || selectedGenres.length > 0 || selectedLanguages.length > 0 || selectedCountries.length > 0
+                          ? `${selectedContent.length} items, ${selectedGenres.length} genres, ${selectedLanguages.length} languages, ${selectedCountries.length} countries selected`
                           : 'Search and select specific content'
                         }
                       </div>

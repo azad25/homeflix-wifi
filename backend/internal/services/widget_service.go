@@ -137,7 +137,7 @@ func (s *WidgetService) GetWidgetsByPage(page string) ([]models.Widget, error) {
 // Ultra-optimized for sub-2s loading while preserving trailer functionality
 func (s *WidgetService) GetWidgetsWithDataByPage(page string) ([]models.WidgetWithData, error) {
 	startTime := time.Now()
-	
+
 	// Check cache first - this should hit 90% of the time for instant loading
 	if cached, ok := s.getCachedWidgets(page); ok {
 		fmt.Printf("⚡ Serving %d widgets for page %s from cache (%.2fms)\n", len(cached), page, float64(time.Since(startTime).Microseconds())/1000)
@@ -173,12 +173,12 @@ func (s *WidgetService) GetWidgetsWithDataByPage(page string) ([]models.WidgetWi
 
 	totalTime := time.Since(startTime)
 	fmt.Printf("✅ Loaded %d widgets for page %s in %.2fms\n", len(widgetsWithData), page, float64(totalTime.Milliseconds()))
-	
+
 	// Store in both caches
 	cloneForCache := cloneWidgetsWithData(widgetsWithData)
 	s.widgetsCache.Store(page, widgetsCacheEntry{data: cloneForCache, fetchedAt: time.Now(), version: s.getCacheVersion(page)})
 	s.fastCache.Store(page, fastCacheEntry{data: cloneForCache, fetchedAt: time.Now()})
-	
+
 	return widgetsWithData, nil
 }
 
@@ -303,7 +303,43 @@ func (s *WidgetService) GetWidgetConfig(widget *models.Widget) (*models.WidgetCo
 		}
 	}
 
-	fmt.Printf("🔧 Final config for widget %s: GenreFilter=%v\n", widget.Name, config.GenreFilter)
+	if len(config.LanguageFilter) == 0 {
+		if languageFilter, ok := rawConfig["languageFilter"]; ok {
+			config.LanguageFilter = normalizeStringSlice(languageFilter)
+		} else if languageFilter, ok := rawConfig["language_filter"]; ok {
+			config.LanguageFilter = normalizeStringSlice(languageFilter)
+		}
+	}
+
+	if len(config.SelectedLanguages) == 0 {
+		if selectedLanguages, ok := rawConfig["selectedLanguages"]; ok {
+			config.SelectedLanguages = normalizeStringSlice(selectedLanguages)
+		}
+	}
+
+	if len(config.LanguageFilter) == 0 && len(config.SelectedLanguages) > 0 {
+		config.LanguageFilter = append([]string{}, config.SelectedLanguages...)
+	}
+
+	if len(config.CountryFilter) == 0 {
+		if countryFilter, ok := rawConfig["countryFilter"]; ok {
+			config.CountryFilter = normalizeStringSlice(countryFilter)
+		} else if countryFilter, ok := rawConfig["country_filter"]; ok {
+			config.CountryFilter = normalizeStringSlice(countryFilter)
+		}
+	}
+
+	if len(config.SelectedCountries) == 0 {
+		if selectedCountries, ok := rawConfig["selectedCountries"]; ok {
+			config.SelectedCountries = normalizeStringSlice(selectedCountries)
+		}
+	}
+
+	if len(config.CountryFilter) == 0 && len(config.SelectedCountries) > 0 {
+		config.CountryFilter = append([]string{}, config.SelectedCountries...)
+	}
+
+	fmt.Printf("🔧 Final config for widget %s: GenreFilter=%v, LanguageFilter=%v, CountryFilter=%v\n", widget.Name, config.GenreFilter, config.LanguageFilter, config.CountryFilter)
 
 	return &config, nil
 }
@@ -350,6 +386,34 @@ func (s *WidgetService) convertGenreIDsToNames(genreIDs []int) []string {
 	}
 
 	return genreNames
+}
+
+func normalizeStringSlice(value interface{}) []string {
+	items, ok := value.([]interface{})
+	if !ok {
+		return []string{}
+	}
+	var normalized []string
+	for _, item := range items {
+		if v, ok := item.(string); ok {
+			v = strings.TrimSpace(v)
+			if v != "" {
+				normalized = append(normalized, v)
+			}
+		}
+	}
+	return normalized
+}
+
+func toLowerSlice(values []string) []string {
+	lower := make([]string, 0, len(values))
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed != "" {
+			lower = append(lower, strings.ToLower(trimmed))
+		}
+	}
+	return lower
 }
 
 // SetWidgetConfig serializes a WidgetConfig to JSON and stores it
@@ -443,6 +507,62 @@ func (s *WidgetService) GetWidgetDataSources() []map[string]string {
 		{"source": models.WidgetDataSourceUpcoming, "name": "Upcoming", "description": "Coming soon releases"},
 		{"source": models.WidgetDataSourceTopRated, "name": "Top Rated", "description": "Highest rated content"},
 	}
+}
+
+func (s *WidgetService) GetWidgetLanguages() []map[string]string {
+	var values []string
+	if err := s.db.
+		Model(&models.Media{}).
+		Where("language IS NOT NULL AND TRIM(language) != ''").
+		Distinct("language").
+		Pluck("language", &values).Error; err != nil {
+		return []map[string]string{}
+	}
+
+	sort.Slice(values, func(i, j int) bool {
+		return strings.ToLower(values[i]) < strings.ToLower(values[j])
+	})
+
+	languages := make([]map[string]string, 0, len(values))
+	for _, language := range values {
+		clean := strings.TrimSpace(language)
+		if clean == "" {
+			continue
+		}
+		languages = append(languages, map[string]string{
+			"value": clean,
+			"label": clean,
+		})
+	}
+	return languages
+}
+
+func (s *WidgetService) GetWidgetCountries() []map[string]string {
+	var values []string
+	if err := s.db.
+		Model(&models.Media{}).
+		Where("country IS NOT NULL AND TRIM(country) != ''").
+		Distinct("country").
+		Pluck("country", &values).Error; err != nil {
+		return []map[string]string{}
+	}
+
+	sort.Slice(values, func(i, j int) bool {
+		return strings.ToLower(values[i]) < strings.ToLower(values[j])
+	})
+
+	countries := make([]map[string]string, 0, len(values))
+	for _, country := range values {
+		clean := strings.TrimSpace(country)
+		if clean == "" {
+			continue
+		}
+		countries = append(countries, map[string]string{
+			"value": clean,
+			"label": clean,
+		})
+	}
+	return countries
 }
 
 // GetWidgetContentTypes returns available content types
@@ -762,8 +882,8 @@ func (s *WidgetService) getWidgetDataFromCache(widget models.Widget, cache *Data
 
 	// For trailer widgets, use cached data first, enrich trailers asynchronously
 	// This prevents slow first-load due to TMDB API calls
-	isTrailerWidget := widget.Type == models.WidgetTypeTrailer || 
-		widget.Type == models.WidgetTypeMediaTrailer || 
+	isTrailerWidget := widget.Type == models.WidgetTypeTrailer ||
+		widget.Type == models.WidgetTypeMediaTrailer ||
 		widget.Type == models.WidgetTypeMixedVideo
 
 	config, err := s.GetWidgetConfig(&widget)
@@ -775,7 +895,8 @@ func (s *WidgetService) getWidgetDataFromCache(widget models.Widget, cache *Data
 	// Handle specific content widgets
 	if widget.Type == models.WidgetTypeSpecificContent || len(config.SelectedContent) > 0 {
 		if len(config.SelectedContent) > 0 {
-			return s.convertSelectedContentToMediaItems(config.SelectedContent)
+			selectedItems := s.convertSelectedContentToMediaItems(config.SelectedContent)
+			return s.applyFiltersSortAndLimit(selectedItems, widget, config)
 		}
 		return []models.MediaItem{}
 	}
@@ -875,7 +996,7 @@ func (s *WidgetService) getLocalDataFromCache(widget models.Widget, cache *DataC
 				item.FilePath = progress.Media.FilePath
 				item.PreviewPath = progress.Media.PreviewPath
 				item.PreviewClipPath = progress.Media.PreviewClipPath
-				
+
 				// If it's a TV show/episode, try to get trailer from Series field
 				if progress.Media.Series != nil {
 					if item.TrailerPath == "" {
@@ -890,13 +1011,13 @@ func (s *WidgetService) getLocalDataFromCache(widget models.Widget, cache *DataC
 			}
 
 			fmt.Printf("🔧 Found %d recently played items from playback service for widget %s\n", len(mediaItems), widget.Name)
-			
+
 			// Enrich with trailers if needed
 			if (widget.Type == models.WidgetTypeTrailer || widget.Type == models.WidgetTypeMediaTrailer || widget.Type == models.WidgetTypeMixedVideo) && s.tmdbService != nil {
 				fmt.Printf("🎬 Enriching recently played media with trailers for widget %s\n", widget.Name)
 				return s.enrichMediaItemsWithTrailers(mediaItems)
 			}
-			
+
 			return mediaItems
 		} else {
 			fmt.Printf("⚠️ Playback service not available for widget %s\n", widget.Name)
@@ -1042,6 +1163,36 @@ func (s *WidgetService) applyWidgetFilters(data []models.MediaItem, widget model
 		fmt.Printf("🔧 Genre filter applied: %d items remaining\n", len(filteredData))
 	}
 
+	if len(config.LanguageFilter) > 0 {
+		fmt.Printf("🔧 Applying language filter for widget %s: %v\n", widget.Name, config.LanguageFilter)
+		var filtered []models.MediaItem
+		for _, item := range filteredData {
+			for _, language := range config.LanguageFilter {
+				if strings.EqualFold(item.OriginalLanguage, language) {
+					filtered = append(filtered, item)
+					break
+				}
+			}
+		}
+		filteredData = filtered
+		fmt.Printf("🔧 Language filter applied: %d items remaining\n", len(filteredData))
+	}
+
+	if len(config.CountryFilter) > 0 {
+		fmt.Printf("🔧 Applying country filter for widget %s: %v\n", widget.Name, config.CountryFilter)
+		var filtered []models.MediaItem
+		for _, item := range filteredData {
+			for _, country := range config.CountryFilter {
+				if strings.EqualFold(item.Country, country) {
+					filtered = append(filtered, item)
+					break
+				}
+			}
+		}
+		filteredData = filtered
+		fmt.Printf("🔧 Country filter applied: %d items remaining\n", len(filteredData))
+	}
+
 	// Apply year filter
 	if config.YearFilter > 0 {
 		var filtered []models.MediaItem
@@ -1065,6 +1216,15 @@ func (s *WidgetService) applyWidgetFilters(data []models.MediaItem, widget model
 	}
 
 	return filteredData
+}
+
+func (s *WidgetService) applyFiltersSortAndLimit(data []models.MediaItem, widget models.Widget, config *models.WidgetConfig) []models.MediaItem {
+	filteredData := s.applyWidgetFilters(data, widget, config)
+	sortedData := s.sortWidgetData(filteredData, widget)
+	if len(sortedData) > widget.MaxItems {
+		return sortedData[:widget.MaxItems]
+	}
+	return sortedData
 }
 
 // sortWidgetData sorts widget data based on data source and widget type
@@ -1157,11 +1317,11 @@ func (s *WidgetService) InvalidatePageCache(page string) {
 	// Increment version to invalidate old cache entries
 	currentVersion := s.getCacheVersion(page)
 	s.cacheVersion.Store(page, currentVersion+1)
-	
+
 	// Clear caches
 	s.widgetsCache.Delete(page)
 	s.fastCache.Delete(page)
-	
+
 	fmt.Printf("🗑️ Invalidated cache for page: %s (version: %d)\n", page, currentVersion+1)
 }
 
@@ -1171,7 +1331,7 @@ func (s *WidgetService) prefetchWidgetDataOptimized(widgets []models.Widget) *Da
 
 	// Analyze widget requirements more efficiently
 	requirements := s.analyzeWidgetRequirements(widgets)
-	
+
 	// Use optimized worker pool for data fetching
 	var wg sync.WaitGroup
 	semaphore := make(chan struct{}, 6) // Limit concurrent API calls
@@ -1183,7 +1343,7 @@ func (s *WidgetService) prefetchWidgetDataOptimized(widgets []models.Widget) *Da
 			defer wg.Done()
 			semaphore <- struct{}{}
 			defer func() { <-semaphore }()
-			
+
 			if allMedia, err := s.mediaService.GetAllMedia(); err == nil {
 				cache.LocalAllMedia = allMedia
 				// Split into movies and TV shows
@@ -1206,7 +1366,7 @@ func (s *WidgetService) prefetchWidgetDataOptimized(widgets []models.Widget) *Da
 				defer wg.Done()
 				semaphore <- struct{}{}
 				defer func() { <-semaphore }()
-				
+
 				if popularMovies, err := s.tmdbService.GetPopularMovies(1); err == nil {
 					for _, movie := range popularMovies {
 						cache.TMDBPopular = append(cache.TMDBPopular, s.convertTMDBMovieToMediaItem(movie))
@@ -1220,8 +1380,8 @@ func (s *WidgetService) prefetchWidgetDataOptimized(widgets []models.Widget) *Da
 			go func() {
 				defer wg.Done()
 				semaphore <- struct{}{}
-				defer func() { <-semaphore }() 
-				
+				defer func() { <-semaphore }()
+
 				if upcomingMovies, err := s.tmdbService.GetUpcomingMovies(); err == nil && upcomingMovies != nil {
 					for _, movie := range upcomingMovies.TrendingDaily {
 						cache.TMDBTrending = append(cache.TMDBTrending, s.convertTMDBMovieToMediaItem(movie))
@@ -1236,7 +1396,7 @@ func (s *WidgetService) prefetchWidgetDataOptimized(widgets []models.Widget) *Da
 				defer wg.Done()
 				semaphore <- struct{}{}
 				defer func() { <-semaphore }()
-				
+
 				if upcomingMovies, err := s.tmdbService.GetUpcomingMoviesList(1); err == nil {
 					for _, movie := range upcomingMovies {
 						cache.TMDBUpcoming = append(cache.TMDBUpcoming, s.convertTMDBMovieWithVideosToMediaItem(movie))
@@ -1251,7 +1411,7 @@ func (s *WidgetService) prefetchWidgetDataOptimized(widgets []models.Widget) *Da
 				defer wg.Done()
 				semaphore <- struct{}{}
 				defer func() { <-semaphore }()
-				
+
 				if nowPlayingMovies, err := s.tmdbService.GetNowPlayingMovies(1); err == nil {
 					for _, movie := range nowPlayingMovies {
 						cache.TMDBNowPlaying = append(cache.TMDBNowPlaying, s.convertTMDBMovieWithVideosToMediaItem(movie))
@@ -1266,7 +1426,7 @@ func (s *WidgetService) prefetchWidgetDataOptimized(widgets []models.Widget) *Da
 				defer wg.Done()
 				semaphore <- struct{}{}
 				defer func() { <-semaphore }()
-				
+
 				if tvSeries, err := s.tmdbService.GetUpcomingTVSeries(); err == nil && tvSeries != nil {
 					for _, tv := range tvSeries.OnTheAir {
 						cache.TMDBTVPopular = append(cache.TMDBTVPopular, s.convertTMDBTVToMediaItem(tv))
@@ -1322,14 +1482,14 @@ func (s *WidgetService) processWidgetsConcurrently(widgets []models.Widget, data
 	semaphore := make(chan struct{}, 12) // Increased concurrency for faster processing
 
 	var wg sync.WaitGroup
-	
+
 	for i, widget := range widgets {
 		wg.Add(1)
 		go func(index int, w models.Widget) {
 			defer wg.Done()
-			semaphore <- struct{}{} // Acquire
+			semaphore <- struct{}{}        // Acquire
 			defer func() { <-semaphore }() // Release
-			
+
 			widgetData := s.getWidgetDataFromCacheOptimized(w, dataCache)
 
 			resultChan <- widgetResult{
@@ -1358,24 +1518,24 @@ func (s *WidgetService) processWidgetsConcurrently(widgets []models.Widget, data
 
 // analyzeWidgetRequirements analyzes what data widgets need
 func (s *WidgetService) analyzeWidgetRequirements(widgets []models.Widget) struct {
-	needsLocal             bool
-	needsTMDB              bool
-	needsNotifications     bool
-	needPopularMovies      bool
-	needTrendingMovies     bool
-	needUpcomingMovies     bool
-	needNowPlayingMovies   bool
-	needTVData             bool
+	needsLocal           bool
+	needsTMDB            bool
+	needsNotifications   bool
+	needPopularMovies    bool
+	needTrendingMovies   bool
+	needUpcomingMovies   bool
+	needNowPlayingMovies bool
+	needTVData           bool
 } {
 	requirements := struct {
-		needsLocal             bool
-		needsTMDB              bool
-		needsNotifications     bool
-		needPopularMovies      bool
-		needTrendingMovies     bool
-		needUpcomingMovies     bool
-		needNowPlayingMovies   bool
-		needTVData             bool
+		needsLocal           bool
+		needsTMDB            bool
+		needsNotifications   bool
+		needPopularMovies    bool
+		needTrendingMovies   bool
+		needUpcomingMovies   bool
+		needNowPlayingMovies bool
+		needTVData           bool
 	}{}
 
 	for _, widget := range widgets {
@@ -1448,7 +1608,8 @@ func (s *WidgetService) getWidgetDataFromCacheOptimized(widget models.Widget, ca
 	// Handle specific content widgets
 	if widget.Type == models.WidgetTypeSpecificContent || len(config.SelectedContent) > 0 {
 		if len(config.SelectedContent) > 0 {
-			return s.convertSelectedContentToMediaItems(config.SelectedContent)
+			selectedItems := s.convertSelectedContentToMediaItems(config.SelectedContent)
+			return s.applyFiltersSortAndLimit(selectedItems, widget, config)
 		}
 		return []models.MediaItem{}
 	}
@@ -1479,8 +1640,8 @@ func (s *WidgetService) getWidgetDataFromCacheOptimized(widget models.Widget, ca
 	}
 
 	// For trailer widgets, enrich with trailers (PRESERVE EXISTING FUNCTIONALITY)
-	isTrailerWidget := widget.Type == models.WidgetTypeTrailer || 
-		widget.Type == models.WidgetTypeMediaTrailer || 
+	isTrailerWidget := widget.Type == models.WidgetTypeTrailer ||
+		widget.Type == models.WidgetTypeMediaTrailer ||
 		widget.Type == models.WidgetTypeMixedVideo
 
 	if isTrailerWidget && s.tmdbService != nil && len(sortedData) > 0 {
@@ -1540,7 +1701,7 @@ func (s *WidgetService) getLocalDataFromCacheOptimized(widget models.Widget, cac
 				item.FilePath = progress.Media.FilePath
 				item.PreviewPath = progress.Media.PreviewPath
 				item.PreviewClipPath = progress.Media.PreviewClipPath
-				
+
 				if progress.Media.Series != nil {
 					if item.TrailerPath == "" {
 						item.TrailerPath = progress.Media.Series.TrailerURL
@@ -1557,7 +1718,7 @@ func (s *WidgetService) getLocalDataFromCacheOptimized(widget models.Widget, cac
 			if (widget.Type == models.WidgetTypeTrailer || widget.Type == models.WidgetTypeMediaTrailer || widget.Type == models.WidgetTypeMixedVideo) && s.tmdbService != nil {
 				return s.enrichMediaItemsWithTrailers(mediaItems)
 			}
-			
+
 			return mediaItems
 		} else {
 			return []models.MediaItem{}
@@ -1683,7 +1844,8 @@ func (s *WidgetService) GetWidgetData(widget *models.Widget) ([]models.MediaItem
 	if widget.Type == models.WidgetTypeSpecificContent || len(config.SelectedContent) > 0 {
 		fmt.Printf("✅ Widget %s has selected content, using convertSelectedContentToMediaItems\n", widget.Name)
 		if len(config.SelectedContent) > 0 {
-			return s.convertSelectedContentToMediaItems(config.SelectedContent), nil
+			selectedItems := s.convertSelectedContentToMediaItems(config.SelectedContent)
+			return s.applyFiltersSortAndLimit(selectedItems, *widget, config), nil
 		}
 		// If no selected content but it's a specific content widget, return empty
 		return []models.MediaItem{}, nil
@@ -1719,18 +1881,28 @@ func (s *WidgetService) convertSelectedContentToMediaItems(selectedContent []int
 				// Don't set TMDBID here for local content
 			}
 
-			// Check if this is a local item or TMDB item
 			isLocalItem := false
-			if source, ok := contentMap["_source"].(string); ok && source == "local" {
+			if source, ok := contentMap["_source"].(string); ok && strings.EqualFold(source, "local") {
 				isLocalItem = true
-				item.IsLocal = true
 			}
+			if !isLocalItem {
+				if source, ok := contentMap["source"].(string); ok && strings.EqualFold(source, "local") {
+					isLocalItem = true
+				}
+			}
+			if !isLocalItem && isLikelyLocalSelectedContent(contentMap) {
+				isLocalItem = true
+			}
+			item.IsLocal = isLocalItem
 
 			// Handle TMDB ID specifically
 			if tmdbId, ok := contentMap["tmdb_id"].(float64); ok {
 				item.TMDBID = int(tmdbId)
 			} else if tmdbId, ok := contentMap["tmdb_id"].(int); ok {
 				item.TMDBID = tmdbId
+			}
+			if isLocalItem {
+				item.TMDBID = 0
 			}
 
 			// Fail-safe: For TMDB items, if TMDBID is missing but we have an ID, assume ID is TMDBID
@@ -1817,6 +1989,11 @@ func (s *WidgetService) convertSelectedContentToMediaItems(selectedContent []int
 			// Handle original language
 			if originalLanguage, ok := contentMap["original_language"].(string); ok {
 				item.OriginalLanguage = originalLanguage
+			} else if language, ok := contentMap["language"].(string); ok {
+				item.OriginalLanguage = language
+			}
+			if country, ok := contentMap["country"].(string); ok {
+				item.Country = country
 			}
 
 			// Handle video flag
@@ -1933,13 +2110,10 @@ func (s *WidgetService) convertSelectedContentToMediaItems(selectedContent []int
 	}
 
 	// For local content items, fetch missing trailer and logo data from database
-	localItems := make([]models.MediaItem, 0)
 	var localIDs []uint
-	
+
 	for _, item := range items {
-		// Check if it's a local item by looking at the _source field or lack of TMDB-specific data
-		if item.ID > 0 { // Any item with a local ID should be checked
-			localItems = append(localItems, item)
+		if item.IsLocal && item.ID > 0 {
 			localIDs = append(localIDs, item.ID)
 		}
 	}
@@ -1951,37 +2125,43 @@ func (s *WidgetService) convertSelectedContentToMediaItems(selectedContent []int
 			TMDBTrailerURL  string
 			TrailerPath     string
 			LogoPath        string
+			Language        string
+			Country         string
 			TMDBID          int
 			TMDBPosterURL   string
 			TMDBBackdropURL string
 			PosterPath      string
 			BackdropPath    string
 		}
-		
+
 		if err := s.db.Table("media").
-			Select("id, tmdb_trailer_url, trailer_path, logo_path, tmdb_id, tmdb_poster_url, tmdb_backdrop_url, poster_path, backdrop_path").
+			Select("id, tmdb_trailer_url, trailer_path, logo_path, language, country, tmdb_id, tmdb_poster_url, tmdb_backdrop_url, poster_path, backdrop_path").
 			Where("id IN ?", localIDs).
 			Find(&dbResults).Error; err == nil {
-			
+
 			fmt.Printf("🔍 Found %d database records for local content enrichment\n", len(dbResults))
-			
+
 			// Create a map for quick lookup
 			dbMap := make(map[uint]struct {
 				TMDBTrailerURL  string
 				TrailerPath     string
 				LogoPath        string
+				Language        string
+				Country         string
 				TMDBID          int
 				TMDBPosterURL   string
 				TMDBBackdropURL string
 				PosterPath      string
 				BackdropPath    string
 			})
-			
+
 			for _, result := range dbResults {
 				dbMap[result.ID] = struct {
 					TMDBTrailerURL  string
 					TrailerPath     string
 					LogoPath        string
+					Language        string
+					Country         string
 					TMDBID          int
 					TMDBPosterURL   string
 					TMDBBackdropURL string
@@ -1991,6 +2171,8 @@ func (s *WidgetService) convertSelectedContentToMediaItems(selectedContent []int
 					TMDBTrailerURL:  result.TMDBTrailerURL,
 					TrailerPath:     result.TrailerPath,
 					LogoPath:        result.LogoPath,
+					Language:        result.Language,
+					Country:         result.Country,
 					TMDBID:          result.TMDBID,
 					TMDBPosterURL:   result.TMDBPosterURL,
 					TMDBBackdropURL: result.TMDBBackdropURL,
@@ -1998,14 +2180,14 @@ func (s *WidgetService) convertSelectedContentToMediaItems(selectedContent []int
 					BackdropPath:    result.BackdropPath,
 				}
 			}
-			
+
 			// Update items with database data
 			for i := range items {
 				if items[i].ID > 0 {
 					if dbData, exists := dbMap[items[i].ID]; exists {
-						fmt.Printf("🔄 Updating item %s (ID: %d) with DB data - trailer: %s, logo: %s\n", 
+						fmt.Printf("🔄 Updating item %s (ID: %d) with DB data - trailer: %s, logo: %s\n",
 							items[i].Title, items[i].ID, dbData.TMDBTrailerURL, dbData.LogoPath)
-						
+
 						// Update trailer URLs
 						if items[i].TMDBTrailerURL == "" && dbData.TMDBTrailerURL != "" {
 							items[i].TMDBTrailerURL = dbData.TMDBTrailerURL
@@ -2015,7 +2197,7 @@ func (s *WidgetService) convertSelectedContentToMediaItems(selectedContent []int
 							items[i].TrailerPath = dbData.TrailerPath
 							fmt.Printf("   ✅ Updated trailer path: %s\n", dbData.TrailerPath)
 						}
-						
+
 						// Update and format logo path
 						if dbData.LogoPath != "" {
 							logoPath := dbData.LogoPath
@@ -2030,13 +2212,13 @@ func (s *WidgetService) convertSelectedContentToMediaItems(selectedContent []int
 							items[i].LogoPath = logoPath
 							fmt.Printf("   ✅ Updated logo path: %s\n", logoPath)
 						}
-						
+
 						// Update TMDB ID
 						if items[i].TMDBID == 0 && dbData.TMDBID > 0 {
 							items[i].TMDBID = dbData.TMDBID
 							fmt.Printf("   ✅ Updated TMDB ID: %d\n", dbData.TMDBID)
 						}
-						
+
 						// Update poster and backdrop URLs if missing
 						if items[i].TMDBPosterURL == "" && dbData.TMDBPosterURL != "" {
 							items[i].TMDBPosterURL = dbData.TMDBPosterURL
@@ -2059,6 +2241,12 @@ func (s *WidgetService) convertSelectedContentToMediaItems(selectedContent []int
 							}
 							items[i].BackdropPath = backdropPath
 						}
+						if items[i].OriginalLanguage == "" && dbData.Language != "" {
+							items[i].OriginalLanguage = dbData.Language
+						}
+						if items[i].Country == "" && dbData.Country != "" {
+							items[i].Country = dbData.Country
+						}
 					} else {
 						fmt.Printf("⚠️ No DB data found for item %s (ID: %d)\n", items[i].Title, items[i].ID)
 					}
@@ -2074,7 +2262,7 @@ func (s *WidgetService) convertSelectedContentToMediaItems(selectedContent []int
 		if items[i].Type == "tv" || items[i].Type == "series" {
 			mediaType = "tv"
 		}
-		
+
 		// Only enrich if it's a TMDB item (has TMDBID and no local source indicator)
 		if items[i].TMDBID != 0 && items[i].TMDBTrailerURL == "" {
 			fmt.Printf("🎬 Enriching TMDB item %s (ID: %d, TMDB ID: %d) with trailer\n", items[i].Title, items[i].ID, items[i].TMDBID)
@@ -2086,6 +2274,24 @@ func (s *WidgetService) convertSelectedContentToMediaItems(selectedContent []int
 
 	fmt.Printf("✅ Converted %d selected content items to MediaItems\n", len(items))
 	return items
+}
+
+func isLikelyLocalSelectedContent(contentMap map[string]interface{}) bool {
+	pathKeys := []string{"poster_path", "backdrop_path", "logo_path", "preview_path", "preview_clip_path", "file_path"}
+	for _, key := range pathKeys {
+		if raw, ok := contentMap[key]; ok {
+			if value, ok := raw.(string); ok && strings.HasPrefix(value, "/api/") {
+				return true
+			}
+		}
+	}
+	if trailerPath, ok := contentMap["trailer_path"].(string); ok && strings.HasPrefix(trailerPath, "/api/") {
+		return true
+	}
+	if isLocal, ok := contentMap["is_local"].(bool); ok && isLocal {
+		return true
+	}
+	return false
 }
 
 // getLocalMediaData fetches data from local media database
@@ -2140,6 +2346,36 @@ func (s *WidgetService) getLocalMediaData(widget *models.Widget, config *models.
 		}
 		allMedia = filteredMedia
 		fmt.Printf("🔧 Genre filter applied: %d items remaining\n", len(allMedia))
+	}
+
+	if len(config.LanguageFilter) > 0 {
+		fmt.Printf("🔧 Applying language filter for widget %s: %v\n", widget.Name, config.LanguageFilter)
+		var filteredMedia []models.Media
+		for _, media := range allMedia {
+			for _, language := range config.LanguageFilter {
+				if strings.EqualFold(media.Language, language) {
+					filteredMedia = append(filteredMedia, media)
+					break
+				}
+			}
+		}
+		allMedia = filteredMedia
+		fmt.Printf("🔧 Language filter applied: %d items remaining\n", len(allMedia))
+	}
+
+	if len(config.CountryFilter) > 0 {
+		fmt.Printf("🔧 Applying country filter for widget %s: %v\n", widget.Name, config.CountryFilter)
+		var filteredMedia []models.Media
+		for _, media := range allMedia {
+			for _, country := range config.CountryFilter {
+				if strings.EqualFold(media.Country, country) {
+					filteredMedia = append(filteredMedia, media)
+					break
+				}
+			}
+		}
+		allMedia = filteredMedia
+		fmt.Printf("🔧 Country filter applied: %d items remaining\n", len(allMedia))
 	}
 
 	// Apply other filters
@@ -2288,7 +2524,7 @@ func (s *WidgetService) getLocalMediaDataDirect(widget *models.Widget, config *m
 
 	// Build query based on content type
 	query := s.db.Table("media").
-		Select("id, title, type, description, poster_path, backdrop_path, tmdb_backdrop_url, tmdb_poster_url, tmdb_trailer_url, logo_path, trailer_path, rating, year, duration, genre_names, release_date, tagline, view_count, quality, popularity, vote_count, series_id, file_path, preview_path, preview_clip_path, tmdb_id, created_at, last_viewed").
+		Select("id, title, type, description, language, country, poster_path, backdrop_path, tmdb_backdrop_url, tmdb_poster_url, tmdb_trailer_url, logo_path, trailer_path, rating, year, duration, genre_names, release_date, tagline, view_count, quality, popularity, vote_count, series_id, file_path, preview_path, preview_clip_path, tmdb_id, created_at, last_viewed").
 		Preload("Genres").Preload("Series").Preload("Series.Genres")
 
 	// Filter by content type
@@ -2306,6 +2542,14 @@ func (s *WidgetService) getLocalMediaDataDirect(widget *models.Widget, config *m
 			Joins("JOIN genres ON media_genres.genre_id = genres.id").
 			Where("genres.name IN (?)", config.GenreFilter).
 			Group("media.id")
+	}
+
+	if len(config.LanguageFilter) > 0 {
+		query = query.Where("LOWER(language) IN (?)", toLowerSlice(config.LanguageFilter))
+	}
+
+	if len(config.CountryFilter) > 0 {
+		query = query.Where("LOWER(country) IN (?)", toLowerSlice(config.CountryFilter))
 	}
 
 	if config.YearFilter > 0 {
@@ -2356,7 +2600,7 @@ func (s *WidgetService) getLocalMediaDataDirect(widget *models.Widget, config *m
 				for _, genre := range progress.Media.Genres {
 					item.GenreNames = append(item.GenreNames, genre.Name)
 				}
-				
+
 				// Map trailer path from local media
 				item.TrailerPath = progress.Media.TrailerPath
 				item.TMDBTrailerURL = progress.Media.TMDBTrailerURL
@@ -2364,7 +2608,7 @@ func (s *WidgetService) getLocalMediaDataDirect(widget *models.Widget, config *m
 				item.FilePath = progress.Media.FilePath
 				item.PreviewPath = progress.Media.PreviewPath
 				item.PreviewClipPath = progress.Media.PreviewClipPath
-				
+
 				// If it's a TV show/episode, try to get trailer from Series field
 				if progress.Media.Series != nil {
 					if item.TrailerPath == "" {
@@ -2379,13 +2623,13 @@ func (s *WidgetService) getLocalMediaDataDirect(widget *models.Widget, config *m
 			}
 
 			fmt.Printf("✅ Widget %s (direct): Found %d recently played items from playback service\n", widget.Name, len(mediaItems))
-			
+
 			// Enrich with trailers if needed for recently played items
 			if (widget.Type == models.WidgetTypeTrailer || widget.Type == models.WidgetTypeMediaTrailer || widget.Type == models.WidgetTypeMixedVideo) && s.tmdbService != nil {
 				fmt.Printf("🎬 Enriching recently played media with trailers for widget %s (direct query)\n", widget.Name)
 				return s.enrichMediaItemsWithTrailers(mediaItems), nil
 			}
-			
+
 			return mediaItems, nil
 		} else {
 			// Fallback to database query if playback service is not available
@@ -2535,21 +2779,21 @@ func (s *WidgetService) fastEnrichMediaItemsWithTrailers(items []models.MediaIte
 	}
 
 	result := make([]models.MediaItem, 0, len(items))
-	
+
 	for _, item := range items {
 		// Already has trailer URL
 		if item.TMDBTrailerURL != "" {
 			result = append(result, item)
 			continue
 		}
-		
+
 		// Check cache only - no API calls
 		if item.TMDBID != 0 {
 			mediaType := "movie"
 			if item.Type == "tv" || item.Type == "episode" || item.Type == "series" {
 				mediaType = "tv"
 			}
-			
+
 			cacheKey := fmt.Sprintf("%s:%d", mediaType, item.TMDBID)
 			if cached, ok := s.trailerCache.Load(cacheKey); ok {
 				entry := cached.(trailerCacheEntry)
@@ -2560,15 +2804,15 @@ func (s *WidgetService) fastEnrichMediaItemsWithTrailers(items []models.MediaIte
 				}
 			}
 		}
-		
+
 		// Include item even without trailer for first load
 		// Trailer will be fetched on subsequent loads
 		result = append(result, item)
 	}
-	
+
 	// Trigger background trailer fetch for items missing trailers
 	go s.backgroundEnrichTrailers(items)
-	
+
 	return result
 }
 
@@ -2577,22 +2821,22 @@ func (s *WidgetService) backgroundEnrichTrailers(items []models.MediaItem) {
 	if s.tmdbService == nil {
 		return
 	}
-	
+
 	for _, item := range items {
 		if item.TMDBTrailerURL != "" || item.TMDBID == 0 {
 			continue
 		}
-		
+
 		mediaType := "movie"
 		if item.Type == "tv" || item.Type == "episode" || item.Type == "series" {
 			mediaType = "tv"
 		}
-		
+
 		cacheKey := fmt.Sprintf("%s:%d", mediaType, item.TMDBID)
 		if _, ok := s.trailerCache.Load(cacheKey); ok {
 			continue // Already cached
 		}
-		
+
 		// Fetch and cache trailer
 		s.enrichMediaItemWithTrailer(item, mediaType)
 	}
@@ -3091,10 +3335,10 @@ func (s *WidgetService) buildTMDBImageURL(path, size string) string {
 // getFastWidgetData gets widget data optimized for speed (no trailers, minimal API calls)
 func (s *WidgetService) getFastWidgetData(widgets []models.Widget) []models.WidgetWithData {
 	widgetsWithData := make([]models.WidgetWithData, len(widgets))
-	
+
 	// Pre-fetch only essential local data in parallel
 	localDataCache := s.prefetchEssentialData(widgets)
-	
+
 	// Process widgets with minimal blocking operations
 	for i, widget := range widgets {
 		widgetData := s.getFastWidgetDataFromCache(widget, localDataCache)
@@ -3103,19 +3347,19 @@ func (s *WidgetService) getFastWidgetData(widgets []models.Widget) []models.Widg
 			Data:   widgetData,
 		}
 	}
-	
+
 	return widgetsWithData
 }
 
 // enhanceWidgetsInBackground enhances widgets with trailers and TMDB data in background
 func (s *WidgetService) enhanceWidgetsInBackground(page string, widgets []models.Widget, fastData []models.WidgetWithData) {
 	startTime := time.Now()
-	
+
 	// Full data fetch with trailers and TMDB enrichment
 	dataCache := s.prefetchWidgetData(widgets)
-	
+
 	enhancedWidgets := make([]models.WidgetWithData, len(widgets))
-	
+
 	// Process widgets with full enhancement
 	for i, widget := range widgets {
 		enhancedData := s.getWidgetDataFromCache(widget, dataCache)
@@ -3124,14 +3368,14 @@ func (s *WidgetService) enhanceWidgetsInBackground(page string, widgets []models
 			Data:   enhancedData,
 		}
 	}
-	
+
 	// Store enhanced version in regular cache
 	s.widgetsCache.Store(page, widgetsCacheEntry{
 		data:      enhancedWidgets,
 		fetchedAt: time.Now(),
 		version:   s.getCacheVersion(page),
 	})
-	
+
 	enhanceTime := time.Since(startTime)
 	fmt.Printf("🎬 Background enhancement completed for page %s in %.2fms\n", page, float64(enhanceTime.Milliseconds()))
 }
@@ -3139,10 +3383,10 @@ func (s *WidgetService) enhanceWidgetsInBackground(page string, widgets []models
 // prefetchEssentialData fetches only essential data for fast loading
 func (s *WidgetService) prefetchEssentialData(widgets []models.Widget) *DataCache {
 	cache := &DataCache{}
-	
+
 	needsLocal := false
 	needsNotifications := false
-	
+
 	// Determine minimal data requirements
 	for _, widget := range widgets {
 		switch widget.DataSource {
@@ -3153,9 +3397,9 @@ func (s *WidgetService) prefetchEssentialData(widgets []models.Widget) *DataCach
 			needsNotifications = true
 		}
 	}
-	
+
 	var wg sync.WaitGroup
-	
+
 	// Fetch only local data for fast loading
 	if needsLocal && s.mediaService != nil {
 		wg.Add(1)
@@ -3174,7 +3418,7 @@ func (s *WidgetService) prefetchEssentialData(widgets []models.Widget) *DataCach
 			}
 		}()
 	}
-	
+
 	// Fetch notifications if needed
 	if needsNotifications && s.notificationService != nil {
 		wg.Add(1)
@@ -3194,7 +3438,7 @@ func (s *WidgetService) prefetchEssentialData(widgets []models.Widget) *DataCach
 			}
 		}()
 	}
-	
+
 	wg.Wait()
 	return cache
 }
@@ -3212,20 +3456,21 @@ func (s *WidgetService) getFastWidgetDataFromCache(widget models.Widget, cache *
 		}
 		return []models.MediaItem{}
 	}
-	
+
 	config, err := s.GetWidgetConfig(&widget)
 	if err != nil {
 		config = &models.WidgetConfig{}
 	}
-	
+
 	// Handle specific content widgets
 	if widget.Type == models.WidgetTypeSpecificContent || len(config.SelectedContent) > 0 {
 		if len(config.SelectedContent) > 0 {
-			return s.convertSelectedContentToMediaItems(config.SelectedContent)
+			selectedItems := s.convertSelectedContentToMediaItems(config.SelectedContent)
+			return s.applyFiltersSortAndLimit(selectedItems, widget, config)
 		}
 		return []models.MediaItem{}
 	}
-	
+
 	// Handle recently-played data source specially
 	if widget.DataSource == models.WidgetDataSourceRecentlyPlayed {
 		if s.playbackService != nil {
@@ -3256,15 +3501,15 @@ func (s *WidgetService) getFastWidgetDataFromCache(widget models.Widget, cache *
 						PreviewPath:     progress.Media.PreviewPath,
 						PreviewClipPath: progress.Media.PreviewClipPath,
 					}
-					
+
 					if progress.Media.SeriesID != nil {
 						item.SeriesID = *progress.Media.SeriesID
 					}
-					
+
 					for _, genre := range progress.Media.Genres {
 						item.GenreNames = append(item.GenreNames, genre.Name)
 					}
-					
+
 					mediaItems = append(mediaItems, item)
 				}
 				return mediaItems
@@ -3272,7 +3517,7 @@ func (s *WidgetService) getFastWidgetDataFromCache(widget models.Widget, cache *
 		}
 		return []models.MediaItem{}
 	}
-	
+
 	// Use local data from cache
 	var sourceMedia []models.Media
 	switch widget.ContentType {
@@ -3283,28 +3528,28 @@ func (s *WidgetService) getFastWidgetDataFromCache(widget models.Widget, cache *
 	default:
 		sourceMedia = cache.LocalAllMedia
 	}
-	
+
 	preferSeries := widget.ContentType == models.WidgetContentTypeTVShows
 	var mediaItems []models.MediaItem
 	for _, media := range sourceMedia {
 		mediaItems = append(mediaItems, s.convertMediaToWidgetItem(media, preferSeries))
 	}
-	
+
 	if preferSeries {
 		mediaItems = dedupeSeriesItems(mediaItems)
 	}
-	
+
 	// Apply filters
 	filteredData := s.applyWidgetFilters(mediaItems, widget, config)
-	
+
 	// Sort data
 	sortedData := s.sortWidgetData(filteredData, widget)
-	
+
 	// Limit results
 	if len(sortedData) > widget.MaxItems {
 		sortedData = sortedData[:widget.MaxItems]
 	}
-	
+
 	return sortedData
 }
 
@@ -3348,26 +3593,28 @@ func (s *WidgetService) convertMediaToWidgetItem(media models.Media, preferSerie
 	}
 
 	item := models.MediaItem{
-		ID:              media.ID,
-		Title:           media.Title,
-		Description:     media.Description,
-		Type:            media.Type,
-		Rating:          media.Rating,
-		Year:            media.Year,
-		Duration:        media.Duration,
-		ThumbnailPath:   media.ThumbnailPath,
-		PosterPath:      media.PosterPath,
-		BackdropPath:    backdropPath,
-		LogoPath:        logoPath,
-		TMDBBackdropURL: media.TMDBBackdropURL,
-		TMDBTrailerURL:  media.TMDBTrailerURL,
-		TrailerPath:     media.TrailerPath,
-		PreviewPath:     media.PreviewPath,
-		PreviewClipPath: media.PreviewClipPath,
-		TMDBID:          media.TMDBID,
-		ViewCount:       media.ViewCount,
-		LastViewed:      media.LastViewed,
-		IsLocal:         true,
+		ID:               media.ID,
+		Title:            media.Title,
+		Description:      media.Description,
+		Type:             media.Type,
+		OriginalLanguage: media.Language,
+		Country:          media.Country,
+		Rating:           media.Rating,
+		Year:             media.Year,
+		Duration:         media.Duration,
+		ThumbnailPath:    media.ThumbnailPath,
+		PosterPath:       media.PosterPath,
+		BackdropPath:     backdropPath,
+		LogoPath:         logoPath,
+		TMDBBackdropURL:  media.TMDBBackdropURL,
+		TMDBTrailerURL:   media.TMDBTrailerURL,
+		TrailerPath:      media.TrailerPath,
+		PreviewPath:      media.PreviewPath,
+		PreviewClipPath:  media.PreviewClipPath,
+		TMDBID:           media.TMDBID,
+		ViewCount:        media.ViewCount,
+		LastViewed:       media.LastViewed,
+		IsLocal:          true,
 	}
 
 	if media.SeriesID != nil {
@@ -3431,6 +3678,12 @@ func (s *WidgetService) convertMediaToWidgetItem(media models.Media, preferSerie
 		}
 		if series.TMDBID != 0 {
 			item.TMDBID = series.TMDBID
+		}
+		if series.Language != "" {
+			item.OriginalLanguage = series.Language
+		}
+		if series.Country != "" {
+			item.Country = series.Country
 		}
 
 		if len(series.GenreNames) > 0 {

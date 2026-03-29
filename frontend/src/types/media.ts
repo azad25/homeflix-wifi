@@ -68,6 +68,8 @@ export interface Media {
   backdrop_path?: string;
   trailer_path?: string;
   poster_path?: string;
+  banner_url?: string;
+  backdrop_url?: string;
   poster_url?: string | null; // For TMDB movies
 
   // TMDB Integration fields for local media
@@ -85,7 +87,7 @@ export interface Media {
   episode?: number;
   season_number?: number;
   episode_number?: number;
-  
+
   // Episode-specific metadata from TMDB
   episode_title?: string;        // Episode name/title
   episode_still_path?: string;   // Local path to episode thumbnail

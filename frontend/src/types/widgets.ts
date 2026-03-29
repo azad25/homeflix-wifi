@@ -42,6 +42,8 @@ export interface WidgetConfig {
     autoScroll?: boolean;
     scrollInterval?: number; // in seconds
     genreFilter?: string[];
+    languageFilter?: string[];
+    countryFilter?: string[];
     yearFilter?: number;
     ratingFilter?: number;
     customGradient?: string;
@@ -57,7 +59,9 @@ export interface WidgetConfig {
     highlightStyle?: 'banner' | 'card' | 'minimal';
     // Selected content for widgets
     selectedContent?: any[];
-    selectedGenres?: string[];
+    selectedGenres?: number[];
+    selectedLanguages?: string[];
+    selectedCountries?: string[];
 }
 
 export interface Widget {

@@ -125,147 +125,210 @@ const RecentlyWatchedCard: React.FC<RecentlyWatchedCardProps> = ({
     return { text: qualityText, color: 'bg-blue-600' };
   };
 
+  const isBackdrop = index % 3 === 0;
+
+  const resolveLocalAssetUrl = (path: string | undefined | null) => {
+    if (!path) return null;
+    if (path.startsWith('http') || path.startsWith('data:')) return path;
+    const apiUrl = getApiUrl();
+    if (path.includes('/api/')) return path.startsWith('/') ? `${apiUrl}${path}` : `${apiUrl}/${path}`;
+    
+    if (path.startsWith('assets/')) return `${apiUrl}/api/admin/assets/${path.replace('assets/', '')}`;
+    if (path.startsWith('backdrops/')) return `${apiUrl}/api/static/backdrops/${path.replace('backdrops/', '')}`;
+    if (path.startsWith('posters/')) return `${apiUrl}/api/static/posters/${path.replace('posters/', '')}`;
+    if (path.startsWith('thumbnails/')) return `${apiUrl}/api/static/thumbnails/${path.replace('thumbnails/', '')}`;
+    if (path.startsWith('logos/')) return `${apiUrl}/api/logos/${path.replace('logos/', '')}`;
+    
+    return path.startsWith('/') ? `${apiUrl}${path}` : `${apiUrl}/${path}`;
+  };
+
+  const getPosterSrc = () => {
+    try {
+      if ((item.media as any)?.poster_url) {
+        const pUrl = (item.media as any).poster_url;
+        return pUrl.startsWith('/') && !pUrl.startsWith('//') ? `https://image.tmdb.org/t/p/w500${pUrl}` : pUrl;
+      }
+      const posterPathRaw = (item.media as any)?.poster_path;
+      if (posterPathRaw && posterPathRaw.trim() !== '') {
+          const resolved = resolveLocalAssetUrl(posterPathRaw);
+          if (resolved) return resolved;
+      }
+      
+      const apiUrl = getApiUrl();
+      if (!apiUrl || !item.media.id) return null;
+      if (item.media.type === 'tv' || item.media.type === 'series' || item.media.type === 'episode') {
+         return `${apiUrl}/api/series/${item.media.id}/poster`;
+      }
+      return `${apiUrl}/api/posters/${item.media.id}`;
+    } catch {
+      return null;
+    }
+  };
+
+  const getBackdropSrc = () => {
+    try {
+      if ((item.media as any)?.banner_url || (item.media as any)?.banner_path) {
+         const bannerRaw = (item.media as any).banner_url || (item.media as any).banner_path;
+         const resolved = resolveLocalAssetUrl(bannerRaw);
+         if (resolved) return resolved;
+      }
+      if ((item.media as any)?.backdrop_url || (item.media as any)?.backdrop_path) {
+         const backdropRaw = (item.media as any).backdrop_url || (item.media as any).backdrop_path;
+         const resolved = resolveLocalAssetUrl(backdropRaw);
+         if (resolved) return resolved;
+      }
+      
+      const tmdbUrl = (item.media as any)?.tmdb_backdrop_url;
+      if (tmdbUrl) {
+         return tmdbUrl.startsWith('/') && !tmdbUrl.startsWith('//') ? `https://image.tmdb.org/t/p/w1280${tmdbUrl}` : tmdbUrl;
+      }
+      
+      const apiUrl = getApiUrl();
+      if (!apiUrl || !item.media.id) return getPosterSrc();
+      // user requested thumbnail is the last fallback universally before poster
+      return `${apiUrl}/api/thumbnails/${item.media.id}`;
+    } catch {
+      return getPosterSrc();
+    }
+  };
+
+  const currentImgSrc = isBackdrop ? getBackdropSrc() : getPosterSrc();
+
   const progressPercent = formatProgress(item.progress_seconds, item.duration_seconds);
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.5, delay: index * 0.1 }}
-      className="relative group cursor-pointer flex-none w-80 md:w-96"
+      initial={{ opacity: 0, x: 20 }}
+      animate={{ opacity: 1, x: 0 }}
+      transition={{ duration: 0.5, delay: index * 0.05 }}
+      className={`relative group cursor-pointer flex-none h-[220px] md:h-[280px] lg:h-[320px] ${isBackdrop ? 'aspect-video w-auto' : 'aspect-[2/3] w-auto'}`}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
       onClick={handleCardClick}
       style={{ zIndex: isHovered ? 50 : 1 }}
     >
       <motion.div
-        className="relative bg-gray-900 rounded-xl overflow-hidden shadow-xl"
+        className="relative h-full w-full rounded-xl overflow-hidden shadow-2xl bg-gray-900 border border-white/5 group-hover:border-white/20 transition-all"
         animate={{
           scale: isHovered ? 1.03 : 1,
-          y: isHovered ? -8 : 0,
+          y: isHovered ? -4 : 0,
         }}
         transition={{ duration: 0.3, ease: "easeOut" }}
         style={{
-          transformOrigin: 'center center',
+          transformOrigin: 'bottom center',
           zIndex: isHovered ? 50 : 1,
         }}
       >
-        {/* Main Image Container */}
-        <div className="relative aspect-video overflow-hidden">
-          <ImageWithFallback
-            mediaId={item.media.id}
+        <div className="relative h-full w-full overflow-hidden bg-gray-900">
+          <img
+            src={currentImgSrc || '/placeholder-poster.jpg'}
             alt={cleanMovieTitle(item.media.title)}
-            fill
-            sizes="(max-width: 768px) 50vw, 33vw"
-            className="object-cover transition-transform duration-300 group-hover:scale-105"
+            className="w-full h-full object-cover transition-transform duration-700 ease-out group-hover:scale-105"
             loading={index < 3 ? "eager" : "lazy"}
-            priority={index < 3}
-            posterUrl={item.media.banner_path ? `${getApiUrl()}/api/admin/assets/${item.media.banner_path.split('/').pop()}` : null}
+            onError={(e) => {
+              const target = e.target as HTMLImageElement;
+              // Simple inline SVG gray placeholder for ultimate safety
+              target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjQ1MCIgdmlld0JveD0iMCAwIDMwMCA0NTAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIzMDAiIGhlaWdodD0iNDUwIiBmaWxsPSIjMzc0MTUxIi8+CjxwYXRoIGQ9Ik0xNTAgMjAwQzE4Ny4yNzkgMjAwIDIxOCAxNjkuMjc5IDIxOCAxMzJDMjE4IDk0LjcyMDggMTg3LjI3OSA2NCAxNTAgNjRDMTEyLjcyMSA2NCA4MiA5NC43MjA4IDgyIDEzMkM4MiAxNjkuMjc5IDExMi43MjEgMjAwIDE1MCAyMDBaIiBmaWxsPSIjNkI3Mjg4Ii8+CjxwYXRoIGQ9Ik04MiAyNzZDODIgMjM4LjY4IDExMi42OCAyMDggMTUwIDIwOEgxNTBDMTg3LjMyIDIwOCAyMTggMjM4LjY4IDIxOCAyNzZWMzUwSDgyVjI3NloiIGZpbGw9IiM2QjcyODgiLz4KPHN2Zz4K';
+            }}
           />
 
           {/* Quality Badge */}
-          <div className="absolute top-3 right-3 z-10 border border-white/50 px-2 py-1 text-xs font-bold rounded text-white backdrop-blur-sm">
+          <div className="absolute top-3 right-3 z-10 bg-red-600/80 backdrop-blur-md px-1.5 py-0.5 font-bold text-[10px] text-white rounded">
             {getQualityBadge().text}
           </div>
 
-          {/* Time Remaining Badge */}
-          <div className="absolute top-3 left-3 bg-black/70 backdrop-blur-sm text-white text-xs px-2 py-1 rounded-md shadow-lg">
+          {/* Time Remaining Badge (Only show clearly on backdrops, or small on posters) */}
+          <div className="absolute top-3 left-3 bg-black/70 backdrop-blur-md text-white text-[10px] md:text-xs font-bold px-2 py-1 rounded shadow-lg">
             {formatTime(item.duration_seconds - item.progress_seconds)} left
           </div>
 
           {/* Gradient Overlay */}
-          <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent" />
+          <div className={`absolute inset-0 bg-gradient-to-t ${isBackdrop ? 'from-black/95 via-black/20 to-transparent' : 'from-black/95 via-transparent to-transparent'} opacity-80 group-hover:opacity-90 transition-opacity duration-300`} />
 
-          {/* Play Button Overlay */}
+          {/* Play Button Overlay (Centered for completely un-hovered posters) */}
           <AnimatePresence>
-            {isHovered && (
+            {isHovered ? (
               <motion.div
                 initial={{ opacity: 0, scale: 0.8 }}
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.8 }}
-                className="absolute inset-0 flex items-center justify-center z-20 bg-black/30"
+                className="absolute inset-0 flex items-center justify-center z-20 bg-black/20"
               >
                 <button
                   onClick={handlePlayClick}
                   disabled={isLoading}
-                  className="bg-white/90 backdrop-blur-sm rounded-full p-4 hover:bg-white transition-all duration-200 shadow-xl"
+                  className="bg-red-600/90 backdrop-blur-sm rounded-full p-4 hover:scale-110 hover:bg-red-500 transition-all duration-300 shadow-[0_0_20px_rgba(220,38,38,0.5)]"
                 >
                   {isLoading ? (
-                    <div className="w-6 h-6 border-2 border-black border-t-transparent rounded-full animate-spin" />
+                    <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin" />
                   ) : (
-                    <Play className="w-6 h-6 text-black fill-black" />
+                    <Play className="w-6 h-6 text-white fill-current translate-x-0.5" />
                   )}
                 </button>
               </motion.div>
-            )}
+            ) : (!isBackdrop && (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className="absolute inset-0 flex items-center justify-center pointer-events-none"
+              >
+                <div className="bg-white/10 backdrop-blur-sm rounded-full p-3 transform scale-75 shadow-lg border border-white/20">
+                  <Play className="w-5 h-5 text-white/50 fill-current translate-x-0.5" />
+                </div>
+              </motion.div>
+            ))}
           </AnimatePresence>
 
-          {/* Progress Bar */}
-          <div className="absolute bottom-0 left-0 right-0 h-1 bg-black/50">
+          {/* Progress Bar Container */}
+          <div className="absolute bottom-0 left-0 right-0 h-1.5 bg-black/40 z-20">
             <motion.div
-              className="bg-red-600 h-full"
+              className="bg-red-500 h-full shadow-[0_0_10px_rgba(239,68,68,0.8)]"
               initial={{ width: 0 }}
               animate={{ width: `${progressPercent}%` }}
-              transition={{ duration: 0.8, delay: index * 0.1 }}
+              transition={{ duration: 1, delay: index * 0.1, ease: "easeOut" }}
             />
           </div>
 
-          {/* Content Overlay */}
-          <div className="absolute bottom-0 left-0 right-0 p-4 z-10">
+          {/* Content Info Container (Bottom Aligned) */}
+          <div className={`absolute bottom-2 left-0 right-0 p-4 lg:p-5 flex flex-col justify-end translate-y-3 group-hover:translate-y-0 ${!isBackdrop && 'opacity-0 group-hover:opacity-100'} transition-all duration-400 z-10`}>
             {/* Title */}
-            <h3 className="text-white font-bold text-lg line-clamp-2 mb-2 drop-shadow-lg">
+            <h3 className={`text-white font-bold leading-tight drop-shadow-lg ${isBackdrop ? 'text-xl md:text-2xl mb-1' : 'text-sm mb-1'} line-clamp-1`}>
               {cleanMovieTitle(item.media.title)}
             </h3>
 
-            {/* Progress and Time Info */}
-            <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-2 text-gray-300 text-sm">
-                <Clock className="w-4 h-4" />
-                <span>{formatLastWatched(item.last_watched_at)}</span>
-              </div>
-
-              <span className="text-green-400 text-sm font-medium">
-                {Math.round(progressPercent)}% watched
+            {/* Info Row */}
+            <div className="flex items-center gap-2 md:gap-3 text-white/80 text-[10px] md:text-xs font-medium">
+              <span className="text-red-400 font-bold whitespace-nowrap">
+                {Math.round(progressPercent)}%
               </span>
+              <span className="text-white/30">•</span>
+              <div className="flex items-center gap-1.5 truncate">
+                <Clock className="w-3 h-3" />
+                <span className="truncate">{formatLastWatched(item.last_watched_at)}</span>
+              </div>
             </div>
 
-            {/* Year and Rating */}
-            <div className="flex items-center justify-between">
+            {/* Year and Rating Row (Only show on backdrop or hover) */}
+            <div className="flex items-center justify-between mt-2.5">
               {getYear() && (
-                <span className="text-gray-300 text-sm font-medium">
+                <span className="text-white/60 text-[10px] md:text-xs font-bold bg-white/10 px-1.5 py-0.5 rounded">
                   {getYear()}
                 </span>
               )}
 
-              {item.media.rating && (
+              {item.media.rating && item.media.rating > 0 && (
                 <div className="flex items-center gap-1">
                   <Star className="w-3 h-3 text-yellow-400 fill-current" />
-                  <span className="text-white text-sm font-medium">{item.media.rating.toFixed(1)}</span>
+                  <span className="text-white text-[10px] md:text-xs font-bold drop-shadow-md">
+                    {Number(item.media.rating).toFixed(1)}
+                  </span>
                 </div>
               )}
             </div>
           </div>
         </div>
 
-        {/* Action Buttons - Show on Hover */}
-        <AnimatePresence>
-          {isHovered && (
-            <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 10 }}
-              className="absolute bottom-4 right-4 flex gap-2 z-30"
-            >
-              <button
-                onClick={handleInfoClick}
-                className="bg-gray-800/90 backdrop-blur-sm text-white p-2 rounded-full hover:bg-gray-700/90 transition-colors shadow-lg"
-                title="More Info"
-              >
-                <Info className="w-4 h-4" />
-              </button>
-            </motion.div>
-          )}
-        </AnimatePresence>
+
       </motion.div>
     </motion.div>
   );

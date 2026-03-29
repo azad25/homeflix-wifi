@@ -24,6 +24,10 @@ interface ContentSelectorProps {
   onContentChange: (content: any[]) => void;
   selectedGenres: number[];
   onGenresChange: (genres: number[]) => void;
+  selectedLanguages: string[];
+  onLanguagesChange: (languages: string[]) => void;
+  selectedCountries: string[];
+  onCountriesChange: (countries: string[]) => void;
 }
 
 interface Genre {
@@ -50,6 +54,8 @@ interface TMDBSearchResult {
   poster_url?: string;
   poster?: string;
   type?: string; // Add this for local media items
+  original_language?: string;
+  language?: string;
   rating?: number;
   year?: number;
   duration?: number;
@@ -58,6 +64,7 @@ interface TMDBSearchResult {
   tmdb_trailer_url?: string;
   trailer_path?: string;
   logo_path?: string;
+  _source?: 'local' | 'tmdb';
 }
 
 const buildPosterUrl = (posterPath: string | null | undefined, apiUrl: string) => {
@@ -93,13 +100,19 @@ export default function ContentSelector({
   selectedContent,
   onContentChange,
   selectedGenres,
-  onGenresChange
+  onGenresChange,
+  selectedLanguages,
+  onLanguagesChange,
+  selectedCountries,
+  onCountriesChange
 }: ContentSelectorProps) {
   const [activeTab, setActiveTab] = useState<'search' | 'genres' | 'featured' | 'local'>('search');
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<TMDBSearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [localGenres, setLocalGenres] = useState<Genre[]>([]);
+  const [localLanguages, setLocalLanguages] = useState<string[]>([]);
+  const [localCountries, setLocalCountries] = useState<string[]>([]);
   const [tmdbGenres, setTmdbGenres] = useState<Genre[]>([]);
   const [featuredContent, setFeaturedContent] = useState<TMDBSearchResult[]>([]);
   const [loadingFeatured, setLoadingFeatured] = useState(false);
@@ -112,6 +125,8 @@ export default function ContentSelector({
   useEffect(() => {
     if (isOpen) {
       fetchLocalGenres();
+      fetchLocalLanguages();
+      fetchLocalCountries();
       fetchTMDBGenres();
     }
   }, [isOpen]);
@@ -161,6 +176,42 @@ export default function ContentSelector({
       setTmdbGenres(uniqueGenres.sort((a, b) => a.name.localeCompare(b.name)));
     } catch (error) {
       console.error('Error fetching TMDB genres:', error);
+    }
+  };
+
+  const fetchLocalLanguages = async () => {
+    try {
+      const response = await fetch(`${apiUrl}/api/widgets/languages`);
+      if (response.ok) {
+        const data = await response.json();
+        const values = Array.isArray(data)
+          ? data.map((item: any) => item?.value).filter((value: unknown) => typeof value === 'string')
+          : [];
+        setLocalLanguages(values);
+      } else {
+        setLocalLanguages([]);
+      }
+    } catch (error) {
+      console.error('Error fetching local languages:', error);
+      setLocalLanguages([]);
+    }
+  };
+
+  const fetchLocalCountries = async () => {
+    try {
+      const response = await fetch(`${apiUrl}/api/widgets/countries`);
+      if (response.ok) {
+        const data = await response.json();
+        const values = Array.isArray(data)
+          ? data.map((item: any) => item?.value).filter((value: unknown) => typeof value === 'string')
+          : [];
+        setLocalCountries(values);
+      } else {
+        setLocalCountries([]);
+      }
+    } catch (error) {
+      console.error('Error fetching local countries:', error);
+      setLocalCountries([]);
     }
   };
 
@@ -228,7 +279,9 @@ export default function ContentSelector({
       : 'movie';
 
     // Check if item already selected - compare by id AND source type (tmdb vs local)
-    const isLocalItem = item.type && (item.type === 'tv' || item.type === 'series' || item.type === 'episode' || item.type === 'movie');
+    const isLocalItem = item._source === 'local' || (
+      item.type && (item.type === 'tv' || item.type === 'series' || item.type === 'episode' || item.type === 'movie') && item._source !== 'tmdb'
+    );
     const itemSource = isLocalItem ? 'local' : 'tmdb';
 
     const exists = selectedContent.some(c => {
@@ -256,7 +309,7 @@ export default function ContentSelector({
         rating: item.rating || item.vote_average || 0,
         year: item.year || (item.release_date ? parseInt(item.release_date.split('-')[0]) : null),
         duration: item.duration || 0,
-        _source: isLocalItem ? 'local' : 'tmdb', // Track source
+        _source: isLocalItem ? 'local' : 'tmdb',
         // Preserve trailer and logo fields for local content
         tmdb_trailer_url: item.tmdb_trailer_url || '',
         trailer_path: item.trailer_path || '',
@@ -285,6 +338,22 @@ export default function ContentSelector({
       onGenresChange(selectedGenres.filter(id => id !== genreId));
     } else {
       onGenresChange([...selectedGenres, genreId]);
+    }
+  };
+
+  const toggleLanguage = (language: string) => {
+    if (selectedLanguages.includes(language)) {
+      onLanguagesChange(selectedLanguages.filter(item => item !== language));
+    } else {
+      onLanguagesChange([...selectedLanguages, language]);
+    }
+  };
+
+  const toggleCountry = (country: string) => {
+    if (selectedCountries.includes(country)) {
+      onCountriesChange(selectedCountries.filter(item => item !== country));
+    } else {
+      onCountriesChange([...selectedCountries, country]);
     }
   };
 
@@ -403,7 +472,7 @@ export default function ContentSelector({
                   {searchQuery.trim() && !isSearching && searchResults.length === 0 && (
                     <div className="text-center py-12">
                       <Search className="w-16 h-16 text-white/20 mx-auto mb-4" />
-                      <p className="text-white/60">No results found for "{searchQuery}"</p>
+                      <p className="text-white/60">No results found for &ldquo;{searchQuery}&rdquo;</p>
                     </div>
                   )}
                 </div>
@@ -475,10 +544,11 @@ export default function ContentSelector({
                           genre_ids: [],
                           type: item.type,
                           rating: item.rating,
+                          original_language: item.original_language || item.language || '',
                           year: item.year,
                           duration: item.duration,
                           description: item.description,
-                          // Add trailer and logo fields
+                          _source: 'local',
                           tmdb_trailer_url: item.tmdb_trailer_url || '',
                           trailer_path: item.trailer_path || '',
                           logo_path: item.logo_path || '',
@@ -550,11 +620,59 @@ export default function ContentSelector({
                     </div>
                   </div>
 
-                  {selectedGenres.length > 0 && (
+                  <div>
+                    <div className="flex items-center gap-3 mb-4">
+                      <Database className="w-5 h-5 text-purple-400" />
+                      <h3 className="text-lg font-semibold text-white">Local Languages</h3>
+                      <span className="text-sm text-white/60">({localLanguages.length})</span>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {localLanguages.map((language) => (
+                        <button
+                          key={`lang-${language}`}
+                          onClick={() => toggleLanguage(language)}
+                          className={`px-4 py-2 rounded-xl text-sm font-medium transition-all duration-200 hover:scale-105 ${selectedLanguages.includes(language)
+                            ? 'bg-purple-500/20 border border-purple-400/50 text-purple-200 shadow-lg shadow-purple-500/10'
+                            : 'bg-white/5 border border-white/10 text-white/80 hover:bg-white/10 hover:border-white/20'
+                            }`}
+                        >
+                          {language}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="flex items-center gap-3 mb-4">
+                      <Globe className="w-5 h-5 text-orange-400" />
+                      <h3 className="text-lg font-semibold text-white">Local Countries</h3>
+                      <span className="text-sm text-white/60">({localCountries.length})</span>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {localCountries.map((country) => (
+                        <button
+                          key={`country-${country}`}
+                          onClick={() => toggleCountry(country)}
+                          className={`px-4 py-2 rounded-xl text-sm font-medium transition-all duration-200 hover:scale-105 ${selectedCountries.includes(country)
+                            ? 'bg-orange-500/20 border border-orange-400/50 text-orange-200 shadow-lg shadow-orange-500/10'
+                            : 'bg-white/5 border border-white/10 text-white/80 hover:bg-white/10 hover:border-white/20'
+                            }`}
+                        >
+                          {country}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {(selectedGenres.length > 0 || selectedLanguages.length > 0 || selectedCountries.length > 0) && (
                     <div className="flex items-center justify-between p-4 bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl">
-                      <span className="text-white/80">{selectedGenres.length} genres selected</span>
+                      <span className="text-white/80">{selectedGenres.length} genres, {selectedLanguages.length} languages, and {selectedCountries.length} countries selected</span>
                       <button
-                        onClick={() => onGenresChange([])}
+                        onClick={() => {
+                          onGenresChange([]);
+                          onLanguagesChange([]);
+                          onCountriesChange([]);
+                        }}
                         className="text-sm text-red-400 hover:text-red-300 transition-colors"
                       >
                         Clear all
@@ -595,12 +713,16 @@ export default function ContentSelector({
               <div className="text-sm text-white/60">
                 {selectedContent.length} items selected
                 {selectedGenres.length > 0 && `, ${selectedGenres.length} genres filtered`}
+                {selectedLanguages.length > 0 && `, ${selectedLanguages.length} languages filtered`}
+                {selectedCountries.length > 0 && `, ${selectedCountries.length} countries filtered`}
               </div>
               <div className="flex gap-3">
                 <button
                   onClick={() => {
                     onContentChange([]);
                     onGenresChange([]);
+                    onLanguagesChange([]);
+                    onCountriesChange([]);
                   }}
                   className="px-4 py-2 text-white/60 hover:text-white hover:bg-white/10 backdrop-blur-sm border border-white/10 rounded-xl transition-all duration-200"
                 >

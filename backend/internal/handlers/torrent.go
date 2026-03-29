@@ -24,6 +24,33 @@ type TorrentHandler struct {
 	notificationService NotificationServiceInterface
 }
 
+func normalizeTorrentDownloadPath(path string) (string, error) {
+	trimmed := strings.TrimSpace(path)
+	if trimmed == "" {
+		return "", fmt.Errorf("download path cannot be empty")
+	}
+
+	expanded := os.ExpandEnv(trimmed)
+	if strings.HasPrefix(expanded, "~") {
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
+		if expanded == "~" {
+			expanded = homeDir
+		} else if strings.HasPrefix(expanded, "~/") {
+			expanded = filepath.Join(homeDir, expanded[2:])
+		}
+	}
+
+	absPath, err := filepath.Abs(expanded)
+	if err != nil {
+		return "", err
+	}
+
+	return filepath.Clean(absPath), nil
+}
+
 // MediaScannerInterface defines the interface for triggering media scans
 type MediaScannerInterface interface {
 	ScanMediaLibrary() error
@@ -69,6 +96,17 @@ func NewTorrentHandler(db *gorm.DB, mediaScanner MediaScannerInterface, notifica
 			config.PortRangeStart = 50000
 			config.PortRangeEnd = 51000
 			db.Save(&config)
+		}
+	}
+
+	normalizedDownloadPath, normalizeErr := normalizeTorrentDownloadPath(config.DownloadPath)
+	if normalizeErr != nil {
+		log.Printf("⚠️ Failed to normalize configured download path '%s': %v", config.DownloadPath, normalizeErr)
+	} else if normalizedDownloadPath != config.DownloadPath {
+		log.Printf("🔧 Normalized torrent download path: %s -> %s", config.DownloadPath, normalizedDownloadPath)
+		config.DownloadPath = normalizedDownloadPath
+		if err := db.Save(&config).Error; err != nil {
+			log.Printf("⚠️ Failed to persist normalized download path: %v", err)
 		}
 	}
 
@@ -1082,6 +1120,12 @@ func (h *TorrentHandler) UpdateConfig(c *gin.Context) {
 	config.JackettURL = req.JackettURL
 	config.JackettAPIKey = req.JackettAPIKey
 	config.DownloadPath = req.DownloadPath
+	if normalizedDownloadPath, err := normalizeTorrentDownloadPath(config.DownloadPath); err == nil {
+		config.DownloadPath = normalizedDownloadPath
+	} else {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid download path: %v", err)})
+		return
+	}
 	config.MinSeeders = req.MinSeeders
 	config.MaxDownloads = req.MaxDownloads
 	config.AutoDownload = req.AutoDownload

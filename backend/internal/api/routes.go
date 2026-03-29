@@ -3,9 +3,10 @@ package api
 import (
 	"homeflix-backend/internal/api/handlers"
 	torrentHandlers "homeflix-backend/internal/handlers"
-	"homeflix-backend/internal/scanner"
 	"homeflix-backend/internal/models"
+	"homeflix-backend/internal/scanner"
 	"homeflix-backend/internal/services"
+
 	"gorm.io/gorm"
 
 	"github.com/gin-gonic/gin"
@@ -26,13 +27,13 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		api.GET("/media/tv-shows", handlers.GetTVShows(mediaService))
 		api.GET("/media/genre/:genre", handlers.GetMediaByGenre(mediaService))
 		api.GET("/media/search", handlers.SearchMedia(mediaService))
-		
+
 		// Enhanced subtitle and audio track endpoints (must be before /media/:id)
 		api.GET("/media/:id/subtitles", handlers.GetSubtitleTracks(mediaService))
 		api.GET("/media/:id/audio", handlers.GetAudioTracks(mediaService))
 		api.GET("/media/:id/subtitles/:trackId/file", handlers.GetSubtitleFile(mediaService))
 		api.GET("/media/:id/alac-audio", handlers.StreamALACAudio(streamService, mediaService))
-		
+
 		// General media routes (must be after specific sub-routes)
 		api.GET("/media/:id", handlers.GetMediaByID(mediaService))
 		api.DELETE("/media/:id", handlers.DeleteMedia(mediaService))
@@ -137,8 +138,8 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		api.Static("/static/thumbnails", "./thumbnails")
 		api.Static("/static/previews", "./previews")
 		api.Static("/static/posters", "./posters")
-		api.Static("/static/backdrops", "./backdrops") // Serve backdrop files
-		api.Static("/logos", "./logos") // Serve logo files
+		api.Static("/static/backdrops", "./backdrops")    // Serve backdrop files
+		api.Static("/logos", "./logos")                   // Serve logo files
 		api.Static("/episode_stills", "./episode_stills") // Serve episode still files
 
 		// Episode still serving endpoint with auto-download
@@ -147,16 +148,16 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 
 		// Logo scan endpoint
 		api.POST("/admin/scan/logos", handlers.ScanMovieLogos(mediaService, tmdbService))
-		
+
 		// Backdrop scan endpoint
 		api.POST("/admin/scan/backdrops", handlers.ScanMovieBackdrops(mediaService, tmdbService))
-		
+
 		// Backdrop URL migration endpoint
 		api.POST("/admin/migrate/backdrop-urls", handlers.MigrateBackdropURLs(mediaService))
 
 		// Thumbnail generation endpoint (always available)
 		api.POST("/thumbnails/:id", handlers.GenerateThumbnail(mediaService, thumbnailService))
-		
+
 		// Force regeneration endpoints (for settings page)
 		api.POST("/admin/thumbnails/:id/regenerate", handlers.RegenerateThumbnail(mediaService, thumbnailService))
 		api.POST("/admin/preview-clips/:id/regenerate", handlers.RegeneratePreviewClip(mediaService, thumbnailService))
@@ -203,9 +204,9 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		// Subtitles
 		api.GET("/subtitles/:id", handlers.GetSubtitles(mediaService))
 		api.GET("/subtitles/:id/file", handlers.ServeSubtitleFile(mediaService))
-		
+
 		// Enhanced subtitle and audio track endpoints (moved above)
-		
+
 		// Subtitle management endpoints
 		api.POST("/admin/media/:id/upload-subtitle", handlers.UploadSubtitle(mediaService))
 		api.DELETE("/admin/media/:id/subtitles/:trackId", handlers.DeleteSubtitle(mediaService))
@@ -243,8 +244,6 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		// Recommendation tracking
 		api.POST("/recommendations/track-click/:id", handlers.TrackRecommendationClick(recommendationService))
 		api.GET("/recommendations/score/:id", handlers.GetRecommendationScoreForMedia(recommendationService, db))
-
-
 
 		// Admin utilities
 		api.POST("/admin/update-genres", handlers.UpdateAllMediaGenres(mediaService))
@@ -309,7 +308,7 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		// TMDB auto-update endpoint (alternative endpoint)
 		api.POST("/admin/media/:id/fetch-tmdb", handlers.UpdateMediaWithTMDB(mediaService, tmdbService))
 		api.POST("/admin/series/:id/fetch-tmdb", handlers.UpdateSeriesWithTMDB(mediaService, tmdbService))
-		
+
 		// Update local media with TMDB backdrop and trailer data
 		api.POST("/admin/update-tmdb-data", handlers.UpdateLocalMediaWithTMDB(mediaService, tmdbService))
 
@@ -336,7 +335,7 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		api.POST("/admin/watcher/scan/incremental", watcherHandler.TriggerIncrementalScan)
 
 		// Now Playing TV Channel endpoints
-		api.GET("/now-playing/previews", handlers.GetNowPlayingPreviews())
+		api.GET("/now-playing/previews", handlers.GetNowPlayingPreviews(mediaService))
 
 		// News endpoints for TV channel
 		api.GET("/news/latest", newsHandlers.GetLatestNews())
@@ -346,10 +345,10 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 
 		// TMDB upcoming movies endpoint (cached for 24 hours)
 		api.GET("/upcoming-movies", handlers.GetUpcomingMovies(tmdbService))
-		
+
 		// TMDB TV series endpoint (airing today, on the air, trending)
 		api.GET("/upcoming-tv-series", handlers.GetUpcomingTVSeries(tmdbService))
-		
+
 		// New TMDB movie list endpoints
 		api.GET("/tmdb/movie/latest", handlers.GetLatestMovie(tmdbService))
 		api.GET("/tmdb/movie/now-playing", handlers.GetNowPlayingMoviesList(tmdbService))
@@ -357,14 +356,14 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		api.GET("/tmdb/movie/popular", handlers.GetPopularMoviesList(tmdbService))
 		api.GET("/tmdb/discover/movie", handlers.DiscoverMoviesByFilters(tmdbService))
 		api.GET("/tmdb/movie/:id/images", handlers.GetMovieImagesList(tmdbService))
-		
+
 		// TMDB movie details endpoint (cached for 6 hours)
 		api.GET("/tmdb-movie/:id", handlers.GetTMDBMovieDetails(tmdbService))
-		
+
 		// TMDB search endpoints
 		api.GET("/tmdb/search", handlers.SearchTMDB(tmdbService))
 		api.GET("/tmdb/suggestions", handlers.SearchTMDBSuggestions(tmdbService))
-		
+
 		// TMDB related content endpoints
 		api.GET("/tmdb/:id/related", handlers.GetRelatedMedia(tmdbService))
 		api.GET("/tmdb/movie/:id/similar", handlers.GetSimilarMovies(tmdbService))
@@ -388,28 +387,28 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		api.GET("/providers/:id/new", handlers.GetProviderNewReleases(providerService))
 		api.GET("/content/:type/:id/providers", handlers.GetContentProviders(providerService))
 
-	var torrentHandler *torrentHandlers.TorrentHandler
-	if notificationService != nil {
-		// Initialize torrent handler with notification service
-		torrentHandler = torrentHandlers.NewTorrentHandler(db, mediaScanner, notificationService)
-	} else {
-		// Initialize torrent handler without notification service
-		torrentHandler = torrentHandlers.NewTorrentHandler(db, mediaScanner, nil)
-	}
+		var torrentHandler *torrentHandlers.TorrentHandler
+		if notificationService != nil {
+			// Initialize torrent handler with notification service
+			torrentHandler = torrentHandlers.NewTorrentHandler(db, mediaScanner, notificationService)
+		} else {
+			// Initialize torrent handler without notification service
+			torrentHandler = torrentHandlers.NewTorrentHandler(db, mediaScanner, nil)
+		}
 
-	// Torrent download endpoints
-	api.GET("/torrents/search", torrentHandler.SearchTorrents)
-	api.POST("/torrents/download", torrentHandler.StartDownload)
-	api.GET("/torrents/downloads", torrentHandler.GetDownloads)
-	api.GET("/torrents/downloads/:id", torrentHandler.GetDownload)
-	api.POST("/torrents/downloads/:id/pause", torrentHandler.PauseDownload)
-	api.POST("/torrents/downloads/:id/resume", torrentHandler.ResumeDownload)
-	api.DELETE("/torrents/downloads/:id", torrentHandler.RemoveDownload)
-	api.GET("/torrents/config", torrentHandler.GetConfig)
-	api.PUT("/torrents/config", torrentHandler.UpdateConfig)
-	api.POST("/torrents/test-connection", torrentHandler.TestConnection)
-	api.GET("/torrents/bandwidth-stats", torrentHandler.GetBandwidthStats)
-	api.GET("/torrents/database-stats", torrentHandler.GetDatabaseStats) // Diagnostic endpoint
+		// Torrent download endpoints
+		api.GET("/torrents/search", torrentHandler.SearchTorrents)
+		api.POST("/torrents/download", torrentHandler.StartDownload)
+		api.GET("/torrents/downloads", torrentHandler.GetDownloads)
+		api.GET("/torrents/downloads/:id", torrentHandler.GetDownload)
+		api.POST("/torrents/downloads/:id/pause", torrentHandler.PauseDownload)
+		api.POST("/torrents/downloads/:id/resume", torrentHandler.ResumeDownload)
+		api.DELETE("/torrents/downloads/:id", torrentHandler.RemoveDownload)
+		api.GET("/torrents/config", torrentHandler.GetConfig)
+		api.PUT("/torrents/config", torrentHandler.UpdateConfig)
+		api.POST("/torrents/test-connection", torrentHandler.TestConnection)
+		api.GET("/torrents/bandwidth-stats", torrentHandler.GetBandwidthStats)
+		api.GET("/torrents/database-stats", torrentHandler.GetDatabaseStats) // Diagnostic endpoint
 
 		// Media paths management endpoints
 		api.GET("/admin/media-paths", mediaPathsHandler.GetMediaPaths)
@@ -455,6 +454,8 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		api.GET("/widgets/layouts", widgetHandler.GetWidgetLayouts)
 		api.GET("/widgets/data-sources", widgetHandler.GetWidgetDataSources)
 		api.GET("/widgets/content-types", widgetHandler.GetWidgetContentTypes)
+		api.GET("/widgets/languages", widgetHandler.GetWidgetLanguages)
+		api.GET("/widgets/countries", widgetHandler.GetWidgetCountries)
 		api.GET("/widgets/page/:page", widgetHandler.GetWidgetsByPage)
 		api.GET("/widgets/page/:page/with-data", widgetHandler.GetWidgetsWithDataByPage)
 		api.GET("/widgets/:id", widgetHandler.GetWidgetByID)

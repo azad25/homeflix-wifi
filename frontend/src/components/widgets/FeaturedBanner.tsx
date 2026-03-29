@@ -132,7 +132,16 @@ export default function FeaturedBanner({
 
     const getBackdropUrl = (m: Media) => {
         if (m.tmdb_backdrop_url) return m.tmdb_backdrop_url;
-        if (m.banner_path) return `${apiUrl}/api/admin/assets/${m.banner_path.split('/').pop()}`;
+        if (m.banner_path) {
+            if (m.banner_path.startsWith('http')) return m.banner_path;
+            if (m.banner_path.startsWith('/api/')) return `${apiUrl}${m.banner_path}`;
+            return `${apiUrl}/api/admin/assets/${m.banner_path.split('/').pop()}`;
+        }
+        if (m.backdrop_path) {
+            if (m.backdrop_path.startsWith('http')) return m.backdrop_path;
+            if (m.backdrop_path.startsWith('/api/')) return `${apiUrl}${m.backdrop_path}`;
+            return `${apiUrl}/api/backdrops/${m.backdrop_path.split('/').pop()}`;
+        }
         return `${apiUrl}/api/thumbnails/${m.id}`;
     };
 
@@ -164,6 +173,17 @@ export default function FeaturedBanner({
             return `${apiUrl}/api/logos/${filename}`;
         }
         return null;
+    };
+
+    const getPosterUrl = (m: Media) => {
+        if (m.tmdb_poster_url) return m.tmdb_poster_url;
+        if (m.poster_url) return m.poster_url;
+        if (m.poster_path) {
+            if (m.poster_path.startsWith('http')) return m.poster_path;
+            if (m.poster_path.startsWith('/api/')) return `${apiUrl}${m.poster_path}`;
+            return `${apiUrl}/api/posters/${m.poster_path.split('/').pop()}`;
+        }
+        return `${apiUrl}/api/posters/${m.id}`;
     };
 
     if (!currentMedia || media.length === 0) {
@@ -284,20 +304,15 @@ export default function FeaturedBanner({
                 </motion.div>
             </AnimatePresence>
 
-            {/* Black overlay that fades into the image */}
-            <div className="absolute inset-0 bg-gradient-to-r from-black via-black/80 to-transparent" />
-            <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
-            <div
-                className="absolute bottom-0 left-0 right-0 h-48"
-                style={{
-                    background: `linear-gradient(to top, ${colors.primary}20 0%, transparent 100%)`
-                }}
-            />
-
+            {/* Dark vignette overlays for Netflix aesthetic */}
+            <div className="absolute inset-0 bg-gradient-to-r from-black via-black/70 to-transparent w-[80%] z-0" />
+            <div className="absolute inset-0 bg-gradient-to-t from-black via-black/40 to-transparent mt-auto h-[60%] z-0" />
+            
             {/* Content - positioned on the left side */}
-            <div className="absolute inset-0 flex items-center z-10">
-                <div className="w-[50%] px-4 md:px-12 lg:px-16">
-                    <div className="max-w-full">
+            <div className="absolute inset-0 flex items-center z-10 w-full md:w-[60%] lg:w-[45%]">
+                <div className="w-full px-4 md:px-12 lg:px-16 pt-20">
+                    <div className="flex flex-col gap-4">
+                        <div className="flex-1 min-w-0">
                         {/* Logo as Title with Title as Fallback */}
                         <AnimatePresence mode="wait">
                             <motion.div
@@ -317,7 +332,7 @@ export default function FeaturedBanner({
                                         <img
                                             src={getLogoUrl(currentMedia)!}
                                             alt={currentMedia.title}
-                                            className="max-h-20 md:max-h-28 lg:max-h-36 w-auto mb-6 drop-shadow-2xl transition-transform duration-300 group-hover:scale-[1.02]"
+                                            className="w-full max-w-[400px] mb-4 origin-bottom-left transition-transform duration-300 group-hover:scale-[1.02]"
                                             onError={(e) => {
                                                 e.currentTarget.style.display = 'none';
                                                 const fallback = e.currentTarget.nextElementSibling as HTMLElement;
@@ -326,7 +341,7 @@ export default function FeaturedBanner({
                                         />
                                     ) : null}
                                     <h1
-                                        className="text-3xl md:text-4xl lg:text-5xl font-bold mb-4 leading-tight transition-colors duration-300 group-hover:text-white"
+                                        className="text-4xl md:text-5xl lg:text-6xl font-black mb-4 leading-tight transition-colors duration-300 drop-shadow-2xl"
                                         style={{
                                             display: showLogo && getLogoUrl(currentMedia) ? 'none' : 'block',
                                             textShadow: `0 0 40px ${colors.primary}40`,
@@ -431,7 +446,7 @@ export default function FeaturedBanner({
                             initial={{ opacity: 0 }}
                             animate={{ opacity: 1 }}
                             transition={{ delay: 0.6 }}
-                            className="text-base md:text-lg text-white/80 mb-6 line-clamp-2 max-w-xl"
+                            className="text-base md:text-lg text-white mb-6 line-clamp-3 md:line-clamp-4 max-w-[90%] drop-shadow-md font-medium"
                         >
                             {currentMedia.description}
                         </motion.p>
@@ -442,8 +457,24 @@ export default function FeaturedBanner({
                         initial={{ opacity: 0, y: 20 }}
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ delay: 0.7 }}
-                        className="flex items-center gap-3"
+                        className="flex items-center gap-3 mt-2"
                     >
+                        <button
+                            onClick={handlePlay}
+                            className="flex items-center gap-2 px-6 py-2.5 bg-white text-black rounded font-bold hover:bg-white/80 transition-colors"
+                        >
+                            <Play className="w-6 h-6 fill-current" />
+                            <span className="text-lg">Play</span>
+                        </button>
+                        
+                        <button
+                            onClick={handleMoreInfo}
+                            className="flex items-center gap-2 px-6 py-2.5 bg-gray-500/70 text-white rounded font-bold hover:bg-gray-500/50 transition-colors"
+                        >
+                            <Info className="w-6 h-6" />
+                            <span className="text-lg">More Info</span>
+                        </button>
+
                         <MyListTooltip
                             media={{
                                 ...currentMedia,
@@ -456,15 +487,18 @@ export default function FeaturedBanner({
                             onCollectionCreated={fetchCollections}
                         >
                             <button
-                                className="p-3 bg-white/10 backdrop-blur-sm rounded-full hover:bg-white/20 transition-all border border-white/20"
-                                style={{ borderColor: isInMyList(currentMedia.tmdb_id ? parseInt(`9${currentMedia.tmdb_id}`) : currentMedia.id) ? colors.primary : undefined }}
+                                className="p-2.5 bg-transparent border-2 border-white/50 rounded-full hover:border-white transition-all ml-2"
                             >
-                                {isInMyList(currentMedia.tmdb_id ? parseInt(`9${currentMedia.tmdb_id}`) : currentMedia.id) ? <Check className="w-5 h-5" style={{ color: colors.primary }} /> : <Plus className="w-5 h-5" />}
+                                {isInMyList(currentMedia.tmdb_id ? parseInt(`9${currentMedia.tmdb_id}`) : currentMedia.id) ? 
+                                    <Check className="w-5 h-5 text-white" /> : 
+                                    <Plus className="w-5 h-5 text-white" />
+                                }
                             </button>
                         </MyListTooltip>
                     </motion.div>
                 </div>
             </div>
+                </div>
             </div>
 
             {/* Navigation arrows - only show if multiple items */}

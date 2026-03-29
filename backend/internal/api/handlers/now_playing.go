@@ -2,25 +2,26 @@ package handlers
 
 import (
 	"fmt"
-	"io/ioutil"
 	"math/rand"
 	"net/http"
-	"os"
-	"path/filepath"
-	"regexp"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
+
+	"homeflix-backend/internal/services"
 
 	"github.com/gin-gonic/gin"
 )
 
 type PreviewVideo struct {
-	ID       string `json:"id"`
-	Title    string `json:"title"`
-	Filename string `json:"filename"`
-	URL      string `json:"url"`
+	ID           string  `json:"id"`
+	MediaID      uint    `json:"media_id"`
+	Title        string  `json:"title"`
+	URL          string  `json:"url"`
+	Type         string  `json:"type"`
+	Year         int     `json:"year"`
+	Rating       float64 `json:"rating"`
+	NavigatePath string  `json:"navigate_path"`
 }
 
 type NowPlayingResponse struct {
@@ -30,13 +31,11 @@ type NowPlayingResponse struct {
 	Limit  int            `json:"limit"`
 }
 
-// GetNowPlayingPreviews returns a paginated list of preview videos for the live TV channel
-func GetNowPlayingPreviews() gin.HandlerFunc {
+func GetNowPlayingPreviews(mediaService *services.MediaService) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Get pagination parameters
 		pageStr := c.DefaultQuery("page", "1")
 		limitStr := c.DefaultQuery("limit", "5")
-		randomStr := c.DefaultQuery("random", "false")
+		randomStr := strings.ToLower(c.DefaultQuery("random", "true"))
 
 		page, err := strconv.Atoi(pageStr)
 		if err != nil || page < 1 {
@@ -48,42 +47,76 @@ func GetNowPlayingPreviews() gin.HandlerFunc {
 			limit = 5
 		}
 
-		// Seed random number generator
-		rand.Seed(time.Now().UnixNano())
-
-		// Read preview directory
-		previewDir := "./previews"
-		files, err := ioutil.ReadDir(previewDir)
-		if err != nil {
+		if mediaService == nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
-				"error": "Failed to read preview directory",
+				"error": "Media service is not available",
 			})
 			return
 		}
 
-		// Filter and collect valid video files
-		var videoFiles []string
-		for _, file := range files {
-			if !file.IsDir() && isValidVideoFile(file.Name(), previewDir) {
-				videoFiles = append(videoFiles, file.Name())
-			}
+		allMedia, err := mediaService.GetAllMedia()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error": "Failed to load media library",
+			})
+			return
 		}
 
-		// Default behavior is random for TV channel experience
-		// Only sort alphabetically if explicitly requested with random=false
-		if randomStr == "false" {
-			sort.Strings(videoFiles)
-		} else {
-			// Shuffle the files for random playback (default behavior)
-			rand.Shuffle(len(videoFiles), func(i, j int) {
-				videoFiles[i], videoFiles[j] = videoFiles[j], videoFiles[i]
+		candidates := make([]PreviewVideo, 0, len(allMedia))
+		seenPaths := make(map[string]bool)
+		for _, media := range allMedia {
+			if strings.TrimSpace(media.PreviewClipPath) == "" && strings.TrimSpace(media.PreviewPath) == "" && strings.TrimSpace(media.TrailerPath) == "" {
+				continue
+			}
+			if strings.TrimSpace(media.FilePath) == "" {
+				continue
+			}
+
+			displayType := "movie"
+			navigatePath := fmt.Sprintf("/movie/%d", media.ID)
+			if media.Type == "tv" || media.Type == "series" || media.Type == "episode" {
+				displayType = "tv"
+				seriesID := media.ID
+				if media.SeriesID != nil && *media.SeriesID > 0 {
+					seriesID = *media.SeriesID
+				}
+				navigatePath = fmt.Sprintf("/tv-series/%d", seriesID)
+			}
+			if seenPaths[navigatePath] {
+				continue
+			}
+
+			title := strings.TrimSpace(media.Title)
+			if displayType == "tv" && media.Series != nil && strings.TrimSpace(media.Series.Title) != "" {
+				title = strings.TrimSpace(media.Series.Title)
+			}
+			if title == "" {
+				title = "Untitled"
+			}
+
+			candidates = append(candidates, PreviewVideo{
+				ID:           fmt.Sprintf("%d", media.ID),
+				MediaID:      media.ID,
+				Title:        title,
+				URL:          fmt.Sprintf("/api/preview-clips/%d", media.ID),
+				Type:         displayType,
+				Year:         media.Year,
+				Rating:       media.Rating,
+				NavigatePath: navigatePath,
+			})
+			seenPaths[navigatePath] = true
+		}
+
+		rand.Seed(time.Now().UnixNano())
+		if randomStr != "false" {
+			rand.Shuffle(len(candidates), func(i, j int) {
+				candidates[i], candidates[j] = candidates[j], candidates[i]
 			})
 		}
 
-		// Calculate pagination
-		total := len(videoFiles)
+		total := len(candidates)
 		offset := (page - 1) * limit
-		
+
 		if offset >= total {
 			c.JSON(http.StatusOK, NowPlayingResponse{
 				Videos: []PreviewVideo{},
@@ -99,151 +132,11 @@ func GetNowPlayingPreviews() gin.HandlerFunc {
 			end = total
 		}
 
-		// Get the slice for current page
-		pageFiles := videoFiles[offset:end]
-
-		// Convert to preview videos with sanitized titles
-		var videos []PreviewVideo
-		for i, filename := range pageFiles {
-			id := fmt.Sprintf("%d", offset+i+1)
-			title := sanitizeTitle(filename)
-			url := fmt.Sprintf("/api/static/previews/%s", filename)
-
-			videos = append(videos, PreviewVideo{
-				ID:       id,
-				Title:    title,
-				Filename: filename,
-				URL:      url,
-			})
-		}
-
 		c.JSON(http.StatusOK, NowPlayingResponse{
-			Videos: videos,
+			Videos: candidates[offset:end],
 			Total:  total,
 			Page:   page,
 			Limit:  limit,
 		})
 	}
-}
-
-// sanitizeTitle converts preview filenames to readable media titles
-func sanitizeTitle(filename string) string {
-	// Remove file extension
-	title := strings.TrimSuffix(filename, filepath.Ext(filename))
-	
-	// Remove "preview_" prefix
-	title = strings.TrimPrefix(title, "preview_")
-	
-	// Remove common suffixes
-	suffixes := []string{
-		"_audio_fallback",
-		"_video_only",
-		"_HD",
-		"_720p",
-		"_1080p",
-		"_4K",
-		"_DDP_5",
-		"_MA_5",
-		"_Atmos_5",
-		"_BD_5",
-		"_HDR_5",
-	}
-	
-	for _, suffix := range suffixes {
-		title = strings.TrimSuffix(title, suffix)
-	}
-	
-	// Replace underscores with spaces
-	title = strings.ReplaceAll(title, "_", " ")
-	
-	// Remove numeric prefixes (like "1234_")
-	re := regexp.MustCompile(`^\d+\s+`)
-	title = re.ReplaceAllString(title, "")
-	
-	// Clean up common patterns
-	patterns := map[string]string{
-		`\s+\(\d{4}\)`: "",                    // Remove year in parentheses
-		`\s+\d{4}$`:    "",                    // Remove year at end
-		`\s+S\d{2}E\d{2}`: "",                // Remove season/episode info
-		`\s+Chapter\s+\d+`: " - Chapter",     // Simplify chapter info
-		`\s+Part\s+\d+`: " - Part",           // Simplify part info
-		`\s+Vol\s+\d+`: " - Volume",          // Simplify volume info
-	}
-	
-	for pattern, replacement := range patterns {
-		re := regexp.MustCompile(pattern)
-		title = re.ReplaceAllString(title, replacement)
-	}
-	
-	// Clean up multiple spaces
-	re = regexp.MustCompile(`\s+`)
-	title = re.ReplaceAllString(title, " ")
-	
-	// Trim and capitalize first letter of each word
-	title = strings.TrimSpace(title)
-	words := strings.Fields(title)
-	for i, word := range words {
-		if len(word) > 0 {
-			// Don't capitalize common articles/prepositions unless they're the first word
-			if i > 0 && isCommonWord(strings.ToLower(word)) {
-				words[i] = strings.ToLower(word)
-			} else {
-				words[i] = strings.Title(strings.ToLower(word))
-			}
-		}
-	}
-	
-	title = strings.Join(words, " ")
-	
-	// If title is empty or too short, use a default
-	if len(title) < 2 {
-		title = "Preview Video"
-	}
-	
-	return title
-}
-
-// isValidVideoFile checks if a file is a valid video file
-func isValidVideoFile(filename, previewDir string) bool {
-	// Check file extension
-	ext := strings.ToLower(filepath.Ext(filename))
-	validExtensions := []string{".mp4", ".webm", ".mov", ".avi", ".mkv"}
-	
-	isValidExt := false
-	for _, validExt := range validExtensions {
-		if ext == validExt {
-			isValidExt = true
-			break
-		}
-	}
-	
-	if !isValidExt {
-		return false
-	}
-	
-	// Check file size (must be > 1KB to be valid)
-	filePath := filepath.Join(previewDir, filename)
-	fileInfo, err := os.Stat(filePath)
-	if err != nil {
-		return false
-	}
-	
-	// File must be at least 1KB and less than 500MB
-	fileSize := fileInfo.Size()
-	if fileSize < 1024 || fileSize > 500*1024*1024 {
-		return false
-	}
-	
-	return true
-}
-
-// isCommonWord checks if a word should remain lowercase in titles
-func isCommonWord(word string) bool {
-	commonWords := map[string]bool{
-		"a": true, "an": true, "and": true, "as": true, "at": true,
-		"but": true, "by": true, "for": true, "if": true, "in": true,
-		"is": true, "it": true, "of": true, "on": true, "or": true,
-		"the": true, "to": true, "up": true, "via": true, "with": true,
-	}
-	return commonWords[word]
 }

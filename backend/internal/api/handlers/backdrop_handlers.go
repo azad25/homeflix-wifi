@@ -59,7 +59,7 @@ func ScanMovieBackdrops(mediaService *services.MediaService, tmdbService *servic
 				// Clean title and search TMDB
 				cleanTitle := tmdbService.RemoveYearFromTitle(movie.Title)
 				tmdbMovie, searchErr := tmdbService.SearchMovie(cleanTitle, movie.Year)
-				
+
 				if searchErr != nil {
 					log.Printf("⚠️ TMDB search failed for %s: %v", movie.Title, searchErr)
 					errors = append(errors, fmt.Sprintf("%s: TMDB search failed: %v", movie.Title, searchErr))
@@ -90,8 +90,9 @@ func ScanMovieBackdrops(mediaService *services.MediaService, tmdbService *servic
 				continue
 			}
 
-			// Update media with backdrop path and smart tmdb_backdrop_url
+			// Update media with backdrop path, banner path, and smart tmdb_backdrop_url
 			movie.BackdropPath = backdropPath
+			movie.BannerPath = backdropPath
 			// Set tmdb_backdrop_url to local API endpoint since we have local backdrop
 			movie.TMDBBackdropURL = fmt.Sprintf("/api/backdrops/%d", movie.ID)
 			if err := mediaService.UpdateMedia(&movie); err != nil {
@@ -185,8 +186,9 @@ func GetBackdropWithAutoDownload(mediaService *services.MediaService, tmdbServic
 				return
 			}
 
-			// Update media with backdrop path and smart tmdb_backdrop_url
+			// Update media with backdrop path, banner path, and smart tmdb_backdrop_url
 			media.BackdropPath = backdropPath
+			media.BannerPath = backdropPath
 			// Set tmdb_backdrop_url to local API endpoint since we have local backdrop
 			media.TMDBBackdropURL = fmt.Sprintf("/api/backdrops/%d", media.ID)
 			if updateErr := mediaService.UpdateMedia(media); updateErr != nil {
@@ -208,7 +210,7 @@ func MigrateBackdropURLs(mediaService *services.MediaService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Check for dry-run parameter
 		dryRun := c.Query("dry_run") == "true"
-		
+
 		if dryRun {
 			log.Printf("🔍 Starting backdrop URL migration (DRY RUN - no changes will be made)...")
 		} else {
@@ -244,7 +246,7 @@ func MigrateBackdropURLs(mediaService *services.MediaService) gin.HandlerFunc {
 			if !strings.HasPrefix(backdropPath, "/") && !strings.HasPrefix(backdropPath, "./") {
 				backdropPath = "./" + backdropPath
 			}
-			
+
 			if _, err := os.Stat(backdropPath); os.IsNotExist(err) {
 				log.Printf("⚠️ Skipping %s - backdrop file doesn't exist: %s", movie.Title, backdropPath)
 				skippedCount++
@@ -260,20 +262,20 @@ func MigrateBackdropURLs(mediaService *services.MediaService) gin.HandlerFunc {
 
 			// SAFETY CHECK 4: Validate the new URL format
 			newBackdropURL := fmt.Sprintf("/api/backdrops/%d", movie.ID)
-			
+
 			// Store the planned update
 			updateInfo := map[string]interface{}{
-				"id":                movie.ID,
-				"title":             movie.Title,
-				"current_tmdb_url":  movie.TMDBBackdropURL,
-				"new_local_url":     newBackdropURL,
-				"backdrop_path":     movie.BackdropPath,
-				"file_exists":       true,
+				"id":               movie.ID,
+				"title":            movie.Title,
+				"current_tmdb_url": movie.TMDBBackdropURL,
+				"new_local_url":    newBackdropURL,
+				"backdrop_path":    movie.BackdropPath,
+				"file_exists":      true,
 			}
 			updates = append(updates, updateInfo)
 
 			if dryRun {
-				log.Printf("🔍 [DRY RUN] Would update %s: %s -> %s", 
+				log.Printf("🔍 [DRY RUN] Would update %s: %s -> %s",
 					movie.Title, movie.TMDBBackdropURL, newBackdropURL)
 				updatedCount++
 				continue
@@ -281,10 +283,10 @@ func MigrateBackdropURLs(mediaService *services.MediaService) gin.HandlerFunc {
 
 			// SAFETY CHECK 5: Create a backup of the original value before updating
 			originalTMDBURL := movie.TMDBBackdropURL
-			
+
 			// Perform the actual update
 			movie.TMDBBackdropURL = newBackdropURL
-			
+
 			if err := mediaService.UpdateMedia(&movie); err != nil {
 				// SAFETY CHECK 6: If update fails, restore original value
 				movie.TMDBBackdropURL = originalTMDBURL
@@ -292,7 +294,7 @@ func MigrateBackdropURLs(mediaService *services.MediaService) gin.HandlerFunc {
 				errors = append(errors, fmt.Sprintf("%s: %v", movie.Title, err))
 				errorCount++
 			} else {
-				log.Printf("✅ Updated backdrop URL for %s: %s -> %s", 
+				log.Printf("✅ Updated backdrop URL for %s: %s -> %s",
 					movie.Title, originalTMDBURL, newBackdropURL)
 				updatedCount++
 			}
@@ -323,10 +325,10 @@ func MigrateBackdropURLs(mediaService *services.MediaService) gin.HandlerFunc {
 		}
 
 		if dryRun {
-			log.Printf("🔍 Backdrop URL migration DRY RUN complete: %d would be updated, %d skipped, %d errors", 
+			log.Printf("🔍 Backdrop URL migration DRY RUN complete: %d would be updated, %d skipped, %d errors",
 				updatedCount, skippedCount, errorCount)
 		} else {
-			log.Printf("🏁 Backdrop URL migration complete: %d updated, %d skipped, %d errors", 
+			log.Printf("🏁 Backdrop URL migration complete: %d updated, %d skipped, %d errors",
 				updatedCount, skippedCount, errorCount)
 		}
 

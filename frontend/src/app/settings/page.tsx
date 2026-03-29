@@ -678,7 +678,7 @@ function SettingsContent() {
       try {
         const mediaInfo = JSON.parse(mediaParam);
         console.log('🎯 Auto-selecting media from URL:', mediaInfo);
-        
+
         if (mediaInfo.id) {
           const id = typeof mediaInfo.id === 'string' ? parseInt(mediaInfo.id) : mediaInfo.id;
           const type = mediaInfo.type || 'movie';
@@ -1704,7 +1704,7 @@ function SettingsContent() {
         addTerminalOutput(`❌ Failed to upload ${type}`);
       }
     } catch (error) {
-      console.error('Error uploading file:', error);      addTerminalOutput(`❌ Error uploading ${type}: ${error}`);
+      console.error('Error uploading file:', error); addTerminalOutput(`❌ Error uploading ${type}: ${error}`);
     } finally {
       setUploading(false);
     }
@@ -2356,7 +2356,7 @@ function SettingsContent() {
     // Check both formats: mediaAssets[type] (e.g., 'backdrop') and mediaAssets[`${type}_path`] (e.g., 'backdrop_path')
     // Note: backdrop type is stored in banner_path in the database
     let assetPath = mediaAssets[type] || mediaAssets[`${type}_path` as keyof MediaAssets];
-    
+
     // Special case: backdrop uses banner_path in database
     if (type === 'backdrop' && !assetPath) {
       assetPath = mediaAssets.banner || mediaAssets.banner_path;
@@ -2373,80 +2373,80 @@ function SettingsContent() {
     const assetUrl = getAssetUrl(assetPath);
 
     return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: 0.1 }}
-      className="bg-white/5 backdrop-blur-sm rounded-lg p-6 border border-white/10"
-    >
-      <h4 className="text-white font-semibold mb-4 flex items-center">
-        {type === 'trailer' ? <Video className="w-5 h-5 mr-2 text-[#E50914]" /> : <ImageIcon className="w-5 h-5 mr-2 text-[#E50914]" />}
-        {label}
-      </h4>
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.1 }}
+        className="bg-white/5 backdrop-blur-sm rounded-lg p-6 border border-white/10"
+      >
+        <h4 className="text-white font-semibold mb-4 flex items-center">
+          {type === 'trailer' ? <Video className="w-5 h-5 mr-2 text-[#E50914]" /> : <ImageIcon className="w-5 h-5 mr-2 text-[#E50914]" />}
+          {label}
+        </h4>
 
-      {assetUrl ? (
-        <div className="space-y-4">
-          <div className="relative group">
-            {type === 'trailer' ? (
-              <video
-                src={assetUrl}
-                className="w-full h-40 object-cover rounded-lg"
-                controls
+        {assetUrl ? (
+          <div className="space-y-4">
+            <div className="relative group">
+              {type === 'trailer' ? (
+                <video
+                  src={assetUrl}
+                  className="w-full h-40 object-cover rounded-lg"
+                  controls
+                />
+              ) : (
+                <Image
+                  src={assetUrl}
+                  alt={label}
+                  width={400}
+                  height={160}
+                  className="w-full h-40 object-cover rounded-lg"
+                />
+              )}
+              <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-lg flex items-center justify-center">
+                <MagneticButton
+                  onClick={() => onDelete(type)}
+                  className="bg-[#E50914] hover:bg-[#E50914]/80 text-white p-3 rounded-full"
+                >
+                  <Trash2 className="w-5 h-5" />
+                </MagneticButton>
+              </div>
+            </div>
+            <p className="text-white/60 text-sm">Asset uploaded successfully</p>
+          </div>
+        ) : (
+          <div className="border-2 border-dashed border-white/20 rounded-lg p-8 text-center hover:border-[#E50914]/50 transition-colors duration-300">
+            <div className="text-white/40 mb-4">
+              {type === 'trailer' ? <Video className="w-12 h-12 mx-auto" /> : <ImageIcon className="w-12 h-12 mx-auto" />}
+            </div>
+            <p className="text-white/60 text-sm mb-4">No {label.toLowerCase()} uploaded</p>
+            <div className="space-y-3">
+              <input
+                id={`file-input-${type}`}
+                type="file"
+                accept={accept}
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) onUpload(file, type);
+                }}
+                disabled={uploading}
               />
-            ) : (
-              <Image
-                src={assetUrl}
-                alt={label}
-                width={400}
-                height={160}
-                className="w-full h-40 object-cover rounded-lg"
-              />
-            )}
-            <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-lg flex items-center justify-center">
               <MagneticButton
-                onClick={() => onDelete(type)}
-                className="bg-[#E50914] hover:bg-[#E50914]/80 text-white p-3 rounded-full"
+                onClick={() => {
+                  const fileInput = document.getElementById(`file-input-${type}`) as HTMLInputElement;
+                  fileInput?.click();
+                }}
+                className="bg-[#E50914] hover:bg-[#E50914]/80 text-white px-6 py-3 rounded-lg inline-flex items-center gap-2"
+                disabled={uploading}
               >
-                <Trash2 className="w-5 h-5" />
+                <Upload className="w-4 h-4" />
+                {uploading ? 'Uploading...' : `Upload ${label}`}
               </MagneticButton>
             </div>
           </div>
-          <p className="text-white/60 text-sm">Asset uploaded successfully</p>
-        </div>
-      ) : (
-        <div className="border-2 border-dashed border-white/20 rounded-lg p-8 text-center hover:border-[#E50914]/50 transition-colors duration-300">
-          <div className="text-white/40 mb-4">
-            {type === 'trailer' ? <Video className="w-12 h-12 mx-auto" /> : <ImageIcon className="w-12 h-12 mx-auto" />}
-          </div>
-          <p className="text-white/60 text-sm mb-4">No {label.toLowerCase()} uploaded</p>
-          <div className="space-y-3">
-            <input
-              id={`file-input-${type}`}
-              type="file"
-              accept={accept}
-              className="hidden"
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file) onUpload(file, type);
-              }}
-              disabled={uploading}
-            />
-            <MagneticButton
-              onClick={() => {
-                const fileInput = document.getElementById(`file-input-${type}`) as HTMLInputElement;
-                fileInput?.click();
-              }}
-              className="bg-[#E50914] hover:bg-[#E50914]/80 text-white px-6 py-3 rounded-lg inline-flex items-center gap-2"
-              disabled={uploading}
-            >
-              <Upload className="w-4 h-4" />
-              {uploading ? 'Uploading...' : `Upload ${label}`}
-            </MagneticButton>
-          </div>
-        </div>
-      )}
-    </motion.div>
-  );
+        )}
+      </motion.div>
+    );
   };
 
   const NavButton = ({ active, onClick, icon, label }: any) => (
@@ -2496,7 +2496,7 @@ function SettingsContent() {
 
           <div className="pt-6 pb-2 px-4 text-[10px] font-bold text-white/30 uppercase tracking-widest">System & Config</div>
           <NavButton active={activeTab === 'paths'} onClick={() => setActiveTab('paths')} icon={<Folder />} label="Storage Paths" />
-          <NavButton active={activeTab === 'widgets'} onClick={() => setActiveTab('widgets')} icon={<Layout />} label="Widgets" />
+          {/* <NavButton active={activeTab === 'widgets'} onClick={() => setActiveTab('widgets')} icon={<Layout />} label="Widgets" /> */}
           <NavButton active={activeTab === 'pages'} onClick={() => setActiveTab('pages')} icon={<File />} label="Pages" />
           <NavButton active={activeTab === 'general'} onClick={() => setActiveTab('general')} icon={<Settings />} label="General" />
         </nav>

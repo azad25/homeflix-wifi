@@ -110,7 +110,7 @@ func (h *WidgetHandler) GetWidgetsWithDataByPage(c *gin.Context) {
 	for i := range widgetsWithData {
 		for j := range widgetsWithData[i].Data {
 			item := &widgetsWithData[i].Data[j]
-			
+
 			// Format logo path
 			if item.LogoPath != "" && !strings.HasPrefix(item.LogoPath, "http") && !strings.HasPrefix(item.LogoPath, "/api/") {
 				if strings.HasPrefix(item.LogoPath, "logos/") {
@@ -119,7 +119,7 @@ func (h *WidgetHandler) GetWidgetsWithDataByPage(c *gin.Context) {
 					item.LogoPath = "/api/logos/" + item.LogoPath
 				}
 			}
-			
+
 			// Format backdrop path
 			if item.BackdropPath != "" && !strings.HasPrefix(item.BackdropPath, "http") && !strings.HasPrefix(item.BackdropPath, "/api/") {
 				if strings.HasPrefix(item.BackdropPath, "backdrops/") {
@@ -488,6 +488,14 @@ func (h *WidgetHandler) GetWidgetDataSources(c *gin.Context) {
 // GetWidgetContentTypes returns available content types
 func (h *WidgetHandler) GetWidgetContentTypes(c *gin.Context) {
 	c.JSON(http.StatusOK, h.service.GetWidgetContentTypes())
+}
+
+func (h *WidgetHandler) GetWidgetLanguages(c *gin.Context) {
+	c.JSON(http.StatusOK, h.service.GetWidgetLanguages())
+}
+
+func (h *WidgetHandler) GetWidgetCountries(c *gin.Context) {
+	c.JSON(http.StatusOK, h.service.GetWidgetCountries())
 }
 
 // GetTMDBGenres returns TMDB genres for movies and TV shows

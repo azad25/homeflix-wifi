@@ -77,8 +77,10 @@ interface RelatedMediaProps {
 
 interface RelatedMediaItem {
   id: number;
-  title: string;
-  original_title: string;
+  title?: string;
+  name?: string;
+  original_title?: string;
+  original_name?: string;
   overview: string;
   release_date: string;
   poster_path: string;
@@ -132,6 +134,18 @@ const RelatedMedia: React.FC<RelatedMediaProps> = ({ mediaId, mediaType, release
     return `https://image.tmdb.org/t/p/${size}${posterPath}`;
   };
 
+  const getBackdropUrl = (backdropPath: string, size: string = 'w780') => {
+    if (!backdropPath) return '/placeholder-backdrop.jpg';
+    return `https://image.tmdb.org/t/p/${size}${backdropPath}`;
+  };
+
+  const formatRuntime = (minutes: number) => {
+    if (!minutes || typeof minutes !== 'number' || minutes <= 0) return '';
+    const hours = Math.floor(minutes / 60);
+    const mins = minutes % 60;
+    return hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
+  };
+
   const handleMediaClick = (media: RelatedMediaItem) => {
     router.push(`/tmdb-movie/${media.id}?type=${media.media_type}`);
   };
@@ -139,7 +153,7 @@ const RelatedMedia: React.FC<RelatedMediaProps> = ({ mediaId, mediaType, release
   if (loading) {
     return (
       <div className={`${className}`}>
-        <div className="max-w-7xl mx-auto">
+        <div className="w-full px-4 md:px-8 xl:px-12">
           <h2 className="text-2xl font-bold text-white mb-6">
             Related {mediaType === 'movie' ? 'Movies' : 'TV Shows'}
           </h2>
@@ -157,65 +171,101 @@ const RelatedMedia: React.FC<RelatedMediaProps> = ({ mediaId, mediaType, release
 
   return (
     <div className={`${className}`}>
-      <div className="max-w-7xl mx-auto">
-        <h2 className="text-2xl font-bold text-white mb-6 flex items-center gap-2">
+      <div className="w-full px-4 md:px-8 xl:px-12">
+        <h2 className="text-2xl font-black tracking-tight text-white mb-6 flex items-center gap-2">
           <Film className="w-6 h-6 text-red-500" />
-          Related {mediaType === 'movie' ? 'Movies' : 'TV Shows'}
+          More Like This
         </h2>
 
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-8 gap-4">
-          {relatedMedia.map((media) => (
-            <motion.div
-              key={media.id}
-              className="group cursor-pointer"
-              whileHover={{ scale: 1.05 }}
-              transition={{ duration: 0.2 }}
-              onClick={() => handleMediaClick(media)}
-            >
-              <div className="relative aspect-[2/3] rounded-lg overflow-hidden bg-gray-800 shadow-lg">
+        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 md:gap-4 lg:gap-5 auto-rows-[140px] md:auto-rows-[180px] lg:auto-rows-[200px] grid-flow-row-dense">
+          {relatedMedia.map((media, index) => {
+            if (!media?.id) return null;
+
+            // Pattern repeating every 7 items for beautiful masonry layout
+            const pattern = index % 7;
+            let spanClass = "col-span-1 row-span-2 aspect-[2/3]"; // Default fallback poster
+            let imageSrc = getPosterUrl(media.poster_path);
+            let isBackdrop = false;
+
+            if (pattern === 0) {
+              // Large Featured Backdrop
+              spanClass = "col-span-2 md:col-span-4 lg:col-span-4 row-span-2";
+              imageSrc = getBackdropUrl((media as any).backdrop_path || media.poster_path);
+              isBackdrop = true;
+            } else if (pattern === 1 || pattern === 2) {
+              // Standard Posters (row 1 right side)
+              spanClass = "col-span-1 md:col-span-2 lg:col-span-1 row-span-2";
+              imageSrc = getPosterUrl(media.poster_path);
+            } else if (pattern === 3 || pattern === 4) {
+              // Small Backdrops
+              spanClass = "col-span-2 md:col-span-2 lg:col-span-2 row-span-1";
+              imageSrc = getBackdropUrl((media as any).backdrop_path || media.poster_path);
+              isBackdrop = true;
+            } else if (pattern === 5 || pattern === 6) {
+              // Small Backdrops
+              spanClass = "col-span-2 md:col-span-2 lg:col-span-2 row-span-1";
+              imageSrc = getBackdropUrl((media as any).backdrop_path || media.poster_path);
+              isBackdrop = true;
+            }
+
+            return (
+              <motion.div
+                key={media.id}
+                className={`group cursor-pointer relative rounded-xl overflow-hidden shadow-2xl border border-white/5 hover:border-white/20 transition-all ${spanClass}`}
+                whileHover={{ scale: 1.02, zIndex: 10 }}
+                transition={{ duration: 0.3, ease: "easeOut" }}
+                onClick={() => handleMediaClick(media)}
+              >
                 <img
-                  src={getPosterUrl(media.poster_path)}
-                  alt={media.title}
-                  className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
+                  src={imageSrc}
+                  alt={media.title || media.name || 'Media image'}
+                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700 ease-out"
+                  loading="lazy"
                   onError={(e) => {
                     const target = e.target as HTMLImageElement;
                     target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjQ1MCIgdmlld0JveD0iMCAwIDMwMCA0NTAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIzMDAiIGhlaWdodD0iNDUwIiBmaWxsPSIjMzc0MTUxIi8+CjxwYXRoIGQ9Ik0xNTAgMjAwQzE4Ny4yNzkgMjAwIDIxOCAxNjkuMjc5IDIxOCAxMzJDMjE4IDk0LjcyMDggMTg3LjI3OSA2NCAxNTAgNjRDMTEyLjcyMSA2NCA4MiA5NC43MjA4IDgyIDEzMkM4MiAxNjkuMjc5IDExMi43MjEgMjAwIDE1MCAyMDBaIiBmaWxsPSIjNkI3Mjg4Ii8+CjxwYXRoIGQ9Ik04MiAyNzZDODIgMjM4LjY4IDExMi42OCAyMDggMTUwIDIwOEgxNTBDMTg3LjMyIDIwOCAyMTggMjM4LjY4IDIxOCAyNzZWMzUwSDgyVjI3NloiIGZpbGw9IiM2QjcyODgiLz4KPHN2Zz4K';
                   }}
                 />
 
-                {/* Overlay with rating */}
-                <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+                {/* Dark Vignette Overlay */}
+                <div className={`absolute inset-0 bg-gradient-to-t ${isBackdrop ? 'from-black/90 via-black/20 to-transparent' : 'from-black/90 via-transparent to-transparent'} opacity-80 group-hover:opacity-90 transition-opacity duration-300`} />
 
-                {media.vote_average > 0 && (
-                  <div className="absolute top-2 right-2 bg-black/70 backdrop-blur-sm rounded-full px-2 py-1 flex items-center gap-1">
-                    <Star className="w-3 h-3 text-yellow-400 fill-current" />
-                    <span className="text-xs font-semibold text-white">
-                      {media.vote_average.toFixed(1)}
-                    </span>
-                  </div>
-                )}
+                {/* Top Quick Info */}
+                <div className="absolute top-3 right-3 flex items-center gap-2">
+                  {media.vote_average && media.vote_average > 0 && (
+                    <div className="bg-black/60 backdrop-blur-md rounded-full px-2.5 py-1 flex items-center gap-1.5 shadow-lg">
+                      <Star className="w-3.5 h-3.5 text-yellow-400 fill-current" />
+                      <span className="text-xs font-bold text-white">
+                        {media.vote_average.toFixed(1)}
+                      </span>
+                    </div>
+                  )}
+                </div>
 
-                {/* Play button overlay */}
-                <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-                  <div className="bg-red-600/90 backdrop-blur-sm rounded-full p-3">
-                    <Play className="w-6 h-6 text-white fill-current" />
+                {/* Content Info Container (Bottom Aligned) */}
+                <div className={`absolute bottom-0 left-0 right-0 p-4 lg:p-5 flex flex-col justify-end translate-y-3 group-hover:translate-y-0 ${!isBackdrop && 'opacity-0 group-hover:opacity-100'} transition-all duration-400`}>
+                  <h3 className={`text-white font-bold leading-tight drop-shadow-lg ${isBackdrop && pattern === 0 ? 'text-2xl md:text-4xl mb-1.5' : (isBackdrop ? 'text-lg md:text-xl mb-1' : 'text-sm mb-1')} line-clamp-1`}>
+                    {media.title || media.name}
+                  </h3>
+
+                  <div className="flex items-center gap-2 md:gap-3 text-white/80 text-xs md:text-sm font-medium">
+                    {media.release_date && (
+                      <span>{new Date(media.release_date).getFullYear()}</span>
+                    )}
                   </div>
                 </div>
-              </div>
 
-              {/* Title */}
-              <div className="mt-2 px-1">
-                <h3 className="text-sm font-medium text-white line-clamp-2 group-hover:text-red-400 transition-colors">
-                  {media.title}
-                </h3>
-                {media.release_date && (
-                  <p className="text-xs text-gray-400 mt-1">
-                    {new Date(media.release_date).getFullYear()}
-                  </p>
+                {/* Center Play Icon on purely poster cards */}
+                {!isBackdrop && (
+                  <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                    <div className="bg-red-600/90 backdrop-blur-md rounded-full p-4 transform scale-75 group-hover:scale-100 transition-transform duration-300 shadow-[0_0_20px_rgba(220,38,38,0.5)]">
+                      <Play className="w-6 h-6 text-white fill-current translate-x-0.5" />
+                    </div>
+                  </div>
                 )}
-              </div>
-            </motion.div>
-          ))}
+              </motion.div>
+            );
+          })}
         </div>
       </div>
     </div>
@@ -286,7 +336,7 @@ const MovieImages: React.FC<MovieImagesProps> = ({ movieId, mediaType = 'movie',
   if (loading) {
     return (
       <div className={`${className}`}>
-        <div className="max-w-7xl mx-auto">
+        <div className="w-full px-4 md:px-8 xl:px-12">
           <h2 className="text-2xl font-bold text-white mb-6">Movie Images</h2>
           <div className="flex items-center justify-center py-12">
             <RedLoader />
@@ -305,7 +355,7 @@ const MovieImages: React.FC<MovieImagesProps> = ({ movieId, mediaType = 'movie',
   return (
     <>
       <div className={`${className}`}>
-        <div className="max-w-7xl mx-auto">
+        <div className="w-full px-4 md:px-8 xl:px-12">
           <h2 className="text-2xl font-bold text-white mb-6 flex items-center gap-2">
             <Film className="w-6 h-6 text-red-500" />
             Images
@@ -490,7 +540,7 @@ const TMDBMovieList: React.FC<TMDBMovieListProps> = ({ endpoint, title, maxItems
   if (loading) {
     return (
       <div className={`${className}`}>
-        <div className="max-w-7xl mx-auto">
+        <div className="w-full px-4 md:px-8 xl:px-12">
           <h2 className="text-2xl font-bold text-white mb-6">{title}</h2>
           <div className="flex items-center justify-center py-12">
             <RedLoader />
@@ -507,7 +557,7 @@ const TMDBMovieList: React.FC<TMDBMovieListProps> = ({ endpoint, title, maxItems
   if (asCarousel) {
     return (
       <div className={`${className}`}>
-        <div className="max-w-7xl mx-auto">
+        <div className="w-full px-4 md:px-8 xl:px-12">
           <h2 className="text-2xl font-bold text-white mb-6 flex items-center gap-2">
             <Film className="w-6 h-6 text-red-500" />
             {title}
@@ -1501,90 +1551,45 @@ const TMDBMoviePage: React.FC = () => {
 
 
 
-        {/* Navigation and Controls */}
-        <AnimatePresence>
-          {showControls && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="absolute inset-0 pointer-events-none"
-              style={{ zIndex: 10 }}
-            >
-              {/* Back Button */}
-              <button
-                onClick={() => router.back()}
-                className="absolute top-24 left-8 z-50 flex items-center gap-2 px-4 py-2 bg-black/70 backdrop-blur-sm rounded-full text-white hover:bg-black/90 transition-all duration-300 pointer-events-auto"
-              >
-                <ArrowLeft className="w-5 h-5" />
-                <span>Back</span>
-              </button>
+        {/* Navigation and Controls removed logic per request */}
 
-              {/* Video Controls */}
-              {trailerKey && (
-                <div className="absolute top-24 right-8 z-50 flex gap-3 pointer-events-auto">
-                  <button
-                    onClick={togglePlayPause}
-                    className="p-3 bg-black/70 backdrop-blur-sm rounded-full text-white hover:bg-black/90 transition-all duration-300 hover:scale-110"
-                  >
-                    {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
-                  </button>
-                  <button
-                    onClick={toggleMute}
-                    className="p-3 bg-black/70 backdrop-blur-sm rounded-full text-white hover:bg-black/90 transition-all duration-300 hover:scale-110"
-                  >
-                    {isMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
-                  </button>
-                </div>
-              )}
-            </motion.div>
-          )}
-        </AnimatePresence>
+        {/* Gradient overlay for text readability */}
+        <div className="absolute inset-x-0 bottom-0 h-3/4 bg-gradient-to-t from-black via-black/80 to-transparent z-[10] pointer-events-none" />
 
-        {/* Hero Content - Left Aligned with Poster */}
-        <div className="absolute inset-0 z-[20] flex items-center justify-start p-8 pl-16 pointer-events-auto">
+        {/* Hero Content - Left Aligned */}
+        <div className="absolute inset-0 z-[20] flex items-end justify-start pb-20 p-6 md:pl-12 lg:pl-16 pointer-events-auto w-full lg:w-[75%] xl:w-[60%]">
           <motion.div
             initial={{ opacity: 0, y: 50 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.8, delay: 0.2 }}
-            className="flex flex-col md:flex-row items-start gap-8 max-w-5xl"
+            className="flex flex-row items-end gap-6 md:gap-8 w-full"
           >
-            {/* Movie Poster */}
-            <motion.div
-              initial={{ scale: 0.8, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              transition={{ duration: 0.6, delay: 0.4 }}
-              className="flex-shrink-0"
-            >
-              <div className="relative">
-                <div className="absolute -inset-1 bg-gradient-to-r from-red-500/30 to-purple-500/30 rounded-lg blur-lg" />
-                <div className="relative w-48 md:w-56 lg:w-64 h-72 md:h-84 lg:h-96 rounded-lg overflow-hidden shadow-2xl border border-white/10">
-                  <img
-                    src={getPosterUrl(mediaDetails?.poster_path || '', 'w500')}
-                    alt={mediaDetails?.title || ''}
-                    className="w-full h-full object-cover"
-                    loading="eager"
-                    onError={(e) => {
-                      const target = e.target as HTMLImageElement;
-                      target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjQ1MCIgdmlld0JveD0iMCAwIDMwMCA0NTAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIzMDAiIGhlaWdodD0iNDUwIiBmaWxsPSIjMzc0MTUxIi8+CjxwYXRoIGQ9Ik0xNTAgMjAwQzE4Ny4yNzkgMjAwIDIxOCAxNjkuMjc5IDIxOCAxMzJDMjE4IDk0LjcyMDggMTg3LjI3OSA2NCAxNTAgNjRDMTEyLjcyMSA2NCA4MiA5NC43MjA4IDgyIDEzMkM4MiAxNjkuMjc5IDExMi43MjEgMjAwIDE1MCAyMDBaIiBmaWxsPSIjNkI3Mjg4Ii8+CjxwYXRoIGQ9Ik04MiAyNzZDODIgMjM4LjY4IDExMi42OCAyMDggMTUwIDIwOEgxNTBDMTg3LjMyIDIwOCAyMTggMjM4LjY4IDIxOCAyNzZWMzUwSDgyVjI3NloiIGZpbGw9IiM2QjcyODgiLz4KPHN2Zz4K';
-                    }}
-                  />
-                </div>
+            {/* Poster thumbnail in Info Section */}
+            {mediaDetails?.poster_path && (
+              <div className="hidden sm:block w-28 md:w-40 lg:w-56 flex-shrink-0 rounded-xl overflow-hidden shadow-[0_8px_30px_rgba(0,0,0,0.8)] border border-white/10 relative aspect-[2/3]">
+                <img
+                  src={getPosterUrl(mediaDetails.poster_path, 'w500')}
+                  alt={mediaDetails.title}
+                  className="w-full h-full object-cover opacity-90 hover:opacity-100 transition-opacity absolute inset-0"
+                />
               </div>
-            </motion.div>
-            {/* Movie Details */}
-            <div className="flex-1 text-left space-y-6 ml-12">
+            )}
+
+            {/* Main Info Column */}
+            <div className="flex flex-col items-start gap-4 flex-1 min-w-0">
+
               {/* Movie Title - Logo or Text */}
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.6, delay: 0.5 }}
+                className="w-full"
               >
                 {logoUrl ? (
                   <img
                     src={logoUrl}
                     alt={mediaDetails?.title}
-                    className="max-h-16 md:max-h-24 w-auto mb-4 drop-shadow-[0_4px_20px_rgba(0,0,0,0.8)]"
+                    className="max-h-24 md:max-h-32 lg:max-h-40 w-auto mb-2 drop-shadow-[0_4px_24px_rgba(0,0,0,0.8)]"
                     onError={(e) => {
                       e.currentTarget.style.display = 'none';
                       const fallback = e.currentTarget.nextElementSibling as HTMLElement;
@@ -1593,107 +1598,106 @@ const TMDBMoviePage: React.FC = () => {
                   />
                 ) : null}
                 <h1
-                  className="text-3xl md:text-4xl lg:text-5xl font-bold mb-3 text-white drop-shadow-[0_4px_20px_rgba(0,0,0,0.8)]"
+                  className="text-4xl md:text-5xl lg:text-6xl font-extrabold mb-1 text-white drop-shadow-[0_4px_24px_rgba(0,0,0,0.8)]"
                   style={{ display: logoUrl ? 'none' : 'block' }}
                 >
                   {mediaDetails?.title}
                 </h1>
-                {mediaDetails?.tagline && (
-                  <p className="text-lg text-red-400 mb-4 italic font-medium">
-                    "{mediaDetails.tagline}"
-                  </p>
-                )}
               </motion.div>
-              {/* Stats Row */}
-              <motion.div
-                className="flex flex-wrap items-center gap-2 text-xs"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ delay: 0.6, duration: 0.4 }}
-              >
-                {(mediaDetails?.vote_average || 0) > 0 ? (
-                  <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full font-semibold backdrop-blur-sm border bg-yellow-500/10 text-yellow-400 border-yellow-500/20">
-                    <Star className="w-3 h-3 fill-current" />
-                    {mediaDetails.vote_average.toFixed(1)}
-                  </span>
-                ) : (
-                  <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full font-semibold backdrop-blur-sm border bg-gray-500/10 text-gray-400 border-gray-500/20">
-                    <Star className="w-3 h-3" />
-                    N/A
-                  </span>
-                )}
-                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full backdrop-blur-sm border bg-blue-500/10 text-blue-400 border-blue-500/20">
-                  <Calendar className="w-3 h-3" />
-                  {new Date(mediaDetails?.release_date || '').getFullYear()}
-                </span>
-                {mediaDetails?.media_type === 'movie' && mediaDetails?.runtime && mediaDetails.runtime > 0 && (
-                  <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full backdrop-blur-sm border bg-green-500/10 text-green-400 border-green-500/20">
-                    <Clock className="w-3 h-3" />
-                    {formatRuntime(mediaDetails.runtime)}
-                  </span>
-                )}
-                {mediaDetails?.media_type === 'tv' && mediaDetails.number_of_seasons && mediaDetails.number_of_seasons > 0 && (
-                  <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full backdrop-blur-sm border bg-purple-500/10 text-purple-400 border-purple-500/20">
-                    <Film className="w-3 h-3" />
-                    {mediaDetails.number_of_seasons} Season{(mediaDetails.number_of_seasons || 0) > 1 ? 's' : ''}
-                  </span>
-                )}
-              </motion.div>
+
               {/* Genres */}
-              <motion.div
-                className="flex flex-wrap items-center gap-2"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ delay: 0.65, duration: 0.4 }}
-              >
-                {mediaDetails?.genres?.slice(0, 3).map((genre) => (
-                  <span
-                    key={genre.id}
-                    className="px-2 py-0.5 rounded-full text-xs font-medium bg-red-600/40 border border-red-500/30 text-white backdrop-blur-md"
-                  >
-                    {genre.name}
-                  </span>
-                ))}
-              </motion.div>
+              {mediaDetails?.genres && mediaDetails.genres.length > 0 && (
+                <motion.div
+                  className="flex flex-wrap items-center gap-1.5 min-w-0 -mt-2 mb-1"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ delay: 0.65, duration: 0.4 }}
+                >
+                  {mediaDetails.genres.slice(0, 4).map((genre: any, index: number, arr: any[]) => (
+                    <React.Fragment key={index}>
+                      <span className="text-sm md:text-base font-semibold text-white drop-shadow-md">
+                        {genre.name}
+                      </span>
+                      {index < arr.length - 1 && <span className="w-1.5 h-1.5 rounded-full bg-white/60 mx-1 shadow-sm" />}
+                    </React.Fragment>
+                  ))}
+                </motion.div>
+              )}
+
               {/* Overview */}
               <motion.p
-                className={`text-white/70 max-w-2xl line-clamp-3 ${getGenreTextStyle(mediaDetails?.genres?.map(g => g.name) || []).className}`}
+                className={`text-white/80 max-w-2xl line-clamp-3 md:line-clamp-4 drop-shadow-[0_2px_10px_rgba(0,0,0,0.8)] mb-2 text-sm md:text-base leading-snug ${getGenreTextStyle(mediaDetails?.genres?.map(g => g.name) || []).className}`}
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 transition={{ delay: 0.7, duration: 0.4 }}
               >
                 {mediaDetails?.overview || `Experience this amazing ${mediaDetails?.media_type === 'tv' ? 'TV series' : 'movie'} with stunning visuals and compelling storytelling.`}
               </motion.p>
-              {/* Action Buttons - Smaller with Different Icons */}
+
+              {/* Stats Row */}
               <motion.div
-                className="flex items-center gap-2"
+                className="flex flex-wrap items-center gap-3 text-sm md:text-base font-medium text-white/90 drop-shadow-md mb-2"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: 0.6, duration: 0.4 }}
+              >
+                <span>{new Date(mediaDetails?.release_date || '').getFullYear() || new Date().getFullYear()}</span>
+                {mediaDetails?.media_type === 'movie' && mediaDetails?.runtime && mediaDetails.runtime > 0 && (
+                  <>
+                    <span className="text-white/40">|</span>
+                    <span>{formatRuntime(mediaDetails.runtime)}</span>
+                  </>
+                )}
+                {mediaDetails?.media_type === 'tv' && mediaDetails.number_of_seasons && mediaDetails.number_of_seasons > 0 && (
+                  <>
+                    <span className="text-white/40">|</span>
+                    <span>{mediaDetails.number_of_seasons} Season{(mediaDetails.number_of_seasons || 0) > 1 ? 's' : ''}</span>
+                  </>
+                )}
+                {(mediaDetails?.vote_average || 0) > 0 && (
+                  <>
+                    <span className="text-white/40">|</span>
+                    <span className="flex items-center gap-1">
+                      {mediaDetails!.vote_average.toFixed(1)} <span className="bg-yellow-500 text-black text-[10px] font-bold px-1 rounded-sm ml-0.5 mt-0.5" style={{ lineHeight: '1.2' }}>IMDb</span>
+                    </span>
+                  </>
+                )}
+              </motion.div>
+              {/* Action Buttons */}
+              <motion.div
+                className="flex items-center gap-2 mt-1"
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.8, duration: 0.4 }}
               >
-                <div className="group relative">
-                  <button
-                    onClick={handleDownload}
-                    className={`group p-2 rounded-full backdrop-blur-md border transition-all duration-200 shadow-lg hover:shadow-xl hover:scale-110 ${downloadStatus.isDownloading
-                      ? 'bg-green-600/40 border-green-500/30 text-white hover:bg-green-600/60'
-                      : downloadStatus.status === 'completed'
-                        ? 'bg-blue-600/40 border-blue-500/30 text-white hover:bg-blue-600/60'
-                        : 'bg-red-600/40 border-red-500/30 text-white hover:bg-red-600/60'
-                      }`}
-                    disabled={downloadStatus.status === 'completed'}
-                  >
-                    {downloadStatus.status === 'completed' ? (
-                      <Check className="w-4 h-4" />
-                    ) : downloadStatus.isDownloading ? (
-                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    ) : (
-                      <Download className="w-4 h-4" />
-                    )}
-                  </button>
-                  <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 px-2 py-1 bg-black/90 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
-                    {downloadStatus.status === 'completed' ? 'Downloaded' : downloadStatus.isDownloading ? 'Downloading...' : 'Download'}
-                  </div>
-                </div>
+                <button
+                  onClick={handleDownload}
+                  className={`flex items-center gap-2 px-4 py-2 md:px-5 md:py-2.5 font-bold rounded shadow-lg transition-all duration-200 hover:scale-105 text-sm md:text-base ${downloadStatus.isDownloading
+                    ? 'bg-green-600 hover:bg-green-700 text-white'
+                    : downloadStatus.status === 'completed'
+                      ? 'bg-blue-600 hover:bg-blue-700 text-white'
+                      : 'bg-white text-black hover:bg-white/80'
+                    }`}
+                  disabled={downloadStatus.status === 'completed'}
+                >
+                  {downloadStatus.status === 'completed' ? (
+                    <>
+                      <Check className="w-4 h-4 md:w-5 md:h-5 fill-current ml-1" />
+                      <span>Downloaded</span>
+                    </>
+                  ) : downloadStatus.isDownloading ? (
+                    <>
+                      <div className="w-4 h-4 md:w-5 md:h-5 border-2 border-current border-t-transparent rounded-full animate-spin ml-1" />
+                      <span>Downloading...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Download className="w-4 h-4 md:w-5 md:h-5 fill-current ml-1" />
+                      <span>Download</span>
+                    </>
+                  )}
+                </button>
+
                 <MyListTooltip
                   media={mediaDetails}
                   isInMyList={isInMyListHook(tmdbPrefixedId)}
@@ -1702,43 +1706,62 @@ const TMDBMoviePage: React.FC = () => {
                   onAddToCollection={(collectionId) => addToCollection(collectionId, tmdbPrefixedId)}
                   onCollectionCreated={fetchCollections}
                 >
-                  <button className="group p-2 bg-white/20 text-white rounded-full backdrop-blur-md border border-white/30 hover:bg-white/30 transition-all duration-200 hover:scale-110">
-                    {isInMyListHook(tmdbPrefixedId) ? <Check className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
+                  <button className="flex items-center gap-2 px-3 py-2 md:px-4 md:py-2 bg-gray-500/40 hover:bg-gray-500/60 text-white font-bold rounded backdrop-blur-md shadow-lg transition-all duration-200 hover:scale-105 text-xs md:text-sm">
+                    {isInMyListHook(tmdbPrefixedId) ? (
+                      <>
+                        <Check className="w-3.5 h-3.5 md:w-4 md:h-4" />
+                        <span className="hidden sm:inline">In List</span>
+                      </>
+                    ) : (
+                      <>
+                        <Plus className="w-3.5 h-3.5 md:w-4 md:h-4" />
+                        <span className="hidden sm:inline">Watch List</span>
+                      </>
+                    )}
                   </button>
                 </MyListTooltip>
-                <div className="group relative">
-                  <button className="group p-2 bg-white/20 text-white rounded-full backdrop-blur-md border border-white/30 hover:bg-white/30 transition-all duration-200 hover:scale-110">
-                    <Share2 className="w-4 h-4" />
-                  </button>
-                  <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 px-2 py-1 bg-black/90 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
-                    Share
-                  </div>
-                </div>
+
                 {mediaDetails?.homepage && (
-                  <div className="group relative">
-                    <a
-                      href={mediaDetails.homepage}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="group p-2 bg-white/20 text-white rounded-full backdrop-blur-md border border-white/30 hover:bg-white/30 transition-all duration-200 hover:scale-110 inline-block"
+                  <a
+                    href={mediaDetails.homepage}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center justify-center p-2 md:p-2.5 bg-gray-500/40 hover:bg-gray-500/60 text-white rounded backdrop-blur-md shadow-lg transition-all duration-200 hover:scale-105"
+                    title="Official Site"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5 md:w-4 md:h-4" />
+                  </a>
+                )}
+
+                {trailerKey && (
+                  <>
+                    <button
+                      onClick={togglePlayPause}
+                      className="flex items-center justify-center w-9 h-9 md:w-10 md:h-10 ml-2 md:ml-4 border border-white/30 bg-black/40 hover:bg-black/60 text-white rounded-full backdrop-blur-md shadow-lg transition-all duration-200 hover:scale-110"
+                      title={isPlaying ? "Pause Video" : "Play Video"}
                     >
-                      <ExternalLink className="w-4 h-4" />
-                    </a>
-                    <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 px-2 py-1 bg-black/90 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
-                      Official Site
-                    </div>
-                  </div>
+                      {isPlaying ? <Pause className="w-3.5 h-3.5 md:w-4 md:h-4" /> : <Play className="w-3.5 h-3.5 md:w-4 md:h-4" />}
+                    </button>
+                    <button
+                      onClick={toggleMute}
+                      className="flex items-center justify-center w-9 h-9 md:w-10 md:h-10 border border-white/30 bg-black/40 hover:bg-black/60 text-white rounded-full backdrop-blur-md shadow-lg transition-all duration-200 hover:scale-110"
+                      title={isMuted ? "Unmute" : "Mute"}
+                    >
+                      {isMuted ? <VolumeX className="w-3.5 h-3.5 md:w-4 md:h-4" /> : <Volume2 className="w-3.5 h-3.5 md:w-4 md:h-4" />}
+                    </button>
+                  </>
                 )}
               </motion.div>
+
               {/* Download Progress Bar */}
               {downloadStatus.isDownloading && downloadStatus.progress > 0 && (
                 <motion.div
                   initial={{ opacity: 0, scaleX: 0 }}
                   animate={{ opacity: 1, scaleX: 1 }}
-                  className="w-full max-w-md bg-gray-800/50 rounded-full h-2 mt-2"
+                  className="w-full max-w-xs mt-3 bg-gray-500/50 rounded-full h-1 overflow-hidden"
                 >
                   <div
-                    className="bg-green-500 h-2 rounded-full transition-all duration-300"
+                    className="bg-green-500 h-full rounded-full transition-all duration-300"
                     style={{ width: `${downloadStatus.progress}%` }}
                   />
                 </motion.div>

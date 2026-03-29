@@ -8,9 +8,13 @@ import { useNavigate } from "@/hooks/useNavigate";
 
 interface PreviewVideo {
     id: string;
+    media_id: number;
     title: string;
-    filename: string;
     url: string;
+    type: string;
+    year: number;
+    rating: number;
+    navigate_path: string;
 }
 
 interface NowPlayingResponse {
@@ -289,6 +293,12 @@ const SimpleTVChannel: React.FC = () => {
 
     // Get current video
     const currentVideo = videos[currentVideoIndex] || null;
+    const currentVideoMeta = currentVideo
+        ? [
+            currentVideo.year > 0 ? String(currentVideo.year) : null,
+            currentVideo.rating > 0 ? `★ ${currentVideo.rating.toFixed(1)}` : null
+        ].filter(Boolean).join("  •  ")
+        : "";
 
     // Initialize
     useEffect(() => {
@@ -499,6 +509,24 @@ const SimpleTVChannel: React.FC = () => {
                         HOMEFLIX
                     </button>
                 </div>
+                {currentVideo && (
+                    <div className="absolute bottom-10 left-6 z-50 text-left max-w-[70vw]">
+                        <button
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                navigate.push(currentVideo.navigate_path || "/");
+                            }}
+                            className="text-white hover:text-red-400 text-2xl font-semibold leading-tight drop-shadow-lg transition-colors duration-200 line-clamp-2"
+                        >
+                            {currentVideo.title}
+                        </button>
+                        {currentVideoMeta && (
+                            <div className="text-white/90 text-sm mt-1 drop-shadow-lg">
+                                {currentVideoMeta}
+                            </div>
+                        )}
+                    </div>
+                )}
 
                 {/* Controls Overlay */}
                 {showControls && (
