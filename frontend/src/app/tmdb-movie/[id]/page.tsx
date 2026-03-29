@@ -25,7 +25,29 @@ import {
   Share2,
   Download,
   X,
-  Info
+  Info,
+  Search,
+  Bell,
+  Menu,
+  Maximize2,
+  Minimize2,
+  Monitor,
+  ListVideo,
+  Layers,
+  Type,
+  SkipForward,
+  AlignLeft,
+  GripHorizontal,
+  ChevronRight,
+  MessageSquare,
+  Flame,
+  Sparkles,
+  Target,
+  Tv2,
+  Image as ImageIcon,
+  MapPin,
+  SearchSlash,
+  AlertCircle
 } from 'lucide-react';
 import { getApiUrl } from '@/lib/api';
 import { addToWishlist, removeFromWishlist, isInWishlist } from '@/lib/wishlist';
@@ -36,6 +58,7 @@ import UpcomingTVSeries from '@/components/UpcomingTVSeries';
 import { useMyList } from '@/hooks/useMyList';
 import MyListTooltip from '@/components/ui/MyListTooltip';
 import { GradientBackground } from '@/components/scrollx';
+import AutoSlidingBanner from '@/components/AutoSlidingBanner';
 
 // Genre-based text styling utility
 const getGenreTextStyle = (genres: string[] = []) => {
@@ -202,11 +225,17 @@ const RelatedMedia: React.FC<RelatedMediaProps> = ({ mediaId, mediaType, release
               imageSrc = getBackdropUrl((media as any).backdrop_path || media.poster_path);
               isBackdrop = true;
             } else if (pattern === 5 || pattern === 6) {
-              // Small Backdrops
-              spanClass = "col-span-2 md:col-span-2 lg:col-span-2 row-span-1";
-              imageSrc = getBackdropUrl((media as any).backdrop_path || media.poster_path);
-              isBackdrop = true;
+              // Small regular posters
+              spanClass = "col-span-1 md:col-span-1 lg:col-span-1 row-span-1";
+              imageSrc = getPosterUrl(media.poster_path);
             }
+
+            const isLarge = pattern === 0;
+            const bannerMovies = isBackdrop ? [
+              media,
+              relatedMedia[(index + 3) % relatedMedia.length],
+              relatedMedia[(index + 7) % relatedMedia.length]
+            ].filter(Boolean) : [];
 
             return (
               <motion.div
@@ -216,52 +245,61 @@ const RelatedMedia: React.FC<RelatedMediaProps> = ({ mediaId, mediaType, release
                 transition={{ duration: 0.3, ease: "easeOut" }}
                 onClick={() => handleMediaClick(media)}
               >
-                <img
-                  src={imageSrc}
-                  alt={media.title || media.name || 'Media image'}
-                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700 ease-out"
-                  loading="lazy"
-                  onError={(e) => {
-                    const target = e.target as HTMLImageElement;
-                    target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjQ1MCIgdmlld0JveD0iMCAwIDMwMCA0NTAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIzMDAiIGhlaWdodD0iNDUwIiBmaWxsPSIjMzc0MTUxIi8+CjxwYXRoIGQ9Ik0xNTAgMjAwQzE4Ny4yNzkgMjAwIDIxOCAxNjkuMjc5IDIxOCAxMzJDMjE4IDk0LjcyMDggMTg3LjI3OSA2NCAxNTAgNjRDMTEyLjcyMSA2NCA4MiA5NC43MjA4IDgyIDEzMkM4MiAxNjkuMjc5IDExMi43MjEgMjAwIDE1MCAyMDBaIiBmaWxsPSIjNkI3Mjg4Ii8+CjxwYXRoIGQ9Ik04MiAyNzZDODIgMjM4LjY4IDExMi42OCAyMDggMTUwIDIwOEgxNTBDMTg3LjMyIDIwOCAyMTggMjM4LjY4IDIxOCAyNzZWMzUwSDgyVjI3NloiIGZpbGw9IiM2QjcyODgiLz4KPHN2Zz4K';
-                  }}
-                />
+                {isBackdrop ? (
+                  <AutoSlidingBanner
+                    movies={bannerMovies}
+                    getBackdropUrl={(m: any) => getBackdropUrl(m.backdrop_path || m.poster_path)}
+                    onClick={handleMediaClick}
+                    isLarge={isLarge}
+                  />
+                ) : (
+                  <>
+                    <img
+                      src={imageSrc}
+                      alt={media.title || media.name || 'Media image'}
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700 ease-out"
+                      loading="lazy"
+                      onError={(e) => {
+                        const target = e.target as HTMLImageElement;
+                        target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjQ1MCIgdmlld0JveD0iMCAwIDMwMCA0NTAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIzMDAiIGhlaWdodD0iNDUwIiBmaWxsPSIjMzc0MTUxIi8+CjxwYXRoIGQ9Ik0xNTAgMjAwQzE4Ny4yNzkgMjAwIDIxOCAxNjkuMjc5IDIxOCAxMzJDMjE4IDk0LjcyMDggMTg3LjI3OSA2NCAxNTAgNjRDMTEyLjcyMSA2NCA4MiA5NC43MjA4IDgyIDEzMkM4MiAxNjkuMjc5IDExMi43MjEgMjAwIDE1MCAyMDBaIiBmaWxsPSIjNkI3Mjg4Ii8+CjxwYXRoIGQ9Ik04MiAyNzZDODIgMjM4LjY4IDExMi42OCAyMDggMTUwIDIwOEgxNTBDMTg3LjMyIDIwOCAyMTggMjM4LjY4IDIxOCAyNzZWMzUwSDgyVjI3NloiIGZpbGw9IiM2QjcyODgiLz4KPHN2Zz4K';
+                      }}
+                    />
 
-                {/* Dark Vignette Overlay */}
-                <div className={`absolute inset-0 bg-gradient-to-t ${isBackdrop ? 'from-black/90 via-black/20 to-transparent' : 'from-black/90 via-transparent to-transparent'} opacity-80 group-hover:opacity-90 transition-opacity duration-300`} />
+                    {/* Dark Vignette Overlay */}
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-transparent to-transparent opacity-80 group-hover:opacity-90 transition-opacity duration-300" />
 
-                {/* Top Quick Info */}
-                <div className="absolute top-3 right-3 flex items-center gap-2">
-                  {media.vote_average && media.vote_average > 0 && (
-                    <div className="bg-black/60 backdrop-blur-md rounded-full px-2.5 py-1 flex items-center gap-1.5 shadow-lg">
-                      <Star className="w-3.5 h-3.5 text-yellow-400 fill-current" />
-                      <span className="text-xs font-bold text-white">
-                        {media.vote_average.toFixed(1)}
-                      </span>
+                    {/* Top Quick Info */}
+                    <div className="absolute top-3 right-3 flex items-center gap-2">
+                      {media.vote_average && media.vote_average > 0 && (
+                        <div className="bg-black/60 backdrop-blur-md rounded-full px-2.5 py-1 flex items-center gap-1.5 shadow-lg">
+                          <Star className="w-3.5 h-3.5 text-yellow-400 fill-current" />
+                          <span className="text-xs font-bold text-white">
+                            {media.vote_average.toFixed(1)}
+                          </span>
+                        </div>
+                      )}
                     </div>
-                  )}
-                </div>
 
-                {/* Content Info Container (Bottom Aligned) */}
-                <div className={`absolute bottom-0 left-0 right-0 p-4 lg:p-5 flex flex-col justify-end translate-y-3 group-hover:translate-y-0 ${!isBackdrop && 'opacity-0 group-hover:opacity-100'} transition-all duration-400`}>
-                  <h3 className={`text-white font-bold leading-tight drop-shadow-lg ${isBackdrop && pattern === 0 ? 'text-2xl md:text-4xl mb-1.5' : (isBackdrop ? 'text-lg md:text-xl mb-1' : 'text-sm mb-1')} line-clamp-1`}>
-                    {media.title || media.name}
-                  </h3>
+                    {/* Content Info Container (Bottom Aligned) */}
+                    <div className="absolute bottom-0 left-0 right-0 p-4 lg:p-5 flex flex-col justify-end translate-y-3 group-hover:translate-y-0 opacity-0 group-hover:opacity-100 transition-all duration-400">
+                      <h3 className="text-white font-bold leading-tight drop-shadow-lg text-sm mb-1 line-clamp-1">
+                        {media.title || media.name}
+                      </h3>
 
-                  <div className="flex items-center gap-2 md:gap-3 text-white/80 text-xs md:text-sm font-medium">
-                    {media.release_date && (
-                      <span>{new Date(media.release_date).getFullYear()}</span>
-                    )}
-                  </div>
-                </div>
-
-                {/* Center Play Icon on purely poster cards */}
-                {!isBackdrop && (
-                  <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-                    <div className="bg-red-600/90 backdrop-blur-md rounded-full p-4 transform scale-75 group-hover:scale-100 transition-transform duration-300 shadow-[0_0_20px_rgba(220,38,38,0.5)]">
-                      <Play className="w-6 h-6 text-white fill-current translate-x-0.5" />
+                      <div className="flex items-center gap-2 md:gap-3 text-white/80 text-xs md:text-sm font-medium">
+                        {media.release_date && (
+                          <span>{new Date(media.release_date).getFullYear()}</span>
+                        )}
+                      </div>
                     </div>
-                  </div>
+
+                    {/* Center Play Icon on purely poster cards */}
+                    <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                      <div className="bg-red-600/90 backdrop-blur-md rounded-full p-4 transform scale-75 group-hover:scale-100 transition-transform duration-300 shadow-[0_0_20px_rgba(220,38,38,0.5)]">
+                        <Play className="w-6 h-6 text-white fill-current translate-x-0.5" />
+                      </div>
+                    </div>
+                  </>
                 )}
               </motion.div>
             );

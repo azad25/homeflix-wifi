@@ -20,6 +20,7 @@ import QualityTags from '@/components/QualityTags';
 import { addToWishlist, removeFromWishlist, isInWishlist } from '@/lib/wishlist';
 import CastButton from '@/components/CastButton';
 import { useChromecast, CastMedia } from '@/hooks/useChromecast';
+import CastCircleRow from '@/components/CastCircleRow';
 import ImageWithFallback from '@/components/ImageWithFallback';
 import CastSection from '@/components/CastSection';
 import { useMyList } from '@/hooks/useMyList';
@@ -46,6 +47,7 @@ interface Season {
   name: string;
   overview: string;
   air_date?: string;
+  release_date?: string;
   episode_count: number;
   episodes?: Episode[];
   poster_path?: string;
@@ -612,6 +614,21 @@ export default function TVSeriesPage() {
 
   const shouldShowButtons = !loading && series && (forceShowButtons || !showTitleOverlay || isHoveringTitle);
   const shouldShowMetadata = !loading && series && (forceShowButtons || !showTitleOverlay || isHoveringTitle);
+
+  const currentYear = new Date().getFullYear();
+  const hasNewSeasonThisYear = React.useMemo(() => {
+    if (!seasons || seasons.length === 0) return false;
+    return seasons.some(season => {
+      if (season.season_number === 0) return false; // Skip specials
+      const dateStr = season.air_date || season.release_date;
+      if (!dateStr) return false;
+      try {
+        return new Date(dateStr).getFullYear() === currentYear;
+      } catch (e) {
+        return false;
+      }
+    });
+  }, [seasons, currentYear]);
 
   const fetchSeriesData = async () => {
     try {
@@ -1625,11 +1642,11 @@ export default function TVSeriesPage() {
               console.log('🎬 YouTube background trailer ready');
               // Triple-check that regular video isn't playing before starting YouTube
               if (!isVideoPlaying || forceShowBackdrop) {
-                event.target.unMute();
+                event.target.mute(); // Muting ensures browser playback isn't blocked automatically
                 event.target.seekTo(10, true);
                 event.target.playVideo();
                 setIsVideoPlaying(true);
-                setIsMuted(false);
+                setIsMuted(true);
                 setForceShowBackdrop(false);
                 setIsVideoLoaded(true);
               } else {
@@ -2047,15 +2064,7 @@ export default function TVSeriesPage() {
                 }}
               />
 
-              {/* Trailer Indicator - Only show when trailer is not playing */}
-              {!isVideoPlaying && (
-                <div className="absolute top-4 left-4 z-[10] bg-black/70 backdrop-blur-sm text-white px-3 py-1.5 rounded-lg pointer-events-none">
-                  <div className="flex items-center gap-2">
-                    <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
-                    <span className="text-xs font-semibold">Official Trailer</span>
-                  </div>
-                </div>
-              )}
+              {/* Trailer Indicator removed per user request */}
             </div>
           </div>
         )}
@@ -2304,33 +2313,7 @@ export default function TVSeriesPage() {
         {/* Minimal overlay for text readability only */}
         <div className="absolute bottom-0 left-0 right-0 h-1/2 bg-gradient-to-t from-black/80 to-transparent z-[10] pointer-events-none" />
 
-        {/* Volume Control - Only show when video is not playing or is muted */}
-        {(!isVideoPlaying || isMuted) && (
-          <motion.div
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ delay: 0.5, duration: 0.4 }}
-            className="absolute top-6 right-6 z-30"
-          >
-            <div className="group relative">
-              <button
-                onClick={() => {
-                  const video = videoRef.current;
-                  if (video) {
-                    video.muted = !video.muted;
-                    setIsMuted(video.muted);
-                  }
-                }}
-                className="group p-3 rounded-full bg-black/40 backdrop-blur-md border border-white/20 hover:bg-black/60 hover:border-white/40 transition-all duration-200 hover:scale-110"
-              >
-                {isMuted ? <VolumeX className="w-5 h-5 text-white/80 group-hover:text-white transition-colors" /> : <Volume2 className="w-5 h-5 text-white/80 group-hover:text-white transition-colors" />}
-              </button>
-              <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 px-2 py-1 bg-black/90 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
-                {isMuted ? "Unmute" : "Mute"}
-              </div>
-            </div>
-          </motion.div>
-        )}
+        {/* Floating Volume Control removed per user request */}
 
         {/* Hero Content - Left Aligned with Poster */}
         <div className="absolute inset-0 z-[20] flex items-center justify-start p-8 pl-16 pointer-events-auto">
@@ -2477,6 +2460,12 @@ export default function TVSeriesPage() {
                   transition={{ duration: 0.6, delay: 0.2 }}
                   className="flex flex-wrap items-center gap-2 text-sm mb-3"
                 >
+                  {hasNewSeasonThisYear && (
+                    <div className="flex items-center gap-1 bg-green-500/20 px-2.5 py-1 rounded-full border border-green-500/30 shadow-[0_0_10px_rgba(34,197,94,0.2)]">
+                      <span className="font-bold text-green-400 text-xs tracking-wider uppercase">New Season</span>
+                    </div>
+                  )}
+
                   {series.rating && series.rating > 0 ? (
                     <div className="flex items-center gap-1 bg-yellow-500/20 px-2 py-1 rounded-full">
                       <Star className="w-4 h-4 text-yellow-400 fill-current" />
@@ -2578,6 +2567,60 @@ export default function TVSeriesPage() {
                   >
                     <Share className="w-6 h-6 text-white" />
                   </button>
+
+                  {(getBackgroundVideoUrl(series) || extractYouTubeKey(series.tmdb_trailer_url || '')) && (
+                    <>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (isVideoPlaying) {
+                            if (useYouTubeFallback && ytPlayerRef) {
+                              try { ytPlayerRef.pauseVideo(); } catch (err) {}
+                            } else if (videoRef.current) {
+                              videoRef.current.pause();
+                            }
+                            setIsVideoPlaying(false);
+                            setUserPausedTrailer(true);
+                          } else {
+                            if (useYouTubeFallback && ytPlayerRef) {
+                              try { ytPlayerRef.playVideo(); } catch (err) {}
+                            } else if (videoRef.current) {
+                              videoRef.current.play().catch(e => console.error('Play failed', e));
+                            }
+                            setIsVideoPlaying(true);
+                            setForceShowBackdrop(false);
+                            setUserPausedTrailer(false);
+                          }
+                        }}
+                        className="flex items-center justify-center w-12 h-12 ml-4 border border-white/30 bg-black/40 hover:bg-black/60 text-white rounded-full backdrop-blur-md shadow-lg transition-all duration-200 hover:scale-110"
+                        title={isVideoPlaying ? "Pause Video" : "Play Video"}
+                      >
+                        {isVideoPlaying ? <Pause className="w-5 h-5 text-white" /> : <Play className="w-5 h-5 text-white" />}
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (isMuted) {
+                            if (useYouTubeFallback && ytPlayerRef) {
+                              try { ytPlayerRef.unMute(); } catch (err) { ytPlayerRef.contentWindow?.postMessage('{"event":"command","func":"unMute","args":""}', '*'); }
+                            }
+                            else if (videoRef.current) videoRef.current.muted = false;
+                            setIsMuted(false);
+                          } else {
+                            if (useYouTubeFallback && ytPlayerRef) {
+                              try { ytPlayerRef.mute(); } catch (err) { ytPlayerRef.contentWindow?.postMessage('{"event":"command","func":"mute","args":""}', '*'); }
+                            }
+                            else if (videoRef.current) videoRef.current.muted = true;
+                            setIsMuted(true);
+                          }
+                        }}
+                        className="flex items-center justify-center w-12 h-12 border border-white/30 bg-black/40 hover:bg-black/60 text-white rounded-full backdrop-blur-md shadow-lg transition-all duration-200 hover:scale-110"
+                        title={isMuted ? "Unmute" : "Mute"}
+                      >
+                        {isMuted ? <VolumeX className="w-5 h-5 text-white" /> : <Volume2 className="w-5 h-5 text-white" />}
+                      </button>
+                    </>
+                  )}
 
                   <button
                     onClick={() => safeNavigate.push(`/settings?tab=media&media=${encodeURIComponent(JSON.stringify({ id: series.id, type: 'tv', title: series.title }))}`)}
@@ -2772,6 +2815,11 @@ export default function TVSeriesPage() {
                 );
               })}
             </div>
+          </ScrollReveal>
+
+          {/* Cast & Crew Section (Horizontal Circle Row) */}
+          <ScrollReveal direction="up" delay={0.3}>
+            <CastCircleRow mediaId={series.id} type="series" />
           </ScrollReveal>
 
           {/* Recent TV Series Section */}

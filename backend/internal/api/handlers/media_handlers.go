@@ -2035,6 +2035,54 @@ func GetCastImages(mediaService *services.MediaService, tmdbService *services.TM
 	}
 }
 
+// GetSeriesCastImages returns cast and crew images for a TV series using TMDB
+func GetSeriesCastImages(mediaService *services.MediaService, tmdbService *services.TMDBService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id, err := strconv.ParseUint(c.Param("id"), 10, 32)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid series ID"})
+			return
+		}
+
+		// Get the series item to extract title and year
+		series, err := mediaService.GetSeriesByID(uint(id))
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Series not found"})
+			return
+		}
+
+		// Clean the title for TMDB search
+		cleanTitle := tmdbService.CleanTitle(series.Title)
+		searchTitle := tmdbService.RemoveYearFromTitle(cleanTitle)
+
+		log.Printf("🎭 Fetching cast images for TV series: '%s'", searchTitle)
+
+		// Try to get cast images from TMDB
+		castMembers, crewMembers, err := tmdbService.GetCastImages(searchTitle, series.Year)
+		if err != nil {
+			// If that fails, try with the original title
+			castMembers, crewMembers, err = tmdbService.GetCastImages(series.Title, series.Year)
+			if err != nil {
+				log.Printf("❌ Failed to get series cast images: %v", err)
+				c.JSON(http.StatusNotFound, gin.H{
+					"error": "Cast images not found",
+					"cast":  []interface{}{},
+					"crew":  []interface{}{},
+				})
+				return
+			}
+		}
+
+		log.Printf("✅ Found %d cast members and %d crew members with images for series",
+			len(castMembers), len(crewMembers))
+
+		c.JSON(http.StatusOK, gin.H{
+			"cast": castMembers,
+			"crew": crewMembers,
+		})
+	}
+}
+
 // Cache for upcoming movies (in-memory cache with 24-hour expiration)
 var (
 	upcomingMoviesCache     *services.UpcomingMoviesResponse
