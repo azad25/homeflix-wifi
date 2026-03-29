@@ -4,11 +4,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math/rand"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -29,6 +31,85 @@ func trimYearFromTitle(title string) string {
 	return strings.TrimSpace(yearPattern.ReplaceAllString(title, ""))
 }
 
+func normalizeGenreToken(value string) string {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	normalized = strings.ReplaceAll(normalized, "&", " and ")
+	normalized = strings.ReplaceAll(normalized, "-", " ")
+	normalized = strings.ReplaceAll(normalized, "_", " ")
+	normalized = regexp.MustCompile(`[^a-z0-9\s]+`).ReplaceAllString(normalized, "")
+	normalized = strings.Join(strings.Fields(normalized), " ")
+	return normalized
+}
+
+func genreAliasCandidates(value string) []string {
+	normalized := normalizeGenreToken(value)
+	if normalized == "" {
+		return []string{}
+	}
+
+	aliases := map[string][]string{
+		"scifi":              {"Science Fiction", "Sci-Fi & Fantasy"},
+		"sci fi":             {"Science Fiction", "Sci-Fi & Fantasy"},
+		"science fiction":    {"Science Fiction", "Sci-Fi & Fantasy"},
+		"sci fi fantasy":     {"Sci-Fi & Fantasy", "Science Fiction"},
+		"scifi fantasy":      {"Sci-Fi & Fantasy", "Science Fiction"},
+		"sci fi and fantasy": {"Sci-Fi & Fantasy", "Science Fiction"},
+	}
+
+	if mapped, ok := aliases[normalized]; ok {
+		return mapped
+	}
+
+	return []string{value}
+}
+
+func mediaMatchesAnyGenre(media models.Media, genreTerms []string) bool {
+	if len(genreTerms) == 0 {
+		return true
+	}
+	normalizedTerms := make([]string, 0, len(genreTerms))
+	for _, term := range genreTerms {
+		n := normalizeGenreToken(term)
+		if n != "" {
+			normalizedTerms = append(normalizedTerms, n)
+		}
+	}
+	for _, genre := range media.Genres {
+		genreNormalized := normalizeGenreToken(genre.Name)
+		for _, term := range normalizedTerms {
+			if genreNormalized == term {
+				return true
+			}
+		}
+	}
+	for _, genreName := range media.GenreNames {
+		genreNormalized := normalizeGenreToken(genreName)
+		for _, term := range normalizedTerms {
+			if genreNormalized == term {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func paginateMedia(items []models.Media, offset, limit int) []models.Media {
+	if offset < 0 {
+		offset = 0
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+	if offset >= len(items) {
+		return []models.Media{}
+	}
+	end := offset + limit
+	if end > len(items) {
+		end = len(items)
+	}
+	return items[offset:end]
+}
+
 // prepareMediaForResponse modifies media titles for frontend display
 func prepareMediaForResponse(media []models.Media) []models.Media {
 	for i := range media {
@@ -42,6 +123,112 @@ func prepareSingleMediaForResponse(media *models.Media) *models.Media {
 	mediaCopy := *media
 	mediaCopy.Title = trimYearFromTitle(mediaCopy.Title)
 	return &mediaCopy
+}
+
+type tvAppMediaResult struct {
+	ID              uint           `json:"id"`
+	UUID            string         `json:"uuid"`
+	Title           string         `json:"title"`
+	OriginalTitle   string         `json:"original_title,omitempty"`
+	Type            string         `json:"type"`
+	FilePath        string         `json:"file_path"`
+	FileSize        int64          `json:"file_size"`
+	Duration        int            `json:"duration"`
+	Description     string         `json:"description,omitempty"`
+	Year            int            `json:"year,omitempty"`
+	ReleaseDate     time.Time      `json:"release_date,omitempty"`
+	Rating          float64        `json:"rating,omitempty"`
+	Certification   string         `json:"certification,omitempty"`
+	Country         string         `json:"country,omitempty"`
+	Language        string         `json:"language,omitempty"`
+	Quality         string         `json:"quality,omitempty"`
+	Genres          []models.Genre `json:"genres,omitempty"`
+	GenreNames      []string       `json:"genre_names,omitempty"`
+	ThumbnailPath   string         `json:"thumbnail_path,omitempty"`
+	PreviewPath     string         `json:"preview_path,omitempty"`
+	PreviewClipPath string         `json:"preview_clip_path,omitempty"`
+	PosterPath      string         `json:"poster_path,omitempty"`
+	LogoPath        string         `json:"logo_path,omitempty"`
+	BannerPath      string         `json:"banner_path,omitempty"`
+	TrailerPath     string         `json:"trailer_path,omitempty"`
+	TMDBBackdropURL string         `json:"tmdb_backdrop_url,omitempty"`
+	TMDBPosterURL   string         `json:"tmdb_poster_url,omitempty"`
+	TMDBTrailerURL  string         `json:"tmdb_trailer_url,omitempty"`
+	TMDBID          int            `json:"tmdb_id,omitempty"`
+	SeriesID        *uint          `json:"series_id,omitempty"`
+	ViewCount       int            `json:"view_count,omitempty"`
+	LastUpdated     string         `json:"last_updated,omitempty"`
+}
+
+func toTVAppMediaResults(items []models.Media) []tvAppMediaResult {
+	results := make([]tvAppMediaResult, 0, len(items))
+	for _, item := range items {
+		uuid := item.UUID
+		if strings.TrimSpace(uuid) == "" {
+			uuid = fmt.Sprintf("%d", item.ID)
+		}
+		filePath := item.FilePath
+		if strings.TrimSpace(filePath) == "" {
+			filePath = fmt.Sprintf("media-%d", item.ID)
+		}
+
+		results = append(results, tvAppMediaResult{
+			ID:            item.ID,
+			UUID:          uuid,
+			Title:         trimYearFromTitle(item.Title),
+			OriginalTitle: item.OriginalTitle,
+			Type:          item.Type,
+			FilePath:      filePath,
+			FileSize:      item.FileSize,
+			Duration:      item.Duration,
+			Description:   item.Description,
+			Year:          item.Year,
+			ReleaseDate:   item.ReleaseDate,
+			Rating:        item.Rating,
+			Certification: func() string {
+				if strings.TrimSpace(item.Certification) == "" {
+					return "PG-13"
+				}
+				return item.Certification
+			}(),
+			Country:         item.Country,
+			Language:        item.Language,
+			Quality:         item.Quality,
+			Genres:          item.Genres,
+			GenreNames:      item.GenreNames,
+			ThumbnailPath:   item.ThumbnailPath,
+			PreviewPath:     item.PreviewPath,
+			PreviewClipPath: item.PreviewClipPath,
+			PosterPath:      item.PosterPath,
+			LogoPath:        item.LogoPath,
+			BannerPath:      item.BannerPath,
+			TrailerPath:     item.TrailerPath,
+			TMDBBackdropURL: item.TMDBBackdropURL,
+			TMDBPosterURL:   item.PosterPath,
+			TMDBTrailerURL:  item.TMDBTrailerURL,
+			TMDBID:          item.TMDBID,
+			SeriesID:        item.SeriesID,
+			ViewCount:       item.ViewCount,
+			LastUpdated:     item.LastUpdated,
+		})
+	}
+	return results
+}
+
+func isTVAppClient(c *gin.Context) bool {
+	userAgent := strings.ToLower(c.GetHeader("User-Agent"))
+	return strings.Contains(userAgent, "okhttp") || strings.Contains(userAgent, "android") || strings.Contains(userAgent, "homeflix-tv")
+}
+
+func resolveUserID(c *gin.Context) string {
+	userID := strings.TrimSpace(c.GetHeader("X-User-ID"))
+	if userID == "" {
+		userID = strings.TrimSpace(c.Query("user_id"))
+	}
+	if userID == "" {
+		userID = "1"
+	}
+	return userID
 }
 
 func GetAllMedia(mediaService *services.MediaService) gin.HandlerFunc {
@@ -75,12 +262,50 @@ func GetMediaByID(mediaService *services.MediaService) gin.HandlerFunc {
 
 func GetMovies(mediaService *services.MediaService) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		limit := 100
+		if limitStr := c.Query("limit"); limitStr != "" {
+			if parsed, err := strconv.Atoi(limitStr); err == nil && parsed > 0 && parsed <= 200 {
+				limit = parsed
+			}
+		}
+		offset := 0
+		if offsetStr := c.Query("offset"); offsetStr != "" {
+			if parsed, err := strconv.Atoi(offsetStr); err == nil && parsed >= 0 {
+				offset = parsed
+			}
+		}
+
 		movies, err := mediaService.GetMovies()
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(http.StatusOK, prepareMediaForResponse(movies))
+
+		if isTVAppClient(c) {
+			personalized := mediaService.PersonalizeMediaResults(resolveUserID(c), movies, "")
+
+			recentPool := append([]models.Media{}, personalized...)
+			sort.SliceStable(recentPool, func(i, j int) bool {
+				if recentPool[i].Year == recentPool[j].Year {
+					return recentPool[i].ID > recentPool[j].ID
+				}
+				return recentPool[i].Year > recentPool[j].Year
+			})
+			poolLimit := 80
+			if len(recentPool) > poolLimit {
+				recentPool = recentPool[:poolLimit]
+			}
+			rand.Seed(time.Now().UnixNano())
+			rand.Shuffle(len(recentPool), func(i, j int) {
+				recentPool[i], recentPool[j] = recentPool[j], recentPool[i]
+			})
+
+			sliced := paginateMedia(recentPool, offset, limit)
+			c.JSON(http.StatusOK, toTVAppMediaResults(sliced))
+			return
+		}
+
+		c.JSON(http.StatusOK, prepareMediaForResponse(paginateMedia(movies, offset, limit)))
 	}
 }
 
@@ -589,10 +814,15 @@ func GetEpisodesBySeriesAndSeason(mediaService *services.MediaService) gin.Handl
 func GetMediaByGenre(mediaService *services.MediaService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		genre := c.Param("genre")
+		genreTerms := genreAliasCandidates(genre)
 
 		// Get page and limit from query parameters with defaults
 		page := 1
 		limit := 50
+		compact := isTVAppClient(c)
+		if compactQuery := strings.TrimSpace(c.Query("compact")); compactQuery != "" {
+			compact = strings.EqualFold(compactQuery, "true")
+		}
 
 		if pageStr := c.Query("page"); pageStr != "" {
 			if p, err := strconv.Atoi(pageStr); err == nil && p > 0 {
@@ -600,8 +830,14 @@ func GetMediaByGenre(mediaService *services.MediaService) gin.HandlerFunc {
 			}
 		}
 
+		maxLimit := 100
+		if compact {
+			maxLimit = 40
+			limit = 24
+		}
+
 		if limitStr := c.Query("limit"); limitStr != "" {
-			if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= 100 {
+			if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= maxLimit {
 				limit = l
 			}
 		}
@@ -609,6 +845,50 @@ func GetMediaByGenre(mediaService *services.MediaService) gin.HandlerFunc {
 		media, err := mediaService.GetMediaByGenre(genre, page, limit)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		if len(media) == 0 && len(genreTerms) > 1 {
+			collected := make([]models.Media, 0, limit)
+			seen := make(map[uint]bool)
+			for _, term := range genreTerms {
+				termResults, termErr := mediaService.GetMediaByGenreName(term, limit)
+				if termErr != nil {
+					continue
+				}
+				for _, item := range termResults {
+					if seen[item.ID] {
+						continue
+					}
+					collected = append(collected, item)
+					seen[item.ID] = true
+					if len(collected) >= limit {
+						break
+					}
+				}
+				if len(collected) >= limit {
+					break
+				}
+			}
+			media = collected
+		}
+		if len(media) == 0 {
+			allMedia, allErr := mediaService.GetAllMedia()
+			if allErr == nil {
+				filtered := make([]models.Media, 0, limit)
+				for _, item := range allMedia {
+					if mediaMatchesAnyGenre(item, genreTerms) {
+						filtered = append(filtered, item)
+						if len(filtered) >= limit {
+							break
+						}
+					}
+				}
+				media = filtered
+			}
+		}
+		if compact {
+			personalized := mediaService.PersonalizeMediaResults(resolveUserID(c), media, genre)
+			c.JSON(http.StatusOK, toTVAppMediaResults(personalized))
 			return
 		}
 		c.JSON(http.StatusOK, prepareMediaForResponse(media))
@@ -624,15 +904,113 @@ func SearchMedia(mediaService *services.MediaService) gin.HandlerFunc {
 			return
 		}
 
-		// Use enhanced smart search
+		limit := 50
+		if limitStr := c.Query("limit"); limitStr != "" {
+			if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= 100 {
+				limit = l
+			}
+		}
+		offset := 0
+		if offsetStr := c.Query("offset"); offsetStr != "" {
+			if o, err := strconv.Atoi(offsetStr); err == nil && o >= 0 {
+				offset = o
+			}
+		}
+		compact := isTVAppClient(c)
+		if compactQuery := strings.TrimSpace(c.Query("compact")); compactQuery != "" {
+			compact = strings.EqualFold(compactQuery, "true")
+		}
+		genre := strings.TrimSpace(c.Query("genre"))
+		genreTerms := genreAliasCandidates(genre)
+		queryGenreTerms := genreAliasCandidates(query)
+
+		if compact {
+			searchResults, err := mediaService.SearchMedia(query)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				return
+			}
+
+			filtered := make([]models.Media, 0, len(searchResults))
+			for _, media := range searchResults {
+				if genre != "" && !mediaMatchesAnyGenre(media, genreTerms) {
+					continue
+				}
+				filtered = append(filtered, media)
+			}
+			if genre == "" && len(queryGenreTerms) > 1 {
+				seen := make(map[uint]bool)
+				for _, item := range filtered {
+					seen[item.ID] = true
+				}
+				for _, term := range queryGenreTerms {
+					termResults, termErr := mediaService.GetMediaByGenreName(term, limit*3)
+					if termErr != nil {
+						continue
+					}
+					for _, item := range termResults {
+						if seen[item.ID] {
+							continue
+						}
+						filtered = append(filtered, item)
+						seen[item.ID] = true
+					}
+				}
+			}
+			if len(filtered) == 0 {
+				lookupTerms := queryGenreTerms
+				if genre != "" {
+					lookupTerms = genreTerms
+				}
+				if len(lookupTerms) == 0 {
+					lookupTerms = []string{query}
+				}
+				seen := make(map[uint]bool)
+				for _, term := range lookupTerms {
+					termResults, termErr := mediaService.GetMediaByGenreName(term, limit*2)
+					if termErr != nil {
+						continue
+					}
+					for _, item := range termResults {
+						if seen[item.ID] {
+							continue
+						}
+						filtered = append(filtered, item)
+						seen[item.ID] = true
+					}
+				}
+			}
+			filtered = mediaService.PersonalizeMediaResults(resolveUserID(c), filtered, query)
+
+			if offset >= len(filtered) {
+				c.JSON(http.StatusOK, []tvAppMediaResult{})
+				return
+			}
+			end := offset + limit
+			if end > len(filtered) {
+				end = len(filtered)
+			}
+
+			c.JSON(http.StatusOK, toTVAppMediaResults(filtered[offset:end]))
+			return
+		}
+
 		results, err := performSmartSearch(mediaService, query)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
 
-		// Return results directly as array for frontend compatibility
-		c.JSON(http.StatusOK, results)
+		if offset >= len(results) {
+			c.JSON(http.StatusOK, []interface{}{})
+			return
+		}
+		end := offset + limit
+		if end > len(results) {
+			end = len(results)
+		}
+
+		c.JSON(http.StatusOK, results[offset:end])
 	}
 }
 
@@ -835,24 +1213,24 @@ func performSmartSearch(mediaService *services.MediaService, query string) ([]in
 			if series.Rating > 0 {
 				score += float64(series.Rating) * 2.0
 			}
-			
+
 			// Convert series to media-like format for frontend
 			seriesAsMedia := map[string]interface{}{
-				"id":          series.ID,
-				"title":       series.Title,
-				"description": series.Description,
-				"type":        "tv", // Mark as TV series
-				"year":        series.Year,
-				"rating":      series.Rating,
-				"genres":      series.Genres,
-				"genre_names": series.GenreNames,
-				"poster_path": series.PosterPath,
-				"tmdb_poster_url": series.TMDBPosterURL,
+				"id":                series.ID,
+				"title":             series.Title,
+				"description":       series.Description,
+				"type":              "tv", // Mark as TV series
+				"year":              series.Year,
+				"rating":            series.Rating,
+				"genres":            series.Genres,
+				"genre_names":       series.GenreNames,
+				"poster_path":       series.PosterPath,
+				"tmdb_poster_url":   series.TMDBPosterURL,
 				"tmdb_backdrop_url": series.TMDBBackdropURL,
-				"logo_path":   series.LogoPath,
-				"series_id":   series.ID,
+				"logo_path":         series.LogoPath,
+				"series_id":         series.ID,
 			}
-			
+
 			results = append(results, searchResult{
 				media:     seriesAsMedia,
 				score:     score,

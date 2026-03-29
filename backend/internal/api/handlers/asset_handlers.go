@@ -189,10 +189,22 @@ func ServeAsset() gin.HandlerFunc {
 		filename = strings.ReplaceAll(filename, "/", "")
 		filename = strings.ReplaceAll(filename, "\\", "")
 
-		filePath := filepath.Join("assets", filename)
+		searchPaths := []string{
+			filepath.Join("assets", filename),
+			filepath.Join("logos", filename),
+			filepath.Join("posters", filename),
+			filepath.Join("backdrops", filename),
+		}
 
-		// Check if file exists
-		if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		filePath := ""
+		for _, candidate := range searchPaths {
+			if _, err := os.Stat(candidate); err == nil {
+				filePath = candidate
+				break
+			}
+		}
+
+		if filePath == "" {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Asset not found"})
 			return
 		}

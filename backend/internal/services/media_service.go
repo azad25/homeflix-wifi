@@ -4,9 +4,12 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -686,6 +689,164 @@ func (s *MediaService) SearchMedia(query string) ([]models.Media, error) {
 	return media, err
 }
 
+func (s *MediaService) PersonalizeMediaResults(userID string, items []models.Media, query string) []models.Media {
+	if len(items) == 0 {
+		return []models.Media{}
+	}
+
+	genreWeights := make(map[string]float64)
+	watchedMedia := make(map[uint]bool)
+	myListMedia := make(map[uint]bool)
+	recommendationScores := make(map[uint]float64)
+
+	var progress []models.PlaybackProgress
+	s.db.Preload("Media").Preload("Media.Genres").
+		Where("user_id = ?", userID).
+		Order("last_watched DESC").
+		Limit(200).
+		Find(&progress)
+
+	for _, entry := range progress {
+		watchedMedia[entry.MediaID] = true
+		for _, genre := range entry.Media.Genres {
+			key := strings.ToLower(strings.TrimSpace(genre.Name))
+			if key != "" {
+				genreWeights[key] += 2.0
+			}
+		}
+	}
+
+	var history []models.WatchHistory
+	s.db.Preload("Media").Preload("Media.Genres").
+		Where("user_id = ?", userID).
+		Order("watched_at DESC").
+		Limit(400).
+		Find(&history)
+
+	for _, entry := range history {
+		watchedMedia[entry.MediaID] = true
+		for _, genre := range entry.Media.Genres {
+			key := strings.ToLower(strings.TrimSpace(genre.Name))
+			if key != "" {
+				genreWeights[key] += 1.0
+			}
+		}
+	}
+
+	var myList []models.MyList
+	s.db.Where("user_id = ?", userID).Limit(500).Find(&myList)
+	for _, entry := range myList {
+		myListMedia[entry.MediaID] = true
+	}
+
+	if parsedID, err := strconv.Atoi(userID); err == nil && parsedID > 0 {
+		var recs []models.Recommendation
+		s.db.Where("user_id = ?", parsedID).
+			Order("created_at DESC").
+			Limit(1000).
+			Find(&recs)
+		for _, rec := range recs {
+			if existing, ok := recommendationScores[rec.MediaID]; !ok || float64(rec.Score) > existing {
+				recommendationScores[rec.MediaID] = float64(rec.Score)
+			}
+		}
+	}
+
+	queryLower := strings.ToLower(strings.TrimSpace(query))
+
+	type scoredItem struct {
+		media models.Media
+		score float64
+	}
+
+	scored := make([]scoredItem, 0, len(items))
+	for _, item := range items {
+		score := 0.0
+		score += item.Rating * 2.5
+		score += item.Popularity * 0.03
+		score += float64(item.ViewCount) * 0.02
+
+		if myListMedia[item.ID] {
+			score += 25
+		}
+		if recScore, ok := recommendationScores[item.ID]; ok {
+			score += recScore * 12
+		}
+		if watchedMedia[item.ID] {
+			score -= 8
+		}
+
+		for _, genre := range item.Genres {
+			key := strings.ToLower(strings.TrimSpace(genre.Name))
+			score += genreWeights[key] * 1.8
+		}
+		for _, genreName := range item.GenreNames {
+			key := strings.ToLower(strings.TrimSpace(genreName))
+			score += genreWeights[key] * 1.2
+		}
+
+		if queryLower != "" {
+			titleLower := strings.ToLower(item.Title)
+			if strings.Contains(titleLower, queryLower) {
+				score += 8
+			}
+		}
+
+		score += rand.Float64() * 15
+		scored = append(scored, scoredItem{media: item, score: score})
+	}
+
+	sort.SliceStable(scored, func(i, j int) bool {
+		return scored[i].score > scored[j].score
+	})
+
+	result := make([]models.Media, 0, len(scored))
+	for _, item := range scored {
+		result = append(result, item.media)
+	}
+
+	latestCandidates := make([]models.Media, 0, len(result))
+	for _, item := range result {
+		if item.Year > 0 {
+			latestCandidates = append(latestCandidates, item)
+		}
+	}
+
+	sort.SliceStable(latestCandidates, func(i, j int) bool {
+		if latestCandidates[i].Year == latestCandidates[j].Year {
+			return latestCandidates[i].CreatedAt.After(latestCandidates[j].CreatedAt)
+		}
+		return latestCandidates[i].Year > latestCandidates[j].Year
+	})
+
+	latestCount := 0
+	if len(latestCandidates) >= 2 {
+		latestCount = 3
+		if len(latestCandidates) < latestCount {
+			latestCount = len(latestCandidates)
+		}
+	}
+	if latestCount == 0 {
+		return result
+	}
+
+	reordered := make([]models.Media, 0, len(result))
+	seen := make(map[uint]bool)
+	for i := 0; i < latestCount; i++ {
+		item := latestCandidates[i]
+		reordered = append(reordered, item)
+		seen[item.ID] = true
+	}
+	for _, item := range result {
+		if seen[item.ID] {
+			continue
+		}
+		reordered = append(reordered, item)
+	}
+
+	return reordered
+}
+
 func (s *MediaService) GetMediaByGenre(genreName string, page int, limit int) ([]models.Media, error) {
 	var media []models.Media
 	offset := (page - 1) * limit
@@ -694,7 +855,7 @@ func (s *MediaService) GetMediaByGenre(genreName string, page int, limit int) ([
 		return db.Preload("Genres").Preload("Series").Preload("Subtitles").
 			Joins("JOIN media_genres ON media.id = media_genres.media_id").
 			Joins("JOIN genres ON media_genres.genre_id = genres.id").
-			Where("genres.name ILIKE ?", genreName).
+			Where("LOWER(genres.name) = LOWER(?)", genreName).
 			Order("view_count DESC, rating DESC").
 			Offset(offset).Limit(limit).
 			Find(&media).Error
@@ -718,7 +879,7 @@ func (s *MediaService) GetMediaByGenreSimple(genreName string) ([]models.Media, 
 		return db.Preload("Genres").Preload("Series").Preload("Subtitles").
 			Joins("JOIN media_genres ON media.id = media_genres.media_id").
 			Joins("JOIN genres ON media_genres.genre_id = genres.id").
-			Where("genres.name ILIKE ?", genreName).
+			Where("LOWER(genres.name) = LOWER(?)", genreName).
 			Order("view_count DESC, rating DESC").
 			Find(&media).Error
 	})
@@ -1331,7 +1492,7 @@ func (s *MediaService) DeleteMedia(id uint) error {
 		} else {
 			log.Printf("⚠️ Media '%s' (ID: %d) marked as deleted in database, but file may still exist", media.Title, id)
 		}
-		
+
 		return nil
 	})
 }
@@ -1421,7 +1582,7 @@ func (s *MediaService) DeleteSeries(id uint) error {
 			return fmt.Errorf("failed to soft delete series: %w", err)
 		}
 
-		log.Printf("✅ Successfully deleted series '%s' (ID: %d) - %d/%d files removed, database marked as deleted", 
+		log.Printf("✅ Successfully deleted series '%s' (ID: %d) - %d/%d files removed, database marked as deleted",
 			series.Title, id, filesDeleted, len(episodes))
 		return nil
 	})
@@ -2063,14 +2224,14 @@ func (s *MediaService) CreateOrUpdateSeason(season *models.Season) error {
 	return s.DBManager.WithTx(func(tx *gorm.DB) error {
 		var existing models.Season
 		err := tx.Where("series_id = ? AND season_number = ?", season.SeriesID, season.SeasonNumber).First(&existing).Error
-		
+
 		if err == gorm.ErrRecordNotFound {
 			// Create new season
 			return tx.Create(season).Error
 		} else if err != nil {
 			return err
 		}
-		
+
 		// Update existing season
 		season.ID = existing.ID
 		return tx.Save(season).Error
