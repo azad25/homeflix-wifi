@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Play, Star } from 'lucide-react';
+import { Star } from 'lucide-react';
 
 interface AutoSlidingBannerProps {
   movies: any[];
@@ -11,9 +11,28 @@ interface AutoSlidingBannerProps {
   onClick: (movie: any) => void;
   className?: string;
   isLarge?: boolean;
+  showNewTag?: boolean;
+  newTagText?: string;
+  logoMinWidthClass?: string;
+  logoMaxWidthClass?: string;
+  requireCurrentYearForNewTag?: boolean;
+  recentMovieIds?: Array<number | string>;
 }
 
-export default function AutoSlidingBanner({ movies, getBackdropUrl, getLogoUrl, onClick, className = "", isLarge = false }: AutoSlidingBannerProps) {
+export default function AutoSlidingBanner({
+  movies,
+  getBackdropUrl,
+  getLogoUrl,
+  onClick,
+  className = "",
+  isLarge = false,
+  showNewTag = false,
+  newTagText = 'New',
+  logoMinWidthClass,
+  logoMaxWidthClass,
+  requireCurrentYearForNewTag = false,
+  recentMovieIds = [],
+}: AutoSlidingBannerProps) {
   const [activeIndex, setActiveIndex] = useState(0);
   const [isHovered, setIsHovered] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -46,6 +65,13 @@ export default function AutoSlidingBanner({ movies, getBackdropUrl, getLogoUrl, 
 
   const activeMovie = movies[activeIndex];
   if (!activeMovie) return null;
+  const currentYear = new Date().getFullYear();
+  const releaseYear = activeMovie.year ||
+    ((activeMovie.release_date && !activeMovie.release_date.startsWith('0001')) ? new Date(activeMovie.release_date).getFullYear() :
+      (activeMovie.first_air_date && !activeMovie.first_air_date.startsWith('0001')) ? new Date(activeMovie.first_air_date).getFullYear() : null);
+  const isReleaseInCurrentYear = !!releaseYear && releaseYear === currentYear;
+  const isRecentMovie = recentMovieIds.length === 0 || recentMovieIds.includes(activeMovie.id);
+  const shouldShowNewTag = showNewTag && (!requireCurrentYearForNewTag || (isRecentMovie && isReleaseInCurrentYear));
 
   return (
     <div 
@@ -84,7 +110,7 @@ export default function AutoSlidingBanner({ movies, getBackdropUrl, getLogoUrl, 
               <img
                 src={getLogoUrl(activeMovie)!}
                 alt={activeMovie.title || activeMovie.name || 'Logo'}
-                className="w-32 sm:w-48 md:w-56 lg:w-72 max-h-[70px] object-contain object-left mb-2 drop-shadow-[0_4px_10px_rgba(0,0,0,0.9)]"
+                className={`${logoMinWidthClass || 'w-32'} ${logoMaxWidthClass || 'sm:w-48 md:w-56 lg:w-72'} max-h-[70px] object-contain object-left mb-2 drop-shadow-[0_4px_10px_rgba(0,0,0,0.9)]`}
               />
             ) : (
               <h3 className={`text-white font-bold leading-tight drop-shadow-lg ${isLarge ? 'text-xl md:text-3xl lg:text-4xl mb-1.5' : 'text-base md:text-lg lg:text-xl mb-1'} line-clamp-1`}>
@@ -110,15 +136,24 @@ export default function AutoSlidingBanner({ movies, getBackdropUrl, getLogoUrl, 
                   {activeMovie.quality}
                 </span>
               )}
-              {activeMovie.genres && activeMovie.genres.length > 0 && (
+              {((activeMovie.genres && activeMovie.genres.length > 0) || shouldShowNewTag) && (
                 <div className="hidden sm:flex items-center gap-1.5">
-                  <span className="text-white/40 mr-1">•</span>
-                  {activeMovie.genres.slice(0, isLarge ? 4 : 2).map((genre: any, i: number) => (
-                    <span key={i} className="text-[9px] md:text-[10px] uppercase font-extrabold tracking-wider text-white/60">
-                      {typeof genre === 'string' ? genre : genre?.name}
-                      {i < Math.min(activeMovie.genres.length, isLarge ? 4 : 2) - 1 && <span className="ml-1.5 text-red-500/50">•</span>}
+                  {activeMovie.genres && activeMovie.genres.length > 0 && (
+                    <>
+                      <span className="text-white/40 mr-1">•</span>
+                      {activeMovie.genres.slice(0, isLarge ? 4 : 2).map((genre: any, i: number) => (
+                        <span key={i} className="text-[9px] md:text-[10px] uppercase font-extrabold tracking-wider text-white/60">
+                          {typeof genre === 'string' ? genre : genre?.name}
+                          {i < Math.min(activeMovie.genres.length, isLarge ? 4 : 2) - 1 && <span className="ml-1.5 text-red-500/50">•</span>}
+                        </span>
+                      ))}
+                    </>
+                  )}
+                  {shouldShowNewTag && (
+                    <span className="px-1.5 py-0.5 rounded bg-red-600/90 text-white text-[9px] md:text-[10px] font-bold uppercase tracking-wider border border-red-400/70">
+                      {newTagText}
                     </span>
-                  ))}
+                  )}
                 </div>
               )}
             </div>

@@ -301,9 +301,14 @@ export const smartSearch = async (query: string) => {
 };
 
 // Fetch media by genre
-export const fetchMediaByGenre = async (genre: string, page: number = 1, limit: number = 50) => {
+export const fetchMediaByGenre = async (genre: string, page: number = 1, limit?: number) => {
   try {
-    return await apiCall(`/api/media/genre/${encodeURIComponent(genre)}?page=${page}&limit=${limit}`);
+    const params = new URLSearchParams();
+    params.set('page', String(page));
+    if (limit && limit > 0) {
+      params.set('limit', String(limit));
+    }
+    return await apiCall(`/api/media/genre/${encodeURIComponent(genre)}?${params.toString()}`);
   } catch (error) {
     console.error(`Failed to fetch media for genre ${genre}:`, error);
     throw error;

@@ -36,6 +36,23 @@ interface Episode {
   media?: Media;
 }
 
+const getGenreTextStyle = (genres: string[]) => {
+  const genreList = genres.map(g => g.toLowerCase());
+  if (genreList.includes('sci-fi') || genreList.includes('science fiction')) {
+    return { className: "font-mono tracking-wide text-blue-200" };
+  }
+  if (genreList.includes('horror') || genreList.includes('thriller')) {
+    return { className: "font-serif tracking-tighter text-red-100" };
+  }
+  if (genreList.includes('comedy')) {
+    return { className: "font-sans text-yellow-100/90" };
+  }
+  if (genreList.includes('romance') || genreList.includes('drama')) {
+    return { className: "font-serif text-serif text-pink-100/90" };
+  }
+  return { className: "font-sans text-white/80" };
+};
+
 export default function SeasonPage() {
   const params = useParams();
   const navigate = useNavigate();
@@ -422,6 +439,9 @@ export default function SeasonPage() {
   const firstEpisode = episodes[0];
   const genreTheme = getGenreTheme(series?.genres || []);
   const themeGradients = getThemeGradients(genreTheme);
+  const releaseYear = seasonData?.air_date || seasonData?.release_date || series.release_date
+    ? new Date(seasonData?.air_date || seasonData?.release_date || series.release_date || Date.now()).getFullYear()
+    : null;
 
   return (
     <div className="min-h-screen bg-black text-white">
@@ -475,117 +495,124 @@ export default function SeasonPage() {
         </video>
 
         {/* Gradient Overlays */}
-        <div className="absolute inset-0 bg-gradient-to-r from-black via-black/60 to-transparent" />
-        <div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-black/40" />
+        <div className="absolute inset-0 bg-gradient-to-r from-black/80 via-black/40 to-transparent z-[10]" />
+        <div className="absolute inset-x-0 bottom-0 h-3/4 bg-gradient-to-t from-black via-black/80 to-transparent z-[10] pointer-events-none" />
 
-        {/* Content */}
-        <div className="relative z-10 h-full flex items-end">
-          <div className="container mx-auto px-8 pb-16">
-            {/* Series Logo/Title */}
-            <div className="mb-6">
+        {/* Hero Content - Left Aligned */}
+        <div className="absolute inset-0 z-[20] flex items-end justify-start pb-16 p-6 md:pl-12 lg:pl-16 pointer-events-auto w-full lg:w-[75%] xl:w-[60%]">
+          <motion.div
+            initial={{ opacity: 0, y: 50 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.8, delay: 0.2 }}
+            className="flex flex-row items-end gap-6 md:gap-8 w-full"
+          >
+            {/* Season Poster thumbnail */}
+            <div className="hidden sm:block w-28 md:w-36 lg:w-48 flex-shrink-0 rounded-xl overflow-hidden shadow-[0_8px_30px_rgba(0,0,0,0.8)] border border-white/10 relative aspect-[2/3]">
               <img
-                src={`${getApiUrl()}/api/series/${series.id}/logo`}
-                alt={series.title}
-                className="max-h-32 w-auto drop-shadow-2xl"
-                onError={(e) => {
-                  const target = e.target as HTMLImageElement;
-                  const parent = target.parentElement!;
-                  parent.innerHTML = `<h1 class="text-6xl font-bold text-white drop-shadow-2xl mb-4">${series.title}</h1>`;
-                }}
+                src={(() => {
+                  const apiUrl = getApiUrl();
+                  if (seasonData?.poster_path) return `${apiUrl}/api/${seasonData.poster_path}`;
+                  if (series.id) return `${apiUrl}/api/series/${series.id}/poster`;
+                  return `${apiUrl}/api/thumbnails/${series.id}`;
+                })()}
+                alt={seasonData?.name || `Season ${currentSeason}`}
+                className="w-full h-full object-cover opacity-90 hover:opacity-100 transition-opacity"
               />
             </div>
 
-            {/* Season Title & Info */}
-            <div className="mb-6">
-              <h2 className="text-4xl font-bold text-white mb-2">
-                {seasonData?.name || `Season ${currentSeason}`}
-              </h2>
-              {(seasonData?.overview || seasonData?.description) && (
-                <p className="text-white/80 text-base max-w-3xl line-clamp-2">
-                  {seasonData.overview || seasonData.description}
-                </p>
-              )}
-            </div>
-
-            {/* Season Selector */}
-            <div className="relative inline-block mb-6">
-              <select
-                value={currentSeason}
-                onChange={(e) => navigate.push(`/tv-series/${params?.id}/season/${e.target.value}`)}
-                className={`appearance-none bg-gradient-to-r ${themeGradients.accent} backdrop-blur-sm border-2 border-white/30 hover:border-white/50 text-white px-6 py-3 pr-12 rounded-lg text-lg font-bold cursor-pointer transition-all focus:outline-none focus:border-white/70 ${themeGradients.glow}`}
+            {/* Main Info Column */}
+            <div className="flex flex-col items-start gap-4 flex-1 min-w-0">
+              {/* Series Title & Season */}
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.6, delay: 0.5 }}
+                className="w-full"
               >
-                {Array.from({ length: totalSeasons }, (_, i) => i + 1).map((season) => (
-                  <option key={season} value={season} className="bg-black">
-                    Season {season}
-                  </option>
-                ))}
-              </select>
-              <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 pointer-events-none" />
-            </div>
-
-            {/* Series Info */}
-            <div className="flex items-center gap-4 mb-6">
-              {series.rating && (
-                <div className="flex items-center gap-2 bg-yellow-500/20 backdrop-blur-sm px-3 py-1.5 rounded-full border border-yellow-500/30">
-                  <Star className="w-4 h-4 text-yellow-400 fill-current" />
-                  <span className="font-bold text-sm">{series.rating.toFixed(1)}</span>
+                <div>
+                  <h2 className="text-xl md:text-2xl text-white/70 font-semibold mb-1">
+                    {series.title}
+                  </h2>
+                  <h1 className="text-4xl md:text-5xl lg:text-6xl font-extrabold mb-1 text-white drop-shadow-[0_4px_24px_rgba(0,0,0,0.8)]">
+                    {seasonData?.name || `Season ${currentSeason}`}
+                  </h1>
                 </div>
-              )}
-              {(seasonData?.air_date || seasonData?.release_date || series.release_date) && (
-                <div className="flex items-center gap-2 bg-blue-500/20 backdrop-blur-sm px-3 py-1.5 rounded-full border border-blue-500/30">
-                  <Calendar className="w-4 h-4 text-blue-400" />
-                  <span className="font-semibold text-sm">
-                    {new Date(seasonData?.air_date || seasonData?.release_date || series.release_date || Date.now()).getFullYear()}
-                  </span>
-                </div>
-              )}
-              <span className="text-white/90 font-semibold text-sm">
-                {episodes.length} Episode{episodes.length !== 1 ? 's' : ''}
-              </span>
-            </div>
+              </motion.div>
 
-            {/* Genres */}
-            {series.genres && series.genres.length > 0 && (
-              <div className="flex gap-2 mb-6">
-                {series.genres.slice(0, 3).map((genre, index) => (
-                  <span
-                    key={index}
-                    className={`px-3 py-1.5 bg-gradient-to-r ${themeGradients.accent}/20 backdrop-blur-sm border border-white/20 rounded-full text-sm font-semibold`}
+              {/* Stats Row */}
+              <motion.div
+                className="flex flex-wrap items-center gap-3 text-sm md:text-base font-medium text-white/90 drop-shadow-md mb-1"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: 0.6, duration: 0.4 }}
+              >
+                <span>{episodes.length} Episode{episodes.length !== 1 ? 's' : ''}</span>
+                {series.rating && series.rating > 0 && (
+                  <>
+                    <span className="text-white/40">|</span>
+                    <span className="flex items-center gap-1">
+                      {series.rating.toFixed(1)} <span className="bg-yellow-500 text-black text-[10px] font-bold px-1 rounded-sm ml-0.5 mt-0.5" style={{ lineHeight: '1.2' }}>IMDb</span>
+                    </span>
+                  </>
+                )}
+                {releaseYear && (
+                  <>
+                    <span className="text-white/40">|</span>
+                    <span>{releaseYear}</span>
+                  </>
+                )}
+                <span className="text-white/40">|</span>
+                <div className="relative inline-block">
+                  <select
+                    value={currentSeason}
+                    onChange={(e) => navigate.push(`/tv-series/${params?.id}/season/${e.target.value}`)}
+                    className="appearance-none bg-white/10 backdrop-blur-sm border border-white/20 hover:border-white/50 text-white px-3 py-1.5 pr-8 rounded-lg text-xs md:text-sm font-bold cursor-pointer transition-all focus:outline-none focus:ring-2 focus:ring-red-500 shadow-xl"
                   >
-                    {typeof genre === 'string' ? genre : genre.name || String(genre)}
-                  </span>
-                ))}
-              </div>
-            )}
+                    {Array.from({ length: totalSeasons }, (_, i) => i + 1).map((season) => (
+                      <option key={season} value={season} className="bg-black text-white">
+                        Season {season}
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none" />
+                </div>
+              </motion.div>
 
-            {/* Series/Season Description */}
-            {(seasonData?.overview || seasonData?.description || series.description) && (
-              <div className="mb-8 max-w-2xl">
-                <p className="text-white/90 text-base leading-relaxed line-clamp-3">
-                  {seasonData?.overview || seasonData?.description || series.description}
-                </p>
-              </div>
-            )}
-
-            {/* Action Buttons */}
-            <div className="flex items-center gap-4">
-              <button
-                onClick={() => handlePlay(firstEpisode)}
-                className={`bg-gradient-to-r ${themeGradients.accent} hover:opacity-90 text-white px-8 py-3 rounded-lg flex items-center gap-3 text-lg font-bold transition-all transform hover:scale-105 ${themeGradients.glow}`}
+              {/* Overview */}
+              <motion.p
+                className={`text-white/80 max-w-2xl line-clamp-3 md:line-clamp-4 drop-shadow-[0_2px_10px_rgba(0,0,0,0.8)] mb-2 text-sm md:text-base leading-snug ${getGenreTextStyle(series.genres?.map(g => typeof g === 'string' ? g : g?.name).filter(Boolean) || []).className}`}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: 0.7, duration: 0.4 }}
               >
-                <Play className="w-5 h-5 fill-current" />
-                Play Season
-              </button>
+                {seasonData?.overview || seasonData?.description || series.description || `Explore Season ${currentSeason} of ${series.title}.`}
+              </motion.p>
 
-              <button
-                onClick={() => navigate.push(`/tv-series/${params?.id}`)}
-                className="bg-white/10 hover:bg-white/20 backdrop-blur-sm text-white px-8 py-3 rounded-lg flex items-center gap-3 text-lg font-semibold transition-all border border-white/20 hover:border-white/40"
+              {/* Action Buttons */}
+              <motion.div
+                className="flex flex-wrap items-center gap-2 mt-1"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.8, duration: 0.4 }}
               >
-                <Info className="w-5 h-5" />
-                Series Info
-              </button>
+                <button
+                  onClick={() => handlePlay(firstEpisode)}
+                  className="flex items-center gap-2 px-4 py-2 md:px-5 md:py-2.5 bg-white text-black hover:bg-white/80 font-bold rounded shadow-lg transition-all duration-200 hover:scale-105 text-sm md:text-base mr-2"
+                >
+                  <Play className="w-4 h-4 md:w-5 md:h-5 fill-current" />
+                  <span>Play Season</span>
+                </button>
+
+                <button
+                  onClick={() => navigate.push(`/tv-series/${params?.id}`)}
+                  className="flex items-center gap-2 px-3 py-2 md:px-4 md:py-2 bg-gray-500/40 hover:bg-gray-500/60 text-white font-bold rounded backdrop-blur-md shadow-lg transition-all duration-200 hover:scale-105 text-xs md:text-sm"
+                >
+                  <Info className="w-3.5 h-3.5 md:w-4 md:h-4" />
+                  <span className="hidden sm:inline">Series Info</span>
+                </button>
+              </motion.div>
             </div>
-          </div>
+          </motion.div>
         </div>
       </div>
 

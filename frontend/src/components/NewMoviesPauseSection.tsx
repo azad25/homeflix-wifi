@@ -6,6 +6,7 @@ import { Media } from '@/types/media';
 import { getApiUrl } from '@/lib/api';
 import { useNavigate } from '@/hooks/useNavigate';
 import { updatePlaybackProgress } from '@/lib/playback';
+import AutoSlidingBanner from './AutoSlidingBanner';
 
 interface NewMoviesPauseSectionProps {
     currentMediaId: number;
@@ -65,9 +66,26 @@ const NewMoviesPauseSection: React.FC<NewMoviesPauseSectionProps> = ({
         navigate.push(`/movie/${movie.id}`);
     };
 
+    const getBackdropUrl = (movie: Media) => {
+        if (movie.tmdb_backdrop_url) return movie.tmdb_backdrop_url;
+        if (movie.banner_path) return `${apiUrl}/api/admin/assets/${movie.banner_path.split('/').pop()}`;
+        return `${apiUrl}/api/thumbnails/${movie.id}`;
+    };
+
+    const getLogoUrl = (movie: Media) => {
+        if (!movie.logo_path) return null;
+        if (movie.logo_path.startsWith('http')) return movie.logo_path;
+        if (movie.logo_path.startsWith('/api/')) return `${apiUrl}${movie.logo_path}`;
+        const filename = movie.logo_path.includes('/') ? movie.logo_path.split('/').pop() : movie.logo_path;
+        return `${apiUrl}/api/logos/${filename}`;
+    };
+
     if (isLoading || newMovies.length === 0) {
         return null;
     }
+
+    const sliderMovies = newMovies.slice(0, 3);
+    const sideBackdropMovies = newMovies.slice(3, 5);
 
     return (
         <motion.div
@@ -75,48 +93,84 @@ const NewMoviesPauseSection: React.FC<NewMoviesPauseSectionProps> = ({
             animate={{ y: 0, opacity: 1 }}
             exit={{ y: 20, opacity: 0 }}
             transition={{ delay: 0.4, duration: 0.3 }}
-            className="absolute bottom-24 w-full max-w-2xl px-4"
+            className="absolute top-[70%] left-1/2 -translate-x-1/2 w-full max-w-[44rem] px-3 md:px-4"
             onClick={(e) => e.stopPropagation()}
         >
-            <div className="bg-black/40 backdrop-blur-sm rounded-lg p-3 border border-white/10">
-                <h3 className="text-white/80 text-xs font-medium mb-2 uppercase tracking-wider">
+            <div className="w-full">
+                <h3 className="text-white/80 text-xs font-medium mb-3 uppercase tracking-wider px-1">
                     New in Library
                 </h3>
 
-                <div className="flex gap-3 justify-center">
-                    {newMovies.map((movie, index) => (
-                        <motion.button
-                            key={movie.id}
-                            initial={{ opacity: 0, scale: 0.9 }}
-                            animate={{ opacity: 1, scale: 1 }}
-                            transition={{ delay: 0.45 + index * 0.05, duration: 0.2 }}
-                            onClick={() => handleMovieClick(movie)}
-                            className="group flex-shrink-0 relative"
-                            title={movie.title}
-                        >
-                            <div className="relative w-20 h-30 rounded overflow-hidden bg-gray-800">
-                                <img
-                                    src={movie.poster_path ? `${apiUrl}/api/posters/${movie.id}` : '/placeholder-poster.jpg'}
-                                    alt={movie.title}
-                                    className="w-full h-full object-cover transition-transform duration-200 group-hover:scale-110"
-                                    loading="lazy"
-                                />
-                                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-colors duration-200" />
-                                <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex items-center justify-center">
-                                    <div className="w-7 h-7 bg-white rounded-full flex items-center justify-center">
-                                        <svg className="w-4 h-4 text-black ml-0.5" viewBox="0 0 24 24" fill="currentColor">
-                                            <path d="M8 5v14l11-7z" />
-                                        </svg>
-                                    </div>
-                                </div>
-                            </div>
+                <div className="grid grid-cols-12 gap-3 md:gap-4 items-stretch">
+                    <motion.div
+                        initial={{ opacity: 0, scale: 0.96 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        transition={{ delay: 0.45, duration: 0.3 }}
+                        className="col-span-12 md:col-span-7 relative aspect-[16/7] rounded-xl overflow-hidden shadow-2xl border border-white/15"
+                    >
+                        <AutoSlidingBanner
+                            movies={sliderMovies}
+                            getBackdropUrl={getBackdropUrl}
+                            getLogoUrl={getLogoUrl}
+                            onClick={handleMovieClick}
+                            isLarge={true}
+                            showNewTag={true}
+                            newTagText="New"
+                            logoMinWidthClass="min-w-[120px]"
+                            logoMaxWidthClass="max-w-[50%]"
+                            requireCurrentYearForNewTag={true}
+                            recentMovieIds={sliderMovies.map(movie => movie.id)}
+                        />
+                    </motion.div>
 
-                            {/* Movie title - shown below poster */}
-                            <p className="text-white/70 text-xs mt-1.5 truncate w-20 text-center group-hover:text-white transition-colors">
-                                {movie.title}
-                            </p>
-                        </motion.button>
-                    ))}
+                    <div className="col-span-12 md:col-span-5 flex gap-3 md:gap-4">
+                        {sideBackdropMovies.map((movie, index) => {
+                            const logoUrl = getLogoUrl(movie);
+                            return (
+                                <motion.button
+                                    key={movie.id}
+                                    initial={{ opacity: 0, x: 12 }}
+                                    animate={{ opacity: 1, x: 0 }}
+                                    transition={{ delay: 0.52 + index * 0.08, duration: 0.28 }}
+                                    onClick={() => handleMovieClick(movie)}
+                                    className="group relative aspect-square rounded-xl overflow-hidden border border-white/10 shadow-xl flex-1"
+                                    title={movie.title}
+                                >
+                                    <img
+                                        src={getBackdropUrl(movie)}
+                                        alt={movie.title}
+                                        className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+                                        loading="lazy"
+                                        onError={(e) => {
+                                            const target = e.target as HTMLImageElement;
+                                            target.src = `${apiUrl}/api/thumbnails/${movie.id}`;
+                                        }}
+                                    />
+                                    <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/35 to-transparent" />
+                                    <div className="absolute bottom-3 left-3 right-3">
+                                        {logoUrl ? (
+                                            <img
+                                                src={logoUrl}
+                                                alt={movie.title}
+                                                className="w-2/3 max-h-[50%] object-contain object-left drop-shadow-2xl"
+                                                onError={(e) => {
+                                                    e.currentTarget.style.display = 'none';
+                                                    const fallback = e.currentTarget.nextElementSibling as HTMLElement;
+                                                    if (fallback) fallback.style.display = 'block';
+                                                }}
+                                            />
+                                        ) : null}
+                                        <h4
+                                            className="text-white text-sm font-bold drop-shadow-lg line-clamp-1"
+                                            style={{ display: logoUrl ? 'none' : 'block' }}
+                                        >
+                                            {movie.title}
+                                        </h4>
+                                    </div>
+                                </motion.button>
+                            );
+                        })}
+                    </div>
                 </div>
             </div>
         </motion.div>

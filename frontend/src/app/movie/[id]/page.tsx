@@ -2243,9 +2243,8 @@ export default function MoviePage() {
   }
 
   const renderMediaContent = (media: Media) => (
-    <div className="min-h-screen bg-gradient-to-b from-red-900/20 via-black to-black text-white">
+    <div className="min-h-screen bg-black text-white">
       <Navbar />
-      <GradientBackground variant="cosmic" animate={true} className="fixed inset-0 -z-10 pointer-events-none" />
 
       {/* Hero Section */}
       <div className="relative h-screen overflow-hidden">
@@ -2725,29 +2724,30 @@ export default function MoviePage() {
         )}
 
         {/* Gradient overlay for text readability */}
-        <div className="absolute inset-x-0 bottom-0 h-3/4 bg-gradient-to-t from-black via-black/80 to-transparent z-[10] pointer-events-none" />
+        <div className="absolute inset-y-0 left-0 w-full md:w-3/4 lg:w-2/3 bg-gradient-to-r from-black/90 via-black/40 to-transparent z-[10] pointer-events-none" />
+        <div className="absolute inset-x-0 bottom-0 h-1/2 md:h-1/3 bg-gradient-to-t from-black via-black/70 to-transparent z-[10] pointer-events-none" />
 
-        {/* Hero Content - Left Aligned */}
-        <div className="absolute inset-0 z-[20] flex items-end justify-start pb-20 p-6 md:pl-12 lg:pl-16 pointer-events-auto w-full lg:w-[75%] xl:w-[60%]">
+        {/* Hero Content - Full Width */}
+        <div className="absolute inset-0 z-[20] flex items-end justify-between pb-4 md:pb-6 p-6 md:px-12 lg:px-16 pointer-events-auto w-full">
           <motion.div
             initial={{ opacity: 0, y: 50 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.8, delay: 0.2 }}
-            className="flex flex-row items-end gap-6 md:gap-8 w-full"
+            className="flex flex-row items-end justify-between gap-6 md:gap-8 w-full mb-0 md:mb-2 relative"
           >
-            {/* Poster thumbnail in Info Section */}
-            <div className="hidden sm:block w-28 md:w-40 lg:w-56 flex-shrink-0 rounded-xl overflow-hidden shadow-[0_8px_30px_rgba(0,0,0,0.8)] border border-white/10 relative aspect-[2/3]">
+            {/* Poster thumbnail in Info Section (Right side) */}
+            <div className="hidden md:block absolute right-0 bottom-0 w-28 md:w-40 lg:w-48 xl:w-52 flex-shrink-0 rounded-xl overflow-hidden shadow-[0_16px_40px_rgba(0,0,0,0.8)] border border-white/10 aspect-[2/3] z-10">
               <ImageWithFallback
                 mediaId={media.id}
                 alt={media.title}
                 fill={true}
-                sizes="(max-width: 1024px) 200px, 300px"
+                sizes="(max-width: 1024px) 200px, 400px"
                 className="object-cover opacity-90 hover:opacity-100 transition-opacity"
               />
             </div>
 
-            {/* Main Info Column */}
-            <div className="flex flex-col items-start gap-4 flex-1 min-w-0">
+            {/* Main Info Column (Left side) */}
+            <div className="flex flex-col items-start gap-3 flex-1 min-w-0 pr-4 lg:max-w-[55%] xl:max-w-[50%] z-20">
               {/* Movie Title - Logo or Text */}
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
@@ -2759,7 +2759,7 @@ export default function MoviePage() {
                   <img
                     src={`${getApiUrl()}/api/${media.logo_path}`}
                     alt={media.title}
-                    className="max-h-24 md:max-h-32 lg:max-h-40 w-auto mb-2 drop-shadow-[0_4px_24px_rgba(0,0,0,0.8)]"
+                    className="max-h-20 md:max-h-28 lg:max-h-32 w-auto mb-2 drop-shadow-[0_4px_24px_rgba(0,0,0,0.8)]"
                     onError={(e) => {
                       e.currentTarget.style.display = 'none';
                       const fallback = e.currentTarget.nextElementSibling as HTMLElement;
@@ -2768,7 +2768,7 @@ export default function MoviePage() {
                   />
                 ) : null}
                 <h1
-                  className="text-4xl md:text-5xl lg:text-6xl font-extrabold mb-1 text-white drop-shadow-[0_4px_24px_rgba(0,0,0,0.8)]"
+                  className="text-3xl md:text-4xl lg:text-5xl font-extrabold mb-1 text-white drop-shadow-[0_4px_24px_rgba(0,0,0,0.8)]"
                   style={{ display: media.logo_path ? 'none' : 'block' }}
                 >
                   {media.title}
@@ -2858,16 +2858,16 @@ export default function MoviePage() {
               >
                 <button
                   onClick={handlePlay}
-                  className="flex items-center gap-2 px-4 py-2 md:px-5 md:py-2.5 bg-white text-black hover:bg-white/80 font-bold rounded shadow-lg transition-all duration-200 hover:scale-105 text-sm md:text-base"
+                  className="flex items-center gap-2 px-3 py-2 md:px-4 md:py-2 bg-white text-black hover:bg-white/80 font-bold rounded shadow-lg transition-all duration-200 hover:scale-105 text-xs md:text-sm"
                 >
                   {hasWatchedBefore && playbackProgress > 0 ? (
                     <>
-                      <Play className="w-4 h-4 md:w-5 md:h-5 fill-current" />
+                      <Play className="w-3.5 h-3.5 md:w-4 md:h-4 fill-current" />
                       <span>Resume</span>
                     </>
                   ) : (
                     <>
-                      <Play className="w-4 h-4 md:w-5 md:h-5 fill-current" />
+                      <Play className="w-3.5 h-3.5 md:w-4 md:h-4 fill-current" />
                       <span>Play</span>
                     </>
                   )}

@@ -45,6 +45,30 @@ export default function BrowsePage() {
   const [hasMore, setHasMore] = useState(true);
   const ITEMS_PER_PAGE = 24;
 
+  const normalizeGenre = useCallback((value: string) => {
+    return value
+      .toLowerCase()
+      .replace(/&/g, ' and ')
+      .replace(/[-_]/g, ' ')
+      .replace(/[^a-z0-9\s]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }, []);
+
+  const genreMatches = useCallback((mediaGenreName: string, targetGenre: string) => {
+    const mediaNorm = normalizeGenre(mediaGenreName);
+    const targetNorm = normalizeGenre(targetGenre);
+    if (!mediaNorm || !targetNorm) return false;
+    if (mediaNorm === targetNorm) return true;
+
+    const sciFiTargets = new Set(['sci fi', 'science fiction', 'sci fi and fantasy', 'scifi']);
+    if (sciFiTargets.has(targetNorm)) {
+      return sciFiTargets.has(mediaNorm);
+    }
+
+    return false;
+  }, [normalizeGenre]);
+
   const fetchFeaturedMedia = useCallback(async (mediaData: Media[]) => {
     try {
       console.log('🎬 Fetching unique featured media with session awareness...');
@@ -207,7 +231,7 @@ export default function BrowsePage() {
         // Use backend genre API for better performance
         try {
           console.log(`🎭 Fetching media for genre: "${selectedGenre}"`);
-          const genreResults = await fetchMediaByGenre(selectedGenre, 1, 200); // Get up to 200 items
+          const genreResults = await fetchMediaByGenre(selectedGenre, 1);
 
           // Filter to only include items that are in allMedia (movies and TV series)
           const mediaIds = new Set(allMedia.map(m => m.id));
@@ -218,13 +242,13 @@ export default function BrowsePage() {
           console.error("Backend genre fetch failed, falling back to client-side filtering:", genreError);
           // Fallback to client-side filtering
           filtered = filtered.filter(media =>
-            (media.genres || []).some(genre => genre.name === selectedGenre)
+            (media.genres || []).some(genre => genreMatches(genre.name, selectedGenre))
           );
         }
       } else {
         // Client-side filtering when we already have search results
         filtered = filtered.filter(media =>
-          (media.genres || []).some(genre => genre.name === selectedGenre)
+          (media.genres || []).some(genre => genreMatches(genre.name, selectedGenre))
         );
       }
     }
