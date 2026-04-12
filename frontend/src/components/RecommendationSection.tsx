@@ -233,7 +233,7 @@ export default function RecommendationSection({ currentMedia, className = '', on
                      <img
                        src={imageSrc}
                        alt={cleanTitle(movie.title || (movie as any).name)}
-                       className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700 ease-out"
+                       className="w-full h-full object-cover transition-transform duration-700 ease-out"
                        loading="lazy"
                        onError={(e) => {
                          const target = e.target as HTMLImageElement;
@@ -243,7 +243,7 @@ export default function RecommendationSection({ currentMedia, className = '', on
                      />
      
                      {/* Dark Vignette Overlay */}
-                     <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-transparent to-transparent opacity-80 group-hover:opacity-90 transition-opacity duration-300" />
+                     <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-transparent to-transparent opacity-80 transition-opacity duration-300" />
      
                      {/* Top Quick Info */}
                      <div className="absolute top-3 right-3 flex items-center gap-2">

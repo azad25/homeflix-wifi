@@ -1104,6 +1104,117 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
         </GlassCard>
       </ScrollReveal>
 
+      {/* Real-time Terminal Output */}
+      <ScrollReveal delay={0.05}>
+        <GlassCard className="p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-2xl font-semibold text-white flex items-center">
+              <Terminal className="w-6 h-6 mr-3 text-[#E50914]" />
+              Live Terminal Output
+            </h2>
+            <div className="flex items-center space-x-4">
+              <div className="flex items-center space-x-2">
+                <div className={`w-2 h-2 rounded-full ${isTerminalConnected ? 'bg-green-400 animate-pulse' : 'bg-yellow-400'}`}></div>
+                <span className="text-white/70 text-sm">
+                  {isTerminalConnected ? 'Connected' : 'Polling'}
+                </span>
+              </div>
+              {scanProgress >= 0 && (
+                <div className="flex items-center space-x-2">
+                  <div className="w-32 h-2 bg-white/10 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-gradient-to-r from-[#E50914] to-red-400 transition-all duration-300"
+                      style={{ width: `${scanProgress}%` }}
+                    />
+                  </div>
+                  <span className="text-white/70 text-sm">{scanProgress.toFixed(1)}%</span>
+                </div>
+              )}
+              <MagneticButton
+                onClick={() => setTerminalLines([])}
+                className="bg-white/10 hover:bg-white/20 text-white px-3 py-2 rounded-lg flex items-center space-x-2 text-sm"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>Clear</span>
+              </MagneticButton>
+              <MagneticButton
+                onClick={() => {
+                  if (terminalWebSocket) {
+                    terminalWebSocket.close();
+                  }
+                  setTimeout(connectToTerminal, 500);
+                }}
+                className="bg-green-600/20 hover:bg-green-600/40 text-green-400 px-3 py-2 rounded-lg flex items-center space-x-2 text-sm"
+              >
+                <RefreshCw className="w-4 h-4" />
+                <span>Reconnect</span>
+              </MagneticButton>
+            </div>
+          </div>
+
+          {/* Terminal Display - Increased height */}
+          <div
+            ref={terminalRef}
+            className="bg-black rounded-lg p-4 h-96 overflow-y-auto font-mono text-sm border border-white/10 scroll-smooth"
+          >
+            {terminalLines.length === 0 ? (
+              <div className="text-white/50 italic text-center py-8">
+                {isTerminalConnected ? 'Waiting for output...' : 'Connecting to terminal stream...'}
+              </div>
+            ) : (
+              <div className="space-y-1">
+                {terminalLines.map((line, index) => (
+                  <div
+                    key={index}
+                    className={`flex items-start space-x-2 py-0.5 ${line.type === 'stderr' ? 'text-red-400' :
+                        line.type === 'warning' ? 'text-yellow-400' :
+                          line.type === 'success' ? 'text-green-400' :
+                            line.type === 'progress' ? 'text-blue-400' :
+                              line.type === 'info' ? 'text-cyan-400' :
+                                'text-white/90'
+                      }`}
+                  >
+                    <span className="text-white/30 text-xs whitespace-nowrap">
+                      {line.timestamp ? new Date(line.timestamp).toLocaleTimeString() : '--:--:--'}
+                    </span>
+                    <span className="flex-1 break-all">{line.message}</span>
+                    {line.progress !== undefined && line.progress >= 0 && (
+                      <span className="text-blue-400 text-xs whitespace-nowrap">
+                        [{line.progress.toFixed(1)}%]
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="mt-3 flex items-center justify-between text-xs text-white/60">
+            <div className="flex items-center space-x-4">
+              <div className="flex items-center space-x-2">
+                <div className="w-2 h-2 rounded-full bg-white/90"></div>
+                <span>stdout</span>
+              </div>
+              <div className="flex items-center space-x-2">
+                <div className="w-2 h-2 rounded-full bg-red-400"></div>
+                <span>stderr</span>
+              </div>
+              <div className="flex items-center space-x-2">
+                <div className="w-2 h-2 rounded-full bg-cyan-400"></div>
+                <span>info</span>
+              </div>
+              <div className="flex items-center space-x-2">
+                <div className="w-2 h-2 rounded-full bg-blue-400"></div>
+                <span>progress</span>
+              </div>
+            </div>
+            <div>
+              {terminalLines.length} lines • {isTerminalConnected ? 'Real-time via WebSocket' : 'Polling mode'}
+            </div>
+          </div>
+        </GlassCard>
+      </ScrollReveal>
+
       {/* Server Control Panel */}
       <ScrollReveal delay={0.03}>
         <GlassCard className="p-6">
@@ -1372,117 +1483,6 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
               <span>Processing server action...</span>
             </div>
           )}
-        </GlassCard>
-      </ScrollReveal>
-
-      {/* Real-time Terminal Output */}
-      <ScrollReveal delay={0.05}>
-        <GlassCard className="p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-2xl font-semibold text-white flex items-center">
-              <Terminal className="w-6 h-6 mr-3 text-[#E50914]" />
-              Live Terminal Output
-            </h2>
-            <div className="flex items-center space-x-4">
-              <div className="flex items-center space-x-2">
-                <div className={`w-2 h-2 rounded-full ${isTerminalConnected ? 'bg-green-400 animate-pulse' : 'bg-yellow-400'}`}></div>
-                <span className="text-white/70 text-sm">
-                  {isTerminalConnected ? 'Connected' : 'Polling'}
-                </span>
-              </div>
-              {scanProgress >= 0 && (
-                <div className="flex items-center space-x-2">
-                  <div className="w-32 h-2 bg-white/10 rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-gradient-to-r from-[#E50914] to-red-400 transition-all duration-300"
-                      style={{ width: `${scanProgress}%` }}
-                    />
-                  </div>
-                  <span className="text-white/70 text-sm">{scanProgress.toFixed(1)}%</span>
-                </div>
-              )}
-              <MagneticButton
-                onClick={() => setTerminalLines([])}
-                className="bg-white/10 hover:bg-white/20 text-white px-3 py-2 rounded-lg flex items-center space-x-2 text-sm"
-              >
-                <Trash2 className="w-4 h-4" />
-                <span>Clear</span>
-              </MagneticButton>
-              <MagneticButton
-                onClick={() => {
-                  if (terminalWebSocket) {
-                    terminalWebSocket.close();
-                  }
-                  setTimeout(connectToTerminal, 500);
-                }}
-                className="bg-green-600/20 hover:bg-green-600/40 text-green-400 px-3 py-2 rounded-lg flex items-center space-x-2 text-sm"
-              >
-                <RefreshCw className="w-4 h-4" />
-                <span>Reconnect</span>
-              </MagneticButton>
-            </div>
-          </div>
-
-          {/* Terminal Display - Increased height */}
-          <div
-            ref={terminalRef}
-            className="bg-black rounded-lg p-4 h-96 overflow-y-auto font-mono text-sm border border-white/10 scroll-smooth"
-          >
-            {terminalLines.length === 0 ? (
-              <div className="text-white/50 italic text-center py-8">
-                {isTerminalConnected ? 'Waiting for output...' : 'Connecting to terminal stream...'}
-              </div>
-            ) : (
-              <div className="space-y-1">
-                {terminalLines.map((line, index) => (
-                  <div
-                    key={index}
-                    className={`flex items-start space-x-2 py-0.5 ${line.type === 'stderr' ? 'text-red-400' :
-                        line.type === 'warning' ? 'text-yellow-400' :
-                          line.type === 'success' ? 'text-green-400' :
-                            line.type === 'progress' ? 'text-blue-400' :
-                              line.type === 'info' ? 'text-cyan-400' :
-                                'text-white/90'
-                      }`}
-                  >
-                    <span className="text-white/30 text-xs whitespace-nowrap">
-                      {line.timestamp ? new Date(line.timestamp).toLocaleTimeString() : '--:--:--'}
-                    </span>
-                    <span className="flex-1 break-all">{line.message}</span>
-                    {line.progress !== undefined && line.progress >= 0 && (
-                      <span className="text-blue-400 text-xs whitespace-nowrap">
-                        [{line.progress.toFixed(1)}%]
-                      </span>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div className="mt-3 flex items-center justify-between text-xs text-white/60">
-            <div className="flex items-center space-x-4">
-              <div className="flex items-center space-x-2">
-                <div className="w-2 h-2 rounded-full bg-white/90"></div>
-                <span>stdout</span>
-              </div>
-              <div className="flex items-center space-x-2">
-                <div className="w-2 h-2 rounded-full bg-red-400"></div>
-                <span>stderr</span>
-              </div>
-              <div className="flex items-center space-x-2">
-                <div className="w-2 h-2 rounded-full bg-cyan-400"></div>
-                <span>info</span>
-              </div>
-              <div className="flex items-center space-x-2">
-                <div className="w-2 h-2 rounded-full bg-blue-400"></div>
-                <span>progress</span>
-              </div>
-            </div>
-            <div>
-              {terminalLines.length} lines • {isTerminalConnected ? 'Real-time via WebSocket' : 'Polling mode'}
-            </div>
-          </div>
         </GlassCard>
       </ScrollReveal>
 

@@ -364,7 +364,11 @@ func (s *MediaService) GetAllMedia() ([]models.Media, error) {
 func (s *MediaService) GetMovies() ([]models.Media, error) {
 	var movies []models.Media
 	err := s.DBManager.WithReadOnly(func(db *gorm.DB) error {
-		return db.Preload("Genres").Preload("Subtitles").Where("type = ?", "movie").Find(&movies).Error
+		// Only return movies, exclude episodes and TV series
+		return db.Preload("Genres").Preload("Subtitles").
+			Where("type = ?", "movie").
+			Order("created_at DESC, id DESC").
+			Find(&movies).Error
 	})
 	return movies, err
 }
@@ -856,7 +860,8 @@ func (s *MediaService) GetMediaByGenre(genreName string, page int, limit int) ([
 			Joins("JOIN media_genres ON media.id = media_genres.media_id").
 			Joins("JOIN genres ON media_genres.genre_id = genres.id").
 			Where("LOWER(genres.name) = LOWER(?)", genreName).
-			Order("view_count DESC, rating DESC").
+			Where("media.type = ?", "movie"). // Only return movies, not episodes
+			Order("created_at DESC, id DESC, view_count DESC, rating DESC").
 			Offset(offset).Limit(limit).
 			Find(&media).Error
 	})
@@ -880,7 +885,8 @@ func (s *MediaService) GetMediaByGenreSimple(genreName string) ([]models.Media, 
 			Joins("JOIN media_genres ON media.id = media_genres.media_id").
 			Joins("JOIN genres ON media_genres.genre_id = genres.id").
 			Where("LOWER(genres.name) = LOWER(?)", genreName).
-			Order("view_count DESC, rating DESC").
+			Where("media.type = ?", "movie"). // Only return movies, not episodes
+			Order("created_at DESC, id DESC, view_count DESC, rating DESC").
 			Find(&media).Error
 	})
 
@@ -1357,6 +1363,13 @@ func (s *MediaService) DeleteSubtitleTrack(trackID uint) error {
 	})
 }
 
+// DeleteSubtitle deletes a legacy subtitle entry by ID
+func (s *MediaService) DeleteSubtitle(subtitleID uint) error {
+	return s.DBManager.WithTx(func(tx *gorm.DB) error {
+		return tx.Where("id = ?", subtitleID).Delete(&models.Subtitle{}).Error
+	})
+}
+
 // GetMediaByRating returns media sorted by rating (highest first)
 func (s *MediaService) GetMediaByRating(limit int) ([]models.Media, error) {
 	var media []models.Media
@@ -1381,7 +1394,8 @@ func (s *MediaService) GetMediaByGenreName(genreName string, limit int) ([]model
 		Joins("JOIN media_genres ON media.id = media_genres.media_id").
 		Joins("JOIN genres ON media_genres.genre_id = genres.id").
 		Where("LOWER(genres.name) = LOWER(?)", genreName).
-		Order("rating DESC, view_count DESC, created_at DESC").
+		Where("media.type = ?", "movie"). // Only return movies, not episodes
+		Order("created_at DESC, media.id DESC, rating DESC, view_count DESC").
 		Limit(limit).
 		Find(&media).Error
 
@@ -1617,7 +1631,8 @@ func (s *MediaService) GetRecentlyAdded(limit int) ([]models.Media, error) {
 	var media []models.Media
 	err := s.DBManager.WithReadOnly(func(db *gorm.DB) error {
 		return db.Preload("Genres").Preload("Series").Preload("Subtitles").
-			Order("created_at DESC").
+			Where("type = ?", "movie"). // Only return movies, not episodes
+			Order("created_at DESC, id DESC").
 			Limit(limit).
 			Find(&media).Error
 	})

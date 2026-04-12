@@ -60,6 +60,7 @@ type JobStatus struct {
 // MediaServiceInterface defines the interface for media operations
 type MediaServiceInterface interface {
 	GetMediaByPath(path string) (*models.Media, error)
+	GetMediaByID(id uint) (*models.Media, error)
 	GetAllMedia() ([]models.Media, error)
 	GetSeriesByID(seriesID uint) (*models.Series, error)
 	MediaExists(path string) (bool, error)
@@ -77,8 +78,11 @@ type MediaServiceInterface interface {
 	SaveAudioTracks(mediaID uint, tracks []models.AudioTrack) error
 	GetSubtitleTracks(mediaID uint) ([]models.SubtitleTrack, error)
 	GetAudioTracks(mediaID uint) ([]models.AudioTrack, error)
+	GetSubtitles(mediaID uint) ([]models.Subtitle, error)
 	CreateSubtitleTrack(track *models.SubtitleTrack) error
 	CreateAudioTrack(track *models.AudioTrack) error
+	DeleteSubtitleTrack(trackID uint) error
+	DeleteSubtitle(subtitleID uint) error
 }
 
 // ThumbnailServiceInterface defines the interface for thumbnail operations

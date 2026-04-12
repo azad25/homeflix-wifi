@@ -4677,8 +4677,15 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
                 transition={{ duration: 0.3 }}
-                className="absolute inset-0 z-50 bg-black/60 backdrop-blur-sm flex flex-col items-center justify-center cursor-pointer"
+                className="absolute inset-0 z-10 bg-black/60 backdrop-blur-sm flex flex-col items-center justify-center"
+                style={{
+                  pointerEvents: showControls ? 'none' : 'auto',
+                  cursor: showControls ? 'default' : 'pointer'
+                }}
                 onClick={(e) => {
+                  // Only handle clicks when controls are hidden
+                  if (showControls) return;
+                  
                   e.preventDefault();
                   e.stopPropagation();
                   const video = videoRef.current;
@@ -4696,7 +4703,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                   animate={{ scale: 1, opacity: 1 }}
                   exit={{ scale: 0.95, opacity: 0 }}
                   transition={{ duration: 0.3, delay: 0.1 }}
-                  className="w-full max-w-7xl px-4  flex justify-between items-center gap-16 -mt-25"
+                  className="w-full max-w-7xl px-4 flex justify-between items-center gap-16 -mt-25 pointer-events-auto"
                   onClick={(e) => {
                     e.stopPropagation();
                   }}

@@ -1,12 +1,11 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { Play, Clock, Star, RotateCcw, ChevronLeft, ChevronRight, Info } from 'lucide-react';
+import { motion } from 'framer-motion';
+import { Play, Clock, Star, RotateCcw, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Media } from '@/types/media';
 import { getApiUrl } from '@/lib/api';
 import { useNavigate } from '@/hooks/useNavigate';
-import { navigateToMedia } from '@/lib/mediaNavigation';
 import { getColorPaletteByGenre } from '@/types/widgets';
 
 interface RecentlyWatchedItem {
@@ -41,7 +40,6 @@ export default function RecentlyWatchedWidget({
   const [error, setError] = useState<string | null>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(true);
-  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   const navigate = useNavigate();
   const scrollRef = useRef<HTMLDivElement>(null);
   const apiUrl = getApiUrl();
@@ -107,16 +105,6 @@ export default function RecentlyWatchedWidget({
         // For movies, always use local movie route
         navigate.push(`/movie/${media.id}`);
       }
-    }
-  };
-
-  const handleInfo = (media: Media) => {
-    // Route to local content detail page
-    if (media.type === 'episode' || media.type === 'tv' || media.type === 'series') {
-      const seriesId = media.series_id || media.id;
-      navigate.push(`/tv-series/${seriesId}`);
-    } else {
-      navigate.push(`/movie/${media.id}`);
     }
   };
 
@@ -291,33 +279,31 @@ export default function RecentlyWatchedWidget({
             const progressPercent = formatProgress(item.progress_seconds, item.duration_seconds);
             const colors = getColorPaletteByGenre(item.media.genre_names || []);
             const logoUrl = getLogoUrl(item.media);
-            const isCardHovered = hoveredIndex === index;
 
             return (
               <motion.div
                 key={item.id}
-                className="flex-none relative group cursor-pointer"
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ duration: 0.5, delay: index * 0.05 }}
+                className="flex-none relative cursor-pointer group hover:z-50"
                 style={{ width: `${itemWidth}px`, scrollSnapAlign: "start" }}
-                onMouseEnter={() => setHoveredIndex(index)}
-                onMouseLeave={() => setHoveredIndex(null)}
                 onClick={() => handlePlay(item)}
-                whileHover={{ scale: 1.02, zIndex: 20 }}
-                transition={{ duration: 0.3 }}
               >
-                {/* Card Container */}
-                <div 
-                  className="relative aspect-video rounded-xl overflow-hidden shadow-2xl"
+                <motion.div
+                  className="relative aspect-video rounded-xl overflow-hidden shadow-2xl bg-gray-900 border border-white/5 group-hover:border-white/20 transition-all"
+                  whileHover={{ scale: 1.03, y: -4 }}
+                  transition={{ duration: 0.3, ease: "easeOut" }}
                   style={{
-                    boxShadow: isCardHovered 
-                      ? `0 20px 50px ${colors.primary}40, 0 0 0 1px ${colors.primary}30`
-                      : '0 10px 30px rgba(0,0,0,0.5)'
+                    transformOrigin: 'bottom center',
+                    boxShadow: '0 10px 30px rgba(0,0,0,0.5)'
                   }}
                 >
                   {/* Background Image */}
                   <img
                     src={getBackdropUrl(item.media)}
                     alt={item.media.title}
-                    className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+                    className="w-full h-full object-cover transition-transform duration-700 ease-out group-hover:scale-105"
                     loading="lazy"
                     onError={(e) => {
                       const target = e.target as HTMLImageElement;
@@ -326,16 +312,8 @@ export default function RecentlyWatchedWidget({
                   />
 
                   {/* Gradient Overlays */}
-                  <div className="absolute inset-0 bg-gradient-to-t from-black via-black/40 to-transparent" />
+                  <div className="absolute inset-0 bg-gradient-to-t from-black via-black/40 to-transparent opacity-80 group-hover:opacity-90 transition-opacity duration-300" />
                   <div className="absolute inset-0 bg-gradient-to-r from-black/60 via-transparent to-transparent" />
-                  
-                  {/* Colored accent overlay on hover */}
-                  <motion.div 
-                    className="absolute inset-0 pointer-events-none"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: isCardHovered ? 0.15 : 0 }}
-                    style={{ background: `linear-gradient(135deg, ${colors.primary} 0%, transparent 70%)` }}
-                  />
 
                   {/* Progress Bar at Bottom */}
                   {showProgress && (
@@ -372,7 +350,7 @@ export default function RecentlyWatchedWidget({
                     </div>
 
                     {/* Bottom Content */}
-                    <div className="space-y-3">
+                    <div className="space-y-3 translate-y-3 group-hover:translate-y-0 transition-transform duration-300">
                       {/* Logo or Title */}
                       {logoUrl ? (
                         <img
@@ -414,63 +392,9 @@ export default function RecentlyWatchedWidget({
                         </span>
                       </div>
 
-                      {/* Action Buttons - Show on Hover */}
-                      <AnimatePresence>
-                        {isCardHovered && (
-                          <motion.div
-                            initial={{ opacity: 0, y: 10 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, y: 10 }}
-                            transition={{ duration: 0.2 }}
-                            className="flex items-center gap-2"
-                          >
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handlePlay(item);
-                              }}
-                              className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-white text-black font-bold rounded-lg hover:bg-white/90 transition-all"
-                            >
-                              <Play className="w-4 h-4 fill-current" />
-                              Resume
-                            </button>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleInfo(item.media);
-                              }}
-                              className="p-2.5 bg-white/20 backdrop-blur-sm rounded-lg hover:bg-white/30 transition-all border border-white/20"
-                            >
-                              <Info className="w-4 h-4" />
-                            </button>
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
                     </div>
                   </div>
-
-                  {/* Play Icon Overlay */}
-                  <AnimatePresence>
-                    {isCardHovered && (
-                      <motion.div
-                        initial={{ opacity: 0, scale: 0.8 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        exit={{ opacity: 0, scale: 0.8 }}
-                        className="absolute inset-0 flex items-center justify-center pointer-events-none"
-                      >
-                        <div 
-                          className="w-16 h-16 rounded-full flex items-center justify-center backdrop-blur-md border-2"
-                          style={{ 
-                            backgroundColor: `${colors.primary}80`,
-                            borderColor: colors.primary
-                          }}
-                        >
-                          <Play className="w-8 h-8 text-white fill-current ml-1" />
-                        </div>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </div>
+                </motion.div>
 
                 {/* Genres below card */}
                 {item.media.genre_names && item.media.genre_names.length > 0 && (

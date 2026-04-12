@@ -262,9 +262,9 @@ func GetMediaByID(mediaService *services.MediaService) gin.HandlerFunc {
 
 func GetMovies(mediaService *services.MediaService) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		limit := 100
+		limit := 200 // Increased default limit for browse page
 		if limitStr := c.Query("limit"); limitStr != "" {
-			if parsed, err := strconv.Atoi(limitStr); err == nil && parsed > 0 && parsed <= 200 {
+			if parsed, err := strconv.Atoi(limitStr); err == nil && parsed > 0 && parsed <= 500 {
 				limit = parsed
 			}
 		}
@@ -305,6 +305,7 @@ func GetMovies(mediaService *services.MediaService) gin.HandlerFunc {
 			return
 		}
 
+		// For web clients, return all movies sorted by latest first
 		c.JSON(http.StatusOK, prepareMediaForResponse(paginateMedia(movies, offset, limit)))
 	}
 }
@@ -818,7 +819,7 @@ func GetMediaByGenre(mediaService *services.MediaService) gin.HandlerFunc {
 
 		// Get page and limit from query parameters with defaults
 		page := 1
-		limit := 50
+		limit := 200 // Increased default limit for better browsing
 		compact := isTVAppClient(c)
 		if compactQuery := strings.TrimSpace(c.Query("compact")); compactQuery != "" {
 			compact = strings.EqualFold(compactQuery, "true")
@@ -830,7 +831,7 @@ func GetMediaByGenre(mediaService *services.MediaService) gin.HandlerFunc {
 			}
 		}
 
-		maxLimit := 100
+		maxLimit := 500 // Increased max limit
 		if compact {
 			maxLimit = 40
 			limit = 24
@@ -872,7 +873,7 @@ func GetMediaByGenre(mediaService *services.MediaService) gin.HandlerFunc {
 			media = collected
 		}
 		if len(media) == 0 {
-			allMedia, allErr := mediaService.GetAllMedia()
+			allMedia, allErr := mediaService.GetMovies() // Changed from GetAllMedia to GetMovies
 			if allErr == nil {
 				filtered := make([]models.Media, 0, limit)
 				for _, item := range allMedia {

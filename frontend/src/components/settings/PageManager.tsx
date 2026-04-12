@@ -3,9 +3,11 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { getApiUrl } from "@/lib/api";
-import { Plus, Trash2, Eye, EyeOff, Settings, RefreshCw, ExternalLink } from "lucide-react";
-import EnhancedWidgetConfigPanel from "@/components/widgets/EnhancedWidgetConfigPanel";
+import { Plus, Trash2, Eye, EyeOff, Settings, RefreshCw, ExternalLink, Edit2, Copy } from "lucide-react";
+import WidgetEditor from "@/components/widgets/config/WidgetEditor";
+import { useDialog } from "@/components/providers/DialogProvider";
 import { Widget } from "@/types/widgets";
+import { widgetCache } from "@/utils/widgetCache";
 
 interface PageDef {
   id?: number;
@@ -20,6 +22,7 @@ interface PageDef {
 
 export default function PageManager() {
   const apiUrl = getApiUrl();
+  const dialog = useDialog();
   const [pages, setPages] = useState<PageDef[]>([]);
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -28,6 +31,9 @@ export default function PageManager() {
   const [activePageSlug, setActivePageSlug] = useState<string | null>(null);
   const [blueprintWidgets, setBlueprintWidgets] = useState<Widget[]>([]);
   const [blueprintLoading, setBlueprintLoading] = useState(false);
+  const [editingWidget, setEditingWidget] = useState<Widget | null>(null);
+  const [selectedContent, setSelectedContent] = useState<any[]>([]);
+  const [selectedGenres, setSelectedGenres] = useState<number[]>([]);
 
   const fetchPages = async () => {
     try {
@@ -72,7 +78,14 @@ export default function PageManager() {
   };
 
   const deletePage = async (slug: string) => {
-    if (!confirm(`Delete page ${slug}?`)) return;
+    const confirmed = await dialog.confirm(
+      'Delete Page?',
+      `The page "${slug}" and all its widgets will be permanently deleted. This action cannot be undone.`,
+      true
+    );
+    
+    if (!confirmed) return;
+    
     await fetch(`${apiUrl}/api/pages/${encodeURIComponent(slug)}`, { method: "DELETE" });
     fetchPages();
   };
@@ -113,6 +126,123 @@ export default function PageManager() {
   const closeWidgetManager = () => {
     setActivePageSlug(null);
     setBlueprintWidgets([]);
+  };
+
+  const saveWidget = async (widget: Partial<Widget>) => {
+    try {
+      const method = widget.id ? 'PUT' : 'POST';
+      const url = widget.id ? `${apiUrl}/api/widgets/${widget.id}` : `${apiUrl}/api/widgets`;
+
+      const response = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(widget)
+      });
+
+      if (response.ok) {
+        if (activePageSlug) {
+          await fetchBlueprint(activePageSlug);
+        }
+        widgetCache.invalidate(activePageSlug || 'home');
+        setEditingWidget(null);
+      }
+    } catch (error) {
+      console.error('Error saving widget:', error);
+      setError('Failed to save widget');
+    }
+  };
+
+  const deleteWidget = async (widgetId: number) => {
+    const confirmed = await dialog.confirm(
+      'Delete Widget?',
+      'This widget will be permanently removed from the page. This action cannot be undone.',
+      true
+    );
+    
+    if (!confirmed) return;
+
+    try {
+      const response = await fetch(`${apiUrl}/api/widgets/${widgetId}`, {
+        method: 'DELETE'
+      });
+
+      if (response.ok) {
+        if (activePageSlug) {
+          await fetchBlueprint(activePageSlug);
+        }
+        widgetCache.invalidate(activePageSlug || 'home');
+      }
+    } catch (error) {
+      console.error('Error deleting widget:', error);
+      setError('Failed to delete widget');
+    }
+  };
+
+  const toggleWidgetVisibility = async (widget: Widget) => {
+    try {
+      const response = await fetch(`${apiUrl}/api/widgets/${widget.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...widget, enabled: !widget.enabled })
+      });
+
+      if (response.ok) {
+        if (activePageSlug) {
+          await fetchBlueprint(activePageSlug);
+        }
+        widgetCache.invalidate(activePageSlug || 'home');
+      }
+    } catch (error) {
+      console.error('Error toggling widget visibility:', error);
+      setError('Failed to toggle widget visibility');
+    }
+  };
+
+  const duplicateWidget = async (widget: Widget) => {
+    try {
+      const duplicate = {
+        ...widget,
+        id: undefined,
+        name: `${widget.name} (Copy)`,
+        position: blueprintWidgets.length + 1
+      };
+      
+      const response = await fetch(`${apiUrl}/api/widgets`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(duplicate)
+      });
+
+      if (response.ok) {
+        if (activePageSlug) {
+          await fetchBlueprint(activePageSlug);
+        }
+        widgetCache.invalidate(activePageSlug || 'home');
+      }
+    } catch (error) {
+      console.error('Error duplicating widget:', error);
+      setError('Failed to duplicate widget');
+    }
+  };
+
+  const createNewWidget = (slug: string) => {
+    setActivePageSlug(slug);
+    setSelectedContent([]);
+    setSelectedGenres([]);
+    setEditingWidget({
+      id: 0,
+      name: "New Widget",
+      type: "movie-grid",
+      page: slug,
+      position: blueprintWidgets.length + 1,
+      enabled: true,
+      config: "{}",
+      contentType: "mixed",
+      dataSource: "tmdb",
+      maxItems: 10,
+      layout: "full",
+      colorScheme: "auto",
+    });
   };
 
   return (
@@ -220,9 +350,19 @@ export default function PageManager() {
                         <div className="text-sm font-semibold text-red-200 flex items-center gap-2">
                           <Settings className="w-4 h-4" /> Widget Blueprint ({blueprintWidgets.length})
                         </div>
-                        <button onClick={() => fetchBlueprint(p.slug)} className="text-xs text-red-200/80 hover:text-red-200 flex items-center gap-1">
-                          <RefreshCw className={`w-4 h-4 ${blueprintLoading ? 'animate-spin' : ''}`} /> Refresh
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => createNewWidget(p.slug)}
+                            className="text-xs px-2.5 py-1.5 rounded bg-red-600/20 hover:bg-red-600/30 border border-red-500/30 text-red-200 flex items-center gap-1"
+                            title="Create new widget"
+                          >
+                            <Plus className="w-4 h-4" />
+                            Create Widget
+                          </button>
+                          <button onClick={() => fetchBlueprint(p.slug)} className="text-xs text-red-200/80 hover:text-red-200 flex items-center gap-1">
+                            <RefreshCw className={`w-4 h-4 ${blueprintLoading ? 'animate-spin' : ''}`} /> Refresh
+                          </button>
+                        </div>
                       </div>
                       {blueprintLoading ? (
                         <div className="text-white/70 text-sm">Loading widgets...</div>
@@ -238,10 +378,50 @@ export default function PageManager() {
                                   <span className="font-semibold text-white">{widget.name || widget.type}</span>
                                   <span className="text-xs text-white/50">#{widget.position}</span>
                                 </div>
-                                <div className="flex flex-wrap gap-2 text-xs text-white/60">
+                                <div className="flex flex-wrap gap-2 text-xs text-white/60 mb-3">
                                   <span className="px-2 py-1 bg-white/10 rounded-full">{widget.type}</span>
                                   <span className="px-2 py-1 bg-white/10 rounded-full">layout: {widget.layout}</span>
-                                  <span className="px-2 py-1 bg-white/10 rounded-full">data: {widget.dataSource}</span>
+                                  <span className="px-2 py-1 bg-white/10 rounded-full">data: {widget.contentType || 'mixed'} ({widget.dataSource || 'tmdb'})</span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    onClick={() => toggleWidgetVisibility(widget)}
+                                    title={widget.enabled ? "Hide widget" : "Show widget"}
+                                    className="p-1.5 bg-white/10 hover:bg-white/20 text-white/80 hover:text-white rounded transition-colors"
+                                  >
+                                    {widget.enabled ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+                                  </button>
+                                  <button
+                                    onClick={() => duplicateWidget(widget)}
+                                    title="Duplicate widget"
+                                    className="p-1.5 bg-white/10 hover:bg-white/20 text-white/80 hover:text-white rounded transition-colors"
+                                  >
+                                    <Copy className="w-4 h-4" />
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      setEditingWidget(widget);
+                                      try {
+                                        const config = widget.config ? JSON.parse(widget.config) : {};
+                                        setSelectedContent(config.selectedContent || []);
+                                        setSelectedGenres(config.selectedGenres || []);
+                                      } catch (e) {
+                                        setSelectedContent([]);
+                                        setSelectedGenres([]);
+                                      }
+                                    }}
+                                    title="Edit widget"
+                                    className="p-1.5 bg-red-600/20 hover:bg-red-600/30 text-red-200 hover:text-red-100 rounded transition-colors"
+                                  >
+                                    <Edit2 className="w-4 h-4" />
+                                  </button>
+                                  <button
+                                    onClick={() => deleteWidget(widget.id)}
+                                    title="Delete widget"
+                                    className="p-1.5 bg-red-600/20 hover:bg-red-600/30 text-red-200 hover:text-red-100 rounded transition-colors"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
                                 </div>
                               </div>
                             ))}
@@ -256,16 +436,22 @@ export default function PageManager() {
         )}
       </div>
 
-      <EnhancedWidgetConfigPanel
-        page={activePageSlug || 'home'}
-        isOpen={!!activePageSlug}
-        onClose={closeWidgetManager}
-        onWidgetsChange={() => {
-          if (activePageSlug) {
-            fetchBlueprint(activePageSlug);
-          }
-        }}
-      />
+      {/* Widget Editor Modal */}
+      {editingWidget && (
+        <WidgetEditor
+          widget={editingWidget}
+          onSave={saveWidget}
+          onCancel={() => setEditingWidget(null)}
+          onOpenContentSelector={() => {}}
+          selectedContent={selectedContent}
+          selectedGenres={selectedGenres}
+          selectedLanguages={[]}
+          selectedCountries={[]}
+          genres={[]}
+          onGenreToggle={() => {}}
+          onContentToggle={() => {}}
+        />
+      )}
     </div>
   );
 }

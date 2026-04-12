@@ -124,7 +124,15 @@ export default function WidgetEditor({
       }
     };
 
+    // Lock scroll when modal opens
+    document.body.style.overflow = 'hidden';
+    
     fetchDataSources();
+
+    // Unlock scroll when modal closes
+    return () => {
+      document.body.style.overflow = 'auto';
+    };
   }, [apiUrl]);
 
   // Helper function to assign colors to data sources
@@ -192,20 +200,20 @@ export default function WidgetEditor({
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="fixed inset-0 bg-black/60 backdrop-blur-md z-60 flex items-center justify-center p-4"
+      className="fixed inset-0 bg-black/60 backdrop-blur-md z-50"
       onClick={onCancel}
     >
       <motion.div
-        initial={{ scale: 0.9, opacity: 0, y: 20 }}
-        animate={{ scale: 1, opacity: 1, y: 0 }}
-        exit={{ scale: 0.9, opacity: 0, y: 20 }}
-        className="w-full max-w-4xl max-h-[90vh] overflow-hidden"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        className="absolute inset-0 z-50 overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Glassmorphism Container */}
-        <div className="bg-black/40 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl">
+        <div className="bg-black/40 backdrop-blur-xl border border-white/10 h-full w-full flex flex-col">
           {/* Header */}
-          <div className="flex items-center justify-between p-6 border-b border-white/10">
+          <div className="flex items-center justify-between p-6 border-b border-white/10 flex-shrink-0">
             <div className="flex items-center gap-4">
               <div className="w-12 h-12 bg-gradient-to-br from-red-500/20 to-red-600/20 backdrop-blur-sm border border-white/10 rounded-xl flex items-center justify-center">
                 <Settings className="w-6 h-6 text-red-200" />
@@ -228,7 +236,7 @@ export default function WidgetEditor({
           </div>
 
           {/* Content */}
-          <div className="p-6 overflow-y-auto max-h-[calc(90vh-200px)] space-y-8">
+          <div className="p-6 overflow-y-auto flex-1 space-y-8">
             {/* Basic Settings */}
             <div className="space-y-6">
               <div className="flex items-center gap-3 mb-4">
@@ -912,7 +920,7 @@ export default function WidgetEditor({
           </div>
 
           {/* Footer */}
-          <div className="flex items-center justify-end gap-3 p-6 border-t border-white/10">
+          <div className="flex items-center justify-end gap-3 p-6 border-t border-white/10 flex-shrink-0">
             <button
               onClick={onCancel}
               className="px-6 py-3 text-white/60 hover:text-white hover:bg-white/10 backdrop-blur-sm border border-white/10 rounded-xl transition-all duration-200"

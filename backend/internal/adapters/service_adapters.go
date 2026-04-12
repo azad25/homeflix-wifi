@@ -246,6 +246,22 @@ func (a *MediaServiceAdapter) CreateAudioTrack(track *models.AudioTrack) error {
 	return a.service.CreateAudioTrack(track)
 }
 
+func (a *MediaServiceAdapter) GetMediaByID(id uint) (*models.Media, error) {
+	return a.service.GetMediaByID(id)
+}
+
+func (a *MediaServiceAdapter) GetSubtitles(mediaID uint) ([]models.Subtitle, error) {
+	return a.service.GetSubtitles(mediaID)
+}
+
+func (a *MediaServiceAdapter) DeleteSubtitleTrack(trackID uint) error {
+	return a.service.DeleteSubtitleTrack(trackID)
+}
+
+func (a *MediaServiceAdapter) DeleteSubtitle(subtitleID uint) error {
+	return a.service.DeleteSubtitle(subtitleID)
+}
+
 // ThumbnailServiceAdapter adapts services.ThumbnailService to interfaces.ThumbnailServiceInterface
 type ThumbnailServiceAdapter struct {
 	service *services.ThumbnailService

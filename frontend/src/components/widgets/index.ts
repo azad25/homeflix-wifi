@@ -19,7 +19,6 @@ export { default as ImprovedWidgetRenderer } from './ImprovedWidgetRenderer';
 export { default as WidgetRenderer } from './ImprovedWidgetRenderer'; // Alias for backward compatibility
 export { default as AsyncWidgetLoader } from './AsyncWidgetLoader';
 export { default as EnhancedWidgetConfigPanel } from './EnhancedWidgetConfigPanel';
-export { default as WidgetPerformanceDashboard } from './WidgetPerformanceDashboard';
 export { default as WidgetManagementButton } from './WidgetManagementButton';
 
 // Re-export types

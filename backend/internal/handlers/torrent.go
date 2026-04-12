@@ -302,6 +302,59 @@ func (h *TorrentHandler) SearchTorrents(c *gin.Context) {
 	})
 }
 
+func (h *TorrentHandler) PreviewTorrentFiles(c *gin.Context) {
+	magnetURI := strings.TrimSpace(c.Query("magnet_uri"))
+	if magnetURI == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "magnet_uri is required"})
+		return
+	}
+
+	timeoutSeconds, err := strconv.Atoi(c.DefaultQuery("timeout", "30"))
+	if err != nil || timeoutSeconds <= 0 {
+		timeoutSeconds = 30
+	}
+	if timeoutSeconds > 120 {
+		timeoutSeconds = 120
+	}
+
+	files, err := h.client.GetTorrentFilesFromMagnet(magnetURI, time.Duration(timeoutSeconds)*time.Second)
+	if err != nil {
+		status := http.StatusInternalServerError
+		if strings.Contains(strings.ToLower(err.Error()), "timed out") {
+			status = http.StatusGatewayTimeout
+		}
+		c.JSON(status, gin.H{"error": err.Error()})
+		return
+	}
+
+	var totalSize int64
+	for _, file := range files {
+		totalSize += file.Size
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"files":            files,
+		"count":            len(files),
+		"total_size":       totalSize,
+		"total_size_human": formatBytesHuman(totalSize),
+	})
+}
+
+func formatBytesHuman(bytes int64) string {
+	const unit = 1024
+	if bytes < unit {
+		return fmt.Sprintf("%d B", bytes)
+	}
+
+	div, exp := int64(unit), 0
+	for n := bytes / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+
+	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
+}
+
 // Start downloading a torrent
 func (h *TorrentHandler) StartDownload(c *gin.Context) {
 	defer func() {

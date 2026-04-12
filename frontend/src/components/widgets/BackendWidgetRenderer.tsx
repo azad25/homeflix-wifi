@@ -2,7 +2,6 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { getApiUrl } from '@/lib/api';
-import WidgetPerformanceMonitor from './WidgetPerformanceMonitor';
 import { widgetCache } from '@/utils/widgetCache';
 
 // Import widget components
@@ -594,12 +593,6 @@ export default function BackendWidgetRenderer({
             <div className="w-full space-y-0">
                 {renderedWidgets}
             </div>
-            <WidgetPerformanceMonitor
-                page={page}
-                widgetCount={widgets.length}
-                loading={loading}
-                error={error ? new Error(error) : null}
-            />
         </div>
     );
 }

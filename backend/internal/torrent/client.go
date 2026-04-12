@@ -65,6 +65,12 @@ type DownloadInfo struct {
 	SavePath     string     `json:"save_path"`
 }
 
+type TorrentFileInfo struct {
+	Path      string `json:"path"`
+	Size      int64  `json:"size"`
+	SizeHuman string `json:"size_human"`
+}
+
 func NewTorrentClient(downloadDir string, mediaScanner MediaScannerInterface, statusCallback StatusCallback, performanceConfig ...map[string]int) (*TorrentClient, error) {
 	normalizedDownloadDir, err := normalizeDownloadDir(downloadDir)
 	if err != nil {
@@ -1112,6 +1118,66 @@ func (tc *TorrentClient) GetDownload(id string) (*DownloadInfo, bool) {
 
 	download, exists := tc.downloads[id]
 	return download, exists
+}
+
+func (tc *TorrentClient) GetTorrentFilesFromMagnet(magnetURI string, metadataTimeout time.Duration) ([]TorrentFileInfo, error) {
+	trimmedMagnet := strings.TrimSpace(magnetURI)
+	if trimmedMagnet == "" {
+		return nil, fmt.Errorf("magnet URI is required")
+	}
+
+	if metadataTimeout <= 0 {
+		metadataTimeout = 30 * time.Second
+	}
+
+	existing := tc.findExistingSessionTorrent("", trimmedMagnet)
+	if existing != nil {
+		return tc.extractTorrentFiles(existing, metadataTimeout)
+	}
+
+	tempTorrent, err := tc.session.AddURI(trimmedMagnet, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to add magnet for preview: %v", err)
+	}
+
+	defer func() {
+		_ = tempTorrent.Stop()
+		_ = tc.session.RemoveTorrent(tempTorrent.ID())
+	}()
+
+	if err := tempTorrent.Start(); err != nil {
+		return nil, fmt.Errorf("failed to start magnet metadata fetch: %v", err)
+	}
+
+	return tc.extractTorrentFiles(tempTorrent, metadataTimeout)
+}
+
+func (tc *TorrentClient) extractTorrentFiles(t *raintorrent.Torrent, metadataTimeout time.Duration) ([]TorrentFileInfo, error) {
+	files, err := t.Files()
+	if err != nil {
+		select {
+		case <-t.NotifyMetadata():
+			files, err = t.Files()
+		case <-time.After(metadataTimeout):
+			return nil, fmt.Errorf("timed out waiting for torrent metadata")
+		}
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to read torrent files: %v", err)
+	}
+
+	previewFiles := make([]TorrentFileInfo, 0, len(files))
+	for _, file := range files {
+		size := file.Length()
+		previewFiles = append(previewFiles, TorrentFileInfo{
+			Path:      file.Path(),
+			Size:      size,
+			SizeHuman: tc.formatSize(size),
+		})
+	}
+
+	return previewFiles, nil
 }
 
 func (tc *TorrentClient) PauseDownload(id string) error {

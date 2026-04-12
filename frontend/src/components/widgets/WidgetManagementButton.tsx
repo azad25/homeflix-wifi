@@ -3,7 +3,6 @@
 import React, { useState } from 'react';
 import { Settings, BarChart3 } from 'lucide-react';
 import EnhancedWidgetConfigPanel from './EnhancedWidgetConfigPanel';
-import WidgetPerformanceDashboard from './WidgetPerformanceDashboard';
 
 interface WidgetManagementButtonProps {
   page: string;
@@ -54,13 +53,6 @@ export default function WidgetManagementButton({
           window.location.reload();
         }}
       />
-
-      {showPerformance && (
-        <WidgetPerformanceDashboard
-          isOpen={showPerf}
-          onClose={() => setShowPerf(false)}
-        />
-      )}
     </>
   );
 }

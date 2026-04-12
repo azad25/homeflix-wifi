@@ -2,7 +2,8 @@
 
 import React, { useState, useEffect, Suspense } from 'react';
 import { usePageTitle } from '@/hooks/usePageTitle';
-import { Settings, Database, Upload, Trash2, Video, ImageIcon, Folder, File, Play, Info, Edit3, RefreshCw, Save, X, Star, Clock, Globe, Eye, Zap, Search, Server, Activity, HardDrive, Monitor, BarChart3, TrendingUp, FileSearch, Timer, Download, Film, Layout, Hammer } from 'lucide-react';
+import { useDialog } from '@/hooks/useDialog';
+import { Settings, Database, Upload, Trash2, Video, ImageIcon, Folder, File, Play, Info, Edit3, RefreshCw, Save, X, Star, Clock, Globe, Eye, Zap, Search, Server, Activity, HardDrive, BarChart3, TrendingUp, FileSearch, Timer, Download, Film, Layout, Hammer, Menu } from 'lucide-react';
 import Image from 'next/image';
 import Navbar from '@/components/Navbar';
 import { getApiUrl } from '@/lib/api';
@@ -54,6 +55,7 @@ interface TMDBSearchResult {
 
 function SettingsContent() {
   usePageTitle('Settings');
+  const dialog = useDialog();
   const searchParams = useSearchParams();
   const [activeTab, setActiveTab] = useState('system');
   const [mediaList, setMediaList] = useState<Media[]>([]);
@@ -90,6 +92,37 @@ function SettingsContent() {
   const [downloadingSubtitle, setDownloadingSubtitle] = useState<number | null>(null);
   const [folderTreeData, setFolderTreeData] = useState<any[]>([]);
   const [loadingTreeData, setLoadingTreeData] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [isMobile, setIsMobile] = useState(false);
+
+  // Track mobile breakpoint changes
+  useEffect(() => {
+    const handleResize = () => {
+      if (typeof window !== 'undefined') {
+        const mobile = window.innerWidth < 1024;
+        setIsMobile(mobile);
+        // Only close sidebar on initial mobile detection
+        if (mobile) {
+          setSidebarOpen(false);
+        }
+      }
+    };
+
+    handleResize(); // Call on mount
+    
+    // Use a timer to debounce resize events
+    let resizeTimer: NodeJS.Timeout;
+    const debouncedResize = () => {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(handleResize, 250);
+    };
+    
+    window.addEventListener('resize', debouncedResize);
+    return () => {
+      window.removeEventListener('resize', debouncedResize);
+      clearTimeout(resizeTimer);
+    };
+  }, []);
 
   // Debug modal state
   useEffect(() => {
@@ -350,7 +383,12 @@ function SettingsContent() {
   };
 
   const deleteMediaPath = async (id: number, name: string) => {
-    if (!confirm(`Are you sure you want to delete the media path "${name}"?`)) {
+    const confirmed = await dialog.confirm(
+      'Delete Media Path',
+      `Are you sure you want to delete the media path "${name}"?`,
+      true
+    );
+    if (!confirmed) {
       return;
     }
 
@@ -1471,10 +1509,15 @@ function SettingsContent() {
 
     const itemType = selectedMedia.type === 'tv' ? 'TV series' : 'movie';
     const confirmMessage = selectedMedia.type === 'tv'
-      ? `Are you sure you want to delete the TV series "${selectedMedia.title}"? This action cannot be undone.\n\nThis will permanently remove:\n- Series record from database\n- All associated episodes and metadata\n- Posters and backdrops\n- Season and episode information\n- Genre associations`
-      : `Are you sure you want to delete "${selectedMedia.title}"? This action cannot be undone.\n\nThis will permanently remove:\n- Media record from database\n- All associated metadata\n- Thumbnails and preview clips\n- Playback progress\n- Genre associations`;
+      ? `This will permanently remove:\n- Series record from database\n- All associated episodes and metadata\n- Posters and backdrops\n- Season and episode information\n- Genre associations`
+      : `This will permanently remove:\n- Media record from database\n- All associated metadata\n- Thumbnails and preview clips\n- Playback progress\n- Genre associations`;
 
-    if (!confirm(confirmMessage)) return;
+    const confirmed = await dialog.confirm(
+      `Delete ${itemType}`,
+      `Are you sure you want to delete "${selectedMedia.title}"? This action cannot be undone.\n\n${confirmMessage}`,
+      true
+    );
+    if (!confirmed) return;
 
     setActionLoading(prev => ({ ...prev, delete: true }));
     addTerminalOutput(`🗑️ Attempting to delete ${itemType}: ${selectedMedia.title}`);
@@ -1594,10 +1637,6 @@ function SettingsContent() {
   const addTerminalOutput = (message: string) => {
     const timestamp = new Date().toLocaleTimeString();
     setTerminalOutput(prev => [...prev, `[${timestamp}] ${message}`].slice(-100)); // Keep last 100 lines
-  };
-
-  const clearTerminalOutput = () => {
-    setTerminalOutput([]);
   };
 
   const regenerateAllAssets = async () => {
@@ -2143,7 +2182,7 @@ function SettingsContent() {
   };
 
   // SubtitleList component to show existing subtitles
-  const SubtitleList = ({ mediaId, onSubtitleDeleted }: { mediaId: number, onSubtitleDeleted: () => void }) => {
+  const SubtitleList = ({ mediaId, onSubtitleDeleted, dialog }: { mediaId: number, onSubtitleDeleted: () => void, dialog: any }) => {
     const [subtitles, setSubtitles] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [clearingAll, setClearingAll] = useState(false);
@@ -2167,7 +2206,12 @@ function SettingsContent() {
     }, [mediaId]);
 
     const handleDeleteSubtitle = async (trackId: number) => {
-      if (!confirm('Are you sure you want to delete this subtitle?')) return;
+      const confirmed = await dialog.confirm(
+        'Delete Subtitle',
+        'Are you sure you want to delete this subtitle?',
+        true
+      );
+      if (!confirmed) return;
 
       try {
         const response = await fetch(`${getApiUrl()}/api/admin/media/${mediaId}/subtitles/${trackId}`, {
@@ -2190,7 +2234,12 @@ function SettingsContent() {
     const handleClearAllSubtitles = async () => {
       if (subtitles.length === 0) return;
 
-      if (!confirm(`Are you sure you want to delete ALL ${subtitles.length} subtitle(s)? This action cannot be undone.`)) return;
+      const confirmed = await dialog.confirm(
+        'Delete All Subtitles',
+        `Are you sure you want to delete ALL ${subtitles.length} subtitle(s)? This action cannot be undone.`,
+        true
+      );
+      if (!confirmed) return;
 
       setClearingAll(true);
       addTerminalOutput(`🗑️ Clearing all ${subtitles.length} subtitles for media ID: ${mediaId}`);
@@ -2449,9 +2498,12 @@ function SettingsContent() {
     );
   };
 
-  const NavButton = ({ active, onClick, icon, label }: any) => (
+  const NavButton = ({ active, onClick, onClose, icon, label }: any) => (
     <button
-      onClick={onClick}
+      onClick={() => {
+        onClick();
+        onClose?.();
+      }}
       className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 group ${active
         ? 'bg-gradient-to-r from-[#E50914] to-[#B8070F] text-white shadow-lg shadow-red-600/20'
         : 'text-white/60 hover:text-white hover:bg-white/5'
@@ -2473,9 +2525,30 @@ function SettingsContent() {
   }
 
   return (
-    <div className="flex h-screen w-full bg-[#050505] text-white overflow-hidden font-sans selection:bg-red-500/30">
+    <div className="h-screen w-full bg-[#050505] text-white overflow-hidden font-sans selection:bg-red-500/30 relative">
+      {/* Mobile Backdrop Overlay */}
+      <AnimatePresence>
+        {sidebarOpen && isMobile && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setSidebarOpen(false)}
+            className="hidden max-lg:block fixed inset-0 bg-black/60 backdrop-blur-sm z-40"
+          />
+        )}
+      </AnimatePresence>
+
       {/* Sidebar Navigation */}
-      <aside className="w-72 bg-black/40 backdrop-blur-3xl border-r border-white/5 flex flex-col z-50">
+      <motion.aside
+        initial={false}
+        animate={{
+          x: sidebarOpen ? 0 : -288,
+          opacity: isMobile ? (sidebarOpen ? 1 : 0.5) : 1
+        }}
+        transition={{ type: 'spring', duration: 0.3, bounce: 0 }}
+        className="fixed top-0 left-0 h-full w-72 bg-black/40 backdrop-blur-3xl border-r border-white/5 flex flex-col z-50 shadow-2xl"
+      >
         <div className="p-8 pb-4">
           <div className="flex items-center gap-3 mb-1">
             <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#E50914] to-[#B8070F] flex items-center justify-center shadow-lg shadow-red-600/20">
@@ -2483,22 +2556,24 @@ function SettingsContent() {
             </div>
             <h1 className="text-xl font-bold tracking-tight text-white">Settings</h1>
           </div>
-          <p className="text-xs font-medium text-white/40 pl-11">System Administration</p>
+        </div>
+        <div className="px-8 pb-4">
+          <p className="text-xs font-medium text-white/40">System Administration</p>
         </div>
 
         <nav className="flex-1 overflow-y-auto px-4 py-6 space-y-2 scrollbar-hide">
-          <NavButton active={activeTab === 'system'} onClick={() => setActiveTab('system')} icon={<Activity />} label="Dashboard" />
+          <NavButton active={activeTab === 'system'} onClick={() => setActiveTab('system')} onClose={() => setSidebarOpen(false)} icon={<Activity />} label="Dashboard" />
 
           <div className="pt-6 pb-2 px-4 text-[10px] font-bold text-white/30 uppercase tracking-widest">Media Library</div>
-          <NavButton active={activeTab === 'media'} onClick={() => setActiveTab('media')} icon={<Database />} label="Library Manager" />
-          <NavButton active={activeTab === 'torrent'} onClick={() => setActiveTab('torrent')} icon={<Download />} label="Downloads" />
-          <NavButton active={activeTab === 'subtitles'} onClick={() => setActiveTab('subtitles')} icon={<FileSearch />} label="Subtitles" />
+          <NavButton active={activeTab === 'media'} onClick={() => setActiveTab('media')} onClose={() => setSidebarOpen(false)} icon={<Database />} label="Library Manager" />
+          <NavButton active={activeTab === 'torrent'} onClick={() => setActiveTab('torrent')} onClose={() => setSidebarOpen(false)} icon={<Download />} label="Downloads" />
+          <NavButton active={activeTab === 'subtitles'} onClick={() => setActiveTab('subtitles')} onClose={() => setSidebarOpen(false)} icon={<FileSearch />} label="Subtitles" />
 
           <div className="pt-6 pb-2 px-4 text-[10px] font-bold text-white/30 uppercase tracking-widest">System & Config</div>
-          <NavButton active={activeTab === 'paths'} onClick={() => setActiveTab('paths')} icon={<Folder />} label="Storage Paths" />
+          <NavButton active={activeTab === 'paths'} onClick={() => setActiveTab('paths')} onClose={() => setSidebarOpen(false)} icon={<Folder />} label="Storage Paths" />
           {/* <NavButton active={activeTab === 'widgets'} onClick={() => setActiveTab('widgets')} icon={<Layout />} label="Widgets" /> */}
-          <NavButton active={activeTab === 'pages'} onClick={() => setActiveTab('pages')} icon={<File />} label="Pages" />
-          <NavButton active={activeTab === 'general'} onClick={() => setActiveTab('general')} icon={<Settings />} label="General" />
+          <NavButton active={activeTab === 'pages'} onClick={() => setActiveTab('pages')} onClose={() => setSidebarOpen(false)} icon={<File />} label="Pages" />
+          <NavButton active={activeTab === 'general'} onClick={() => setActiveTab('general')} onClose={() => setSidebarOpen(false)} icon={<Settings />} label="General" />
         </nav>
 
         <div className="p-4 border-t border-white/5 bg-black/20">
@@ -2510,36 +2585,52 @@ function SettingsContent() {
             </div>
           </div>
         </div>
-      </aside>
+      </motion.aside>
 
       {/* Main Content Area */}
-      <main className="flex-1 flex flex-col relative overflow-hidden bg-gradient-to-br from-black via-[#050505] to-[#0a0a0a]">
+      <main
+        className="h-full w-full flex flex-col relative overflow-hidden bg-gradient-to-br from-black via-[#050505] to-[#0a0a0a] transition-[padding-left] duration-300"
+        style={{ paddingLeft: !isMobile && sidebarOpen ? 288 : 0 }}
+      >
         {/* Top Header */}
-        <header className="h-20 flex items-center justify-between px-8 border-b border-white/5 bg-black/50 backdrop-blur-xl z-40 sticky top-0">
-          <div>
-            <h2 className="text-2xl font-semibold text-white tracking-tight">
-              {activeTab === 'system' && 'System Dashboard'}
-              {activeTab === 'media' && 'Media Library'}
-              {activeTab === 'torrent' && 'Torrent Manager'}
-              {activeTab === 'paths' && 'Storage Paths'}
-              {activeTab === 'subtitles' && 'Subtitles'}
-              {activeTab === 'widgets' && 'Widget Manager'}
-              {activeTab === 'pages' && 'Page Editor'}
-              {activeTab === 'general' && 'General Settings'}
-            </h2>
-            <p className="text-sm text-white/50 mt-1">
-              {activeTab === 'system' && 'Real-time system monitoring and logs'}
-              {activeTab === 'media' && 'Manage movies and TV shows'}
-              {activeTab === 'torrent' && 'Track active downloads and history'}
-              {activeTab === 'paths' && 'Configure media source directories'}
-              {activeTab === 'subtitles' && 'Search and manage subtitles'}
-              {activeTab === 'widgets' && 'Customize dashboard widgets'}
-              {activeTab === 'pages' && 'Manage custom pages'}
-              {activeTab === 'general' && 'App preferences and configurations'}
-            </p>
+        <header className="h-20 flex items-center px-4 lg:px-8 border-b border-white/5 bg-black/50 backdrop-blur-xl z-40 sticky top-0">
+          <div className="flex items-center min-w-0">
+            {/* Toggle Button - Always Visible */}
+            <motion.button
+              onClick={() => setSidebarOpen(!sidebarOpen)}
+              whileHover={{ scale: 1.1 }}
+              whileTap={{ scale: 0.95 }}
+              className="p-2 text-white bg-white/5 hover:bg-white/20 rounded-lg transition-colors flex-shrink-0 border border-white/10"
+              title={sidebarOpen ? 'Close menu' : 'Open menu'}
+            >
+              {sidebarOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+            </motion.button>
+
+            <div className="ml-4 min-w-0">
+              <h2 className="text-2xl font-semibold text-white tracking-tight">
+                {activeTab === 'system' && 'System Dashboard'}
+                {activeTab === 'media' && 'Media Library'}
+                {activeTab === 'torrent' && 'Torrent Manager'}
+                {activeTab === 'paths' && 'Storage Paths'}
+                {activeTab === 'subtitles' && 'Subtitles'}
+                {activeTab === 'widgets' && 'Widget Manager'}
+                {activeTab === 'pages' && 'Page Editor'}
+                {activeTab === 'general' && 'General Settings'}
+              </h2>
+              <p className="text-sm text-white/50 mt-1">
+                {activeTab === 'system' && 'Real-time system monitoring and logs'}
+                {activeTab === 'media' && 'Manage movies and TV shows'}
+                {activeTab === 'torrent' && 'Track active downloads and history'}
+                {activeTab === 'paths' && 'Configure media source directories'}
+                {activeTab === 'subtitles' && 'Search and manage subtitles'}
+                {activeTab === 'widgets' && 'Customize dashboard widgets'}
+                {activeTab === 'pages' && 'Manage custom pages'}
+                {activeTab === 'general' && 'App preferences and configurations'}
+              </p>
+            </div>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 ml-auto">
             <button
               onClick={() => window.location.reload()}
               className="p-2 rounded-full text-white/40 hover:text-white hover:bg-white/10 transition-all"
@@ -3570,6 +3661,7 @@ function SettingsContent() {
                                   {selectedMedia && (
                                     <SubtitleList
                                       mediaId={selectedMedia.id}
+                                      dialog={dialog}
                                       onSubtitleDeleted={() => {
                                         // Refresh media data when subtitle is deleted
                                         fetchMediaList();
@@ -3641,17 +3733,63 @@ function SettingsContent() {
                                     </MagneticButton>
                                   </div>
 
-                                  {/* Auto-populate button */}
-                                  <MagneticButton
-                                    onClick={() => {
-                                      setOpenSubtitlesQuery(selectedMedia.title);
-                                      addTerminalOutput(`🎬 Auto-populated search with: ${selectedMedia.title}`);
-                                    }}
-                                    className="bg-blue-600/20 hover:bg-blue-600/40 text-blue-400 px-4 py-2 rounded-lg flex items-center space-x-2 text-sm"
-                                  >
-                                    <Film className="w-4 h-4" />
-                                    <span>Use Media Title</span>
-                                  </MagneticButton>
+                                  {/* Action buttons */}
+                                  <div className="flex gap-3">
+                                    <MagneticButton
+                                      onClick={() => {
+                                        setOpenSubtitlesQuery(selectedMedia.title);
+                                        addTerminalOutput(`🎬 Auto-populated search with: ${selectedMedia.title}`);
+                                      }}
+                                      className="bg-blue-600/20 hover:bg-blue-600/40 text-blue-400 px-4 py-2 rounded-lg flex items-center space-x-2 text-sm"
+                                    >
+                                      <Film className="w-4 h-4" />
+                                      <span>Use Media Title</span>
+                                    </MagneticButton>
+
+                                    <MagneticButton
+                                      onClick={async () => {
+                                        if (!selectedMedia) return;
+                                        setActionLoading(prev => ({ ...prev, autoDownloadSub: true }));
+                                        addTerminalOutput(`🤖 Auto-downloading best subtitle for: ${selectedMedia.title}`);
+                                        
+                                        try {
+                                          const response = await fetch(`${getApiUrl()}/api/subtitles/download/${selectedMedia.id}`, {
+                                            method: 'POST'
+                                          });
+                                          
+                                          if (response.ok) {
+                                            const result = await response.json();
+                                            addTerminalOutput(`✅ Subtitle downloaded successfully`);
+                                            addTerminalOutput(`📁 Language: ${result.language || 'Unknown'}`);
+                                            
+                                            // Refresh media data
+                                            const mediaResponse = await fetch(`${getApiUrl()}/api/media/${selectedMedia.id}`);
+                                            if (mediaResponse.ok) {
+                                              const updatedMedia = await mediaResponse.json();
+                                              setSelectedMedia(prev => prev ? { ...prev, ...updatedMedia } : null);
+                                            }
+                                            await fetchMediaList();
+                                          } else {
+                                            const errorData = await response.json().catch(() => ({ error: response.statusText }));
+                                            addTerminalOutput(`❌ Auto-download failed: ${errorData.error || response.statusText}`);
+                                          }
+                                        } catch (error) {
+                                          addTerminalOutput(`❌ Error during auto-download: ${error}`);
+                                        } finally {
+                                          setActionLoading(prev => ({ ...prev, autoDownloadSub: false }));
+                                        }
+                                      }}
+                                      disabled={actionLoading.autoDownloadSub}
+                                      className="bg-purple-600/20 hover:bg-purple-600/40 text-purple-400 px-4 py-2 rounded-lg flex items-center space-x-2 text-sm"
+                                    >
+                                      {actionLoading.autoDownloadSub ? (
+                                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-purple-400"></div>
+                                      ) : (
+                                        <Zap className="w-4 h-4" />
+                                      )}
+                                      <span>Auto Download Best Match</span>
+                                    </MagneticButton>
+                                  </div>
 
                                   {/* Search Results */}
                                   {openSubtitlesResults.length > 0 && (
@@ -3760,9 +3898,6 @@ function SettingsContent() {
               {/* System Tab (Combined Logs, Scanning, Analytics) */}
               {activeTab === 'system' && (
                 <div className="space-y-12">
-                  {/* System Logs Section */}
-                  <SystemLogs onTerminalOutput={addTerminalOutput} />
-
                   {/* Scanning Section */}
                   <div className="space-y-8">
                     <ScrollReveal>
@@ -3974,35 +4109,6 @@ function SettingsContent() {
                       </GlassCard>
                     </ScrollReveal>
 
-                    {/* Terminal Output */}
-                    <ScrollReveal delay={0.2}>
-                      <GlassCard className="p-6">
-                        <div className="flex items-center justify-between mb-4">
-                          <h3 className="text-xl font-semibold text-white flex items-center">
-                            <Monitor className="w-6 h-6 mr-3 text-[#E50914]" />
-                            Terminal Output
-                          </h3>
-                          <MagneticButton
-                            onClick={clearTerminalOutput}
-                            className="bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-lg flex items-center space-x-2"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                            <span>Clear</span>
-                          </MagneticButton>
-                        </div>
-                        <div className="bg-black/50 rounded-lg p-4 h-64 overflow-y-auto font-mono text-sm">
-                          {terminalOutput.length === 0 ? (
-                            <div className="text-white/50 italic">No output yet. Start a scan to see live updates...</div>
-                          ) : (
-                            terminalOutput.map((line, index) => (
-                              <div key={index} className="text-green-400 mb-1">
-                                {line}
-                              </div>
-                            ))
-                          )}
-                        </div>
-                      </GlassCard>
-                    </ScrollReveal>
                   </div>
 
                   {/* Analytics Section */}

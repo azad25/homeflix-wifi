@@ -422,13 +422,6 @@ const LocalRelatedMedia: React.FC<LocalRelatedMediaProps> = ({ currentMedia, cla
                         )}
                       </div>
                     </div>
-                    
-                    {/* Center Play Icon on purely poster cards */}
-                    <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-                      <div className="bg-red-600/90 backdrop-blur-md rounded-full p-4 transform scale-75 group-hover:scale-100 transition-transform duration-300 shadow-[0_0_20px_rgba(220,38,38,0.5)]">
-                        <Play className="w-6 h-6 text-white fill-current translate-x-0.5" />
-                      </div>
-                    </div>
                   </>
                 )}
               </motion.div>

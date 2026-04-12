@@ -22,6 +22,7 @@ import (
 
 	"homeflix-backend/internal/interfaces"
 	"homeflix-backend/internal/models"
+	"homeflix-backend/internal/services"
 	"homeflix-backend/internal/utils"
 
 	"github.com/h2non/filetype"
@@ -39,6 +40,8 @@ type MediaScanner struct {
 	tmdbService           interfaces.TMDBServiceInterface
 	recommendationService interfaces.RecommendationServiceInterface
 	notificationService   interfaces.NotificationServiceInterface
+	openSubtitlesService  *services.OpenSubtitlesService
+	subtitleMatcherService *services.SubtitleMatcherService
 
 	// Scan statistics
 	startTime      time.Time
@@ -111,7 +114,16 @@ type FileMetadata struct {
 
 // FileInfo conversion not needed - using single type
 
-func NewMediaScanner(mediaPath string, mediaService interfaces.MediaServiceInterface, thumbnailService interfaces.ThumbnailServiceInterface, posterService interfaces.PosterServiceInterface, geminiService interfaces.GeminiServiceInterface, celeryService interfaces.CeleryServiceInterface, alacService interfaces.ALACAudioServiceInterface, tmdbService interfaces.TMDBServiceInterface, recommendationService interfaces.RecommendationServiceInterface, notificationService interfaces.NotificationServiceInterface) *MediaScanner {
+func NewMediaScanner(mediaPath string, mediaService interfaces.MediaServiceInterface, thumbnailService interfaces.ThumbnailServiceInterface, posterService interfaces.PosterServiceInterface, geminiService interfaces.GeminiServiceInterface, celeryService interfaces.CeleryServiceInterface, alacService interfaces.ALACAudioServiceInterface, tmdbService interfaces.TMDBServiceInterface, recommendationService interfaces.RecommendationServiceInterface, notificationService interfaces.NotificationServiceInterface, openSubtitlesService *services.OpenSubtitlesService) *MediaScanner {
+	// Initialize subtitle matcher service
+	var subtitleMatcherService *services.SubtitleMatcherService
+	if openSubtitlesService != nil {
+		// Convert mediaService to *services.MediaService for subtitle matcher
+		if concreteMediaService, ok := mediaService.(*services.MediaService); ok {
+			subtitleMatcherService = services.NewSubtitleMatcherService(openSubtitlesService, concreteMediaService)
+		}
+	}
+	
 	return &MediaScanner{
 		mediaPath:             mediaPath,
 		mediaPaths:            []string{mediaPath}, // Initialize with primary path
@@ -124,6 +136,8 @@ func NewMediaScanner(mediaPath string, mediaService interfaces.MediaServiceInter
 		tmdbService:           tmdbService,
 		recommendationService: recommendationService,
 		notificationService:   notificationService,
+		openSubtitlesService:  openSubtitlesService,
+		subtitleMatcherService: subtitleMatcherService,
 		maxGoroutines:         8, // Reduced for i5-4590 stability
 		maxWorkers:            1, // Single worker to prevent crashes
 		batchSize:             5, // Smaller batches for stability
@@ -2597,6 +2611,7 @@ func (s *MediaScanner) processVideoFile(path string, info os.FileInfo) error {
 						// (tmdb_backdrop_url should already be set from TMDB metadata)
 					} else if backdropPath != "" {
 						media.BackdropPath = backdropPath
+						media.BannerPath = backdropPath
 						// Set tmdb_backdrop_url to local API endpoint since we have local backdrop
 						media.TMDBBackdropURL = fmt.Sprintf("/api/backdrops/%d", media.ID)
 						log.Printf("✅ Downloaded backdrop for: %s, set tmdb_backdrop_url to local endpoint", media.Title)
@@ -2813,6 +2828,7 @@ func (s *MediaScanner) processVideoFileWithPosterDownload(path string, info os.F
 						// If download failed but we have TMDB backdrop URL, keep it
 					} else if backdropPath != "" {
 						refreshedMedia.BackdropPath = backdropPath
+						refreshedMedia.BannerPath = backdropPath
 						// Set tmdb_backdrop_url to local API endpoint since we have local backdrop
 						refreshedMedia.TMDBBackdropURL = fmt.Sprintf("/api/backdrops/%d", refreshedMedia.ID)
 						log.Printf("✅ Downloaded backdrop for: %s, set tmdb_backdrop_url to local endpoint", refreshedMedia.Title)
@@ -2826,6 +2842,45 @@ func (s *MediaScanner) processVideoFileWithPosterDownload(path string, info os.F
 					log.Printf("⚠️ Failed to update media with asset paths: %v", updateErr)
 				} else {
 					log.Printf("✅ Saved asset paths for: %s", refreshedMedia.Title)
+				}
+				
+				// Check if media needs subtitles and download if necessary
+				if s.subtitleMatcherService != nil {
+					log.Printf("🔍 Checking if %s needs English subtitles...", refreshedMedia.Title)
+					
+					// Get existing subtitle tracks
+					tracks, trackErr := s.GetMediaService().GetSubtitleTracks(refreshedMedia.ID)
+					if trackErr != nil {
+						log.Printf("⚠️ Failed to get subtitle tracks for %s: %v", refreshedMedia.Title, trackErr)
+						return
+					}
+					
+					// Check if media has any English subtitles
+					hasEnglishSub := false
+					for _, track := range tracks {
+						languageLower := strings.ToLower(track.Language)
+						englishCodes := []string{"en", "eng", "english", "en-us", "en-gb"}
+						for _, code := range englishCodes {
+							if languageLower == code {
+								hasEnglishSub = true
+								break
+							}
+						}
+						if hasEnglishSub {
+							break
+						}
+					}
+					
+					if !hasEnglishSub {
+						log.Printf("📥 No English subtitles found for %s, downloading...", refreshedMedia.Title)
+						if subErr := s.subtitleMatcherService.SearchAndDownloadSubtitle(refreshedMedia); subErr != nil {
+							log.Printf("⚠️ Failed to download subtitle for %s: %v", refreshedMedia.Title, subErr)
+						} else {
+							log.Printf("✅ Successfully downloaded subtitle for: %s", refreshedMedia.Title)
+						}
+					} else {
+						log.Printf("✅ %s already has English subtitles, skipping download", refreshedMedia.Title)
+					}
 				}
 			}()
 		}
@@ -2875,9 +2930,10 @@ func (s *MediaScanner) extractSubtitleAndAudioTracks(media *models.Media, path s
 		return
 	}
 
-	// Process subtitle streams
+	// Process subtitle streams - ONLY KEEP ENGLISH
 	var subtitleTracks []models.SubtitleTrack
 	var audioTracks []models.AudioTrack
+	hasEnglishSubtitle := false
 	
 	for _, stream := range probeData.Streams {
 		if stream.CodecType == "subtitle" {
@@ -2887,6 +2943,24 @@ func (s *MediaScanner) extractSubtitleAndAudioTracks(media *models.Media, path s
 			}
 			if language == "" {
 				language = "unknown"
+			}
+
+			// Check if this is an English subtitle
+			languageLower := strings.ToLower(language)
+			isEnglish := false
+			englishCodes := []string{"en", "eng", "english", "en-us", "en-gb"}
+			for _, code := range englishCodes {
+				if languageLower == code {
+					isEnglish = true
+					hasEnglishSubtitle = true
+					break
+				}
+			}
+
+			// ONLY keep English internal subtitles
+			if !isEnglish {
+				log.Printf("⏭️ Skipping non-English internal subtitle: %s", language)
+				continue
 			}
 
 			title := stream.Tags.Title
@@ -2907,7 +2981,7 @@ func (s *MediaScanner) extractSubtitleAndAudioTracks(media *models.Media, path s
 			}
 			subtitleTracks = append(subtitleTracks, subtitleTrack)
 			
-			log.Printf("📝 Found internal subtitle: %s (%s) - %s", language, stream.CodecName, title)
+			log.Printf("📝 Found English internal subtitle: %s (%s) - %s", language, stream.CodecName, title)
 		} else if stream.CodecType == "audio" {
 			language := stream.Tags.Language
 			if language == "" {
@@ -2937,9 +3011,26 @@ func (s *MediaScanner) extractSubtitleAndAudioTracks(media *models.Media, path s
 		}
 	}
 
-	// Also scan for external subtitle files
+	// Also scan for external subtitle files - ONLY KEEP ENGLISH
 	externalSubs := s.findExternalSubtitles(path)
 	for _, extSub := range externalSubs {
+		// Check if external subtitle is English
+		languageLower := strings.ToLower(extSub.Language)
+		isEnglish := false
+		englishCodes := []string{"en", "eng", "english", "en-us", "en-gb"}
+		for _, code := range englishCodes {
+			if languageLower == code {
+				isEnglish = true
+				hasEnglishSubtitle = true
+				break
+			}
+		}
+
+		if !isEnglish {
+			log.Printf("⏭️ Skipping non-English external subtitle: %s", extSub.Language)
+			continue
+		}
+
 		subtitleTrack := models.SubtitleTrack{
 			MediaID:   media.ID,
 			Language:  extSub.Language,
@@ -2950,7 +3041,7 @@ func (s *MediaScanner) extractSubtitleAndAudioTracks(media *models.Media, path s
 		}
 		subtitleTracks = append(subtitleTracks, subtitleTrack)
 		
-		log.Printf("📄 Found external subtitle: %s (%s)", extSub.Language, extSub.Format)
+		log.Printf("📄 Found English external subtitle: %s (%s)", extSub.Language, extSub.Format)
 	}
 
 	// Save tracks to database
@@ -2958,8 +3049,14 @@ func (s *MediaScanner) extractSubtitleAndAudioTracks(media *models.Media, path s
 		if err := s.GetMediaService().SaveSubtitleTracks(media.ID, subtitleTracks); err != nil {
 			log.Printf("⚠️ Failed to save subtitle tracks for %s: %v", media.Title, err)
 		} else {
-			log.Printf("✅ Saved %d subtitle tracks for %s", len(subtitleTracks), media.Title)
+			log.Printf("✅ Saved %d English subtitle tracks for %s", len(subtitleTracks), media.Title)
 		}
+	} else if !hasEnglishSubtitle {
+		// No English subtitles found - trigger automatic download
+		log.Printf("🔍 No English subtitles found for %s, will attempt automatic download", media.Title)
+		// Note: Automatic download will be handled by a separate background process
+		// to avoid blocking the scanner. The subtitle management API can be called
+		// after scanning completes.
 	}
 
 	if len(audioTracks) > 0 {

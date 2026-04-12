@@ -38,6 +38,12 @@ interface TorrentResult {
   verified: boolean;
 }
 
+interface TorrentFileEntry {
+  path: string;
+  size: number;
+  size_human: string;
+}
+
 interface DownloadInfo {
   id: string;
   name: string;
@@ -107,6 +113,12 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
   const [loading, setLoading] = useState(false);
   const [searchLoading, setSearchLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [filePreviewLoading, setFilePreviewLoading] = useState<string | null>(null);
+  const [selectedTorrentFiles, setSelectedTorrentFiles] = useState<{
+    title: string;
+    files: TorrentFileEntry[];
+    totalSizeHuman: string;
+  } | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [qualityFilter, setQualityFilter] = useState('');
 
@@ -289,6 +301,32 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
       setError(err instanceof Error ? err.message : 'Download failed');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const previewTorrentFiles = async (result: TorrentResult) => {
+    setFilePreviewLoading(result.magnet_uri);
+    setError(null);
+    try {
+      const apiUrl = getApiUrl();
+      const params = new URLSearchParams({
+        magnet_uri: result.magnet_uri,
+        timeout: '30'
+      });
+      const response = await fetch(`${apiUrl}/api/torrents/files/preview?${params}`);
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to load torrent files');
+      }
+      setSelectedTorrentFiles({
+        title: result.title,
+        files: data.files || [],
+        totalSizeHuman: data.total_size_human || 'Unknown'
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load torrent files');
+    } finally {
+      setFilePreviewLoading(null);
     }
   };
 
@@ -576,6 +614,51 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
         )}
       </AnimatePresence>
 
+      <AnimatePresence>
+        {selectedTorrentFiles && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+          >
+            <motion.div
+              initial={{ y: 20, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: 20, opacity: 0 }}
+              className="w-full max-w-3xl bg-[#0b0b0b] border border-white/15 rounded-xl shadow-2xl"
+            >
+              <div className="flex items-start justify-between p-4 border-b border-white/10">
+                <div>
+                  <h3 className="text-white text-base font-semibold line-clamp-2">{selectedTorrentFiles.title}</h3>
+                  <p className="text-xs text-white/60 mt-1">
+                    {selectedTorrentFiles.files.length} files • {selectedTorrentFiles.totalSizeHuman}
+                  </p>
+                </div>
+                <button
+                  onClick={() => setSelectedTorrentFiles(null)}
+                  className="text-white/60 hover:text-white transition-colors p-1"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="max-h-[60vh] overflow-y-auto p-4 space-y-2">
+                {selectedTorrentFiles.files.length === 0 ? (
+                  <div className="text-white/60 text-sm py-8 text-center">No file list available for this torrent</div>
+                ) : (
+                  selectedTorrentFiles.files.map((file, index) => (
+                    <div key={`${file.path}-${index}`} className="flex items-center justify-between gap-4 bg-white/[0.03] border border-white/10 rounded-lg px-3 py-2">
+                      <span className="text-sm text-white/90 truncate">{file.path}</span>
+                      <span className="text-xs text-white/60 flex-shrink-0">{file.size_human}</span>
+                    </div>
+                  ))
+                )}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Tab Content */}
       <AnimatePresence mode="wait">
         {activeTab === 'search' && (
@@ -689,14 +772,28 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
                       </div>
                     </div>
 
-                    <button
-                      onClick={() => startDownload(result)}
-                      disabled={loading}
-                      className="p-2 bg-[#E50914]/20 hover:bg-[#E50914]/30 disabled:bg-white/5 disabled:text-white/30 text-[#E50914] rounded-lg font-medium transition-all flex items-center justify-center border border-[#E50914]/30 hover:border-[#E50914]/50"
-                      title="Download torrent"
-                    >
-                      <Download className="w-4 h-4" />
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => previewTorrentFiles(result)}
+                        disabled={filePreviewLoading === result.magnet_uri}
+                        className="p-2 bg-blue-500/15 hover:bg-blue-500/25 disabled:bg-white/5 disabled:text-white/30 text-blue-300 rounded-lg font-medium transition-all flex items-center justify-center border border-blue-500/25 hover:border-blue-500/45"
+                        title="Preview files"
+                      >
+                        {filePreviewLoading === result.magnet_uri ? (
+                          <RefreshCw className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <Info className="w-4 h-4" />
+                        )}
+                      </button>
+                      <button
+                        onClick={() => startDownload(result)}
+                        disabled={loading}
+                        className="p-2 bg-[#E50914]/20 hover:bg-[#E50914]/30 disabled:bg-white/5 disabled:text-white/30 text-[#E50914] rounded-lg font-medium transition-all flex items-center justify-center border border-[#E50914]/30 hover:border-[#E50914]/50"
+                        title="Download torrent"
+                      >
+                        <Download className="w-4 h-4" />
+                      </button>
+                    </div>
                   </div>
                 </motion.div>
               ))}

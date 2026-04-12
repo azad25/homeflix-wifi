@@ -157,30 +157,6 @@ const ContinueWatchingCard: React.FC<ContinueWatchingCardProps> = ({
           {/* Gradient Overlay */}
           <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent" />
 
-          {/* Play Button Overlay */}
-          <AnimatePresence>
-            {isHovered && (
-              <motion.div
-                initial={{ opacity: 0, scale: 0.8 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.8 }}
-                className="absolute inset-0 flex items-center justify-center z-20 bg-black/30"
-              >
-                <button
-                  onClick={handlePlayClick}
-                  disabled={isLoading}
-                  className="bg-white/90 backdrop-blur-sm rounded-full p-4 hover:bg-white transition-all duration-200 shadow-xl"
-                >
-                  {isLoading ? (
-                    <div className="w-6 h-6 border-2 border-black border-t-transparent rounded-full animate-spin" />
-                  ) : (
-                    <Play className="w-6 h-6 text-black fill-black" />
-                  )}
-                </button>
-              </motion.div>
-            )}
-          </AnimatePresence>
-
           {/* Progress Bar */}
           <div className="absolute bottom-0 left-0 right-0 h-1 bg-black/50">
             <motion.div

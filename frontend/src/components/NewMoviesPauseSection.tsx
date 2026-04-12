@@ -38,13 +38,12 @@ const NewMoviesPauseSection: React.FC<NewMoviesPauseSectionProps> = ({
 
                 const allMovies: Media[] = await response.json();
 
-                // Sort by ID descending to get latest movies first, exclude current movie
-                const sortedByRecent = [...allMovies]
+                // Backend already returns movies sorted by created_at DESC, just filter current movie
+                const latestMovies = allMovies
                     .filter(movie => movie.id !== currentMediaId)
-                    .sort((a, b) => b.id - a.id)
                     .slice(0, 6);
 
-                setNewMovies(sortedByRecent);
+                setNewMovies(latestMovies);
             } catch (error) {
                 console.error('Failed to fetch new movies:', error);
             } finally {

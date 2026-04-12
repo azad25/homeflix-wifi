@@ -260,11 +260,9 @@ export default function BrowsePage() {
     }
 
     // Sort media (only if not using search results, which are already relevance-sorted)
-    if (!searchQuery.trim()) {
+    // Backend already returns movies sorted by created_at DESC for "recent", so skip sorting
+    if (!searchQuery.trim() && sortBy !== "recent") {
       switch (sortBy) {
-        case "recent":
-          filtered.sort((a, b) => b.id - a.id);
-          break;
         case "popular":
           filtered.sort((a, b) => (b.view_count || 0) - (a.view_count || 0));
           break;
@@ -275,7 +273,7 @@ export default function BrowsePage() {
           filtered.sort((a, b) => a.title.localeCompare(b.title));
           break;
       }
-    } else if (sortBy !== "recent") {
+    } else if (searchQuery.trim() && sortBy !== "recent") {
       // Apply secondary sorting to search results if needed
       switch (sortBy) {
         case "popular":

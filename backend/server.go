@@ -175,7 +175,7 @@ func main() {
 
 
 	// Initialize media scanner with adapted services
-	mediaScanner := scanner.NewMediaScanner(cfg.MediaPath, mediaServiceAdapter, thumbnailServiceAdapter, posterServiceAdapter, geminiServiceAdapter, celeryServiceAdapter, alacServiceAdapter, tmdbServiceAdapter, recommendationServiceAdapter, notificationServiceAdapter)
+	mediaScanner := scanner.NewMediaScanner(cfg.MediaPath, mediaServiceAdapter, thumbnailServiceAdapter, posterServiceAdapter, geminiServiceAdapter, celeryServiceAdapter, alacServiceAdapter, tmdbServiceAdapter, recommendationServiceAdapter, notificationServiceAdapter, openSubService)
 
 	// Load media paths from database and configure scanner
 	loadMediaPathsFromDatabase(db, mediaScanner)

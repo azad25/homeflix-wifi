@@ -245,40 +245,6 @@ const RecentlyWatchedCard: React.FC<RecentlyWatchedCardProps> = ({
           {/* Gradient Overlay */}
           <div className={`absolute inset-0 bg-gradient-to-t ${isBackdrop ? 'from-black/95 via-black/20 to-transparent' : 'from-black/95 via-transparent to-transparent'} opacity-80 group-hover:opacity-90 transition-opacity duration-300`} />
 
-          {/* Play Button Overlay (Centered for completely un-hovered posters) */}
-          <AnimatePresence>
-            {isHovered ? (
-              <motion.div
-                initial={{ opacity: 0, scale: 0.8 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.8 }}
-                className="absolute inset-0 flex items-center justify-center z-20 bg-black/20"
-              >
-                <button
-                  onClick={handlePlayClick}
-                  disabled={isLoading}
-                  className="bg-red-600/90 backdrop-blur-sm rounded-full p-4 hover:scale-110 hover:bg-red-500 transition-all duration-300 shadow-[0_0_20px_rgba(220,38,38,0.5)]"
-                >
-                  {isLoading ? (
-                    <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  ) : (
-                    <Play className="w-6 h-6 text-white fill-current translate-x-0.5" />
-                  )}
-                </button>
-              </motion.div>
-            ) : (!isBackdrop && (
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                className="absolute inset-0 flex items-center justify-center pointer-events-none"
-              >
-                <div className="bg-white/10 backdrop-blur-sm rounded-full p-3 transform scale-75 shadow-lg border border-white/20">
-                  <Play className="w-5 h-5 text-white/50 fill-current translate-x-0.5" />
-                </div>
-              </motion.div>
-            ))}
-          </AnimatePresence>
-
           {/* Progress Bar Container */}
           <div className="absolute bottom-0 left-0 right-0 h-1.5 bg-black/40 z-20">
             <motion.div

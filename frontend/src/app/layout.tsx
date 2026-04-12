@@ -3,6 +3,7 @@ import "./globals.css";
 import { EnhancedAudioProvider } from "@/contexts/EnhancedAudioContext";
 import { NavigationLoaderProvider } from "@/contexts/NavigationLoaderContext";
 import { MusicPlayerProvider } from "@/contexts/MusicPlayerContext";
+import { DialogProvider } from "@/components/providers/DialogProvider";
 import NavigationLoader from "@/components/NavigationLoader";
 import SWRProvider from "@/components/providers/SWRProvider";
 import WidgetPreloader from "@/components/WidgetPreloader";
@@ -74,19 +75,21 @@ export default function RootLayout({
         />
       </head>
       <body className="bg-black text-white antialiased font-sans" style={{ fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif' }}>
-        <SWRProvider>
-          <NavigationLoaderProvider>
-            <EnhancedAudioProvider>
-              <MusicPlayerProvider>
-                <Suspense fallback={<div className="min-h-screen bg-black" />}>
-                  <WidgetPreloader />
-                  <NavigationLoader />
-                  {children}
-                </Suspense>
-              </MusicPlayerProvider>
-            </EnhancedAudioProvider>
-          </NavigationLoaderProvider>
-        </SWRProvider>
+        <DialogProvider>
+          <SWRProvider>
+            <NavigationLoaderProvider>
+              <EnhancedAudioProvider>
+                <MusicPlayerProvider>
+                  <Suspense fallback={<div className="min-h-screen bg-black" />}>
+                    <WidgetPreloader />
+                    <NavigationLoader />
+                    {children}
+                  </Suspense>
+                </MusicPlayerProvider>
+              </EnhancedAudioProvider>
+            </NavigationLoaderProvider>
+          </SWRProvider>
+        </DialogProvider>
       </body>
     </html>
   );

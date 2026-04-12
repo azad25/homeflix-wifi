@@ -222,6 +222,20 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		api.GET("/opensubtitles/download", handlers.DownloadOpenSubtitleDirect(openSubService))
 		api.GET("/opensubtitles/languages", handlers.GetOpenSubtitlesLanguages(openSubService))
 
+		// Initialize subtitle management services
+		subtitleCleanupService := services.NewSubtitleCleanupService(mediaService)
+		subtitleMatcherService := services.NewSubtitleMatcherService(openSubService, mediaService)
+
+		// Subtitle management endpoints (cleanup and auto-download)
+		api.GET("/subtitles/stats", handlers.GetSubtitleStats(subtitleCleanupService))
+		api.GET("/subtitles/media-without-subs", handlers.GetMediaWithoutSubtitles(mediaService))
+		api.POST("/subtitles/cleanup/all", handlers.CleanupAllSubtitles(subtitleCleanupService))
+		api.POST("/subtitles/cleanup/:id", handlers.CleanupMediaSubtitles(subtitleCleanupService, mediaService))
+		api.POST("/subtitles/download/:id", handlers.DownloadSubtitleForMedia(subtitleMatcherService, mediaService))
+		api.POST("/subtitles/download/all", handlers.DownloadSubtitlesForAll(subtitleMatcherService, mediaService))
+		api.POST("/subtitles/download/missing", handlers.DownloadSubtitlesForMissing(subtitleMatcherService, mediaService))
+		api.POST("/subtitles/cleanup-and-download", handlers.CleanupAndDownloadSubtitles(subtitleCleanupService, subtitleMatcherService, mediaService))
+
 		// ALAC Audio endpoints
 		api.GET("/audio/alac/:id", handlers.GetALACAudio(alacService))
 		api.POST("/audio/alac/:id/extract", handlers.ExtractALACAudio(alacService, mediaService))
@@ -399,6 +413,7 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 
 		// Torrent download endpoints
 		api.GET("/torrents/search", torrentHandler.SearchTorrents)
+		api.GET("/torrents/files/preview", torrentHandler.PreviewTorrentFiles)
 		api.POST("/torrents/download", torrentHandler.StartDownload)
 		api.GET("/torrents/downloads", torrentHandler.GetDownloads)
 		api.GET("/torrents/downloads/:id", torrentHandler.GetDownload)
