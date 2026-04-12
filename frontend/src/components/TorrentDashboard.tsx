@@ -114,11 +114,11 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
   const [searchLoading, setSearchLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [filePreviewLoading, setFilePreviewLoading] = useState<string | null>(null);
-  const [selectedTorrentFiles, setSelectedTorrentFiles] = useState<{
-    title: string;
+  const [expandedPreviewMagnet, setExpandedPreviewMagnet] = useState<string | null>(null);
+  const [torrentFilePreviews, setTorrentFilePreviews] = useState<Record<string, {
     files: TorrentFileEntry[];
     totalSizeHuman: string;
-  } | null>(null);
+  }>>({});
   const [searchQuery, setSearchQuery] = useState('');
   const [qualityFilter, setQualityFilter] = useState('');
 
@@ -305,6 +305,17 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
   };
 
   const previewTorrentFiles = async (result: TorrentResult) => {
+    if (expandedPreviewMagnet === result.magnet_uri) {
+      setExpandedPreviewMagnet(null);
+      return;
+    }
+
+    const existingPreview = torrentFilePreviews[result.magnet_uri];
+    if (existingPreview) {
+      setExpandedPreviewMagnet(result.magnet_uri);
+      return;
+    }
+
     setFilePreviewLoading(result.magnet_uri);
     setError(null);
     try {
@@ -318,11 +329,14 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
       if (!response.ok) {
         throw new Error(data.error || 'Failed to load torrent files');
       }
-      setSelectedTorrentFiles({
-        title: result.title,
-        files: data.files || [],
-        totalSizeHuman: data.total_size_human || 'Unknown'
-      });
+      setTorrentFilePreviews(prev => ({
+        ...prev,
+        [result.magnet_uri]: {
+          files: data.files || [],
+          totalSizeHuman: data.total_size_human || 'Unknown'
+        }
+      }));
+      setExpandedPreviewMagnet(result.magnet_uri);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load torrent files');
     } finally {
@@ -614,51 +628,6 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
         )}
       </AnimatePresence>
 
-      <AnimatePresence>
-        {selectedTorrentFiles && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
-          >
-            <motion.div
-              initial={{ y: 20, opacity: 0 }}
-              animate={{ y: 0, opacity: 1 }}
-              exit={{ y: 20, opacity: 0 }}
-              className="w-full max-w-3xl bg-[#0b0b0b] border border-white/15 rounded-xl shadow-2xl"
-            >
-              <div className="flex items-start justify-between p-4 border-b border-white/10">
-                <div>
-                  <h3 className="text-white text-base font-semibold line-clamp-2">{selectedTorrentFiles.title}</h3>
-                  <p className="text-xs text-white/60 mt-1">
-                    {selectedTorrentFiles.files.length} files • {selectedTorrentFiles.totalSizeHuman}
-                  </p>
-                </div>
-                <button
-                  onClick={() => setSelectedTorrentFiles(null)}
-                  className="text-white/60 hover:text-white transition-colors p-1"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-              <div className="max-h-[60vh] overflow-y-auto p-4 space-y-2">
-                {selectedTorrentFiles.files.length === 0 ? (
-                  <div className="text-white/60 text-sm py-8 text-center">No file list available for this torrent</div>
-                ) : (
-                  selectedTorrentFiles.files.map((file, index) => (
-                    <div key={`${file.path}-${index}`} className="flex items-center justify-between gap-4 bg-white/[0.03] border border-white/10 rounded-lg px-3 py-2">
-                      <span className="text-sm text-white/90 truncate">{file.path}</span>
-                      <span className="text-xs text-white/60 flex-shrink-0">{file.size_human}</span>
-                    </div>
-                  ))
-                )}
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
       {/* Tab Content */}
       <AnimatePresence mode="wait">
         {activeTab === 'search' && (
@@ -732,7 +701,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
             <div className="space-y-3">
               {searchResults.map((result, index) => (
                 <motion.div
-                  key={index}
+                  key={`${result.magnet_uri}-${index}`}
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.2, delay: index * 0.03 }}
@@ -795,6 +764,34 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
                       </button>
                     </div>
                   </div>
+                  <AnimatePresence initial={false}>
+                    {expandedPreviewMagnet === result.magnet_uri && (
+                      <motion.div
+                        initial={{ opacity: 0, height: 0, marginTop: 0 }}
+                        animate={{ opacity: 1, height: 'auto', marginTop: 12 }}
+                        exit={{ opacity: 0, height: 0, marginTop: 0 }}
+                        className="overflow-hidden"
+                      >
+                        <div className="bg-black/40 border border-white/10 rounded-lg p-3">
+                          <div className="text-xs text-white/60 mb-2">
+                            {(torrentFilePreviews[result.magnet_uri]?.files.length || 0)} files • {torrentFilePreviews[result.magnet_uri]?.totalSizeHuman || 'Unknown'}
+                          </div>
+                          <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                            {(torrentFilePreviews[result.magnet_uri]?.files || []).length === 0 ? (
+                              <div className="text-white/60 text-sm py-3 text-center">No file list available for this torrent</div>
+                            ) : (
+                              (torrentFilePreviews[result.magnet_uri]?.files || []).map((file, fileIndex) => (
+                                <div key={`${file.path}-${fileIndex}`} className="flex items-center justify-between gap-4 bg-white/[0.03] border border-white/10 rounded-lg px-3 py-2">
+                                  <span className="text-sm text-white/90 truncate">{file.path}</span>
+                                  <span className="text-xs text-white/60 flex-shrink-0">{file.size_human}</span>
+                                </div>
+                              ))
+                            )}
+                          </div>
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
                 </motion.div>
               ))}
 

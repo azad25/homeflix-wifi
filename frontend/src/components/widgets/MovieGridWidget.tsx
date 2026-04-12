@@ -178,26 +178,16 @@ export default function MovieGridWidget({
     return (
         <div className={`relative w-full py-6 ${className}`}>
             {/* Enhanced Header */}
-            <div className="flex items-center justify-between px-4 md:px-8 mb-6">
-                <div className="flex items-center gap-4">
-                    <div className="w-10 h-10 bg-gradient-to-br from-red-500/20 to-red-600/20 backdrop-blur-sm border border-red-400/30 rounded-xl flex items-center justify-center">
-                        <Grid3X3 className="w-5 h-5 text-red-300" />
-                    </div>
-                    <div>
-                        <h2 className="text-xl md:text-2xl font-bold text-white">{title}</h2>
-                        {subtitle && (
-                            <p className="text-sm text-white/60 mt-1">{subtitle}</p>
-                        )}
-                        <div className="flex items-center gap-2 mt-1">
-                            {displayMedia.length > 0 && (
-                                <div className="px-2 py-1 bg-red-500/20 backdrop-blur-sm border border-red-400/30 rounded-full">
-                                    <span className="text-red-300 text-xs font-semibold">
-                                        {displayMedia.length} Items
-                                    </span>
-                                </div>
-                            )}
-                        </div>
-                    </div>
+            <div className="px-[4%] md:px-[60px] mb-2 lg:mb-3 flex items-center justify-between z-30 relative">
+                <div className="flex flex-col md:flex-row md:items-end gap-2 md:gap-4">
+                    <h2 className="text-[1.2vw] font-bold text-[#e5e5e5] min-[18px]:text-lg tracking-wide inline-block leading-tight select-none cursor-pointer hover:text-white transition-colors">
+                        {title}
+                    </h2>
+                    {subtitle && (
+                        <span className="text-[10px] md:text-xs font-semibold text-white/50 px-2 py-0.5 rounded tracking-wide hidden md:inline-block">
+                            {subtitle}
+                        </span>
+                    )}
                 </div>
 
                 {/* Enhanced Navigation */}
@@ -284,8 +274,8 @@ export default function MovieGridWidget({
                                 ) : (
                                     // Hover view - backdrop on top, info on bottom
                                     <div className="absolute inset-0 flex flex-col">
-                                        {/* Backdrop - top 70% */}
-                                        <div className="relative" style={{ height: '70%' }}>
+                                        {/* Backdrop - top 60% */}
+                                        <div className="relative" style={{ height: '60%' }}>
                                             <img
                                                 src={getImageUrl(item, 'backdrop')}
                                                 alt={item.title}
@@ -299,10 +289,10 @@ export default function MovieGridWidget({
                                             <div className="absolute inset-0 bg-gradient-to-b from-transparent to-black" />
                                         </div>
 
-                                        {/* Info section - bottom 30% */}
-                                        <div className="bg-black p-2 flex flex-col justify-between" style={{ height: '30%' }}>
+                                        {/* Info section - bottom 40% */}
+                                        <div className="bg-black p-3 flex flex-col justify-between" style={{ height: '40%' }}>
                                             {/* Logo/Title directly above meta */}
-                                            <div className="mb-1">
+                                            <div className="mb-0.5">
                                                 {logoUrl ? (
                                                     <img
                                                         src={logoUrl}
@@ -325,6 +315,9 @@ export default function MovieGridWidget({
 
                                             {/* Meta Info Row */}
                                             <div className="flex items-center gap-1.5 text-xs text-white/90 mb-1 flex-wrap">
+                                                <span className="font-bold text-[#46d369]">
+                                                    {item.rating ? Math.floor(Number(item.rating) * 10) : 85 + Math.floor(Math.random() * 14)}% Match
+                                                </span>
                                                 {(() => {
                                                     let year = item.year;
                                                     if (!year || year <= 1900) {
@@ -373,6 +366,9 @@ export default function MovieGridWidget({
                                                     return null;
                                                 })()}
                                             </div>
+                                            <p className="text-[10px] md:text-[11px] text-white/60 line-clamp-2 mt-auto pt-1 pb-1">
+                                                {item.description || item.overview || 'A cinematic piece curated just for you.'}
+                                            </p>
                                         </div>
                                     </div>
                                 )}

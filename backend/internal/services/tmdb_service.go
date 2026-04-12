@@ -673,6 +673,15 @@ func (t *TMDBService) GenerateMediaMetadataWithOptions(filePath, title string, o
 	posterURL := t.buildImageURL(details.PosterPath, "w500")
 	backdropURL := t.buildImageURL(details.BackdropPath, "w1280")
 
+	// Fallback: if no primary backdrop, fetch from images list
+	if backdropURL == "" && details.ID > 0 {
+		log.Printf("🔍 No primary backdrop for '%s', checking images list...", details.Title)
+		if images, imgErr := t.GetMovieImages(details.ID); imgErr == nil && len(images.Backdrops) > 0 {
+			backdropURL = t.buildImageURL(images.Backdrops[0].FilePath, "w1280")
+			log.Printf("🖼️ Using fallback backdrop from images list for '%s': %s", details.Title, backdropURL)
+		}
+	}
+
 	if posterURL != "" {
 		log.Printf("🖼️ Poster URL for '%s': %s", details.Title, posterURL)
 	} else {
@@ -791,10 +800,11 @@ func (t *TMDBService) GenerateMediaMetadataWithOptions(filePath, title string, o
 		Writers:    writers,
 		Producers:  producers,
 		// Additional fields
-		Popularity: details.Popularity,
-		VoteCount:  details.VoteCount,
-		Adult:      details.Adult,
-		TMDBID:     details.ID,
+		Popularity:    details.Popularity,
+		VoteCount:     details.VoteCount,
+		Adult:         details.Adult,
+		TMDBID:        details.ID,
+		Certification: t.GetMovieCertification(details.ID),
 	}
 
 	// Log enhanced metadata for debugging
@@ -2482,6 +2492,10 @@ func (t *TMDBService) DownloadMovieLogo(tmdbID int, mediaID uint, logoDir string
 	bestLogo := bestEnglish
 	if bestLogo == nil {
 		bestLogo = bestOverall
+		if bestLogo != nil {
+			log.Printf("ℹ️ No English logo found for TMDB ID %d, using %s logo (lang: '%s')",
+				tmdbID, bestLogo.FilePath, bestLogo.ISO6391)
+		}
 	}
 
 	if bestLogo == nil {
@@ -4023,6 +4037,10 @@ func (t *TMDBService) DownloadTVLogo(tmdbID int, seriesID uint, seriesTitle, log
 	bestLogo := bestEnglish
 	if bestLogo == nil {
 		bestLogo = bestOverall
+		if bestLogo != nil {
+			log.Printf("ℹ️ No English TV logo found for TMDB ID %d, using %s logo (lang: '%s')",
+				tmdbID, bestLogo.FilePath, bestLogo.ISO6391)
+		}
 	}
 
 	if bestLogo == nil {
@@ -4225,4 +4243,147 @@ func (t *TMDBService) DownloadTVBackdropByTitle(title string, seriesID uint, bac
 	log.Printf("✅ TMDB: Found TV show for backdrop - ID: %d, Name: '%s'", tv.ID, tv.Name)
 
 	return t.DownloadTVBackdrop(tv.ID, seriesID, tv.Name, backdropDir)
+}
+
+// TMDBReleaseDatesResponse represents the release dates response from TMDB
+type TMDBReleaseDatesResponse struct {
+	ID      int                    `json:"id"`
+	Results []TMDBReleaseDateEntry `json:"results"`
+}
+
+// TMDBReleaseDateEntry represents a country's release date entry
+type TMDBReleaseDateEntry struct {
+	ISO31661     string              `json:"iso_3166_1"`
+	ReleaseDates []TMDBReleaseDate   `json:"release_dates"`
+}
+
+// TMDBReleaseDate represents a single release date with certification
+type TMDBReleaseDate struct {
+	Certification string `json:"certification"`
+	Type          int    `json:"type"`
+	ReleaseDate   string `json:"release_date"`
+}
+
+// TMDBContentRatingsResponse represents the content ratings response for TV shows
+type TMDBContentRatingsResponse struct {
+	ID      int                      `json:"id"`
+	Results []TMDBContentRatingEntry `json:"results"`
+}
+
+// TMDBContentRatingEntry represents a country's content rating
+type TMDBContentRatingEntry struct {
+	ISO31661 string `json:"iso_3166_1"`
+	Rating   string `json:"rating"`
+}
+
+// GetMovieCertification fetches the US certification (PG, PG-13, R, etc.) for a movie
+func (t *TMDBService) GetMovieCertification(movieID int) string {
+	if t.apiKey == "" || movieID <= 0 {
+		return ""
+	}
+
+	requestURL := fmt.Sprintf("%s/movie/%d/release_dates", t.baseURL, movieID)
+
+	req, err := http.NewRequest("GET", requestURL, nil)
+	if err != nil {
+		return ""
+	}
+
+	req.Header.Set("Authorization", "Bearer "+t.apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := t.httpClient.Do(req)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return ""
+	}
+
+	var releaseDates TMDBReleaseDatesResponse
+	if err := json.NewDecoder(resp.Body).Decode(&releaseDates); err != nil {
+		return ""
+	}
+
+	// Look for US certification first
+	for _, entry := range releaseDates.Results {
+		if entry.ISO31661 == "US" {
+			for _, rd := range entry.ReleaseDates {
+				if rd.Certification != "" {
+					log.Printf("🏷️ Found US certification for movie %d: %s", movieID, rd.Certification)
+					return rd.Certification
+				}
+			}
+		}
+	}
+
+	// Fallback: try GB, then any country with a certification
+	for _, fallbackCountry := range []string{"GB", "AU", "CA"} {
+		for _, entry := range releaseDates.Results {
+			if entry.ISO31661 == fallbackCountry {
+				for _, rd := range entry.ReleaseDates {
+					if rd.Certification != "" {
+						log.Printf("🏷️ Found %s certification for movie %d: %s", fallbackCountry, movieID, rd.Certification)
+						return rd.Certification
+					}
+				}
+			}
+		}
+	}
+
+	return ""
+}
+
+// GetTVCertification fetches the US content rating (TV-MA, TV-14, etc.) for a TV show
+func (t *TMDBService) GetTVCertification(tvID int) string {
+	if t.apiKey == "" || tvID <= 0 {
+		return ""
+	}
+
+	requestURL := fmt.Sprintf("%s/tv/%d/content_ratings", t.baseURL, tvID)
+
+	req, err := http.NewRequest("GET", requestURL, nil)
+	if err != nil {
+		return ""
+	}
+
+	req.Header.Set("Authorization", "Bearer "+t.apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := t.httpClient.Do(req)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return ""
+	}
+
+	var contentRatings TMDBContentRatingsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&contentRatings); err != nil {
+		return ""
+	}
+
+	// Look for US rating first
+	for _, entry := range contentRatings.Results {
+		if entry.ISO31661 == "US" && entry.Rating != "" {
+			log.Printf("🏷️ Found US content rating for TV %d: %s", tvID, entry.Rating)
+			return entry.Rating
+		}
+	}
+
+	// Fallback: try GB, AU, CA
+	for _, fallbackCountry := range []string{"GB", "AU", "CA"} {
+		for _, entry := range contentRatings.Results {
+			if entry.ISO31661 == fallbackCountry && entry.Rating != "" {
+				log.Printf("🏷️ Found %s content rating for TV %d: %s", fallbackCountry, tvID, entry.Rating)
+				return entry.Rating
+			}
+		}
+	}
+
+	return ""
 }

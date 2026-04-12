@@ -1085,6 +1085,15 @@ func (s *NetflixStreamService) streamChromeCompatibleTranscoding(w http.Response
 		return fmt.Errorf("failed to start Chrome audio transcoding: %v", err)
 	}
 
+	// Ensure FFmpeg process is cleaned up if client disconnects
+	ctx := r.Context()
+	go func() {
+		<-ctx.Done()
+		if cmd.Process != nil {
+			cmd.Process.Kill()
+		}
+	}()
+
 	// WiFi-optimized transcoding stream with immediate response
 	buffer := s.bufferPool.Get(512 * 1024) // 512KB buffer for WiFi transcoding
 	defer s.bufferPool.Put(buffer)
@@ -1192,6 +1201,14 @@ func (s *NetflixStreamService) streamAudioTranscodingWithSeeking(w http.Response
 		return fmt.Errorf("failed to start seeking audio transcoding: %v", err)
 	}
 
+	// Ensure FFmpeg process is cleaned up if client disconnects
+	go func() {
+		<-r.Context().Done()
+		if cmd.Process != nil {
+			cmd.Process.Kill()
+		}
+	}()
+
 	// Stream transcoded output with optimized buffer
 	buffer := s.bufferPool.Get(s.segmentSize)
 	defer s.bufferPool.Put(buffer)
@@ -1279,14 +1296,14 @@ func (s *NetflixStreamService) createChromeCompatibleCachedVersion(filePath stri
 // Legacy methods removed - now using mandatory seekability verification
 
 func (s *NetflixStreamService) streamDirectlyWithSeeking(w http.ResponseWriter, r *http.Request, filePath string) error {
-	// Open file for streaming with optimized flags
+	// Open file for streaming
 	file, err := os.OpenFile(filePath, os.O_RDONLY, 0)
 	if err != nil {
 		return fmt.Errorf("failed to open file: %v", err)
 	}
 	defer file.Close()
 
-	// Get file info for size
+	// Get file info
 	stat, err := file.Stat()
 	if err != nil {
 		return fmt.Errorf("failed to stat file: %v", err)
@@ -1294,38 +1311,23 @@ func (s *NetflixStreamService) streamDirectlyWithSeeking(w http.ResponseWriter, 
 	fileSize := stat.Size()
 	modTime := stat.ModTime()
 
-	// CRITICAL: Set optimal headers for Chrome seeking BEFORE any content
+	// Set content type before ServeContent (it won't override if already set)
 	contentType := utils.GetVideoContentType(filePath)
 	headers := w.Header()
-	
-	// Core streaming headers - Chrome needs these for seeking
 	headers.Set("Content-Type", contentType)
-	headers.Set("Accept-Ranges", "bytes")
-	headers.Set("Content-Length", fmt.Sprintf("%d", fileSize))
-	
-	// CRITICAL: Last-Modified and ETag for Chrome seeking
-	headers.Set("Last-Modified", modTime.UTC().Format(http.TimeFormat))
-	headers.Set("ETag", fmt.Sprintf(`"%x-%x"`, modTime.Unix(), fileSize))
-	
+
 	// Connection keep-alive for WiFi performance
 	headers.Set("Connection", "keep-alive")
 	headers.Set("Keep-Alive", "timeout=120, max=1000")
-	
+
 	// Caching headers for faster repeated access
-	headers.Set("Cache-Control", "public, max-age=604800, immutable") // 7 days cache
-	
-	// Chrome-specific optimization headers
-	headers.Set("X-Seekable", "true")
-	headers.Set("X-Content-Duration", "") // Browser will compute from metadata
-	headers.Set("X-WiFi-Optimized", "true")
-	
+	headers.Set("Cache-Control", "public, max-age=604800, immutable")
+
 	// CORS headers for cross-origin requests
 	headers.Set("Access-Control-Allow-Origin", "*")
 	headers.Set("Access-Control-Allow-Headers", "Range, Content-Type")
-	headers.Set("Access-Control-Expose-Headers", "Content-Range, Content-Length, Accept-Ranges, X-Seekable")
+	headers.Set("Access-Control-Expose-Headers", "Content-Range, Content-Length, Accept-Ranges")
 	headers.Set("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
-
-	log.Printf("📺 Optimized streaming: %s (%d MB)", filepath.Base(filePath), fileSize/(1024*1024))
 
 	// Handle OPTIONS preflight for CORS
 	if r.Method == "OPTIONS" {
@@ -1333,16 +1335,17 @@ func (s *NetflixStreamService) streamDirectlyWithSeeking(w http.ResponseWriter, 
 		return nil
 	}
 
-	// Handle range requests (seeking) - critical for Chrome performance
-	rangeHeader := r.Header.Get("Range")
-	if rangeHeader != "" {
-		return s.handleWiFiOptimizedRangeRequest(w, r, file, fileSize, rangeHeader)
-	}
+	log.Printf("📺 ServeContent streaming: %s (%d MB)", filepath.Base(filePath), fileSize/(1024*1024))
 
-	// For full file requests, stream with WiFi optimization
-	return s.streamFileWithWiFiOptimization(w, r, file, fileSize)
+	// http.ServeContent handles everything:
+	// - Range requests (206 Partial Content) with proper Content-Range
+	// - If-Modified-Since / If-None-Match (304 Not Modified)
+	// - Content-Length, Accept-Ranges: bytes
+	// - Uses sendfile(2) zero-copy kernel transfer when available
+	// - HEAD requests
+	http.ServeContent(w, r, filepath.Base(filePath), modTime, file)
+	return nil
 }
-
 
 func (s *NetflixStreamService) streamWithMandatoryTranscoding(w http.ResponseWriter, r *http.Request, filePath string) error {
 	log.Printf("🔄 MANDATORY TRANSCODING: Ensuring seekability for %s", filepath.Base(filePath))
@@ -1687,11 +1690,11 @@ func (s *NetflixStreamService) handleWiFiOptimizedRangeRequest(w http.ResponseWr
 	headers.Set("Keep-Alive", "timeout=120, max=1000")
 	headers.Set("Cache-Control", "public, max-age=604800, immutable") // Long cache for seeked ranges
 	headers.Set("X-WiFi-Range-Optimized", "true")
-	
+
 	// CORS headers for cross-origin seeking
 	headers.Set("Access-Control-Allow-Origin", "*")
 	headers.Set("Access-Control-Expose-Headers", "Content-Range, Content-Length, Accept-Ranges")
-	
+
 	w.WriteHeader(http.StatusPartialContent)
 
 	// Seek to start position
@@ -1703,7 +1706,6 @@ func (s *NetflixStreamService) handleWiFiOptimizedRangeRequest(w http.ResponseWr
 	// WiFi-optimized range streaming with immediate response + caching
 	return s.streamWiFiOptimizedRangeWithCaching(w, file, contentLength, seekCacheKey, start, end)
 }
-
 
 func (s *NetflixStreamService) handleRangeRequest(w http.ResponseWriter, r *http.Request, file *os.File, fileSize int64, rangeHeader string) error {
 	// Use WiFi-optimized range handler
@@ -2413,32 +2415,37 @@ func (s *NetflixStreamService) copyWithZeroLatencyFlushing(dst io.Writer, src io
 }
 
 // copyWithWiFiTranscodingOptimization - Optimized for WiFi transcoding with immediate first chunk
+// Flushes first chunk instantly, then every 1MB or 500ms
 func (s *NetflixStreamService) copyWithWiFiTranscodingOptimization(dst io.Writer, src io.Reader, buffer []byte) (int64, error) {
 	var written int64
 	flusher, canFlush := dst.(http.Flusher)
 	isFirstChunk := true
+	var sinceLastFlush int64
+	lastFlushTime := time.Now()
+	const flushThreshold = 1024 * 1024 // 1MB between flushes
+	const flushInterval = 500 * time.Millisecond
 
-	// WiFi TRANSCODING OPTIMIZATION: Send first chunk immediately, then adaptive
 	for {
 		n, err := src.Read(buffer)
 		if n > 0 {
-			// Write chunk immediately
 			m, writeErr := dst.Write(buffer[:n])
 			written += int64(m)
+			sinceLastFlush += int64(m)
 
-			// CRITICAL: Flush first chunk immediately for instant playback start
-			if isFirstChunk || canFlush {
-				if canFlush {
+			// Flush first chunk immediately for instant playback, then periodically
+			if canFlush {
+				if isFirstChunk || sinceLastFlush >= flushThreshold || time.Since(lastFlushTime) >= flushInterval {
 					flusher.Flush()
-				}
-				if isFirstChunk {
-					log.Printf("⚡ First transcoded chunk sent: %d bytes - playback starting", m)
-					isFirstChunk = false
+					sinceLastFlush = 0
+					lastFlushTime = time.Now()
+					if isFirstChunk {
+						log.Printf("⚡ First transcoded chunk sent: %d bytes - playback starting", m)
+						isFirstChunk = false
+					}
 				}
 			}
 
 			if writeErr != nil {
-				// Handle broken pipe as normal client disconnection
 				if strings.Contains(writeErr.Error(), "broken pipe") || strings.Contains(writeErr.Error(), "connection reset") {
 					log.Printf("⚠️ Client disconnected during WiFi transcoding (written: %d bytes)", written)
 					return written, nil
@@ -2455,7 +2462,7 @@ func (s *NetflixStreamService) copyWithWiFiTranscodingOptimization(dst io.Writer
 		}
 	}
 
-	// Final flush to ensure all data is sent
+	// Final flush
 	if canFlush {
 		flusher.Flush()
 	}
@@ -2463,28 +2470,48 @@ func (s *NetflixStreamService) copyWithWiFiTranscodingOptimization(dst io.Writer
 	return written, nil
 }
 
-// copyWithInstantFlushing - Netflix-level instant streaming with aggressive flushing
+// copyWithInstantFlushing - Optimized streaming with periodic flushing
+// Flushes after the first chunk (for instant playback start), then every 1MB or 500ms
 func (s *NetflixStreamService) copyWithInstantFlushing(dst io.Writer, src io.Reader, buffer []byte) (int64, error) {
 	var written int64
 	flusher, canFlush := dst.(http.Flusher)
+	isFirstChunk := true
+	var sinceLastFlush int64
+	lastFlushTime := time.Now()
+	const flushThreshold = 1024 * 1024           // 1MB between flushes
+	const flushInterval = 500 * time.Millisecond // or every 500ms
 
-	// NETFLIX-LEVEL STREAMING: Read and flush immediately for instant playback
 	for {
 		n, err := src.Read(buffer)
 		if n > 0 {
-			// Write chunk immediately
 			m, writeErr := dst.Write(buffer[:n])
 			written += int64(m)
+			sinceLastFlush += int64(m)
 
-			// INSTANT FLUSH: Force immediate delivery like Netflix
+			// Flush immediately on first chunk for instant playback start
+			// After that, flush every 1MB or 500ms to reduce syscall overhead
 			if canFlush {
-				flusher.Flush()
+				if isFirstChunk || sinceLastFlush >= flushThreshold || time.Since(lastFlushTime) >= flushInterval {
+					func() {
+						defer func() {
+							if r := recover(); r != nil {
+								// Flush panic - client likely disconnected
+							}
+						}()
+						flusher.Flush()
+					}()
+					sinceLastFlush = 0
+					lastFlushTime = time.Now()
+					if isFirstChunk {
+						log.Printf("⚡ First transcoded chunk flushed: %d bytes", m)
+						isFirstChunk = false
+					}
+				}
 			}
 
 			if writeErr != nil {
-				// Handle broken pipe as normal client disconnection
 				if strings.Contains(writeErr.Error(), "broken pipe") || strings.Contains(writeErr.Error(), "connection reset") {
-					log.Printf("⚠️ Client disconnected during instant stream (written: %d bytes)", written)
+					log.Printf("⚠️ Client disconnected during stream (written: %d bytes)", written)
 					return written, nil
 				}
 				return written, writeErr
@@ -2501,7 +2528,14 @@ func (s *NetflixStreamService) copyWithInstantFlushing(dst io.Writer, src io.Rea
 
 	// Final flush to ensure all data is sent
 	if canFlush {
-		flusher.Flush()
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					// Flush panic - ignore
+				}
+			}()
+			flusher.Flush()
+		}()
 	}
 
 	return written, nil

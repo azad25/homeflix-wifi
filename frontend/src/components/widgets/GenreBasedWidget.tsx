@@ -2,10 +2,9 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ChevronLeft, ChevronRight, Star, Flame, Sparkles } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Play } from 'lucide-react';
 import { Media } from '@/types/media';
 import { getApiUrl, preloadAssets } from '@/lib/api';
-import { genreColorPalettes } from '@/types/widgets';
 import { useNavigate } from '@/hooks/useNavigate';
 
 interface GenreBasedWidgetProps {
@@ -16,16 +15,6 @@ interface GenreBasedWidgetProps {
     maxItems?: number;
     className?: string;
 }
-
-const genreIcons: Record<string, React.ReactNode> = {
-    action: <Flame className="w-5 h-5" />,
-    comedy: <Sparkles className="w-5 h-5" />,
-    drama: <Sparkles className="w-5 h-5" />,
-    horror: <Sparkles className="w-5 h-5" />,
-    scifi: <Sparkles className="w-5 h-5" />,
-    romance: <Sparkles className="w-5 h-5" />,
-    thriller: <Sparkles className="w-5 h-5" />,
-};
 
 export default function GenreBasedWidget({
     media,
@@ -40,21 +29,21 @@ export default function GenreBasedWidget({
     const [canScrollLeft, setCanScrollLeft] = useState(false);
     const [canScrollRight, setCanScrollRight] = useState(true);
     const [hoveredId, setHoveredId] = useState<number | null>(null);
+    const [logoErrors, setLogoErrors] = useState<Record<number, boolean>>({});
 
     const apiUrl = getApiUrl();
-    const genreLower = genre.toLowerCase();
-    const colors = useMemo(() => genreColorPalettes[genreLower] || genreColorPalettes.default, [genreLower]);
     const displayMedia = useMemo(() => media.slice(0, maxItems), [media, maxItems]);
 
     useEffect(() => {
-        preloadAssets(displayMedia.slice(0, 10), ['poster']);
+        preloadAssets(displayMedia.slice(0, 10), ['thumbnail']);
     }, [displayMedia]);
 
     const updateScrollButtons = () => {
         const container = scrollContainerRef.current;
         if (container) {
             setCanScrollLeft(container.scrollLeft > 0);
-            setCanScrollRight(container.scrollLeft < container.scrollWidth - container.clientWidth - 10);
+            const maxScrollValue = container.scrollWidth - container.clientWidth;
+            setCanScrollRight(container.scrollLeft < maxScrollValue - 2);
         }
     };
 
@@ -62,10 +51,15 @@ export default function GenreBasedWidget({
         const container = scrollContainerRef.current;
         if (container) {
             container.addEventListener('scroll', updateScrollButtons);
-            updateScrollButtons();
-            return () => container.removeEventListener('scroll', updateScrollButtons);
+            setTimeout(updateScrollButtons, 100);
+            window.addEventListener('resize', updateScrollButtons);
+            
+            return () => {
+                container.removeEventListener('scroll', updateScrollButtons);
+                window.removeEventListener('resize', updateScrollButtons);
+            };
         }
-    }, []);
+    }, [displayMedia]);
 
     const scroll = (direction: 'left' | 'right') => {
         const container = scrollContainerRef.current;
@@ -96,172 +90,170 @@ export default function GenreBasedWidget({
     if (!displayMedia.length) return null;
 
     return (
-        <div
-            className={`relative overflow-hidden rounded-2xl border border-white/10 bg-[#0b0b0b] ${className}`}
-            style={{
-                backgroundImage: `linear-gradient(140deg, ${colors.primary}24 0%, rgba(0,0,0,0.35) 45%, rgba(0,0,0,0.86) 100%)`,
-            }}
-        >
-            <div
-                className="absolute inset-0 pointer-events-none"
-                style={{ background: `radial-gradient(circle at 0% 0%, ${colors.primary}30 0%, transparent 50%)` }}
-            />
-            <div
-                className="absolute left-0 top-0 bottom-0 w-1.5"
-                style={{ backgroundColor: colors.primary }}
-            />
-
-            <div className="relative z-10 pt-6 px-4 md:px-8">
-                <div className="flex items-center justify-between gap-4 mb-5">
-                    <div
-                        className="w-11 h-11 rounded-xl flex items-center justify-center border"
-                        style={{
-                            backgroundColor: `${colors.primary}26`,
-                            borderColor: `${colors.primary}55`,
-                            color: '#ffffff',
-                        }}
-                    >
-                        {genreIcons[genreLower] || <Sparkles className="w-5 h-5" />}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                            <h2 className="text-xl md:text-2xl font-bold text-white tracking-tight">
-                                {title || genre}
-                            </h2>
-                            {showHotBadge && (
-                                <span
-                                    className="px-2.5 py-0.5 text-[10px] font-semibold rounded-full border"
-                                    style={{
-                                        backgroundColor: `${colors.primary}22`,
-                                        borderColor: `${colors.primary}66`,
-                                        color: '#ffffff',
-                                    }}
-                                >
-                                    TRENDING
-                                </span>
-                            )}
-                        </div>
-                        <p className="text-sm text-white/55 mt-0.5">{displayMedia.length} titles curated for {genre}</p>
-                    </div>
-                    <div className="hidden md:flex items-center gap-2">
-                        <button
-                            onClick={() => scroll('left')}
-                            disabled={!canScrollLeft}
-                            className={`w-9 h-9 rounded-full border backdrop-blur-sm flex items-center justify-center transition-all ${!canScrollLeft ? 'opacity-30 cursor-not-allowed' : 'hover:scale-105'}`}
-                            style={{ backgroundColor: `${colors.primary}22`, borderColor: `${colors.primary}55` }}
-                        >
-                            <ChevronLeft className="w-5 h-5 text-white" />
-                        </button>
-                        <button
-                            onClick={() => scroll('right')}
-                            disabled={!canScrollRight}
-                            className={`w-9 h-9 rounded-full border backdrop-blur-sm flex items-center justify-center transition-all ${!canScrollRight ? 'opacity-30 cursor-not-allowed' : 'hover:scale-105'}`}
-                            style={{ backgroundColor: `${colors.primary}22`, borderColor: `${colors.primary}55` }}
-                        >
-                            <ChevronRight className="w-5 h-5 text-white" />
-                        </button>
-                    </div>
+        <div className={`w-full mb-8 lg:mb-12 relative group ${className}`}>
+            {/* Header Area */}
+            <div className="px-[4%] md:px-[60px] mb-2 lg:mb-3 flex items-center justify-between z-30 relative">
+                <div className="flex flex-col md:flex-row md:items-end gap-2 md:gap-4">
+                    <h2 className="text-[1.2vw] font-bold text-[#e5e5e5] min-[18px]:text-lg tracking-wide inline-block leading-tight select-none cursor-pointer hover:text-white transition-colors">
+                        {title || genre}
+                    </h2>
+                    {showHotBadge && (
+                        <span className="text-[10px] md:text-xs font-semibold text-[#e50914] bg-[#e50914]/10 px-2 py-0.5 rounded uppercase tracking-wider hidden md:inline-block">
+                            Top Picks
+                        </span>
+                    )}
                 </div>
             </div>
 
-            <div
-                ref={scrollContainerRef}
-                className="relative z-10 flex gap-4 overflow-x-auto scrollbar-hide px-4 md:px-8 pb-6 pr-8 snap-x snap-mandatory"
-            >
-                {displayMedia.map((item, index) => {
-                    const isHovered = hoveredId === item.id;
-                    const rating = item.rating && item.rating > 0 ? item.rating.toFixed(1) : null;
+            {/* Row Content Wrapper */}
+            <div className="relative w-full overflow-y-visible">
+                {/* Left Scroll Control - Replaces solid block with transparent/gradient & visible arrow on hover */}
+                {canScrollLeft && (
+                    <div
+                        className="absolute z-20 left-0 top-0 bottom-0 w-[5%] min-w-[50px] bg-gradient-to-r from-black/80 to-transparent flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300 cursor-pointer"
+                        onClick={() => scroll('left')}
+                    >
+                        <ChevronLeft className="w-10 h-10 md:w-14 md:h-14 text-white hover:scale-125 transition-transform drop-shadow-[0_4px_8px_rgba(0,0,0,0.8)]" />
+                    </div>
+                )}
 
-                    return (
-                        <motion.div
-                            key={item.id}
-                            className="flex-shrink-0 relative group cursor-pointer snap-start"
-                            onMouseEnter={() => setHoveredId(item.id)}
-                            onMouseLeave={() => setHoveredId(null)}
-                            onClick={() => handleCardClick(item)}
-                            whileHover={{ scale: 1.05, y: -8 }}
-                            transition={{ duration: 0.22 }}
-                            style={{ width: '180px' }}
-                        >
-                            <div
-                                className="relative aspect-[2/3] rounded-xl overflow-hidden border border-white/10"
-                                style={{
-                                    boxShadow: isHovered
-                                        ? `0 18px 40px ${colors.primary}42`
-                                        : '0 10px 25px rgba(0,0,0,0.45)',
+                {/* Right Scroll Control  */}
+                {canScrollRight && (
+                    <div
+                        className="absolute z-20 right-0 top-0 bottom-0 w-[5%] min-w-[50px] bg-gradient-to-l from-black/80 to-transparent flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300 cursor-pointer"
+                        onClick={() => scroll('right')}
+                    >
+                        <ChevronRight className="w-10 h-10 md:w-14 md:h-14 text-white hover:scale-125 transition-transform drop-shadow-[0_4px_8px_rgba(0,0,0,0.8)]" />
+                    </div>
+                )}
+
+                {/* Scrollable Container */}
+                <div
+                    ref={scrollContainerRef}
+                    className="flex gap-2 md:gap-3 overflow-x-auto scrollbar-hide px-[4%] md:px-[60px] py-4 snap-x snap-mandatory"
+                    style={{ WebkitOverflowScrolling: 'touch', overflowY: 'visible' }}
+                >
+                    {displayMedia.map((item) => {
+                        const isHovered = hoveredId === item.id;
+                        const rating = item.rating && item.rating > 0 ? item.rating.toFixed(1) : null;
+                        const matchPercentage = rating ? Math.floor(Number(rating) * 10) : 85 + Math.floor(Math.random() * 14);
+
+                        // Use landscape assets
+                        const imageSrc = item.tmdb_backdrop_url || item.backdrop_url || item.backdrop_path || `${apiUrl}/api/backdrops/${item.id}`;
+
+                        let logoSrc: string | null = null;
+                        if (item.tmdb_logo_url) {
+                            logoSrc = item.tmdb_logo_url;
+                        } else if (item.logo_path) {
+                            if (item.logo_path.startsWith('http')) logoSrc = item.logo_path;
+                            else if (item.logo_path.startsWith('/') && !item.logo_path.startsWith('/api')) logoSrc = `https://image.tmdb.org/t/p/w500${item.logo_path}`;
+                            else if (item.logo_path.startsWith('/api')) logoSrc = `${apiUrl}${item.logo_path}`;
+                            else logoSrc = `${apiUrl}/api/logos/${item.logo_path.split('/').pop()}`;
+                        }
+
+                        return (
+                            <motion.div
+                                key={item.id}
+                                className="flex-shrink-0 relative cursor-pointer snap-start rounded-md overflow-visible"
+                                style={{ width: '26vw', minWidth: '260px', maxWidth: '400px' }}
+                                onMouseEnter={() => setHoveredId(item.id)}
+                                onMouseLeave={() => setHoveredId(null)}
+                                onClick={() => handleCardClick(item)}
+                                initial={{ opacity: 0.9 }}
+                                animate={{ opacity: 1 }}
+                                whileHover={{
+                                    scale: 1.15,
+                                    zIndex: 50,
+                                    transition: { duration: 0.3, delay: 0.35, ease: 'easeOut' },
                                 }}
                             >
-                                <img
-                                    src={item.tmdb_poster_url || `${apiUrl}/api/posters/${item.id}`}
-                                    alt={item.title}
-                                    className="w-full h-full object-cover"
-                                    loading="lazy"
-                                    onError={(e) => {
-                                        const target = e.target as HTMLImageElement;
-                                        target.src = `${apiUrl}/api/thumbnails/${item.id}`;
-                                    }}
-                                />
+                                <div className="aspect-video w-full rounded-md shadow-md bg-[#141414] overflow-hidden relative border border-transparent hover:border-white/10 transition-colors">
+                                    <img
+                                        src={imageSrc}
+                                        alt={item.title}
+                                        className="w-full h-full object-cover transition-opacity duration-300 bg-[#141414]"
+                                        loading="lazy"
+                                        onError={(e) => {
+                                            const target = e.target as HTMLImageElement;
+                                            target.src = `${apiUrl}/api/thumbnails/${item.id}`;
+                                        }}
+                                    />
 
-                                <div className="absolute inset-0 bg-gradient-to-t from-black via-black/20 to-transparent" />
-
-                                <div className="absolute top-2 left-2 px-2 py-1 rounded-md text-sm font-bold bg-black/60 border border-red-500/30 text-red-400">
-                                    {index + 1}
-                                </div>
-
-                                {rating && (
-                                    <div className="absolute top-2 right-2 flex items-center gap-1 px-2 py-1 bg-black/70 border border-white/10 rounded-md text-xs text-white">
-                                        <Star className="w-3 h-3 fill-yellow-400 text-yellow-400" />
-                                        <span>{rating}</span>
+                                    {/* Default Shadow Overlay at Bottom */}
+                                    <div className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/80 via-black/20 to-transparent pointer-events-none transition-opacity duration-300"
+                                         style={{ opacity: isHovered ? 0 : 1 }}
+                                    />
+                                    
+                                    {/* Title fallback if not hovered */}
+                                    <div className="absolute inset-x-0 bottom-0 p-3 pointer-events-none transition-opacity duration-300" style={{ opacity: isHovered ? 0 : 1 }}>
+                                        {(logoSrc && !logoErrors[item.id]) ? (
+                                            <img src={logoSrc} className="max-h-6 md:max-h-8 w-auto object-contain drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)]" />
+                                        ) : (
+                                            <h4 className="text-[13px] md:text-[15px] font-semibold text-white drop-shadow-md truncate">
+                                                {item.title}
+                                            </h4>
+                                        )}
                                     </div>
-                                )}
 
-                                <AnimatePresence>
-                                    {isHovered && (
-                                        <motion.div
-                                            initial={{ opacity: 0, y: 8 }}
-                                            animate={{ opacity: 1, y: 0 }}
-                                            exit={{ opacity: 0, y: 8 }}
-                                            className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/80 to-black/20 flex flex-col justify-end p-3"
-                                        >
-                                            <h4 className="text-sm font-semibold line-clamp-2 mb-1 text-white">{item.title}</h4>
-                                            {item.year && item.year > 1900 && (
-                                                <p className="text-[11px] text-white/70 mb-2">{item.year}</p>
-                                            )}
-                                            <p className="text-[11px] text-white/70 line-clamp-2">
-                                                {item.description || 'A cinematic pick tailored for this genre.'}
-                                            </p>
-                                        </motion.div>
-                                    )}
-                                </AnimatePresence>
+                                    {/* Advanced Hover Card Content */}
+                                    <AnimatePresence>
+                                        {isHovered && (
+                                            <motion.div
+                                                initial={{ opacity: 0 }}
+                                                animate={{ opacity: 1 }}
+                                                exit={{ opacity: 0 }}
+                                                transition={{ duration: 0.2 }}
+                                                className="absolute inset-0 bg-gradient-to-t from-[#141414] via-[#141414]/90 to-[#141414]/20 flex flex-col justify-end p-3 md:p-4 pointer-events-none"
+                                            >
+                                                {(logoSrc && !logoErrors[item.id]) ? (
+                                                    <div className="mb-2">
+                                                        <img
+                                                            src={logoSrc}
+                                                            alt={item.title}
+                                                            className="max-h-8 md:max-h-12 w-auto drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)] object-contain"
+                                                            loading="lazy"
+                                                            onError={() => setLogoErrors(prev => ({...prev, [item.id]: true}))}
+                                                        />
+                                                    </div>
+                                                ) : (
+                                                    <h4 className="text-sm md:text-lg font-bold text-white leading-tight line-clamp-1 mb-2 drop-shadow-md shadow-black">
+                                                        {item.title}
+                                                    </h4>
+                                                )}
+                                                
+                                                <div className="flex items-center gap-2 mb-2">
+                                                    <span className="text-[11px] md:text-sm font-bold text-[#46d369]">
+                                                        {matchPercentage}% Match
+                                                    </span>
+                                                    {item.year && item.year > 1900 && (
+                                                        <span className="text-[11px] md:text-xs text-white/70">
+                                                            {item.year}
+                                                        </span>
+                                                    )}
+                                                    <span className="border border-white/40 text-white/70 px-1 rounded-sm text-[8px] md:text-[10px] font-bold tracking-widest">
+                                                        HD
+                                                    </span>
+                                                </div>
 
-                                <div
-                                    className="absolute inset-0 pointer-events-none rounded-lg transition-all"
-                                    style={{
-                                        border: isHovered ? `2px solid ${colors.primary}` : '2px solid transparent',
-                                    }}
-                                />
-                            </div>
-
-                            <h4 className="text-sm font-semibold mt-2 line-clamp-1 text-white/90">
-                                {item.title}
-                            </h4>
-                        </motion.div>
-                    );
-                })}
+                                                <div className="flex items-center gap-2 text-[10px] md:text-[11px] text-white/60">
+                                                    {item.genre_names?.slice(0, 3).map((g, i) => (
+                                                        <React.Fragment key={g}>
+                                                            <span>{g}</span>
+                                                            {i < (item.genre_names?.slice(0, 3).length || 0) - 1 && (
+                                                                <span className="w-1 h-1 rounded-full bg-white/40" />
+                                                            )}
+                                                        </React.Fragment>
+                                                    )) || <span>Explosive • Action • Thriller</span>}
+                                                </div>
+                                            </motion.div>
+                                        )}
+                                    </AnimatePresence>
+                                </div>
+                            </motion.div>
+                        );
+                    })}
+                </div>
             </div>
-
-            <div
-                className="absolute left-0 top-0 bottom-0 w-14 pointer-events-none"
-                style={{
-                    background: 'linear-gradient(90deg, rgba(0,0,0,0.9) 0%, transparent 100%)',
-                }}
-            />
-            <div
-                className="absolute right-0 top-0 bottom-0 w-16 pointer-events-none"
-                style={{
-                    background: 'linear-gradient(270deg, rgba(0,0,0,0.95) 0%, transparent 100%)',
-                }}
-            />
         </div>
     );
 }

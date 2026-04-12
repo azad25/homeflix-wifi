@@ -1,9 +1,9 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import React, { useEffect, useMemo, useState, useRef } from "react";
+import { motion, AnimatePresence, Reorder } from "framer-motion";
 import { getApiUrl } from "@/lib/api";
-import { Plus, Trash2, Eye, EyeOff, Settings, RefreshCw, ExternalLink, Edit2, Copy } from "lucide-react";
+import { Plus, Trash2, Eye, EyeOff, Settings, RefreshCw, ExternalLink, Edit2, Copy, GripVertical } from "lucide-react";
 import WidgetEditor from "@/components/widgets/config/WidgetEditor";
 import { useDialog } from "@/components/providers/DialogProvider";
 import { Widget } from "@/types/widgets";
@@ -34,6 +34,12 @@ export default function PageManager() {
   const [editingWidget, setEditingWidget] = useState<Widget | null>(null);
   const [selectedContent, setSelectedContent] = useState<any[]>([]);
   const [selectedGenres, setSelectedGenres] = useState<number[]>([]);
+  const [reordering, setReordering] = useState(false);
+  const latestWidgetsRef = useRef<Widget[]>([]);
+
+  useEffect(() => {
+    latestWidgetsRef.current = blueprintWidgets;
+  }, [blueprintWidgets]);
 
   const fetchPages = async () => {
     try {
@@ -105,7 +111,8 @@ export default function PageManager() {
       const res = await fetch(`${apiUrl}/api/widgets/page/${encodeURIComponent(slug)}`);
       if (res.ok) {
         const data = await res.json();
-        setBlueprintWidgets(Array.isArray(data) ? data : []);
+        const sorted = Array.isArray(data) ? [...data].sort((a, b) => a.position - b.position) : [];
+        setBlueprintWidgets(sorted);
       } else {
         setBlueprintWidgets([]);
       }
@@ -126,6 +133,50 @@ export default function PageManager() {
   const closeWidgetManager = () => {
     setActivePageSlug(null);
     setBlueprintWidgets([]);
+  };
+
+  const handleReorder = (newOrder: Widget[]) => {
+    setBlueprintWidgets(newOrder);
+  };
+
+  const saveOrder = async () => {
+    // Prevent double clicking / multiple fire
+    if (reordering) return;
+    setReordering(true);
+    
+    // Always map the true latest UI ordered arrangement!
+    const orderedWidgets = latestWidgetsRef.current;
+    
+    const updated = orderedWidgets.map((w, index) => ({
+      ...w,
+      position: index + 1,
+    }));
+    
+    // Optimistic cache update
+    setBlueprintWidgets(updated);
+
+    try {
+      const payload = {
+        widgets: updated.map((w) => ({
+          id: w.id,
+          position: w.position
+        }))
+      };
+
+      const response = await fetch(`${apiUrl}/api/widgets/reorder`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) throw new Error('Failed to reorder');
+      widgetCache.invalidate(activePageSlug || 'home');
+    } catch (error) {
+      setError('Failed to reorder widgets');
+      if (activePageSlug) fetchBlueprint(activePageSlug);
+    } finally {
+      setReordering(false);
+    }
   };
 
   const saveWidget = async (widget: Partial<Widget>) => {
@@ -369,15 +420,22 @@ export default function PageManager() {
                       ) : blueprintWidgets.length === 0 ? (
                         <div className="text-white/60 text-sm">No widgets configured yet. Use "Manage Widgets" to add one.</div>
                       ) : (
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                          {blueprintWidgets
-                            .sort((a, b) => a.position - b.position)
-                            .map((widget) => (
-                              <div key={widget.id} className="bg-black/30 border border-white/10 rounded-lg p-3 text-sm text-white/80">
-                                <div className="flex items-center justify-between mb-2">
-                                  <span className="font-semibold text-white">{widget.name || widget.type}</span>
-                                  <span className="text-xs text-white/50">#{widget.position}</span>
+                        <Reorder.Group axis="y" values={blueprintWidgets} onReorder={handleReorder} className="grid grid-cols-1 gap-3">
+                          {blueprintWidgets.map((widget) => (
+                              <Reorder.Item
+                                key={widget.id}
+                                value={widget}
+                                onDragEnd={() => saveOrder()}
+                                className="bg-black/30 border border-white/10 rounded-lg p-3 text-sm text-white/80 flex items-center gap-3 transition-colors relative"
+                              >
+                                <div className="cursor-grab hover:text-white text-white/40 active:cursor-grabbing">
+                                  <GripVertical className="w-5 h-5 pointer-events-none" />
                                 </div>
+                                <div className="flex-1">
+                                  <div className="flex items-center justify-between mb-2">
+                                    <span className="font-semibold text-white">{widget.name || widget.type}</span>
+                                    <span className="text-xs text-white/50">#{widget.position}</span>
+                                  </div>
                                 <div className="flex flex-wrap gap-2 text-xs text-white/60 mb-3">
                                   <span className="px-2 py-1 bg-white/10 rounded-full">{widget.type}</span>
                                   <span className="px-2 py-1 bg-white/10 rounded-full">layout: {widget.layout}</span>
@@ -423,9 +481,10 @@ export default function PageManager() {
                                     <Trash2 className="w-4 h-4" />
                                   </button>
                                 </div>
-                              </div>
-                            ))}
-                        </div>
+                                </div>
+                              </Reorder.Item>
+                          ))}
+                        </Reorder.Group>
                       )}
                     </motion.div>
                   )}

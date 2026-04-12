@@ -2515,6 +2515,9 @@ func (s *MediaScanner) processVideoFile(path string, info os.FileInfo) error {
 							media.Popularity = tmdbMetadata.Popularity
 							media.VoteCount = tmdbMetadata.VoteCount
 							media.Adult = tmdbMetadata.Adult
+							if tmdbMetadata.Certification != "" {
+								media.Certification = tmdbMetadata.Certification
+							}
 
 							// Store TMDB backdrop, poster, and trailer URLs
 							if tmdbMetadata.BackdropURL != "" {

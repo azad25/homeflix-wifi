@@ -4222,7 +4222,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
 
           {/* Controls Overlay */}
           <AnimatePresence>
-            {showControls && (
+            {(showControls && !showPauseScreen) && (
               <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}

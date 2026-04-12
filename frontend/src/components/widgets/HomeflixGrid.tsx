@@ -135,22 +135,27 @@ const HomeflixCard: React.FC<HomeflixCardProps> = ({
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      whileHover={{
+          scale: 1.25,
+          zIndex: 50,
+          transition: { duration: 0.3, delay: 0.25, ease: 'easeOut' },
+      }}
       transition={{ duration: 0.5, delay: delay / 1000 }}
-      className="group relative cursor-pointer"
+      className="group relative cursor-pointer rounded-md overflow-visible"
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
       onClick={handleCardClick}
     >
       {/* Main Card Container */}
-      <div className="relative aspect-[16/9] bg-gray-800 rounded-lg overflow-hidden shadow-lg transition-all duration-300 group-hover:scale-105 group-hover:shadow-2xl">
+      <div className="relative aspect-video bg-[#141414] rounded-md overflow-hidden shadow-md border border-transparent group-hover:border-white/10 transition-colors">
         {/* Background Image */}
         {posterUrl && !imageError && (
           <img
-            src={posterUrl}
+            src={posterUrl || ''}
             alt={media.title}
-            className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-300 ${imageLoaded ? 'opacity-100' : 'opacity-0'
+            className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-300 bg-[#141414] ${imageLoaded ? 'opacity-100' : 'opacity-0'
               }`}
             onLoad={() => setImageLoaded(true)}
             onError={() => setImageError(true)}
@@ -158,95 +163,89 @@ const HomeflixCard: React.FC<HomeflixCardProps> = ({
           />
         )}
 
-        {/* Gradient Overlay */}
-        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
-
-        {/* Year Badge */}
-        {(() => {
-          // Get year from multiple sources
-          let year = media.year;
-          if (!year || year <= 1900) {
-            if (media.release_date) {
-              year = new Date(media.release_date).getFullYear();
-            } else if (media.first_air_date) {
-              year = new Date(media.first_air_date).getFullYear();
-            }
-          }
-          
-          if (year && year > 1900) {
-            return (
-              <div className="absolute top-4 right-4 flex items-center gap-1 bg-black/70 backdrop-blur-sm px-2 py-1 rounded-full">
-                <span className="text-xs font-medium text-white">
-                  {year}
-                </span>
-              </div>
-            );
-          }
-          return null;
-        })()}
+        {/* Default Shadow Overlay at Bottom */}
+        <div className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/80 via-black/20 to-transparent pointer-events-none transition-opacity duration-300"
+             style={{ opacity: isHovered ? 0 : 1 }}
+        />
+        
+        {/* Title fallback if not hovered */}
+        <div className="absolute inset-x-0 bottom-0 p-3 pointer-events-none transition-opacity duration-300" style={{ opacity: isHovered ? 0 : 1 }}>
+            {(logoUrl && !logoError) ? (
+                <img src={logoUrl || ''} className="max-h-6 md:max-h-8 w-auto object-contain drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)]" />
+            ) : (
+                <h4 className="text-[13px] md:text-[15px] font-semibold text-white drop-shadow-md truncate">
+                    {media.title}
+                </h4>
+            )}
+        </div>
 
         {/* Hover Overlay */}
         <AnimatePresence>
           {isHovered && (
             <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="absolute inset-0 bg-black/60 flex items-center justify-center"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.2 }}
+                className="absolute inset-0 bg-gradient-to-t from-[#141414] via-[#141414]/90 to-[#141414]/20 flex flex-col justify-end p-3 md:p-4 pointer-events-none"
+                style={{ zIndex: 10 }}
             >
-              <div className="flex items-center gap-3">
-                <motion.button
-                  initial={{ scale: 0 }}
-                  animate={{ scale: 1 }}
-                  exit={{ scale: 0 }}
-                  transition={{ delay: 0.1 }}
-                  onClick={handlePlay}
-                  className="flex items-center justify-center w-12 h-12 bg-white/20 hover:bg-white/30 backdrop-blur-sm border border-white/30 rounded-full transition-all duration-200 hover:scale-110"
-                >
-                  <Play className="w-5 h-5 text-white ml-0.5" />
-                </motion.button>
-                <motion.button
-                  initial={{ scale: 0 }}
-                  animate={{ scale: 1 }}
-                  exit={{ scale: 0 }}
-                  transition={{ delay: 0.2 }}
-                  onClick={handleInfo}
-                  className="flex items-center justify-center w-12 h-12 bg-white/20 hover:bg-white/30 backdrop-blur-sm border border-white/30 rounded-full transition-all duration-200 hover:scale-110"
-                >
-                  <Info className="w-5 h-5 text-white" />
-                </motion.button>
-              </div>
+                {(logoUrl && !logoError) ? (
+                     <div className="mb-2">
+                         <img 
+                            src={logoUrl || ''} 
+                            className="max-h-8 md:max-h-12 w-auto drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)] object-contain" 
+                            onError={() => setLogoError(true)}
+                         />
+                     </div>
+                ) : (
+                    <h4 className="text-sm md:text-lg font-bold text-white leading-tight line-clamp-1 mb-2 drop-shadow-md shadow-black">
+                        {media.title}
+                    </h4>
+                )}
+                <div className="flex items-center gap-2 mb-2">
+                    <span className="text-[11px] md:text-sm font-bold text-[#46d369]">
+                        {media.rating ? Math.floor(Number(media.rating) * 10) : 85 + Math.floor(Math.random() * 14)}% Match
+                    </span>
+                    {(() => {
+                      let year = media.year;
+                      if (!year || year <= 1900) {
+                        if (media.release_date) year = new Date(media.release_date as string).getFullYear();
+                        else if (media.first_air_date) year = new Date(media.first_air_date as string).getFullYear();
+                      }
+                      if (year && year > 1900) {
+                        return <span className="text-[11px] md:text-xs text-white/70">{year}</span>;
+                      }
+                      return null;
+                    })()}
+                    <span className="border border-white/40 text-white/70 px-1 rounded-sm text-[8px] md:text-[10px] font-bold tracking-widest">
+                        HD
+                    </span>
+                </div>
+
+                <div className="flex items-center gap-2 text-[10px] md:text-[11px] text-white/60">
+                    {media.genre_names?.slice(0, 3).map((g, i) => (
+                        <React.Fragment key={g}>
+                            <span>{g}</span>
+                            {i < (media.genre_names?.slice(0, 3).length || 0) - 1 && (
+                                <span className="w-1 h-1 rounded-full bg-white/40" />
+                            )}
+                        </React.Fragment>
+                    )) || <span>Curated • Cinema</span>}
+                </div>
             </motion.div>
           )}
         </AnimatePresence>
 
         {/* Fallback for missing images */}
         {(!posterUrl || imageError) && (
-          <div className="absolute inset-0 flex items-center justify-center bg-gray-800">
+          <div className="absolute inset-0 flex items-center justify-center bg-[#141414]">
             <div className="text-center text-gray-400">
-              <div className="w-16 h-16 mx-auto mb-2 bg-gray-700 rounded-lg flex items-center justify-center">
+              <div className="w-16 h-16 mx-auto mb-2 bg-[#2a2a2a] rounded-lg flex items-center justify-center">
                 <Play className="w-8 h-8" />
               </div>
-              <p className="text-sm font-medium">{media.title}</p>
             </div>
           </div>
-        )}
-      </div>
-
-      {/* Title - Logo or Text */}
-      <div className="mt-1 px-1 h-10 flex items-center justify-center">
-        {logoUrl && !logoError ? (
-          <img
-            src={logoUrl}
-            alt={media.title}
-            className="max-h-10 w-auto filter drop-shadow-md mx-auto"
-            loading="lazy"
-            onError={() => setLogoError(true)}
-          />
-        ) : (
-          <h3 className="text-red-500 font-bold text-base line-clamp-1 group-hover:text-red-400 transition-colors text-center">
-            {media.title}
-          </h3>
         )}
       </div>
     </motion.div>
@@ -271,7 +270,7 @@ export default function HomeflixGrid({
   const [canScrollRight, setCanScrollRight] = useState(true);
   const [isHovered, setIsHovered] = useState(false);
 
-  const itemWidth = 280; // Width of each card
+  const itemWidth = 340; // Width of each card
   const gap = 16; // Gap between cards
   const scrollAmount = itemWidth * 4 + gap * 3; // Scroll 4 items at a time
 
@@ -377,11 +376,12 @@ export default function HomeflixGrid({
         <div
           ref={scrollRef}
           onScroll={updateScrollButtons}
-          className="flex gap-4 overflow-x-auto scrollbar-hide px-4 md:px-12 pb-4"
+          className="flex gap-4 overflow-x-auto scrollbar-hide px-4 md:px-12 py-10"
           style={{
             scrollbarWidth: "none",
             msOverflowStyle: "none",
-            scrollSnapType: "x mandatory"
+            scrollSnapType: "x mandatory",
+            overflowY: "visible"
           }}
         >
           {displayMedia.map((mediaItem, index) => (
