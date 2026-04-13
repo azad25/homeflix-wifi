@@ -343,13 +343,6 @@ func (s *OpenSubtitlesService) DownloadSubtitle(fileID int) (*OpenSubtitlesDownl
 	
 	fmt.Printf("🔍 Validating file_id: %d\n", fileID)
 
-	// Ensure we're logged in
-	if s.token == "" {
-		if err := s.Login(); err != nil {
-			return nil, nil, fmt.Errorf("failed to login: %v", err)
-		}
-	}
-
 	downloadReq := SubtitleDownloadRequest{
 		FileID: fileID,
 	}
@@ -361,7 +354,7 @@ func (s *OpenSubtitlesService) DownloadSubtitle(fileID int) (*OpenSubtitlesDownl
 
 	fmt.Printf("📋 Download request JSON: %s\n", string(jsonData))
 
-	// Helper function to create a fresh request
+	// Helper function to create a fresh request (without authentication for dev mode)
 	createRequest := func() *http.Request {
 		reqBody := bytes.NewReader(jsonData)
 		req, err := http.NewRequest("POST", openSubtitlesBaseURL+"/download", reqBody)
@@ -370,19 +363,18 @@ func (s *OpenSubtitlesService) DownloadSubtitle(fileID int) (*OpenSubtitlesDownl
 		}
 
 		req.Header.Set("Api-Key", s.apiKey)
-		req.Header.Set("Authorization", "Bearer "+s.token)
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Accept", "application/json")
 		req.Header.Set("User-Agent", "HomeFlix v1.0")
 		
+		// Note: Not using Authorization header for dev mode (anonymous downloads)
+		// If you need authentication, uncomment the line below and ensure Login() is called
+		// req.Header.Set("Authorization", "Bearer "+s.token)
+		
 		return req
 	}
 
-	tokenPreview := s.token
-	if len(tokenPreview) > 20 {
-		tokenPreview = tokenPreview[:20]
-	}
-	fmt.Printf("📤 Requesting download for fileID: %d with token: %s...\n", fileID, tokenPreview)
+	fmt.Printf("📤 Requesting download for fileID: %d (anonymous/dev mode)\n", fileID)
 
 	// Create initial request and use retry logic with exponential backoff
 	resp, err := s.retryWithBackoff(createRequest, 3) // Retry up to 3 times
@@ -392,39 +384,6 @@ func (s *OpenSubtitlesService) DownloadSubtitle(fileID int) (*OpenSubtitlesDownl
 	defer resp.Body.Close()
 
 	fmt.Printf("📊 Download Response Status: %d\n", resp.StatusCode)
-
-	if resp.StatusCode == http.StatusUnauthorized {
-		fmt.Println("🔄 Token expired, attempting re-login...")
-		// Token might be expired, try to login again
-		if err := s.Login(); err != nil {
-			return nil, nil, fmt.Errorf("failed to re-login: %v", err)
-		}
-		
-		// Update the createRequest function to use new token
-		createRequest = func() *http.Request {
-			reqBody := bytes.NewReader(jsonData)
-			req, err := http.NewRequest("POST", openSubtitlesBaseURL+"/download", reqBody)
-			if err != nil {
-				return nil
-			}
-
-			req.Header.Set("Api-Key", s.apiKey)
-			req.Header.Set("Authorization", "Bearer "+s.token)
-			req.Header.Set("Content-Type", "application/json")
-			req.Header.Set("Accept", "application/json")
-			req.Header.Set("User-Agent", "HomeFlix v1.0")
-			
-			return req
-		}
-		
-		// Retry the request with new token
-		resp, err = s.retryWithBackoff(createRequest, 3)
-		if err != nil {
-			return nil, nil, fmt.Errorf("retry download request failed: %v", err)
-		}
-		defer resp.Body.Close()
-		fmt.Printf("📊 Retry Response Status: %d\n", resp.StatusCode)
-	}
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
