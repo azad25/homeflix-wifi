@@ -33,6 +33,10 @@ function GenreCard({ item, logoSrc, imageSrc, logoErrors, setLogoErrors, onCardC
     const apiUrl = getApiUrl();
     const rating = item.rating && item.rating > 0 ? item.rating.toFixed(1) : null;
     const matchPercentage = rating ? Math.floor(Number(rating) * 10) : 85 + Math.floor(Math.random() * 14);
+    const [titlePosition] = useState<'left' | 'center' | 'right'>(() => {
+        const positions: Array<'left' | 'center' | 'right'> = ['left', 'center', 'right'];
+        return positions[Math.floor(Math.random() * positions.length)];
+    });
 
     const {
         isHovered,
@@ -55,6 +59,9 @@ function GenreCard({ item, logoSrc, imageSrc, logoErrors, setLogoErrors, onCardC
             videoRef.current.volume = 0.5;
         }
     }, [setVideoReady, videoRef]);
+
+    const titlePositionClass =
+        titlePosition === 'center' ? 'items-center text-center' : titlePosition === 'right' ? 'items-end text-right' : 'items-start text-left';
 
     return (
         <motion.div
@@ -128,7 +135,7 @@ function GenreCard({ item, logoSrc, imageSrc, logoErrors, setLogoErrors, onCardC
                 />
                 
                 {/* Title fallback if not hovered */}
-                <div className="absolute inset-x-0 bottom-0 p-3 pointer-events-none transition-opacity duration-300" style={{ opacity: isHovered ? 0 : 1 }}>
+                <div className={`absolute inset-x-0 bottom-0 p-3 pointer-events-none transition-opacity duration-300 flex flex-col ${titlePositionClass}`} style={{ opacity: isHovered ? 0 : 1 }}>
                     {(logoSrc && !logoErrors[item.id]) ? (
                         <img src={logoSrc} className="max-h-6 md:max-h-8 w-auto object-contain drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)]" />
                     ) : (
@@ -151,9 +158,9 @@ function GenreCard({ item, logoSrc, imageSrc, logoErrors, setLogoErrors, onCardC
                         >
                             {/* When video is playing: show logo + genres over the video */}
                             {shouldPlay && videoReady ? (
-                                <div className="p-3 md:p-4">
+                                <div className="p-3 md:p-4 text-left">
                                     <div className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black/70 to-transparent pointer-events-none" />
-                                    <div className="relative z-10">
+                                    <div className="relative z-10 flex flex-col items-start">
                                         {(logoSrc && !logoErrors[item.id]) ? (
                                             <img
                                                 src={logoSrc}
@@ -182,7 +189,7 @@ function GenreCard({ item, logoSrc, imageSrc, logoErrors, setLogoErrors, onCardC
                                 </div>
                             ) : (
                                 /* When hovered but no video: show full metadata */
-                                <div className="absolute inset-0 bg-gradient-to-t from-[#141414] via-[#141414]/90 to-[#141414]/20 flex flex-col justify-end p-3 md:p-4">
+                                <div className="absolute inset-0 bg-gradient-to-t from-[#141414] via-[#141414]/90 to-[#141414]/20 flex flex-col justify-end p-3 md:p-4 text-left items-start">
                                     {(logoSrc && !logoErrors[item.id]) ? (
                                         <div className="mb-2">
                                             <img

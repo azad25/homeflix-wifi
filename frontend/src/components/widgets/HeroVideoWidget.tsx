@@ -11,31 +11,169 @@ import { useNavigate } from '@/hooks/useNavigate';
 import { useRecommendationScore } from '@/lib/swr-api';
 import { useMyList } from '@/hooks/useMyList';
 import MyListTooltip from '@/components/ui/MyListTooltip';
+import GenreStyledText from '@/components/GenreStyledText';
 
 export type HeroMode = "preview" | "trailer" | "mixed";
 
 interface HeroVideoWidgetProps {
-  media: Media[];
-  mode: HeroMode;
+  media: Media | Media[];
+  mode?: HeroMode;
   autoPlay?: boolean;
   slideDurationMs?: number;
   className?: string;
-  config?: any;
+  config?: {
+    showTag?: boolean;
+    tagText?: string;
+    tagIcon?: string;
+    tagColor?: string;
+    showHeading?: boolean;
+    headingText?: string;
+  };
   isMuted?: boolean;
 }
 
+// Genre theme helper
 const getGenreTheme = (genre: string = "") => {
   const g = genre.toLowerCase();
-  if (g.includes("action")) return { text: "text-orange-400", bg: "bg-orange-500/10", border: "border-orange-500/20", fill: "fill-orange-400", stroke: "stroke-orange-400" };
-  if (g.includes("sci") || g.includes("science")) return { text: "text-cyan-400", bg: "bg-cyan-500/10", border: "border-cyan-500/20", fill: "fill-cyan-400", stroke: "stroke-cyan-400" };
-  if (g.includes("drama")) return { text: "text-purple-400", bg: "bg-purple-500/10", border: "border-purple-500/20", fill: "fill-purple-400", stroke: "stroke-purple-400" };
-  if (g.includes("horror")) return { text: "text-red-500", bg: "bg-red-500/10", border: "border-red-500/20", fill: "fill-red-500", stroke: "stroke-red-500" };
-  if (g.includes("comedy")) return { text: "text-yellow-400", bg: "bg-yellow-500/10", border: "border-yellow-500/20", fill: "fill-yellow-400", stroke: "stroke-yellow-400" };
-  if (g.includes("romance")) return { text: "text-pink-400", bg: "bg-pink-500/10", border: "border-pink-500/20", fill: "fill-pink-400", stroke: "stroke-pink-400" };
-  if (g.includes("thriller")) return { text: "text-emerald-400", bg: "bg-emerald-500/10", border: "border-emerald-500/20", fill: "fill-emerald-400", stroke: "stroke-emerald-400" };
-  if (g.includes("fantasy")) return { text: "text-indigo-400", bg: "bg-indigo-500/10", border: "border-indigo-500/20", fill: "fill-indigo-400", stroke: "stroke-indigo-400" };
-  if (g.includes("animation")) return { text: "text-blue-400", bg: "bg-blue-500/10", border: "border-blue-500/20", fill: "fill-blue-400", stroke: "stroke-blue-400" };
-  return { text: "text-white/90", bg: "bg-white/10", border: "border-white/20", fill: "fill-white", stroke: "stroke-white" };
+  
+  if (g.includes("horror") || g.includes("thriller")) {
+    return {
+      bg: "bg-red-600/30",
+      text: "text-red-100",
+      border: "border-red-500/50"
+    };
+  }
+  
+  if (g.includes("sci") || g.includes("science") || g.includes("fantasy")) {
+    return {
+      bg: "bg-blue-600/30",
+      text: "text-blue-100",
+      border: "border-blue-500/50"
+    };
+  }
+  
+  if (g.includes("action") || g.includes("adventure")) {
+    return {
+      bg: "bg-orange-600/30",
+      text: "text-orange-100",
+      border: "border-orange-500/50"
+    };
+  }
+  
+  if (g.includes("romance")) {
+    return {
+      bg: "bg-pink-600/30",
+      text: "text-pink-100",
+      border: "border-pink-500/50"
+    };
+  }
+  
+  if (g.includes("comedy")) {
+    return {
+      bg: "bg-yellow-600/30",
+      text: "text-yellow-100",
+      border: "border-yellow-500/50"
+    };
+  }
+  
+  if (g.includes("drama")) {
+    return {
+      bg: "bg-purple-600/30",
+      text: "text-purple-100",
+      border: "border-purple-500/50"
+    };
+  }
+  
+  if (g.includes("crime") || g.includes("mystery")) {
+    return {
+      bg: "bg-gray-600/30",
+      text: "text-gray-100",
+      border: "border-gray-500/50"
+    };
+  }
+  
+  if (g.includes("documentary")) {
+    return {
+      bg: "bg-teal-600/30",
+      text: "text-teal-100",
+      border: "border-teal-500/50"
+    };
+  }
+  
+  // Default theme
+  return {
+    bg: "bg-white/20",
+    text: "text-white",
+    border: "border-white/30"
+  };
+};
+
+// Genre font helper
+const useGenreFont = (genre: string = "") => {
+  const g = genre.toLowerCase();
+  
+  if (g.includes("horror") || g.includes("thriller")) {
+    return {
+      fontFamily: "'Inter', sans-serif",
+      style: "font-medium",
+      letterSpacing: "tracking-normal"
+    };
+  }
+  
+  if (g.includes("sci") || g.includes("science")) {
+    return {
+      fontFamily: "'Space Grotesk', sans-serif",
+      style: "font-medium",
+      letterSpacing: "tracking-wide"
+    };
+  }
+  
+  if (g.includes("romance")) {
+    return {
+      fontFamily: "'Lora', serif",
+      style: "font-normal italic",
+      letterSpacing: "tracking-normal"
+    };
+  }
+  
+  if (g.includes("action")) {
+    return {
+      fontFamily: "'Rajdhani', sans-serif",
+      style: "font-semibold",
+      letterSpacing: "tracking-wide"
+    };
+  }
+  
+  if (g.includes("comedy")) {
+    return {
+      fontFamily: "'Inter', sans-serif",
+      style: "font-medium",
+      letterSpacing: "tracking-normal"
+    };
+  }
+  
+  if (g.includes("drama")) {
+    return {
+      fontFamily: "'Crimson Pro', serif",
+      style: "font-normal",
+      letterSpacing: "tracking-normal"
+    };
+  }
+  
+  if (g.includes("fantasy") || g.includes("adventure")) {
+    return {
+      fontFamily: "'Merriweather', serif",
+      style: "font-normal",
+      letterSpacing: "tracking-normal"
+    };
+  }
+  
+  // Default
+  return {
+    fontFamily: "'Inter', sans-serif",
+    style: "font-normal",
+    letterSpacing: "tracking-normal"
+  };
 };
 
 export default function HeroVideoWidget({
@@ -98,7 +236,6 @@ export default function HeroVideoWidget({
   const [progress, setProgress] = useState(0);
   const progressAnimationFrameRef = useRef<number | null>(null);
   const startTimeRef = useRef<number>(0);
-  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
 
   // Video player overlay state
   const [showVideoPlayer, setShowVideoPlayer] = useState(false);
@@ -915,6 +1052,7 @@ export default function HeroVideoWidget({
   // Dynamic Theme
   const primaryGenre = current.genre_names?.[0] || current.genres?.[0]?.name || "";
   const theme = getGenreTheme(primaryGenre);
+  const genreFont = useGenreFont(primaryGenre);
 
   return (
     <div className={`relative w-full h-[450px] md:h-[550px] lg:h-[650px] xl:h-[750px] overflow-hidden rounded-2xl shadow-2xl ${className}`}>
@@ -977,105 +1115,247 @@ export default function HeroVideoWidget({
       {/* Gradients */}
       <div className="absolute inset-0 bg-gradient-to-r from-black/95 via-black/60 to-transparent" />
       <div className="absolute inset-0 bg-gradient-to-t from-black via-black/20 to-transparent" />
+      
+      {/* Info section overlay - fades into video */}
+      <div className="absolute bottom-0 left-0 right-0 h-2/3 bg-gradient-to-t from-black/95 via-black/70 to-transparent pointer-events-none" />
 
       {/* Content */}
       <AnimatePresence mode="wait">
-        <motion.div key={current.id} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 10, transition: { duration: 0.2 } }} transition={{ delay: 0.1, duration: 0.4 }} className="absolute bottom-12 left-8 right-8 z-20">
-          <div className="flex items-end gap-6">
-            {/* Poster */}
-            <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.2, duration: 0.3 }} className="hidden md:block relative">
-              <div className={`absolute -inset-1 bg-gradient-to-r from-red-500/30 to-purple-500/30 rounded-lg blur-lg`} />
-              <img src={getPosterUrl(current)} alt={current.title} onError={(e) => { const target = e.target as HTMLImageElement; if (current.tmdb_poster_url && target.src !== current.tmdb_poster_url) { target.src = current.tmdb_poster_url; } else { target.src = `${apiUrl}/api/thumbnails/${current.id}`; } }} className="relative w-28 md:w-32 lg:w-36 aspect-[2/3] rounded-lg object-cover shadow-2xl ring-1 ring-white/20" />
-            </motion.div>
+        <motion.div key={current.id} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 10, transition: { duration: 0.2 } }} transition={{ delay: 0.1, duration: 0.4 }} className="absolute bottom-12 left-8 right-8 z-20 pointer-events-auto">
+          <div className="flex flex-col gap-4">
+            {/* Logo/Title - Clickable - Moved to top left */}
+            <button
+              onClick={() => navigateToMedia(navigate, current)}
+              className="bg-transparent border-0 p-0 m-0 text-left focus:outline-none cursor-pointer group self-start"
+              style={{ display: 'block' }}
+            >
+              {logoUrl ? (
+                <motion.img
+                  src={logoUrl}
+                  alt={current.title}
+                  className="max-h-16 md:max-h-24 w-auto drop-shadow-[0_4px_20px_rgba(0,0,0,0.8)] transition-transform duration-300 group-hover:scale-[1.02]"
+                  initial={{ opacity: 0, scale: 0.9 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ delay: 0.4, duration: 0.4 }}
+                />
+              ) : (
+                <motion.h2
+                  className={`text-2xl md:text-3xl lg:text-4xl text-white drop-shadow-[0_4px_20px_rgba(0,0,0,0.8)] transition-colors duration-300 group-hover:text-white ${genreFont.style} ${genreFont.letterSpacing}`}
+                  style={{ fontFamily: genreFont.fontFamily }}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.4, duration: 0.4 }}
+                >
+                  {current.title}
+                </motion.h2>
+              )}
+            </button>
 
             <div className="flex-1 min-w-0">
-              {/* Logo/Title - Clickable */}
-              <button
-                onClick={() => navigateToMedia(navigate, current)}
-                className="bg-transparent border-0 p-0 m-0 text-left focus:outline-none cursor-pointer group"
-                style={{ display: 'block' }}
-              >
-                {logoUrl ? (
-                  <motion.img
-                    src={logoUrl}
-                    alt={current.title}
-                    className="max-h-16 md:max-h-24 w-auto mb-4 drop-shadow-[0_4px_20px_rgba(0,0,0,0.8)] transition-transform duration-300 group-hover:scale-[1.02]"
-                    initial={{ opacity: 0, scale: 0.9 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    transition={{ delay: 0.4, duration: 0.4 }}
-                  />
-                ) : (
-                  <motion.h2
-                    className="text-2xl md:text-3xl lg:text-4xl font-bold mb-3 text-white drop-shadow-[0_4px_20px_rgba(0,0,0,0.8)] transition-colors duration-300 group-hover:text-white"
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.4, duration: 0.4 }}
-                  >
-                    {current.title}
-                  </motion.h2>
-                )}
-              </button>
 
-              {/* Badges - Dynamic Colors & Reduced Sizes */}
-              <motion.div className="flex flex-wrap items-center gap-2 text-xs mb-4" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.5, duration: 0.4 }}>
+              {/* Badges - No background, color-coded */}
+              <motion.div className="flex flex-wrap items-center gap-3 text-xs mb-2 md:mb-3" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.5, duration: 0.4 }}>
                 {recommendationScore && (
-                  <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full font-semibold backdrop-blur-sm border ${theme.bg} ${theme.text} ${theme.border}`}>
+                  <span className="inline-flex items-center gap-1 font-semibold text-green-400">
                     <ThumbsUp className="w-3 h-3" />
-                    {recommendationScore}% Match
+                    <span className="text-xs">{recommendationScore}% Match</span>
                   </span>
                 )}
                 {releaseYear && (
-                  <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full backdrop-blur-sm border ${theme.bg} ${theme.text} ${theme.border}`}>
-                    <Calendar className="w-3 h-3" />
-                    {releaseYear}
+                  <span className="inline-flex items-center gap-1.5 font-bold text-white text-sm">
+                    <Calendar className="w-3.5 h-3.5" />
+                    <span>{releaseYear}</span>
                   </span>
                 )}
                 {displayRating && (
-                  <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full backdrop-blur-sm border ${theme.bg} ${theme.text} ${theme.border}`}>
+                  <span className="inline-flex items-center gap-1 font-semibold text-yellow-400">
                     <Star className="w-3 h-3 fill-current" />
-                    {displayRating.toFixed(1)}
+                    <span className="text-xs">{displayRating.toFixed(1)}</span>
                   </span>
                 )}
                 {current.quality && (
-                  <span className={`px-2 py-0.5 rounded backdrop-blur-sm border font-bold ${theme.bg} ${theme.text} ${theme.border}`}>
-                    {current.quality.toUpperCase().includes('4K') || current.quality.includes('2160') ? '4K' : 'HD'}
+                  <span className="font-bold text-white/80">
+                    <span className="text-xs">{current.quality.toUpperCase().includes('4K') || current.quality.includes('2160') ? '4K' : 'HD'}</span>
                   </span>
                 )}
               </motion.div>
 
-              {/* Genres */}
+              <motion.p className="text-white/70 text-xs md:text-sm max-w-lg line-clamp-2 mb-2 md:mb-3 leading-relaxed" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.6, duration: 0.4 }}>
+                <GenreStyledText genres={current.genre_names || current.genres?.map((g: any) => g.name) || []}>
+                  {current.description || current.short_desc || current.long_desc}
+                </GenreStyledText>
+              </motion.p>
+
+              {/* Genres - Below description without background */}
               {((current.genre_names?.length ?? 0) > 0 || (current.genres?.length ?? 0) > 0) && (
                 <motion.div
-                  className="flex flex-wrap items-center gap-2 mb-4"
+                  className="flex flex-wrap items-center gap-2 mb-2 md:mb-3"
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
-                  transition={{ delay: 0.55, duration: 0.4 }}
+                  transition={{ delay: 0.65, duration: 0.4 }}
                 >
                   {(current.genre_names || current.genres?.map((g: any) => g.name) || []).slice(0, 3).map((genre: string, idx: number) => (
-                    <span key={idx} className="px-2 py-0.5 rounded-full text-xs font-medium bg-red-600/40 border border-red-500/30 text-white backdrop-blur-md">
-                      {genre}
+                    <span key={idx} className="text-xs font-bold text-red-600">
+                      {genre}{idx < Math.min(2, (current.genre_names?.length || current.genres?.length || 1) - 1) ? ' •' : ''}
                     </span>
                   ))}
                 </motion.div>
               )}
 
-              <motion.p className="text-white/70 text-xs md:text-sm max-w-xl line-clamp-2 mb-4 leading-relaxed" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.6, duration: 0.4 }}>{current.description || current.short_desc || current.long_desc}</motion.p>
+              {/* Slide Indicators - Active shows poster, next slides show backdrop */}
+              {items.length > 1 && (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ delay: 0.7, duration: 0.4 }}
+                  className="flex items-center gap-2 mb-2 md:mb-3"
+                >
+                  {(() => {
+                    const totalItems = items.length;
+                    
+                    // Always show maximum 3 items
+                    if (totalItems <= 3) {
+                        // If 3 or fewer total, show all
+                        return items.slice(0, 3).map((item, idx) => {
+                            const isActive = idx === index;
+                            return (
+                                <button
+                                    key={idx}
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        goToIndex(idx);
+                                    }}
+                                    className={`relative overflow-hidden rounded transition-all duration-300 ${
+                                        isActive
+                                            ? 'w-16 h-24 ring-1 ring-white ring-offset-1 ring-offset-black/50'
+                                            : 'w-16 h-9 opacity-60 hover:opacity-100 hover:scale-105'
+                                    }`}
+                                    aria-label={`Go to ${item.title}`}
+                                >
+                                    <img
+                                        src={isActive ? getPosterUrl(item) : getBackdropUrl(item)}
+                                        alt={item.title}
+                                        className="w-full h-full object-cover"
+                                        onError={(e) => {
+                                            const target = e.target as HTMLImageElement;
+                                            if (isActive) {
+                                                if (item.tmdb_poster_url && target.src !== item.tmdb_poster_url) {
+                                                    target.src = item.tmdb_poster_url;
+                                                } else {
+                                                    target.src = `${apiUrl}/api/thumbnails/${item.id}`;
+                                                }
+                                            } else {
+                                                target.src = `${apiUrl}/api/thumbnails/${item.id}`;
+                                            }
+                                        }}
+                                    />
+                                    {!isActive && (
+                                        <div className="absolute inset-0 bg-black/40" />
+                                    )}
+                                </button>
+                            );
+                        });
+                    }
+                    
+                    // For more than 3 items, show sliding window of exactly 3
+                    let startIdx;
+                    if (index === 0) {
+                        startIdx = 0; // [0, 1, 2]
+                    } else if (index >= totalItems - 1) {
+                        startIdx = totalItems - 3; // Last 3 items
+                    } else {
+                        startIdx = index - 1; // Center current item
+                    }
+                    
+                    return items.slice(startIdx, startIdx + 3).map((item, relativeIdx) => {
+                      const actualIdx = startIdx + relativeIdx;
+                      const isActive = actualIdx === index;
+                      return (
+                        <button
+                          key={actualIdx}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            goToIndex(actualIdx);
+                          }}
+                          className={`relative overflow-hidden rounded transition-all duration-300 ${
+                            isActive
+                              ? 'w-16 h-24 ring-1 ring-white ring-offset-1 ring-offset-black/50'
+                              : 'w-16 h-9 opacity-60 hover:opacity-100 hover:scale-105'
+                          }`}
+                          aria-label={`Go to ${item.title}`}
+                        >
+                          <img
+                            src={isActive ? getPosterUrl(item) : getBackdropUrl(item)}
+                            alt={item.title}
+                            className="w-full h-full object-cover"
+                            onError={(e) => {
+                              const target = e.target as HTMLImageElement;
+                              if (isActive) {
+                                if (item.tmdb_poster_url && target.src !== item.tmdb_poster_url) {
+                                  target.src = item.tmdb_poster_url;
+                                } else {
+                                  target.src = `${apiUrl}/api/thumbnails/${item.id}`;
+                                }
+                              } else {
+                                target.src = `${apiUrl}/api/thumbnails/${item.id}`;
+                              }
+                            }}
+                          />
+                          {!isActive && (
+                            <div className="absolute inset-0 bg-black/40" />
+                          )}
+                        </button>
+                      );
+                    });
+                  })()}
+                </motion.div>
+              )}
 
-              <motion.div className="flex items-center gap-3" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.7, duration: 0.4 }}>
+              {/* Single slide poster - no border */}
+              {items.length === 1 && (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ delay: 0.7, duration: 0.4 }}
+                  className="mb-2 md:mb-3"
+                >
+                  <div className="relative overflow-hidden rounded w-16 h-24">
+                    <img
+                      src={getPosterUrl(items[0])}
+                      alt={items[0].title}
+                      className="w-full h-full object-cover"
+                      onError={(e) => {
+                        const target = e.target as HTMLImageElement;
+                        if (items[0].tmdb_poster_url && target.src !== items[0].tmdb_poster_url) {
+                          target.src = items[0].tmdb_poster_url;
+                        } else {
+                          target.src = `${apiUrl}/api/thumbnails/${items[0].id}`;
+                        }
+                      }}
+                    />
+                  </div>
+                </motion.div>
+              )}
+
+              <motion.div className="flex items-center gap-2" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.75, duration: 0.4 }}>
                 {hasLocalFile(current) && (
                   <button
                     onClick={() => {
                       setSelectedMediaForPlayback(current);
                       setShowVideoPlayer(true);
                     }}
-                    className="group p-2 rounded-full bg-red-600/40 border border-red-500/30 text-white backdrop-blur-md hover:bg-red-600/60 transition-all duration-200 shadow-lg hover:shadow-xl hover:scale-110"
+                    className="group text-white hover:text-red-400 transition-all duration-200 hover:scale-125 hover:drop-shadow-[0_0_8px_rgba(239,68,68,0.8)]"
                     title="Play"
                   >
-                    <Play className="w-4 h-4 fill-current" />
+                    <Play className="w-5 h-5 fill-current" />
                   </button>
                 )}
-                <button onClick={() => navigateToMedia(navigate, current)} className="group p-2 bg-white/20 text-white rounded-full backdrop-blur-md border border-white/30 hover:bg-white/30 transition-all duration-200 hover:scale-110" title="More Info">
-                  <Info className="w-4 h-4" />
+                <button 
+                  onClick={() => navigateToMedia(navigate, current)} 
+                  className="group text-white hover:text-blue-400 transition-all duration-200 hover:scale-125 hover:drop-shadow-[0_0_8px_rgba(96,165,250,0.8)]" 
+                  title="More Info"
+                >
+                  <Info className="w-5 h-5" />
                 </button>
                 
                 {/* MyListTooltip for Add to List */}
@@ -1091,13 +1371,13 @@ export default function HeroVideoWidget({
                   onCollectionCreated={fetchCollections}
                 >
                   <button
-                    className="group p-2 bg-white/20 text-white rounded-full backdrop-blur-md border border-white/30 hover:bg-white/30 transition-all duration-200 hover:scale-110"
+                    className="group text-white hover:text-green-400 transition-all duration-200 hover:scale-125 hover:drop-shadow-[0_0_8px_rgba(74,222,128,0.8)]"
                     title={isInMyList(current.tmdb_id ? parseInt(`9${current.tmdb_id}`) : current.id) ? "Remove from My List" : "Add to My List"}
                   >
                     {isInMyList(current.tmdb_id ? parseInt(`9${current.tmdb_id}`) : current.id) ? (
-                      <Check className="w-4 h-4" />
+                      <Check className="w-5 h-5" />
                     ) : (
-                      <Plus className="w-4 h-4" />
+                      <Plus className="w-5 h-5" />
                     )}
                   </button>
                 </MyListTooltip>
@@ -1109,78 +1389,10 @@ export default function HeroVideoWidget({
 
       {/* Volume */}
       <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.5, duration: 0.4 }} className="absolute top-6 right-6 z-30">
-        <button onClick={() => setIsMuted((m) => !m)} className="group p-2 rounded-full bg-black/40 backdrop-blur-md border border-white/20 hover:bg-black/60 hover:border-white/40 transition-all duration-200 hover:scale-110" title={isMuted ? "Unmute" : "Mute"}>
+        <button onClick={() => setIsMuted((prevMuted) => !prevMuted)} className="group p-2 rounded-full bg-black/40 backdrop-blur-md border border-white/20 hover:bg-black/60 hover:border-white/40 transition-all duration-200 hover:scale-110" title={isMuted ? "Unmute" : "Mute"}>
           {isMuted ? <VolumeX className="w-4 h-4 text-white/80 group-hover:text-white transition-colors" /> : <Volume2 className="w-4 h-4 text-white/80 group-hover:text-white transition-colors" />}
         </button>
       </motion.div>
-
-      {/* Indicators - Circular & Reduced Height */}
-      {items.length > 1 && (
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.8, duration: 0.4 }} className="absolute bottom-5 left-1/2 -translate-x-1/2 z-30">
-          <div className="flex items-center gap-3 px-3 py-1.5 rounded-full bg-black/40 backdrop-blur-xl border border-white/10 shadow-lg">
-            {items.map((item, idx) => {
-              // Should allow different themes for each item? Yes, assuming we hovered it? 
-              // Actually usually indicators are uniform or based on currentslide.
-              // I'll use the theme of the *current* slide for the active dot.
-              const isActive = idx === index;
-              return (
-                <div key={item.id} className="relative group flex items-center justify-center">
-                  <button
-                    onClick={() => goToIndex(idx)}
-                    onMouseEnter={() => setHoveredIndex(idx)}
-                    onMouseLeave={() => setHoveredIndex(null)}
-                    className={`relative rounded-full transition-all duration-300 flex items-center justify-center ${isActive ? 'w-4 h-4' : 'w-2 h-2 hover:scale-125'
-                      }`}
-                  >
-                    {/* Background Dot */}
-                    <div className={`absolute inset-0 rounded-full transition-colors duration-300 ${isActive ? 'bg-transparent' : 'bg-white/40 group-hover:bg-white/80'
-                      } ${!isActive ? '' : ''}`} />
-
-                    {/* Active Ring Progress */}
-                    {isActive && (
-                      <svg className="absolute inset-0 w-full h-full -rotate-90">
-                        {/* Track */}
-                        <circle cx="50%" cy="50%" r="6" stroke="currentColor" strokeWidth="2" fill="none" className="text-white/10" />
-                        {/* Progress */}
-                        <circle cx="50%" cy="50%" r="6" stroke="currentColor" strokeWidth="2" fill="none"
-                          className={theme.text}
-                          strokeDasharray="37.7" // 2*PI*r (r=6 -> ~37.7)
-                          strokeDashoffset={37.7 - (37.7 * progress / 100)}
-                          strokeLinecap="round"
-                        />
-                        {/* Center Dot */}
-                        <circle cx="50%" cy="50%" r="2" fill="currentColor" className={theme.text} />
-                      </svg>
-                    )}
-                  </button>
-
-                  {/* Hover Tooltip */}
-                  <AnimatePresence>
-                    {hoveredIndex === idx && (
-                      <motion.div
-                        initial={{ opacity: 0, scale: 0.8, y: 10 }}
-                        animate={{ opacity: 1, scale: 1, y: 0 }}
-                        exit={{ opacity: 0, scale: 0.8, y: 10 }}
-                        transition={{ duration: 0.2 }}
-                        className="absolute bottom-full mb-3 left-1/2 -translate-x-1/2 w-48 p-2 rounded-xl bg-black/90 backdrop-blur-xl border border-white/10 shadow-2xl z-50 flex gap-3 items-center pointer-events-none"
-                      >
-                        <img src={getPosterUrl(item)} alt={item.title} className="w-10 h-14 rounded object-cover shadow-lg bg-white/10" onError={(e) => { (e.target as HTMLImageElement).src = `${apiUrl}/api/thumbnails/${item.id}`; }} />
-                        <div className="flex-1 min-w-0 text-left">
-                          <p className="text-xs font-bold text-white truncate">{item.title}</p>
-                          <div className="flex items-center gap-1 mt-0.5">
-                            <Star className="w-3 h-3 text-yellow-500 fill-current" />
-                            <span className="text-[10px] text-white/70">{getDisplayRating(item) || 'N/A'}</span>
-                          </div>
-                        </div>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </div>
-              )
-            })}
-          </div>
-        </motion.div>
-      )}
 
       {/* Accents */}
       <div className="absolute top-0 left-0 w-32 h-32 bg-gradient-to-br from-red-500/10 to-transparent pointer-events-none" />

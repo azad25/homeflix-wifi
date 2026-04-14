@@ -9,36 +9,7 @@ import { navigateToMedia } from '@/lib/mediaNavigation';
 import { useNavigate } from '@/hooks/useNavigate';
 import { useMyList } from '@/hooks/useMyList';
 import MyListTooltip from '@/components/ui/MyListTooltip';
-
-// Genre-based text styling utility
-const getGenreTextStyle = (genres: string[] = []) => {
-  const primaryGenre = genres[0]?.toLowerCase() || '';
-  
-  // Font family based on genre
-  let fontFamily = 'font-sans'; // default
-  if (primaryGenre.includes('horror') || primaryGenre.includes('thriller')) {
-    fontFamily = 'font-mono'; // monospace for tension
-  } else if (primaryGenre.includes('romance') || primaryGenre.includes('drama')) {
-    fontFamily = 'font-serif'; // serif for elegance
-  } else if (primaryGenre.includes('sci') || primaryGenre.includes('science')) {
-    fontFamily = 'font-mono'; // monospace for tech feel
-  } else if (primaryGenre.includes('comedy')) {
-    fontFamily = 'font-sans'; // clean sans for readability
-  }
-  
-  // Text size and styling
-  const textSize = 'text-sm md:text-base'; // Reduced from lg
-  const maxWidth = 'max-w-lg'; // Reduced from 2xl to lg
-  const lineHeight = 'leading-relaxed';
-  
-  return {
-    fontFamily,
-    textSize,
-    maxWidth,
-    lineHeight,
-    className: `${fontFamily} ${textSize} ${maxWidth} ${lineHeight}`
-  };
-};
+import GenreStyledText from '@/components/GenreStyledText';
 
 // Declare global YouTube types
 declare global {
@@ -672,6 +643,17 @@ export default function TrailerWidget({
         return null;
     };
 
+    const getPosterUrl = (m: Media) => {
+        // Priority: TMDB poster > local poster > thumbnail fallback
+        if (m.tmdb_poster_url) return m.tmdb_poster_url;
+        if (m.poster_url) return m.poster_url;
+        if (m.poster_path) {
+            const filename = m.poster_path.includes('/') ? m.poster_path.split('/').pop() : m.poster_path;
+            return `${apiUrl}/api/posters/${filename}`;
+        }
+        return `${apiUrl}/api/posters/${m.id}`;
+    };
+
     if (loading) {
         return (
             <div className={`relative w-full h-[400px] md:h-[500px] lg:h-[600px] xl:h-[700px] overflow-hidden rounded-xl ${className}`}>
@@ -813,9 +795,10 @@ export default function TrailerWidget({
                 )}
             </AnimatePresence>
 
-            {/* Gradient overlays */}
+            {/* Enhanced Gradient overlays */}
             <div className="absolute inset-0 bg-gradient-to-r from-black/90 via-black/50 to-transparent" />
-            <div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-transparent" />
+            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/30" />
+            <div className="absolute bottom-0 left-0 right-0 h-40 bg-gradient-to-t from-black/60 to-transparent" />
 
             {/* Custom Tag/Heading */}
             {config.showTag && config.tagText && (
@@ -908,10 +891,10 @@ export default function TrailerWidget({
                                         />
                                     ) : null}
                                     <h1
-                                        className="text-xl md:text-2xl lg:text-3xl xl:text-4xl font-bold mb-2 md:mb-3 leading-tight text-white drop-shadow-lg transition-colors duration-300 group-hover:text-white"
+                                        className="text-xl md:text-2xl lg:text-3xl xl:text-4xl mb-2 md:mb-3 leading-tight text-white drop-shadow-lg transition-colors duration-300 group-hover:text-white font-bold"
                                         style={{
                                             display: getLogoUrl(currentTrailer) ? 'none' : 'block',
-                                            textShadow: '2px 2px 4px rgba(0,0,0,0.8)',
+                                            textShadow: '2px 2px 4px rgba(0,0,0,0.8)'
                                         }}
                                     >
                                         {currentTrailer.media.title}
@@ -920,82 +903,190 @@ export default function TrailerWidget({
                             </motion.div>
                         </AnimatePresence>
 
-                        {/* Trailer Badge */}
-                        <motion.div
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            transition={{ delay: 0.3 }}
-                            className="flex items-center gap-2 mb-3 md:mb-4"
-                        >
-                            <div className="bg-red-600 text-white px-2 md:px-3 py-1 rounded-full text-xs md:text-sm font-bold">
-                                TRAILER
-                            </div>
-                            <span className="text-white/70 text-xs md:text-sm">{currentTrailer.duration}</span>
-                        </motion.div>
-
                         {/* Meta info */}
                         <motion.div
                             initial={{ opacity: 0 }}
                             animate={{ opacity: 1 }}
                             transition={{ delay: 0.4 }}
-                            className="flex items-center gap-2 md:gap-4 mb-3 md:mb-4 text-xs md:text-sm lg:text-base text-white"
+                            className="flex items-center gap-2 mb-2 md:mb-3 text-xs md:text-sm text-white"
                         >
                             {currentTrailer.media.rating && currentTrailer.media.rating > 0 && (
                                 <div className="flex items-center gap-1">
-                                    <Star className="w-4 h-4 md:w-5 md:h-5 fill-yellow-400 text-yellow-400" />
+                                    <Star className="w-3 h-3 md:w-4 md:h-4 fill-yellow-400 text-yellow-400" />
                                     <span className="font-semibold">{currentTrailer.media.rating.toFixed(1)}</span>
                                 </div>
                             )}
                             {currentTrailer.media.year && currentTrailer.media.year > 1900 && (
-                                <div className="flex items-center gap-1">
-                                    <Calendar className="w-3 h-3 md:w-4 md:h-4" />
-                                    <span>{currentTrailer.media.year}</span>
+                                <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-white/10 backdrop-blur-sm">
+                                    <Calendar className="w-3 h-3 text-white/80" />
+                                    <span className="text-white font-medium text-xs">{currentTrailer.media.year}</span>
                                 </div>
                             )}
                             {currentTrailer.media.runtime && currentTrailer.media.runtime > 0 && (
-                                <span className="text-white/70">
-                                    {Math.floor(currentTrailer.media.runtime / 60)}h {currentTrailer.media.runtime % 60}m
-                                </span>
+                                <div className="flex items-center gap-1">
+                                    <Clock className="w-3 h-3 text-white/80" />
+                                    <span className="text-white/70 text-xs">
+                                        {Math.floor(currentTrailer.media.runtime / 60)}h {currentTrailer.media.runtime % 60}m
+                                    </span>
+                                </div>
                             )}
                         </motion.div>
-
-                        {/* Genres */}
-                        {currentTrailer.media.genre_names && currentTrailer.media.genre_names.length > 0 && (
-                            <motion.div
-                                initial={{ opacity: 0 }}
-                                animate={{ opacity: 1 }}
-                                transition={{ delay: 0.5 }}
-                                className="flex flex-wrap gap-1 md:gap-2 mb-3 md:mb-4"
-                            >
-                                {currentTrailer.media.genre_names.slice(0, 3).map((genre, idx) => (
-                                    <span
-                                        key={idx}
-                                        className="px-2 md:px-3 py-1 rounded-full text-xs font-medium bg-white/20 border border-white/30 text-white"
-                                    >
-                                        {genre}
-                                    </span>
-                                ))}
-                            </motion.div>
-                        )}
 
                         {/* Description - Hide on smaller widgets */}
                         {showInfo && currentTrailer.description && (
                             <motion.p
                                 initial={{ opacity: 0 }}
                                 animate={{ opacity: 1 }}
-                                transition={{ delay: 0.6 }}
-                                className={`hidden md:block text-white/80 mb-4 md:mb-6 line-clamp-2 ${getGenreTextStyle(currentTrailer.media.genre_names || []).className}`}
+                                transition={{ delay: 0.5 }}
+                                className="hidden md:block text-white/60 mb-2 md:mb-3 line-clamp-2 text-xs md:text-sm font-normal"
                             >
                                 {currentTrailer.description}
                             </motion.p>
+                        )}
+
+                        {/* Genres - Below description without background */}
+                        {currentTrailer.media.genre_names && currentTrailer.media.genre_names.length > 0 && (
+                            <motion.div
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                transition={{ delay: 0.6 }}
+                                className="flex flex-wrap items-center gap-2 mb-3 md:mb-4"
+                            >
+                                {currentTrailer.media.genre_names.slice(0, 3).map((genre, idx) => (
+                                    <span
+                                        key={idx}
+                                        className="text-xs font-medium text-white/60"
+                                    >
+                                        {genre}{idx < Math.min(2, currentTrailer.media.genre_names!.length - 1) ? ' •' : ''}
+                                    </span>
+                                ))}
+                            </motion.div>
+                        )}
+
+                        {/* Poster Indicators - Horizontal List (Max 3, sliding window) */}
+                        {trailers.length > 1 && (
+                            <motion.div
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                transition={{ delay: 0.7 }}
+                                className="flex items-center gap-2 mb-3 md:mb-4"
+                            >
+                                {(() => {
+                                    const totalItems = trailers.length;
+                                    
+                                    // Always show maximum 3 items
+                                    if (totalItems <= 3) {
+                                        // If 3 or fewer total, show all
+                                        return trailers.slice(0, 3).map((trailer, idx) => {
+                                            const isActive = idx === currentIndex;
+                                            return (
+                                                <button
+                                                    key={idx}
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        setCurrentIndex(idx);
+                                                        setImageLoaded(false);
+                                                        setIsPlaying(false);
+                                                        setVideoReady(false);
+                                                    }}
+                                                    className={`relative overflow-hidden rounded transition-all duration-300 ${
+                                                        isActive
+                                                            ? 'w-16 h-24 ring-1 ring-white ring-offset-1 ring-offset-black/50'
+                                                            : 'w-10 h-14 opacity-60 hover:opacity-100 hover:scale-105'
+                                                    }`}
+                                                    aria-label={`Go to ${trailer.media.title}`}
+                                                >
+                                                    <img
+                                                        src={getPosterUrl(trailer.media)}
+                                                        alt={trailer.media.title}
+                                                        className="w-full h-full object-cover"
+                                                        onError={(e) => {
+                                                            (e.target as HTMLImageElement).src = `${apiUrl}/api/thumbnails/${trailer.media.id}`;
+                                                        }}
+                                                    />
+                                                    {!isActive && (
+                                                        <div className="absolute inset-0 bg-black/40" />
+                                                    )}
+                                                </button>
+                                            );
+                                        });
+                                    }
+                                    
+                                    // For more than 3 items, show sliding window of exactly 3
+                                    let startIdx;
+                                    if (currentIndex === 0) {
+                                        startIdx = 0; // [0, 1, 2]
+                                    } else if (currentIndex >= totalItems - 1) {
+                                        startIdx = totalItems - 3; // Last 3 items
+                                    } else {
+                                        startIdx = currentIndex - 1; // Center current item
+                                    }
+                                    
+                                    return trailers.slice(startIdx, startIdx + 3).map((trailer, relativeIdx) => {
+                                        const actualIdx = startIdx + relativeIdx;
+                                        const isActive = actualIdx === currentIndex;
+                                        return (
+                                            <button
+                                                key={actualIdx}
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    setCurrentIndex(actualIdx);
+                                                    setImageLoaded(false);
+                                                    setIsPlaying(false);
+                                                    setVideoReady(false);
+                                                }}
+                                                className={`relative overflow-hidden rounded transition-all duration-300 ${
+                                                    isActive
+                                                        ? 'w-16 h-24 ring-1 ring-white ring-offset-1 ring-offset-black/50'
+                                                        : 'w-10 h-14 opacity-60 hover:opacity-100 hover:scale-105'
+                                                }`}
+                                                aria-label={`Go to ${trailer.media.title}`}
+                                            >
+                                                <img
+                                                    src={getPosterUrl(trailer.media)}
+                                                    alt={trailer.media.title}
+                                                    className="w-full h-full object-cover"
+                                                    onError={(e) => {
+                                                        (e.target as HTMLImageElement).src = `${apiUrl}/api/thumbnails/${trailer.media.id}`;
+                                                    }}
+                                                />
+                                                {!isActive && (
+                                                    <div className="absolute inset-0 bg-black/40" />
+                                                )}
+                                            </button>
+                                        );
+                                    });
+                                })()}
+                            </motion.div>
+                        )}
+
+                        {/* Single trailer poster - no border */}
+                        {trailers.length === 1 && (
+                            <motion.div
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                transition={{ delay: 0.7 }}
+                                className="mb-3 md:mb-4"
+                            >
+                                <div className="relative overflow-hidden rounded w-16 h-24">
+                                    <img
+                                        src={getPosterUrl(trailers[0].media)}
+                                        alt={trailers[0].media.title}
+                                        className="w-full h-full object-cover"
+                                        onError={(e) => {
+                                            (e.target as HTMLImageElement).src = `${apiUrl}/api/thumbnails/${trailers[0].media.id}`;
+                                        }}
+                                    />
+                                </div>
+                            </motion.div>
                         )}
 
                         {/* Action buttons */}
                         <motion.div
                             initial={{ opacity: 0, y: 20 }}
                             animate={{ opacity: 1, y: 0 }}
-                            transition={{ delay: 0.7 }}
-                            className="flex items-center gap-2 md:gap-3"
+                            transition={{ delay: 0.75 }}
+                            className="flex items-center gap-2"
                         >
                             <MyListTooltip
                                 media={{
@@ -1008,98 +1099,33 @@ export default function TrailerWidget({
                                 onAddToCollection={(collectionId) => addToCollection(collectionId, currentTrailer.media.tmdb_id ? parseInt(`9${currentTrailer.media.tmdb_id}`) : currentTrailer.media.id)}
                                 onCollectionCreated={fetchCollections}
                             >
-                                <button className="bg-white/20 text-white p-2 md:p-3 rounded-full hover:bg-white/30 transition-all duration-300 border border-white/30">
+                                <button className="bg-white/20 text-white p-2 rounded-full hover:bg-white/30 transition-all duration-300">
                                     {isInMyList(currentTrailer.media.tmdb_id ? parseInt(`9${currentTrailer.media.tmdb_id}`) : currentTrailer.media.id) ? (
-                                        <Check className="w-4 h-4 md:w-5 md:h-5" />
+                                        <Check className="w-4 h-4" />
                                     ) : (
-                                        <Plus className="w-4 h-4 md:w-5 md:h-5" />
+                                        <Plus className="w-4 h-4" />
                                     )}
                                 </button>
                             </MyListTooltip>
 
                             <button
                                 onClick={toggleMute}
-                                className="bg-white/20 text-white p-2 md:p-3 rounded-full hover:bg-white/30 transition-all duration-300 border border-white/30"
+                                className="bg-white/20 text-white p-2 rounded-full hover:bg-white/30 transition-all duration-300"
                             >
-                                {isMuted ? <VolumeX className="w-4 h-4 md:w-5 md:h-5" /> : <Volume2 className="w-4 h-4 md:w-5 md:h-5" />}
+                                {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
                             </button>
 
                             <button
                                 onClick={openInYouTube}
-                                className="hidden md:flex bg-white/20 text-white p-2 md:p-3 rounded-full hover:bg-white/30 transition-all duration-300 border border-white/30"
+                                className="hidden md:flex bg-white/20 text-white p-2 rounded-full hover:bg-white/30 transition-all duration-300"
                                 title="Open in YouTube"
                             >
-                                <ExternalLink className="w-4 h-4 md:w-5 md:h-5" />
+                                <ExternalLink className="w-4 h-4" />
                             </button>
                         </motion.div>
                     </div>
                 </div>
             </div>
-
-            {/* Slide indicators */}
-            {trailers.length > 1 && (
-                <motion.div
-                    className="absolute bottom-8 left-1/2 transform -translate-x-1/2 z-20"
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: isHovering ? 1 : 0, y: isHovering ? 0 : 20 }}
-                    transition={{ duration: 0.3 }}
-                >
-                    <div className="flex items-center gap-2 bg-black/30 backdrop-blur-sm px-4 py-2 rounded-full border border-white/20">
-                        {trailers.map((_, index) => (
-                            <button
-                                key={index}
-                                onClick={() => {
-                                    setCurrentIndex(index);
-                                    setImageLoaded(false);
-                                    setIsPlaying(false);
-                                    setVideoReady(false);
-                                }}
-                                className={`w-2 h-2 rounded-full transition-all duration-300 ${index === currentIndex
-                                    ? 'bg-white w-8'
-                                    : 'bg-white/50 hover:bg-white/70'
-                                    }`}
-                            />
-                        ))}
-                    </div>
-                </motion.div>
-            )}
-
-            {/* Trailer thumbnails at bottom */}
-            <motion.div
-                className="absolute bottom-4 right-4 z-20"
-                initial={{ opacity: 0, x: 20 }}
-                animate={{ opacity: isHovering ? 1 : 0, x: isHovering ? 0 : 20 }}
-                transition={{ duration: 0.3 }}
-            >
-                <div className="flex gap-2">
-                    {trailers.slice(0, 4).map((trailer, index) => (
-                        <motion.button
-                            key={trailer.id}
-                            onClick={() => {
-                                setCurrentIndex(index);
-                                setImageLoaded(false);
-                                setIsPlaying(false);
-                                setVideoReady(false);
-                            }}
-                            className={`relative w-16 h-10 rounded overflow-hidden transition-all ${currentIndex === index
-                                ? 'ring-2 ring-white scale-110'
-                                : 'hover:scale-105 opacity-70 hover:opacity-100'
-                                }`}
-                            whileHover={{ scale: 1.05 }}
-                            whileTap={{ scale: 0.95 }}
-                        >
-                            <img
-                                src={getBackdropUrl(trailer)}
-                                alt={trailer.title}
-                                className="w-full h-full object-cover"
-                            />
-                            <div className="absolute inset-0 bg-black/20 flex items-center justify-center">
-                                <Play className="w-3 h-3 text-white fill-current" />
-                            </div>
-                        </motion.button>
-                    ))}
-                </div>
-            </motion.div>
         </div>
     );
 }

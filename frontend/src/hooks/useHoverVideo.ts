@@ -49,6 +49,32 @@ export function useHoverVideo(media: Media, hoverDelayMs = 600) {
 
   // --- Helpers ---
 
+  const getTmdbType = useCallback((): 'movie' | 'tv' => {
+    if (media.media_type === 'tv' || media.type === 'tv' || media.type === 'series' || media.type === 'episode') {
+      return 'tv';
+    }
+    return 'movie';
+  }, [media.media_type, media.type]);
+
+  const getActualTmdbId = useCallback((): number | null => {
+    if (media.tmdb_id && media.tmdb_id > 0) return media.tmdb_id;
+
+    // Some TMDB entries are stored as prefixed IDs like 9{tmdbId}
+    // (used elsewhere to avoid collisions with local-media IDs).
+    if (media.media_type && Number.isFinite(media.id)) {
+      const idStr = String(media.id);
+      if (idStr.startsWith('9') && idStr.length > 1) {
+        const decoded = Number(idStr.slice(1));
+        if (Number.isFinite(decoded) && decoded > 0) {
+          return decoded;
+        }
+      }
+    }
+
+    if (media.id && media.id > 0) return media.id;
+    return null;
+  }, [media.tmdb_id, media.media_type, media.id]);
+
   const extractYouTubeKey = useCallback((url: string): string | null => {
     if (!url) return null;
     const m = url.trim().match(
@@ -74,33 +100,58 @@ export function useHoverVideo(media: Media, hoverDelayMs = 600) {
       if (k) return k;
     }
     // Check module-level cache
-    if (media.tmdb_id && trailerKeyCache.has(media.tmdb_id)) {
-      return trailerKeyCache.get(media.tmdb_id) || null;
+    const actualTmdbId = getActualTmdbId();
+    if (actualTmdbId && trailerKeyCache.has(actualTmdbId)) {
+      return trailerKeyCache.get(actualTmdbId) || null;
     }
     return null;
-  }, [media.tmdb_trailer_url, media.trailer_path, (media as any).series?.tmdb_trailer_url, media.tmdb_id, extractYouTubeKey]);
+  }, [media.tmdb_trailer_url, media.trailer_path, (media as any).series?.tmdb_trailer_url, getActualTmdbId, extractYouTubeKey]);
 
   /** Fetch trailer key from TMDB API (only if tmdb_id exists and not already cached) */
   const fetchTrailerKey = useCallback(async (actualTmdbId: number): Promise<string | null> => {
     if (!actualTmdbId) return null;
     if (trailerKeyCache.has(actualTmdbId)) return trailerKeyCache.get(actualTmdbId) || null;
 
+    const findBestTrailerKey = (videos: any[]): string | null => {
+      const ytVideos = (videos || []).filter((v: any) => v?.site === 'YouTube' && v?.key);
+      let trailer = ytVideos.find((v: any) => v.official && v.type === 'Trailer');
+      if (trailer) return trailer.key;
+      trailer = ytVideos.find((v: any) => v.type === 'Trailer');
+      if (trailer) return trailer.key;
+      trailer = ytVideos.find((v: any) => v.type === 'Teaser');
+      if (trailer) return trailer.key;
+      return ytVideos[0]?.key || null;
+    };
+
     try {
-      const type = (media.type === 'tv' || media.type === 'series' || media.type === 'episode') ? 'tv' : 'movie';
+      const type = getTmdbType();
+      let key: string | null = null;
+
+      // Primary endpoint for hover widgets
       const res = await fetch(`${apiUrl}/api/tmdb/${type}/${actualTmdbId}/videos`);
-      if (!res.ok) { trailerKeyCache.set(actualTmdbId, null); return null; }
-      const data = await res.json();
-      const results = data.results || [];
-      const trailer = results.find((v: any) => v.site === 'YouTube' && v.type === 'Trailer') ||
-                      results.find((v: any) => v.site === 'YouTube');
-      const key = trailer?.key || null;
+      if (res.ok) {
+        const data = await res.json();
+        key = findBestTrailerKey(data.results || []);
+      }
+
+      // Fallback to the same endpoint/path pattern used on tmdb detail page
+      if (!key) {
+        const detailsRes = await fetch(`${apiUrl}/api/tmdb-movie/${actualTmdbId}?type=${type}`);
+        if (detailsRes.ok) {
+          const detailsData = await detailsRes.json();
+          const wrappedVideos = detailsData?.data?.videos?.results;
+          const directVideos = detailsData?.videos?.results;
+          key = findBestTrailerKey(wrappedVideos || directVideos || []);
+        }
+      }
+
       trailerKeyCache.set(actualTmdbId, key);
       return key;
     } catch {
       trailerKeyCache.set(actualTmdbId, null);
       return null;
     }
-  }, [apiUrl, media.type]);
+  }, [apiUrl, getTmdbType]);
 
   const getPreviewClipUrl = useCallback((): string => {
     return `${apiUrl}/api/preview-clips/${media.id}?quality=medium&format=mp4&cache=true`;
@@ -143,11 +194,17 @@ export function useHoverVideo(media: Media, hoverDelayMs = 600) {
   const createYTPlayer = useCallback((ytKey: string) => {
     if (destroyedRef.current) return;
 
-    const tryCreate = () => {
+    const tryCreate = (attempt = 0) => {
       if (destroyedRef.current) return;
       const el = document.getElementById(ytContainerIdRef.current);
       if (!el) {
+        // Some card layouts render the container a bit later; retry briefly.
+        if (attempt < 8) {
+          setTimeout(() => tryCreate(attempt + 1), 50);
+          return;
+        }
         console.warn('[useHoverVideo] YouTube container element not found:', ytContainerIdRef.current);
+        setUseYouTube(false);
         return;
       }
 
@@ -172,19 +229,36 @@ export function useHoverVideo(media: Media, hoverDelayMs = 600) {
             onReady: (event: any) => {
               if (destroyedRef.current) return;
               console.log('[useHoverVideo] YouTube player ready for:', media.title);
+              // Make iframe visible as soon as it's ready; PLAYING state can be delayed on some devices.
+              setVideoReady(true);
               try {
+                event.target.mute();
                 event.target.seekTo(10, true);
                 event.target.playVideo();
               } catch (err) {
                 console.error('[useHoverVideo] Error starting playback:', err);
               }
+
+              // Retry autoplay once if first play attempt is ignored.
+              setTimeout(() => {
+                if (destroyedRef.current) return;
+                try {
+                  const state = event.target.getPlayerState?.();
+                  const PS = (window as any).YT?.PlayerState;
+                  if (PS && state !== PS.PLAYING) {
+                    event.target.playVideo();
+                  }
+                } catch {}
+              }, 500);
             },
             onStateChange: (event: any) => {
               if (destroyedRef.current) return;
               const PS = (window as any).YT?.PlayerState;
-              if (PS && event.data === PS.PLAYING) {
+              if (PS && (event.data === PS.PLAYING || event.data === PS.BUFFERING || event.data === PS.CUED)) {
                 console.log('[useHoverVideo] YouTube trailer playing for:', media.title);
                 setVideoReady(true);
+              }
+              if (PS && event.data === PS.PLAYING) {
                 // Unmute after playback has started (browser allows this)
                 try {
                   event.target.unMute();
@@ -215,7 +289,7 @@ export function useHoverVideo(media: Media, hoverDelayMs = 600) {
         tryCreate();
       });
     });
-  }, []);
+  }, [media.title]);
 
   // --- Activate video when shouldPlay turns true ---
   useEffect(() => {
@@ -227,7 +301,7 @@ export function useHoverVideo(media: Media, hoverDelayMs = 600) {
       let ytKey = getLocalTrailerKey();
 
       // 2. If no local key but has tmdb_id, fetch from API
-      const actualTmdbId = media.tmdb_id || media.id;
+      const actualTmdbId = getActualTmdbId();
       if (!ytKey && actualTmdbId) {
         ytKey = await fetchTrailerKey(actualTmdbId);
       }
@@ -237,6 +311,8 @@ export function useHoverVideo(media: Media, hoverDelayMs = 600) {
       if (ytKey) {
         // YouTube trailer path
         setUseYouTube(true);
+        // Avoid showing loading UI/spinners while YouTube iframe initializes.
+        setVideoReady(true);
         await ensureYouTubeAPI();
         if (cancelled || destroyedRef.current) return;
         createYTPlayer(ytKey);
@@ -249,7 +325,7 @@ export function useHoverVideo(media: Media, hoverDelayMs = 600) {
     activate();
 
     return () => { cancelled = true; };
-  }, [shouldPlay, getLocalTrailerKey, fetchTrailerKey, createYTPlayer, media.tmdb_id, media.id]);
+  }, [shouldPlay, getLocalTrailerKey, fetchTrailerKey, createYTPlayer, getActualTmdbId]);
 
   // Cleanup on unmount
   useEffect(() => {

@@ -6,40 +6,11 @@ import { Info, Star, ChevronLeft, ChevronRight, Plus, Check, Calendar, Clock, Vo
 import { Media } from '@/types/media';
 import { getApiUrl, preloadAssets } from '@/lib/api';
 import { getColorPaletteByGenre, DominantColors } from '@/types/widgets';
-
-// Genre-based text styling utility
-const getGenreTextStyle = (genres: string[] = []) => {
-  const primaryGenre = genres[0]?.toLowerCase() || '';
-  
-  // Font family based on genre
-  let fontFamily = 'font-sans'; // default
-  if (primaryGenre.includes('horror') || primaryGenre.includes('thriller')) {
-    fontFamily = 'font-mono'; // monospace for tension
-  } else if (primaryGenre.includes('romance') || primaryGenre.includes('drama')) {
-    fontFamily = 'font-serif'; // serif for elegance
-  } else if (primaryGenre.includes('sci') || primaryGenre.includes('science')) {
-    fontFamily = 'font-mono'; // monospace for tech feel
-  } else if (primaryGenre.includes('comedy')) {
-    fontFamily = 'font-sans'; // clean sans for readability
-  }
-  
-  // Text size and styling
-  const textSize = 'text-sm md:text-base'; // Reduced from lg
-  const maxWidth = 'max-w-lg'; // Reduced from 2xl to lg
-  const lineHeight = 'leading-relaxed';
-  
-  return {
-    fontFamily,
-    textSize,
-    maxWidth,
-    lineHeight,
-    className: `${fontFamily} ${textSize} ${maxWidth} ${lineHeight}`
-  };
-};
 import { useNavigate } from '@/hooks/useNavigate';
 import { navigateToMedia } from '@/lib/mediaNavigation';
 import { useMyList } from '@/hooks/useMyList';
 import MyListTooltip from '@/components/ui/MyListTooltip';
+import GenreStyledText from '@/components/GenreStyledText';
 
 interface BackdropSlideshowProps {
     media: Media[];
@@ -454,8 +425,10 @@ export default function BackdropSlideshow({
 
                                 {/* Enhanced Description */}
                                 {(currentMedia.description || currentMedia.long_desc || currentMedia.short_desc) && (
-                                    <p className={`text-white/90 mb-8 line-clamp-2 leading-relaxed ${getGenreTextStyle(currentMedia.genre_names || currentMedia.genres?.map(g => g.name) || []).className}`}>
-                                        {currentMedia.description || currentMedia.long_desc || currentMedia.short_desc}
+                                    <p className="text-white/90 mb-8 line-clamp-2 leading-relaxed text-sm md:text-base max-w-lg">
+                                        <GenreStyledText genres={currentMedia.genre_names || currentMedia.genres?.map(g => typeof g === 'string' ? g : g?.name).filter(Boolean) || []}>
+                                            {currentMedia.description || currentMedia.long_desc || currentMedia.short_desc}
+                                        </GenreStyledText>
                                     </p>
                                 )}
 

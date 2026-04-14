@@ -10,6 +10,7 @@ import { useNavigate } from '@/hooks/useNavigate';
 import { navigateToMedia } from '@/lib/mediaNavigation';
 import { useMyList } from '@/hooks/useMyList';
 import MyListTooltip from '@/components/ui/MyListTooltip';
+import GenreStyledText from '@/components/GenreStyledText';
 
 interface FeaturedBannerProps {
     media: Media[];
@@ -448,7 +449,9 @@ export default function FeaturedBanner({
                             transition={{ delay: 0.6 }}
                             className="text-base md:text-lg text-white mb-6 line-clamp-3 md:line-clamp-4 max-w-[90%] drop-shadow-md font-medium"
                         >
-                            {currentMedia.description}
+                            <GenreStyledText genres={currentMedia.genre_names || currentMedia.genres?.map(g => typeof g === 'string' ? g : g?.name).filter(Boolean) || []}>
+                                {currentMedia.description}
+                            </GenreStyledText>
                         </motion.p>
                     )}
 

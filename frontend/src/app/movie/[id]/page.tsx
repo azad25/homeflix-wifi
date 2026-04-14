@@ -27,36 +27,7 @@ import ImageWithFallback from '@/components/ImageWithFallback';
 import CastSection from '@/components/CastSection';
 import { useMyList } from '@/hooks/useMyList';
 import MyListTooltip from '@/components/ui/MyListTooltip';
-
-// Genre-based text styling utility
-const getGenreTextStyle = (genres: string[] = []) => {
-  const primaryGenre = genres[0]?.toLowerCase() || '';
-
-  // Font family based on genre
-  let fontFamily = 'font-sans'; // default
-  if (primaryGenre.includes('horror') || primaryGenre.includes('thriller')) {
-    fontFamily = 'font-mono'; // monospace for tension
-  } else if (primaryGenre.includes('romance') || primaryGenre.includes('drama')) {
-    fontFamily = 'font-serif'; // serif for elegance
-  } else if (primaryGenre.includes('sci') || primaryGenre.includes('science')) {
-    fontFamily = 'font-mono'; // monospace for tech feel
-  } else if (primaryGenre.includes('comedy')) {
-    fontFamily = 'font-sans'; // clean sans for readability
-  }
-
-  // Text size and styling
-  const textSize = 'text-sm md:text-base'; // Reduced from lg
-  const maxWidth = 'max-w-lg'; // Reduced from xl to lg
-  const lineHeight = 'leading-relaxed';
-
-  return {
-    fontFamily,
-    textSize,
-    maxWidth,
-    lineHeight,
-    className: `${fontFamily} ${textSize} ${maxWidth} ${lineHeight}`
-  };
-};
+import GenreStyledText from '@/components/GenreStyledText';
 
 import {
   NetflixHorizontalRow,
@@ -2789,12 +2760,14 @@ export default function MoviePage() {
 
               {/* Overview */}
               <motion.p
-                className={`text-white/80 max-w-2xl line-clamp-3 md:line-clamp-4 drop-shadow-[0_2px_10px_rgba(0,0,0,0.8)] mb-2 text-sm md:text-base leading-snug ${getGenreTextStyle(media.genres?.map(g => typeof g === 'string' ? g : g?.name).filter(Boolean) || []).className}`}
+                className="text-white/80 max-w-2xl line-clamp-3 md:line-clamp-4 drop-shadow-[0_2px_10px_rgba(0,0,0,0.8)] mb-2 text-sm md:text-base leading-snug"
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 transition={{ delay: 0.7, duration: 0.4 }}
               >
-                {media.description || "Experience the ultimate entertainment with this amazing content. Watch now and immerse yourself in a world of endless possibilities."}
+                <GenreStyledText genres={media.genres}>
+                  {media.description || "Experience the ultimate entertainment with this amazing content. Watch now and immerse yourself in a world of endless possibilities."}
+                </GenreStyledText>
               </motion.p>
 
               {/* Stats Row */}

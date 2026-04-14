@@ -22,6 +22,17 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// structToMap converts a struct to a map using JSON marshaling
+func structToMap(data interface{}) map[string]interface{} {
+	var result map[string]interface{}
+	jsonData, err := json.Marshal(data)
+	if err != nil {
+		return make(map[string]interface{})
+	}
+	json.Unmarshal(jsonData, &result)
+	return result
+}
+
 // Media Handlers
 
 // trimYearFromTitle removes year in parentheses from the end of titles for frontend display
@@ -2192,6 +2203,38 @@ func SearchTMDBSuggestions(tmdbService *services.TMDBService) gin.HandlerFunc {
 	}
 }
 
+// enrichTMDBMovieWithGenreNames adds genre_names array to TMDB movie response
+func enrichTMDBMovieWithGenreNames(movie map[string]interface{}) map[string]interface{} {
+	if genres, ok := movie["genres"].([]interface{}); ok {
+		genreNames := make([]string, 0, len(genres))
+		for _, g := range genres {
+			if genreMap, ok := g.(map[string]interface{}); ok {
+				if name, ok := genreMap["name"].(string); ok {
+					genreNames = append(genreNames, name)
+				}
+			}
+		}
+		movie["genre_names"] = genreNames
+	}
+	return movie
+}
+
+// enrichTMDBTVWithGenreNames adds genre_names array to TMDB TV response
+func enrichTMDBTVWithGenreNames(tv map[string]interface{}) map[string]interface{} {
+	if genres, ok := tv["genres"].([]interface{}); ok {
+		genreNames := make([]string, 0, len(genres))
+		for _, g := range genres {
+			if genreMap, ok := g.(map[string]interface{}); ok {
+				if name, ok := genreMap["name"].(string); ok {
+					genreNames = append(genreNames, name)
+				}
+			}
+		}
+		tv["genre_names"] = genreNames
+	}
+	return tv
+}
+
 // GetTMDBMovieDetails gets detailed information for a TMDB movie or TV series
 func GetTMDBMovieDetails(tmdbService *services.TMDBService) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -2218,9 +2261,14 @@ func GetTMDBMovieDetails(tmdbService *services.TMDBService) gin.HandlerFunc {
 				})
 				return
 			}
+			
+			// Convert to map and enrich with genre_names
+			movieMap := structToMap(movieDetails)
+			movieMap = enrichTMDBMovieWithGenreNames(movieMap)
+			
 			c.JSON(http.StatusOK, gin.H{
 				"media_type": "movie",
-				"data":       movieDetails,
+				"data":       movieMap,
 			})
 			log.Printf("✅ TMDB movie details retrieved for ID: %d", id)
 			return
@@ -2236,9 +2284,14 @@ func GetTMDBMovieDetails(tmdbService *services.TMDBService) gin.HandlerFunc {
 				})
 				return
 			}
+			
+			// Convert to map and enrich with genre_names
+			tvMap := structToMap(tvDetails)
+			tvMap = enrichTMDBTVWithGenreNames(tvMap)
+			
 			c.JSON(http.StatusOK, gin.H{
 				"media_type": "tv",
-				"data":       tvDetails,
+				"data":       tvMap,
 			})
 			log.Printf("✅ TMDB TV details retrieved for ID: %d", id)
 			return
@@ -2249,9 +2302,12 @@ func GetTMDBMovieDetails(tmdbService *services.TMDBService) gin.HandlerFunc {
 		movieDetails, movieErr := tmdbService.GetMovieDetailsWithExtras(id)
 		if movieErr == nil {
 			// Successfully got movie details
+			movieMap := structToMap(movieDetails)
+			movieMap = enrichTMDBMovieWithGenreNames(movieMap)
+			
 			c.JSON(http.StatusOK, gin.H{
 				"media_type": "movie",
-				"data":       movieDetails,
+				"data":       movieMap,
 			})
 			log.Printf("✅ TMDB movie details retrieved for ID: %d", id)
 			return
@@ -2261,9 +2317,12 @@ func GetTMDBMovieDetails(tmdbService *services.TMDBService) gin.HandlerFunc {
 		tvDetails, tvErr := tmdbService.GetTVDetails(id)
 		if tvErr == nil {
 			// Successfully got TV details
+			tvMap := structToMap(tvDetails)
+			tvMap = enrichTMDBTVWithGenreNames(tvMap)
+			
 			c.JSON(http.StatusOK, gin.H{
 				"media_type": "tv",
-				"data":       tvDetails,
+				"data":       tvMap,
 			})
 			log.Printf("✅ TMDB TV details retrieved for ID: %d", id)
 			return

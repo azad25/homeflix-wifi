@@ -25,6 +25,7 @@ import ImageWithFallback from '@/components/ImageWithFallback';
 import CastSection from '@/components/CastSection';
 import { useMyList } from '@/hooks/useMyList';
 import MyListTooltip from '@/components/ui/MyListTooltip';
+import GenreStyledText from '@/components/GenreStyledText';
 import { isPlaceholderVideo, checkAndHandlePlaceholder, detectPlaceholderOnLoad } from '@/lib/videoUtils';
 import {
   NetflixHorizontalRow,
@@ -2419,12 +2420,14 @@ export default function TVSeriesPage() {
 
                         {/* Overview */}
                         <motion.p
-                          className={`text-white/80 max-w-2xl line-clamp-3 md:line-clamp-4 drop-shadow-[0_2px_10px_rgba(0,0,0,0.8)] mb-2 text-sm md:text-base leading-snug ${getGenreTextStyle(series.genres?.map(g => typeof g === 'string' ? g : g?.name).filter(Boolean) || []).className}`}
+                          className="text-white/80 max-w-2xl line-clamp-3 md:line-clamp-4 drop-shadow-[0_2px_10px_rgba(0,0,0,0.8)] mb-2 text-sm md:text-base leading-snug"
                           initial={{ opacity: 0 }}
                           animate={{ opacity: 1 }}
                           transition={{ delay: 0.7, duration: 0.4 }}
                         >
-                          {series.description || "Experience this amazing TV series with compelling characters and engaging storylines that will keep you watching episode after episode."}
+                          <GenreStyledText genres={series.genres?.map(g => typeof g === 'string' ? g : g?.name).filter(Boolean) || []}>
+                            {series.description || "Experience this amazing TV series with compelling characters and engaging storylines that will keep you watching episode after episode."}
+                          </GenreStyledText>
                         </motion.p>
 
                         {/* Continue Watching or Latest Episode Alert */}

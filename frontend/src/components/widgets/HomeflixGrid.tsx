@@ -2,7 +2,7 @@
 
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ChevronLeft, ChevronRight, Play, Info, Star, Film } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Play, Info, Star } from 'lucide-react';
 import { Media } from '@/types/media';
 import { getApiUrl } from '@/lib/api';
 import { useNavigate } from '@/hooks/useNavigate';
@@ -23,6 +23,9 @@ interface HomeflixGridProps {
   className?: string;
   onPlay?: (media: Media) => void;
   onInfo?: (media: Media) => void;
+  showTag?: boolean;
+  tagText?: string;
+  tagColor?: string;
 }
 
 interface HomeflixCardProps {
@@ -32,6 +35,8 @@ interface HomeflixCardProps {
   priority?: boolean;
   delay?: number;
   showRating?: boolean;
+  isFirst?: boolean;
+  isLast?: boolean;
 }
 
 const HomeflixCard: React.FC<HomeflixCardProps> = ({
@@ -41,7 +46,13 @@ const HomeflixCard: React.FC<HomeflixCardProps> = ({
   priority = false,
   delay = 0,
   showRating = true,
+  isFirst = false,
+  isLast = false,
 }) => {
+  const [titlePosition] = useState<'left' | 'center' | 'right'>(() => {
+    const positions: Array<'left' | 'center' | 'right'> = ['left', 'center', 'right'];
+    return positions[Math.floor(Math.random() * positions.length)];
+  });
   const [imageLoaded, setImageLoaded] = useState(false);
   const [imageError, setImageError] = useState(false);
   const [logoError, setLogoError] = useState(false);
@@ -61,7 +72,7 @@ const HomeflixCard: React.FC<HomeflixCardProps> = ({
     onMouseLeave,
     getPreviewClipUrl,
     setVideoReady,
-  } = useHoverVideo(media, 600);
+  } = useHoverVideo(media, 700);
 
   // Get poster image URL - prioritize backdrop, then poster, then thumbnail
   const getPosterUrl = () => {
@@ -159,6 +170,9 @@ const HomeflixCard: React.FC<HomeflixCardProps> = ({
     }
   }, [setVideoReady, videoRef]);
 
+  const titlePositionClass =
+    titlePosition === 'center' ? 'items-center text-center' : titlePosition === 'right' ? 'items-end text-right' : 'items-start text-left';
+
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -169,7 +183,7 @@ const HomeflixCard: React.FC<HomeflixCardProps> = ({
           transition: { duration: 0.3, delay: 0.25, ease: 'easeOut' },
       }}
       transition={{ duration: 0.5, delay: delay / 1000 }}
-      className="group relative cursor-pointer rounded-md overflow-visible"
+      className={`group relative cursor-pointer rounded-md overflow-visible ${isFirst ? 'origin-left' : isLast ? 'origin-right' : 'origin-center'}`}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
       onClick={handleCardClick}
@@ -233,7 +247,7 @@ const HomeflixCard: React.FC<HomeflixCardProps> = ({
         />
         
         {/* Title fallback if not hovered */}
-        <div className="absolute inset-x-0 bottom-0 p-3 pointer-events-none transition-opacity duration-300" style={{ opacity: isHovered ? 0 : 1 }}>
+        <div className={`absolute inset-x-0 bottom-0 p-3 pointer-events-none transition-opacity duration-300 flex flex-col ${titlePositionClass}`} style={{ opacity: isHovered ? 0 : 1 }}>
             {(logoUrl && !logoError) ? (
                 <img src={logoUrl || ''} className="max-h-6 md:max-h-8 w-auto object-contain drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)]" />
             ) : (
@@ -256,9 +270,9 @@ const HomeflixCard: React.FC<HomeflixCardProps> = ({
             >
                 {/* When video is playing: show logo + genres over the video */}
                 {shouldPlay && videoReady ? (
-                    <div className="p-3 md:p-4">
+                    <div className="p-3 md:p-4 text-left">
                         <div className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black/70 to-transparent pointer-events-none" />
-                        <div className="relative z-10">
+                        <div className="relative z-10 flex flex-col items-start">
                             {(logoUrl && !logoError) ? (
                                 <img 
                                     src={logoUrl || ''} 
@@ -286,7 +300,7 @@ const HomeflixCard: React.FC<HomeflixCardProps> = ({
                     </div>
                 ) : (
                     /* When hovered but no video: show full metadata */
-                    <div className="absolute inset-0 bg-gradient-to-t from-[#141414] via-[#141414]/90 to-[#141414]/20 flex flex-col justify-end p-3 md:p-4">
+                    <div className="absolute inset-0 bg-gradient-to-t from-[#141414] via-[#141414]/90 to-[#141414]/20 flex flex-col justify-end p-3 md:p-4 text-left items-start">
                         {(logoUrl && !logoError) ? (
                              <div className="mb-2">
                                  <img 
@@ -358,6 +372,9 @@ export default function HomeflixGrid({
   className = '',
   onPlay,
   onInfo,
+  showTag = false,
+  tagText,
+  tagColor = 'rgba(255,255,255,0.1)',
 }: HomeflixGridProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
@@ -429,74 +446,97 @@ export default function HomeflixGrid({
       onMouseLeave={() => setIsHovered(false)}
     >
       {/* Header */}
-      <div className="px-4 md:px-12 mb-6">
-        <h2 className="text-2xl md:text-3xl font-bold text-white mb-2 flex items-center gap-3">
-          <Film className="w-6 h-6 md:w-7 md:h-7 text-red-500" />
-          {title}
-        </h2>
-        {subtitle && (
-          <p className="text-white/70 text-sm md:text-base pl-9 md:pl-10">
-            {subtitle}
-          </p>
-        )}
+      <div className="px-[4%] md:px-[60px] mb-3 flex items-center justify-between z-30 relative">
+        <div className="flex flex-col md:flex-row md:items-end gap-2 md:gap-4">
+          <h2 className="text-[1.2vw] font-bold text-[#e5e5e5] min-[18px]:text-lg tracking-wide inline-block leading-tight select-none cursor-pointer hover:text-white transition-colors">
+            {title}
+          </h2>
+          {subtitle && (
+            <span className="text-[10px] md:text-xs font-semibold text-white/50 px-2 py-0.5 rounded tracking-wide hidden md:inline-block">
+              {subtitle}
+            </span>
+          )}
+        </div>
       </div>
 
-      <div className="relative">
-        {/* Left scroll button */}
-        {canScrollLeft && (
-          <button
-            onClick={() => scroll("left")}
-            className={`absolute left-0 top-0 bottom-0 z-20 bg-black/80 text-white px-2 flex items-center justify-center transition-all duration-300 cursor-pointer ${isHovered ? 'opacity-100' : 'opacity-0'
-              } hover:bg-black/90`}
-            style={{ width: '60px' }}
+      {/* Optional Custom Tag (from widget settings) */}
+      {showTag && tagText && (
+        <div className="absolute top-3 left-[4%] md:left-[60px] z-40 pointer-events-none">
+          <div
+            className="px-3 py-1 rounded-full backdrop-blur-md border font-semibold text-xs shadow-lg uppercase tracking-wider"
+            style={{
+              backgroundColor: tagColor,
+              borderColor: `${tagColor}60`,
+              color: 'white',
+              boxShadow: `0 0 20px ${tagColor}40, 0 4px 12px rgba(0,0,0,0.3)`,
+              textShadow: '0 1px 2px rgba(0,0,0,0.8)',
+            }}
           >
-            <ChevronLeft className="w-8 h-8" />
-          </button>
-        )}
+            {tagText}
+          </div>
+        </div>
+      )}
 
-        {/* Right scroll button */}
-        {canScrollRight && (
-          <button
-            onClick={() => scroll("right")}
-            className={`absolute right-0 top-0 bottom-0 z-20 bg-black/80 text-white px-2 flex items-center justify-center transition-all duration-300 cursor-pointer ${isHovered ? 'opacity-100' : 'opacity-0'
-              } hover:bg-black/90`}
-            style={{ width: '60px' }}
-          >
-            <ChevronRight className="w-8 h-8" />
-          </button>
-        )}
-
-        {/* Carousel container */}
-        <div
-          ref={scrollRef}
-          onScroll={updateScrollButtons}
-          className="flex gap-4 overflow-x-auto scrollbar-hide px-4 md:px-12 py-10"
-          style={{
-            scrollbarWidth: "none",
-            msOverflowStyle: "none",
-            scrollSnapType: "x mandatory",
-            overflowY: "visible"
-          }}
-        >
-          {displayMedia.map((mediaItem, index) => (
-            <div
-              key={mediaItem.id}
-              className="flex-shrink-0"
-              style={{
-                width: `${itemWidth}px`,
-                scrollSnapAlign: "start"
-              }}
+      <div className={showTag && tagText ? "mt-6" : ""}>
+        <div className="relative">
+          {/* Left scroll button */}
+          {canScrollLeft && (
+            <button
+              onClick={() => scroll("left")}
+              className={`absolute left-0 top-0 bottom-0 z-20 bg-black/80 text-white px-2 flex items-center justify-center transition-all duration-300 cursor-pointer ${isHovered ? 'opacity-100' : 'opacity-0'
+                } hover:bg-black/90`}
+              style={{ width: '60px' }}
             >
-              <HomeflixCard
-                media={mediaItem}
-                onPlay={onPlay}
-                onInfo={onInfo}
-                priority={index < 6}
-                delay={index * 100}
-                showRating={showRating}
-              />
-            </div>
-          ))}
+              <ChevronLeft className="w-8 h-8" />
+            </button>
+          )}
+
+          {/* Right scroll button */}
+          {canScrollRight && (
+            <button
+              onClick={() => scroll("right")}
+              className={`absolute right-0 top-0 bottom-0 z-20 bg-black/80 text-white px-2 flex items-center justify-center transition-all duration-300 cursor-pointer ${isHovered ? 'opacity-100' : 'opacity-0'
+                } hover:bg-black/90`}
+              style={{ width: '60px' }}
+            >
+              <ChevronRight className="w-8 h-8" />
+            </button>
+          )}
+
+          {/* Carousel container */}
+          <div
+            ref={scrollRef}
+            onScroll={updateScrollButtons}
+            className="flex gap-4 overflow-x-auto scrollbar-hide px-4 md:px-12 py-10"
+            style={{
+              scrollbarWidth: "none",
+              msOverflowStyle: "none",
+              scrollSnapType: "x mandatory",
+              overflowY: "visible"
+            }}
+          >
+            {displayMedia.map((mediaItem, index) => (
+              <div
+                key={mediaItem.id}
+                className="flex-shrink-0"
+                style={{
+                  width: `${itemWidth}px`,
+                  scrollSnapAlign: "start"
+                }}
+              >
+                <HomeflixCard
+                  media={mediaItem}
+                  onPlay={onPlay}
+                  onInfo={onInfo}
+                  priority={index < 6}
+                  delay={index * 100}
+                  showRating={showRating}
+                  isFirst={index === 0}
+                  isLast={index === displayMedia.length - 1}
+                />
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </div>

@@ -10,6 +10,7 @@ import RedLoader from '@/components/RedLoader';
 import Navbar from '@/components/Navbar';
 import VideoPlayer from '@/components/VideoPlayer';
 import { useNavigate } from "@/hooks/useNavigate";
+import GenreStyledText from '@/components/GenreStyledText';
 
 interface Season {
   id: number;
@@ -580,12 +581,14 @@ export default function SeasonPage() {
 
               {/* Overview */}
               <motion.p
-                className={`text-white/80 max-w-2xl line-clamp-3 md:line-clamp-4 drop-shadow-[0_2px_10px_rgba(0,0,0,0.8)] mb-2 text-sm md:text-base leading-snug ${getGenreTextStyle(series.genres?.map(g => typeof g === 'string' ? g : g?.name).filter(Boolean) || []).className}`}
+                className="text-white/80 max-w-2xl line-clamp-3 md:line-clamp-4 drop-shadow-[0_2px_10px_rgba(0,0,0,0.8)] mb-2 text-sm md:text-base leading-snug"
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 transition={{ delay: 0.7, duration: 0.4 }}
               >
-                {seasonData?.overview || seasonData?.description || series.description || `Explore Season ${currentSeason} of ${series.title}.`}
+                <GenreStyledText genres={series.genres?.map(g => typeof g === 'string' ? g : g?.name).filter(Boolean) || []}>
+                  {seasonData?.overview || seasonData?.description || series.description || `Explore Season ${currentSeason} of ${series.title}.`}
+                </GenreStyledText>
               </motion.p>
 
               {/* Action Buttons */}

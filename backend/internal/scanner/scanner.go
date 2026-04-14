@@ -6973,9 +6973,9 @@ func (s *MediaScanner) extractMetadataFromPath(path string) *FileMetadata {
 // isEpisodeFile checks if filename indicates a TV episode
 func (s *MediaScanner) isEpisodeFile(filename string) bool {
 	patterns := []string{
-		`[Ss]\d{2}[Ee]\d{2}`, // S01E01 format
-		`\d{1,2}x\d{2}`,      // 1x01 format
-		`Episode\s*\d+`,      // Episode 1 format
+		`[Ss]\d{2}\s*[Ee]\d{2}`, // S01E01 or S01 E01 format (with or without space)
+		`\d{1,2}x\d{2}`,         // 1x01 format
+		`Episode\s*\d+`,         // Episode 1 format
 	}
 
 	for _, pattern := range patterns {
@@ -6997,6 +6997,8 @@ func (s *MediaScanner) isEpisodeFromPath(fullPath string) bool {
 			`^[Ss]eason\s*\d+$`,
 			`^[Ss]\d+$`,
 			`^Season\s*\d+$`,
+			`\b[Ss]\d{2}\b`,      // Match S01, S02, etc. anywhere in folder name (e.g., "Panchayat S04 (2025)")
+			`\b[Ss]eason\s*\d+\b`, // Match "Season 1" anywhere in folder name
 		}
 
 		for _, pattern := range seasonPatterns {
@@ -7021,8 +7023,8 @@ func (s *MediaScanner) isEpisodeFromPath(fullPath string) bool {
 
 // extractEpisodeInfo extracts series title, season, and episode from filename and path
 func (s *MediaScanner) extractEpisodeInfo(filename string) (string, int, int) {
-	// S01E01 format
-	re := regexp.MustCompile(`(.+?)[Ss](\d{2})[Ee](\d{2})`)
+	// S01E01 format (with or without space)
+	re := regexp.MustCompile(`(.+?)[Ss](\d{2})\s*[Ee](\d{2})`)
 	matches := re.FindStringSubmatch(filename)
 	if len(matches) == 4 {
 		seriesTitle := s.cleanTitle(matches[1])

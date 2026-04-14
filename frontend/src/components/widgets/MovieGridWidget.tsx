@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ChevronLeft, ChevronRight, Play, Star, Plus, Check, Info, Calendar, Clock, Grid3X3 } from 'lucide-react';
 import { Media } from '@/types/media';
@@ -49,6 +49,7 @@ interface MovieGridCardProps {
 }
 
 const MovieGridCard: React.FC<MovieGridCardProps> = ({ item, columns, showRating, apiUrl, handleCardClick }) => {
+    const [tmdbLogoUrl, setTmdbLogoUrl] = useState<string | null>(null);
     const { 
         isHovered, 
         shouldPlay, 
@@ -60,7 +61,37 @@ const MovieGridCard: React.FC<MovieGridCardProps> = ({ item, columns, showRating
         onMouseLeave, 
         getPreviewClipUrl, 
         setVideoReady 
-    } = useHoverVideo(item);
+    } = useHoverVideo(item, 700);
+
+    const handleNativeVideoLoaded = useCallback(() => {
+        setVideoReady(true);
+        if (videoRef.current) {
+            videoRef.current.muted = false;
+            videoRef.current.volume = 0.5;
+        }
+    }, [setVideoReady, videoRef]);
+
+    useEffect(() => {
+        const actualTmdbId = item.tmdb_id || item.id;
+        if (!actualTmdbId || item.logo_path || item.tmdb_logo_url) return;
+
+        const fetchTmdbLogo = async () => {
+            try {
+                const type = item.type === 'tv' || item.type === 'series' || item.type === 'episode' ? 'tv' : 'movie';
+                const res = await fetch(`${apiUrl}/api/tmdb/${type}/${actualTmdbId}/images`);
+                if (!res.ok) return;
+                const data = await res.json();
+                const preferred = data?.logos?.find((l: any) => l.iso_639_1 === 'en') || data?.logos?.[0];
+                if (preferred?.file_path) {
+                    setTmdbLogoUrl(`https://image.tmdb.org/t/p/w500${preferred.file_path}`);
+                }
+            } catch {
+                // ignore logo fetch failures
+            }
+        };
+
+        fetchTmdbLogo();
+    }, [item.tmdb_id, item.id, item.logo_path, item.tmdb_logo_url, item.type, apiUrl]);
 
     const getImageUrl = (type: 'poster' | 'backdrop' = 'poster') => {
         if (type === 'poster') {
@@ -75,8 +106,13 @@ const MovieGridCard: React.FC<MovieGridCardProps> = ({ item, columns, showRating
     };
 
     const getLogoUrl = () => {
+        if (tmdbLogoUrl) return tmdbLogoUrl;
+        if (item.tmdb_logo_url) return item.tmdb_logo_url;
         if (item.logo_path) {
             if (item.logo_path.startsWith('http')) return item.logo_path;
+            if (item.logo_path.startsWith('/') && !item.logo_path.startsWith('/api/')) {
+                return `https://image.tmdb.org/t/p/w500${item.logo_path}`;
+            }
             if (item.logo_path.startsWith('/api/')) return `${apiUrl}${item.logo_path}`;
             const filename = item.logo_path.includes('/') ? item.logo_path.split('/').pop() : item.logo_path;
             return `${apiUrl}/api/logos/${filename}`;
@@ -166,13 +202,7 @@ const MovieGridCard: React.FC<MovieGridCardProps> = ({ item, columns, showRating
                                     loop
                                     playsInline
                                     preload="auto"
-                                    onPlaying={() => {
-                                        setVideoReady(true);
-                                        if (videoRef.current) {
-                                            videoRef.current.muted = false;
-                                            videoRef.current.volume = 0.5;
-                                        }
-                                    }}
+                                    onPlaying={handleNativeVideoLoaded}
                                     crossOrigin="anonymous"
                                 />
                             )}
