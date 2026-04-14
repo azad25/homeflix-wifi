@@ -1,12 +1,15 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { TrendingUp, Play, Star, ChevronLeft, ChevronRight, Plus, Check, Info, Calendar, Clock } from 'lucide-react';
 import { Media } from '@/types/media';
 import { getApiUrl, preloadAssets } from '@/lib/api';
 import { useNavigate } from '@/hooks/useNavigate';
 import { getColorPaletteByGenre } from '@/types/widgets';
+import { useHoverVideo } from '@/hooks/useHoverVideo';
+import { getRobustGenres } from '../../utils/tmdbGenres';
+import { isComingSoon, getYear } from '../../utils/dateUtils';
 
 interface TrendingSlideshowProps {
     media: Media[];
@@ -15,6 +18,237 @@ interface TrendingSlideshowProps {
     scrollInterval?: number;
     maxItems?: number;
     className?: string;
+}
+
+// --- Per-card component for hook support ---
+interface TrendingCardProps {
+    item: Media;
+    index: number;
+    isInMyList: Record<number, boolean>;
+    toggleMyList: (mediaId: number, e: React.MouseEvent) => void;
+    onCardClick: (item: Media) => void;
+    tmdbLogoUrl?: string;
+}
+
+function TrendingCard({ item, index, isInMyList, toggleMyList, onCardClick, tmdbLogoUrl }: TrendingCardProps) {
+    const apiUrl = getApiUrl();
+    const colors = getColorPaletteByGenre(item.genre_names || []);
+    const [logoError, setLogoError] = useState(false);
+
+    const {
+        isHovered,
+        shouldPlay,
+        videoReady,
+        useYouTube,
+        videoRef,
+        ytContainerId,
+        onMouseEnter,
+        onMouseLeave,
+        getPreviewClipUrl,
+        setVideoReady,
+    } = useHoverVideo(item, 700);
+
+    const handleNativeVideoLoaded = useCallback(() => {
+        setVideoReady(true);
+        // Unmute after playback starts
+        if (videoRef.current) {
+            videoRef.current.muted = false;
+            videoRef.current.volume = 0.5;
+        }
+    }, [setVideoReady, videoRef]);
+
+    const getImageUrl = (type: 'poster' | 'backdrop' = 'poster') => {
+        if (type === 'poster') {
+            if (item.tmdb_poster_url) return item.tmdb_poster_url;
+            if (item.poster_url) return item.poster_url;
+            if (item.poster_path) {
+                const filename = item.poster_path.includes('/') ? item.poster_path.split('/').pop() : item.poster_path;
+                return `${apiUrl}/api/posters/${filename}`;
+            }
+            return `${apiUrl}/api/posters/${item.id}`;
+        } else {
+            if (item.tmdb_backdrop_url) return item.tmdb_backdrop_url;
+            if (item.banner_path) {
+                const filename = item.banner_path.includes('/') ? item.banner_path.split('/').pop() : item.banner_path;
+                return `${apiUrl}/api/admin/assets/${filename}`;
+            }
+            return `${apiUrl}/api/thumbnails/${item.id}`;
+        }
+    };
+
+    const getLogoUrl = (): string | null => {
+        if (tmdbLogoUrl) return tmdbLogoUrl;
+        if (item.tmdb_logo_url) return item.tmdb_logo_url;
+        if (item.logo_path) {
+            if (item.logo_path.startsWith('http')) return item.logo_path;
+            if (item.logo_path.startsWith('/') && !item.logo_path.startsWith('/api')) return `https://image.tmdb.org/t/p/w500${item.logo_path}`;
+            if (item.logo_path.startsWith('/api')) return `${apiUrl}${item.logo_path}`;
+            return `${apiUrl}/api/logos/${item.logo_path.split('/').pop()}`;
+        }
+        return null;
+    };
+    const logoUrl = getLogoUrl();
+
+    return (
+        <motion.div
+            className="flex-shrink-0 relative group cursor-pointer flex items-end ml-2 lg:ml-6"
+            style={{ scrollSnapAlign: 'start' }}
+            onMouseEnter={onMouseEnter}
+            onMouseLeave={onMouseLeave}
+            onClick={() => onCardClick(item)}
+            whileHover={{ scale: 1.2, zIndex: 20 }}
+            transition={{ duration: 0.3, ease: "easeOut" }}
+        >
+            {/* Netflix Style Ranking Number */}
+            <div className="relative z-0 -mr-[18%] md:-mr-[22%] mb-[-4%] md:mb-[-6%] pointer-events-none">
+                <span
+                    className="text-[120px] md:text-[160px] lg:text-[220px] font-black leading-none tracking-tighter select-none"
+                    style={{
+                        color: '#000000',
+                        WebkitTextStroke: index + 1 === 10 ? '3px #595959' : '4px #595959',
+                        fontFamily: 'system-ui, -apple-system, sans-serif',
+                        textShadow: '0 0 20px rgba(0,0,0,0.5)'
+                    }}
+                >
+                    {index + 1}
+                </span>
+            </div>
+
+            {/* Standard 2:3 Poster Card */}
+            <div className="relative w-[130px] md:w-[160px] lg:w-[200px] aspect-[2/3] z-10">
+                {/* Main Image */}
+                <div className="relative w-full h-full rounded-md overflow-hidden shadow-2xl border border-white/5 group-hover:border-white/20 transition-colors bg-gray-900">
+                    {/* Coming Soon Tag */}
+                    {isComingSoon(item) && (
+                        <div className="absolute top-2 right-2 bg-red-600 text-white text-[9px] font-bold px-1.5 py-0.5 rounded shadow z-[60] tracking-wider pointer-events-none">
+                            COMING SOON
+                        </div>
+                    )}
+                    <img
+                        src={getImageUrl('poster')}
+                        alt={item.title}
+                        className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-110"
+                        loading="lazy"
+                        onError={(e) => {
+                            const target = e.target as HTMLImageElement;
+                            const currentSrc = target.src;
+
+                            // Try fallback sequence: poster -> backdrop -> thumbnail
+                            if (currentSrc.includes('tmdb') || currentSrc.includes('posters')) {
+                                if (item.tmdb_backdrop_url && !currentSrc.includes('backdrop')) {
+                                    target.src = item.tmdb_backdrop_url;
+                                } else if (!currentSrc.includes('thumbnails')) {
+                                    target.src = `${apiUrl}/api/thumbnails/${item.id}`;
+                                }
+                            }
+                        }}
+                    />
+
+                    {/* Hover Video: YouTube Trailer (priority) */}
+                    {shouldPlay && useYouTube && (
+                        <div
+                            className="absolute inset-0 z-[5] overflow-hidden transition-opacity duration-700 ease-in pointer-events-none"
+                            style={{ opacity: videoReady ? 1 : 0 }}
+                        >
+                            <div
+                                id={ytContainerId}
+                                className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2"
+                                style={{ width: '300%', height: '200%', minWidth: '300%', minHeight: '180%' }}
+                            />
+                        </div>
+                    )}
+
+                    {/* Hover Video: Native Preview Clip (fallback) */}
+                    {shouldPlay && !useYouTube && (
+                        <video
+                            ref={videoRef}
+                            src={getPreviewClipUrl()}
+                            className="absolute inset-0 w-full h-full object-cover z-[5] transition-opacity duration-700 ease-in pointer-events-none"
+                            style={{ opacity: videoReady ? 1 : 0 }}
+                            autoPlay
+                            muted
+                            loop
+                            playsInline
+                            preload="auto"
+                            onPlaying={handleNativeVideoLoaded}
+                            onError={() => { }}
+                            crossOrigin="anonymous"
+                        />
+                    )}
+
+                    {/* Gradient Overlay */}
+                    <div className="absolute inset-0 bg-gradient-to-t from-black via-black/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none" />
+                </div>
+
+                {/* Enhanced Hover Content */}
+                <AnimatePresence>
+                    {isHovered && (
+                        <motion.div
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            transition={{ duration: 0.2 }}
+                            className="absolute inset-0 flex flex-col justify-end p-3 pointer-events-auto"
+                        >
+                            {/* Extra inner gradient to ensure bottom content legibility */}
+                            <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-black via-black/80 to-transparent pointer-events-none rounded-b-md" />
+
+                            <div className="relative z-10 w-full">
+                                {/* Logo or Title */}
+                                {(logoUrl && !logoError) ? (
+                                    <img
+                                        src={logoUrl}
+                                        alt={item.title}
+                                        className="max-h-6 md:max-h-10 w-auto object-contain drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)] mb-1"
+                                        onError={() => setLogoError(true)}
+                                    />
+                                ) : (
+                                    <h4 className="text-[11px] md:text-sm font-bold text-white leading-tight line-clamp-2 mb-1 drop-shadow-md">
+                                        {item.title}
+                                    </h4>
+                                )}
+                                <div className="flex items-center gap-1.5 text-[10px] text-white/60 mb-1.5">
+                                    {(() => {
+                                        const year = getYear(item);
+                                        return year && year > 1900 ? (
+                                            <span className="font-medium">{year}</span>
+                                        ) : null;
+                                    })()}
+                                    {((item.duration || item.runtime) && (item.duration || item.runtime)! > 0) ? (
+                                        <>
+                                            <span className="w-1 h-1 rounded-full bg-white/40" />
+                                            <span>
+                                                {Math.floor((item.duration || item.runtime!) / 3600) > 0 ? `${Math.floor((item.duration || item.runtime!) / 3600)}h ` : ''}
+                                                {Math.floor(((item.duration || item.runtime!) % 3600) / 60)}m
+                                            </span>
+                                        </>
+                                    ) : null}
+                                </div>
+
+                                {/* Genres */}
+                                {(() => {
+                                    const genres = getRobustGenres(item);
+                                    if (!genres || genres.length === 0) return null;
+                                    return (
+                                        <div className="flex flex-wrap items-center gap-1 min-w-0">
+                                            {genres.slice(0, 2).map((genre, idx, arr) => (
+                                                <React.Fragment key={idx}>
+                                                    <span className="text-[9px] text-white/70 font-medium leading-none">
+                                                        {genre}
+                                                    </span>
+                                                    {idx < arr.length - 1 && <span className="w-1 h-1 rounded-full bg-white/30 shrink-0" />}
+                                                </React.Fragment>
+                                            ))}
+                                        </div>
+                                    );
+                                })()}
+                            </div>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+            </div>
+        </motion.div>
+    );
 }
 
 export default function TrendingSlideshow({
@@ -29,11 +263,38 @@ export default function TrendingSlideshow({
     const scrollContainerRef = useRef<HTMLDivElement>(null);
     const [canScrollLeft, setCanScrollLeft] = useState(false);
     const [canScrollRight, setCanScrollRight] = useState(true);
-    const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
+    const [tmdbLogoUrls, setTmdbLogoUrls] = useState<Record<number, string>>({});
+    
+    const displayMedia = media.slice(0, maxItems);
+    
+    useEffect(() => {
+        const fetchLogos = async () => {
+            const apiUrl = getApiUrl();
+            const updates: Record<number, string> = {};
+            for (const item of displayMedia) {
+                const actualTmdbId = item.tmdb_id || item.id;
+                if (!actualTmdbId || item.logo_path || tmdbLogoUrls[item.id]) continue;
+                try {
+                    const type = item.type === 'tv' || item.type === 'series' || item.type === 'episode' ? 'tv' : 'movie';
+                    const res = await fetch(`${apiUrl}/api/tmdb/${type}/${actualTmdbId}/images`);
+                    if (res.ok) {
+                        const data = await res.json();
+                        const preferred = data?.logos?.find((l: any) => l.iso_639_1 === 'en') || data?.logos?.[0];
+                        if (preferred?.file_path) {
+                            updates[item.id] = `https://image.tmdb.org/t/p/w500${preferred.file_path}`;
+                        }
+                    }
+                } catch { /* ignore */ }
+            }
+            if (Object.keys(updates).length > 0) {
+                setTmdbLogoUrls(prev => ({ ...prev, ...updates }));
+            }
+        };
+        fetchLogos();
+    }, [displayMedia]);
     const [isInMyList, setIsInMyList] = useState<Record<number, boolean>>({});
 
     const apiUrl = getApiUrl();
-    const displayMedia = media.slice(0, maxItems);
 
     // Check scroll position
     const updateScrollButtons = () => {
@@ -96,51 +357,6 @@ export default function TrendingSlideshow({
         }));
     };
 
-    const getImageUrl = (item: Media, type: 'poster' | 'backdrop' = 'poster') => {
-        if (type === 'poster') {
-            // Priority: TMDB poster > local poster > thumbnail fallback
-            if (item.tmdb_poster_url) return item.tmdb_poster_url;
-            if (item.poster_url) return item.poster_url;
-            if (item.poster_path) {
-                const filename = item.poster_path.includes('/') ? item.poster_path.split('/').pop() : item.poster_path;
-                return `${apiUrl}/api/posters/${filename}`;
-            }
-            return `${apiUrl}/api/posters/${item.id}`;
-        } else {
-            // Priority: TMDB backdrop > local banner > thumbnail fallback
-            if (item.tmdb_backdrop_url) return item.tmdb_backdrop_url;
-            if (item.banner_path) {
-                const filename = item.banner_path.includes('/') ? item.banner_path.split('/').pop() : item.banner_path;
-                return `${apiUrl}/api/admin/assets/${filename}`;
-            }
-            return `${apiUrl}/api/thumbnails/${item.id}`;
-        }
-    };
-
-    const getLogoUrl = (item: Media) => {
-        // Priority: TMDB logo > local logo
-        if (item.tmdb_id) {
-            // For TMDB content, we'll fetch the logo from TMDB images API
-            // This would need to be implemented as a separate API call
-            // For now, fall back to local logo handling
-        }
-
-        if (item.logo_path) {
-            // Check if logo_path is already a full URL (TMDB logo)
-            if (item.logo_path.startsWith('http')) {
-                return item.logo_path;
-            }
-            // Handle local logo paths - could be relative or absolute
-            if (item.logo_path.startsWith('/api/')) {
-                return `${apiUrl}${item.logo_path}`;
-            }
-            // For simple filenames or relative paths
-            const filename = item.logo_path.includes('/') ? item.logo_path.split('/').pop() : item.logo_path;
-            return `${apiUrl}/api/logos/${filename}`;
-        }
-        return null;
-    };
-
     if (!displayMedia.length) return null;
 
     return (
@@ -176,8 +392,8 @@ export default function TrendingSlideshow({
                         whileHover={{ scale: 1.1 }}
                         whileTap={{ scale: 0.95 }}
                         className={`p-3 rounded-full backdrop-blur-md border transition-all ${!canScrollLeft
-                                ? 'opacity-30 cursor-not-allowed bg-white/5 border-white/10'
-                                : 'bg-white/10 hover:bg-white/20 border-white/20 hover:border-white/30'
+                            ? 'opacity-30 cursor-not-allowed bg-white/5 border-white/10'
+                            : 'bg-white/10 hover:bg-white/20 border-white/20 hover:border-white/30'
                             }`}
                     >
                         <ChevronLeft className="w-5 h-5 text-white" />
@@ -188,8 +404,8 @@ export default function TrendingSlideshow({
                         whileHover={{ scale: 1.1 }}
                         whileTap={{ scale: 0.95 }}
                         className={`p-3 rounded-full backdrop-blur-md border transition-all ${!canScrollRight
-                                ? 'opacity-30 cursor-not-allowed bg-white/5 border-white/10'
-                                : 'bg-white/10 hover:bg-white/20 border-white/20 hover:border-white/30'
+                            ? 'opacity-30 cursor-not-allowed bg-white/5 border-white/10'
+                            : 'bg-white/10 hover:bg-white/20 border-white/20 hover:border-white/30'
                             }`}
                     >
                         <ChevronRight className="w-5 h-5 text-white" />
@@ -203,157 +419,17 @@ export default function TrendingSlideshow({
                 className="flex gap-2 md:gap-4 overflow-x-auto scrollbar-hide px-4 md:px-8 pb-12 pt-8"
                 style={{ scrollSnapType: 'x mandatory' }}
             >
-                {displayMedia.map((item, index) => {
-                    const colors = getColorPaletteByGenre(item.genre_names || []);
-                    const logoUrl = getLogoUrl(item);
-
-                    return (
-                        <motion.div
-                            key={item.id}
-                            className="flex-shrink-0 relative group cursor-pointer flex items-end ml-2 lg:ml-6"
-                            style={{ scrollSnapAlign: 'start' }}
-                            onMouseEnter={() => setHoveredIndex(index)}
-                            onMouseLeave={() => setHoveredIndex(null)}
-                            onClick={() => handleCardClick(item)}
-                            whileHover={{ scale: 1.05, zIndex: 20 }}
-                            transition={{ duration: 0.3, ease: "easeOut" }}
-                        >
-                            {/* Netflix Style Ranking Number */}
-                            <div className="relative z-0 -mr-[18%] md:-mr-[22%] mb-[-4%] md:mb-[-6%] pointer-events-none">
-                                <span
-                                    className="text-[120px] md:text-[160px] lg:text-[220px] font-black leading-none tracking-tighter select-none"
-                                    style={{
-                                        color: '#000000',
-                                        WebkitTextStroke: index + 1 === 10 ? '3px #595959' : '4px #595959',
-                                        fontFamily: 'system-ui, -apple-system, sans-serif',
-                                        textShadow: '0 0 20px rgba(0,0,0,0.5)'
-                                    }}
-                                >
-                                    {index + 1}
-                                </span>
-                            </div>
-
-                            {/* Standard 2:3 Poster Card */}
-                            <div className="relative w-[120px] md:w-[150px] lg:w-[180px] aspect-[2/3] z-10">
-                                {/* Main Image */}
-                                <div className="relative w-full h-full rounded-md overflow-hidden shadow-2xl border border-white/5 group-hover:border-white/20 transition-colors bg-gray-900">
-                                    <img
-                                        src={getImageUrl(item, 'poster')}
-                                        alt={item.title}
-                                        className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-110"
-                                        loading="lazy"
-                                        onError={(e) => {
-                                            const target = e.target as HTMLImageElement;
-                                            const currentSrc = target.src;
-
-                                            // Try fallback sequence: poster -> backdrop -> thumbnail
-                                            if (currentSrc.includes('tmdb') || currentSrc.includes('posters')) {
-                                                if (item.tmdb_backdrop_url && !currentSrc.includes('backdrop')) {
-                                                    target.src = item.tmdb_backdrop_url;
-                                                } else if (!currentSrc.includes('thumbnails')) {
-                                                    target.src = `${apiUrl}/api/thumbnails/${item.id}`;
-                                                }
-                                            }
-                                        }}
-                                    />
-
-                                    {/* Gradient Overlay */}
-                                    <div className="absolute inset-0 bg-gradient-to-t from-black via-black/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none" />
-                                </div>
-
-                                {/* Enhanced Hover Content */}
-                                <AnimatePresence>
-                                    {hoveredIndex === index && (
-                                        <motion.div
-                                            initial={{ opacity: 0 }}
-                                            animate={{ opacity: 1 }}
-                                            exit={{ opacity: 0 }}
-                                            transition={{ duration: 0.2 }}
-                                            className="absolute inset-0 flex flex-col justify-end p-3 pointer-events-auto"
-                                        >
-                                            {/* Extra inner gradient to ensure bottom content legibility */}
-                                            <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-black via-black/80 to-transparent pointer-events-none rounded-b-md" />
-
-                                            <div className="relative z-10 w-full">
-                                                {/* Action Buttons Row */}
-                                                <div className="flex items-center gap-2 mb-3">
-                                                    <motion.button
-                                                        whileHover={{ scale: 1.1 }}
-                                                        whileTap={{ scale: 0.9 }}
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            handleCardClick(item);
-                                                        }}
-                                                        className="w-8 h-8 flex items-center justify-center bg-white text-black rounded-full shadow-lg hover:bg-white/80 transition-colors"
-                                                    >
-                                                        <Play className="w-4 h-4 fill-current ml-0.5" />
-                                                    </motion.button>
-                                                    
-                                                    <motion.button
-                                                        whileHover={{ scale: 1.1 }}
-                                                        whileTap={{ scale: 0.9 }}
-                                                        onClick={(e) => toggleMyList(item.id, e)}
-                                                        className="w-8 h-8 flex items-center justify-center rounded-full border-2 border-white/50 bg-black/60 text-white hover:border-white transition-colors"
-                                                        style={{
-                                                            borderColor: isInMyList[item.id] ? colors.primary : undefined
-                                                        }}
-                                                    >
-                                                        {isInMyList[item.id] ?
-                                                            <Check className="w-4 h-4" /> :
-                                                            <Plus className="w-4 h-4" />
-                                                        }
-                                                    </motion.button>
-
-                                                    <motion.button
-                                                        whileHover={{ scale: 1.1 }}
-                                                        whileTap={{ scale: 0.9 }}
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            handleCardClick(item);
-                                                        }}
-                                                        className="w-8 h-8 flex items-center justify-center rounded-full border-2 border-white/50 bg-black/60 text-white hover:border-white transition-colors ml-auto"
-                                                    >
-                                                        <Info className="w-4 h-4" />
-                                                    </motion.button>
-                                                </div>
-
-                                                {/* Meta Info */}
-                                                <div className="flex items-center gap-1.5 text-[10px] font-bold text-white mb-1.5 leading-none">
-                                                    <span className="text-green-500 font-extrabold max-w-[60%] truncate">
-                                                        {item.rating ? `${Math.round(item.rating * 10)}% Match` : 'New'}
-                                                    </span>
-                                                    <span className="px-1 border border-white/40 text-white/90 rounded-[3px] bg-white/10 shrink-0">
-                                                        HD
-                                                    </span>
-                                                    {((item.duration || item.runtime) && (item.duration || item.runtime)! > 0) ? (
-                                                        <span className="text-white shrink-0">
-                                                            {Math.floor((item.duration || item.runtime!) / 3600) > 0 ? `${Math.floor((item.duration || item.runtime!) / 3600)}h ` : ''}
-                                                            {Math.floor(((item.duration || item.runtime!) % 3600) / 60)}m
-                                                        </span>
-                                                    ) : null}
-                                                </div>
-
-                                                {/* Genres */}
-                                                {(item.genre_names || item.genres) && (item.genre_names || item.genres)!.length > 0 && (
-                                                    <div className="flex flex-wrap items-center gap-1.5 min-w-0">
-                                                        {(item.genre_names || item.genres?.map(g => g.name) || []).slice(0, 3).map((genre, idx, arr) => (
-                                                            <React.Fragment key={idx}>
-                                                                <span className="text-[10px] text-white font-medium hover:text-white/80 transition-colors truncate max-w-full leading-none">
-                                                                    {genre}
-                                                                </span>
-                                                                {idx < arr.length - 1 && <span className="w-1 h-1 rounded-full bg-white/40 shrink-0" />}
-                                                            </React.Fragment>
-                                                        ))}
-                                                    </div>
-                                                )}
-                                            </div>
-                                        </motion.div>
-                                    )}
-                                </AnimatePresence>
-                            </div>
-                        </motion.div>
-                    );
-                })}
+                {displayMedia.map((item, index) => (
+                    <TrendingCard
+                        key={item.id}
+                        item={item}
+                        index={index}
+                        isInMyList={isInMyList}
+                        toggleMyList={toggleMyList}
+                        onCardClick={handleCardClick}
+                        tmdbLogoUrl={tmdbLogoUrls[item.id]}
+                    />
+                ))}
             </div>
 
             {/* Enhanced Gradient Masks */}
@@ -362,3 +438,4 @@ export default function TrendingSlideshow({
         </div>
     );
 }
+

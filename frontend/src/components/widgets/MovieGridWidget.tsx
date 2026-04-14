@@ -7,6 +7,8 @@ import { Media } from '@/types/media';
 import { getApiUrl, preloadAssets } from '@/lib/api';
 import { getColorPaletteByGenre } from '@/types/widgets';
 import { useNavigate } from '@/hooks/useNavigate';
+import { isComingSoon, getYear } from '@/utils/dateUtils';
+import { useHoverVideo } from '@/hooks/useHoverVideo';
 
 // Genre-based text styling utility
 const getGenreTextStyle = (genres: string[] = []) => {
@@ -38,6 +40,233 @@ const getGenreTextStyle = (genres: string[] = []) => {
     };
 };
 
+interface MovieGridCardProps {
+    item: Media;
+    columns: number;
+    showRating: boolean;
+    apiUrl: string;
+    handleCardClick: (item: Media) => void;
+}
+
+const MovieGridCard: React.FC<MovieGridCardProps> = ({ item, columns, showRating, apiUrl, handleCardClick }) => {
+    const { 
+        isHovered, 
+        shouldPlay, 
+        videoReady, 
+        useYouTube, 
+        videoRef, 
+        ytContainerId, 
+        onMouseEnter, 
+        onMouseLeave, 
+        getPreviewClipUrl, 
+        setVideoReady 
+    } = useHoverVideo(item);
+
+    const getImageUrl = (type: 'poster' | 'backdrop' = 'poster') => {
+        if (type === 'poster') {
+            const posterUrl = item.tmdb_poster_url || `${apiUrl}/api/posters/${item.id}`;
+            if (posterUrl.startsWith('/api/')) return `${apiUrl}${posterUrl}`;
+            return posterUrl;
+        } else {
+            const backdropUrl = item.tmdb_backdrop_url || item.backdrop_path || `${apiUrl}/api/thumbnails/${item.id}`;
+            if (backdropUrl.startsWith('/api/')) return `${apiUrl}${backdropUrl}`;
+            return backdropUrl;
+        }
+    };
+
+    const getLogoUrl = () => {
+        if (item.logo_path) {
+            if (item.logo_path.startsWith('http')) return item.logo_path;
+            if (item.logo_path.startsWith('/api/')) return `${apiUrl}${item.logo_path}`;
+            const filename = item.logo_path.includes('/') ? item.logo_path.split('/').pop() : item.logo_path;
+            return `${apiUrl}/api/logos/${filename}`;
+        }
+        return null;
+    };
+
+    const logoUrl = getLogoUrl();
+
+    return (
+        <motion.div
+            className="flex-shrink-0 relative cursor-pointer"
+            onMouseEnter={onMouseEnter}
+            onMouseLeave={onMouseLeave}
+            onClick={() => handleCardClick(item)}
+            animate={{
+                width: isHovered ? '400px' : `calc((100vw - 8rem) / ${Math.min(columns, 6)})`,
+            }}
+            transition={{
+                duration: 0.5,
+                ease: [0.25, 0.1, 0.25, 1]
+            }}
+            style={{
+                scrollSnapAlign: 'start',
+                minWidth: '140px',
+                maxWidth: isHovered ? '400px' : '220px',
+                height: '330px',
+            }}
+        >
+            <div
+                className="relative rounded-xl overflow-hidden shadow-2xl w-full h-full"
+                style={{ zIndex: isHovered ? 50 : 1 }}
+            >
+                {isComingSoon(item) && (
+                    <div className="absolute top-2 right-2 bg-red-600 text-white text-[9px] font-bold px-1.5 py-0.5 rounded shadow z-[60] tracking-wider pointer-events-none">
+                        COMING SOON
+                    </div>
+                )}
+                {!isHovered ? (
+                    <img
+                        src={getImageUrl('poster')}
+                        alt={item.title}
+                        className="absolute inset-0 w-full h-full object-cover"
+                        loading="lazy"
+                        onError={(e) => {
+                            const target = e.target as HTMLImageElement;
+                            target.src = getImageUrl('backdrop');
+                        }}
+                    />
+                ) : (
+                    <div className="absolute inset-0 flex flex-col">
+                        <div className="relative" style={{ height: '60%' }}>
+                            <img
+                                src={getImageUrl('backdrop')}
+                                alt={item.title}
+                                className="absolute inset-0 w-full h-full object-cover z-[1]"
+                                loading="lazy"
+                                onError={(e) => {
+                                    const target = e.target as HTMLImageElement;
+                                    target.src = getImageUrl('poster');
+                                }}
+                            />
+                            
+                            {/* Hover Video: YouTube */}
+                            {shouldPlay && useYouTube && (
+                                <div
+                                    className="absolute inset-0 z-[5] overflow-hidden transition-opacity duration-700 ease-in pointer-events-none"
+                                    style={{ opacity: videoReady ? 1 : 0 }}
+                                >
+                                    <div
+                                        id={ytContainerId}
+                                        className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2"
+                                        style={{ width: '180%', height: '180%', minWidth: '200%', minHeight: '120%' }}
+                                    />
+                                </div>
+                            )}
+
+                            {/* Hover Video: Native fallback */}
+                            {shouldPlay && !useYouTube && (
+                                <video
+                                    ref={videoRef}
+                                    src={getPreviewClipUrl()}
+                                    className="absolute inset-0 w-full h-full object-cover z-[5] transition-opacity duration-700 ease-in pointer-events-none"
+                                    style={{ opacity: videoReady ? 1 : 0 }}
+                                    autoPlay
+                                    muted
+                                    loop
+                                    playsInline
+                                    preload="auto"
+                                    onPlaying={() => {
+                                        setVideoReady(true);
+                                        if (videoRef.current) {
+                                            videoRef.current.muted = false;
+                                            videoRef.current.volume = 0.5;
+                                        }
+                                    }}
+                                    crossOrigin="anonymous"
+                                />
+                            )}
+                            
+                            <div className="absolute inset-0 bg-gradient-to-b from-transparent to-black z-[10]" />
+                        </div>
+
+                        <div className="bg-black p-3 flex flex-col justify-between" style={{ height: '40%', zIndex: 11 }}>
+                            <div className="mb-0.5">
+                                {logoUrl ? (
+                                    <img
+                                        src={logoUrl}
+                                        alt={item.title}
+                                        className="max-h-10 w-auto drop-shadow-2xl"
+                                        onError={(e) => {
+                                            e.currentTarget.style.display = 'none';
+                                            const fallback = e.currentTarget.nextElementSibling as HTMLElement;
+                                            if (fallback) fallback.style.display = 'block';
+                                        }}
+                                    />
+                                ) : null}
+                                <h4
+                                    className="text-lg font-bold line-clamp-1 text-white drop-shadow-lg"
+                                    style={{ display: logoUrl ? 'none' : 'block' }}
+                                >
+                                    {item.title}
+                                </h4>
+                            </div>
+
+                            <div className="flex items-center gap-1.5 text-xs text-white/90 mb-1 flex-wrap">
+                                <span className="font-bold text-[#46d369]">
+                                    {item.rating ? Math.floor(Number(item.rating) * 10) : 85 + Math.floor(Math.random() * 14)}% Match
+                                </span>
+                                {(() => {
+                                    const year = getYear(item);
+                                    if (year && year > 1900) {
+                                        return (
+                                            <span className="flex items-center gap-0.5 px-1 py-0.5 rounded text-white/70">
+                                                <Calendar className="w-2.5 h-2.5" />
+                                                {year}
+                                            </span>
+                                        );
+                                    }
+                                    return null;
+                                })()}
+                                {showRating && item.rating && item.rating > 0 && (
+                                    <span className="flex items-center gap-0.5 px-1 py-0.5 rounded text-white/70">
+                                        <Star className="w-2.5 h-2.5 text-yellow-400 fill-current" />
+                                        {item.rating.toFixed(1)}
+                                    </span>
+                                )}
+                                {(() => {
+                                    const duration = item.duration || item.runtime || 0;
+                                    if (duration > 0) {
+                                        const hours = Math.floor(duration / 3600);
+                                        const minutes = Math.floor((duration % 3600) / 60);
+                                        const timeStr = [
+                                            hours > 0 ? `${hours}h` : '',
+                                            minutes > 0 ? `${minutes}m` : ''
+                                        ].filter(Boolean).join(' ');
+
+                                        if (timeStr) {
+                                            return (
+                                                <span className="flex items-center gap-0.5 px-1 py-0.5 rounded text-white/70">
+                                                    <Clock className="w-2.5 h-2.5" />
+                                                    {timeStr}
+                                                </span>
+                                            );
+                                        }
+                                    }
+                                    return null;
+                                })()}
+                            </div>
+                            <p className="text-[10px] md:text-[11px] text-white/60 line-clamp-2 mt-auto pt-1 pb-1">
+                                {item.description || item.overview || 'A cinematic piece curated just for you.'}
+                            </p>
+                        </div>
+                    </div>
+                )}
+            </div>
+
+            <motion.div
+                className="absolute inset-0 pointer-events-none rounded-xl"
+                animate={{
+                    boxShadow: isHovered
+                        ? `0 10px 40px rgba(0,0,0,0.8)`
+                        : 'none'
+                }}
+                transition={{ duration: 0.5 }}
+            />
+        </motion.div>
+    );
+};
+
 interface MovieGridWidgetProps {
     media: Media[];
     title: string;
@@ -61,8 +290,6 @@ export default function MovieGridWidget({
     const scrollContainerRef = useRef<HTMLDivElement>(null);
     const [canScrollLeft, setCanScrollLeft] = useState(false);
     const [canScrollRight, setCanScrollRight] = useState(true);
-    const [hoveredId, setHoveredId] = useState<number | null>(null);
-    const [myList, setMyList] = useState<Set<number>>(new Set());
 
     const apiUrl = getApiUrl();
     const displayMedia = media.slice(0, maxItems);
@@ -99,85 +326,25 @@ export default function MovieGridWidget({
         }
     };
 
-    const toggleMyList = (e: React.MouseEvent, id: number) => {
-        e.stopPropagation();
-        setMyList(prev => {
-            const newSet = new Set(prev);
-            if (newSet.has(id)) newSet.delete(id);
-            else newSet.add(id);
-            return newSet;
-        });
-    };
-
     const handleCardClick = (item: Media) => {
-        // Local content always routes to local pages, even if it has tmdb_id from metadata enrichment
         const isLocal = (item as any).is_local;
         if (isLocal || !item.tmdb_id) {
-            // Navigate to local content pages
             if (item.type === 'episode' || item.type === 'tv' || item.type === 'series') {
                 const seriesId = item.series_id || item.id;
                 navigate.push(`/tv-series/${seriesId}`);
             } else {
-                // Local movie - navigate to local movie page
                 navigate.push(`/movie/${item.id}`);
             }
         } else {
-            // Navigate to TMDB movie page with proper media type detection
             const mediaType = item.type === 'tv' || item.type === 'series' || item.type === 'episode' ? 'tv' : 'movie';
             navigate.push(`/tmdb-movie/${item.tmdb_id}?type=${mediaType}`);
         }
-    };
-
-    const getImageUrl = (item: Media, type: 'poster' | 'backdrop' = 'poster') => {
-        if (type === 'poster') {
-            const posterUrl = item.tmdb_poster_url || `${apiUrl}/api/posters/${item.id}`;
-            // If it's a relative API path, prepend apiUrl
-            if (posterUrl.startsWith('/api/')) {
-                return `${apiUrl}${posterUrl}`;
-            }
-            return posterUrl;
-        } else {
-            const backdropUrl = item.tmdb_backdrop_url || item.backdrop_path || `${apiUrl}/api/thumbnails/${item.id}`;
-            // If it's a relative API path, prepend apiUrl
-            if (backdropUrl.startsWith('/api/')) {
-                return `${apiUrl}${backdropUrl}`;
-            }
-            return backdropUrl;
-        }
-    };
-
-    const getLogoUrl = (item: Media) => {
-        if (item.logo_path) {
-            console.log('Logo path for', item.title, ':', item.logo_path);
-
-            // If it's a full URL, use it directly
-            if (item.logo_path.startsWith('http')) {
-                console.log('Using full URL:', item.logo_path);
-                return item.logo_path;
-            }
-
-            // If it's already an API path, use it directly
-            if (item.logo_path.startsWith('/api/')) {
-                const fullUrl = `${apiUrl}${item.logo_path}`;
-                console.log('Using API path:', fullUrl);
-                return fullUrl;
-            }
-
-            // For local content, use the logos endpoint
-            const filename = item.logo_path.includes('/') ? item.logo_path.split('/').pop() : item.logo_path;
-            const fullUrl = `${apiUrl}/api/logos/${filename}`;
-            console.log('Using filename:', fullUrl);
-            return fullUrl;
-        }
-        console.log('No logo path for', item.title);
-        return null;
     };
 
     if (!displayMedia.length) return null;
 
     return (
         <div className={`relative w-full py-6 ${className}`}>
-            {/* Enhanced Header */}
             <div className="px-[4%] md:px-[60px] mb-2 lg:mb-3 flex items-center justify-between z-30 relative">
                 <div className="flex flex-col md:flex-row md:items-end gap-2 md:gap-4">
                     <h2 className="text-[1.2vw] font-bold text-[#e5e5e5] min-[18px]:text-lg tracking-wide inline-block leading-tight select-none cursor-pointer hover:text-white transition-colors">
@@ -190,7 +357,6 @@ export default function MovieGridWidget({
                     )}
                 </div>
 
-                {/* Enhanced Navigation */}
                 <div className="flex items-center gap-2">
                     <motion.button
                         onClick={() => scroll('left')}
@@ -219,177 +385,23 @@ export default function MovieGridWidget({
                 </div>
             </div>
 
-            {/* Enhanced Grid/Scroll Container - Allow overflow for expansion */}
             <div
                 ref={scrollContainerRef}
                 className="flex gap-3 md:gap-4 overflow-x-auto scrollbar-hide px-4 md:px-8 pb-6 py-8"
                 style={{ scrollSnapType: 'x mandatory' }}
             >
-                {displayMedia.map((item) => {
-                    const colors = getColorPaletteByGenre(item.genre_names || []);
-                    const isHovered = hoveredId === item.id;
-                    const inMyList = myList.has(item.id);
-                    const logoUrl = getLogoUrl(item);
-
-                    return (
-                        <motion.div
-                            key={item.id}
-                            className="flex-shrink-0 relative cursor-pointer"
-                            onMouseEnter={() => setHoveredId(item.id)}
-                            onMouseLeave={() => setHoveredId(null)}
-                            onClick={() => handleCardClick(item)}
-                            animate={{
-                                width: isHovered ? '400px' : `calc((100vw - 8rem) / ${Math.min(columns, 6)})`,
-                            }}
-                            transition={{
-                                duration: 0.5,
-                                ease: [0.25, 0.1, 0.25, 1]
-                            }}
-                            style={{
-                                scrollSnapAlign: 'start',
-                                minWidth: '140px',
-                                maxWidth: isHovered ? '400px' : '220px',
-                                height: '330px', // Fixed height matching poster
-                            }}
-                        >
-                            {/* Card - fixed height, aspect changes */}
-                            <div
-                                className="relative rounded-xl overflow-hidden shadow-2xl w-full h-full"
-                                style={{
-                                    zIndex: isHovered ? 50 : 1,
-                                }}
-                            >
-                                {!isHovered ? (
-                                    // Poster view
-                                    <img
-                                        src={getImageUrl(item, 'poster')}
-                                        alt={item.title}
-                                        className="absolute inset-0 w-full h-full object-cover"
-                                        loading="lazy"
-                                        onError={(e) => {
-                                            const target = e.target as HTMLImageElement;
-                                            target.src = getImageUrl(item, 'backdrop');
-                                        }}
-                                    />
-                                ) : (
-                                    // Hover view - backdrop on top, info on bottom
-                                    <div className="absolute inset-0 flex flex-col">
-                                        {/* Backdrop - top 60% */}
-                                        <div className="relative" style={{ height: '60%' }}>
-                                            <img
-                                                src={getImageUrl(item, 'backdrop')}
-                                                alt={item.title}
-                                                className="absolute inset-0 w-full h-full object-cover"
-                                                loading="lazy"
-                                                onError={(e) => {
-                                                    const target = e.target as HTMLImageElement;
-                                                    target.src = getImageUrl(item, 'poster');
-                                                }}
-                                            />
-                                            <div className="absolute inset-0 bg-gradient-to-b from-transparent to-black" />
-                                        </div>
-
-                                        {/* Info section - bottom 40% */}
-                                        <div className="bg-black p-3 flex flex-col justify-between" style={{ height: '40%' }}>
-                                            {/* Logo/Title directly above meta */}
-                                            <div className="mb-0.5">
-                                                {logoUrl ? (
-                                                    <img
-                                                        src={logoUrl}
-                                                        alt={item.title}
-                                                        className="max-h-10 w-auto drop-shadow-2xl"
-                                                        onError={(e) => {
-                                                            e.currentTarget.style.display = 'none';
-                                                            const fallback = e.currentTarget.nextElementSibling as HTMLElement;
-                                                            if (fallback) fallback.style.display = 'block';
-                                                        }}
-                                                    />
-                                                ) : null}
-                                                <h4
-                                                    className="text-lg font-bold line-clamp-1 text-white drop-shadow-lg"
-                                                    style={{ display: logoUrl ? 'none' : 'block' }}
-                                                >
-                                                    {item.title}
-                                                </h4>
-                                            </div>
-
-                                            {/* Meta Info Row */}
-                                            <div className="flex items-center gap-1.5 text-xs text-white/90 mb-1 flex-wrap">
-                                                <span className="font-bold text-[#46d369]">
-                                                    {item.rating ? Math.floor(Number(item.rating) * 10) : 85 + Math.floor(Math.random() * 14)}% Match
-                                                </span>
-                                                {(() => {
-                                                    let year = item.year;
-                                                    if (!year || year <= 1900) {
-                                                        if (item.release_date) {
-                                                            year = new Date(item.release_date).getFullYear();
-                                                        } else if (item.first_air_date) {
-                                                            year = new Date(item.first_air_date).getFullYear();
-                                                        }
-                                                    }
-
-                                                    if (year && year > 1900) {
-                                                        return (
-                                                            <span className="flex items-center gap-0.5 px-1 py-0.5 rounded text-white/70">
-                                                                <Calendar className="w-2.5 h-2.5" />
-                                                                {year}
-                                                            </span>
-                                                        );
-                                                    }
-                                                    return null;
-                                                })()}
-                                                {showRating && item.rating && item.rating > 0 && (
-                                                    <span className="flex items-center gap-0.5 px-1 py-0.5 rounded text-white/70">
-                                                        <Star className="w-2.5 h-2.5 text-yellow-400 fill-current" />
-                                                        {item.rating.toFixed(1)}
-                                                    </span>
-                                                )}
-                                                {(() => {
-                                                    const duration = item.duration || item.runtime || 0;
-                                                    if (duration > 0) {
-                                                        const hours = Math.floor(duration / 3600);
-                                                        const minutes = Math.floor((duration % 3600) / 60);
-                                                        const timeStr = [
-                                                            hours > 0 ? `${hours}h` : '',
-                                                            minutes > 0 ? `${minutes}m` : ''
-                                                        ].filter(Boolean).join(' ');
-
-                                                        if (timeStr) {
-                                                            return (
-                                                                <span className="flex items-center gap-0.5 px-1 py-0.5 rounded text-white/70">
-                                                                    <Clock className="w-2.5 h-2.5" />
-                                                                    {timeStr}
-                                                                </span>
-                                                            );
-                                                        }
-                                                    }
-                                                    return null;
-                                                })()}
-                                            </div>
-                                            <p className="text-[10px] md:text-[11px] text-white/60 line-clamp-2 mt-auto pt-1 pb-1">
-                                                {item.description || item.overview || 'A cinematic piece curated just for you.'}
-                                            </p>
-                                        </div>
-                                    </div>
-                                )}
-                            </div>
-
-                            {/* Subtle shadow on hover */}
-                            <motion.div
-                                className="absolute inset-0 pointer-events-none rounded-xl"
-                                animate={{
-                                    boxShadow: isHovered
-                                        ? `0 10px 40px rgba(0,0,0,0.8)`
-                                        : 'none'
-                                }}
-                                transition={{ duration: 0.5 }}
-                            />
-                        </motion.div>
-                    );
-                })}
+                {displayMedia.map((item) => (
+                    <MovieGridCard 
+                        key={item.id}
+                        item={item}
+                        columns={columns}
+                        showRating={showRating}
+                        apiUrl={apiUrl}
+                        handleCardClick={handleCardClick}
+                    />
+                ))}
             </div>
 
-            {/* Enhanced Gradient Masks */}
             <div className="absolute left-0 top-0 bottom-0 w-16 bg-gradient-to-r from-black via-black/50 to-transparent pointer-events-none z-10" />
             <div className="absolute right-0 top-0 bottom-0 w-16 bg-gradient-to-l from-black via-black/50 to-transparent pointer-events-none z-10" />
         </div>

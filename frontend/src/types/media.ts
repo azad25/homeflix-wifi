@@ -54,6 +54,7 @@ export interface Media {
   // Genres
   genres?: Genre[];
   genre_names?: string[];
+  genre_ids?: number[];
 
   // Technical info
   resolution?: string;

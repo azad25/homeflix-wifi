@@ -1,12 +1,15 @@
 "use client";
 
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ChevronLeft, ChevronRight, Play, Info, Star, Film } from 'lucide-react';
 import { Media } from '@/types/media';
 import { getApiUrl } from '@/lib/api';
 import { useNavigate } from '@/hooks/useNavigate';
 import { navigateToMedia } from '@/lib/mediaNavigation';
+import { useHoverVideo } from '@/hooks/useHoverVideo';
+import { getRobustGenres } from '@/utils/tmdbGenres';
+import { isComingSoon, getYear } from '@/utils/dateUtils';
 
 interface HomeflixGridProps {
   media: Media[];
@@ -39,13 +42,26 @@ const HomeflixCard: React.FC<HomeflixCardProps> = ({
   delay = 0,
   showRating = true,
 }) => {
-  const [isHovered, setIsHovered] = useState(false);
   const [imageLoaded, setImageLoaded] = useState(false);
   const [imageError, setImageError] = useState(false);
   const [logoError, setLogoError] = useState(false);
   const [tmdbLogoUrl, setTmdbLogoUrl] = useState<string | null>(null);
   const navigate = useNavigate();
   const apiUrl = getApiUrl();
+
+  // Hover video hook
+  const {
+    isHovered,
+    shouldPlay,
+    videoReady,
+    useYouTube,
+    videoRef,
+    ytContainerId,
+    onMouseEnter,
+    onMouseLeave,
+    getPreviewClipUrl,
+    setVideoReady,
+  } = useHoverVideo(media, 600);
 
   // Get poster image URL - prioritize backdrop, then poster, then thumbnail
   const getPosterUrl = () => {
@@ -89,12 +105,13 @@ const HomeflixCard: React.FC<HomeflixCardProps> = ({
 
   // Fetch TMDB logo if media has tmdb_id but no local logo
   useEffect(() => {
-    if (!media.tmdb_id || media.logo_path) return;
+    const actualTmdbId = media.tmdb_id || media.id;
+    if (!actualTmdbId || media.logo_path) return;
 
     const fetchTmdbLogo = async () => {
       try {
         const type = media.type === 'tv' || media.type === 'series' ? 'tv' : 'movie';
-        const res = await fetch(`${apiUrl}/api/tmdb/${type}/${media.tmdb_id}/images`);
+        const res = await fetch(`${apiUrl}/api/tmdb/${type}/${actualTmdbId}/images`);
         if (!res.ok) return;
         const data = await res.json();
         const logos = data?.logos || [];
@@ -106,7 +123,7 @@ const HomeflixCard: React.FC<HomeflixCardProps> = ({
     };
 
     fetchTmdbLogo();
-  }, [media.tmdb_id, media.logo_path, media.type, apiUrl]);
+  }, [media.tmdb_id, media.id, media.logo_path, media.type, apiUrl]);
 
   const posterUrl = getPosterUrl();
   const logoUrl = getLogoUrl();
@@ -133,6 +150,15 @@ const HomeflixCard: React.FC<HomeflixCardProps> = ({
     navigateToMedia(navigate, media);
   };
 
+  const handleNativeVideoLoaded = useCallback(() => {
+    setVideoReady(true);
+    // Unmute after playback starts (browser allows this after user interaction)
+    if (videoRef.current) {
+      videoRef.current.muted = false;
+      videoRef.current.volume = 0.5;
+    }
+  }, [setVideoReady, videoRef]);
+
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -144,12 +170,18 @@ const HomeflixCard: React.FC<HomeflixCardProps> = ({
       }}
       transition={{ duration: 0.5, delay: delay / 1000 }}
       className="group relative cursor-pointer rounded-md overflow-visible"
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
       onClick={handleCardClick}
     >
       {/* Main Card Container */}
       <div className="relative aspect-video bg-[#141414] rounded-md overflow-hidden shadow-md border border-transparent group-hover:border-white/10 transition-colors">
+        {/* Coming Soon Tag */}
+        {isComingSoon(media) && (
+            <div className="absolute top-2 right-2 bg-red-600 text-white text-[9px] font-bold px-1.5 py-0.5 rounded shadow z-[60] tracking-wider pointer-events-none">
+                COMING SOON
+            </div>
+        )}
         {/* Background Image */}
         {posterUrl && !imageError && (
           <img
@@ -160,6 +192,38 @@ const HomeflixCard: React.FC<HomeflixCardProps> = ({
             onLoad={() => setImageLoaded(true)}
             onError={() => setImageError(true)}
             loading={priority ? 'eager' : 'lazy'}
+          />
+        )}
+
+        {/* Hover Video: YouTube Trailer (priority) */}
+        {shouldPlay && useYouTube && (
+          <div
+            className="absolute inset-0 z-[5] overflow-hidden transition-opacity duration-700 ease-in pointer-events-none"
+            style={{ opacity: videoReady ? 1 : 0 }}
+          >
+            <div
+              id={ytContainerId}
+              className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2"
+              style={{ width: '180%', height: '180%', minWidth: '200%', minHeight: '120%' }}
+            />
+          </div>
+        )}
+
+        {/* Hover Video: Native Preview Clip (fallback) */}
+        {shouldPlay && !useYouTube && (
+          <video
+            ref={videoRef}
+            src={getPreviewClipUrl()}
+            className="absolute inset-0 w-full h-full object-cover z-[5] transition-opacity duration-700 ease-in pointer-events-none"
+            style={{ opacity: videoReady ? 1 : 0 }}
+            autoPlay
+            muted
+            loop
+            playsInline
+            preload="auto"
+            onPlaying={handleNativeVideoLoaded}
+            onError={() => {}}
+            crossOrigin="anonymous"
           />
         )}
 
@@ -187,52 +251,82 @@ const HomeflixCard: React.FC<HomeflixCardProps> = ({
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
                 transition={{ duration: 0.2 }}
-                className="absolute inset-0 bg-gradient-to-t from-[#141414] via-[#141414]/90 to-[#141414]/20 flex flex-col justify-end p-3 md:p-4 pointer-events-none"
+                className="absolute inset-0 flex flex-col justify-end pointer-events-none"
                 style={{ zIndex: 10 }}
             >
-                {(logoUrl && !logoError) ? (
-                     <div className="mb-2">
-                         <img 
-                            src={logoUrl || ''} 
-                            className="max-h-8 md:max-h-12 w-auto drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)] object-contain" 
-                            onError={() => setLogoError(true)}
-                         />
-                     </div>
-                ) : (
-                    <h4 className="text-sm md:text-lg font-bold text-white leading-tight line-clamp-1 mb-2 drop-shadow-md shadow-black">
-                        {media.title}
-                    </h4>
-                )}
-                <div className="flex items-center gap-2 mb-2">
-                    <span className="text-[11px] md:text-sm font-bold text-[#46d369]">
-                        {media.rating ? Math.floor(Number(media.rating) * 10) : 85 + Math.floor(Math.random() * 14)}% Match
-                    </span>
-                    {(() => {
-                      let year = media.year;
-                      if (!year || year <= 1900) {
-                        if (media.release_date) year = new Date(media.release_date as string).getFullYear();
-                        else if (media.first_air_date) year = new Date(media.first_air_date as string).getFullYear();
-                      }
-                      if (year && year > 1900) {
-                        return <span className="text-[11px] md:text-xs text-white/70">{year}</span>;
-                      }
-                      return null;
-                    })()}
-                    <span className="border border-white/40 text-white/70 px-1 rounded-sm text-[8px] md:text-[10px] font-bold tracking-widest">
-                        HD
-                    </span>
-                </div>
-
-                <div className="flex items-center gap-2 text-[10px] md:text-[11px] text-white/60">
-                    {media.genre_names?.slice(0, 3).map((g, i) => (
-                        <React.Fragment key={g}>
-                            <span>{g}</span>
-                            {i < (media.genre_names?.slice(0, 3).length || 0) - 1 && (
-                                <span className="w-1 h-1 rounded-full bg-white/40" />
+                {/* When video is playing: show logo + genres over the video */}
+                {shouldPlay && videoReady ? (
+                    <div className="p-3 md:p-4">
+                        <div className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black/70 to-transparent pointer-events-none" />
+                        <div className="relative z-10">
+                            {(logoUrl && !logoError) ? (
+                                <img 
+                                    src={logoUrl || ''} 
+                                    className="max-h-6 md:max-h-10 w-auto drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)] object-contain" 
+                                    onError={() => setLogoError(true)}
+                                />
+                            ) : (
+                                <h4 className="text-[13px] md:text-base font-bold text-white drop-shadow-md truncate">
+                                    {media.title}
+                                </h4>
                             )}
-                        </React.Fragment>
-                    )) || <span>Curated • Cinema</span>}
-                </div>
+                            <div className="flex flex-wrap items-center gap-1.5 mt-1 text-[10px] md:text-[11px] text-white/70">
+                                {(() => {
+                                    const genres = getRobustGenres(media);
+                                    if (genres.length === 0) return null;
+                                    return genres.slice(0, 3).map((g, i, arr) => (
+                                        <React.Fragment key={g}>
+                                            <span>{g}</span>
+                                            {i < arr.length - 1 && <span className="w-1 h-1 rounded-full bg-white/40 shrink-0" />}
+                                        </React.Fragment>
+                                    ));
+                                })()}
+                            </div>
+                        </div>
+                    </div>
+                ) : (
+                    /* When hovered but no video: show full metadata */
+                    <div className="absolute inset-0 bg-gradient-to-t from-[#141414] via-[#141414]/90 to-[#141414]/20 flex flex-col justify-end p-3 md:p-4">
+                        {(logoUrl && !logoError) ? (
+                             <div className="mb-2">
+                                 <img 
+                                    src={logoUrl || ''} 
+                                    className="max-h-8 md:max-h-12 w-auto drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)] object-contain" 
+                                    onError={() => setLogoError(true)}
+                                 />
+                             </div>
+                        ) : (
+                            <h4 className="text-sm md:text-lg font-bold text-white leading-tight line-clamp-1 mb-2 drop-shadow-md shadow-black">
+                                {media.title}
+                            </h4>
+                        )}
+                        <div className="flex items-center gap-2 mb-2">
+                            <span className="text-[11px] md:text-sm font-bold text-[#46d369]">
+                                {media.rating ? Math.floor(Number(media.rating) * 10) : 85 + Math.floor(Math.random() * 14)}% Match
+                            </span>
+                            {(() => {
+                              const year = getYear(media);
+                              if (year && year > 1900) {
+                                return <span className="text-[11px] md:text-xs text-white/70">{year}</span>;
+                              }
+                              return null;
+                            })()}
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-2 text-[10px] md:text-[11px] text-white/60">
+                            {(() => {
+                                const genres = getRobustGenres(media);
+                                if (genres.length === 0) return null;
+                                return genres.slice(0, 3).map((g, i, arr) => (
+                                    <React.Fragment key={g}>
+                                        <span>{g}</span>
+                                        {i < arr.length - 1 && <span className="w-1 h-1 rounded-full bg-white/40 shrink-0" />}
+                                    </React.Fragment>
+                                ));
+                            })()}
+                        </div>
+                    </div>
+                )}
             </motion.div>
           )}
         </AnimatePresence>

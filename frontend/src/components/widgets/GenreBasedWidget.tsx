@@ -1,11 +1,14 @@
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ChevronLeft, ChevronRight, Play } from 'lucide-react';
 import { Media } from '@/types/media';
 import { getApiUrl, preloadAssets } from '@/lib/api';
 import { useNavigate } from '@/hooks/useNavigate';
+import { useHoverVideo } from '@/hooks/useHoverVideo';
+import { getRobustGenres } from '../../utils/tmdbGenres';
+import { isComingSoon, getYear } from '../../utils/dateUtils';
 
 interface GenreBasedWidgetProps {
     media: Media[];
@@ -14,6 +17,225 @@ interface GenreBasedWidgetProps {
     showHotBadge?: boolean;
     maxItems?: number;
     className?: string;
+}
+
+// --- Per-card component to support the useHoverVideo hook ---
+interface GenreCardProps {
+    item: Media;
+    logoSrc: string | null;
+    imageSrc: string;
+    logoErrors: Record<number, boolean>;
+    setLogoErrors: React.Dispatch<React.SetStateAction<Record<number, boolean>>>;
+    onCardClick: (item: Media) => void;
+}
+
+function GenreCard({ item, logoSrc, imageSrc, logoErrors, setLogoErrors, onCardClick }: GenreCardProps) {
+    const apiUrl = getApiUrl();
+    const rating = item.rating && item.rating > 0 ? item.rating.toFixed(1) : null;
+    const matchPercentage = rating ? Math.floor(Number(rating) * 10) : 85 + Math.floor(Math.random() * 14);
+
+    const {
+        isHovered,
+        shouldPlay,
+        videoReady,
+        useYouTube,
+        videoRef,
+        ytContainerId,
+        onMouseEnter,
+        onMouseLeave,
+        getPreviewClipUrl,
+        setVideoReady,
+    } = useHoverVideo(item, 600);
+
+    const handleNativeVideoLoaded = useCallback(() => {
+        setVideoReady(true);
+        // Unmute after playback starts
+        if (videoRef.current) {
+            videoRef.current.muted = false;
+            videoRef.current.volume = 0.5;
+        }
+    }, [setVideoReady, videoRef]);
+
+    return (
+        <motion.div
+            key={item.id}
+            className="flex-shrink-0 relative cursor-pointer snap-start rounded-md overflow-visible"
+            style={{ width: '26vw', minWidth: '260px', maxWidth: '400px' }}
+            onMouseEnter={onMouseEnter}
+            onMouseLeave={onMouseLeave}
+            onClick={() => onCardClick(item)}
+            initial={{ opacity: 0.9 }}
+            animate={{ opacity: 1 }}
+            whileHover={{
+                scale: 1.15,
+                zIndex: 50,
+                transition: { duration: 0.3, delay: 0.35, ease: 'easeOut' },
+            }}
+        >
+            <div className="aspect-video w-full rounded-md shadow-md bg-[#141414] overflow-hidden relative border border-transparent hover:border-white/10 transition-colors">
+                {/* Coming Soon Tag */}
+                {isComingSoon(item) && (
+                    <div className="absolute top-2 right-2 bg-red-600 text-white text-[9px] font-bold px-1.5 py-0.5 rounded shadow z-[60] tracking-wider pointer-events-none">
+                        COMING SOON
+                    </div>
+                )}
+                <img
+                    src={imageSrc}
+                    alt={item.title}
+                    className="w-full h-full object-cover transition-opacity duration-300 bg-[#141414]"
+                    loading="lazy"
+                    onError={(e) => {
+                        const target = e.target as HTMLImageElement;
+                        target.src = `${apiUrl}/api/thumbnails/${item.id}`;
+                    }}
+                />
+
+                {/* Hover Video: YouTube Trailer (priority) */}
+                {shouldPlay && useYouTube && (
+                    <div
+                        className="absolute inset-0 z-[5] overflow-hidden transition-opacity duration-700 ease-in pointer-events-none"
+                        style={{ opacity: videoReady ? 1 : 0 }}
+                    >
+                        <div
+                            id={ytContainerId}
+                            className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2"
+                            style={{ width: '180%', height: '180%', minWidth: '200%', minHeight: '120%' }}
+                        />
+                    </div>
+                )}
+
+                {/* Hover Video: Native Preview Clip (fallback) */}
+                {shouldPlay && !useYouTube && (
+                    <video
+                        ref={videoRef}
+                        src={getPreviewClipUrl()}
+                        className="absolute inset-0 w-full h-full object-cover z-[5] transition-opacity duration-700 ease-in pointer-events-none"
+                        style={{ opacity: videoReady ? 1 : 0 }}
+                        autoPlay
+                        muted
+                        loop
+                        playsInline
+                        preload="auto"
+                        onPlaying={handleNativeVideoLoaded}
+                        onError={() => {}}
+                        crossOrigin="anonymous"
+                    />
+                )}
+
+                {/* Default Shadow Overlay at Bottom */}
+                <div className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/80 via-black/20 to-transparent pointer-events-none transition-opacity duration-300"
+                     style={{ opacity: isHovered ? 0 : 1 }}
+                />
+                
+                {/* Title fallback if not hovered */}
+                <div className="absolute inset-x-0 bottom-0 p-3 pointer-events-none transition-opacity duration-300" style={{ opacity: isHovered ? 0 : 1 }}>
+                    {(logoSrc && !logoErrors[item.id]) ? (
+                        <img src={logoSrc} className="max-h-6 md:max-h-8 w-auto object-contain drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)]" />
+                    ) : (
+                        <h4 className="text-[13px] md:text-[15px] font-semibold text-white drop-shadow-md truncate">
+                            {item.title}
+                        </h4>
+                    )}
+                </div>
+
+                {/* Advanced Hover Card Content */}
+                <AnimatePresence>
+                    {isHovered && (
+                        <motion.div
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            transition={{ duration: 0.2 }}
+                            className="absolute inset-0 flex flex-col justify-end pointer-events-none"
+                            style={{ zIndex: 10 }}
+                        >
+                            {/* When video is playing: show logo + genres over the video */}
+                            {shouldPlay && videoReady ? (
+                                <div className="p-3 md:p-4">
+                                    <div className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black/70 to-transparent pointer-events-none" />
+                                    <div className="relative z-10">
+                                        {(logoSrc && !logoErrors[item.id]) ? (
+                                            <img
+                                                src={logoSrc}
+                                                alt={item.title}
+                                                className="max-h-6 md:max-h-10 w-auto drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)] object-contain"
+                                                onError={() => setLogoErrors(prev => ({...prev, [item.id]: true}))}
+                                            />
+                                        ) : (
+                                            <h4 className="text-[13px] md:text-base font-bold text-white drop-shadow-md truncate">
+                                                {item.title}
+                                            </h4>
+                                        )}
+                                        <div className="flex flex-wrap items-center gap-1.5 mt-1 text-[10px] md:text-[11px] text-white/70">
+                                            {(() => {
+                                                const genres = getRobustGenres(item);
+                                                if (genres.length === 0) return null;
+                                                return genres.slice(0, 3).map((g, i, arr) => (
+                                                    <React.Fragment key={g}>
+                                                        <span>{g}</span>
+                                                        {i < arr.length - 1 && <span className="w-1 h-1 rounded-full bg-white/40 shrink-0" />}
+                                                    </React.Fragment>
+                                                ));
+                                            })()}
+                                        </div>
+                                    </div>
+                                </div>
+                            ) : (
+                                /* When hovered but no video: show full metadata */
+                                <div className="absolute inset-0 bg-gradient-to-t from-[#141414] via-[#141414]/90 to-[#141414]/20 flex flex-col justify-end p-3 md:p-4">
+                                    {(logoSrc && !logoErrors[item.id]) ? (
+                                        <div className="mb-2">
+                                            <img
+                                                src={logoSrc}
+                                                alt={item.title}
+                                                className="max-h-8 md:max-h-12 w-auto drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)] object-contain"
+                                                loading="lazy"
+                                                onError={() => setLogoErrors(prev => ({...prev, [item.id]: true}))}
+                                            />
+                                        </div>
+                                    ) : (
+                                        <h4 className="text-sm md:text-lg font-bold text-white leading-tight line-clamp-1 mb-2 drop-shadow-md shadow-black">
+                                            {item.title}
+                                        </h4>
+                                    )}
+                                    
+                                    <div className="flex items-center gap-2 mb-2">
+                                        <span className="text-[11px] md:text-sm font-bold text-[#46d369]">
+                                            {matchPercentage}% Match
+                                        </span>
+                                        {(() => {
+                                            const year = getYear(item);
+                                            if (year && year > 1900) {
+                                                return (
+                                                    <span className="flex items-center gap-1 font-medium text-white/90">
+                                                        {year}
+                                                    </span>
+                                                );
+                                            }
+                                            return null;
+                                        })()}
+                                    </div>
+
+                                    <div className="flex flex-wrap items-center gap-2 text-[10px] md:text-[11px] text-white/60">
+                                        {(() => {
+                                            const genres = getRobustGenres(item);
+                                            if (genres.length === 0) return null;
+                                            return genres.slice(0, 3).map((g, i, arr) => (
+                                                <React.Fragment key={g}>
+                                                    <span>{g}</span>
+                                                    {i < arr.length - 1 && <span className="w-1 h-1 rounded-full bg-white/40 shrink-0" />}
+                                                </React.Fragment>
+                                            ));
+                                        })()}
+                                    </div>
+                                </div>
+                            )}
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+            </div>
+        </motion.div>
+    );
 }
 
 export default function GenreBasedWidget({
@@ -28,11 +250,39 @@ export default function GenreBasedWidget({
     const scrollContainerRef = useRef<HTMLDivElement>(null);
     const [canScrollLeft, setCanScrollLeft] = useState(false);
     const [canScrollRight, setCanScrollRight] = useState(true);
-    const [hoveredId, setHoveredId] = useState<number | null>(null);
+    const [isHovered, setIsHovered] = useState(false);
     const [logoErrors, setLogoErrors] = useState<Record<number, boolean>>({});
+    const [tmdbLogoUrls, setTmdbLogoUrls] = useState<Record<number, string>>({});
+    
+    const displayMedia = useMemo(() => media.slice(0, maxItems), [media, maxItems]);
+    
+    useEffect(() => {
+        const fetchLogos = async () => {
+            const apiUrl = getApiUrl();
+            const updates: Record<number, string> = {};
+            for (const item of displayMedia) {
+                const actualTmdbId = item.tmdb_id || item.id;
+                if (!actualTmdbId || item.logo_path || tmdbLogoUrls[item.id]) continue;
+                try {
+                    const type = item.type === 'tv' || item.type === 'series' || item.type === 'episode' ? 'tv' : 'movie';
+                    const res = await fetch(`${apiUrl}/api/tmdb/${type}/${actualTmdbId}/images`);
+                    if (res.ok) {
+                        const data = await res.json();
+                        const preferred = data?.logos?.find((l: any) => l.iso_639_1 === 'en') || data?.logos?.[0];
+                        if (preferred?.file_path) {
+                            updates[item.id] = `https://image.tmdb.org/t/p/w500${preferred.file_path}`;
+                        }
+                    }
+                } catch { /* ignore */ }
+            }
+            if (Object.keys(updates).length > 0) {
+                setTmdbLogoUrls(prev => ({ ...prev, ...updates }));
+            }
+        };
+        fetchLogos();
+    }, [displayMedia]);
 
     const apiUrl = getApiUrl();
-    const displayMedia = useMemo(() => media.slice(0, maxItems), [media, maxItems]);
 
     useEffect(() => {
         preloadAssets(displayMedia.slice(0, 10), ['thumbnail']);
@@ -134,15 +384,13 @@ export default function GenreBasedWidget({
                     style={{ WebkitOverflowScrolling: 'touch', overflowY: 'visible' }}
                 >
                     {displayMedia.map((item) => {
-                        const isHovered = hoveredId === item.id;
-                        const rating = item.rating && item.rating > 0 ? item.rating.toFixed(1) : null;
-                        const matchPercentage = rating ? Math.floor(Number(rating) * 10) : 85 + Math.floor(Math.random() * 14);
-
                         // Use landscape assets
                         const imageSrc = item.tmdb_backdrop_url || item.backdrop_url || item.backdrop_path || `${apiUrl}/api/backdrops/${item.id}`;
 
                         let logoSrc: string | null = null;
-                        if (item.tmdb_logo_url) {
+                        if (tmdbLogoUrls[item.id]) {
+                            logoSrc = tmdbLogoUrls[item.id];
+                        } else if (item.tmdb_logo_url) {
                             logoSrc = item.tmdb_logo_url;
                         } else if (item.logo_path) {
                             if (item.logo_path.startsWith('http')) logoSrc = item.logo_path;
@@ -152,104 +400,15 @@ export default function GenreBasedWidget({
                         }
 
                         return (
-                            <motion.div
+                            <GenreCard
                                 key={item.id}
-                                className="flex-shrink-0 relative cursor-pointer snap-start rounded-md overflow-visible"
-                                style={{ width: '26vw', minWidth: '260px', maxWidth: '400px' }}
-                                onMouseEnter={() => setHoveredId(item.id)}
-                                onMouseLeave={() => setHoveredId(null)}
-                                onClick={() => handleCardClick(item)}
-                                initial={{ opacity: 0.9 }}
-                                animate={{ opacity: 1 }}
-                                whileHover={{
-                                    scale: 1.15,
-                                    zIndex: 50,
-                                    transition: { duration: 0.3, delay: 0.35, ease: 'easeOut' },
-                                }}
-                            >
-                                <div className="aspect-video w-full rounded-md shadow-md bg-[#141414] overflow-hidden relative border border-transparent hover:border-white/10 transition-colors">
-                                    <img
-                                        src={imageSrc}
-                                        alt={item.title}
-                                        className="w-full h-full object-cover transition-opacity duration-300 bg-[#141414]"
-                                        loading="lazy"
-                                        onError={(e) => {
-                                            const target = e.target as HTMLImageElement;
-                                            target.src = `${apiUrl}/api/thumbnails/${item.id}`;
-                                        }}
-                                    />
-
-                                    {/* Default Shadow Overlay at Bottom */}
-                                    <div className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/80 via-black/20 to-transparent pointer-events-none transition-opacity duration-300"
-                                         style={{ opacity: isHovered ? 0 : 1 }}
-                                    />
-                                    
-                                    {/* Title fallback if not hovered */}
-                                    <div className="absolute inset-x-0 bottom-0 p-3 pointer-events-none transition-opacity duration-300" style={{ opacity: isHovered ? 0 : 1 }}>
-                                        {(logoSrc && !logoErrors[item.id]) ? (
-                                            <img src={logoSrc} className="max-h-6 md:max-h-8 w-auto object-contain drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)]" />
-                                        ) : (
-                                            <h4 className="text-[13px] md:text-[15px] font-semibold text-white drop-shadow-md truncate">
-                                                {item.title}
-                                            </h4>
-                                        )}
-                                    </div>
-
-                                    {/* Advanced Hover Card Content */}
-                                    <AnimatePresence>
-                                        {isHovered && (
-                                            <motion.div
-                                                initial={{ opacity: 0 }}
-                                                animate={{ opacity: 1 }}
-                                                exit={{ opacity: 0 }}
-                                                transition={{ duration: 0.2 }}
-                                                className="absolute inset-0 bg-gradient-to-t from-[#141414] via-[#141414]/90 to-[#141414]/20 flex flex-col justify-end p-3 md:p-4 pointer-events-none"
-                                            >
-                                                {(logoSrc && !logoErrors[item.id]) ? (
-                                                    <div className="mb-2">
-                                                        <img
-                                                            src={logoSrc}
-                                                            alt={item.title}
-                                                            className="max-h-8 md:max-h-12 w-auto drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)] object-contain"
-                                                            loading="lazy"
-                                                            onError={() => setLogoErrors(prev => ({...prev, [item.id]: true}))}
-                                                        />
-                                                    </div>
-                                                ) : (
-                                                    <h4 className="text-sm md:text-lg font-bold text-white leading-tight line-clamp-1 mb-2 drop-shadow-md shadow-black">
-                                                        {item.title}
-                                                    </h4>
-                                                )}
-                                                
-                                                <div className="flex items-center gap-2 mb-2">
-                                                    <span className="text-[11px] md:text-sm font-bold text-[#46d369]">
-                                                        {matchPercentage}% Match
-                                                    </span>
-                                                    {item.year && item.year > 1900 && (
-                                                        <span className="text-[11px] md:text-xs text-white/70">
-                                                            {item.year}
-                                                        </span>
-                                                    )}
-                                                    <span className="border border-white/40 text-white/70 px-1 rounded-sm text-[8px] md:text-[10px] font-bold tracking-widest">
-                                                        HD
-                                                    </span>
-                                                </div>
-
-                                                <div className="flex items-center gap-2 text-[10px] md:text-[11px] text-white/60">
-                                                    {item.genre_names?.slice(0, 3).map((g, i) => (
-                                                        <React.Fragment key={g}>
-                                                            <span>{g}</span>
-                                                            {i < (item.genre_names?.slice(0, 3).length || 0) - 1 && (
-                                                                <span className="w-1 h-1 rounded-full bg-white/40" />
-                                                            )}
-                                                        </React.Fragment>
-                                                    )) || <span>Explosive • Action • Thriller</span>}
-                                                </div>
-                                            </motion.div>
-                                        )}
-                                    </AnimatePresence>
-                                </div>
-                            </motion.div>
+                                item={item}
+                                logoSrc={logoSrc}
+                                imageSrc={imageSrc}
+                                logoErrors={logoErrors}
+                                setLogoErrors={setLogoErrors}
+                                onCardClick={handleCardClick}
+                            />
                         );
                     })}
                 </div>
@@ -257,3 +416,4 @@ export default function GenreBasedWidget({
         </div>
     );
 }
+
