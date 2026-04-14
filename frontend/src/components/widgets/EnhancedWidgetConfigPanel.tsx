@@ -439,8 +439,13 @@ export default function EnhancedWidgetConfigPanel({
           onContentToggle={handleContentToggle}
         />
       )}
+    </div>
+  );
 
-      {/* Content Selector Modal */}
+  // Render modals
+  const modals = (
+    <>
+      {/* Content Selector Modal - Always render at root level */}
       <ContentSelector
         isOpen={showContentSelector}
         onClose={() => setShowContentSelector(false)}
@@ -453,32 +458,40 @@ export default function EnhancedWidgetConfigPanel({
         selectedCountries={selectedCountries}
         onCountriesChange={setSelectedCountries}
       />
-    </div>
+    </>
   );
 
   // Wrap in modal if not embedded
   if (embedded) {
-    return content;
+    return (
+      <>
+        {content}
+        {modals}
+      </>
+    );
   }
 
   return (
-    <AnimatePresence>
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        className="fixed inset-0 bg-black/60 backdrop-blur-md z-50 flex items-center justify-center p-4"
-        onClick={onClose}
-      >
+    <>
+      <AnimatePresence>
         <motion.div
-          initial={{ scale: 0.9, opacity: 0, y: 20 }}
-          animate={{ scale: 1, opacity: 1, y: 0 }}
-          exit={{ scale: 0.9, opacity: 0, y: 20 }}
-          onClick={(e) => e.stopPropagation()}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 bg-black/60 backdrop-blur-md z-50 flex items-center justify-center p-4"
+          onClick={onClose}
         >
-          {content}
+          <motion.div
+            initial={{ scale: 0.9, opacity: 0, y: 20 }}
+            animate={{ scale: 1, opacity: 1, y: 0 }}
+            exit={{ scale: 0.9, opacity: 0, y: 20 }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {content}
+          </motion.div>
         </motion.div>
-      </motion.div>
-    </AnimatePresence>
+      </AnimatePresence>
+      {modals}
+    </>
   );
 }

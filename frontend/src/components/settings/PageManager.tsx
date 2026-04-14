@@ -5,6 +5,7 @@ import { motion, AnimatePresence, Reorder } from "framer-motion";
 import { getApiUrl } from "@/lib/api";
 import { Plus, Trash2, Eye, EyeOff, Settings, RefreshCw, ExternalLink, Edit2, Copy, GripVertical } from "lucide-react";
 import WidgetEditor from "@/components/widgets/config/WidgetEditor";
+import ContentSelector from "@/components/widgets/config/ContentSelector";
 import { useDialog } from "@/components/providers/DialogProvider";
 import { Widget } from "@/types/widgets";
 import { widgetCache } from "@/utils/widgetCache";
@@ -34,6 +35,9 @@ export default function PageManager() {
   const [editingWidget, setEditingWidget] = useState<Widget | null>(null);
   const [selectedContent, setSelectedContent] = useState<any[]>([]);
   const [selectedGenres, setSelectedGenres] = useState<number[]>([]);
+  const [selectedLanguages, setSelectedLanguages] = useState<string[]>([]);
+  const [selectedCountries, setSelectedCountries] = useState<string[]>([]);
+  const [showContentSelector, setShowContentSelector] = useState(false);
   const [reordering, setReordering] = useState(false);
   const latestWidgetsRef = useRef<Widget[]>([]);
 
@@ -280,6 +284,8 @@ export default function PageManager() {
     setActivePageSlug(slug);
     setSelectedContent([]);
     setSelectedGenres([]);
+    setSelectedLanguages([]);
+    setSelectedCountries([]);
     setEditingWidget({
       id: 0,
       name: "New Widget",
@@ -463,9 +469,13 @@ export default function PageManager() {
                                         const config = widget.config ? JSON.parse(widget.config) : {};
                                         setSelectedContent(config.selectedContent || []);
                                         setSelectedGenres(config.selectedGenres || []);
+                                        setSelectedLanguages(config.selectedLanguages || config.languageFilter || []);
+                                        setSelectedCountries(config.selectedCountries || config.countryFilter || []);
                                       } catch (e) {
                                         setSelectedContent([]);
                                         setSelectedGenres([]);
+                                        setSelectedLanguages([]);
+                                        setSelectedCountries([]);
                                       }
                                     }}
                                     title="Edit widget"
@@ -501,16 +511,39 @@ export default function PageManager() {
           widget={editingWidget}
           onSave={saveWidget}
           onCancel={() => setEditingWidget(null)}
-          onOpenContentSelector={() => {}}
+          onOpenContentSelector={() => setShowContentSelector(true)}
           selectedContent={selectedContent}
           selectedGenres={selectedGenres}
-          selectedLanguages={[]}
-          selectedCountries={[]}
+          selectedLanguages={selectedLanguages}
+          selectedCountries={selectedCountries}
           genres={[]}
-          onGenreToggle={() => {}}
-          onContentToggle={() => {}}
+          onGenreToggle={(genreId) => {
+            setSelectedGenres(prev => 
+              prev.includes(genreId) ? prev.filter(id => id !== genreId) : [...prev, genreId]
+            );
+          }}
+          onContentToggle={(content) => {
+            setSelectedContent(prev => {
+              const exists = prev.find(item => item.id === content.id);
+              return exists ? prev.filter(item => item.id !== content.id) : [...prev, content];
+            });
+          }}
         />
       )}
+
+      {/* Content Selector Modal */}
+      <ContentSelector
+        isOpen={showContentSelector}
+        onClose={() => setShowContentSelector(false)}
+        selectedContent={selectedContent}
+        onContentChange={setSelectedContent}
+        selectedGenres={selectedGenres}
+        onGenresChange={setSelectedGenres}
+        selectedLanguages={selectedLanguages}
+        onLanguagesChange={setSelectedLanguages}
+        selectedCountries={selectedCountries}
+        onCountriesChange={setSelectedCountries}
+      />
     </div>
   );
 }
