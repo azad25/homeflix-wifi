@@ -135,6 +135,25 @@ type ALACAudioServiceInterface interface {
 	CleanupOversizedFiles() error
 }
 
+// TVSeriesDetails holds the TMDB metadata needed to populate a Series record automatically.
+type TVSeriesDetails struct {
+	TMDBID       int
+	Overview     string
+	Tagline      string
+	FirstAirDate string
+	Year         int
+	Status       string
+	TotalSeasons int
+	TotalEpisodes int
+	Network      string
+	PosterPath   string
+	BackdropPath string
+	TrailerURL   string
+	GenreNames   []string
+	Rating       float64
+	VoteCount    int
+}
+
 // TMDBServiceInterface defines the interface for TMDB operations
 type TMDBServiceInterface interface {
 	GenerateMediaMetadata(path, title string) (*MediaMetadata, error)
@@ -152,6 +171,8 @@ type TMDBServiceInterface interface {
 	DownloadTVBackdropByTitle(title string, seriesID uint, backdropDir string) (string, error)
 	GetPosterURL(posterPath string, size string) string
 	TestConnection() error
+	// TV series metadata
+	SearchTVAndGetDetails(title string, year int) (*TVSeriesDetails, error)
 	// Episode-specific methods
 	GetSeasonDetails(tvID int, seasonNumber int) (*TMDBSeason, error)
 	GetEpisodeDetails(tvID int, seasonNumber int, episodeNumber int) (*TMDBEpisode, error)

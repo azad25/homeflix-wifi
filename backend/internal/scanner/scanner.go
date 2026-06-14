@@ -1328,8 +1328,81 @@ func (s *MediaScanner) fetchAndUpdateEpisodeMetadata(media *models.Media, tvID i
 		log.Printf("🌟 Episode guest stars: %v", guestStars)
 	}
 
-	log.Printf("✅ Episode metadata updated from TMDB: %s S%02dE%02d - %s", 
+	log.Printf("✅ Episode metadata updated from TMDB: %s S%02dE%02d - %s",
 		media.Title, seasonNumber, episodeNumber, episode.Name)
+}
+
+// autoFetchAndUpdateSeriesMetadata fetches TMDB metadata for a series that has no TMDB ID yet
+// and saves it to the DB. Updates the series pointer in-place so callers can use the TMDB ID.
+func (s *MediaScanner) autoFetchAndUpdateSeriesMetadata(series *models.Series, year int) {
+	if s.GetTMDBService() == nil || s.GetMediaService() == nil || series == nil {
+		return
+	}
+	if series.TMDBID > 0 {
+		return // already has TMDB data
+	}
+
+	log.Printf("📺 Auto-fetching TMDB metadata for series: %s", series.Title)
+
+	tvDetails, err := s.GetTMDBService().SearchTVAndGetDetails(series.Title, year)
+	if err != nil {
+		log.Printf("⚠️ TMDB TV search/details failed for series '%s': %v", series.Title, err)
+		return
+	}
+
+	updates := map[string]interface{}{
+		"tmdb_id": tvDetails.TMDBID,
+	}
+	if tvDetails.Overview != "" {
+		updates["description"] = tvDetails.Overview
+	}
+	if tvDetails.Tagline != "" {
+		updates["tagline"] = tvDetails.Tagline
+	}
+	if tvDetails.TotalSeasons > 0 {
+		updates["total_seasons"] = tvDetails.TotalSeasons
+	}
+	if tvDetails.TotalEpisodes > 0 {
+		updates["total_episodes"] = tvDetails.TotalEpisodes
+	}
+	if tvDetails.Rating > 0 {
+		updates["rating"] = tvDetails.Rating
+	}
+	if tvDetails.Status != "" {
+		updates["status"] = tvDetails.Status
+	}
+	if tvDetails.Year > 0 {
+		updates["year"] = tvDetails.Year
+	}
+	if tvDetails.FirstAirDate != "" {
+		updates["release_date"] = tvDetails.FirstAirDate
+	}
+	if tvDetails.Network != "" {
+		updates["network"] = tvDetails.Network
+	}
+	if tvDetails.BackdropPath != "" {
+		updates["tmdb_backdrop_url"] = s.GetTMDBService().GetPosterURL(tvDetails.BackdropPath, "w1280")
+	}
+	if tvDetails.PosterPath != "" {
+		updates["tmdb_poster_url"] = s.GetTMDBService().GetPosterURL(tvDetails.PosterPath, "w500")
+	}
+	if tvDetails.TrailerURL != "" {
+		updates["trailer_url"] = tvDetails.TrailerURL
+		updates["tmdb_trailer_url"] = tvDetails.TrailerURL
+	}
+	if len(tvDetails.GenreNames) > 0 {
+		updates["genre_names"] = tvDetails.GenreNames
+	}
+
+	updatedSeries, err := s.GetMediaService().UpdateSeries(series.ID, updates)
+	if err != nil {
+		log.Printf("⚠️ Failed to save TMDB metadata for series '%s': %v", series.Title, err)
+		return
+	}
+
+	*series = *updatedSeries
+	log.Printf("✅ Auto-fetched TMDB metadata for series '%s' (TMDB ID: %d, seasons: %d, episodes: %d)",
+		series.Title, series.TMDBID, series.TotalSeasons, series.TotalEpisodes)
 }
 
 // ProcessSubtitleFile processes a single subtitle file (implements SubtitleProcessor interface)
@@ -2269,7 +2342,12 @@ func (s *MediaScanner) processVideoFile(path string, info os.FileInfo) error {
 					log.Printf("⚠️ Failed to load series %d for asset processing: %v", *media.SeriesID, err)
 				} else {
 					seriesForAssets = series
-					
+
+					// Auto-fetch TMDB metadata if the series doesn't have a TMDB ID yet
+					if series.TMDBID == 0 {
+						s.autoFetchAndUpdateSeriesMetadata(series, 0)
+					}
+
 					// Fetch episode metadata from TMDB if available
 					// ONLY fetch if episode doesn't already have TMDB metadata (check EpisodeTitle)
 					if s.GetTMDBService() != nil && series.TMDBID > 0 && metadata.Season > 0 && metadata.Episode > 0 {
@@ -2305,7 +2383,12 @@ func (s *MediaScanner) processVideoFile(path string, info os.FileInfo) error {
 			log.Printf("📺 Episode metadata assigned - Series: %s (ID: %d), Season: %d, Episode: %d",
 				series.Title, series.ID, metadata.Season, metadata.Episode)
 			seriesForAssets = series
-			
+
+			// Auto-fetch TMDB metadata (including TMDB ID) for brand-new series
+			if series.TMDBID == 0 {
+				s.autoFetchAndUpdateSeriesMetadata(series, metadata.Year)
+			}
+
 			// Fetch episode metadata from TMDB if available
 			// ONLY fetch if episode doesn't already have TMDB metadata (check EpisodeTitle)
 			if s.GetTMDBService() != nil && series.TMDBID > 0 && metadata.Season > 0 && metadata.Episode > 0 {
@@ -6120,19 +6203,33 @@ func (s *MediaScanner) scheduleSeriesAssetDownload(series *models.Series) {
 			}
 		}
 
-		// Logo download via TMDB service
+		// Logo download via TMDB service (prefer direct TMDB ID lookup when available)
 		if refreshedSeries.LogoPath == "" {
-			if logoPath, err := s.GetTMDBService().DownloadTVLogoByTitle(seriesTitle, seriesID, logoDir); err != nil {
-				log.Printf("⚠️ Failed to download TV logo for series %s: %v", seriesTitle, err)
+			var logoErr error
+			var logoPath string
+			if refreshedSeries.TMDBID > 0 {
+				logoPath, logoErr = s.GetTMDBService().DownloadTVLogo(refreshedSeries.TMDBID, seriesID, seriesTitle, logoDir)
+			} else {
+				logoPath, logoErr = s.GetTMDBService().DownloadTVLogoByTitle(seriesTitle, seriesID, logoDir)
+			}
+			if logoErr != nil {
+				log.Printf("⚠️ Failed to download TV logo for series %s: %v", seriesTitle, logoErr)
 			} else if logoPath != "" {
 				updates["logo_path"] = logoPath
 			}
 		}
 
-		// Backdrop download via TMDB service
+		// Backdrop download via TMDB service (prefer direct TMDB ID lookup when available)
 		if refreshedSeries.BackdropPath == "" {
-			if backdropPath, err := s.GetTMDBService().DownloadTVBackdropByTitle(seriesTitle, seriesID, backdropDir); err != nil {
-				log.Printf("⚠️ Failed to download TV backdrop for series %s: %v", seriesTitle, err)
+			var bdErr error
+			var backdropPath string
+			if refreshedSeries.TMDBID > 0 {
+				backdropPath, bdErr = s.GetTMDBService().DownloadTVBackdrop(refreshedSeries.TMDBID, seriesID, seriesTitle, backdropDir)
+			} else {
+				backdropPath, bdErr = s.GetTMDBService().DownloadTVBackdropByTitle(seriesTitle, seriesID, backdropDir)
+			}
+			if bdErr != nil {
+				log.Printf("⚠️ Failed to download TV backdrop for series %s: %v", seriesTitle, bdErr)
 			} else if backdropPath != "" {
 				updates["backdrop_path"] = backdropPath
 				updates["tmdb_backdrop_url"] = fmt.Sprintf("/api/series/%d/backdrop", seriesID)

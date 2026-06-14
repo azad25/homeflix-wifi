@@ -1275,6 +1275,38 @@ function SettingsContent() {
 
 
 
+  const handleFetchEpisodeMetadata = async (seasonNumber?: number) => {
+    if (!selectedMedia || selectedMedia.type !== 'tv') return;
+
+    setActionLoading(prev => ({ ...prev, fetchEpisodeMeta: true }));
+    const label = seasonNumber ? `Season ${seasonNumber}` : 'all seasons';
+    addTerminalOutput(`📺 Fetching TMDB episode metadata for ${selectedMedia.title} (${label})...`);
+
+    try {
+      const url = seasonNumber
+        ? `${getApiUrl()}/api/admin/series/${selectedMedia.id}/fetch-episode-metadata?season_number=${seasonNumber}`
+        : `${getApiUrl()}/api/admin/series/${selectedMedia.id}/fetch-episode-metadata`;
+
+      const response = await fetch(url, { method: 'POST' });
+      const data = await response.json();
+
+      if (response.ok) {
+        addTerminalOutput(`✅ Episode metadata fetch complete`);
+        addTerminalOutput(`📊 Seasons updated: ${data.seasons_updated}, Episodes updated: ${data.episodes_updated}`);
+        if (data.errors?.length) {
+          data.errors.forEach((e: string) => addTerminalOutput(`⚠️ ${e}`));
+        }
+        await fetchMediaList();
+      } else {
+        addTerminalOutput(`❌ Failed: ${data.error || response.statusText}`);
+      }
+    } catch (error) {
+      addTerminalOutput(`❌ Error fetching episode metadata: ${error}`);
+    } finally {
+      setActionLoading(prev => ({ ...prev, fetchEpisodeMeta: false }));
+    }
+  };
+
   const handleTMDBSelection = async (tmdbResult: TMDBSearchResult) => {
     if (!selectedMedia) return;
 
@@ -2981,6 +3013,22 @@ function SettingsContent() {
                                 )}
                                 <span>Fetch TMDB Data</span>
                               </MagneticButton>
+
+                              {selectedMedia.type === 'tv' && (
+                                <MagneticButton
+                                  onClick={() => handleFetchEpisodeMetadata()}
+                                  disabled={actionLoading.fetchEpisodeMeta}
+                                  className="bg-indigo-600/20 hover:bg-indigo-600/40 text-indigo-400 px-4 py-2 rounded-lg flex items-center space-x-2"
+                                  title="Fetch episode titles, descriptions, stills, ratings, directors, and guest stars from TMDB for all seasons"
+                                >
+                                  {actionLoading.fetchEpisodeMeta ? (
+                                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-indigo-400"></div>
+                                  ) : (
+                                    <Film className="w-4 h-4" />
+                                  )}
+                                  <span>Fetch Episode Metadata</span>
+                                </MagneticButton>
+                              )}
 
                               <MagneticButton
                                 onClick={() => {

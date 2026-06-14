@@ -273,6 +273,7 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		api.POST("/admin/media/:id/generate-metadata", handlers.GenerateMediaMetadata(mediaService, tmdbService))
 		api.POST("/admin/media/:id/update-with-tmdb", handlers.UpdateMediaWithTMDB(mediaService, tmdbService))
 		api.POST("/admin/series/:id/update-with-tmdb", handlers.UpdateSeriesWithTMDB(mediaService, tmdbService))
+		api.POST("/admin/series/:id/fetch-episode-metadata", handlers.FetchSeriesEpisodeMetadata(mediaService, tmdbService))
 		api.POST("/admin/episodes/:id/update-with-tmdb", handlers.UpdateEpisodeWithTMDB(mediaService, tmdbService))
 		api.POST("/admin/seasons/:seriesId/:seasonNumber/update-with-tmdb", handlers.UpdateSeasonWithTMDB(mediaService, tmdbService))
 		api.GET("/media/:id/cast-images", handlers.GetCastImages(mediaService, tmdbService))

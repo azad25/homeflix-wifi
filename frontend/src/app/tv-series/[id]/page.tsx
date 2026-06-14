@@ -312,6 +312,11 @@ export default function TVSeriesPage() {
   const [hasWatchedBefore, setHasWatchedBefore] = useState(false);
   const [lastWatched, setLastWatched] = useState<string | null>(null);
   const [recentSeries, setRecentSeries] = useState<Media[]>([]);
+  
+  // Enhanced video loading state management
+  const [videoLoadingState, setVideoLoadingState] = useState<'idle' | 'loading' | 'loaded' | 'error' | 'fallback'>('idle');
+  const [videoLoadAttempts, setVideoLoadAttempts] = useState(0);
+  const [videoErrorMessage, setVideoErrorMessage] = useState<string | null>(null);
 
   // Use the new backend-connected My List hook
   const { myList, collections, isInMyList: isInMyListHook, toggleMyList: toggleMyListHook, addToCollection, fetchCollections } = useMyList();
@@ -974,9 +979,12 @@ export default function TVSeriesPage() {
     }
   }, [latestEpisode]);
 
-  // Check if preview is available and show backdrop if not
+  // Enhanced video loading management with proper state tracking
   useEffect(() => {
-    if (!series || loading || isPlayerOpen || isShowingTrailer) return;
+    if (!series || loading || isPlayerOpen || isShowingTrailer) {
+      setVideoLoadingState('idle');
+      return;
+    }
 
     const videoUrl = getBackgroundVideoUrl(series);
     const episodeToUse = latestEpisode || series;
@@ -988,6 +996,7 @@ export default function TVSeriesPage() {
 
     if (!hasPreview) {
       console.log('🎬 No episode preview available, checking for trailer fallback');
+      setVideoLoadingState('fallback');
       // No preview available - try trailer fallback or show backdrop
       if (series?.tmdb_trailer_url && extractYouTubeKey(series.tmdb_trailer_url)) {
         console.log('🎬 Using trailer fallback');
@@ -998,12 +1007,100 @@ export default function TVSeriesPage() {
         setForceShowBackdrop(true);
         setIsVideoLoaded(false);
         setIsVideoPlaying(false);
+        setVideoLoadingState('error');
       }
+    } else {
+      console.log('🎬 Episode preview available, attempting to load');
+      setVideoLoadingState('loading');
+      setVideoLoadAttempts(0);
+      setVideoErrorMessage(null);
     }
-    // Don't disable YouTube fallback here - let the video onLoadedData handler do it
   }, [series, latestEpisode, loading, isPlayerOpen, isShowingTrailer, extractYouTubeKey]);
 
+  // Enhanced video play attempt with better error handling
+  const attemptVideoPlay = useCallback(() => {
+    const video = videoRef.current;
+    if (!video || videoLoadingState === 'error') return;
 
+    console.log('🎬 Attempting to play video, attempt:', videoLoadAttempts + 1);
+
+    const tryPlay = () => {
+      video.currentTime = 0;
+      video.muted = false;
+      video.volume = 1.0;
+      video.loop = true;
+
+      video.play().then(() => {
+        console.log('🎬 Video played successfully with sound');
+        setIsVideoPlaying(true);
+        setIsMuted(false);
+        setForceShowBackdrop(false);
+        setUseYouTubeFallback(false);
+        setVideoLoadingState('loaded');
+        setVideoLoadAttempts(0);
+      }).catch((error) => {
+        console.warn('🎬 Video failed to play with sound, trying muted:', error);
+        video.muted = true;
+        setIsMuted(true);
+        
+        video.play().then(() => {
+          console.log('🎬 Video played successfully muted');
+          setIsVideoPlaying(true);
+          setForceShowBackdrop(false);
+          setUseYouTubeFallback(false);
+          setVideoLoadingState('loaded');
+          setVideoLoadAttempts(0);
+        }).catch((muteError) => {
+          console.error('🎬 Video failed to play even muted:', muteError);
+          
+          // Increment retry counter
+          setVideoLoadAttempts(prev => {
+            const newAttempts = prev + 1;
+            if (newAttempts >= 3) {
+              console.log('🎬 Max retry attempts reached, switching to trailer fallback');
+              handleVideoError();
+              return newAttempts;
+            }
+            return newAttempts;
+          });
+        });
+      });
+    };
+
+    tryPlay();
+  }, [videoLoadingState, videoLoadAttempts]);
+
+  // Handle video error with fallback to YouTube
+  const handleVideoError = useCallback(() => {
+    console.log('🎬 Handling video error, checking fallback options');
+    
+    const video = videoRef.current;
+    if (video) {
+      video.pause();
+      video.muted = true;
+      video.volume = 0;
+      video.currentTime = 0;
+      video.style.display = 'none';
+      video.style.visibility = 'hidden';
+      video.style.opacity = '0';
+    }
+
+    setIsVideoPlaying(false);
+    setIsVideoLoaded(false);
+    setVideoLoadingState('error');
+
+    // Try YouTube fallback if available
+    if (series?.tmdb_trailer_url && extractYouTubeKey(series.tmdb_trailer_url)) {
+      console.log('🎬 Using YouTube trailer fallback');
+      setUseYouTubeFallback(true);
+      setForceShowBackdrop(false);
+      setVideoLoadingState('fallback');
+    } else {
+      console.log('🎬 No trailer available, showing backdrop');
+      setForceShowBackdrop(true);
+      setVideoLoadingState('error');
+    }
+  }, [series, extractYouTubeKey]);
 
   const handlePlay = (media?: Media) => {
     // Immediately and aggressively stop background video and trailer when opening player
@@ -1352,20 +1449,24 @@ export default function TVSeriesPage() {
     const activeSources = sources.filter(s => s.style.display !== 'none');
 
     if (activeSources.length === 0) {
-      // All sources have failed, try trailer fallback
+      console.log('🎬 All video sources failed, triggering fallback');
+      setVideoLoadingState('error');
+      setVideoErrorMessage('All video sources failed to load');
+      
+      // All sources have failed, try trailer fallback with improved state management
       setTimeout(() => {
         if (seriesItem?.tmdb_trailer_url && extractYouTubeKey(seriesItem.tmdb_trailer_url)) {
           console.log('🎬 All episode preview sources failed, switching to trailer fallback');
           setUseYouTubeFallback(true);
-          setIsVideoLoaded(false);
-          setIsVideoPlaying(false);
           setForceShowBackdrop(false);
+          setVideoLoadingState('fallback');
         } else {
           console.log('🎬 No trailer available, showing backdrop');
           setForceShowBackdrop(true);
-          setIsVideoLoaded(false);
-          setIsVideoPlaying(false);
+          setVideoLoadingState('error');
         }
+        setIsVideoLoaded(false);
+        setIsVideoPlaying(false);
       }, 100);
     }
   }, [extractYouTubeKey]);
@@ -1518,71 +1619,38 @@ export default function TVSeriesPage() {
 
 
 
-  // Controlled auto-play - only when appropriate and page is visible
+  // Improved auto-play logic with better state management
   useEffect(() => {
-    const forceVideoPlay = () => {
-      const video = videoRef.current;
-      // Only play if player is NOT open, trailer is NOT showing, page is visible, and video sources are available
-      if (video && series && !isPlayerOpen && !isShowingTrailer && !loading && !document.hidden && !forceShowBackdrop) {
-        // Check if video has valid sources before attempting to play
-        const sources = video.querySelectorAll('source');
-        const hasValidSources = Array.from(sources).some(source =>
-          source.src && !source.style.display.includes('none')
-        );
+    if (!series || loading || isPlayerOpen || isShowingTrailer || document.hidden || forceShowBackdrop) return;
+    
+    // Only trigger when video is in loading state
+    if (videoLoadingState !== 'loading' && videoLoadingState !== 'idle') return;
 
-        if (!hasValidSources) {
-          console.warn('No valid video sources available, showing backdrop');
-          setForceShowBackdrop(true);
-          setIsVideoLoaded(false);
-          setIsVideoPlaying(false);
-          return;
-        }
+    const video = videoRef.current;
+    if (!video) return;
 
-        // Set video properties including loop
-        video.loop = true;
-        video.muted = false;
-        video.volume = 1.0;
-        video.currentTime = 0;
-        setIsMuted(false);
+    // Check if video has valid sources
+    const sources = video.querySelectorAll('source');
+    const hasValidSources = Array.from(sources).some(source =>
+      source.src && !source.style.display.includes('none')
+    );
 
-        // Single play attempt with proper error handling
-        video.play().then(() => {
-          setIsVideoPlaying(true);
-          setForceShowBackdrop(false);
-          // Disable YouTube fallback when regular video plays successfully
-          setUseYouTubeFallback(false);
-        }).catch((error) => {
-          console.warn('Failed to play video with sound, trying muted:', error);
-          // Fallback to muted play
-          video.muted = true;
-          setIsMuted(true);
-          video.play().then(() => {
-            setIsVideoPlaying(true);
-            setForceShowBackdrop(false);
-            // Disable YouTube fallback when regular video plays successfully
-            setUseYouTubeFallback(false);
-          }).catch((muteError) => {
-            console.warn('Failed to play video even muted, trying trailer fallback:', muteError);
-            // Try trailer fallback if preview fails
-            if (series?.tmdb_trailer_url && extractYouTubeKey(series.tmdb_trailer_url)) {
-              console.log('🎬 Episode preview failed, switching to trailer fallback');
-              setUseYouTubeFallback(true);
-              setForceShowBackdrop(false);
-            } else {
-              console.log('🎬 No trailer available, showing backdrop');
-              setForceShowBackdrop(true);
-            }
-          });
-        });
-      }
-    };
-
-    // Only trigger auto-play when conditions are right and page is visible
-    if (series && !loading && !isPlayerOpen && !isShowingTrailer && !document.hidden && !forceShowBackdrop) {
-      const timer = setTimeout(forceVideoPlay, 500);
-      return () => clearTimeout(timer);
+    if (!hasValidSources) {
+      console.warn('🎬 No valid video sources available');
+      setVideoLoadingState('error');
+      handleVideoError();
+      return;
     }
-  }, [series, loading, isPlayerOpen, isShowingTrailer, forceShowBackdrop, extractYouTubeKey]);
+
+    // Attempt to play with delay to ensure DOM is ready
+    const timer = setTimeout(() => {
+      if (videoLoadingState === 'loading' || videoLoadingState === 'idle') {
+        attemptVideoPlay();
+      }
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [series, loading, isPlayerOpen, isShowingTrailer, forceShowBackdrop, videoLoadingState, attemptVideoPlay, handleVideoError]);
 
   // Initialize YouTube background player when fallback is triggered
   useEffect(() => {
@@ -1806,11 +1874,11 @@ export default function TVSeriesPage() {
           <div className="absolute inset-0 bg-gradient-to-r from-black/70 via-black/30 to-black/20" />
         </div>
 
-        {/* Background Video - Load latest episode preview */}
+        {/* Background Video - Load latest episode preview with improved loading logic */}
         <video
           ref={videoRef}
           className="absolute inset-0 w-full h-full object-cover opacity-100 pointer-events-none"
-          autoPlay={true}
+          autoPlay={false}
           muted={false}
           loop={true}
           playsInline={true}
@@ -1836,175 +1904,76 @@ export default function TVSeriesPage() {
           }}
 
           onLoadedData={() => {
+            console.log('🎬 Video data loaded, checking video readiness');
+            const video = videoRef.current;
+            if (!video) return;
+
+            // Check if video has actual video data (not just audio)
+            if (video.videoWidth === 0 || video.videoHeight === 0) {
+              console.warn('🎬 Video has no visual dimensions, might be audio-only');
+              setVideoLoadingState('error');
+              setVideoErrorMessage('Video appears to be audio-only');
+              handleVideoError();
+              return;
+            }
+
+            // Check for placeholder video
+            detectPlaceholderOnLoad(video, () => {
+              console.log('🎬 Placeholder detected, switching to trailer fallback');
+              setVideoLoadingState('fallback');
+              if (series?.tmdb_trailer_url && extractYouTubeKey(series.tmdb_trailer_url)) {
+                setUseYouTubeFallback(true);
+                setForceShowBackdrop(false);
+              } else {
+                setForceShowBackdrop(true);
+              }
+              return;
+            });
+
+            setVideoLoadingState('loaded');
             setIsVideoLoaded(true);
-            if (videoRef.current) {
-              const video = videoRef.current;
-
-              // Check for placeholder video immediately
-              detectPlaceholderOnLoad(video, () => {
-                console.log('🎬 Placeholder detected, switching to trailer fallback');
-                if (series?.tmdb_trailer_url && extractYouTubeKey(series.tmdb_trailer_url)) {
-                  setUseYouTubeFallback(true);
-                  setForceShowBackdrop(false);
-                } else {
-                  setForceShowBackdrop(true);
-                }
-              });
-
-              video.currentTime = 0;
-              video.volume = 1.0;
-              video.muted = false;
-              video.loop = true;
-
-              // Immediate play attempt
-              const immediatePlay = () => {
-                video.play().then(() => {
-                  setIsVideoPlaying(true);
-                  setIsMuted(false);
-                  setForceShowBackdrop(false);
-                  // Disable YouTube fallback when regular video plays successfully
-                  setUseYouTubeFallback(false);
-                }).catch((error) => {
-                  console.warn('Episode preview failed to play with sound, trying muted:', error);
-                  video.muted = true;
-                  setIsMuted(true);
-                  video.play().then(() => {
-                    setIsVideoPlaying(true);
-                    setForceShowBackdrop(false);
-                    // Disable YouTube fallback when regular video plays successfully
-                    setUseYouTubeFallback(false);
-                  }).catch((muteError) => {
-                    console.warn('Episode preview failed completely, trying trailer fallback:', muteError);
-                    // Try trailer fallback if preview fails
-                    if (series?.tmdb_trailer_url && extractYouTubeKey(series.tmdb_trailer_url)) {
-                      console.log('🎬 Episode preview failed, switching to trailer fallback');
-                      setUseYouTubeFallback(true);
-                      setForceShowBackdrop(false);
-                    } else {
-                      console.log('🎬 No trailer available, showing backdrop');
-                      setForceShowBackdrop(true);
-                    }
-                  });
-                });
-              };
-
-              // Try multiple times
-              immediatePlay();
-              setTimeout(immediatePlay, 50);
-              setTimeout(immediatePlay, 200);
-            }
+            
+            // Attempt to play with improved error handling
+            attemptVideoPlay();
           }}
+
           onError={(e) => {
-            console.warn('Background episode preview failed to load, trying trailer fallback');
-
-            // Try trailer fallback if preview fails to load
-            if (series?.tmdb_trailer_url && extractYouTubeKey(series.tmdb_trailer_url)) {
-              console.log('🎬 Episode preview failed to load, switching to trailer fallback');
-              setUseYouTubeFallback(true);
-              setIsVideoLoaded(false);
-              setIsVideoPlaying(false);
-              setForceShowBackdrop(false);
-            } else {
-              console.log('🎬 No trailer available, showing backdrop');
-              setIsVideoLoaded(false);
-              setIsVideoPlaying(false);
-              setForceShowBackdrop(true);
-            }
-
-            // Stop video completely on error
-            const video = videoRef.current;
-            if (video) {
-              video.pause();
-              video.muted = true;
-              video.volume = 0;
-              video.currentTime = 0;
-              // Remove failed sources to prevent retry loops
-              const sources = video.querySelectorAll('source');
-              sources.forEach(source => {
-                if (source.src === e.currentTarget.currentSrc) {
-                  source.remove();
-                }
-              });
-              // Hide video element completely
-              video.style.display = 'none';
-              video.style.visibility = 'hidden';
-              video.style.opacity = '0';
-            }
+            console.error('🎬 Video loading error:', e);
+            setVideoLoadingState('error');
+            setVideoErrorMessage(`Video load failed: ${e.type}`);
+            handleVideoError();
           }}
+
           onCanPlay={() => {
+            console.log('🎬 Video can play');
+            setVideoLoadingState('loaded');
             const video = videoRef.current;
             if (video) {
               video.muted = false;
               video.volume = 1.0;
-              video.loop = true;
-
-              const canPlayAttempt = () => {
-                video.play().then(() => {
-                  setIsVideoPlaying(true);
-                  setIsMuted(false);
-                  // Disable YouTube fallback when regular video plays successfully
-                  setUseYouTubeFallback(false);
-                }).catch(() => {
-                  video.muted = true;
-                  setIsMuted(true);
-                  video.play().then(() => {
-                    setIsVideoPlaying(true);
-                    // Disable YouTube fallback when regular video plays successfully
-                    setUseYouTubeFallback(false);
-                  }).catch(() => {
-                  });
-                });
-              };
-
-              canPlayAttempt();
-              setTimeout(canPlayAttempt, 100);
             }
           }}
+
           onPlay={() => {
+            console.log('🎬 Video started playing');
             setIsVideoPlaying(true);
             setIsMuted(false);
+            setVideoLoadingState('loaded');
+            setUseYouTubeFallback(false);
           }}
+
           onPause={() => {
             setIsVideoPlaying(false);
           }}
-          onLoadedMetadata={() => {
-            const video = videoRef.current;
-            if (video) {
-              video.muted = false;
-              video.volume = 1.0;
-              video.loop = true;
 
-              const metadataPlay = () => {
-                video.play().then(() => {
-                  setIsVideoPlaying(true);
-                  setIsMuted(false);
-                  // Disable YouTube fallback when regular video plays successfully
-                  setUseYouTubeFallback(false);
-                }).catch(() => {
-                  video.muted = true;
-                  setIsMuted(true);
-                  video.play().then(() => {
-                    setIsVideoPlaying(true);
-                    // Disable YouTube fallback when regular video plays successfully
-                    setUseYouTubeFallback(false);
-                  }).catch(() => {
-                  });
-                });
-              };
-
-              metadataPlay();
-              setTimeout(metadataPlay, 50);
-            }
+          onWaiting={() => {
+            console.log('🎬 Video is buffering/waiting');
           }}
-          onEnded={() => {
-            // Ensure video loops even if loop attribute fails
-            const video = videoRef.current;
-            if (video && !isPlayerOpen) {
-              video.currentTime = 0;
-              video.play().catch(() => {
-                console.warn('Failed to restart video loop');
-              });
-            }
+
+          onPlaying={() => {
+            console.log('🎬 Video is playing smoothly');
+            setIsVideoPlaying(true);
+            setVideoLoadingState('loaded');
           }}
         >
           {/* Episode preview sources - try latest episode preview clips first */}
@@ -2069,6 +2038,26 @@ export default function TVSeriesPage() {
           })()}
           Your browser does not support the video tag.
         </video>
+
+        {/* Video Loading Indicator */}
+        {videoLoadingState === 'loading' && !isPlayerOpen && !isShowingTrailer && !forceShowBackdrop && !useYouTubeFallback && (
+          <div className="absolute inset-0 z-[6] flex items-center justify-center bg-black/30 backdrop-blur-sm">
+            <div className="text-center">
+              <RedLoader size="medium" />
+              <p className="text-white/80 text-sm mt-3 animate-pulse">Loading preview...</p>
+            </div>
+          </div>
+        )}
+
+        {/* Video Error Indicator */}
+        {videoLoadingState === 'error' && !isPlayerOpen && !isShowingTrailer && !forceShowBackdrop && !useYouTubeFallback && videoErrorMessage && (
+          <div className="absolute inset-0 z-[6] flex items-center justify-center bg-black/50 backdrop-blur-sm">
+            <div className="text-center px-4">
+              <p className="text-white/80 text-sm">{videoErrorMessage}</p>
+              <p className="text-white/60 text-xs mt-2">Switching to trailer...</p>
+            </div>
+          </div>
+        )}
 
         {/* YouTube Background Fallback Player - Always show when active, never hide */}
         {useYouTubeFallback && !isPlayerOpen && !isShowingTrailer && extractYouTubeKey(series.tmdb_trailer_url || '') && (

@@ -346,6 +346,229 @@ func UpdateSeasonWithTMDB(mediaService *services.MediaService, tmdbService *serv
 	}
 }
 
+// FetchSeriesEpisodeMetadata fetches TMDB metadata for all episodes of a TV series.
+// Optional query param: season_number=N to restrict to one season.
+func FetchSeriesEpisodeMetadata(mediaService *services.MediaService, tmdbService *services.TMDBService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		seriesID, err := strconv.ParseUint(c.Param("id"), 10, 32)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid series ID"})
+			return
+		}
+
+		series, err := mediaService.GetSeriesByID(uint(seriesID))
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Series not found"})
+			return
+		}
+
+		// Auto-fetch series TMDB ID if missing
+		if series.TMDBID == 0 {
+			tv, searchErr := tmdbService.SearchTV(series.Title, 0)
+			if searchErr != nil {
+				c.JSON(http.StatusBadRequest, gin.H{
+					"error": fmt.Sprintf("Series has no TMDB ID and TMDB search failed: %v", searchErr),
+				})
+				return
+			}
+			updateMap := map[string]interface{}{"tmdb_id": tv.ID}
+			if updated, updateErr := mediaService.UpdateSeries(uint(seriesID), updateMap); updateErr == nil {
+				series = updated
+			} else {
+				series.TMDBID = tv.ID
+			}
+			log.Printf("📺 Auto-resolved TMDB ID for '%s': %d", series.Title, series.TMDBID)
+		}
+
+		// Determine which seasons to process
+		filterSeason := 0
+		if seasonParam := c.Query("season_number"); seasonParam != "" {
+			filterSeason, _ = strconv.Atoi(seasonParam)
+		}
+
+		// Collect distinct season numbers from the database
+		seasonsRaw, err := mediaService.GetSeasonsBySeriesID(uint(seriesID))
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get seasons"})
+			return
+		}
+
+		var seasonNumbers []int
+		for _, s := range seasonsRaw {
+			if sn, ok := s["season_number"].(int); ok {
+				if filterSeason == 0 || sn == filterSeason {
+					seasonNumbers = append(seasonNumbers, sn)
+				}
+			}
+		}
+
+		if len(seasonNumbers) == 0 {
+			c.JSON(http.StatusOK, gin.H{
+				"message":          "No seasons found for this series",
+				"seasons_updated":  0,
+				"episodes_updated": 0,
+			})
+			return
+		}
+
+		log.Printf("📺 Fetching TMDB episode metadata for '%s' (%d season(s))", series.Title, len(seasonNumbers))
+
+		totalEpisodesUpdated := 0
+		totalSeasonsUpdated := 0
+		var updateErrors []string
+
+		for _, seasonNum := range seasonNumbers {
+			season, tmdbErr := tmdbService.GetSeasonDetails(series.TMDBID, seasonNum)
+			if tmdbErr != nil {
+				msg := fmt.Sprintf("Season %d: TMDB fetch failed: %v", seasonNum, tmdbErr)
+				log.Printf("⚠️ %s", msg)
+				updateErrors = append(updateErrors, msg)
+				continue
+			}
+
+			// Upsert season record
+			seasonRecord := &models.Season{
+				SeriesID:     uint(seriesID),
+				SeasonNumber: seasonNum,
+				Title:        season.Name,
+				Overview:     season.Overview,
+				Description:  season.Overview,
+				AirDate:      season.AirDate,
+				PosterPath:   season.PosterPath,
+				EpisodeCount: len(season.Episodes),
+				TMDBID:       season.ID,
+			}
+			if season.AirDate != "" {
+				if airDate, parseErr := time.Parse("2006-01-02", season.AirDate); parseErr == nil {
+					seasonRecord.ReleaseDate = airDate
+				}
+			}
+			if saveErr := mediaService.CreateOrUpdateSeason(seasonRecord); saveErr != nil {
+				log.Printf("⚠️ Failed to save season %d record: %v", seasonNum, saveErr)
+			} else {
+				totalSeasonsUpdated++
+			}
+
+			// Update each known episode from the database
+			episodes, epErr := mediaService.GetEpisodesBySeriesAndSeason(uint(seriesID), seasonNum)
+			if epErr != nil {
+				continue
+			}
+
+			// Build a map of TMDB episodes by number for quick lookup
+			tmdbEpMap := make(map[int]interface{})
+			for i := range season.Episodes {
+				tmdbEpMap[season.Episodes[i].EpisodeNumber] = &season.Episodes[i]
+			}
+
+			for i := range episodes {
+				ep := &episodes[i]
+				epNum := 0
+				if ep.EpisodeNumber != nil {
+					epNum = *ep.EpisodeNumber
+				} else if ep.Episode != nil {
+					epNum = *ep.Episode
+				}
+				if epNum == 0 {
+					continue
+				}
+
+				raw, ok := tmdbEpMap[epNum]
+				if !ok {
+					continue
+				}
+				tmdbEp, ok := raw.(*interface{})
+				_ = tmdbEp
+				// Use GetEpisodeDetails for full crew/gueststars data
+				fullEp, detailErr := tmdbService.GetEpisodeDetails(series.TMDBID, seasonNum, epNum)
+				if detailErr != nil {
+					log.Printf("⚠️ Failed to get S%02dE%02d details: %v", seasonNum, epNum, detailErr)
+					continue
+				}
+
+				if fullEp.Name != "" {
+					ep.EpisodeTitle = fullEp.Name
+				}
+				if fullEp.Overview != "" {
+					ep.Description = fullEp.Overview
+					ep.LongDesc = fullEp.Overview
+					ep.ShortDesc = truncateText(fullEp.Overview, 150)
+				}
+				if fullEp.Runtime > 0 {
+					ep.Runtime = fullEp.Runtime
+					ep.Duration = fullEp.Runtime * 60
+				}
+				if fullEp.VoteAverage > 0 {
+					ep.Rating = fullEp.VoteAverage
+					ep.VoteCount = fullEp.VoteCount
+				}
+				if fullEp.AirDate != "" {
+					if airDate, parseErr := time.Parse("2006-01-02", fullEp.AirDate); parseErr == nil {
+						ep.ReleaseDate = airDate
+						ep.Year = airDate.Year()
+					}
+				}
+
+				var directors, writers []string
+				for _, crew := range fullEp.Crew {
+					switch crew.Job {
+					case "Director":
+						directors = append(directors, crew.Name)
+					case "Writer", "Screenplay", "Story":
+						writers = append(writers, crew.Name)
+					}
+				}
+				if len(directors) > 0 {
+					ep.Director = directors
+				}
+				if len(writers) > 0 {
+					ep.Writers = writers
+				}
+
+				if len(fullEp.GuestStars) > 0 {
+					var guests []string
+					for j, g := range fullEp.GuestStars {
+						if j >= 10 {
+							break
+						}
+						guests = append(guests, g.Name)
+					}
+					ep.GuestStars = guests
+				}
+
+				if fullEp.StillPath != "" && ep.EpisodeStillPath == "" {
+					if stillPath, stillErr := tmdbService.DownloadEpisodeStill(
+						fullEp.StillPath, series.TMDBID, seasonNum, epNum, "./episode_stills",
+					); stillErr == nil && stillPath != "" {
+						ep.EpisodeStillPath = stillPath
+					}
+				}
+
+				if saveErr := mediaService.UpdateMedia(ep); saveErr != nil {
+					log.Printf("⚠️ Failed to update S%02dE%02d: %v", seasonNum, epNum, saveErr)
+				} else {
+					totalEpisodesUpdated++
+				}
+			}
+
+			log.Printf("✅ Season %d: updated %d/%d episodes", seasonNum, totalEpisodesUpdated, len(episodes))
+		}
+
+		log.Printf("✅ FetchSeriesEpisodeMetadata complete for '%s': %d seasons, %d episodes",
+			series.Title, totalSeasonsUpdated, totalEpisodesUpdated)
+
+		resp := gin.H{
+			"message":          fmt.Sprintf("Episode metadata fetch complete for '%s'", series.Title),
+			"seasons_updated":  totalSeasonsUpdated,
+			"episodes_updated": totalEpisodesUpdated,
+		}
+		if len(updateErrors) > 0 {
+			resp["errors"] = updateErrors
+		}
+		c.JSON(http.StatusOK, resp)
+	}
+}
+
 // truncateText truncates text to a maximum length
 func truncateText(text string, maxLength int) string {
 	if len(text) <= maxLength {

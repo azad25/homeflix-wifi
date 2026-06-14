@@ -1,6 +1,9 @@
 package adapters
 
 import (
+	"strconv"
+	"strings"
+
 	"homeflix-backend/internal/interfaces"
 	"homeflix-backend/internal/models"
 	"homeflix-backend/internal/services"
@@ -142,6 +145,62 @@ func (a *TMDBServiceAdapter) GetPosterURL(posterPath string, size string) string
 
 func (a *TMDBServiceAdapter) TestConnection() error {
 	return a.service.TestConnection()
+}
+
+// SearchTVAndGetDetails searches for a TV series and returns aggregated metadata.
+func (a *TMDBServiceAdapter) SearchTVAndGetDetails(title string, year int) (*interfaces.TVSeriesDetails, error) {
+	tv, err := a.service.SearchTV(title, year)
+	if err != nil {
+		return nil, err
+	}
+
+	details, err := a.service.GetTVDetails(tv.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	result := &interfaces.TVSeriesDetails{
+		TMDBID:        tv.ID,
+		Overview:      details.Overview,
+		Tagline:       details.Tagline,
+		FirstAirDate:  details.FirstAirDate,
+		Status:        details.Status,
+		TotalSeasons:  details.NumberOfSeasons,
+		TotalEpisodes: details.NumberOfEpisodes,
+		Rating:        details.VoteAverage,
+		VoteCount:     details.VoteCount,
+		PosterPath:    details.PosterPath,
+		BackdropPath:  details.BackdropPath,
+	}
+
+	if len(details.Networks) > 0 {
+		result.Network = details.Networks[0].Name
+	}
+
+	if details.FirstAirDate != "" {
+		parts := strings.SplitN(details.FirstAirDate, "-", 2)
+		if len(parts) > 0 {
+			if y, convErr := strconv.Atoi(parts[0]); convErr == nil {
+				result.Year = y
+			}
+		}
+	}
+
+	for _, video := range details.Videos.Results {
+		if video.Site == "YouTube" && video.Type == "Trailer" && video.Key != "" {
+			result.TrailerURL = "https://www.youtube.com/watch?v=" + video.Key
+			break
+		}
+	}
+
+	if len(details.Genres) > 0 {
+		result.GenreNames = make([]string, len(details.Genres))
+		for i, g := range details.Genres {
+			result.GenreNames[i] = g.Name
+		}
+	}
+
+	return result, nil
 }
 
 // Episode-specific methods

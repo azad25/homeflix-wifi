@@ -245,21 +245,62 @@ func (s *MediaService) UpsertMedia(media *models.Media) error {
 		for _, searchPath := range searchPaths {
 			err = tx.Where("file_path = ?", searchPath).First(&existingMedia).Error
 			if err == nil {
-				// Found existing media, update it
+				// Found existing media, update it — preserve system fields and existing episode metadata
 				log.Printf("🔍 Found existing media with path: %s", searchPath)
-				existingMedia.Title = media.Title
-				existingMedia.Description = media.Description
-				existingMedia.Year = media.Year
-				existingMedia.Type = media.Type
-				existingMedia.FileSize = media.FileSize
-				existingMedia.Quality = media.Quality
-				existingMedia.FilePath = normalizedPath // Use normalized path
+				media.ID = existingMedia.ID
+				media.UUID = existingMedia.UUID
+				media.CreatedAt = existingMedia.CreatedAt
+				if existingMedia.ViewCount > 0 {
+					media.ViewCount = existingMedia.ViewCount
+				}
+				if existingMedia.LastViewed != nil {
+					media.LastViewed = existingMedia.LastViewed
+				}
+				// Preserve existing episode metadata if the new scan didn't fetch it
+				if media.EpisodeTitle == "" && existingMedia.EpisodeTitle != "" {
+					media.EpisodeTitle = existingMedia.EpisodeTitle
+				}
+				if media.EpisodeStillPath == "" && existingMedia.EpisodeStillPath != "" {
+					media.EpisodeStillPath = existingMedia.EpisodeStillPath
+				}
+				if media.LongDesc == "" && existingMedia.LongDesc != "" {
+					media.LongDesc = existingMedia.LongDesc
+				}
+				if media.ShortDesc == "" && existingMedia.ShortDesc != "" {
+					media.ShortDesc = existingMedia.ShortDesc
+				}
+				if len(media.Director) == 0 && len(existingMedia.Director) > 0 {
+					media.Director = existingMedia.Director
+				}
+				if len(media.GuestStars) == 0 && len(existingMedia.GuestStars) > 0 {
+					media.GuestStars = existingMedia.GuestStars
+				}
+				if len(media.Writers) == 0 && len(existingMedia.Writers) > 0 {
+					media.Writers = existingMedia.Writers
+				}
+				if media.Runtime == 0 && existingMedia.Runtime != 0 {
+					media.Runtime = existingMedia.Runtime
+				}
+				if media.Rating == 0 && existingMedia.Rating != 0 {
+					media.Rating = existingMedia.Rating
+				}
+				if media.VoteCount == 0 && existingMedia.VoteCount != 0 {
+					media.VoteCount = existingMedia.VoteCount
+				}
+				if media.ReleaseDate.IsZero() && !existingMedia.ReleaseDate.IsZero() {
+					media.ReleaseDate = existingMedia.ReleaseDate
+				}
+				if media.TMDBID == 0 && existingMedia.TMDBID != 0 {
+					media.TMDBID = existingMedia.TMDBID
+				}
+				if media.SeriesID == nil && existingMedia.SeriesID != nil {
+					media.SeriesID = existingMedia.SeriesID
+				}
+				media.FilePath = normalizedPath
 
-				updateErr := tx.Save(&existingMedia).Error
+				updateErr := tx.Save(media).Error
 				if updateErr == nil {
-					// Copy the updated media back to the original pointer
-					*media = existingMedia
-					log.Printf("🔄 Updated existing media ID=%d: %s", existingMedia.ID, existingMedia.Title)
+					log.Printf("🔄 Updated existing media ID=%d: %s", media.ID, media.Title)
 				}
 				return updateErr
 			}
@@ -282,18 +323,59 @@ func (s *MediaService) UpsertMedia(media *models.Media) error {
 						if strings.EqualFold(existing.FilePath, normalizedPath) ||
 							strings.EqualFold(existing.FilePath, media.FilePath) {
 							log.Printf("🔍 Found case-insensitive match: %s", existing.FilePath)
-							// Update the existing media
-							existing.Title = media.Title
-							existing.Description = media.Description
-							existing.Year = media.Year
-							existing.Type = media.Type
-							existing.FileSize = media.FileSize
-							existing.Quality = media.Quality
+							media.ID = existing.ID
+							media.UUID = existing.UUID
+							media.CreatedAt = existing.CreatedAt
+							if existing.ViewCount > 0 {
+								media.ViewCount = existing.ViewCount
+							}
+							if existing.LastViewed != nil {
+								media.LastViewed = existing.LastViewed
+							}
+							if media.EpisodeTitle == "" && existing.EpisodeTitle != "" {
+								media.EpisodeTitle = existing.EpisodeTitle
+							}
+							if media.EpisodeStillPath == "" && existing.EpisodeStillPath != "" {
+								media.EpisodeStillPath = existing.EpisodeStillPath
+							}
+							if media.LongDesc == "" && existing.LongDesc != "" {
+								media.LongDesc = existing.LongDesc
+							}
+							if media.ShortDesc == "" && existing.ShortDesc != "" {
+								media.ShortDesc = existing.ShortDesc
+							}
+							if len(media.Director) == 0 && len(existing.Director) > 0 {
+								media.Director = existing.Director
+							}
+							if len(media.GuestStars) == 0 && len(existing.GuestStars) > 0 {
+								media.GuestStars = existing.GuestStars
+							}
+							if len(media.Writers) == 0 && len(existing.Writers) > 0 {
+								media.Writers = existing.Writers
+							}
+							if media.Runtime == 0 && existing.Runtime != 0 {
+								media.Runtime = existing.Runtime
+							}
+							if media.Rating == 0 && existing.Rating != 0 {
+								media.Rating = existing.Rating
+							}
+							if media.VoteCount == 0 && existing.VoteCount != 0 {
+								media.VoteCount = existing.VoteCount
+							}
+							if media.ReleaseDate.IsZero() && !existing.ReleaseDate.IsZero() {
+								media.ReleaseDate = existing.ReleaseDate
+							}
+							if media.TMDBID == 0 && existing.TMDBID != 0 {
+								media.TMDBID = existing.TMDBID
+							}
+							if media.SeriesID == nil && existing.SeriesID != nil {
+								media.SeriesID = existing.SeriesID
+							}
+							media.FilePath = normalizedPath
 
-							updateErr := tx.Save(&existing).Error
+							updateErr := tx.Save(media).Error
 							if updateErr == nil {
-								*media = existing
-								log.Printf("🔄 Updated case-insensitive match ID=%d: %s", existing.ID, existing.Title)
+								log.Printf("🔄 Updated case-insensitive match ID=%d: %s", media.ID, media.Title)
 							}
 							return updateErr
 						}
@@ -305,19 +387,59 @@ func (s *MediaService) UpsertMedia(media *models.Media) error {
 						existingBaseName := filepath.Base(existing.FilePath)
 						if strings.EqualFold(existingBaseName, baseName) {
 							log.Printf("🔍 Found basename match: %s -> %s", existingBaseName, existing.FilePath)
-							// Update the existing media with new path
-							existing.Title = media.Title
-							existing.Description = media.Description
-							existing.Year = media.Year
-							existing.Type = media.Type
-							existing.FileSize = media.FileSize
-							existing.Quality = media.Quality
-							existing.FilePath = normalizedPath // Update to new path
+							media.ID = existing.ID
+							media.UUID = existing.UUID
+							media.CreatedAt = existing.CreatedAt
+							if existing.ViewCount > 0 {
+								media.ViewCount = existing.ViewCount
+							}
+							if existing.LastViewed != nil {
+								media.LastViewed = existing.LastViewed
+							}
+							if media.EpisodeTitle == "" && existing.EpisodeTitle != "" {
+								media.EpisodeTitle = existing.EpisodeTitle
+							}
+							if media.EpisodeStillPath == "" && existing.EpisodeStillPath != "" {
+								media.EpisodeStillPath = existing.EpisodeStillPath
+							}
+							if media.LongDesc == "" && existing.LongDesc != "" {
+								media.LongDesc = existing.LongDesc
+							}
+							if media.ShortDesc == "" && existing.ShortDesc != "" {
+								media.ShortDesc = existing.ShortDesc
+							}
+							if len(media.Director) == 0 && len(existing.Director) > 0 {
+								media.Director = existing.Director
+							}
+							if len(media.GuestStars) == 0 && len(existing.GuestStars) > 0 {
+								media.GuestStars = existing.GuestStars
+							}
+							if len(media.Writers) == 0 && len(existing.Writers) > 0 {
+								media.Writers = existing.Writers
+							}
+							if media.Runtime == 0 && existing.Runtime != 0 {
+								media.Runtime = existing.Runtime
+							}
+							if media.Rating == 0 && existing.Rating != 0 {
+								media.Rating = existing.Rating
+							}
+							if media.VoteCount == 0 && existing.VoteCount != 0 {
+								media.VoteCount = existing.VoteCount
+							}
+							if media.ReleaseDate.IsZero() && !existing.ReleaseDate.IsZero() {
+								media.ReleaseDate = existing.ReleaseDate
+							}
+							if media.TMDBID == 0 && existing.TMDBID != 0 {
+								media.TMDBID = existing.TMDBID
+							}
+							if media.SeriesID == nil && existing.SeriesID != nil {
+								media.SeriesID = existing.SeriesID
+							}
+							media.FilePath = normalizedPath
 
-							updateErr := tx.Save(&existing).Error
+							updateErr := tx.Save(media).Error
 							if updateErr == nil {
-								*media = existing
-								log.Printf("🔄 Updated basename match ID=%d: %s", existing.ID, existing.Title)
+								log.Printf("🔄 Updated basename match ID=%d: %s", media.ID, media.Title)
 							}
 							return updateErr
 						}
