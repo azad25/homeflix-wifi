@@ -1885,7 +1885,7 @@ func GeneratePreviewClipBatch(mediaService *services.MediaService, thumbnailServ
 	}
 }
 
-// generatePreviewWithFallbacks tries multiple methods to generate preview clips with ALAC audio fallbacks
+// generatePreviewWithFallbacks tries multiple methods to generate preview clips
 func generatePreviewWithFallbacks(media *models.Media, thumbnailService *services.ThumbnailService) (string, error) {
 	var lastErr error
 
@@ -1899,20 +1899,8 @@ func generatePreviewWithFallbacks(media *models.Media, thumbnailService *service
 	lastErr = err
 	log.Printf("⚠️ Standard preview generation failed for %s: %v", media.Title, err)
 
-	// Strategy 2: Try with audio codec fallback (convert ALAC to AAC)
-	log.Printf("🎬 Attempt 2: Preview with audio codec fallback for %s", media.Title)
-	previewPath, err = generatePreviewWithAudioFallback(media)
-	if err == nil && previewPath != "" && validatePreviewFile(previewPath) {
-		log.Printf("✅ Audio fallback preview generation successful for %s", media.Title)
-		return previewPath, nil
-	}
-	if err != nil {
-		lastErr = err
-	}
-	log.Printf("⚠️ Audio fallback preview generation failed for %s: %v", media.Title, err)
-
-	// Strategy 3: Try async method as fallback
-	log.Printf("🎬 Attempt 3: Async preview generation for %s", media.Title)
+	// Strategy 2: Try async method as fallback
+	log.Printf("🎬 Attempt 2: Async preview generation for %s", media.Title)
 	previewPath, err = thumbnailService.GeneratePreviewClipAsync(media.FilePath, media.ID, media.Title)
 	if err == nil && previewPath != "" && validatePreviewFile(previewPath) {
 		log.Printf("✅ Async preview generation successful for %s", media.Title)
@@ -1923,8 +1911,8 @@ func generatePreviewWithFallbacks(media *models.Media, thumbnailService *service
 	}
 	log.Printf("⚠️ Async preview generation failed for %s: %v", media.Title, err)
 
-	// Strategy 4: Try HD 1080p with unlimited time (no timeout)
-	log.Printf("🎬 Attempt 4: HD 1080p unlimited time preview for %s", media.Title)
+	// Strategy 3: Try HD 1080p with unlimited time (no timeout)
+	log.Printf("🎬 Attempt 3: HD 1080p unlimited time preview for %s", media.Title)
 	previewPath, err = generateHD1080pUnlimitedPreview(media)
 	if err == nil && previewPath != "" && validatePreviewFile(previewPath) {
 		log.Printf("✅ HD 1080p unlimited preview generation successful for %s", media.Title)
@@ -1935,8 +1923,8 @@ func generatePreviewWithFallbacks(media *models.Media, thumbnailService *service
 	}
 	log.Printf("⚠️ HD 1080p unlimited preview generation failed for %s: %v", media.Title, err)
 
-	// Strategy 5: Try HD 1080p video-only preview (no audio)
-	log.Printf("🎬 Attempt 5: HD 1080p video-only preview for %s", media.Title)
+	// Strategy 4: Try HD 1080p video-only preview (no audio)
+	log.Printf("🎬 Attempt 4: HD 1080p video-only preview for %s", media.Title)
 	previewPath, err = generateHD1080pVideoOnlyPreview(media)
 	if err == nil && previewPath != "" && validatePreviewFile(previewPath) {
 		log.Printf("✅ Video-only preview generation successful for %s", media.Title)
@@ -1947,68 +1935,6 @@ func generatePreviewWithFallbacks(media *models.Media, thumbnailService *service
 	}
 
 	return "", fmt.Errorf("all preview generation strategies failed, last error: %v", lastErr)
-}
-
-// generatePreviewWithAudioFallback generates 1080p preview with audio codec conversion using peak timestamp detection
-func generatePreviewWithAudioFallback(media *models.Media) (string, error) {
-	previewDir := "./backend/previews"
-	if _, err := os.Stat(previewDir); os.IsNotExist(err) {
-		os.MkdirAll(previewDir, 0755)
-	}
-
-	// CRITICAL: Check for existing preview before generation
-	if existingPath := checkExistingPreviewAssets(media); existingPath != "" {
-		log.Printf("✅ Using existing preview: %s", existingPath)
-		return existingPath, nil
-	}
-
-	outputPath := fmt.Sprintf("%s/preview_%d_%s_1080p_audio_fallback.mp4", previewDir, media.ID,
-		sanitizeFilename(media.Title))
-
-	// Get optimal timestamp using peak detection for better preview quality
-	startTime := getOptimalPreviewTimestamp(media.FilePath)
-	startTimeStr := fmt.Sprintf("%d", startTime)
-
-	// Ultra HD 1080p FFmpeg command with peak timestamp detection - NO TIMEOUT FOR HD/4K FILES
-	cmd := exec.Command("ffmpeg",
-		"-i", media.FilePath,
-		"-ss", startTimeStr, // Use optimal peak timestamp
-		"-t", "30", // 30 seconds for comprehensive preview
-		"-vf", "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2", // Full HD 1080p
-		"-c:v", "libx264",
-		"-preset", "medium", // Balanced quality/speed for reliability
-		"-crf", "18", // Ultra high quality (Netflix-level)
-		"-c:a", "aac", // AAC audio for compatibility - SOUND MUST BE INCLUDED
-		"-b:a", "192k", // High audio bitrate for quality
-		"-ac", "2", // Stereo audio
-		"-ar", "48000", // High sample rate
-		"-movflags", "+faststart", // Web optimization
-		"-pix_fmt", "yuv420p", // Ensure compatibility
-		"-threads", "0", // Use all available threads
-		"-max_muxing_queue_size", "9999", // Prevent buffer issues
-		"-avoid_negative_ts", "make_zero", // Fix timestamp issues
-		"-fflags", "+genpts", // Generate presentation timestamps
-		"-y", // Overwrite output file
-		outputPath)
-
-	log.Printf("🔧 Running FFmpeg 1080p with audio fallback at %ss (NO TIMEOUT - HD/4K processing): %s", startTimeStr, cmd.String())
-
-	// Run without timeout to allow complete processing of HD/4K files
-	if output, err := cmd.CombinedOutput(); err != nil {
-		log.Printf("❌ FFmpeg 1080p audio fallback failed: %v\nOutput: %s", err, string(output))
-		// Clean up partial file
-		os.Remove(outputPath)
-		return "", fmt.Errorf("ffmpeg 1080p audio fallback failed: %v", err)
-	}
-
-	// Validate generated file
-	if !validatePreviewFile(outputPath) {
-		os.Remove(outputPath)
-		return "", fmt.Errorf("generated preview file validation failed")
-	}
-
-	log.Printf("✅ 1080p preview with audio fallback completed successfully: %s", outputPath)
-	return outputPath, nil
 }
 
 // generateHD1080pUnlimitedPreview generates 1080p preview with unlimited time and no timeout

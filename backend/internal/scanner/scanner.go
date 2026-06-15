@@ -2690,15 +2690,18 @@ func (s *MediaScanner) processVideoFile(path string, info os.FileInfo) error {
 				// Download backdrop if not already present
 				if media.BackdropPath == "" && s.GetTMDBService() != nil {
 					log.Printf("🖼️ Downloading backdrop for %s (Media ID: %d)", media.Title, media.ID)
-					backdropPath, backdropErr := s.GetTMDBService().DownloadBackdropByTitle(media.Title, media.ID, "./backdrops")
+					var backdropPath string
+					var backdropErr error
+					if media.TMDBID > 0 {
+						backdropPath, backdropErr = s.GetTMDBService().DownloadMovieBackdrop(media.TMDBID, media.ID, "./backdrops")
+					} else {
+						backdropPath, backdropErr = s.GetTMDBService().DownloadBackdropByTitle(media.Title, media.ID, "./backdrops")
+					}
 					if backdropErr != nil {
 						log.Printf("⚠️ Failed to download backdrop for %s: %v", media.Title, backdropErr)
-						// If download failed but we have TMDB backdrop URL, keep it
-						// (tmdb_backdrop_url should already be set from TMDB metadata)
 					} else if backdropPath != "" {
 						media.BackdropPath = backdropPath
 						media.BannerPath = backdropPath
-						// Set tmdb_backdrop_url to local API endpoint since we have local backdrop
 						media.TMDBBackdropURL = fmt.Sprintf("/api/backdrops/%d", media.ID)
 						log.Printf("✅ Downloaded backdrop for: %s, set tmdb_backdrop_url to local endpoint", media.Title)
 					}
@@ -2825,13 +2828,6 @@ func (s *MediaScanner) processVideoFile(path string, info os.FileInfo) error {
 	// Poster download disabled for faster scanning - file watcher will handle new media posters
 	log.Printf("ℹ️ Poster download disabled for %s", media.Title)
 
-	// Auto-extract optimized LOUD ALAC audio if service available (only for individual files)
-	// ALAC extraction is disabled during batch operations to prevent system overload
-	if s.GetALACService() != nil && media.ID != 0 {
-		// Only attempt ALAC extraction for individual file processing (not batch scans)
-		log.Printf("🎵 ALAC service available for: %s (will extract on-demand)", media.Title)
-	}
-
 	log.Printf("Successfully processed media: %s (Type: %s, Size: %d bytes)", media.Title, media.Type, media.FileSize)
 	return nil
 }
@@ -2905,19 +2901,23 @@ func (s *MediaScanner) processVideoFileWithPosterDownload(path string, info os.F
 					}
 				}
 				
-				// Download backdrop (works like poster and logo - searches TMDB by title)
-				if s.GetTMDBService() != nil {
+				// Download backdrop if not already present (use TMDB ID directly when available)
+				if s.GetTMDBService() != nil && refreshedMedia.BackdropPath == "" {
 					log.Printf("🖼️ Downloading backdrop for: %s", refreshedMedia.Title)
-					backdropPath, backdropErr := s.GetTMDBService().DownloadBackdropByTitle(refreshedMedia.Title, refreshedMedia.ID, "./backdrops")
+					var backdropPath string
+					var backdropErr error
+					if refreshedMedia.TMDBID > 0 {
+						backdropPath, backdropErr = s.GetTMDBService().DownloadMovieBackdrop(refreshedMedia.TMDBID, refreshedMedia.ID, "./backdrops")
+					} else {
+						backdropPath, backdropErr = s.GetTMDBService().DownloadBackdropByTitle(refreshedMedia.Title, refreshedMedia.ID, "./backdrops")
+					}
 					if backdropErr != nil {
 						log.Printf("⚠️ Failed to download backdrop for %s: %v", refreshedMedia.Title, backdropErr)
-						// If download failed but we have TMDB backdrop URL, keep it
 					} else if backdropPath != "" {
 						refreshedMedia.BackdropPath = backdropPath
 						refreshedMedia.BannerPath = backdropPath
-						// Set tmdb_backdrop_url to local API endpoint since we have local backdrop
 						refreshedMedia.TMDBBackdropURL = fmt.Sprintf("/api/backdrops/%d", refreshedMedia.ID)
-						log.Printf("✅ Downloaded backdrop for: %s, set tmdb_backdrop_url to local endpoint", refreshedMedia.Title)
+						log.Printf("✅ Downloaded backdrop for: %s (TMDB ID: %d)", refreshedMedia.Title, refreshedMedia.TMDBID)
 					} else {
 						log.Printf("ℹ️ No backdrop found for: %s", refreshedMedia.Title)
 					}
@@ -5449,8 +5449,8 @@ func (s *MediaScanner) regenerateAllAssets(mediaList []models.Media) {
 	// First pass: count how many actually need assets
 	var mediaNeedingAssets []models.Media
 	for _, media := range mediaList {
-		needsThumbnail, needsPreview, needsPoster := s.checkMissingAssets(&media)
-		if needsThumbnail || needsPreview || needsPoster {
+		needsThumbnail, needsPreview, needsPoster, needsBackdrop := s.checkMissingAssets(&media)
+		if needsThumbnail || needsPreview || needsPoster || needsBackdrop {
 			mediaNeedingAssets = append(mediaNeedingAssets, media)
 		}
 	}
@@ -5502,7 +5502,7 @@ func (s *MediaScanner) regeneratePreviewClipsBatch(mediaList []models.Media) {
 	// First pass: filter media that actually need preview clips
 	var mediaNeedingPreviews []models.Media
 	for _, media := range mediaList {
-		_, needsPreview, _ := s.checkMissingAssets(&media)
+		_, needsPreview, _, _ := s.checkMissingAssets(&media)
 		if needsPreview {
 			mediaNeedingPreviews = append(mediaNeedingPreviews, media)
 		}
@@ -5552,7 +5552,7 @@ func (s *MediaScanner) regeneratePreviewClipsBatch(mediaList []models.Media) {
 // regeneratePreviewClipForMedia regenerates preview clip only if missing for a single media item
 func (s *MediaScanner) regeneratePreviewClipForMedia(media *models.Media) {
 	// Double-check if preview is actually needed (avoid redundant work)
-	_, needsPreview, _ := s.checkMissingAssets(media)
+	_, needsPreview, _, _ := s.checkMissingAssets(media)
 	if !needsPreview {
 		log.Printf("✅ Preview already exists for: %s - skipping", media.Title)
 		return
@@ -5634,20 +5634,8 @@ func (s *MediaScanner) generatePreviewWithFallbacks(media *models.Media) (string
 	lastErr = err
 	log.Printf("⚠️ Standard preview generation failed for %s: %v", media.Title, err)
 
-	// Strategy 2: Try with audio codec fallback (convert ALAC to AAC)
-	log.Printf("🎬 Attempt 2: Preview with audio codec fallback for %s", media.Title)
-	previewPath, err = s.generatePreviewWithAudioFallback(media)
-	if err == nil && previewPath != "" && s.validatePreviewFile(previewPath) {
-		log.Printf("✅ Audio fallback preview generation successful for %s", media.Title)
-		return previewPath, nil
-	}
-	if err != nil {
-		lastErr = err
-	}
-	log.Printf("⚠️ Audio fallback preview generation failed for %s: %v", media.Title, err)
-
-	// Strategy 3: Try async method as fallback
-	log.Printf("🎬 Attempt 3: Async preview generation for %s", media.Title)
+	// Strategy 2: Try async method as fallback
+	log.Printf("🎬 Attempt 2: Async preview generation for %s", media.Title)
 	previewPath, err = s.GetThumbnailService().GeneratePreviewClipAsync(media.FilePath, media.ID, media.Title)
 	if err == nil && previewPath != "" && s.validatePreviewFile(previewPath) {
 		log.Printf("✅ Async preview generation successful for %s", media.Title)
@@ -5658,8 +5646,8 @@ func (s *MediaScanner) generatePreviewWithFallbacks(media *models.Media) (string
 	}
 	log.Printf("⚠️ Async preview generation failed for %s: %v", media.Title, err)
 
-	// Strategy 4: Try lower quality preview (720p) with audio conversion
-	log.Printf("🎬 Attempt 4: Lower quality (720p) preview for %s", media.Title)
+	// Strategy 3: Try lower quality preview (720p)
+	log.Printf("🎬 Attempt 3: Lower quality (720p) preview for %s", media.Title)
 	previewPath, err = s.generateLowerQualityPreview(media)
 	if err == nil && previewPath != "" && s.validatePreviewFile(previewPath) {
 		log.Printf("✅ Lower quality preview generation successful for %s", media.Title)
@@ -5670,8 +5658,8 @@ func (s *MediaScanner) generatePreviewWithFallbacks(media *models.Media) (string
 	}
 	log.Printf("⚠️ Lower quality preview generation failed for %s: %v", media.Title, err)
 
-	// Strategy 5: Try basic preview without audio
-	log.Printf("🎬 Attempt 5: Video-only preview for %s", media.Title)
+	// Strategy 4: Try basic preview without audio
+	log.Printf("🎬 Attempt 4: Video-only preview for %s", media.Title)
 	previewPath, err = s.generateVideoOnlyPreview(media)
 	if err == nil && previewPath != "" && s.validatePreviewFile(previewPath) {
 		log.Printf("✅ Video-only preview generation successful for %s", media.Title)
@@ -5682,63 +5670,6 @@ func (s *MediaScanner) generatePreviewWithFallbacks(media *models.Media) (string
 	}
 
 	return "", fmt.Errorf("all preview generation strategies failed, last error: %v", lastErr)
-}
-
-// generatePreviewWithAudioFallback generates 1080p preview with audio codec conversion using peak detection
-func (s *MediaScanner) generatePreviewWithAudioFallback(media *models.Media) (string, error) {
-	previewDir := "previews"
-	if _, err := os.Stat(previewDir); os.IsNotExist(err) {
-		os.MkdirAll(previewDir, 0755)
-	}
-
-	outputPath := fmt.Sprintf("%s/preview_%d_%s_1080p_audio_fallback.mp4", previewDir, media.ID,
-		strings.ReplaceAll(media.Title, " ", "_"))
-
-	// Check if this specific preview file already exists and is valid
-	if _, err := os.Stat(outputPath); err == nil {
-		if s.validatePreviewFile(outputPath) {
-			log.Printf("✅ 1080p audio fallback preview already exists for %s: %s - skipping regeneration", media.Title, outputPath)
-			return outputPath, nil
-		} else {
-			log.Printf("⚠️ Existing 1080p audio fallback preview invalid for %s, regenerating: %s", media.Title, outputPath)
-			os.Remove(outputPath) // Remove invalid file
-		}
-	}
-
-	// Get optimal timestamp using peak detection for better preview quality
-	startTime := s.getOptimalPreviewTimestamp(media.FilePath)
-	startTimeStr := fmt.Sprintf("%d", startTime)
-
-	// Ultra HD 1080p FFmpeg command with peak timestamp detection - NO TIMEOUT
-	cmd := exec.Command("ffmpeg",
-		"-i", media.FilePath,
-		"-ss", startTimeStr, // Use optimal peak timestamp
-		"-t", "30", // 30 seconds for comprehensive preview
-		"-vf", "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2", // Full HD 1080p
-		"-c:v", "libx264",
-		"-preset", "slow", // High quality preset for best results
-		"-crf", "18", // Ultra high quality (Netflix-level)
-		"-c:a", "aac", // AAC audio for compatibility
-		"-b:a", "192k", // High audio bitrate for quality
-		"-ac", "2", // Stereo audio
-		"-ar", "48000", // High sample rate
-		"-movflags", "+faststart", // Web optimization
-		"-pix_fmt", "yuv420p", // Ensure compatibility
-		"-threads", "0", // Use all available threads
-		"-max_muxing_queue_size", "9999", // Prevent buffer issues
-		"-y", // Overwrite output file
-		outputPath)
-
-	log.Printf("🔧 Running FFmpeg 1080p with audio fallback at %ss (NO TIMEOUT): %s", startTimeStr, cmd.String())
-
-	// Run without timeout to ensure completion
-	if output, err := cmd.CombinedOutput(); err != nil {
-		log.Printf("❌ FFmpeg 1080p audio fallback failed: %v\nOutput: %s", err, string(output))
-		return "", fmt.Errorf("ffmpeg 1080p audio fallback failed: %v", err)
-	}
-
-	log.Printf("✅ 1080p preview with audio fallback completed successfully")
-	return outputPath, nil
 }
 
 // generateLowerQualityPreview generates 720p fallback preview with audio conversion using peak detection
@@ -6260,15 +6191,15 @@ func (s *MediaScanner) regenerateMediaAssets(media *models.Media) {
 	}
 
 	// Check which assets are missing or invalid
-	needsThumbnail, needsPreview, needsPoster := s.checkMissingAssets(media)
+	needsThumbnail, needsPreview, needsPoster, needsBackdrop := s.checkMissingAssets(media)
 
-	if !needsThumbnail && !needsPreview && !needsPoster {
+	if !needsThumbnail && !needsPreview && !needsPoster && !needsBackdrop {
 		log.Printf("✅ All assets exist for: %s", media.Title)
 		return
 	}
 
-	log.Printf("🎨 Generating missing assets for %s (thumbnail: %v, preview: %v, poster: %v)", 
-		media.Title, needsThumbnail, needsPreview, needsPoster)
+	log.Printf("🎨 Generating missing assets for %s (thumbnail: %v, preview: %v, poster: %v, backdrop: %v)",
+		media.Title, needsThumbnail, needsPreview, needsPoster, needsBackdrop)
 
 	// Generate thumbnail only if missing
 	if needsThumbnail {
@@ -6318,6 +6249,31 @@ func (s *MediaScanner) regenerateMediaAssets(media *models.Media) {
 		}()
 	}
 
+	// Download backdrop/banner if missing
+	if needsBackdrop && s.GetTMDBService() != nil {
+		go func() {
+			var backdropPath string
+			var backdropErr error
+			if media.TMDBID > 0 {
+				backdropPath, backdropErr = s.GetTMDBService().DownloadMovieBackdrop(media.TMDBID, media.ID, "./backdrops")
+			} else {
+				backdropPath, backdropErr = s.GetTMDBService().DownloadBackdropByTitle(media.Title, media.ID, "./backdrops")
+			}
+			if backdropErr != nil {
+				log.Printf("❌ Failed to download backdrop for %s: %v", media.Title, backdropErr)
+			} else if backdropPath != "" {
+				media.BackdropPath = backdropPath
+				media.BannerPath = backdropPath
+				media.TMDBBackdropURL = fmt.Sprintf("/api/backdrops/%d", media.ID)
+				if updateErr := s.GetMediaService().UpdateMedia(media); updateErr != nil {
+					log.Printf("⚠️ Failed to update media with backdrop path: %v", updateErr)
+				} else {
+					log.Printf("✅ Backdrop downloaded for: %s", media.Title)
+				}
+			}
+		}()
+	}
+
 	// Update metadata from TMDB if available
 	if s.GetTMDBService() != nil {
 		go func() {
@@ -6333,18 +6289,21 @@ func (s *MediaScanner) regenerateMediaAssets(media *models.Media) {
 }
 
 // checkMissingAssets checks which assets are missing or invalid for a media item
-func (s *MediaScanner) checkMissingAssets(media *models.Media) (needsThumbnail, needsPreview, needsPoster bool) {
+func (s *MediaScanner) checkMissingAssets(media *models.Media) (needsThumbnail, needsPreview, needsPoster, needsBackdrop bool) {
 	// Check thumbnail
 	needsThumbnail = s.isAssetMissing(media.ThumbnailPath, "thumbnail", media.ID, media.Title)
-	
+
 	// Check preview clip
-	needsPreview = s.isAssetMissing(media.PreviewPath, "preview", media.ID, media.Title) || 
-				   s.isAssetMissing(media.PreviewClipPath, "preview_clip", media.ID, media.Title)
-	
+	needsPreview = s.isAssetMissing(media.PreviewPath, "preview", media.ID, media.Title) ||
+		s.isAssetMissing(media.PreviewClipPath, "preview_clip", media.ID, media.Title)
+
 	// Check poster
 	needsPoster = s.isAssetMissing(media.PosterPath, "poster", media.ID, media.Title)
-	
-	return needsThumbnail, needsPreview, needsPoster
+
+	// Check backdrop/banner
+	needsBackdrop = s.isAssetMissing(media.BackdropPath, "backdrop", media.ID, media.Title)
+
+	return
 }
 
 // isAssetMissing checks if an asset file is missing or invalid
