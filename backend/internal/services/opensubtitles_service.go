@@ -94,11 +94,14 @@ type OpenSubtitlesDownloadResponse struct {
 }
 
 type SubtitleSearchRequest struct {
-	Query    string `json:"query"`
-	Language string `json:"language,omitempty"`
-	Year     string `json:"year,omitempty"`
-	ImdbID   string `json:"imdb_id,omitempty"`
-	TmdbID   string `json:"tmdb_id,omitempty"`
+	Query         string `json:"query"`
+	Language      string `json:"language,omitempty"`
+	Year          string `json:"year,omitempty"`
+	ImdbID        string `json:"imdb_id,omitempty"`
+	TmdbID        string `json:"tmdb_id,omitempty"`
+	SeasonNumber  int    `json:"season_number,omitempty"`
+	EpisodeNumber int    `json:"episode_number,omitempty"`
+	Type          string `json:"type,omitempty"` // "movie" or "episode"
 }
 
 type SubtitleDownloadRequest struct {
@@ -266,6 +269,15 @@ func (s *OpenSubtitlesService) SearchSubtitles(req SubtitleSearchRequest) (*Open
 	}
 	if req.TmdbID != "" {
 		params.Set("tmdb_id", req.TmdbID)
+	}
+	if req.Type != "" {
+		params.Set("type", req.Type)
+	}
+	if req.SeasonNumber > 0 {
+		params.Set("season_number", fmt.Sprintf("%d", req.SeasonNumber))
+	}
+	if req.EpisodeNumber > 0 {
+		params.Set("episode_number", fmt.Sprintf("%d", req.EpisodeNumber))
 	}
 
 	// Add ordering and limit

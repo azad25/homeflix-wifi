@@ -332,62 +332,87 @@ func (s *SubtitleMatcherService) DownloadAndSaveSubtitle(media *models.Media, su
 
 // SearchAndDownloadSubtitle searches for and downloads the best matching subtitle
 func (s *SubtitleMatcherService) SearchAndDownloadSubtitle(media *models.Media) error {
-	log.Printf("🔍 Searching subtitles for: %s", media.Title)
-	
+	seasonNum := 0
+	episodeNum := 0
+	if media.SeasonNumber != nil {
+		seasonNum = *media.SeasonNumber
+	}
+	if media.EpisodeNumber != nil {
+		episodeNum = *media.EpisodeNumber
+	}
+	isEpisode := media.Type == "episode" && seasonNum > 0 && episodeNum > 0
+
+	if isEpisode {
+		log.Printf("🔍 Searching subtitles for episode: %s S%02dE%02d", media.Title, seasonNum, episodeNum)
+	} else {
+		log.Printf("🔍 Searching subtitles for: %s", media.Title)
+	}
+
 	// Extract quality information
 	mediaQuality := s.ExtractMediaQuality(media)
-	
+
 	// Prepare search request
 	searchReq := SubtitleSearchRequest{
 		Query:    media.Title,
 		Language: "en",
 	}
-	
+
+	if isEpisode {
+		searchReq.Type = "episode"
+		searchReq.SeasonNumber = seasonNum
+		searchReq.EpisodeNumber = episodeNum
+	} else {
+		searchReq.Type = "movie"
+	}
+
 	// Add IMDB ID if available
 	if media.IMDBID != "" {
 		searchReq.ImdbID = media.IMDBID
 	}
-	
-	// Add TMDB ID if available
+
+	// Add TMDB ID if available (use series TMDB ID for episodes)
 	if media.TMDBID > 0 {
 		searchReq.TmdbID = fmt.Sprintf("%d", media.TMDBID)
 	}
-	
+
 	// Add year if available
 	if media.Year > 0 {
 		searchReq.Year = fmt.Sprintf("%d", media.Year)
 	}
-	
+
 	// Search for subtitles
 	searchResults, err := s.openSubtitlesService.SearchSubtitles(searchReq)
 	if err != nil {
 		return fmt.Errorf("subtitle search failed: %v", err)
 	}
-	
+
 	if len(searchResults.Data) == 0 {
 		return fmt.Errorf("no subtitles found for: %s", media.Title)
 	}
-	
+
 	log.Printf("✅ Found %d subtitle candidates", len(searchResults.Data))
-	
+
 	// Find best matching subtitle
 	bestSubtitle, score := s.FindBestMatchingSubtitle(searchResults, mediaQuality)
 	if bestSubtitle == nil {
 		return fmt.Errorf("no suitable subtitle found")
 	}
-	
-	// Require minimum score for download (adjust threshold as needed)
-	minScore := 30.0 // Minimum score to consider a good match
+
+	// Lower threshold for episodes since season/episode params already narrow results
+	minScore := 30.0
+	if isEpisode {
+		minScore = 10.0
+	}
 	if score < minScore {
 		log.Printf("⚠️ Best match score (%.1f) below threshold (%.1f), skipping download", score, minScore)
 		return fmt.Errorf("best match score too low: %.1f < %.1f", score, minScore)
 	}
-	
+
 	// Download and save the subtitle
 	if err := s.DownloadAndSaveSubtitle(media, bestSubtitle); err != nil {
 		return fmt.Errorf("failed to download and save subtitle: %v", err)
 	}
-	
+
 	log.Printf("✅ Successfully downloaded and saved subtitle for: %s", media.Title)
 	return nil
 }

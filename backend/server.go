@@ -177,6 +177,11 @@ func main() {
 	// Initialize media scanner with adapted services
 	mediaScanner := scanner.NewMediaScanner(cfg.MediaPath, mediaServiceAdapter, thumbnailServiceAdapter, posterServiceAdapter, geminiServiceAdapter, celeryServiceAdapter, alacServiceAdapter, tmdbServiceAdapter, recommendationServiceAdapter, notificationServiceAdapter, openSubService)
 
+	// Wire subtitle matcher with the concrete media service (the adapter type-assertion inside NewMediaScanner always fails)
+	if openSubService.IsConfigured() {
+		mediaScanner.SetSubtitleMatcherService(services.NewSubtitleMatcherService(openSubService, mediaService))
+	}
+
 	// Load media paths from database and configure scanner
 	loadMediaPathsFromDatabase(db, mediaScanner)
 

@@ -150,6 +150,12 @@ func NewMediaScanner(mediaPath string, mediaService interfaces.MediaServiceInter
 	}
 }
 
+// SetSubtitleMatcherService allows setting the subtitle matcher after construction.
+// Used in server.go to wire the concrete MediaService without going through the adapter.
+func (s *MediaScanner) SetSubtitleMatcherService(svc *services.SubtitleMatcherService) {
+	s.subtitleMatcherService = svc
+}
+
 // Resource monitoring methods for goroutine throttling
 func (s *MediaScanner) canSpawnGoroutine() bool {
 	s.resourceMutex.RLock()
