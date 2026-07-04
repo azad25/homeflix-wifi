@@ -424,6 +424,7 @@ export default function TrailerWidget({
                                 }, 500);
                             } else if (event.data === 2) {
                                 setIsPlaying(false);
+                                setVideoReady(false);
                             }
                         },
                         onReady: (event: any) => {

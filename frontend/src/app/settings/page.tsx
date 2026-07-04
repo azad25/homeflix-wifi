@@ -1,9 +1,10 @@
 "use client";
 
 import React, { useState, useEffect, Suspense } from 'react';
+import PinLock, { apiChangePin } from '@/components/PinLock';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { useDialog } from '@/hooks/useDialog';
-import { Settings, Database, Upload, Trash2, Video, ImageIcon, Folder, File, Play, Info, Edit3, RefreshCw, Save, X, Star, Clock, Globe, Eye, Zap, Search, Server, Activity, HardDrive, BarChart3, TrendingUp, FileSearch, Timer, Download, Film, Layout, Hammer, Menu } from 'lucide-react';
+import { Settings, Database, Upload, Trash2, Video, ImageIcon, Folder, File, Play, Info, Edit3, RefreshCw, Save, X, Star, Clock, Globe, Eye, Zap, Search, Server, Activity, HardDrive, BarChart3, TrendingUp, FileSearch, Timer, Download, Film, Layout, Hammer, Menu, Lock } from 'lucide-react';
 import Image from 'next/image';
 import Navbar from '@/components/Navbar';
 import { getApiUrl } from '@/lib/api';
@@ -51,6 +52,59 @@ interface TMDBSearchResult {
   media_type: "movie" | "tv";
   adult: boolean;
   genre_ids: number[];
+}
+
+function PinChangeForm() {
+  const [currentPin, setCurrentPin] = useState('');
+  const [newPin, setNewPin] = useState('');
+  const [confirmPin, setConfirmPin] = useState('');
+  const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
+
+  const handleChange = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!/^\d{4}$/.test(currentPin) || !/^\d{4}$/.test(newPin)) {
+      setMsg({ text: 'PINs must be exactly 4 digits.', ok: false }); return;
+    }
+    if (newPin !== confirmPin) { setMsg({ text: 'New PINs do not match.', ok: false }); return; }
+    const result = await apiChangePin(currentPin, newPin);
+    if (result.ok) {
+      setCurrentPin(''); setNewPin(''); setConfirmPin('');
+      setMsg({ text: 'PIN changed successfully.', ok: true });
+      setTimeout(() => setMsg(null), 3000);
+    } else {
+      setMsg({ text: result.error || 'Failed to change PIN.', ok: false });
+    }
+  };
+
+  return (
+    <form onSubmit={handleChange} className="space-y-4 max-w-sm">
+      <p className="text-white/50 text-sm">PIN is stored as a SHA-256 hash — not readable in DevTools. Change it here after unlocking.</p>
+      {[
+        { label: 'Current PIN', value: currentPin, set: setCurrentPin },
+        { label: 'New PIN', value: newPin, set: setNewPin },
+        { label: 'Confirm New PIN', value: confirmPin, set: setConfirmPin },
+      ].map(({ label, value, set }) => (
+        <div key={label}>
+          <label className="block text-sm text-white/60 mb-1">{label}</label>
+          <input
+            type="password"
+            inputMode="numeric"
+            maxLength={4}
+            value={value}
+            onChange={e => set(e.target.value.replace(/\D/g, '').slice(0, 4))}
+            placeholder="••••"
+            className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2 text-white outline-none focus:border-white/30 tracking-widest text-lg font-mono"
+          />
+        </div>
+      ))}
+      {msg && (
+        <p className={`text-sm font-medium ${msg.ok ? 'text-green-400' : 'text-red-400'}`}>{msg.text}</p>
+      )}
+      <button type="submit" className="bg-red-600 hover:bg-red-700 text-white font-semibold px-6 py-2 rounded-lg transition-colors">
+        Change PIN
+      </button>
+    </form>
+  );
 }
 
 function SettingsContent() {
@@ -4303,6 +4357,17 @@ function SettingsContent() {
                         )}
                       </GlassCard>
                     </ScrollReveal>
+
+                    {/* PIN Security */}
+                    <ScrollReveal>
+                      <GlassCard className="p-6">
+                        <h2 className="text-2xl font-semibold text-white mb-6 flex items-center gap-3">
+                          <Lock className="w-6 h-6 text-[#E50914]" />
+                          Settings PIN
+                        </h2>
+                        <PinChangeForm />
+                      </GlassCard>
+                    </ScrollReveal>
                   </div>
                 </div>
               )}
@@ -4950,8 +5015,10 @@ function SettingsContent() {
 
 export default function SettingsPage() {
   return (
-    <Suspense fallback={<RedLoader />}>
-      <SettingsContent />
-    </Suspense>
+    <PinLock>
+      <Suspense fallback={<RedLoader />}>
+        <SettingsContent />
+      </Suspense>
+    </PinLock>
   );
 }

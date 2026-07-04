@@ -240,12 +240,14 @@ const LocalMoviesHeroSlider: React.FC<LocalMoviesHeroSliderProps> = ({
                 },
                 events: {
                     onStateChange: (event: any) => {
-                        // 1 = playing, 0 = ended
+                        // 1 = playing, 0 = ended, 2 = paused
                         if (event.data === 1) {
                             setVideoReady(true); // Video is now actually playing
                         } else if (event.data === 0) {
                             setVideoReady(false);
                             goToNextSlide();
+                        } else if (event.data === 2) {
+                            setVideoReady(false);
                         }
                     },
                     onReady: (event: any) => {

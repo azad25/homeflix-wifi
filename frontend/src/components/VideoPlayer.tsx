@@ -24,6 +24,7 @@ import React, { useRef, useEffect, useState, useCallback } from "react";
 import { Play, Pause, Volume2, VolumeX, Maximize, RotateCcw, RotateCw, X, Minimize, Subtitles, Tv, Settings } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { getApiUrl } from '@/lib/api';
+import { attachStreamSource, AttachedStream } from '@/lib/streamSource';
 import RedLoader from './RedLoader';
 import CastButton from './CastButton';
 import VideoPlayerSettings from './VideoPlayerSettings';
@@ -54,6 +55,16 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
   // });
 
   const videoRef = useRef<HTMLVideoElement>(null);
+  // Currently attached stream (direct src or hls.js instance) - must be
+  // destroyed before switching media so MSE buffers are released
+  const streamAttachRef = useRef<AttachedStream | null>(null);
+  const loadStreamSource = useCallback((video: HTMLVideoElement, mediaId: number, fallbackUrl: string) => {
+    streamAttachRef.current?.destroy();
+    streamAttachRef.current = null;
+    attachStreamSource(video, mediaId, fallbackUrl).then((attached) => {
+      streamAttachRef.current = attached;
+    });
+  }, []);
   const containerRef = useRef<HTMLDivElement>(null);
   const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -1216,13 +1227,11 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
           clearSubtitleDisplay();
         }
 
-        // Load new video source
+        // Load new video source via the capability-aware resolver
+        // (direct play when the browser can decode it, HLS otherwise)
         const newVideoSrc = getStreamUrl(media.id, 'high', 'mp4');
-        video.src = newVideoSrc;
         setVideoSrc(newVideoSrc);
-
-        // Load and auto-play the new media
-        video.load();
+        loadStreamSource(video, media.id, newVideoSrc);
 
         // Auto-play after a short delay to ensure loading
         setTimeout(() => {
@@ -1251,7 +1260,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
         // Only update source if it's different (new episode)
         if (newVideoSrc !== videoSrc) {
 
-          video.src = newVideoSrc;
+          loadStreamSource(video, media.id, newVideoSrc);
           setVideoSrc(newVideoSrc);
           setHasInitiallyLoaded(false); // Reset flag when loading new video
           setIsLoading(true);
@@ -1271,7 +1280,9 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
         }
       }
     } else if (!isOpen) {
-      // Reset video source when player closes
+      // Reset video source when player closes and release MSE buffers
+      streamAttachRef.current?.destroy();
+      streamAttachRef.current = null;
       setVideoSrc('');
       setHasInitiallyLoaded(false);
     }
@@ -2191,9 +2202,9 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
           // Pause current video
           video.pause();
 
-          // Update video source directly
+          // Update video source via the capability-aware resolver
           const newVideoSrc = getStreamUrl(nextEpisode.id, 'high', 'mp4');
-          video.src = newVideoSrc;
+          loadStreamSource(video, nextEpisode.id, newVideoSrc);
           setVideoSrc(newVideoSrc);
 
           // Reset states
@@ -2201,8 +2212,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
           setDuration(0);
           setHasInitiallyLoaded(false);
 
-          // Load and play new episode
-          video.load();
           video.addEventListener('canplay', () => {
             video.play().catch(() => { });
           }, { once: true });

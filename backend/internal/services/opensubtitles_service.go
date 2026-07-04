@@ -52,6 +52,7 @@ type OpenSubtitleAttributes struct {
 	ForeignPartsOnly bool                   `json:"foreign_parts_only"`
 	AutoTranslation  bool                   `json:"auto_translation"`
 	MachineTranslated bool                  `json:"machine_translated"`
+	MovieHashMatch   bool                   `json:"moviehash_match"` // true when found via moviehash - in sync by construction
 	Release          string                 `json:"release"`
 	Comments         string                 `json:"comments"`
 	LegacySubtitleID int                    `json:"legacy_subtitle_id"`
@@ -101,7 +102,8 @@ type SubtitleSearchRequest struct {
 	TmdbID        string `json:"tmdb_id,omitempty"`
 	SeasonNumber  int    `json:"season_number,omitempty"`
 	EpisodeNumber int    `json:"episode_number,omitempty"`
-	Type          string `json:"type,omitempty"` // "movie" or "episode"
+	Type          string `json:"type,omitempty"`      // "movie" or "episode"
+	MovieHash     string `json:"moviehash,omitempty"` // OpenSubtitles 64-bit file hash
 }
 
 type SubtitleDownloadRequest struct {
@@ -278,6 +280,9 @@ func (s *OpenSubtitlesService) SearchSubtitles(req SubtitleSearchRequest) (*Open
 	}
 	if req.EpisodeNumber > 0 {
 		params.Set("episode_number", fmt.Sprintf("%d", req.EpisodeNumber))
+	}
+	if req.MovieHash != "" {
+		params.Set("moviehash", req.MovieHash)
 	}
 
 	// Add ordering and limit

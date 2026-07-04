@@ -31,37 +31,37 @@ func NeedsTranscoding(filePath string) bool {
 		strings.Contains(lowerPath, "av1")
 }
 
-func StreamMedia(streamService *services.NetflixStreamService, mediaService *services.MediaService, transcodeService *services.TranscodeService) gin.HandlerFunc {
+func StreamMedia(streamService *services.NetflixStreamService, mediaService *services.MediaService, transcodeService *services.TranscodeService, profileService *services.StreamProfileService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		mediaID := c.Param("id")
-		
+
 		// Parse media ID
 		id, err := strconv.ParseUint(mediaID, 10, 32)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid media ID"})
 			return
 		}
-		
+
 		// Get media information from database
 		media, err := mediaService.GetMediaByID(uint(id))
 		if err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Media not found"})
 			return
 		}
-		
+
 		// Use the file path from the media record
 		filePath := media.FilePath
 		if filePath == "" {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Media file path not available"})
 			return
 		}
-		
+
 		// Check if file exists
 		if _, err := os.Stat(filePath); os.IsNotExist(err) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Media file not found on disk"})
 			return
 		}
-		
+
 		// Handle preflight requests first
 		if c.Request.Method == "OPTIONS" {
 			c.Header("Access-Control-Allow-Origin", "*")
@@ -71,45 +71,46 @@ func StreamMedia(streamService *services.NetflixStreamService, mediaService *ser
 			c.Status(http.StatusOK)
 			return
 		}
-		
+
 		// Set essential CORS headers
 		c.Header("Access-Control-Allow-Origin", "*")
 		c.Header("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
 		c.Header("Access-Control-Allow-Headers", "Range, Content-Type, Accept, Authorization, X-Requested-With")
 		c.Header("Access-Control-Expose-Headers", "Content-Range, Content-Length, Accept-Ranges, X-Streaming-Strategy")
-		
-		// Get streaming strategy from enhanced service
-		strategy, err := streamService.GetStreamingStrategy(filePath)
-		if err != nil {
-			log.Printf("⚠️ Failed to determine streaming strategy for %s: %v", filePath, err)
-			strategy = "direct" // Fallback to direct streaming
+
+		// FAST PATH: decide from the stored stream profile - zero ffprobe,
+		// zero User-Agent guessing, first byte in milliseconds
+		if profileService != nil && c.Query("force_transcode") != "true" {
+			if err := profileService.EnsureProfile(media); err == nil {
+				decision := services.Decide(media, resolveClientProfile(c))
+				if decision.Strategy == "direct" {
+					c.Header("X-Streaming-Strategy", "direct")
+					if err := streamService.StreamDirect(c.Writer, c.Request, filePath); err != nil {
+						log.Printf("❌ Direct streaming failed for %s: %v", filepath.Base(filePath), err)
+					}
+					return
+				}
+				// Incompatible file hit the legacy byte-range URL. New clients
+				// use /stream/:id/info and get HLS; keep the legacy transcode
+				// path below so old clients still get something playable.
+				log.Printf("ℹ️ %s not direct-playable (%s) - legacy client fallback", filepath.Base(filePath), decision.Reason)
+			} else {
+				log.Printf("⚠️ Stream profile probe failed for %s: %v", filepath.Base(filePath), err)
+			}
 		}
-		
-		// Add strategy header for debugging
-		c.Header("X-Streaming-Strategy", strategy)
-		
-		log.Printf("🎬 MANDATORY SEEKABLE streaming %s with strategy: %s", filepath.Base(filePath), strategy)
-		
-		// Use the MANDATORY SEEKABLE streaming service which GUARANTEES:
-		// - 100% seekable files (transcodes if not seekable)
-		// - Strict verification of seeking capability
-		// - No unseekable files allowed through
-		// - Range requests work on all files
+
+		// LEGACY PATH: per-request analysis + inline audio transcoding
 		err = streamService.Stream(c.Writer, c.Request, filePath)
 		if err != nil {
-			log.Printf("❌ MANDATORY seekable streaming failed for %s: %v", filePath, err)
-			
-			// NO FALLBACK - if mandatory transcoding fails, the file has serious issues
+			log.Printf("❌ Legacy streaming failed for %s: %v", filePath, err)
 			if !c.Writer.Written() {
 				c.JSON(http.StatusInternalServerError, gin.H{
-					"error": "Video file cannot be made seekable: " + err.Error(),
-					"note": "This file may be corrupted or in an unsupported format",
+					"error": "Video streaming failed: " + err.Error(),
+					"note":  "This file may be corrupted or in an unsupported format",
 				})
 			}
 			return
 		}
-		
-		log.Printf("✅ GUARANTEED SEEKABLE streaming successful: %s (strategy: %s)", filepath.Base(filePath), strategy)
 	}
 }
 

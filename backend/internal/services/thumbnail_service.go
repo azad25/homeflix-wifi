@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"homeflix-backend/internal/interfaces"
+	"homeflix-backend/internal/utils"
 )
 
 type ThumbnailService struct {
@@ -391,7 +392,7 @@ func (wp *WorkerPool) processPreviewOptimized(task ProcessingTask) (string, erro
 	args := buildPreviewCommand(task.VideoPath, previewPath, startTimeStr, clipDuration, config)
 
 	// No timeout for large video files - let it take as long as needed
-	cmd := exec.Command("ffmpeg", args...)
+	cmd := utils.NiceCommand("ffmpeg", args...)
 
 	// Run without timeout constraints
 	err = cmd.Run()
@@ -473,7 +474,7 @@ func (wp *WorkerPool) generatePreviewWithALAC(task ProcessingTask, previewPath, 
 	)
 
 	// No timeout for ALAC processing - let it take as long as needed
-	cmd := exec.Command("ffmpeg", args...)
+	cmd := utils.NiceCommand("ffmpeg", args...)
 
 	err := cmd.Run()
 	if err != nil {
@@ -897,7 +898,7 @@ func (wp *WorkerPool) generatePreviewWithSoftwareEncoding(videoPath string, medi
 		previewPath,
 	}
 
-	cmd := exec.Command("ffmpeg", args...)
+	cmd := utils.NiceCommand("ffmpeg", args...)
 
 	if err := cmd.Run(); err != nil {
 		log.Printf("❌ Software encoding failed for media %d: %v", mediaID, err)
@@ -936,7 +937,7 @@ func (wp *WorkerPool) generateUltraFastPreview(videoPath string, mediaID uint, p
 		previewPath,
 	}
 
-	cmd := exec.Command("ffmpeg", args...)
+	cmd := utils.NiceCommand("ffmpeg", args...)
 
 	if err := cmd.Run(); err != nil {
 		log.Printf("❌ Ultra-fast encoding also failed for media %d: %v", mediaID, err)
@@ -1031,7 +1032,7 @@ func (wp *WorkerPool) createPlaceholderThumbnail(mediaID uint, thumbnailPath str
 // trySimplePreviewGeneration uses minimal FFmpeg parameters (worker pool version)
 func (wp *WorkerPool) trySimplePreviewGeneration(videoPath, previewPath string) error {
 	// No timeout for HD/4K processing - let it take as long as needed
-	cmd := exec.Command("ffmpeg",
+	cmd := utils.NiceCommand("ffmpeg",
 		"-y",              // Overwrite output
 		"-ss", "00:01:00", // Start at 1 minute
 		"-i", videoPath,
@@ -1053,7 +1054,7 @@ func (wp *WorkerPool) trySimplePreviewGeneration(videoPath, previewPath string) 
 // tryShortPreviewGeneration creates a very short preview (worker pool version)
 func (wp *WorkerPool) tryShortPreviewGeneration(videoPath, previewPath string) error {
 	// No timeout for HD/4K processing - let it take as long as needed
-	cmd := exec.Command("ffmpeg",
+	cmd := utils.NiceCommand("ffmpeg",
 		"-i", videoPath,
 		"-ss", "00:00:30", // Start at 30 seconds
 		"-t", "00:00:10", // Duration of 10 seconds
@@ -1095,14 +1096,14 @@ func (s *ThumbnailService) generateThumbnailFallback(videoPath string, mediaID u
 // tryFFProbeMethod uses ffprobe to find a good frame, then extracts it in HD
 func (s *ThumbnailService) tryFFProbeMethod(videoPath, thumbnailPath string) error {
 	// First, verify video is readable with ffprobe
-	cmd := exec.Command("ffprobe", "-v", "quiet", "-show_entries", "format=duration", "-of", "csv=p=0", videoPath)
+	cmd := utils.NiceCommand("ffprobe", "-v", "quiet", "-show_entries", "format=duration", "-of", "csv=p=0", videoPath)
 	_, err := cmd.Output()
 	if err != nil {
 		return err
 	}
 
 	// Try extracting HD frame with minimal ffmpeg parameters
-	cmd = exec.Command("ffmpeg", "-y", "-i", videoPath,
+	cmd = utils.NiceCommand("ffmpeg", "-y", "-i", videoPath,
 		"-vframes", "1",
 		"-vf", "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2",
 		"-q:v", "2",
@@ -1623,7 +1624,7 @@ func (s *ThumbnailService) GeneratePreview(videoPath string, mediaID uint, title
 
 func (s *ThumbnailService) GetVideoMetadata(videoPath string) (map[string]interface{}, error) {
 	// Use FFprobe to get video metadata
-	cmd := exec.Command("ffprobe",
+	cmd := utils.NiceCommand("ffprobe",
 		"-v", "quiet",
 		"-print_format", "json",
 		"-show_format",
@@ -1650,7 +1651,7 @@ func (s *ThumbnailService) GetVideoMetadata(videoPath string) (map[string]interf
 
 // getVideoDuration extracts video duration in seconds using ffprobe
 func (s *ThumbnailService) getVideoDuration(videoPath string) (int, error) {
-	cmd := exec.Command("ffprobe",
+	cmd := utils.NiceCommand("ffprobe",
 		"-v", "quiet",
 		"-show_entries", "format=duration",
 		"-of", "csv=p=0",
@@ -1775,7 +1776,7 @@ func (s *ThumbnailService) GenerateMultiplePreviewClips(videoPath string, mediaI
 		log.Printf("Generating preview clip %d/%d for media %d at %s", i+1, count, mediaID, startTimeStr)
 
 		// Generate the preview clip
-		cmd := exec.Command("ffmpeg",
+		cmd := utils.NiceCommand("ffmpeg",
 			"-i", videoPath,
 			"-ss", startTimeStr,
 			"-t", "00:00:15",
@@ -1832,7 +1833,7 @@ func (s *ThumbnailService) GenerateHDThumbnailGrid(videoPath string, mediaID uin
 	log.Printf("Generating %dx%d HD thumbnail grid for media %d from first %ds", gridSize, gridSize, mediaID, firstHalf)
 
 	// Generate thumbnail grid using FFmpeg
-	cmd := exec.Command("ffmpeg",
+	cmd := utils.NiceCommand("ffmpeg",
 		"-i", videoPath,
 		"-vf", fmt.Sprintf("select='not(mod(n\\,%d))',scale=320:180,tile=%dx%d", interval*25, gridSize, gridSize), // Assuming 25fps
 		"-frames:v", "1",
@@ -1934,7 +1935,7 @@ func (s *ThumbnailService) GenerateOptimizedPreviewClip(videoPath string, mediaI
 		}
 
 		// Generate this quality version
-		cmd := exec.Command("ffmpeg",
+		cmd := utils.NiceCommand("ffmpeg",
 			"-i", videoPath,
 			"-ss", strconv.Itoa(startTime),
 			"-t", strconv.Itoa(clipDuration),
@@ -2011,7 +2012,7 @@ func (s *ThumbnailService) GenerateMultipleThumbnails(videoPath string, mediaID 
 
 		// Generate thumbnail at specific timestamp
 		timeStr := s.secondsToTimeString(timestamp)
-		cmd := exec.Command("ffmpeg",
+		cmd := utils.NiceCommand("ffmpeg",
 			"-i", videoPath,
 			"-ss", timeStr,
 			"-vframes", "1",
@@ -2069,7 +2070,7 @@ func (s *ThumbnailService) trySimplePreviewGeneration(videoPath, previewPath str
 	startTime := s.getRandomPreviewTimestamp(videoPath)
 	startTimeStr := s.secondsToTimeString(startTime)
 	
-	cmd := exec.Command("ffmpeg",
+	cmd := utils.NiceCommand("ffmpeg",
 		"-i", videoPath,
 		"-ss", startTimeStr, // Use random timestamp instead of fixed 1 minute
 		"-t", "00:00:15", // Duration of 15 seconds
@@ -2093,7 +2094,7 @@ func (s *ThumbnailService) tryShortPreviewGeneration(videoPath, previewPath stri
 	startTime := s.getRandomPreviewTimestamp(videoPath)
 	startTimeStr := s.secondsToTimeString(startTime)
 	
-	cmd := exec.Command("ffmpeg",
+	cmd := utils.NiceCommand("ffmpeg",
 		"-i", videoPath,
 		"-ss", startTimeStr, // Use random timestamp instead of fixed 30 seconds
 		"-t", "00:00:15", // Duration of 15 seconds
@@ -2113,7 +2114,7 @@ func (s *ThumbnailService) tryShortPreviewGeneration(videoPath, previewPath stri
 
 // createVideoFromThumbnail creates a static video from thumbnail
 func (s *ThumbnailService) createVideoFromThumbnail(thumbnailPath, previewPath string) error {
-	cmd := exec.Command("ffmpeg",
+	cmd := utils.NiceCommand("ffmpeg",
 		"-loop", "1",
 		"-i", thumbnailPath,
 		"-t", "5", // 5 second static video
@@ -3016,7 +3017,7 @@ func (s *ThumbnailService) getRandomPreviewTimestamp(videoPath string) int {
 
 // getVideoDurationSeconds gets video duration in seconds using ffprobe
 func (s *ThumbnailService) getVideoDurationSeconds(videoPath string) int {
-	cmd := exec.Command("ffprobe",
+	cmd := utils.NiceCommand("ffprobe",
 		"-v", "quiet",
 		"-show_entries", "format=duration",
 		"-of", "csv=p=0",

@@ -42,6 +42,7 @@ type MediaScanner struct {
 	notificationService   interfaces.NotificationServiceInterface
 	openSubtitlesService  *services.OpenSubtitlesService
 	subtitleMatcherService *services.SubtitleMatcherService
+	streamProfileService  *services.StreamProfileService
 
 	// Scan statistics
 	startTime      time.Time
@@ -154,6 +155,12 @@ func NewMediaScanner(mediaPath string, mediaService interfaces.MediaServiceInter
 // Used in server.go to wire the concrete MediaService without going through the adapter.
 func (s *MediaScanner) SetSubtitleMatcherService(svc *services.SubtitleMatcherService) {
 	s.subtitleMatcherService = svc
+}
+
+// SetStreamProfileService wires the probe-once stream profile service so the
+// scanner fills codec/container columns for every new file at scan time.
+func (s *MediaScanner) SetStreamProfileService(svc *services.StreamProfileService) {
+	s.streamProfileService = svc
 }
 
 // Resource monitoring methods for goroutine throttling
@@ -2986,7 +2993,7 @@ func (s *MediaScanner) extractSubtitleAndAudioTracks(media *models.Media, path s
 	log.Printf("🎬 Extracting subtitle and audio tracks for: %s", media.Title)
 	
 	// Use ffprobe to extract all stream information
-	cmd := exec.Command("ffprobe",
+	cmd := utils.NiceCommand("ffprobe",
 		"-v", "quiet",
 		"-print_format", "json",
 		"-show_streams",
@@ -3536,6 +3543,14 @@ func (s *MediaScanner) processMediaTracks(media *models.Media) error {
 
 	log.Printf("🎬 Analyzing tracks for: %s", filepath.Base(media.FilePath))
 
+	// Store the stream profile (video/audio codec, container, bit depth) so
+	// play-time streaming decisions are a DB lookup, never an ffprobe
+	if s.streamProfileService != nil {
+		if err := s.streamProfileService.EnsureProfile(media); err != nil {
+			log.Printf("⚠️ Failed to store stream profile for %s: %v", media.Title, err)
+		}
+	}
+
 	// Use ffprobe to get track information
 	tracks, err := s.analyzeMediaTracks(media.FilePath)
 	if err != nil {
@@ -3603,7 +3618,7 @@ type MediaTracks struct {
 // analyzeMediaTracks uses ffprobe to extract track information from media files
 func (s *MediaScanner) analyzeMediaTracks(filePath string) (*MediaTracks, error) {
 	// Use ffprobe to get detailed stream information
-	cmd := exec.Command("ffprobe", 
+	cmd := utils.NiceCommand("ffprobe", 
 		"-v", "quiet",
 		"-print_format", "json",
 		"-show_streams",
@@ -4309,7 +4324,7 @@ func (s *MediaScanner) simpleCleanTitle(title string) string {
 
 func (s *MediaScanner) extractVideoMetadata(media *models.Media, path string) error {
 	// Use FFprobe to extract video metadata
-	cmd := exec.Command("ffprobe",
+	cmd := utils.NiceCommand("ffprobe",
 		"-v", "quiet",
 		"-print_format", "json",
 		"-show_format",
@@ -4372,7 +4387,7 @@ func (s *MediaScanner) extractVideoMetadata(media *models.Media, path string) er
 	if durationSeconds == 0 {
 		log.Printf("⚠️ No duration found in standard probe, trying alternative method for %s", filepath.Base(path))
 		
-		altCmd := exec.Command("ffprobe",
+		altCmd := utils.NiceCommand("ffprobe",
 			"-v", "error",
 			"-show_entries", "format=duration",
 			"-of", "csv=p=0",
@@ -4492,7 +4507,7 @@ func (s *MediaScanner) measureVideoDurationWithFFmpeg(path string) int {
 	log.Printf("🎬 Measuring video duration with FFmpeg for: %s", filepath.Base(path))
 	
 	// Method 1: Use ffmpeg with null output to measure duration
-	cmd := exec.Command("ffmpeg",
+	cmd := utils.NiceCommand("ffmpeg",
 		"-i", path,
 		"-f", "null",
 		"-",
@@ -4520,7 +4535,7 @@ func (s *MediaScanner) measureVideoDurationWithFFmpeg(path string) int {
 	}
 	
 	// Method 2: Use ffmpeg with very fast preset to get duration
-	cmd2 := exec.Command("ffmpeg",
+	cmd2 := utils.NiceCommand("ffmpeg",
 		"-i", path,
 		"-t", "1", // Only process 1 second
 		"-f", "null",
@@ -4617,7 +4632,7 @@ func (s *MediaScanner) estimateDurationByFrameCounting(path string) int {
 	log.Printf("🎞️ Attempting frame counting duration estimation for: %s", filepath.Base(path))
 	
 	// Use ffmpeg to get frame count and frame rate
-	cmd := exec.Command("ffprobe",
+	cmd := utils.NiceCommand("ffprobe",
 		"-v", "error",
 		"-select_streams", "v:0",
 		"-count_frames",
@@ -5704,7 +5719,7 @@ func (s *MediaScanner) generateLowerQualityPreview(media *models.Media) (string,
 	startTimeStr := fmt.Sprintf("%d", startTime)
 
 	// 720p fallback FFmpeg command with peak timestamp detection - NO TIMEOUT
-	cmd := exec.Command("ffmpeg",
+	cmd := utils.NiceCommand("ffmpeg",
 		"-i", media.FilePath,
 		"-ss", startTimeStr, // Use optimal peak timestamp
 		"-t", "30", // 30 seconds for comprehensive preview
@@ -5761,7 +5776,7 @@ func (s *MediaScanner) generateVideoOnlyPreview(media *models.Media) (string, er
 	startTimeStr := fmt.Sprintf("%d", startTime)
 
 	// 720p video-only FFmpeg command with peak timestamp detection - NO TIMEOUT
-	cmd := exec.Command("ffmpeg",
+	cmd := utils.NiceCommand("ffmpeg",
 		"-i", media.FilePath,
 		"-ss", startTimeStr, // Use optimal peak timestamp
 		"-t", "30", // 30 seconds for comprehensive preview
@@ -5829,7 +5844,7 @@ func (s *MediaScanner) getOptimalPreviewTimestamp(videoPath string) int {
 func (s *MediaScanner) detectPeakMoments(videoPath string, duration int) int {
 	// Use FFmpeg scene detection to find interesting moments
 	// This analyzes scene changes, motion, and audio levels to find peak moments
-	cmd := exec.Command("ffmpeg",
+	cmd := utils.NiceCommand("ffmpeg",
 		"-i", videoPath,
 		"-vf", "select='gt(scene,0.3)'", // Detect significant scene changes
 		"-f", "null",
@@ -5887,7 +5902,7 @@ func (s *MediaScanner) parseSceneChanges(output string, duration int) []int {
 
 // getVideoDurationSeconds gets video duration in seconds using ffprobe
 func (s *MediaScanner) getVideoDurationSeconds(videoPath string) int {
-	cmd := exec.Command("ffprobe",
+	cmd := utils.NiceCommand("ffprobe",
 		"-v", "quiet",
 		"-show_entries", "format=duration",
 		"-of", "csv=p=0",
@@ -6697,7 +6712,7 @@ func (s *MediaScanner) validatePreviewFile(path string) bool {
 	}
 
 	// Check if it's a valid video file using FFprobe
-	cmd := exec.Command("ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", path)
+	cmd := utils.NiceCommand("ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", path)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		log.Printf("⚠️ Preview file validation failed: %s - %v", path, err)
 		return false

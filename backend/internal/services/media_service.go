@@ -495,6 +495,34 @@ func (s *MediaService) GetMovies() ([]models.Media, error) {
 	return movies, err
 }
 
+// GetMoviesPaged returns one page of movies with pagination done in SQL.
+// List endpoints don't need Subtitles preloaded - detail pages fetch those.
+func (s *MediaService) GetMoviesPaged(offset, limit int) ([]models.Media, error) {
+	var movies []models.Media
+	err := s.DBManager.WithReadOnly(func(db *gorm.DB) error {
+		return db.Preload("Genres").
+			Where("type = ?", "movie").
+			Order("created_at DESC, id DESC").
+			Offset(offset).Limit(limit).
+			Find(&movies).Error
+	})
+	return movies, err
+}
+
+// GetRecentMoviesPool returns the newest N movies (by year, then id) - the
+// pool the TV app personalizes and shuffles. SQL does the sort and limit.
+func (s *MediaService) GetRecentMoviesPool(poolSize int) ([]models.Media, error) {
+	var movies []models.Media
+	err := s.DBManager.WithReadOnly(func(db *gorm.DB) error {
+		return db.Preload("Genres").
+			Where("type = ?", "movie").
+			Order("year DESC, id DESC").
+			Limit(poolSize).
+			Find(&movies).Error
+	})
+	return movies, err
+}
+
 func (s *MediaService) GetSeries() ([]models.Series, error) {
 	var series []models.Series
 	err := s.DBManager.WithReadOnly(func(db *gorm.DB) error {

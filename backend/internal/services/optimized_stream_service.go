@@ -1295,6 +1295,13 @@ func (s *NetflixStreamService) createChromeCompatibleCachedVersion(filePath stri
 
 // Legacy methods removed - now using mandatory seekability verification
 
+// StreamDirect serves a file with zero-copy range support and no per-request
+// analysis. Callers must have already decided (via the stored stream profile)
+// that the client can play this file natively.
+func (s *NetflixStreamService) StreamDirect(w http.ResponseWriter, r *http.Request, filePath string) error {
+	return s.streamDirectlyWithSeeking(w, r, filePath)
+}
+
 func (s *NetflixStreamService) streamDirectlyWithSeeking(w http.ResponseWriter, r *http.Request, filePath string) error {
 	// Open file for streaming
 	file, err := os.OpenFile(filePath, os.O_RDONLY, 0)

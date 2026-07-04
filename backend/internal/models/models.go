@@ -69,6 +69,16 @@ type Media struct {
 	Resolution string `json:"resolution"`
 	Codec      string `json:"codec"`
 	Bitrate    int    `json:"bitrate"`
+
+	// Stream profile - probed once (scan time or first play), drives play-time
+	// streaming decisions without any per-request ffprobe
+	VideoCodec    string `json:"video_codec"`    // "h264", "hevc", "vp9", "av1", ...
+	AudioCodec    string `json:"audio_codec"`    // "aac", "ac3", "dts", ...
+	AudioChannels int    `json:"audio_channels"` // 2, 6, 8
+	Container     string `json:"container"`      // "mp4", "matroska", "webm", "avi"
+	VideoWidth    int    `json:"video_width"`
+	VideoHeight   int    `json:"video_height"`
+	VideoBitDepth int    `json:"video_bit_depth"` // 8 or 10
 	
 	// Quality tags extracted from filename (HDR, Dolby, UHD, etc.)
 	QualityTags []string `json:"quality_tags" gorm:"serializer:json"`

@@ -100,6 +100,17 @@ func main() {
 	transcodeService := services.NewTranscodeService(hwAccel)
 	log.Printf("🎬 Transcode service initialized (HW Accel: %s)", hwAccel)
 
+	// Stream profile service: probe-once codec/container info stored in DB,
+	// so play-time decisions never run ffprobe
+	streamProfileService := services.NewStreamProfileService(db)
+
+	// HLS service: NVENC/NVDEC-backed seekable streaming for anything a
+	// client can't play natively
+	hlsService := services.NewHLSService("./hls_cache")
+
+	// Indexed library search (FTS5 with LIKE fallback)
+	searchService := services.NewSearchService(db)
+
 	// Initialize poster service
 	posterService := services.NewPosterService("./posters")
 
@@ -181,6 +192,9 @@ func main() {
 	if openSubService.IsConfigured() {
 		mediaScanner.SetSubtitleMatcherService(services.NewSubtitleMatcherService(openSubService, mediaService))
 	}
+
+	// Wire stream profile probing so the scanner fills codec columns for new files
+	mediaScanner.SetStreamProfileService(streamProfileService)
 
 	// Load media paths from database and configure scanner
 	loadMediaPathsFromDatabase(db, mediaScanner)
@@ -277,7 +291,7 @@ func main() {
 	newsService.Start()
 
 	// Initialize API routes
-	api.SetupRoutes(r, mediaService, streamService, thumbnailService, userService, recommendationService, playbackService, geminiService, celeryService, alacService, tmdbService, mediaScanner, watcherService, redisCache, transcodeService, newsService, posterService, openSubService, notificationService, db)
+	api.SetupRoutes(r, mediaService, streamService, thumbnailService, userService, recommendationService, playbackService, geminiService, celeryService, alacService, tmdbService, mediaScanner, watcherService, redisCache, transcodeService, newsService, posterService, openSubService, notificationService, streamProfileService, hlsService, searchService, db)
 
 	// Setup music API routes
 	musicRoutes := r.Group("/api/music")

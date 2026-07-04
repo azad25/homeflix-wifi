@@ -12,7 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamService *services.OptimizedStreamService, thumbnailService *services.ThumbnailService, userService *services.UserService, recommendationService *services.RecommendationService, playbackService *services.PlaybackService, geminiService *services.GeminiService, celeryService *services.CeleryService, alacService *services.ALACAudioService, tmdbService *services.TMDBService, mediaScanner *scanner.MediaScanner, watcherService *services.WatcherService, redisCache *services.RedisAssetCache, transcodeService *services.TranscodeService, newsService *services.NewsService, posterService *services.PosterService, openSubService *services.OpenSubtitlesService, notificationService *services.NotificationService, db *gorm.DB) {
+func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamService *services.OptimizedStreamService, thumbnailService *services.ThumbnailService, userService *services.UserService, recommendationService *services.RecommendationService, playbackService *services.PlaybackService, geminiService *services.GeminiService, celeryService *services.CeleryService, alacService *services.ALACAudioService, tmdbService *services.TMDBService, mediaScanner *scanner.MediaScanner, watcherService *services.WatcherService, redisCache *services.RedisAssetCache, transcodeService *services.TranscodeService, newsService *services.NewsService, posterService *services.PosterService, openSubService *services.OpenSubtitlesService, notificationService *services.NotificationService, streamProfileService *services.StreamProfileService, hlsService *services.HLSService, searchService *services.SearchService, db *gorm.DB) {
 	// Initialize API handler
 	apiHandler := NewHandler(db)
 
@@ -26,7 +26,7 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		api.GET("/media/movies", handlers.GetMovies(mediaService))
 		api.GET("/media/tv-shows", handlers.GetTVShows(mediaService))
 		api.GET("/media/genre/:genre", handlers.GetMediaByGenre(mediaService))
-		api.GET("/media/search", handlers.SearchMedia(mediaService))
+		api.GET("/media/search", handlers.SearchMedia(mediaService, searchService))
 
 		// Enhanced subtitle and audio track endpoints (must be before /media/:id)
 		api.GET("/media/:id/subtitles", handlers.GetSubtitleTracks(mediaService))
@@ -94,7 +94,13 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		}
 
 		// Streaming (with automatic ALAC integration and transcoding for MKV/HEVC)
-		api.GET("/stream/:id", handlers.StreamMedia(streamService, mediaService, transcodeService))
+		api.GET("/stream/:id", handlers.StreamMedia(streamService, mediaService, transcodeService, streamProfileService))
+
+		// Playback decision + HLS delivery (DB-driven, no per-request ffprobe)
+		api.GET("/stream/:id/info", handlers.GetStreamInfo(streamProfileService, hlsService, mediaService))
+		api.GET("/stream/:id/hls/index.m3u8", handlers.GetHLSPlaylist(streamProfileService, hlsService, mediaService))
+		api.GET("/stream/:id/hls/:segment", handlers.GetHLSSegment(streamProfileService, hlsService, mediaService))
+		api.POST("/admin/stream-profiles/backfill", handlers.BackfillStreamProfiles(streamProfileService))
 
 		// Preview clips serving - Redis-cached for instant loading
 		if redisAssetHandlers != nil {

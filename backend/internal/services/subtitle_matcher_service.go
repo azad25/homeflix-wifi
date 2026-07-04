@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"homeflix-backend/internal/models"
+	"homeflix-backend/internal/utils"
 )
 
 // SubtitleMatcherService handles intelligent subtitle matching and downloading
@@ -299,7 +300,12 @@ func (s *SubtitleMatcherService) DownloadAndSaveSubtitle(media *models.Media, su
 	}
 	
 	subtitlePath := filepath.Join(mediaDir, mediaBaseName+".en"+ext)
-	
+
+	// Never write garbage to disk: rate-limit/auth error bodies are not subtitles
+	if err := validateSubtitleContent(subtitleData, ext); err != nil {
+		return fmt.Errorf("downloaded subtitle failed validation: %v", err)
+	}
+
 	// Save subtitle file
 	if err := os.WriteFile(subtitlePath, subtitleData, 0644); err != nil {
 		return fmt.Errorf("failed to save subtitle file: %v", err)
@@ -330,6 +336,45 @@ func (s *SubtitleMatcherService) DownloadAndSaveSubtitle(media *models.Media, su
 	return nil
 }
 
+// pickBestHashMatch returns the most-downloaded subtitle flagged as a
+// moviehash match (ripped from the same release), or nil if there is none.
+func pickBestHashMatch(results *OpenSubtitlesSearchResult) *OpenSubtitleItem {
+	var best *OpenSubtitleItem
+	for i := range results.Data {
+		item := &results.Data[i]
+		if !item.Attributes.MovieHashMatch || item.Attributes.MachineTranslated || len(item.Attributes.Files) == 0 {
+			continue
+		}
+		if best == nil || item.Attributes.DownloadCount > best.Attributes.DownloadCount {
+			best = item
+		}
+	}
+	return best
+}
+
+// validateSubtitleContent rejects empty or non-subtitle payloads (API error
+// bodies used to be written straight to .srt files as "empty subtitles").
+func validateSubtitleContent(data []byte, ext string) error {
+	if len(data) < 20 {
+		return fmt.Errorf("subtitle payload too small (%d bytes)", len(data))
+	}
+	head := strings.TrimLeft(string(data[:min(len(data), 2048)]), "\xef\xbb\xbf \t\r\n")
+	if strings.HasPrefix(head, "{") || strings.HasPrefix(head, "<!DOCTYPE") || strings.HasPrefix(head, "<html") {
+		return fmt.Errorf("payload looks like an API error page, not a subtitle")
+	}
+	switch strings.ToLower(strings.TrimPrefix(ext, ".")) {
+	case "srt", "vtt", "sub":
+		if !strings.Contains(head, "-->") {
+			return fmt.Errorf("no timestamp cues found in subtitle payload")
+		}
+	case "ass", "ssa":
+		if !strings.Contains(head, "[Script Info]") {
+			return fmt.Errorf("missing [Script Info] header in ASS subtitle")
+		}
+	}
+	return nil
+}
+
 // SearchAndDownloadSubtitle searches for and downloads the best matching subtitle
 func (s *SubtitleMatcherService) SearchAndDownloadSubtitle(media *models.Media) error {
 	seasonNum := 0
@@ -355,6 +400,16 @@ func (s *SubtitleMatcherService) SearchAndDownloadSubtitle(media *models.Media) 
 	searchReq := SubtitleSearchRequest{
 		Query:    media.Title,
 		Language: "en",
+	}
+
+	// Moviehash: subtitles found by file hash come from the exact same
+	// release, so they're in sync by construction. The API returns hash
+	// matches flagged with moviehash_match=true alongside query results.
+	if hash, hashErr := utils.ComputeMovieHash(media.FilePath); hashErr == nil {
+		searchReq.MovieHash = hash
+		log.Printf("🔑 Moviehash for %s: %s", media.Title, hash)
+	} else {
+		log.Printf("⚠️ Could not compute moviehash for %s: %v", media.Title, hashErr)
 	}
 
 	if isEpisode {
@@ -391,6 +446,17 @@ func (s *SubtitleMatcherService) SearchAndDownloadSubtitle(media *models.Media) 
 	}
 
 	log.Printf("✅ Found %d subtitle candidates", len(searchResults.Data))
+
+	// Hash matches win outright: pick the most-downloaded one and skip the
+	// fuzzy release-name scoring entirely
+	if best := pickBestHashMatch(searchResults); best != nil {
+		log.Printf("🎯 Moviehash match found (in-sync guaranteed): %s", best.Attributes.Release)
+		if err := s.DownloadAndSaveSubtitle(media, best); err != nil {
+			return fmt.Errorf("failed to download hash-matched subtitle: %v", err)
+		}
+		log.Printf("✅ Successfully downloaded hash-matched subtitle for: %s", media.Title)
+		return nil
+	}
 
 	// Find best matching subtitle
 	bestSubtitle, score := s.FindBestMatchingSubtitle(searchResults, mediaQuality)

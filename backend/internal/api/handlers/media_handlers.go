@@ -10,7 +10,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -286,28 +285,24 @@ func GetMovies(mediaService *services.MediaService) gin.HandlerFunc {
 			}
 		}
 
-		movies, err := mediaService.GetMovies()
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-
 		if isTVAppClient(c) {
-			personalized := mediaService.PersonalizeMediaResults(resolveUserID(c), movies, "")
-
-			recentPool := append([]models.Media{}, personalized...)
-			sort.SliceStable(recentPool, func(i, j int) bool {
-				if recentPool[i].Year == recentPool[j].Year {
-					return recentPool[i].ID > recentPool[j].ID
-				}
-				return recentPool[i].Year > recentPool[j].Year
-			})
-			poolLimit := 80
-			if len(recentPool) > poolLimit {
-				recentPool = recentPool[:poolLimit]
+			// SQL already sorts by year and limits to the pool size
+			recentPool, err := mediaService.GetRecentMoviesPool(80)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				return
 			}
-			rand.Seed(time.Now().UnixNano())
-			rand.Shuffle(len(recentPool), func(i, j int) {
+			recentPool = mediaService.PersonalizeMediaResults(resolveUserID(c), recentPool, "")
+
+			// Stable per-user daily shuffle: page 2 continues page 1 instead
+			// of a fresh reshuffle (no duplicates or gaps across pages)
+			seed := int64(0)
+			for _, ch := range resolveUserID(c) {
+				seed = seed*31 + int64(ch)
+			}
+			seed += int64(time.Now().YearDay())
+			rng := rand.New(rand.NewSource(seed))
+			rng.Shuffle(len(recentPool), func(i, j int) {
 				recentPool[i], recentPool[j] = recentPool[j], recentPool[i]
 			})
 
@@ -316,8 +311,14 @@ func GetMovies(mediaService *services.MediaService) gin.HandlerFunc {
 			return
 		}
 
-		// For web clients, return all movies sorted by latest first
-		c.JSON(http.StatusOK, prepareMediaForResponse(paginateMedia(movies, offset, limit)))
+		// Web clients: pagination happens in SQL, not in memory
+		movies, err := mediaService.GetMoviesPaged(offset, limit)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.Header("Cache-Control", "private, max-age=60")
+		c.JSON(http.StatusOK, prepareMediaForResponse(movies))
 	}
 }
 
@@ -907,7 +908,7 @@ func GetMediaByGenre(mediaService *services.MediaService) gin.HandlerFunc {
 	}
 }
 
-func SearchMedia(mediaService *services.MediaService) gin.HandlerFunc {
+func SearchMedia(mediaService *services.MediaService, searchService *services.SearchService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		query := c.Query("q")
 		if query == "" {
@@ -1005,6 +1006,28 @@ func SearchMedia(mediaService *services.MediaService) gin.HandlerFunc {
 
 			c.JSON(http.StatusOK, toTVAppMediaResults(filtered[offset:end]))
 			return
+		}
+
+		// Indexed search (FTS5 or SQL LIKE) - bounded query, no full-library
+		// scan per keystroke. Legacy smart search remains as fallback.
+		if searchService != nil {
+			hits, err := searchService.Search(query, offset+limit)
+			if err == nil {
+				results := searchService.LoadResults(hits)
+				for i, r := range results {
+					if m, ok := r.(models.Media); ok {
+						results[i] = *prepareSingleMediaForResponse(&m)
+					}
+				}
+				if offset >= len(results) {
+					c.JSON(http.StatusOK, []interface{}{})
+					return
+				}
+				c.Header("Cache-Control", "private, max-age=30")
+				c.JSON(http.StatusOK, results[offset:])
+				return
+			}
+			log.Printf("⚠️ Indexed search failed, falling back to smart search: %v", err)
 		}
 
 		results, err := performSmartSearch(mediaService, query)
