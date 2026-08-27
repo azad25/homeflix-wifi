@@ -81,11 +81,16 @@ const nextConfig = {
       },
       {
         protocol: 'https',
+        hostname: 'homeflix.ferdousazad.com',
+        pathname: '/api/**',
+      },
+      {
+        protocol: 'https',
         hostname: 'image.tmdb.org',
         pathname: '/t/p/**',
       },
     ],
-    domains: ['localhost', '172.20.0.1', 'image.tmdb.org'],
+    domains: ['localhost', '172.20.0.1', 'image.tmdb.org', 'homeflix.ferdousazad.com'],
   },
 
   // Headers for caching

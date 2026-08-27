@@ -111,6 +111,7 @@ yarn-error.log*
 /optimized
 *backdrops
 *assets
-*sh
+
 *episode_stills
-*md
+
+seg*.ts

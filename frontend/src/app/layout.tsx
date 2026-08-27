@@ -56,6 +56,8 @@ export default function RootLayout({
         {/* DNS prefetch for external resources */}
         <link rel="dns-prefetch" href="//image.tmdb.org" />
         <link rel="preconnect" href="//image.tmdb.org" crossOrigin="anonymous" />
+        {/* Self-hosted Inter font preloaded - no external URL */}
+        <link rel="preload" href="/fonts/Inter/InterVariable.woff2" as="font" type="font/woff2" crossOrigin="anonymous" />
 
         {/* Performance hints */}
         <meta name="color-scheme" content="dark" />
@@ -74,7 +76,7 @@ export default function RootLayout({
           }}
         />
       </head>
-      <body className="bg-black text-white antialiased font-sans" style={{ fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif' }}>
+      <body className="bg-black text-white antialiased font-sans" style={{ fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" }}>
         <DialogProvider>
           <SWRProvider>
             <NavigationLoaderProvider>

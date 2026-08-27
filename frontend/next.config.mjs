@@ -45,6 +45,11 @@ const nextConfig = {
         port: '8252',
         pathname: '/api/posters/**',
       },
+      {
+        protocol: 'https',
+        hostname: 'homeflix.ferdousazad.com',
+        pathname: '/api/**',
+      },
     ],
   },
   async rewrites() {
