@@ -34,23 +34,35 @@ type HLSService struct {
 	baseDir     string
 	videoEnc    string // "h264_nvenc" or "libx264"
 	hwDecode    bool   // NVDEC available
-	maxSessions int
+	nvencPreset string // "p4" on FFmpeg >= 4.3, "medium" on older builds
+	// scale_cuda can convert 10-bit to 8-bit on the GPU (FFmpeg >= 5),
+	// which lets 10-bit HEVC stay in GPU memory end to end
+	cudaFormatConv bool
+	maxSessions    int
+
+	// codec/bit-depth combos whose full-GPU pipeline failed at runtime
+	// (e.g. no NVDEC support on this card); they start one tier lower
+	gpuFailed   map[string]bool
+	gpuFailedMu sync.Mutex
 
 	sessions map[string]*hlsSession
 	mu       sync.Mutex
 }
 
 type hlsSession struct {
-	key       string
-	mediaID   uint
-	filePath  string
-	audioMap  string // ffmpeg map spec for the audio track, "" for none
-	height    int
-	duration  float64
-	totalSegs int
-	videoMode string // "copy" | "transcode"
-	audioMode string
-	dir       string
+	key        string
+	mediaID    uint
+	filePath   string
+	audioMap   string // ffmpeg map spec for the audio track, "" for none
+	height     int
+	videoCodec string
+	bitDepth   int
+	pipeline   pipeline // transcode tier; steps down when ffmpeg fails
+	duration   float64
+	totalSegs  int
+	videoMode  string // "copy" | "transcode"
+	audioMode  string
+	dir        string
 
 	mu         sync.Mutex
 	cmd        *exec.Cmd
@@ -58,6 +70,24 @@ type hlsSession struct {
 	cmdDone    chan struct{} // closed by the single Wait() owner goroutine
 	encStart   int           // segment index the current ffmpeg run started at
 	lastAccess time.Time
+}
+
+// pipeline is the video transcode tier, fastest first.
+type pipeline int
+
+const (
+	// NVDEC decodes into GPU memory, scale_cuda converts if needed, NVENC
+	// encodes: frames never touch system RAM, CPU only handles audio
+	pipeGPU pipeline = iota
+	// NVDEC decode, frames copied to RAM for pixel-format conversion on the
+	// CPU, NVENC encode
+	pipeHybrid
+	// libx264 on the CPU, capped at 1080p
+	pipeSoftware
+)
+
+func (p pipeline) String() string {
+	return [...]string{"gpu", "hybrid", "software"}[p]
 }
 
 func NewHLSService(baseDir string) *HLSService {
@@ -68,10 +98,20 @@ func NewHLSService(baseDir string) *HLSService {
 
 	s := &HLSService{
 		baseDir:     baseDir,
-		videoEnc:    detectH264Encoder(),
-		hwDecode:    detectNVDec(),
+		videoEnc:    "libx264",
 		maxSessions: 3,
 		sessions:    make(map[string]*hlsSession),
+		gpuFailed:   make(map[string]bool),
+	}
+	if preset, ok := detectNVENC(); ok {
+		s.videoEnc = "h264_nvenc"
+		s.nvencPreset = preset
+		s.hwDecode = detectNVDec()
+		if s.hwDecode {
+			s.cudaFormatConv = detectCudaFormatConversion()
+		}
+	} else {
+		log.Printf("⚠️ NVENC unavailable, HLS transcoding will use libx264 (CPU)")
 	}
 
 	// wipe stale segment dirs from previous runs
@@ -83,24 +123,60 @@ func NewHLSService(baseDir string) *HLSService {
 
 	go s.janitor()
 
-	log.Printf("📺 HLS service ready | encoder=%s hwDecode=%v segments=%ds dir=%s",
-		s.videoEnc, s.hwDecode, hlsSegmentSeconds, baseDir)
+	log.Printf("📺 HLS service ready | encoder=%s hwDecode=%v gpu10bit=%v segments=%ds dir=%s",
+		s.videoEnc, s.hwDecode, s.cudaFormatConv, hlsSegmentSeconds, baseDir)
 	return s
 }
 
-// detectH264Encoder verifies NVENC actually works (driver + GPU present),
-// falling back to software x264.
-func detectH264Encoder() string {
+func ffmpegWorks(args ...string) bool {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "ffmpeg", "-v", "error",
-		"-f", "lavfi", "-i", "testsrc=duration=0.2:size=320x240:rate=25",
-		"-c:v", "h264_nvenc", "-f", "null", "-")
-	if err := cmd.Run(); err == nil {
-		return "h264_nvenc"
+	return exec.CommandContext(ctx, "ffmpeg", append([]string{"-v", "error", "-nostdin"}, args...)...).Run() == nil
+}
+
+// detectNVENC verifies NVENC actually works (driver + GPU present) and
+// finds a preset name this FFmpeg build accepts.
+func detectNVENC() (preset string, ok bool) {
+	for _, preset := range []string{"p4", "medium"} {
+		if ffmpegWorks("-f", "lavfi", "-i", "testsrc=duration=0.2:size=320x240:rate=25",
+			"-c:v", "h264_nvenc", "-preset", preset, "-f", "null", "-") {
+			return preset, true
+		}
 	}
-	log.Printf("⚠️ NVENC unavailable, HLS transcoding will use libx264 (CPU)")
-	return "libx264"
+	return "", false
+}
+
+// detectCudaFormatConversion checks that a 10-bit frame can be converted to
+// 8-bit and encoded without leaving the GPU.
+func detectCudaFormatConversion() bool {
+	return ffmpegWorks("-init_hw_device", "cuda=gpu", "-filter_hw_device", "gpu",
+		"-f", "lavfi", "-i", "testsrc=duration=0.2:size=320x240:rate=25",
+		"-vf", "format=p010le,hwupload,scale_cuda=format=yuv420p",
+		"-c:v", "h264_nvenc", "-f", "null", "-")
+}
+
+func gpuKey(codec string, bitDepth int) string {
+	return fmt.Sprintf("%s:%d", codec, bitDepth)
+}
+
+// initialPipeline picks the fastest tier expected to work for a source.
+func (s *HLSService) initialPipeline(codec string, bitDepth int) pipeline {
+	if s.videoEnc != "h264_nvenc" {
+		return pipeSoftware
+	}
+	if !s.hwDecode {
+		return pipeHybrid
+	}
+	if bitDepth > 8 && !s.cudaFormatConv {
+		return pipeHybrid
+	}
+	s.gpuFailedMu.Lock()
+	failed := s.gpuFailed[gpuKey(codec, bitDepth)]
+	s.gpuFailedMu.Unlock()
+	if failed {
+		return pipeHybrid
+	}
+	return pipeGPU
 }
 
 func detectNVDec() bool {
@@ -257,6 +333,9 @@ func (s *HLSService) getOrCreateSession(media *models.Media, decision StreamDeci
 		mediaID:    media.ID,
 		audioMap:   audioMap,
 		height:     media.VideoHeight,
+		videoCodec: media.VideoCodec,
+		bitDepth:   media.VideoBitDepth,
+		pipeline:   s.initialPipeline(media.VideoCodec, media.VideoBitDepth),
 		filePath:   media.FilePath,
 		duration:   duration,
 		totalSegs:  totalSegs,
@@ -290,72 +369,8 @@ func (s *HLSService) startEncoderLocked(sess *hlsSession, startSeg int) error {
 		}
 	}
 
-	startTime := float64(startSeg * hlsSegmentSeconds)
 	ctx, cancel := context.WithCancel(context.Background())
-
-	args := []string{"-v", "error", "-nostdin"}
-
-	// Hardware decode for transcode jobs (NVDEC handles h264/hevc/vp9,
-	// including 10-bit HEVC - this is what makes HEVC cheap on this box)
-	if sess.videoMode == "transcode" && s.hwDecode && s.videoEnc == "h264_nvenc" {
-		args = append(args, "-hwaccel", "cuda")
-	}
-
-	if startTime > 0 {
-		args = append(args, "-ss", fmt.Sprintf("%.3f", startTime))
-	}
-	args = append(args, "-i", sess.filePath, "-map", "0:v:0")
-	if sess.audioMap != "" {
-		args = append(args, "-map", sess.audioMap)
-	}
-
-	if sess.videoMode == "copy" {
-		// Remux: preserve source timestamps so segments align with the
-		// synthetic playlist timeline
-		args = append(args, "-c:v", "copy", "-copyts")
-	} else {
-		args = append(args, "-c:v", s.videoEnc)
-		if s.videoEnc == "h264_nvenc" {
-			args = append(args,
-				"-preset", "p4",
-				"-rc", "vbr", "-cq", "23",
-				"-b:v", "0", "-maxrate", "12M", "-bufsize", "24M",
-			)
-		} else {
-			// software fallback: keep it survivable on 4 cores. x264 cannot
-			// encode 4K in real time on a small CPU, which shows up as
-			// endless buffering - cap the output at 1080p.
-			args = append(args, "-preset", "veryfast", "-crf", "23", "-threads", "3")
-			if sess.height > 1080 {
-				args = append(args, "-vf", "scale=-2:1080")
-			}
-		}
-		args = append(args,
-			"-pix_fmt", "yuv420p",
-			"-profile:v", "high", "-level", "4.1",
-			// exact 4s keyframes so segment boundaries match the playlist
-			"-force_key_frames", fmt.Sprintf("expr:gte(t,n_forced*%d)", hlsSegmentSeconds),
-			"-output_ts_offset", fmt.Sprintf("%.3f", startTime),
-		)
-	}
-
-	if sess.audioMode == "copy" {
-		args = append(args, "-c:a", "copy")
-	} else {
-		args = append(args, "-c:a", "aac", "-b:a", "192k", "-ac", "2", "-ar", "48000")
-	}
-
-	args = append(args,
-		"-f", "hls",
-		"-hls_time", fmt.Sprintf("%d", hlsSegmentSeconds),
-		"-hls_playlist_type", "vod",
-		"-hls_flags", "temp_file",
-		"-hls_list_size", "0",
-		"-start_number", fmt.Sprintf("%d", startSeg),
-		"-hls_segment_filename", filepath.Join(sess.dir, "seg%d.ts"),
-		filepath.Join(sess.dir, "live.m3u8"),
-	)
-
+	args := s.encoderArgs(sess, startSeg)
 	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
 
 	// Capture ffmpeg stderr so silent encoder deaths are diagnosable
@@ -385,15 +400,140 @@ func (s *HLSService) startEncoderLocked(sess *hlsSession, startSeg int) error {
 		if logFile != nil {
 			logFile.Close()
 		}
+		close(done)
 		if err != nil && ctx.Err() == nil {
 			log.Printf("⚠️ HLS encoder exited with error: media=%d err=%v (see ffmpeg.log in session dir)", mediaID, err)
+			s.encoderFailed(sess, done)
 		}
-		close(done)
 	}()
 
-	log.Printf("🎬 HLS encoder started: media=%d from seg%d (t=%.0fs) video=%s audio=%s",
-		sess.mediaID, startSeg, startTime, sess.videoMode, sess.audioMode)
+	pipe := "-"
+	if sess.videoMode == "transcode" {
+		pipe = sess.pipeline.String()
+	}
+	log.Printf("🎬 HLS encoder started: media=%d from seg%d (t=%ds) video=%s(%s) audio=%s",
+		sess.mediaID, startSeg, startSeg*hlsSegmentSeconds, sess.videoMode, pipe, sess.audioMode)
 	return nil
+}
+
+// encoderFailed steps a transcode down one pipeline tier and resumes from
+// the first segment not yet written, so a GPU problem (codec NVDEC can't
+// decode, NVENC session limit, missing filter) costs a few seconds instead
+// of a dead stream.
+func (s *HLSService) encoderFailed(sess *hlsSession, run chan struct{}) {
+	sess.mu.Lock()
+	defer sess.mu.Unlock()
+	if sess.cmdDone != run || sess.videoMode != "transcode" || sess.pipeline == pipeSoftware {
+		return // superseded by a seek, or nothing left to fall back to
+	}
+	if sess.pipeline == pipeGPU {
+		s.gpuFailedMu.Lock()
+		s.gpuFailed[gpuKey(sess.videoCodec, sess.bitDepth)] = true
+		s.gpuFailedMu.Unlock()
+	}
+	if sess.pipeline == pipeHybrid && s.videoEnc != "h264_nvenc" {
+		return
+	}
+	sess.pipeline++
+	resume := sess.highestReadyLocked() + 1
+	if resume < sess.encStart {
+		resume = sess.encStart
+	}
+	if resume >= sess.totalSegs {
+		return
+	}
+	log.Printf("↘️ HLS media=%d: falling back to %s pipeline at seg%d", sess.mediaID, sess.pipeline, resume)
+	if err := s.startEncoderLocked(sess, resume); err != nil {
+		log.Printf("❌ HLS media=%d: fallback failed: %v", sess.mediaID, err)
+	}
+}
+
+// encoderArgs builds the ffmpeg command line for one encoder run.
+func (s *HLSService) encoderArgs(sess *hlsSession, startSeg int) []string {
+	startTime := float64(startSeg * hlsSegmentSeconds)
+	transcode := sess.videoMode == "transcode"
+	args := []string{"-v", "error", "-nostdin"}
+
+	if transcode {
+		switch sess.pipeline {
+		case pipeGPU:
+			args = append(args, "-hwaccel", "cuda", "-hwaccel_output_format", "cuda")
+		case pipeHybrid:
+			if s.hwDecode {
+				args = append(args, "-hwaccel", "cuda")
+			}
+		}
+	}
+
+	if startTime > 0 {
+		args = append(args, "-ss", fmt.Sprintf("%.3f", startTime))
+	}
+	args = append(args, "-i", sess.filePath, "-map", "0:v:0")
+	if sess.audioMap != "" {
+		args = append(args, "-map", sess.audioMap)
+	}
+
+	if !transcode {
+		// Remux: preserve source timestamps so segments align with the
+		// synthetic playlist timeline
+		args = append(args, "-c:v", "copy", "-copyts")
+	} else {
+		switch sess.pipeline {
+		case pipeGPU, pipeHybrid:
+			maxrate, bufsize := "12M", "24M"
+			if sess.height > 1080 {
+				maxrate, bufsize = "40M", "80M" // 4K output; LAN has room
+			}
+			if sess.pipeline == pipeGPU && sess.bitDepth > 8 {
+				// 10-bit -> 8-bit on the GPU; 8-bit frames go to NVENC as is
+				args = append(args, "-vf", "scale_cuda=format=yuv420p")
+			}
+			args = append(args, "-c:v", "h264_nvenc",
+				"-preset", s.nvencPreset,
+				"-rc", "vbr", "-cq", "23",
+				"-b:v", "0", "-maxrate", maxrate, "-bufsize", bufsize,
+				"-profile:v", "high",
+				// keyframes forced below must be IDR to start a segment
+				"-forced-idr", "1",
+			)
+			if sess.pipeline == pipeHybrid {
+				args = append(args, "-pix_fmt", "yuv420p")
+			}
+			// No -level: NVENC picks one that fits the resolution (a fixed
+			// 4.1 is invalid for 4K output)
+		default:
+			// software: keep it survivable on 4 cores. x264 cannot encode
+			// 4K in real time on a small CPU, which shows up as endless
+			// buffering - cap the output at 1080p.
+			args = append(args, "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-threads", "3")
+			if sess.height > 1080 {
+				args = append(args, "-vf", "scale=-2:1080")
+			}
+			args = append(args, "-pix_fmt", "yuv420p", "-profile:v", "high", "-level", "4.1")
+		}
+		args = append(args,
+			// exact 4s keyframes so segment boundaries match the playlist
+			"-force_key_frames", fmt.Sprintf("expr:gte(t,n_forced*%d)", hlsSegmentSeconds),
+			"-output_ts_offset", fmt.Sprintf("%.3f", startTime),
+		)
+	}
+
+	if sess.audioMode == "copy" {
+		args = append(args, "-c:a", "copy")
+	} else {
+		args = append(args, "-c:a", "aac", "-b:a", "192k", "-ac", "2", "-ar", "48000")
+	}
+
+	return append(args,
+		"-f", "hls",
+		"-hls_time", fmt.Sprintf("%d", hlsSegmentSeconds),
+		"-hls_playlist_type", "vod",
+		"-hls_flags", "temp_file",
+		"-hls_list_size", "0",
+		"-start_number", fmt.Sprintf("%d", startSeg),
+		"-hls_segment_filename", filepath.Join(sess.dir, "seg%d.ts"),
+		filepath.Join(sess.dir, "live.m3u8"),
+	)
 }
 
 // highestReadyLocked finds the highest contiguous ready segment of the
