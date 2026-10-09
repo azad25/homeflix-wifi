@@ -79,7 +79,10 @@ type Media struct {
 	VideoWidth    int    `json:"video_width"`
 	VideoHeight   int    `json:"video_height"`
 	VideoBitDepth int    `json:"video_bit_depth"` // 8 or 10
-	
+	// ffmpeg map spec of the audio track AudioCodec describes ("0:a:1"),
+	// "none" for silent files, "" when probed before this field existed
+	AudioStream string `json:"audio_stream"`
+
 	// Quality tags extracted from filename (HDR, Dolby, UHD, etc.)
 	QualityTags []string `json:"quality_tags" gorm:"serializer:json"`
 	

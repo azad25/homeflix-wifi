@@ -265,13 +265,15 @@ func main() {
 
 	// Timeout middleware to prevent hanging
 	r.Use(func(c *gin.Context) {
-		// Set request timeout based on request type
-		timeout := 30 * time.Second // Default timeout
-		if strings.Contains(c.Request.URL.Path, "/api/stream/") {
-			timeout = 5 * time.Minute // Longer timeout for streaming
+		// Media streams get no deadline: a movie is one long response read
+		// at playback speed, and a fixed timeout stops it mid-play. Client
+		// disconnects still cancel the request context.
+		if strings.HasPrefix(c.Request.URL.Path, "/api/stream/") {
+			c.Next()
+			return
 		}
-		
-		ctx, cancel := context.WithTimeout(c.Request.Context(), timeout)
+
+		ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
 		defer cancel()
 		c.Request = c.Request.WithContext(ctx)
 		c.Next()
@@ -325,7 +327,7 @@ func main() {
 		Addr:           "0.0.0.0:" + port,
 		Handler:        r,
 		ReadTimeout:    30 * time.Second,  // Prevent slow clients from hanging server
-		WriteTimeout:   5 * time.Minute,   // Allow time for large file streaming
+		WriteTimeout:   5 * time.Minute,   // Stream handlers lift this per response (prepareLongStream)
 		IdleTimeout:    120 * time.Second, // Keep connections alive for better performance
 		MaxHeaderBytes: 1 << 20,           // 1MB max header size
 	}

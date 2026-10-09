@@ -24,7 +24,7 @@ import React, { useRef, useEffect, useState, useCallback } from "react";
 import { Play, Pause, Volume2, VolumeX, Maximize, RotateCcw, RotateCw, X, Minimize, Subtitles, Tv, Settings } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { getApiUrl } from '@/lib/api';
-import { attachStreamSource, AttachedStream } from '@/lib/streamSource';
+import { attachStreamSource, AttachedStream, fetchStreamInfo } from '@/lib/streamSource';
 import RedLoader from './RedLoader';
 import CastButton from './CastButton';
 import VideoPlayerSettings from './VideoPlayerSettings';
@@ -2047,45 +2047,60 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
       const currentPlaybackTime = video ? video.currentTime : 0;
       const wasPlaying = video ? !video.paused : false;
 
-      // Use most basic stream URL for maximum compatibility with BRAVIA TV
-      const streamUrl = `${getApiUrl()}/api/stream/${media.id}`;
       const thumbnailUrl = `${getApiUrl()}/api/thumbnails/${media.id}`;
 
-      // Try different content types for better BRAVIA compatibility
-      const contentType = media.file_path?.toLowerCase().endsWith('.mkv') ? 'video/x-matroska' : 'video/mp4';
+      // Ask the server what a cast receiver can play: the raw file when it
+      // is compatible, otherwise HLS (remuxed/transcoded on the fly)
+      fetchStreamInfo(media.id, 'cast').then((info) => {
+        const apiUrl = getApiUrl();
+        const isHls = info?.strategy === 'hls';
+        const streamUrl = info
+          ? (info.url.startsWith('http') ? info.url : `${apiUrl}${info.url}`)
+          : `${apiUrl}/api/stream/${media.id}`;
+        const contentType = isHls
+          ? 'application/x-mpegurl'
+          : media.file_path?.toLowerCase().endsWith('.webm') ? 'video/webm' : 'video/mp4';
 
-      const castMedia: CastMedia = {
-        contentId: streamUrl,
-        contentType: contentType,
-        title: media.title,
-        subtitle: media.type === 'episode'
-          ? `S${media.season_number}E${media.episode_number}`
-          : `${media.year || ''} • ${media.genres || ''}`,
-        metadata: {
+        const castMedia: CastMedia = {
+          contentId: streamUrl,
+          contentType: contentType,
           title: media.title,
           subtitle: media.type === 'episode'
             ? `S${media.season_number}E${media.episode_number}`
             : `${media.year || ''} • ${media.genres || ''}`,
-          images: [{
-            url: thumbnailUrl
-          }]
-        }
-      };
-
-      // Test stream URL accessibility before casting
-      fetch(streamUrl, { method: 'HEAD' })
-        .then(response => {
-          if (response.ok) {
-            // Load media without start time first (better compatibility)
-            loadCastMedia(castMedia);
-            setIsCasting(true);
+          metadata: {
+            title: media.title,
+            subtitle: media.type === 'episode'
+              ? `S${media.season_number}E${media.episode_number}`
+              : `${media.year || ''} • ${media.genres || ''}`,
+            images: [{
+              url: thumbnailUrl
+            }]
           }
-        })
-        .catch(error => {
-          // Try casting anyway
+        };
+
+        if (isHls) {
+          // Playlist routes are GET-only; the receiver fetches it itself
           loadCastMedia(castMedia);
           setIsCasting(true);
-        });
+          return;
+        }
+
+        // Test stream URL accessibility before casting
+        fetch(streamUrl, { method: 'HEAD' })
+          .then(response => {
+            if (response.ok) {
+              // Load media without start time first (better compatibility)
+              loadCastMedia(castMedia);
+              setIsCasting(true);
+            }
+          })
+          .catch(error => {
+            // Try casting anyway
+            loadCastMedia(castMedia);
+            setIsCasting(true);
+          });
+      });
 
       // Pause local video immediately when casting starts
       if (video && !video.paused) {

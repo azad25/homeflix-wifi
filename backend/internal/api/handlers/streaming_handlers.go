@@ -78,6 +78,8 @@ func StreamMedia(streamService *services.NetflixStreamService, mediaService *ser
 		c.Header("Access-Control-Allow-Headers", "Range, Content-Type, Accept, Authorization, X-Requested-With")
 		c.Header("Access-Control-Expose-Headers", "Content-Range, Content-Length, Accept-Ranges, X-Streaming-Strategy")
 
+		prepareLongStream(c)
+
 		// FAST PATH: decide from the stored stream profile - zero ffprobe,
 		// zero User-Agent guessing, first byte in milliseconds
 		if profileService != nil && c.Query("force_transcode") != "true" {
@@ -85,7 +87,7 @@ func StreamMedia(streamService *services.NetflixStreamService, mediaService *ser
 				decision := services.Decide(media, resolveClientProfile(c))
 				if decision.Strategy == "direct" {
 					c.Header("X-Streaming-Strategy", "direct")
-					if err := streamService.StreamDirect(c.Writer, c.Request, filePath); err != nil {
+					if err := streamService.StreamDirect(sendfileWriter{c.Writer}, c.Request, filePath); err != nil {
 						log.Printf("❌ Direct streaming failed for %s: %v", filepath.Base(filePath), err)
 					}
 					return

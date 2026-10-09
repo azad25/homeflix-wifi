@@ -1,31 +1,62 @@
 package handlers
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
 	"strconv"
 	"strings"
 
+	"homeflix-backend/internal/models"
 	"homeflix-backend/internal/services"
 
 	"github.com/gin-gonic/gin"
 )
 
 // resolveClientProfile picks the capability profile for this request.
-// Priority: explicit ?profile= param, then TV-app User-Agent detection,
-// then web (the conservative default).
+// Priority: explicit ?profile= param, then TV-player User-Agent detection,
+// then web (the conservative default). Codec lists the client measured
+// itself (?vcodecs=&acodecs=&containers=&hbd=) refine the base profile.
 func resolveClientProfile(c *gin.Context) services.ClientProfile {
+	var base services.ClientProfile
 	switch strings.ToLower(c.Query("profile")) {
 	case "tv":
-		return services.TVClientProfile()
+		base = services.TVClientProfile()
 	case "web":
-		return services.WebClientProfile()
+		base = services.WebClientProfile()
+	case "cast":
+		base = services.CastClientProfile()
+	default:
+		if isTVPlayerClient(c) {
+			base = services.TVClientProfile()
+		} else {
+			base = services.WebClientProfile()
+		}
 	}
-	if isTVAppClient(c) {
-		return services.TVClientProfile()
+	return services.ClientProfileFromCaps(base, c.Query("vcodecs"), c.Query("acodecs"), c.Query("containers"), c.Query("hbd"))
+}
+
+// isTVPlayerClient recognises the native TV player. Unlike isTVAppClient
+// it does not treat every "android" User-Agent as the TV app: phone and
+// tablet browsers also say Android but can't direct-play MKV/HEVC/AC3.
+func isTVPlayerClient(c *gin.Context) bool {
+	ua := strings.ToLower(c.GetHeader("User-Agent"))
+	if strings.Contains(ua, "homeflix-tv") || strings.Contains(ua, "exoplayer") || strings.Contains(ua, "okhttp") {
+		return true
 	}
-	return services.WebClientProfile()
+	return strings.Contains(ua, "android") && !strings.Contains(ua, "mozilla")
+}
+
+// hlsDecision is Decide for a request that is going to be served as HLS,
+// including files that could have been direct-played (client asked for HLS).
+func hlsDecision(media *models.Media, client services.ClientProfile) services.StreamDecision {
+	d := services.Decide(media, client)
+	if d.Strategy == "direct" {
+		d.Strategy = "hls"
+		d.VideoMode, d.AudioMode = services.HLSModes(media, client, true, true)
+	}
+	return d
 }
 
 // GetStreamInfo is the playback decision endpoint. It reads the stored
@@ -80,7 +111,11 @@ func GetStreamInfo(profileService *services.StreamProfileService, hlsService *se
 			"duration":       media.Duration,
 		}
 		if decision.Strategy == "hls" {
-			resp["url"] = fmt.Sprintf("/api/stream/%d/hls/index.m3u8?profile=%s", media.ID, client.Name)
+			// Carry the client's capability params so the playlist and its
+			// segments resolve the exact same decision
+			q := c.Request.URL.Query()
+			q.Set("profile", client.Name)
+			resp["url"] = fmt.Sprintf("/api/stream/%d/hls/index.m3u8?%s", media.ID, q.Encode())
 			resp["video_mode"] = decision.VideoMode
 			resp["audio_mode"] = decision.AudioMode
 		} else {
@@ -111,20 +146,9 @@ func GetHLSPlaylist(profileService *services.StreamProfileService, hlsService *s
 			return
 		}
 
-		decision := services.Decide(media, resolveClientProfile(c))
-		if decision.Strategy == "direct" {
-			// Client asked for HLS anyway (e.g. wants guaranteed seeking) -
-			// serve it as a pure remux
-			decision.Strategy = "hls"
-			decision.VideoMode = "copy"
-			if media.AudioCodec == "aac" {
-				decision.AudioMode = "copy"
-			} else {
-				decision.AudioMode = "transcode"
-			}
-		}
+		decision := hlsDecision(media, resolveClientProfile(c))
 
-		playlist, err := hlsService.Playlist(media, decision)
+		playlist, err := hlsService.Playlist(media, decision, c.Request.URL.RawQuery)
 		if err != nil {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
 			return
@@ -168,19 +192,13 @@ func GetHLSSegment(profileService *services.StreamProfileService, hlsService *se
 			return
 		}
 
-		decision := services.Decide(media, resolveClientProfile(c))
-		if decision.Strategy == "direct" {
-			decision.Strategy = "hls"
-			decision.VideoMode = "copy"
-			if media.AudioCodec == "aac" {
-				decision.AudioMode = "copy"
-			} else {
-				decision.AudioMode = "transcode"
-			}
-		}
+		decision := hlsDecision(media, resolveClientProfile(c))
 
-		segPath, err := hlsService.Segment(media, decision, index)
+		segPath, err := hlsService.Segment(c.Request.Context(), media, decision, index)
 		if err != nil {
+			if errors.Is(err, services.ErrSegmentWaitCanceled) {
+				return // client is gone
+			}
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
 			return
 		}
@@ -188,7 +206,9 @@ func GetHLSSegment(profileService *services.StreamProfileService, hlsService *se
 		c.Header("Content-Type", "video/mp2t")
 		c.Header("Cache-Control", "public, max-age=3600")
 		c.Header("Access-Control-Allow-Origin", "*")
-		c.File(segPath)
+		if err := serveMediaFile(c, segPath); err != nil && !c.Writer.Written() {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
+		}
 	}
 }
 

@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -35,13 +36,16 @@ type HLSService struct {
 	hwDecode    bool   // NVDEC available
 	maxSessions int
 
-	sessions map[uint]*hlsSession
+	sessions map[string]*hlsSession
 	mu       sync.Mutex
 }
 
 type hlsSession struct {
+	key       string
 	mediaID   uint
 	filePath  string
+	audioMap  string // ffmpeg map spec for the audio track, "" for none
+	height    int
 	duration  float64
 	totalSegs int
 	videoMode string // "copy" | "transcode"
@@ -67,7 +71,7 @@ func NewHLSService(baseDir string) *HLSService {
 		videoEnc:    detectH264Encoder(),
 		hwDecode:    detectNVDec(),
 		maxSessions: 3,
-		sessions:    make(map[uint]*hlsSession),
+		sessions:    make(map[string]*hlsSession),
 	}
 
 	// wipe stale segment dirs from previous runs
@@ -106,9 +110,21 @@ func detectNVDec() bool {
 	return err == nil && strings.Contains(string(out), "cuda")
 }
 
+// ErrSegmentWaitCanceled is returned when the client stops waiting for a
+// segment (seeked elsewhere or closed the player).
+var ErrSegmentWaitCanceled = errors.New("segment request canceled")
+
+// sessionKey separates encodes of the same file with different output
+// modes, so a TV remux and a browser transcode never share segments.
+func sessionKey(mediaID uint, d StreamDecision) string {
+	return fmt.Sprintf("m%d-v%s-a%s", mediaID, d.VideoMode, d.AudioMode)
+}
+
 // Playlist returns the full VOD playlist for a media item, creating the
-// session (and starting the encoder from segment 0) if needed.
-func (s *HLSService) Playlist(media *models.Media, decision StreamDecision) (string, error) {
+// session if needed. segmentQuery (raw, without "?") is appended to every
+// segment URI so segment requests resolve the same client profile as the
+// playlist request did.
+func (s *HLSService) Playlist(media *models.Media, decision StreamDecision, segmentQuery string) (string, error) {
 	sess, err := s.getOrCreateSession(media, decision)
 	if err != nil {
 		return "", err
@@ -125,6 +141,10 @@ func (s *HLSService) Playlist(media *models.Media, decision StreamDecision) (str
 	b.WriteString("#EXT-X-MEDIA-SEQUENCE:0\n")
 	b.WriteString("#EXT-X-PLAYLIST-TYPE:VOD\n")
 
+	suffix := ""
+	if segmentQuery != "" {
+		suffix = "?" + segmentQuery
+	}
 	remaining := sess.duration
 	for i := 0; i < sess.totalSegs; i++ {
 		d := float64(hlsSegmentSeconds)
@@ -133,7 +153,7 @@ func (s *HLSService) Playlist(media *models.Media, decision StreamDecision) (str
 		}
 		remaining -= d
 		b.WriteString(fmt.Sprintf("#EXTINF:%.3f,\n", d))
-		b.WriteString(fmt.Sprintf("seg%d.ts\n", i))
+		b.WriteString(fmt.Sprintf("seg%d.ts%s\n", i, suffix))
 	}
 	b.WriteString("#EXT-X-ENDLIST\n")
 	return b.String(), nil
@@ -141,7 +161,8 @@ func (s *HLSService) Playlist(media *models.Media, decision StreamDecision) (str
 
 // Segment returns the path of a ready segment file, restarting the encoder
 // at the requested position when the client seeks outside the encoded range.
-func (s *HLSService) Segment(media *models.Media, decision StreamDecision, index int) (string, error) {
+// It stops waiting as soon as ctx is canceled (client gone).
+func (s *HLSService) Segment(ctx context.Context, media *models.Media, decision StreamDecision, index int) (string, error) {
 	sess, err := s.getOrCreateSession(media, decision)
 	if err != nil {
 		return "", err
@@ -175,21 +196,33 @@ func (s *HLSService) Segment(media *models.Media, decision StreamDecision, index
 	sess.mu.Unlock()
 
 	// Wait for the segment to appear (temp_file flag means existence == complete)
-	deadline := time.Now().Add(hlsSegmentWait)
-	for time.Now().Before(deadline) {
+	timeout := time.NewTimer(hlsSegmentWait)
+	defer timeout.Stop()
+	poll := time.NewTicker(100 * time.Millisecond)
+	defer poll.Stop()
+	for {
 		if _, err := os.Stat(segPath); err == nil {
+			sess.mu.Lock()
+			sess.lastAccess = time.Now()
+			sess.mu.Unlock()
 			return segPath, nil
 		}
-		time.Sleep(150 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			return "", ErrSegmentWaitCanceled
+		case <-timeout.C:
+			return "", fmt.Errorf("timed out waiting for segment %d", index)
+		case <-poll.C:
+		}
 	}
-	return "", fmt.Errorf("timed out waiting for segment %d", index)
 }
 
 func (s *HLSService) getOrCreateSession(media *models.Media, decision StreamDecision) (*hlsSession, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if sess, ok := s.sessions[media.ID]; ok {
+	key := sessionKey(media.ID, decision)
+	if sess, ok := s.sessions[key]; ok {
 		return sess, nil
 	}
 
@@ -205,13 +238,25 @@ func (s *HLSService) getOrCreateSession(media *models.Media, decision StreamDeci
 	}
 
 	totalSegs := int(duration)/hlsSegmentSeconds + 1
-	dir := filepath.Join(s.baseDir, fmt.Sprintf("m%d", media.ID))
+	dir := filepath.Join(s.baseDir, key)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return nil, err
 	}
 
+	audioMap := "0:a:0?" // rows probed before audio_stream existed
+	switch media.AudioStream {
+	case "none":
+		audioMap = ""
+	case "":
+	default:
+		audioMap = media.AudioStream
+	}
+
 	sess := &hlsSession{
+		key:        key,
 		mediaID:    media.ID,
+		audioMap:   audioMap,
+		height:     media.VideoHeight,
 		filePath:   media.FilePath,
 		duration:   duration,
 		totalSegs:  totalSegs,
@@ -221,7 +266,7 @@ func (s *HLSService) getOrCreateSession(media *models.Media, decision StreamDeci
 		encStart:   -1,
 		lastAccess: time.Now(),
 	}
-	s.sessions[media.ID] = sess
+	s.sessions[key] = sess
 
 	log.Printf("📺 HLS session created: media=%d video=%s audio=%s segs=%d (%s)",
 		media.ID, decision.VideoMode, decision.AudioMode, totalSegs, filepath.Base(media.FilePath))
@@ -259,7 +304,10 @@ func (s *HLSService) startEncoderLocked(sess *hlsSession, startSeg int) error {
 	if startTime > 0 {
 		args = append(args, "-ss", fmt.Sprintf("%.3f", startTime))
 	}
-	args = append(args, "-i", sess.filePath, "-map", "0:v:0", "-map", "0:a:0?")
+	args = append(args, "-i", sess.filePath, "-map", "0:v:0")
+	if sess.audioMap != "" {
+		args = append(args, "-map", sess.audioMap)
+	}
 
 	if sess.videoMode == "copy" {
 		// Remux: preserve source timestamps so segments align with the
@@ -274,8 +322,13 @@ func (s *HLSService) startEncoderLocked(sess *hlsSession, startSeg int) error {
 				"-b:v", "0", "-maxrate", "12M", "-bufsize", "24M",
 			)
 		} else {
-			// software fallback: keep it survivable on 4 cores
+			// software fallback: keep it survivable on 4 cores. x264 cannot
+			// encode 4K in real time on a small CPU, which shows up as
+			// endless buffering - cap the output at 1080p.
 			args = append(args, "-preset", "veryfast", "-crf", "23", "-threads", "3")
+			if sess.height > 1080 {
+				args = append(args, "-vf", "scale=-2:1080")
+			}
 		}
 		args = append(args,
 			"-pix_fmt", "yuv420p",
@@ -393,7 +446,7 @@ func (s *HLSService) destroySessionLocked(sess *hlsSession) {
 		sess.cancel()
 	}
 	sess.mu.Unlock()
-	delete(s.sessions, sess.mediaID)
+	delete(s.sessions, sess.key)
 	os.RemoveAll(sess.dir)
 	log.Printf("🧹 HLS session destroyed: media=%d", sess.mediaID)
 }

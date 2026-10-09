@@ -36,6 +36,7 @@ type StreamProbe struct {
 	Height        int
 	BitDepth      int
 	Duration      float64
+	AudioStream   string // ffmpeg map spec of the chosen audio track, "none" if silent
 }
 
 // ClientProfile describes what a client can play natively.
@@ -44,7 +45,14 @@ type ClientProfile struct {
 	VideoCodecs map[string]bool
 	AudioCodecs map[string]bool
 	Containers  map[string]bool
-	MaxBitDepth int
+	// Codecs the client decodes above 8-bit (HEVC Main10, VP9 profile 2,
+	// AV1 10-bit). 10-bit H.264 is almost never hardware-decodable.
+	HighBitDepth map[string]bool
+	// Codecs that may be stream-copied into MPEG-TS HLS segments for this
+	// client. Browsers (hls.js / Safari) only handle H.264 in TS; copying
+	// VP9/AV1/HEVC into TS produces a stream that never starts.
+	HLSVideoCopy map[string]bool
+	HLSAudioCopy map[string]bool
 }
 
 // StreamDecision is the outcome of matching a file against a client profile.
@@ -55,16 +63,39 @@ type StreamDecision struct {
 	Reason    string `json:"reason"`
 }
 
-// WebClientProfile: what browsers reliably demux/decode via <video> + MSE.
-// Anything outside this goes through HLS (which is a cheap remux when the
-// video track is already H.264).
+func set(items ...string) map[string]bool {
+	m := make(map[string]bool, len(items))
+	for _, it := range items {
+		m[it] = true
+	}
+	return m
+}
+
+// WebClientProfile: the conservative default for a browser that did not
+// report its capabilities. Browsers that do report them (see
+// ClientProfileFromCaps) get direct play for everything they can decode.
 func WebClientProfile() ClientProfile {
 	return ClientProfile{
-		Name:        "web",
-		VideoCodecs: map[string]bool{"h264": true, "vp8": true, "vp9": true, "av1": true},
-		AudioCodecs: map[string]bool{"aac": true, "mp3": true, "opus": true, "vorbis": true, "flac": true},
-		Containers:  map[string]bool{"mp4": true, "webm": true},
-		MaxBitDepth: 8,
+		Name:         "web",
+		VideoCodecs:  set("h264", "vp8", "vp9", "av1"),
+		AudioCodecs:  set("aac", "mp3", "opus", "vorbis", "flac"),
+		Containers:   set("mp4", "webm"),
+		HighBitDepth: set(),
+		HLSVideoCopy: set("h264"),
+		HLSAudioCopy: set("aac", "mp3"),
+	}
+}
+
+// CastClientProfile: Chromecast default media receiver baseline.
+func CastClientProfile() ClientProfile {
+	return ClientProfile{
+		Name:         "cast",
+		VideoCodecs:  set("h264", "vp8"),
+		AudioCodecs:  set("aac", "mp3", "opus", "vorbis", "flac"),
+		Containers:   set("mp4", "webm"),
+		HighBitDepth: set(),
+		HLSVideoCopy: set("h264"),
+		HLSAudioCopy: set("aac", "mp3"),
 	}
 }
 
@@ -73,12 +104,56 @@ func WebClientProfile() ClientProfile {
 // everything; only exotic audio (TrueHD) or containers force HLS.
 func TVClientProfile() ClientProfile {
 	return ClientProfile{
-		Name:        "tv",
-		VideoCodecs: map[string]bool{"h264": true, "hevc": true, "vp8": true, "vp9": true, "av1": true, "mpeg4": true, "mpeg2video": true},
-		AudioCodecs: map[string]bool{"aac": true, "ac3": true, "eac3": true, "mp3": true, "opus": true, "vorbis": true, "flac": true, "dts": true, "pcm_s16le": true},
-		Containers:  map[string]bool{"mp4": true, "matroska": true, "webm": true, "avi": true},
-		MaxBitDepth: 10,
+		Name:         "tv",
+		VideoCodecs:  set("h264", "hevc", "vp8", "vp9", "av1", "mpeg4", "mpeg2video"),
+		AudioCodecs:  set("aac", "ac3", "eac3", "mp3", "opus", "vorbis", "flac", "dts", "pcm_s16le"),
+		Containers:   set("mp4", "matroska", "webm", "avi"),
+		HighBitDepth: set("hevc", "vp9", "av1"),
+		HLSVideoCopy: set("h264", "hevc", "mpeg2video"),
+		HLSAudioCopy: set("aac", "mp3", "ac3", "eac3"),
 	}
+}
+
+// Capability tokens a client may report. Anything else is ignored so a
+// client can never make the server attempt something it doesn't model.
+var (
+	knownVideoCodecs = set("h264", "hevc", "vp8", "vp9", "av1", "mpeg4", "mpeg2video")
+	knownAudioCodecs = set("aac", "mp3", "opus", "vorbis", "flac", "ac3", "eac3", "dts", "truehd", "pcm_s16le")
+	knownContainers  = set("mp4", "webm", "matroska", "avi", "mpegts")
+)
+
+// ClientProfileFromCaps refines a base profile with the codec lists the
+// client measured itself (canPlayType / MediaSource.isTypeSupported).
+// Empty lists keep the base profile's values. HLS copy rules stay those of
+// the base profile: they describe the segment pipeline, not the decoder.
+func ClientProfileFromCaps(base ClientProfile, vcodecs, acodecs, containers, highBitDepth string) ClientProfile {
+	parse := func(raw string, known map[string]bool) map[string]bool {
+		if strings.TrimSpace(raw) == "" {
+			return nil
+		}
+		m := map[string]bool{}
+		for _, tok := range strings.Split(strings.ToLower(raw), ",") {
+			tok = strings.TrimSpace(tok)
+			if known[tok] {
+				m[tok] = true
+			}
+		}
+		return m
+	}
+	p := base
+	if m := parse(vcodecs, knownVideoCodecs); m != nil {
+		p.VideoCodecs = m
+	}
+	if m := parse(acodecs, knownAudioCodecs); m != nil {
+		p.AudioCodecs = m
+	}
+	if m := parse(containers, knownContainers); m != nil {
+		p.Containers = m
+	}
+	if m := parse(highBitDepth, knownVideoCodecs); m != nil {
+		p.HighBitDepth = m
+	}
+	return p
 }
 
 func NewStreamProfileService(db *gorm.DB) *StreamProfileService {
@@ -128,6 +203,9 @@ func (s *StreamProfileService) ProbeFile(filePath string) (*StreamProbe, error) 
 		result.Duration, _ = strconv.ParseFloat(probe.Format.Duration, 64)
 	}
 
+	result.AudioStream = "none"
+	audioIdx := 0
+	pickedDefault := false
 	for _, st := range probe.Streams {
 		switch st.CodecType {
 		case "video":
@@ -142,11 +220,17 @@ func (s *StreamProfileService) ProbeFile(filePath string) (*StreamProbe, error) 
 				result.BitDepth = bitDepthFromPixFmt(st.PixFmt)
 			}
 		case "audio":
-			// Prefer the default audio track; otherwise the first one
-			if result.AudioCodec == "" || st.Disposition.Default == 1 {
+			// Prefer the first default-flagged audio track, otherwise the
+			// first one. Record which, so HLS maps the same track the
+			// decision was made for.
+			isDefault := st.Disposition.Default == 1
+			if result.AudioCodec == "" || (isDefault && !pickedDefault) {
 				result.AudioCodec = strings.ToLower(st.CodecName)
 				result.AudioChannels = st.Channels
+				result.AudioStream = fmt.Sprintf("0:a:%d", audioIdx)
+				pickedDefault = isDefault
 			}
+			audioIdx++
 		}
 	}
 
@@ -156,7 +240,7 @@ func (s *StreamProfileService) ProbeFile(filePath string) (*StreamProbe, error) 
 // EnsureProfile makes sure the media row has stream-profile columns filled.
 // Probes at most once per file (single-flight) and persists the result.
 func (s *StreamProfileService) EnsureProfile(media *models.Media) error {
-	if media.VideoCodec != "" && media.Container != "" {
+	if media.VideoCodec != "" && media.Container != "" && media.AudioStream != "" {
 		return nil // already probed
 	}
 
@@ -167,7 +251,7 @@ func (s *StreamProfileService) EnsureProfile(media *models.Media) error {
 		wg.Wait()
 		// reload the row another goroutine just populated
 		var fresh models.Media
-		if err := s.db.Select("video_codec", "audio_codec", "audio_channels", "container", "video_width", "video_height", "video_bit_depth").First(&fresh, media.ID).Error; err == nil {
+		if err := s.db.Select("video_codec", "audio_codec", "audio_channels", "container", "video_width", "video_height", "video_bit_depth", "audio_stream").First(&fresh, media.ID).Error; err == nil {
 			media.VideoCodec = fresh.VideoCodec
 			media.AudioCodec = fresh.AudioCodec
 			media.AudioChannels = fresh.AudioChannels
@@ -175,6 +259,7 @@ func (s *StreamProfileService) EnsureProfile(media *models.Media) error {
 			media.VideoWidth = fresh.VideoWidth
 			media.VideoHeight = fresh.VideoHeight
 			media.VideoBitDepth = fresh.VideoBitDepth
+			media.AudioStream = fresh.AudioStream
 		}
 		return nil
 	}
@@ -202,6 +287,7 @@ func (s *StreamProfileService) EnsureProfile(media *models.Media) error {
 	media.VideoWidth = probe.Width
 	media.VideoHeight = probe.Height
 	media.VideoBitDepth = probe.BitDepth
+	media.AudioStream = probe.AudioStream
 	if media.Duration == 0 && probe.Duration > 0 {
 		media.Duration = int(probe.Duration)
 	}
@@ -214,6 +300,7 @@ func (s *StreamProfileService) EnsureProfile(media *models.Media) error {
 		"video_width":     probe.Width,
 		"video_height":    probe.Height,
 		"video_bit_depth": probe.BitDepth,
+		"audio_stream":    probe.AudioStream,
 	}
 	if media.Duration > 0 {
 		updates["duration"] = media.Duration
@@ -235,9 +322,9 @@ func Decide(media *models.Media, client ClientProfile) StreamDecision {
 	if !videoOK {
 		reasons = append(reasons, fmt.Sprintf("video codec %s unsupported", media.VideoCodec))
 	}
-	if videoOK && media.VideoBitDepth > client.MaxBitDepth {
+	if videoOK && media.VideoBitDepth > 8 && !client.HighBitDepth[media.VideoCodec] {
 		videoOK = false
-		reasons = append(reasons, fmt.Sprintf("%d-bit video unsupported", media.VideoBitDepth))
+		reasons = append(reasons, fmt.Sprintf("%d-bit %s unsupported", media.VideoBitDepth, media.VideoCodec))
 	}
 
 	audioOK := media.AudioCodec == "" || client.AudioCodecs[media.AudioCodec]
@@ -255,24 +342,29 @@ func Decide(media *models.Media, client ClientProfile) StreamDecision {
 	}
 
 	d := StreamDecision{Strategy: "hls", Reason: strings.Join(reasons, ", ")}
-	if videoOK {
-		d.VideoMode = "copy" // remux only - nearly free
-	} else {
-		d.VideoMode = "transcode"
-	}
-	if media.AudioCodec == "aac" {
-		d.AudioMode = "copy"
-	} else {
-		d.AudioMode = "transcode"
-	}
+	d.VideoMode, d.AudioMode = HLSModes(media, client, videoOK, audioOK)
 	return d
+}
+
+// HLSModes picks copy vs transcode per track for an HLS session. Copy is
+// only used when the client decodes the codec AND the codec is valid in
+// MPEG-TS segments for that client.
+func HLSModes(media *models.Media, client ClientProfile, videoOK, audioOK bool) (videoMode, audioMode string) {
+	videoMode, audioMode = "transcode", "transcode"
+	if videoOK && client.HLSVideoCopy[media.VideoCodec] {
+		videoMode = "copy" // remux only - nearly free
+	}
+	if media.AudioCodec == "" || (audioOK && client.HLSAudioCopy[media.AudioCodec]) {
+		audioMode = "copy"
+	}
+	return videoMode, audioMode
 }
 
 // BackfillProfiles probes every media row that has no stream profile yet.
 // Runs sequentially and throttled so it never competes with playback.
 func (s *StreamProfileService) BackfillProfiles() (int, int) {
 	var pending []models.Media
-	if err := s.db.Where("(video_codec IS NULL OR video_codec = '') AND deleted_at IS NULL").Find(&pending).Error; err != nil {
+	if err := s.db.Where("(video_codec IS NULL OR video_codec = '' OR audio_stream IS NULL OR audio_stream = '') AND deleted_at IS NULL").Find(&pending).Error; err != nil {
 		log.Printf("❌ Stream profile backfill query failed: %v", err)
 		return 0, 0
 	}
