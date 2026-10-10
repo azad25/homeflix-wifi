@@ -571,6 +571,10 @@ export default function WidgetManager({ className = '' }: WidgetManagerProps) {
                                     <option value="local">Local</option>
                                     <option value="popular">Popular</option>
                                     <option value="trending">Trending</option>
+                                    <option value="recent">Recent (newly added)</option>
+                                    <option value="latest">Latest Releases (newest year)</option>
+                                    <option value="top-rated">Top Rated</option>
+                                    <option value="recently-played">Recently Played</option>
                                     <option value="now-playing">Now Playing</option>
                                     <option value="upcoming">Upcoming</option>
                                 </select>
@@ -613,7 +617,7 @@ export default function WidgetManager({ className = '' }: WidgetManagerProps) {
                         </div>
                         
                         {/* Content Selection Button for New Widget */}
-                        {(newWidget.dataSource === 'tmdb' || newWidget.dataSource === 'local') && newWidget.type !== 'notifications' && (
+                        {(newWidget.dataSource === 'tmdb' || newWidget.dataSource === 'local' || newWidget.dataSource === 'recent' || newWidget.dataSource === 'latest' || newWidget.dataSource === 'top-rated' || newWidget.dataSource === 'recently-played') && newWidget.type !== 'notifications' && (
                             <div className="mt-4">
                                 <button
                                     type="button"
@@ -764,7 +768,7 @@ export default function WidgetManager({ className = '' }: WidgetManagerProps) {
                         )}
                         
                         {/* Content Selection Button */}
-                        {(newWidget.dataSource === 'tmdb' || newWidget.dataSource === 'local') && newWidget.type !== 'notifications' && (
+                        {(newWidget.dataSource === 'tmdb' || newWidget.dataSource === 'local' || newWidget.dataSource === 'recent' || newWidget.dataSource === 'latest' || newWidget.dataSource === 'top-rated' || newWidget.dataSource === 'recently-played') && newWidget.type !== 'notifications' && (
                             <div className="mt-4">
                                 <button
                                     type="button"
@@ -1326,6 +1330,10 @@ function WidgetCard({
                             <option value="local">Local</option>
                             <option value="popular">Popular</option>
                             <option value="trending">Trending</option>
+                            <option value="recent">Recent (newly added)</option>
+                            <option value="latest">Latest Releases (newest year)</option>
+                            <option value="top-rated">Top Rated</option>
+                            <option value="recently-played">Recently Played</option>
                             <option value="now-playing">Now Playing</option>
                             <option value="upcoming">Upcoming</option>
                         </select>
@@ -1500,7 +1508,7 @@ function WidgetCard({
                 )}
                 
                 {/* Content Selection Button for Edit Form */}
-                {(editForm.dataSource === 'tmdb' || editForm.dataSource === 'local') && editForm.type !== 'notifications' && (
+                {(editForm.dataSource === 'tmdb' || editForm.dataSource === 'local' || editForm.dataSource === 'recent' || editForm.dataSource === 'latest' || editForm.dataSource === 'top-rated' || editForm.dataSource === 'recently-played') && editForm.type !== 'notifications' && (
                     <div className="mt-4">
                         <button
                             type="button"

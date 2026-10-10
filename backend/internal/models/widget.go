@@ -171,6 +171,7 @@ const (
 	WidgetDataSourceUpcoming       = "upcoming"
 	WidgetDataSourceTopRated       = "top-rated"
 	WidgetDataSourceRecentlyPlayed = "recently-played"
+	WidgetDataSourceLatest         = "latest"
 )
 
 // Widget content types

@@ -502,6 +502,7 @@ func (s *WidgetService) GetWidgetDataSources() []map[string]string {
 		{"source": models.WidgetDataSourceTrending, "name": "Trending", "description": "Trending content"},
 		{"source": models.WidgetDataSourcePopular, "name": "Popular", "description": "Popular content"},
 		{"source": models.WidgetDataSourceRecent, "name": "Recent", "description": "Recently added content"},
+		{"source": models.WidgetDataSourceLatest, "name": "Latest Releases", "description": "Newest movies by release year"},
 		{"source": models.WidgetDataSourceRecentlyPlayed, "name": "Recently Played", "description": "Continue watching / recently played content"},
 		{"source": models.WidgetDataSourceNowPlaying, "name": "Now Playing", "description": "Currently in theaters"},
 		{"source": models.WidgetDataSourceUpcoming, "name": "Upcoming", "description": "Coming soon releases"},
@@ -654,7 +655,7 @@ func (s *WidgetService) prefetchWidgetData(widgets []models.Widget) *DataCache {
 
 	for _, widget := range widgets {
 		switch widget.DataSource {
-		case models.WidgetDataSourceLocal, models.WidgetDataSourceRecent, models.WidgetDataSourceRecentlyPlayed:
+		case models.WidgetDataSourceLocal, models.WidgetDataSourceRecent, models.WidgetDataSourceRecentlyPlayed, models.WidgetDataSourceLatest:
 			needsLocal = true
 		case models.WidgetDataSourceTMDB, models.WidgetDataSourceTrending,
 			models.WidgetDataSourcePopular, models.WidgetDataSourceNowPlaying,
@@ -905,7 +906,7 @@ func (s *WidgetService) getWidgetDataFromCache(widget models.Widget, cache *Data
 
 	// Get data from cache based on data source
 	switch widget.DataSource {
-	case models.WidgetDataSourceLocal, models.WidgetDataSourceRecent, models.WidgetDataSourceRecentlyPlayed:
+	case models.WidgetDataSourceLocal, models.WidgetDataSourceRecent, models.WidgetDataSourceRecentlyPlayed, models.WidgetDataSourceLatest:
 		fmt.Printf("🔧 Widget %s using local data source: %s\n", widget.Name, widget.DataSource)
 		sourceData = s.getLocalDataFromCache(widget, cache)
 	case models.WidgetDataSourceTMDB, models.WidgetDataSourceTrending,
@@ -1274,6 +1275,15 @@ func (s *WidgetService) sortWidgetData(data []models.MediaItem, widget models.Wi
 			}
 			return sortedData[i].Year > sortedData[j].Year
 		})
+	case models.WidgetDataSourceLatest:
+		// Sort by release year (newest movies first), then by rating
+		fmt.Printf("🔧 Sorting widget %s data by latest releases (Year DESC, Rating DESC)\n", widget.Name)
+		sort.Slice(sortedData, func(i, j int) bool {
+			if sortedData[i].Year != sortedData[j].Year {
+				return sortedData[i].Year > sortedData[j].Year
+			}
+			return sortedData[i].Rating > sortedData[j].Rating
+		})
 	case models.WidgetDataSourceRecentlyPlayed:
 		// Sort by last viewed time (most recently played first)
 		fmt.Printf("🔧 Sorting widget %s data by recently played (LastViewed DESC)\n", widget.Name)
@@ -1540,7 +1550,7 @@ func (s *WidgetService) analyzeWidgetRequirements(widgets []models.Widget) struc
 
 	for _, widget := range widgets {
 		switch widget.DataSource {
-		case models.WidgetDataSourceLocal, models.WidgetDataSourceRecent, models.WidgetDataSourceRecentlyPlayed:
+		case models.WidgetDataSourceLocal, models.WidgetDataSourceRecent, models.WidgetDataSourceRecentlyPlayed, models.WidgetDataSourceLatest:
 			requirements.needsLocal = true
 		case models.WidgetDataSourceTMDB, models.WidgetDataSourceTrending,
 			models.WidgetDataSourcePopular, models.WidgetDataSourceNowPlaying,
@@ -1618,7 +1628,7 @@ func (s *WidgetService) getWidgetDataFromCacheOptimized(widget models.Widget, ca
 
 	// Get data from cache based on data source
 	switch widget.DataSource {
-	case models.WidgetDataSourceLocal, models.WidgetDataSourceRecent, models.WidgetDataSourceRecentlyPlayed:
+	case models.WidgetDataSourceLocal, models.WidgetDataSourceRecent, models.WidgetDataSourceRecentlyPlayed, models.WidgetDataSourceLatest:
 		sourceData = s.getLocalDataFromCacheOptimized(widget, cache)
 	case models.WidgetDataSourceTMDB, models.WidgetDataSourceTrending,
 		models.WidgetDataSourcePopular, models.WidgetDataSourceNowPlaying,
@@ -1853,7 +1863,7 @@ func (s *WidgetService) GetWidgetData(widget *models.Widget) ([]models.MediaItem
 
 	// Determine data source and fetch accordingly
 	switch widget.DataSource {
-	case models.WidgetDataSourceLocal, models.WidgetDataSourceRecent, models.WidgetDataSourceRecentlyPlayed:
+	case models.WidgetDataSourceLocal, models.WidgetDataSourceRecent, models.WidgetDataSourceRecentlyPlayed, models.WidgetDataSourceLatest:
 		return s.getLocalMediaData(widget, config)
 	case models.WidgetDataSourceTMDB, models.WidgetDataSourceTrending, models.WidgetDataSourcePopular,
 		models.WidgetDataSourceNowPlaying, models.WidgetDataSourceUpcoming, models.WidgetDataSourceTopRated:
@@ -2459,6 +2469,14 @@ func (s *WidgetService) getLocalMediaData(widget *models.Widget, config *models.
 		sort.Slice(allMedia, func(i, j int) bool {
 			return allMedia[i].CreatedAt.After(allMedia[j].CreatedAt)
 		})
+	case models.WidgetDataSourceLatest:
+		// Sort by release year (newest movies first), then by rating
+		sort.Slice(allMedia, func(i, j int) bool {
+			if allMedia[i].Year != allMedia[j].Year {
+				return allMedia[i].Year > allMedia[j].Year
+			}
+			return allMedia[i].Rating > allMedia[j].Rating
+		})
 	case models.WidgetDataSourceRecentlyPlayed:
 		// Sort by last viewed time (most recently played first)
 		sort.Slice(allMedia, func(i, j int) bool {
@@ -2646,6 +2664,9 @@ func (s *WidgetService) getLocalMediaDataDirect(widget *models.Widget, config *m
 	case models.WidgetDataSourceRecent:
 		// Sort by ID (higher ID = more recently added) and creation date
 		query = query.Order("id DESC, created_at DESC")
+	case models.WidgetDataSourceLatest:
+		// Sort by release year (newest movies first), then by rating
+		query = query.Order("year DESC, rating DESC")
 	case models.WidgetDataSourceRecentlyPlayed:
 		// Sort by last viewed time (most recently played first), then by view count
 		query = query.Order("last_viewed DESC, view_count DESC")
@@ -3390,7 +3411,7 @@ func (s *WidgetService) prefetchEssentialData(widgets []models.Widget) *DataCach
 	// Determine minimal data requirements
 	for _, widget := range widgets {
 		switch widget.DataSource {
-		case models.WidgetDataSourceLocal, models.WidgetDataSourceRecent, models.WidgetDataSourceRecentlyPlayed:
+		case models.WidgetDataSourceLocal, models.WidgetDataSourceRecent, models.WidgetDataSourceRecentlyPlayed, models.WidgetDataSourceLatest:
 			needsLocal = true
 		}
 		if widget.Type == "notifications" {

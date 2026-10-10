@@ -152,10 +152,11 @@ export default function BrowsePage() {
     try {
       const apiUrl = getApiUrl();
 
-      // Fetch movies only and genres with error handling
-      const [moviesResponse, genresResponse] = await Promise.all([
+      // Fetch movies, TV series and genres with error handling
+      const [moviesResponse, genresResponse, seriesResponse] = await Promise.all([
         fetch(`${apiUrl}/api/media/movies`).catch(() => null),
-        fetch(`${apiUrl}/api/genres`).catch(() => null)
+        fetch(`${apiUrl}/api/genres`).catch(() => null),
+        fetch(`${apiUrl}/api/series`).catch(() => null)
       ]);
 
       let mediaData: Media[] = [];
@@ -179,6 +180,36 @@ export default function BrowsePage() {
         genresData = await genresResponse.json();
       } else {
         console.warn('Failed to fetch genres, using empty array');
+      }
+
+      // Merge TV series into the collection (series ids never collide
+      // with media ids). Poster resolves via the series poster endpoint.
+      if (seriesResponse && seriesResponse.ok) {
+        try {
+          const seriesData = await seriesResponse.json();
+          if (Array.isArray(seriesData)) {
+            const seriesItems: Media[] = seriesData.map((s: any) => ({
+              id: s.id,
+              type: 'series',
+              series_id: s.id,
+              title: s.title || s.name || 'Untitled Series',
+              description: s.description || s.overview || '',
+              year: s.year || null,
+              rating: s.rating || s.vote_average || 0,
+              poster_url: `${apiUrl}/api/series/${s.id}/poster`,
+              backdrop_path: s.backdrop_path || '',
+              tmdb_backdrop_url: s.tmdb_backdrop_url || '',
+              genres: (s.genre_names || []).map((n: string) => ({ name: n })),
+              genre_names: s.genre_names || [],
+              created_at: s.created_at,
+              view_count: 0,
+            } as Media));
+            console.log(`📺 Merged ${seriesItems.length} TV series into browse collection`);
+            mediaData = [...mediaData, ...seriesItems];
+          }
+        } catch (seriesError) {
+          console.error('Failed to merge TV series:', seriesError);
+        }
       }
 
       setAllMedia(mediaData);
@@ -209,6 +240,18 @@ export default function BrowsePage() {
         const mediaIds = new Set(allMedia.map(m => m.id));
         filtered = searchResults.filter((media: Media) => mediaIds.has(media.id));
 
+        // Backend search covers media rows only - union in matching TV series
+        const q = searchQuery.toLowerCase();
+        const seenIds = new Set(filtered.map((m: Media) => m.id));
+        const seriesMatches = allMedia.filter(m =>
+          (m as any).type === 'series' && !seenIds.has(m.id) &&
+          ((m.title || '').toLowerCase().includes(q) || (m.description || '').toLowerCase().includes(q))
+        );
+        if (seriesMatches.length > 0) {
+          console.log(`📺 Adding ${seriesMatches.length} matching TV series to search results`);
+          filtered = [...filtered, ...seriesMatches];
+        }
+
         console.log(`✅ Backend search returned ${searchResults.length} results, filtered to ${filtered.length} main titles`);
       } catch (searchError) {
         console.error("Backend search failed, falling back to client-side search:", searchError);
@@ -237,6 +280,15 @@ export default function BrowsePage() {
           const mediaIds = new Set(allMedia.map(m => m.id));
           filtered = genreResults.filter((media: Media) => mediaIds.has(media.id));
 
+          // Backend genre API covers media rows only - union in matching TV series
+          const seriesGenreMatches = allMedia.filter(m =>
+            (m as any).type === 'series' &&
+            (m.genres || []).some(genre => genreMatches(genre.name, selectedGenre))
+          );
+          if (seriesGenreMatches.length > 0) {
+            filtered = [...filtered, ...seriesGenreMatches];
+          }
+
           console.log(`✅ Backend genre API returned ${genreResults.length} results, filtered to ${filtered.length} main titles`);
         } catch (genreError) {
           console.error("Backend genre fetch failed, falling back to client-side filtering:", genreError);
@@ -260,7 +312,6 @@ export default function BrowsePage() {
     }
 
     // Sort media (only if not using search results, which are already relevance-sorted)
-    // Backend already returns movies sorted by created_at DESC for "recent", so skip sorting
     if (!searchQuery.trim() && sortBy !== "recent") {
       switch (sortBy) {
         case "popular":
@@ -273,6 +324,9 @@ export default function BrowsePage() {
           filtered.sort((a, b) => a.title.localeCompare(b.title));
           break;
       }
+    } else if (!searchQuery.trim() && sortBy === "recent") {
+      // Merged TV series would otherwise sit at the end - sort all by newest
+      filtered.sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
     } else if (searchQuery.trim() && sortBy !== "recent") {
       // Apply secondary sorting to search results if needed
       switch (sortBy) {
@@ -332,13 +386,21 @@ export default function BrowsePage() {
   }, [filteredMedia, ITEMS_PER_PAGE]);
 
   const handlePlay = (media: Media) => {
+    // TV series have no direct stream - open the series page instead
+    if (media.type === 'episode' || media.type === 'tv' || media.type === 'series') {
+      navigate.push(`/tv-series/${media.series_id || media.id}`);
+      return;
+    }
     setSelectedMedia(media);
     setIsPlayerOpen(true);
   };
 
   const handleInfo = (media: Media) => {
-    // Browse page only shows movies
-    navigate.push(`/movie/${media.id}`);
+    if (media.type === 'episode' || media.type === 'tv' || media.type === 'series') {
+      navigate.push(`/tv-series/${media.series_id || media.id}`);
+    } else {
+      navigate.push(`/movie/${media.id}`);
+    }
   };
 
   const handleSearch = (query: string) => {
