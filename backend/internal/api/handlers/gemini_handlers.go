@@ -240,6 +240,10 @@ func UpdateMediaWithTMDB(mediaService *services.MediaService, tmdbService *servi
 
 			// Convert TMDB details to metadata format
 			metadata = tmdbService.ConvertMovieDetailsToMetadata(movieDetails)
+
+			// Stamp the exact TMDB ID so the row stays linked (prevents
+			// reprocessing and wrong-match poster/logo/backdrop overwrites)
+			media.TMDBID = requestBody.TMDBId
 		} else {
 			// Create metadata options
 			options := &services.MetadataOptions{

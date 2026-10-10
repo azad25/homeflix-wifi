@@ -627,6 +627,11 @@ func UpdateSeriesWithTMDB(mediaService *services.MediaService, tmdbService *serv
 		// Prepare updates map
 		updates := make(map[string]interface{})
 
+		// Stamp the exact TMDB ID so the row stays linked
+		if requestBody.TMDBId > 0 {
+			updates["tmdb_id"] = requestBody.TMDBId
+		}
+
 		// Only update fields that aren't being preserved
 		if !contains(requestBody.PreserveFields, "title") && tvDetails.Name != "" {
 			updates["title"] = tvDetails.Name
