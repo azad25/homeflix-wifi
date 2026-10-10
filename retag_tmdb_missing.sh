@@ -39,9 +39,10 @@ echo "media_id,title,year,query,matched_tmdb_id,matched_title,matched_year,mode,
 
 WHERE="type='movie' AND deleted_at IS NULL AND (tmdb_id IS NULL OR tmdb_id=0)"
 [[ -n "$ONLY_ID" ]] && WHERE="$WHERE AND id=$ONLY_ID"
-# Exclude ids already applied by previous --live runs (backend route doesn't
-# stamp tmdb_id, so track them here until that gap is fixed)
-APPLIED_LOG="retag_tmdb_missing.applied.log"
+# Exclude ids already applied by previous --live runs (backend route now also
+# stamps tmdb_id, but this guard makes reruns cheap; .txt survives start.sh
+# log cleanup which wipes *.log)
+APPLIED_LOG="retag_tmdb_missing.applied.txt"
 if [[ -f "$APPLIED_LOG" ]]; then
   DONE=$(grep -o '^[0-9]*' "$APPLIED_LOG" 2>/dev/null | paste -sd, -)
   [[ -n "$DONE" ]] && WHERE="$WHERE AND id NOT IN ($DONE)"
@@ -168,7 +169,7 @@ EOF
       if echo "$resp" | grep -q "Media updated successfully"; then
         echo "[$n] APPLIED id=$mid -> TMDB $tmdb_id ($safe_tmdb, $tmdb_year)"
         echo "$mid,\"$safe_title\",$myear,\"$clean_q\",$tmdb_id,\"$safe_tmdb\",$tmdb_year,$mode,applied" >> "$LOG"
-        echo "$mid:$tmdb_id" >> "retag_tmdb_missing.applied.log"
+        echo "$mid:$tmdb_id" >> "retag_tmdb_missing.applied.txt"
         applied=$((applied+1))
       else
         echo "[$n] FAILED id=$mid -> TMDB $tmdb_id ($safe_tmdb) :: $resp"
