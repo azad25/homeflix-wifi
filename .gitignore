@@ -123,3 +123,14 @@ seg*.ts
 *.db-wal
 *.sqlite
 *.sqlite3
+
+# Build artifacts - rebuilt locally via `go build`, never committed
+/backend/homeflix-backend
+/backend/homeflix-server
+
+# Run logs, reports and comma-separated data - local records only
+*.csv
+*.log
+
+# Scratch markdown notes - kept local, existing tracked docs stay tracked
+*.md
