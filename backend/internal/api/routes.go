@@ -100,6 +100,8 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		api.GET("/stream/:id/info", handlers.GetStreamInfo(streamProfileService, hlsService, mediaService))
 		api.GET("/stream/:id/hls/index.m3u8", handlers.GetHLSPlaylist(streamProfileService, hlsService, mediaService))
 		api.GET("/stream/:id/hls/:segment", handlers.GetHLSSegment(streamProfileService, hlsService, mediaService))
+		api.DELETE("/stream/:id/hls", handlers.ReleaseHLSSession(hlsService))
+		api.POST("/stream/:id/hls/release", handlers.ReleaseHLSSession(hlsService))
 		api.POST("/admin/stream-profiles/backfill", handlers.BackfillStreamProfiles(streamProfileService))
 
 		// Preview clips serving - Redis-cached for instant loading

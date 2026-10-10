@@ -58,13 +58,44 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
   // Currently attached stream (direct src or hls.js instance) - must be
   // destroyed before switching media so MSE buffers are released
   const streamAttachRef = useRef<AttachedStream | null>(null);
+  // Latest start props, read when a source is attached
+  const startPropsRef = useRef({ mediaId: media.id, startTime, forceStartFromBeginning });
+  startPropsRef.current = { mediaId: media.id, startTime, forceStartFromBeginning };
+  // Where playback should begin, known BEFORE the source is attached so the
+  // server can start encoding there and the player never fetches from 0
+  // first (same rules as the resume logic in onLoadedMetadata)
+  const resolveStartPosition = useCallback(async (mediaId: number): Promise<number> => {
+    const props = startPropsRef.current;
+    if (props.mediaId === mediaId) {
+      if (props.forceStartFromBeginning) return 0;
+      if (props.startTime > 0) return props.startTime;
+    }
+    try {
+      const saved = await getPlaybackProgress(mediaId);
+      const position = saved?.position || 0;
+      const duration = saved?.duration || 0;
+      return position > 30 && (duration <= 60 || position < duration - 30) ? position : 0;
+    } catch {
+      return 0;
+    }
+  }, []);
+  // Bumped on every load/close; a slower, superseded attach must not win
+  const attachGenerationRef = useRef(0);
   const loadStreamSource = useCallback((video: HTMLVideoElement, mediaId: number, fallbackUrl: string) => {
     streamAttachRef.current?.destroy();
     streamAttachRef.current = null;
-    attachStreamSource(video, mediaId, fallbackUrl).then((attached) => {
-      streamAttachRef.current = attached;
+    const generation = ++attachGenerationRef.current;
+    resolveStartPosition(mediaId).then((start) => {
+      if (generation !== attachGenerationRef.current) return;
+      return attachStreamSource(video, mediaId, fallbackUrl, start).then((attached) => {
+        if (generation !== attachGenerationRef.current) {
+          attached.destroy();
+          return;
+        }
+        streamAttachRef.current = attached;
+      });
     });
-  }, []);
+  }, [resolveStartPosition]);
   const containerRef = useRef<HTMLDivElement>(null);
   const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -1281,6 +1312,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
       }
     } else if (!isOpen) {
       // Reset video source when player closes and release MSE buffers
+      attachGenerationRef.current++;
       streamAttachRef.current?.destroy();
       streamAttachRef.current = null;
       setVideoSrc('');

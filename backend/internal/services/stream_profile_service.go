@@ -53,6 +53,10 @@ type ClientProfile struct {
 	// VP9/AV1/HEVC into TS produces a stream that never starts.
 	HLSVideoCopy map[string]bool
 	HLSAudioCopy map[string]bool
+	// Codecs that may be stream-copied into fMP4 HLS segments. HEVC and
+	// AV1 are only valid in fMP4 for browsers; copying them instead of
+	// transcoding costs no GPU at all.
+	HLSFmp4VideoCopy map[string]bool
 }
 
 // StreamDecision is the outcome of matching a file against a client profile.
@@ -60,6 +64,7 @@ type StreamDecision struct {
 	Strategy  string `json:"strategy"`   // "direct" or "hls"
 	VideoMode string `json:"video_mode"` // "copy" or "transcode" (hls only)
 	AudioMode string `json:"audio_mode"` // "copy" or "transcode" (hls only)
+	Segments  string `json:"segments"`   // "ts" or "fmp4" (hls only)
 	Reason    string `json:"reason"`
 }
 
@@ -76,13 +81,14 @@ func set(items ...string) map[string]bool {
 // ClientProfileFromCaps) get direct play for everything they can decode.
 func WebClientProfile() ClientProfile {
 	return ClientProfile{
-		Name:         "web",
-		VideoCodecs:  set("h264", "vp8", "vp9", "av1"),
-		AudioCodecs:  set("aac", "mp3", "opus", "vorbis", "flac"),
-		Containers:   set("mp4", "webm"),
-		HighBitDepth: set(),
-		HLSVideoCopy: set("h264"),
-		HLSAudioCopy: set("aac", "mp3"),
+		Name:             "web",
+		VideoCodecs:      set("h264", "vp8", "vp9", "av1"),
+		AudioCodecs:      set("aac", "mp3", "opus", "vorbis", "flac"),
+		Containers:       set("mp4", "webm"),
+		HighBitDepth:     set(),
+		HLSVideoCopy:     set("h264"),
+		HLSAudioCopy:     set("aac", "mp3"),
+		HLSFmp4VideoCopy: set("hevc", "av1"),
 	}
 }
 
@@ -342,22 +348,32 @@ func Decide(media *models.Media, client ClientProfile) StreamDecision {
 	}
 
 	d := StreamDecision{Strategy: "hls", Reason: strings.Join(reasons, ", ")}
-	d.VideoMode, d.AudioMode = HLSModes(media, client, videoOK, audioOK)
+	d.VideoMode, d.AudioMode, d.Segments = HLSModes(media, client, videoOK, audioOK)
 	return d
 }
 
-// HLSModes picks copy vs transcode per track for an HLS session. Copy is
-// only used when the client decodes the codec AND the codec is valid in
-// MPEG-TS segments for that client.
-func HLSModes(media *models.Media, client ClientProfile, videoOK, audioOK bool) (videoMode, audioMode string) {
-	videoMode, audioMode = "transcode", "transcode"
-	if videoOK && client.HLSVideoCopy[media.VideoCodec] {
+// Audio codecs FFmpeg can put in fMP4 segments without -strict experimental.
+var fmp4AudioCopy = set("aac", "mp3", "ac3", "eac3")
+
+// HLSModes picks copy vs transcode per track and the segment container for
+// an HLS session. Copy is only used when the client decodes the codec AND
+// the codec is valid in that segment container for that client.
+func HLSModes(media *models.Media, client ClientProfile, videoOK, audioOK bool) (videoMode, audioMode, segments string) {
+	videoMode, audioMode, segments = "transcode", "transcode", "ts"
+	switch {
+	case videoOK && client.HLSVideoCopy[media.VideoCodec]:
 		videoMode = "copy" // remux only - nearly free
+	case videoOK && client.HLSFmp4VideoCopy[media.VideoCodec]:
+		videoMode, segments = "copy", "fmp4"
 	}
-	if media.AudioCodec == "" || (audioOK && client.HLSAudioCopy[media.AudioCodec]) {
+	audioCopy := client.HLSAudioCopy
+	if segments == "fmp4" {
+		audioCopy = fmp4AudioCopy
+	}
+	if media.AudioCodec == "" || (audioOK && audioCopy[media.AudioCodec]) {
 		audioMode = "copy"
 	}
-	return videoMode, audioMode
+	return videoMode, audioMode, segments
 }
 
 // BackfillProfiles probes every media row that has no stream profile yet.

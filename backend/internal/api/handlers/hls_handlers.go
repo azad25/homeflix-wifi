@@ -3,8 +3,10 @@ package handlers
 import (
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -54,7 +56,7 @@ func hlsDecision(media *models.Media, client services.ClientProfile) services.St
 	d := services.Decide(media, client)
 	if d.Strategy == "direct" {
 		d.Strategy = "hls"
-		d.VideoMode, d.AudioMode = services.HLSModes(media, client, true, true)
+		d.VideoMode, d.AudioMode, d.Segments = services.HLSModes(media, client, true, true)
 	}
 	return d
 }
@@ -111,13 +113,23 @@ func GetStreamInfo(profileService *services.StreamProfileService, hlsService *se
 			"duration":       media.Duration,
 		}
 		if decision.Strategy == "hls" {
-			// Carry the client's capability params so the playlist and its
-			// segments resolve the exact same decision
+			// Carry the client's capability params and viewer id so the
+			// playlist and its segments resolve the exact same session
 			q := c.Request.URL.Query()
 			q.Set("profile", client.Name)
+			q.Del("start")
 			resp["url"] = fmt.Sprintf("/api/stream/%d/hls/index.m3u8?%s", media.ID, q.Encode())
 			resp["video_mode"] = decision.VideoMode
 			resp["audio_mode"] = decision.AudioMode
+			resp["segments"] = decision.Segments
+
+			// Start encoding at the resume position now: by the time the
+			// player has loaded hls.js and the playlist, the first segment
+			// is already being produced
+			start, _ := strconv.ParseFloat(c.Query("start"), 64)
+			if err := hlsService.Prewarm(media, decision, viewerSessionID(c), start); err != nil {
+				log.Printf("⚠️ HLS prewarm failed for media %d: %v", media.ID, err)
+			}
 		} else {
 			resp["url"] = fmt.Sprintf("/api/stream/%d", media.ID)
 		}
@@ -148,7 +160,7 @@ func GetHLSPlaylist(profileService *services.StreamProfileService, hlsService *s
 
 		decision := hlsDecision(media, resolveClientProfile(c))
 
-		playlist, err := hlsService.Playlist(media, decision, c.Request.URL.RawQuery)
+		playlist, err := hlsService.Playlist(media, decision, viewerSessionID(c), c.Request.URL.RawQuery)
 		if err != nil {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
 			return
@@ -161,8 +173,25 @@ func GetHLSPlaylist(profileService *services.StreamProfileService, hlsService *s
 	}
 }
 
-// GetHLSSegment serves one transport-stream segment, blocking briefly while
-// the encoder produces it and restarting the encoder on out-of-range seeks.
+// viewerSessionID is the per-player id the client attaches (?sid=), so each
+// viewer gets their own encoder. Restricted to a short alphanumeric token
+// because it becomes part of a directory name.
+func viewerSessionID(c *gin.Context) string {
+	sid := c.Query("sid")
+	if len(sid) > 32 {
+		return ""
+	}
+	for _, r := range sid {
+		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9') {
+			return ""
+		}
+	}
+	return sid
+}
+
+// GetHLSSegment serves one media segment (seg12.ts / seg12.m4s) or the fMP4
+// init segment (init.mp4), blocking briefly while the encoder produces it
+// and restarting the encoder on out-of-range seeks.
 func GetHLSSegment(profileService *services.StreamProfileService, hlsService *services.HLSService, mediaService *services.MediaService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id, err := strconv.ParseUint(c.Param("id"), 10, 32)
@@ -171,15 +200,25 @@ func GetHLSSegment(profileService *services.StreamProfileService, hlsService *se
 			return
 		}
 
-		segName := c.Param("segment") // "seg12.ts"
-		if !strings.HasPrefix(segName, "seg") || !strings.HasSuffix(segName, ".ts") {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid segment name"})
-			return
-		}
-		index, err := strconv.Atoi(strings.TrimSuffix(strings.TrimPrefix(segName, "seg"), ".ts"))
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid segment index"})
-			return
+		segName := c.Param("segment") // "seg12.ts", "seg12.m4s" or "init.mp4"
+		isInit := segName == "init.mp4"
+		index, contentType := -1, "video/mp2t"
+		if !isInit {
+			ext := filepath.Ext(segName)
+			if !strings.HasPrefix(segName, "seg") || (ext != ".ts" && ext != ".m4s") {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid segment name"})
+				return
+			}
+			index, err = strconv.Atoi(strings.TrimSuffix(strings.TrimPrefix(segName, "seg"), ext))
+			if err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid segment index"})
+				return
+			}
+			if ext == ".m4s" {
+				contentType = "video/iso.segment"
+			}
+		} else {
+			contentType = "video/mp4"
 		}
 
 		media, err := mediaService.GetMediaByID(uint(id))
@@ -194,7 +233,12 @@ func GetHLSSegment(profileService *services.StreamProfileService, hlsService *se
 
 		decision := hlsDecision(media, resolveClientProfile(c))
 
-		segPath, err := hlsService.Segment(c.Request.Context(), media, decision, index)
+		var segPath string
+		if isInit {
+			segPath, err = hlsService.Init(c.Request.Context(), media, decision, viewerSessionID(c))
+		} else {
+			segPath, err = hlsService.Segment(c.Request.Context(), media, decision, viewerSessionID(c), index)
+		}
 		if err != nil {
 			if errors.Is(err, services.ErrSegmentWaitCanceled) {
 				return // client is gone
@@ -203,12 +247,26 @@ func GetHLSSegment(profileService *services.StreamProfileService, hlsService *se
 			return
 		}
 
-		c.Header("Content-Type", "video/mp2t")
+		c.Header("Content-Type", contentType)
 		c.Header("Cache-Control", "public, max-age=3600")
 		c.Header("Access-Control-Allow-Origin", "*")
 		if err := serveMediaFile(c, segPath); err != nil && !c.Writer.Written() {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
 		}
+	}
+}
+
+// ReleaseHLSSession frees a viewer's encoder when their player closes.
+// Accepts DELETE (fetch) and POST (navigator.sendBeacon on page unload).
+func ReleaseHLSSession(hlsService *services.HLSService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id, err := strconv.ParseUint(c.Param("id"), 10, 32)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid media ID"})
+			return
+		}
+		n := hlsService.Release(uint(id), viewerSessionID(c))
+		c.JSON(http.StatusOK, gin.H{"released": n})
 	}
 }
 
