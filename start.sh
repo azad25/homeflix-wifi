@@ -88,7 +88,7 @@ if [ "$BACKEND_RUNNING" = false ]; then
     echo "🚀 Starting Go backend in background..."
     cd "$SCRIPT_DIR/backend"
     go mod tidy 2>/dev/null
-    nohup go run server.go > "$BACKEND_LOG" 2>&1 &
+    nohup go run -tags sqlite_fts5 server.go > "$BACKEND_LOG" 2>&1 &
     BACKEND_PID=$!
     echo $BACKEND_PID > "$SCRIPT_DIR/.backend.pid"
     cd "$SCRIPT_DIR"

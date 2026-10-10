@@ -761,7 +761,24 @@ export default function HeroVideoWidget({
         const PlayerState = YTGlobal?.PlayerState;
         playerRef.current = new YTGlobal.Player(containerId, {
           videoId: key,
-          playerVars: { autoplay: 1, mute: 1, controls: 0, rel: 0, iv_load_policy: 3, modestbranding: 1, playsinline: 1, disablekb: 1, fs: 0, start: 10, origin: window.location.origin, widget_referrer: 'hero-widget' },
+          playerVars: {
+            autoplay: 1,
+            mute: 1,
+            controls: 0,
+            showinfo: 0,
+            rel: 0,
+            iv_load_policy: 3,
+            modestbranding: 1,
+            playsinline: 1,
+            disablekb: 1,
+            fs: 0,
+            cc_load_policy: 0,
+            cc_lang_pref: '',
+            enablejsapi: 1,
+            start: 10,
+            origin: window.location.origin,
+            widget_referrer: 'hero-widget',
+          },
           events: {
             onReady: (event: any) => {
               const attemptPlay = (retries = 3) => {

@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Activity, HardDrive, Server, TrendingUp, Timer, FileSearch, Trash2, RefreshCw, Search, X, Cpu, Monitor, MemoryStick, Database, Wifi, Info, Zap, Terminal, Play, Square, RotateCcw, Code, Hammer, Database as DatabaseIcon } from 'lucide-react';
+import { Activity, HardDrive, Server, TrendingUp, Timer, FileSearch, Trash2, RefreshCw, Search, X, Cpu, Monitor, MemoryStick, Database, Wifi, Info, Zap, Terminal, Play, Square, RotateCcw, Code, Hammer, Database as DatabaseIcon, AlertTriangle } from 'lucide-react';
 import { MagneticButton, GlassCard, ScrollReveal } from '@/components/scrollx';
 import { getApiUrl } from '@/lib/api';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
@@ -124,6 +124,19 @@ interface ServerStatus {
   };
 }
 
+interface StorageInfo {
+  path: string;
+  name?: string;
+  path_type?: string;
+  total: number;
+  free: number;
+  used: number;
+  used_percent: number;
+  available: boolean;
+  error?: string;
+  is_low: boolean;
+}
+
 export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
   const [systemStats, setSystemStats] = useState<SystemStats | null>(null);
   const [statsHistory, setStatsHistory] = useState<any[]>([]);
@@ -131,6 +144,8 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
   const [serverLogs, setServerLogs] = useState<LogEntry[]>([]);
   const [isLogsConnected, setIsLogsConnected] = useState(false);
   const [isStatsConnected, setIsStatsConnected] = useState(false);
+  const [storageInfos, setStorageInfos] = useState<StorageInfo[]>([]);
+  const [lowAlerts, setLowAlerts] = useState<StorageInfo[]>([]);
   const [logsWebSocket, setLogsWebSocket] = useState<WebSocket | null>(null);
   const [statsWebSocket, setStatsWebSocket] = useState<WebSocket | null>(null);
   const [filterText, setFilterText] = useState('');
@@ -248,6 +263,7 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
     fetchInitialLogs();
     fetchSystemInfo();
     fetchInitialTerminalOutput();
+    fetchStorageStats();
 
     // Try WebSocket connections
     connectToSystemLogs();
@@ -265,10 +281,15 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
       }
     }, 2000); // Poll every 2 seconds for system stats
 
+    const storageInterval = setInterval(() => {
+      fetchStorageStats();
+    }, 10000); // Poll storage every 10s
+
     return () => {
       disconnectWebSockets();
       clearInterval(logsInterval);
       clearInterval(statsInterval);
+      clearInterval(storageInterval);
     };
   }, []);
 
@@ -723,6 +744,23 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
     }
   };
 
+  const fetchStorageStats = async () => {
+    try {
+      const response = await fetch(`${getApiUrl()}/api/admin/storage/stats`);
+      if (response.ok) {
+        const data = await response.json();
+        setStorageInfos(data.storages || []);
+        setLowAlerts(data.low_alerts || []);
+        if (data.has_low && data.low_alerts?.length > 0) {
+          // Only log once per fetch to avoid spam, use console
+          console.warn('Low storage alert:', data.low_alerts);
+        }
+      }
+    } catch (error) {
+      console.warn('Failed to fetch storage stats:', error);
+    }
+  };
+
   const fetchSystemInfo = async () => {
     try {
       const response = await fetch(`${getApiUrl()}/api/admin/system/info`);
@@ -911,6 +949,64 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
               </div>
             </div>
           </div>
+
+          {/* Low Storage Alerts - dynamic, any storage added via Settings */}
+          {lowAlerts.length > 0 && (
+            <div className="mb-6 bg-red-900/30 border border-red-500/40 rounded-lg p-4">
+              <div className="flex items-center space-x-3 mb-3">
+                <AlertTriangle className="w-6 h-6 text-red-400" />
+                <h3 className="text-red-300 font-semibold">Low Storage Warning</h3>
+                <span className="text-red-400/70 text-xs">Auto-failover will use other storage with free space</span>
+              </div>
+              <div className="space-y-2">
+                {lowAlerts.map((s, idx) => (
+                  <div key={idx} className="flex items-center justify-between bg-black/20 rounded px-3 py-2">
+                    <div className="flex flex-col">
+                      <span className="text-white text-sm font-medium">{s.name || s.path}</span>
+                      <span className="text-white/50 text-xs">{s.path} • {s.path_type || 'storage'}</span>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-red-300 text-sm font-bold">{s.used_percent.toFixed(1)}% used</div>
+                      <div className="text-white/60 text-xs">{(s.free / (1024**3)).toFixed(1)} GB free / {(s.total / (1024**3)).toFixed(1)} GB</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="text-white/50 text-xs mt-3">
+                💡 Add more storage in Settings → Media Paths. New downloads automatically use the storage with most free space.
+              </div>
+            </div>
+          )}
+
+          {/* Per-Storage Usage (all user-added folders) */}
+          {storageInfos.length > 0 && (
+            <div className="mb-6">
+              <h3 className="text-white/80 text-sm font-medium mb-3 flex items-center">
+                <HardDrive className="w-4 h-4 mr-2 text-purple-400" />
+                Storage Paths {lowAlerts.length > 0 && <span className="ml-2 text-red-400">({lowAlerts.length} low)</span>}
+                <button onClick={fetchStorageStats} className="ml-auto text-white/50 hover:text-white text-xs px-2 py-1 bg-white/5 rounded">Refresh</button>
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                {storageInfos.map((s, idx) => (
+                  <div key={idx} className={`rounded-lg p-3 border ${s.is_low ? 'bg-red-900/20 border-red-500/40' : 'bg-white/5 border-white/10'} `}>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-white text-sm font-medium truncate" title={s.path}>{s.name || s.path.split('/').pop() || s.path}</span>
+                      {s.is_low && <AlertTriangle className="w-4 h-4 text-red-400 ml-2 flex-shrink-0" />}
+                    </div>
+                    <div className="text-white/40 text-xs truncate mb-2" title={s.path}>{s.path}</div>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className={`text-lg font-bold ${s.is_low ? 'text-red-400' : 'text-white'}`}>{s.used_percent.toFixed(1)}%</span>
+                      <span className="text-white/60 text-xs">{(s.free / (1024**3)).toFixed(1)} GB free</span>
+                    </div>
+                    <div className="w-full bg-black/30 rounded-full h-2">
+                      <div className={`h-2 rounded-full ${s.is_low ? 'bg-red-500' : s.used_percent > 70 ? 'bg-yellow-500' : 'bg-green-500'}`} style={{ width: `${Math.min(100, s.used_percent)}%` }}></div>
+                    </div>
+                    <div className="text-white/30 text-xs mt-1">{(s.used / (1024**3)).toFixed(1)} / {(s.total / (1024**3)).toFixed(1)} GB</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* System Resource Monitor */}
           {systemStats && (

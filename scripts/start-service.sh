@@ -1,6 +1,9 @@
 #!/bin/bash
 
 # HomeFlix Service Start Script
+# Ensures dependencies (network, redis) are available before starting
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/go/bin:/home/azad/.local/bin:/home/azad/.npm-global/bin
+export HOME=/home/azad
 SCRIPT_DIR=/home/azad/homeflix-local/homeflix-wifi
 LOG_DIR="$SCRIPT_DIR"
 FRONTEND_LOG="$LOG_DIR/frontend.log"

@@ -328,6 +328,7 @@ const ProviderHero: React.FC<ProviderHeroProps> = ({
                                                 loop: 1,
                                                 playlist: youtubeId,
                                                 start: 10,
+                                                cc_load_policy: 0,
                                                 origin: typeof window !== 'undefined' ? window.location.origin : undefined,
                                                 vq: 'hd1080',
                                             },

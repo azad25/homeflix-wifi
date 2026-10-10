@@ -290,15 +290,69 @@ func (t *TMDBService) SearchTV(title string, year int) (*TMDBTV, error) {
 		return nil, fmt.Errorf("TMDB API key not configured")
 	}
 
-	// Try search with year first if year is provided
+	// ENHANCED: Try multiple search strategies for better TV series matching
+	var tv *TMDBTV
+	var err error
+	var searchStrategy string
+
+	// Clean the title and remove year for search
+	cleanTitle := t.CleanTitle(title)
+	cleanTitleForSearch := t.RemoveYearFromTitle(cleanTitle)
+
+	log.Printf("🔍 TMDB TV Search - Original: '%s', Clean: '%s', Search: '%s', Year: %d",
+		title, cleanTitle, cleanTitleForSearch, year)
+
+	// Strategy 1: Search with clean title and year parameter
 	if year > 0 {
-		if tv, err := t.searchTVWithParams(title, year); err == nil && tv != nil {
-			return tv, nil
+		tv, err = t.searchTVWithParams(cleanTitleForSearch, year)
+		if err == nil && tv != nil {
+			searchStrategy = "clean title with year"
 		}
 	}
 
-	// Fallback: search without year constraint
-	return t.searchTVWithParams(title, 0)
+	// Strategy 2: Search with clean title without year parameter (broader search)
+	if tv == nil {
+		tv, err = t.searchTVWithParams(cleanTitleForSearch, 0)
+		if err == nil && tv != nil {
+			searchStrategy = "clean title without year"
+		}
+	}
+
+	// Strategy 3: Try simple title cleaning
+	if tv == nil {
+		simpleTitle := t.simpleCleanTitle(title)
+		simpleTitleForSearch := t.RemoveYearFromTitle(simpleTitle)
+		tv, err = t.searchTVWithParams(simpleTitleForSearch, year)
+		if err == nil && tv != nil {
+			searchStrategy = "simple title with year"
+		}
+	}
+
+	// Strategy 4: Try simple title without year
+	if tv == nil {
+		simpleTitle := t.simpleCleanTitle(title)
+		simpleTitleForSearch := t.RemoveYearFromTitle(simpleTitle)
+		tv, err = t.searchTVWithParams(simpleTitleForSearch, 0)
+		if err == nil && tv != nil {
+			searchStrategy = "simple title without year"
+		}
+	}
+
+	// Final check - if still no TV series found, return error
+	if tv == nil {
+		return nil, fmt.Errorf("failed to find TV series metadata for '%s' after trying multiple search strategies: %w", title, err)
+	}
+
+	log.Printf("✅ TMDB TV: Found series using strategy '%s': %s (ID: %d, Year: %s)", 
+		searchStrategy, tv.Name, tv.ID, 
+		func() string {
+			if tv.FirstAirDate != "" {
+				return tv.FirstAirDate[:4]
+			}
+			return "unknown"
+		}())
+
+	return tv, nil
 }
 
 func (t *TMDBService) searchMovieWithParams(title string, year int) (*TMDBMovie, error) {
@@ -531,58 +585,104 @@ func (t *TMDBService) GenerateMediaMetadataWithOptions(filePath, title string, o
 	var err error
 	var searchStrategy string
 
+	// Strategy 0: Special handling for well-known franchises
+	franchiseTitle := t.enhanceTitleForSpecialCases(cleanTitleForSearch)
+	if franchiseTitle != cleanTitleForSearch {
+		log.Printf("🚗 Trying franchise-specific title: '%s'", franchiseTitle)
+		movie, err = t.SearchMovie(franchiseTitle, year)
+		if err == nil && movie != nil {
+			searchStrategy = "franchise-specific title"
+		} else {
+			movie, err = t.SearchMovie(franchiseTitle, 0)
+			if err == nil && movie != nil {
+				searchStrategy = "franchise-specific title without year"
+			}
+		}
+	}
+
 	// Strategy 1: Search with clean title (without year) and year parameter
-	movie, err = t.SearchMovie(cleanTitleForSearch, year)
-	if err == nil && movie != nil {
-		searchStrategy = "clean title with year"
-	} else {
-		// Strategy 2: Try without year parameter (broader search)
+	if movie == nil {
+		movie, err = t.SearchMovie(cleanTitleForSearch, year)
+		if err == nil && movie != nil {
+			searchStrategy = "clean title with year"
+		}
+	}
+
+	// Strategy 2: Try without year parameter (broader search)
+	if movie == nil {
 		movie, err = t.SearchMovie(cleanTitleForSearch, 0)
 		if err == nil && movie != nil {
 			searchStrategy = "clean title without year"
-		} else {
-			// Strategy 3: Try simple title extraction
-			simpleTitle := t.simpleCleanTitle(originalTitle)
-			simpleTitleForSearch := t.removeYearFromTitle(simpleTitle)
-			movie, err = t.SearchMovie(simpleTitleForSearch, year)
+		}
+	}
+
+	// Strategy 3: Try simple title extraction
+	if movie == nil {
+		simpleTitle := t.simpleCleanTitle(originalTitle)
+		simpleTitleForSearch := t.removeYearFromTitle(simpleTitle)
+		movie, err = t.SearchMovie(simpleTitleForSearch, year)
+		if err == nil && movie != nil {
+			searchStrategy = "simple title with year"
+		}
+	}
+
+	// Strategy 4: Try simple title without year
+	if movie == nil {
+		simpleTitle := t.simpleCleanTitle(originalTitle)
+		simpleTitleForSearch := t.removeYearFromTitle(simpleTitle)
+		movie, err = t.SearchMovie(simpleTitleForSearch, 0)
+		if err == nil && movie != nil {
+			searchStrategy = "simple title without year"
+		}
+	}
+
+	// Strategy 5: Try more aggressive word extraction for complex titles
+	if movie == nil {
+		words := strings.Fields(cleanTitleForSearch)
+		if len(words) >= 3 {
+			// Try with first 3 words only
+			shortTitle := strings.Join(words[:3], " ")
+			movie, err = t.SearchMovie(shortTitle, year)
 			if err == nil && movie != nil {
-				searchStrategy = "simple title with year"
+				searchStrategy = "first 3 words with year"
 			} else {
-				// Strategy 4: Try simple title without year
-				movie, err = t.SearchMovie(simpleTitleForSearch, 0)
+				movie, err = t.SearchMovie(shortTitle, 0)
 				if err == nil && movie != nil {
-					searchStrategy = "simple title without year"
-				} else {
-					// Strategy 5: Try original filename directly (last resort)
-					baseFilename := strings.TrimSuffix(filepath.Base(filePath), filepath.Ext(filepath.Base(filePath)))
-					baseFilename = strings.ReplaceAll(baseFilename, ".", " ")
-					baseFilename = strings.ReplaceAll(baseFilename, "_", " ")
-					baseFilename = strings.ReplaceAll(baseFilename, "-", " ")
-					baseFilename = regexp.MustCompile(`\s+`).ReplaceAllString(baseFilename, " ")
-					baseFilename = strings.TrimSpace(baseFilename)
-					
-					// Remove obvious quality indicators from filename
-					baseFilename = regexp.MustCompile(`(?i)\b(1080p|720p|4K|HD|BluRay|WEB|x264|x265|YIFY|YTS|RARBG)\b.*`).ReplaceAllString(baseFilename, "")
-					baseFilename = strings.TrimSpace(baseFilename)
-					
-					if baseFilename != "" && len(baseFilename) > 3 {
-						movie, err = t.SearchMovie(baseFilename, year)
-						if err == nil && movie != nil {
-							searchStrategy = "filename with year"
-						} else {
-							movie, err = t.SearchMovie(baseFilename, 0)
-							if err == nil && movie != nil {
-								searchStrategy = "filename without year"
-							}
-						}
-					}
-					
-					if movie == nil {
-						return nil, fmt.Errorf("failed to find movie metadata for '%s' after trying multiple search strategies: %w", title, err)
-					}
+					searchStrategy = "first 3 words without year"
 				}
 			}
 		}
+	}
+
+	// Strategy 6: Try original filename directly (last resort)
+	if movie == nil {
+		baseFilename := strings.TrimSuffix(filepath.Base(filePath), filepath.Ext(filepath.Base(filePath)))
+		baseFilename = strings.ReplaceAll(baseFilename, ".", " ")
+		baseFilename = strings.ReplaceAll(baseFilename, "_", " ")
+		baseFilename = strings.ReplaceAll(baseFilename, "-", " ")
+		baseFilename = regexp.MustCompile(`\s+`).ReplaceAllString(baseFilename, " ")
+		baseFilename = strings.TrimSpace(baseFilename)
+		
+		// Remove obvious quality indicators from filename
+		baseFilename = regexp.MustCompile(`(?i)\b(1080p|720p|4K|HD|BluRay|WEB|x264|x265|YIFY|YTS|RARBG|DDP|AAC|AC3)\b.*`).ReplaceAllString(baseFilename, "")
+		baseFilename = strings.TrimSpace(baseFilename)
+		
+		if baseFilename != "" && len(baseFilename) > 3 {
+			movie, err = t.SearchMovie(baseFilename, year)
+			if err == nil && movie != nil {
+				searchStrategy = "filename with year"
+			} else {
+				movie, err = t.SearchMovie(baseFilename, 0)
+				if err == nil && movie != nil {
+					searchStrategy = "filename without year"
+				}
+			}
+		}
+	}
+
+	// Final check - if still no movie found, return error
+	if movie == nil {
+		return nil, fmt.Errorf("failed to find movie metadata for '%s' after trying multiple search strategies: %w", title, err)
 	}
 
 	log.Printf("✅ TMDB: Found movie using strategy '%s': %s (ID: %d, Year: %s)", 
@@ -1100,12 +1200,15 @@ func (t *TMDBService) CleanTitle(title string) string {
 
 	cleaned := t.cleanTitle(title)
 
+	// Apply special case enhancements for known franchises
+	cleaned = t.enhanceTitleForSpecialCases(cleaned)
+
 	// Safety check - never return empty title
 	if cleaned == "" || len(strings.TrimSpace(cleaned)) == 0 {
 		// Fallback to simple cleaning
 		fallback := t.simpleCleanTitle(title)
 		if fallback != "" && len(strings.TrimSpace(fallback)) > 0 {
-			return fallback
+			return t.enhanceTitleForSpecialCases(fallback)
 		}
 
 		// Last resort - return original with basic cleanup
@@ -1117,7 +1220,7 @@ func (t *TMDBService) CleanTitle(title string) string {
 		basic = strings.TrimSpace(basic)
 
 		if basic != "" {
-			return basic
+			return t.enhanceTitleForSpecialCases(basic)
 		}
 
 		// Absolute fallback
@@ -1136,6 +1239,10 @@ func (t *TMDBService) RemoveYearFromTitle(title string) string {
 // This allows TMDB to match movies more accurately by using the year as a separate search parameter
 // rather than having it embedded in the title string
 func (t *TMDBService) removeYearFromTitle(title string) string {
+	if title == "" {
+		return title
+	}
+
 	// Remove year patterns like (2019), [2019], {2019}
 	bracketYearPattern := regexp.MustCompile(`\s*[\[\(\{]\s*(19\d{2}|20\d{2})\s*[\]\)\}]\s*`)
 	title = bracketYearPattern.ReplaceAllString(title, " ")
@@ -1223,26 +1330,64 @@ func (t *TMDBService) cleanTitle(title string) string {
 	baseName = strings.ReplaceAll(baseName, "_", " ")
 	baseName = strings.ReplaceAll(baseName, "-", " ")
 
-	// Step 3: ENHANCED - More aggressive quality/technical indicator detection
-	// This is the key improvement - we stop at the FIRST technical indicator with expanded patterns
-	titleEndPattern := regexp.MustCompile("(?i)\\s+(\\b(1080p|2160p|720p|480p|4K|8K|UHD|FHD|HD|SD|BluRay|BRRip|BDRip|DVDRip|WEBRip|WEB.DL|WEB|HDTV|HDRip|x264|x265|h264|h265|HEVC|AVC|XviD|10bit|8bit|HDR|AAC|AC3|DTS|5\\.1|7\\.1|YIFY|YTS|RARBG|PSA|ETRG|AMZN|NF|NETFLIX|HMAX|HBO|SPARKS|GECKOS|ROVERS|GALAXY|ORBS|CMRG|ETHiCS|DEFLATE|STUTTERSHIT|VETO|BLOW|SCENE|FGT|EVOLVE|KILLERS|DEMAND|FLEET|ION10|ION|MX|Hasan|PROPER|REPACK|INTERNAL|LIMITED|SUBBED|DUBBED|UNRATED|EXTENDED|THEATRICAL|DIRECTORS?\\.?CUT|DC|UNCUT|REMASTERED|ANNIVERSARY|SPECIAL\\.?EDITION|SE|MULTI|DUAL|VOSTFR|TRUEFRENCH|COMPLETE|FULL|ESub|ESubs|Subs?|Subtitle|Subtitles|DVD|CD\\d|DISC\\d)\\b)")
+	// Step 3: ENHANCED - Improved quality/technical indicator detection with better context awareness
+	// The key fix: more precise patterns that avoid false positives like "DDP 5" in title names
+	titleEndPattern := regexp.MustCompile("(?i)\\s+(\\b(1080p|2160p|720p|480p|4K|8K|UHD|FHD|HD|SD|BluRay|BRRip|BDRip|DVDRip|WEBRip|WEB[-.]DL|WEB|HDTV|HDRip|x264|x265|h264|h265|HEVC|AVC|XviD|10bit|8bit|HDR10|HDR|DDP\\s*[57]\\.1|AC3|DTS|AAC|FLAC|Atmos|TrueHD|[57]\\.1|YIFY|YTS|RARBG|PSA|ETRG|AMZN|NF|NETFLIX|HMAX|HBO|HULU|DISNEY|SPARKS|GECKOS|ROVERS|GALAXY|ORBS|CMRG|ETHiCS|DEFLATE|STUTTERSHIT|VETO|BLOW|SCENE|FGT|EVOLVE|KILLERS|DEMAND|FLEET|ION10|ION|MX|Hasan|PROPER|REPACK|INTERNAL|LIMITED|SUBBED|DUBBED|UNRATED|EXTENDED|THEATRICAL|DIRECTORS?\\.?CUT|DC|UNCUT|REMASTERED|ANNIVERSARY|SPECIAL\\.?EDITION|SE|MULTI|DUAL|VOSTFR|TRUEFRENCH|COMPLETE|FULL|ESub|ESubs|Subs?|Subtitle|Subtitles|DVD|CD\\d|DISC\\d)\\b)")
 
-	// Find where the title likely ends
+	// Find where the title likely ends - but be more careful about context
 	titleEndIndex := titleEndPattern.FindStringIndex(baseName)
 	if titleEndIndex != nil {
-		// Extract everything before the quality indicators
-		baseName = baseName[:titleEndIndex[0]]
-		log.Printf("🎯 Title cut at quality indicator: '%s'", baseName)
+		// Additional validation: ensure we're not cutting off important title parts
+		beforeCut := strings.TrimSpace(baseName[:titleEndIndex[0]])
+		afterCut := strings.TrimSpace(baseName[titleEndIndex[0]:])
+		
+		// Only cut if we have substantial title content before the cut
+		// and the part after looks like technical info
+		if len(beforeCut) >= 3 && len(strings.Fields(beforeCut)) >= 2 {
+			// Check if the part after the cut looks like technical metadata
+			technicalPattern := regexp.MustCompile("(?i)^\\s*(1080p|2160p|720p|4K|BluRay|WEB|x264|x265|DDP|AAC|AC3|DTS|[57]\\.1|YIFY|YTS|RARBG)")
+			if technicalPattern.MatchString(afterCut) {
+				baseName = beforeCut
+				log.Printf("🎯 Title cut at technical indicator: '%s' (removed: '%s')", baseName, afterCut)
+			} else {
+				log.Printf("⚠️ Skipping cut - doesn't look like technical metadata: '%s'", afterCut)
+			}
+		} else {
+			log.Printf("⚠️ Skipping cut - title too short before cut point: '%s'", beforeCut)
+		}
 	}
 
-	// Step 4: Remove anything in brackets or parentheses that might remain (but preserve sequel info)
+	// Step 4: Enhanced sequence handling for numbered titles and series
+	// Preserve important numbered sequences like "Fast 5", "The Furious 5", etc.
+	sequelPreservationPattern := regexp.MustCompile(`(?i)\b(fast|furious|mission|john\s+wick|saw|scream|final\s+destination)\s+(\d+)\b`)
+	preservedSequels := sequelPreservationPattern.FindAllString(baseName, -1)
+	
+	// Also preserve Roman numerals and "Part X" style sequels
+	romanNumeralPattern := regexp.MustCompile(`(?i)\b(I{1,3}V?|IV|V|VI{1,3}|VII{1,3}|VIII|IX|X|XI|XII)\b`)
+	partNumberPattern := regexp.MustCompile(`(?i)\b(Part|Chapter|Episode|Volume|Book)\s+\d{1,2}\b`)
+	
+	preservedRomanNumerals := romanNumeralPattern.FindAllString(baseName, -1)
+	preservedPartNumbers := partNumberPattern.FindAllString(baseName, -1)
+
+	// Step 5: Remove anything in brackets or parentheses (but preserve sequel info and years)
 	// First preserve sequel info in brackets
 	sequelInBrackets := regexp.MustCompile(`[\[\(](Part\s+\d+|II+|III+|IV|V|VI+|VII+|VIII+|IX|X|Chapter\s+\d+)[\]\)]`)
 	sequelMatches := sequelInBrackets.FindAllString(baseName, -1)
 	
-	// Remove all brackets content
+	// Remove all brackets content except years
 	bracketsPattern := regexp.MustCompile("[\\[\\{\\(][^\\]\\}\\)]*[\\]\\}\\)]*")
+	// But keep years in parentheses
+	yearInParensPattern := regexp.MustCompile(`\((19|20)\d{2}\)`)
+	yearMatches = yearInParensPattern.FindAllString(baseName, -1)
+	
 	baseName = bracketsPattern.ReplaceAllString(baseName, " ")
+	
+	// Restore years
+	for _, year := range yearMatches {
+		if !strings.Contains(baseName, strings.Trim(year, "()")) {
+			baseName = baseName + " " + year
+		}
+	}
 	
 	// Restore sequel info
 	for _, sequel := range sequelMatches {
@@ -1252,25 +1397,22 @@ func (t *TMDBService) cleanTitle(title string) string {
 		}
 	}
 
-	// Step 5: ENHANCED - More comprehensive quality indicators and video codecs removal
+	// Step 6: ENHANCED - More precise quality indicators removal with context awareness
+	// Split into more targeted patterns to avoid false positives
 	qualityPattern := regexp.MustCompile("(?i)\\b(" +
-		// Video quality
+		// Video quality (with context)
 		"1080p|2160p|720p|480p|360p|240p|4K|8K|UHD|FHD|HD|SD|" +
-		// Source types
-		"BluRay|BRRip|BDRip|DVDRip|WEBRip|WEB.DL|WEB|HDTV|HDRip|BrRip|CAMRip|TS|TC|SCR|R5|" +
+		// Source types (with context)
+		"BluRay|BRRip|BDRip|DVDRip|WEBRip|WEB[-.]DL|WEB|HDTV|HDRip|BrRip|CAMRip|TS|TC|SCR|R5|" +
 		// Video codecs
 		"x264|x265|h264|h265|HEVC|AVC|XviD|DivX|" +
 		// HDR and color
 		"10bit|8bit|HDR|HDR10|DV|DoVi|" +
-		// Audio codecs
-		"AAC|AC3|DTS|DDP|DD|EAC3|FLAC|MP3|Atmos|TrueHD|" +
-		// Audio channels
-		"5\\.1|7\\.1|2\\.0|2ch|6ch|8ch|" +
 		// Release types
 		"PROPER|REPACK|INTERNAL|LIMITED|SUBBED|DUBBED|UNRATED|" +
 		"EXTENDED|THEATRICAL|DIRECTORS?\\.?CUT|DC|UNCUT|" +
 		"REMASTERED|ANNIVERSARY|SPECIAL\\.?EDITION|SE|" +
-		// Languages
+		// Languages (but preserve if they're part of title)
 		"MULTI|DUAL|VOSTFR|TRUEFRENCH|" +
 		// Completeness
 		"COMPLETE|FULL|" +
@@ -1279,11 +1421,26 @@ func (t *TMDBService) cleanTitle(title string) string {
 		// Media types
 		"DVD|CD\\d|DISC\\d|" +
 		// Common additions
-		"Hasan|READNFO|NFO" +
+		"READNFO|NFO" +
 		")\\b")
+
+	// Audio codecs and channels - be more careful with these as they might be part of titles
+	audioPattern := regexp.MustCompile("(?i)\\b(" +
+		"AAC|AC3|FLAC|MP3|Atmos|TrueHD|" + // Audio codecs
+		"DDP\\s*[57]\\.1|DTS\\s*[57]\\.1|[57]\\.1|2\\.0|2ch|6ch|8ch" + // Audio channels with context
+		")\\b")
+
+	// Only remove audio patterns if they appear after likely technical indicators
+	if strings.Contains(strings.ToUpper(baseName), "1080P") || 
+		 strings.Contains(strings.ToUpper(baseName), "720P") ||
+		 strings.Contains(strings.ToUpper(baseName), "BLURAY") ||
+		 strings.Contains(strings.ToUpper(baseName), "WEB") {
+		baseName = audioPattern.ReplaceAllString(baseName, " ")
+	}
+	
 	baseName = qualityPattern.ReplaceAllString(baseName, " ")
 
-	// Step 6: ENHANCED - More comprehensive release groups removal
+	// Step 7: ENHANCED - More comprehensive release groups removal
 	releaseGroupPattern := regexp.MustCompile("(?i)\\b(" +
 		// Major release groups
 		"YIFY|YTS|RARBG|PSA|ETRG|" +
@@ -1296,66 +1453,43 @@ func (t *TMDBService) cleanTitle(title string) string {
 		"MX|DIMENSION|AMIABLE|PSYCHD|BATV|CasStudio|" +
 		// P2P groups
 		"FraMeSToR|decibeL|HANDJOB|playHD|VietHD|" +
-		// Common names
-		"Hasan|TGx|" +
+		// Common names (but be careful with Hasan - could be in title)
+		"TGx|" +
 		// Size indicators
 		"\\d+GB|\\d+MB" +
 		")\\b")
 	baseName = releaseGroupPattern.ReplaceAllString(baseName, " ")
 
-	// Step 7: Remove episode/season patterns (but preserve for TV shows if needed)
+	// Step 8: Remove episode/season patterns (but preserve for TV shows if needed)
 	episodePattern := regexp.MustCompile("(?i)\\b(S\\d{1,2}E\\d{1,2}|Season\\s?\\d{1,2}|Episode\\s?\\d{1,2}|\\d{1,2}x\\d{1,2})\\b")
 	baseName = episodePattern.ReplaceAllString(baseName, " ")
 
-	// Step 8: Remove file size indicators
+	// Step 9: Remove file size indicators
 	sizePattern := regexp.MustCompile("(?i)\\b\\d+(\\.\\d+)?\\s?(GB|MB|GiB|MiB|TB|TiB)\\b")
 	baseName = sizePattern.ReplaceAllString(baseName, " ")
 
-	// Step 9: Remove hash-like patterns and random IDs (but preserve meaningful numbers)
+	// Step 10: Remove hash-like patterns and random IDs (but preserve meaningful numbers)
 	hashPattern := regexp.MustCompile(`\b[a-fA-F0-9]{8,}\b`)
 	baseName = hashPattern.ReplaceAllString(baseName, " ")
 
-	// Step 10: Remove leading numeric IDs (but preserve sequel numbers)
+	// Step 11: Remove leading numeric IDs (but preserve sequel numbers)
 	numericPrefixPattern := regexp.MustCompile(`^\d{3,}[\s]+`)
 	baseName = numericPrefixPattern.ReplaceAllString(baseName, "")
 
-	// Step 11: ENHANCED sequel and numbered title preservation
-	sequelPatterns := []string{
-		// Roman numerals (I, II, III, IV, V, etc.)
-		`\b(I{1,3}V?|IV|V|VI{0,3}|VII{0,3}|VIII|IX|X|XI|XII)\b`,
-		// Sequel numbers with words
-		`\b(Part|Chapter|Episode|Volume|Book)\s+\d{1,2}\b`,
-		// Numbered titles
-		`\b(No|Number|#)\s*\d{1,3}\b`,
-		// Ocean's style numbers
-		`'s\s+\d{1,2}\b`,
-		// Direct sequel numbers at end
-		`\s+\d{1,2}$`,
-		// Colon separated sequels
-		`:\s*\w+`,
-	}
-
-	// Mark sequel patterns for preservation
-	var preservedParts []string
-	for _, pattern := range sequelPatterns {
-		seqRegex := regexp.MustCompile(`(?i)` + pattern)
-		matches := seqRegex.FindAllString(baseName, -1)
-		preservedParts = append(preservedParts, matches...)
-	}
-
-	log.Printf("🔢 Preserved sequel/number parts: %v", preservedParts)
-
-	// Step 12: Clean up special characters (preserve apostrophes, numbers, and sequel indicators)
-	specialCharsPattern := regexp.MustCompile(`[^\p{L}\p{N}\s'&:!?.,#-]`)
-	baseName = specialCharsPattern.ReplaceAllString(baseName, " ")
-
-	// Step 13: Restore preserved sequel/number parts if they were removed
-	for _, preserved := range preservedParts {
-		if preserved != "" && !strings.Contains(baseName, preserved) {
+	// Step 12: Restore preserved sequel information
+	allPreserved := append(preservedSequels, preservedRomanNumerals...)
+	allPreserved = append(allPreserved, preservedPartNumbers...)
+	
+	for _, preserved := range allPreserved {
+		if preserved != "" && !strings.Contains(strings.ToUpper(baseName), strings.ToUpper(preserved)) {
 			baseName = baseName + " " + preserved
 			log.Printf("🔄 Restored sequel part: %s", preserved)
 		}
 	}
+
+	// Step 13: Clean up special characters (preserve apostrophes, numbers, and sequel indicators)
+	specialCharsPattern := regexp.MustCompile(`[^\p{L}\p{N}\s'&:!?.,#-]`)
+	baseName = specialCharsPattern.ReplaceAllString(baseName, " ")
 
 	// Step 14: Clean up multiple spaces and trim
 	baseName = regexp.MustCompile("\\s+").ReplaceAllString(baseName, " ")
@@ -1371,8 +1505,8 @@ func (t *TMDBService) cleanTitle(title string) string {
 		originalBase := filepath.Base(title)
 		originalBase = strings.TrimSuffix(originalBase, filepath.Ext(originalBase))
 
-		// Strategy 1: Look for content before first bracket/parenthesis
-		fallbackPattern1 := regexp.MustCompile("(?i)^([^\\[\\(]+?)\\s*[\\[\\(]")
+		// Strategy 1: Look for content before first technical indicator (more conservative approach)
+		fallbackPattern1 := regexp.MustCompile("(?i)^(.+?)\\s+(1080p|720p|4K|BluRay|WEB|x264|x265|YIFY|YTS|RARBG|DDP)")
 		matches1 := fallbackPattern1.FindStringSubmatch(originalBase)
 		if len(matches1) > 1 && strings.TrimSpace(matches1[1]) != "" {
 			candidate := strings.TrimSpace(matches1[1])
@@ -1387,11 +1521,45 @@ func (t *TMDBService) cleanTitle(title string) string {
 			}
 		}
 
-		// Strategy 2: Take first N words before quality indicators
+		// Strategy 2: Look for content before first bracket/parenthesis (but keep years) - RE2 safe, no negative lookahead
+		if len(baseName) <= 2 {
+			// Find first '[' or '(' and check if it's a year like (2020) - if so, don't cut there
+			bracketIdx := -1
+			for i, ch := range originalBase {
+				if ch == '[' || ch == '(' {
+					bracketIdx = i
+					break
+				}
+			}
+			if bracketIdx > 0 {
+				// Check if bracket contains a 4-digit year
+				yearCheck := regexp.MustCompile(`^[\[\(]\s*(19|20)\d{2}\s*[\]\)]`).FindString(originalBase[bracketIdx:])
+				var candidate string
+				if yearCheck != "" {
+					// It's a year bracket, keep content before + year, strip rest after
+					before := strings.TrimSpace(originalBase[:bracketIdx])
+					yearInside := regexp.MustCompile(`(19|20)\d{2}`).FindString(yearCheck)
+					candidate = strings.TrimSpace(before + " " + yearInside)
+				} else {
+					candidate = strings.TrimSpace(originalBase[:bracketIdx])
+				}
+				candidate = strings.ReplaceAll(candidate, ".", " ")
+				candidate = strings.ReplaceAll(candidate, "_", " ")
+				candidate = strings.ReplaceAll(candidate, "-", " ")
+				candidate = regexp.MustCompile("\\s+").ReplaceAllString(candidate, " ")
+				candidate = strings.TrimSpace(candidate)
+				if len(candidate) > 2 {
+					baseName = candidate
+					log.Printf("🔄 Fallback 2 result: '%s'", baseName)
+				}
+			}
+		}
+
+		// Strategy 3: Take first N words before quality indicators
 		if len(baseName) <= 2 {
 			words := strings.Fields(strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(originalBase, ".", " "), "_", " "), "-", " "))
 			var titleWords []string
-			qualityIndicators := regexp.MustCompile(`(?i)^(1080p|2160p|720p|4K|HD|BluRay|WEB|x264|x265|HEVC|YIFY|YTS|RARBG|Hasan|AMZN|NF|NETFLIX)$`)
+			qualityIndicators := regexp.MustCompile(`(?i)^(1080p|2160p|720p|4K|HD|BluRay|WEB|x264|x265|HEVC|YIFY|YTS|RARBG|DDP|AAC|AC3|DTS)$`)
 			
 			for i, word := range words {
 				// Stop at quality indicators
@@ -1409,7 +1577,7 @@ func (t *TMDBService) cleanTitle(title string) string {
 
 				titleWords = append(titleWords, word)
 				// Allow more words for complex titles
-				if len(titleWords) >= 8 {
+				if len(titleWords) >= 6 {
 					break
 				}
 			}
@@ -1418,12 +1586,12 @@ func (t *TMDBService) cleanTitle(title string) string {
 				candidate := strings.Join(titleWords, " ")
 				if len(candidate) > 2 {
 					baseName = candidate
-					log.Printf("🔄 Fallback 2 result: '%s'", baseName)
+					log.Printf("🔄 Fallback 3 result: '%s'", baseName)
 				}
 			}
 		}
 
-		// Strategy 3: Ultimate fallback - basic filename cleanup
+		// Strategy 4: Ultimate fallback - basic filename cleanup
 		if len(baseName) <= 2 {
 			log.Printf("🚨 Using ultimate fallback...")
 			fallbackTitle := filepath.Base(title)
@@ -1457,15 +1625,7 @@ func (t *TMDBService) cleanTitle(title string) string {
 		baseName = strings.Join(words, " ")
 	}
 
-	// Step 17: Add year back to the title if we found one and it's not already there
-	if extractedYear != "" && baseName != "" {
-		// Check if year is already in the title
-		if !strings.Contains(baseName, extractedYear) {
-			baseName = baseName + " (" + extractedYear + ")"
-		}
-	}
-
-	// Step 18: Final validation and fallback
+	// Step 17: Final validation and fallback
 	if !t.isValidTitle(baseName) {
 		log.Printf("⚠️ Title validation failed, trying simple clean...")
 		simpleTitle := t.simpleCleanTitle(title)
@@ -1530,6 +1690,84 @@ func (t *TMDBService) isValidTitle(title string) bool {
 	return true
 }
 
+// enhanceTitleForSpecialCases handles special cases for well-known movie franchises
+func (t *TMDBService) enhanceTitleForSpecialCases(title string) string {
+	// Handle Fast & Furious franchise specifically
+	fastFuriousPattern := regexp.MustCompile(`(?i)\b(the\s+)?fast\s+(and\s+the\s+furious|furious)\b`)
+	if fastFuriousPattern.MatchString(title) {
+		// Normalize "Fast & Furious" variations
+		title = fastFuriousPattern.ReplaceAllStringFunc(title, func(match string) string {
+			return "Fast & Furious"
+		})
+		
+		// Handle numbered entries: "The Furious 5" -> "Fast Five"
+		furiousNumberPattern := regexp.MustCompile(`(?i)\b(the\s+)?furious\s+(\d+)\b`)
+		title = furiousNumberPattern.ReplaceAllStringFunc(title, func(match string) string {
+			parts := furiousNumberPattern.FindStringSubmatch(match)
+			if len(parts) >= 3 {
+				number := parts[2]
+				switch number {
+				case "1":
+					return "The Fast and the Furious"
+				case "2":
+					return "2 Fast 2 Furious"
+				case "3":
+					return "The Fast and the Furious: Tokyo Drift"
+				case "4":
+					return "Fast & Furious"
+				case "5":
+					return "Fast Five"
+				case "6":
+					return "Fast & Furious 6"
+				case "7":
+					return "Furious 7"
+				case "8":
+					return "The Fate of the Furious"
+				case "9":
+					return "F9: The Fast Saga"
+				case "10":
+					return "Fast X"
+				default:
+					return "Fast & Furious " + number
+				}
+			}
+			return match
+		})
+		
+		log.Printf("🚗 Enhanced Fast & Furious title: '%s'", title)
+	}
+	
+	// Handle other common franchise patterns
+	missionPattern := regexp.MustCompile(`(?i)\bmission\s+impossible\s+(\d+)\b`)
+	title = missionPattern.ReplaceAllStringFunc(title, func(match string) string {
+		parts := missionPattern.FindStringSubmatch(match)
+		if len(parts) >= 2 {
+			number := parts[1]
+			switch number {
+			case "1":
+				return "Mission: Impossible"
+			case "2":
+				return "Mission: Impossible 2"
+			case "3":
+				return "Mission: Impossible III"
+			case "4":
+				return "Mission: Impossible - Ghost Protocol"
+			case "5":
+				return "Mission: Impossible - Rogue Nation"
+			case "6":
+				return "Mission: Impossible - Fallout"
+			case "7":
+				return "Mission: Impossible - Dead Reckoning Part One"
+			default:
+				return "Mission: Impossible " + number
+			}
+		}
+		return match
+	})
+	
+	return title
+}
+
 // simpleCleanTitle provides a basic, conservative title cleaning
 func (t *TMDBService) simpleCleanTitle(title string) string {
 	baseName := filepath.Base(title)
@@ -1539,14 +1777,6 @@ func (t *TMDBService) simpleCleanTitle(title string) string {
 	baseName = strings.ReplaceAll(baseName, ".", " ")
 	baseName = strings.ReplaceAll(baseName, "_", " ")
 	baseName = strings.ReplaceAll(baseName, "-", " ")
-
-	// Extract year first before cutting
-	yearPattern := regexp.MustCompile(`\b(19|20)\d{2}\b`)
-	yearMatches := yearPattern.FindAllString(baseName, -1)
-	var extractedYear string
-	if len(yearMatches) > 0 {
-		extractedYear = yearMatches[len(yearMatches)-1]
-	}
 
 	// Find the first occurrence of common quality indicators and cut there
 	cutPattern := regexp.MustCompile(`(?i)\s*(1080p|2160p|720p|4K|HD|BluRay|WEB|x264|x265|YIFY|YTS|RARBG)`)
@@ -1570,13 +1800,6 @@ func (t *TMDBService) simpleCleanTitle(title string) string {
 			}
 		}
 		baseName = strings.Join(words, " ")
-	}
-
-	// Add year back if we found one and it's not already there
-	if extractedYear != "" && baseName != "" {
-		if !strings.Contains(baseName, extractedYear) {
-			baseName = baseName + " (" + extractedYear + ")"
-		}
 	}
 
 	return baseName
@@ -1793,6 +2016,71 @@ func (t *TMDBService) GetCastImages(title string, year int) ([]CastMember, []Cre
 	}
 
 	log.Printf("✅ TMDB: Found %d cast members and %d crew members for '%s'",
+		len(castMembers), len(crewMembers), title)
+
+	return castMembers, crewMembers, nil
+}
+
+// GetTVCastImages fetches cast images for a TV series by searching TMDB.
+func (t *TMDBService) GetTVCastImages(title string, year int) ([]CastMember, []CrewMember, error) {
+	if t.apiKey == "" {
+		return nil, nil, fmt.Errorf("TMDB API key not configured")
+	}
+
+	tv, err := t.SearchTV(title, year)
+	if err != nil {
+		if tv, err = t.SearchTV(title, 0); err != nil {
+			return nil, nil, fmt.Errorf("failed to find TV series: %w", err)
+		}
+	}
+
+	details, err := t.GetTVDetails(tv.ID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get TV series details: %w", err)
+	}
+
+	var castMembers []CastMember
+	for _, cast := range details.Credits.Cast {
+		imageURL := ""
+		if cast.ProfilePath != "" {
+			imageURL = "https://image.tmdb.org/t/p/w185" + cast.ProfilePath
+		}
+
+		castMembers = append(castMembers, CastMember{
+			ID:        cast.ID,
+			Name:      cast.Name,
+			Character: cast.Character,
+			ImageURL:  imageURL,
+			Order:     cast.Order,
+		})
+
+		if len(castMembers) >= 20 {
+			break
+		}
+	}
+
+	var crewMembers []CrewMember
+	directorJobs := map[string]bool{"Director": true}
+	writerJobs := map[string]bool{"Writer": true, "Screenplay": true, "Story": true}
+	producerJobs := map[string]bool{"Producer": true, "Executive Producer": true}
+
+	for _, crew := range details.Credits.Crew {
+		if directorJobs[crew.Job] || writerJobs[crew.Job] || producerJobs[crew.Job] {
+			imageURL := ""
+			if crew.ProfilePath != "" {
+				imageURL = "https://image.tmdb.org/t/p/w185" + crew.ProfilePath
+			}
+
+			crewMembers = append(crewMembers, CrewMember{
+				ID:       crew.ID,
+				Name:     crew.Name,
+				Job:      crew.Job,
+				ImageURL: imageURL,
+			})
+		}
+	}
+
+	log.Printf("✅ TMDB: Found %d cast members and %d crew members for TV series '%s'",
 		len(castMembers), len(crewMembers), title)
 
 	return castMembers, crewMembers, nil
@@ -2136,7 +2424,7 @@ func (t *TMDBService) GetNowPlayingMovies(page int) ([]TMDBMovieWithVideos, erro
 
 	for _, movie := range searchResp.Results {
 		// Fetch videos for this movie
-		videoURL := fmt.Sprintf("%s/movie/%d/videos", t.baseURL)
+		videoURL := fmt.Sprintf("%s/movie/%d/videos", t.baseURL, movie.ID)
 		videoReq, err := http.NewRequest("GET", videoURL+"?language=en-US", nil)
 		if err != nil {
 			log.Printf("⚠️ Failed to create video request for movie %d: %v", movie.ID, err)
@@ -3322,6 +3610,17 @@ func (t *TMDBService) validateMetadata(metadata *interfaces.MediaMetadata, origi
 	if len(metadata.Genres) == 0 {
 		log.Printf("⚠️ No genres in metadata for '%s'", metadata.Title)
 	}
+}
+
+// TestTitleCleaning tests the title cleaning functionality (for debugging)
+func (t *TMDBService) TestTitleCleaning(testTitle string) {
+	log.Printf("🧪 Testing title cleaning for: '%s'", testTitle)
+	cleaned := t.CleanTitle(testTitle)
+	log.Printf("🧪 Cleaned result: '%s'", cleaned)
+	
+	// Also test year removal
+	noYear := t.RemoveYearFromTitle(cleaned)
+	log.Printf("🧪 Year removed: '%s'", noYear)
 }
 
 // contains checks if a slice contains a string

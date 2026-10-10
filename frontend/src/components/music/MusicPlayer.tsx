@@ -356,7 +356,7 @@ export default function MusicPlayer() {
       {currentTrack && (
         <iframe
           ref={audioRef}
-          src={`https://www.youtube.com/embed/${currentTrack.youtube_id}?autoplay=${isPlaying ? 1 : 0}&controls=0&showinfo=0&rel=0&iv_load_policy=3&modestbranding=1&enablejsapi=1`}
+          src={`https://www.youtube.com/embed/${currentTrack.youtube_id}?autoplay=${isPlaying ? 1 : 0}&controls=0&showinfo=0&rel=0&iv_load_policy=3&modestbranding=1&enablejsapi=1&cc_load_policy=0`}
           className="hidden"
           allow="autoplay"
           referrerPolicy="strict-origin-when-cross-origin"

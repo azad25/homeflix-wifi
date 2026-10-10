@@ -89,7 +89,7 @@ if [ "$BACKEND_RUNNING" = false ]; then
     # Ensure go modules are up to date
     go mod tidy 2>/dev/null
     
-    PORT=$BACKEND_DEV_PORT nohup go run server.go > "$BACKEND_DEV_LOG" 2>&1 &
+    PORT=$BACKEND_DEV_PORT nohup go run -tags sqlite_fts5 server.go > "$BACKEND_DEV_LOG" 2>&1 &
     BACKEND_PID=$!
     echo $BACKEND_PID > "$SCRIPT_DIR/.backend-dev.pid"
     cd "$SCRIPT_DIR"

@@ -115,3 +115,11 @@ yarn-error.log*
 *episode_stills
 
 seg*.ts
+
+# Local SQLite databases - machine-specific, large binaries, must never be committed
+# (a `git pull`/`checkout` would overwrite the live library database)
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3

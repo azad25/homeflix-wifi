@@ -206,6 +206,8 @@ func createDefaultGenres(db *gorm.DB) {
 }
 
 // initializeDefaultMediaPaths creates default media paths if none exist
+// Fully dynamic - no hardcodes. Users add storage folders via Settings → Media Paths.
+// Auto-failover works with any primary/torrent paths added by the user.
 func initializeDefaultMediaPaths(db *gorm.DB) {
 	var count int64
 	db.Model(&models.MediaPath{}).Count(&count)
@@ -237,10 +239,19 @@ func initializeDefaultMediaPaths(db *gorm.DB) {
 
 		for _, mediaPath := range defaultPaths {
 			db.FirstOrCreate(&mediaPath, models.MediaPath{Path: mediaPath.Path})
+			_ = os.MkdirAll(mediaPath.Path, 0755)
 		}
 		
 		log.Println("✅ Default media paths initialized")
 		log.Printf("📁 Primary media path: /media/azad/Movies1")
 		log.Printf("📁 Torrent download path: %s", torrentPath)
+		log.Printf("💡 Add more storage via Settings → Media Paths for auto-failover (no hardcodes)")
+	} else {
+		// Ensure existing active paths have directories (no hardcode creation)
+		var all []models.MediaPath
+		db.Where("is_active = ?", true).Find(&all)
+		for _, mp := range all {
+			_ = os.MkdirAll(mp.Path, 0755)
+		}
 	}
 }

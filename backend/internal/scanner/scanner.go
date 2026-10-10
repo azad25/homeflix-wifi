@@ -7251,9 +7251,11 @@ func (s *MediaScanner) cleanTitle(title string) string {
 		title = re.ReplaceAllString(title, " ")
 	}
 
-	// Remove year in parentheses ONLY if it's at the end and looks like (YYYY)
+	// Remove year patterns (parenthesized at end OR standalone at end)
 	yearPattern := regexp.MustCompile(`\s*\(\d{4}\)\s*$`)
 	title = yearPattern.ReplaceAllString(title, "")
+	standaloneYearPattern := regexp.MustCompile(`\s+(19|20)\d{2}\s*$`)
+	title = standaloneYearPattern.ReplaceAllString(title, "")
 
 	// Remove empty brackets and parentheses (but preserve content with meaningful info)
 	emptyBrackets := []string{

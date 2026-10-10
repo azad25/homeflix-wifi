@@ -441,6 +441,9 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		api.PUT("/admin/media-paths/:id", mediaPathsHandler.UpdateMediaPath)
 		api.DELETE("/admin/media-paths/:id", mediaPathsHandler.DeleteMediaPath)
 
+		// Storage monitoring endpoints (auto-failover, low-storage alerts)
+		api.GET("/admin/storage/stats", handlers.GetStorageStats(db))
+
 		// System monitoring endpoints
 		api.GET("/admin/system/stats", handlers.GetSystemStats())
 		api.GET("/admin/system/info", handlers.GetSystemInfo())

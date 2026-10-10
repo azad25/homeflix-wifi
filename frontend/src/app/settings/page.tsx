@@ -137,6 +137,8 @@ function SettingsContent() {
     priority: 0
   });
   const [showAddPathForm, setShowAddPathForm] = useState(false);
+  const [storageInfos, setStorageInfos] = useState<any[]>([]);
+  const [lowStorageAlerts, setLowStorageAlerts] = useState<any[]>([]);
   const [showTMDBSearchModal, setShowTMDBSearchModal] = useState(false);
   const [customSearchTitle, setCustomSearchTitle] = useState('');
   const [openSubtitlesResults, setOpenSubtitlesResults] = useState<any[]>([]);
@@ -223,6 +225,16 @@ function SettingsContent() {
       fetchActiveDownloads();
     }, 5000);
 
+    return () => clearInterval(interval);
+  }, []);
+
+  // Poll storage stats for low-storage alerts (any tab)
+  useEffect(() => {
+    fetchStorageStats();
+    fetchMediaPaths();
+    const interval = setInterval(() => {
+      fetchStorageStats();
+    }, 15000);
     return () => clearInterval(interval);
   }, []);
 
@@ -372,6 +384,20 @@ function SettingsContent() {
     } catch (error) {
       console.error('Error fetching media paths:', error);
       addTerminalOutput(`❌ Error fetching media paths: ${error}`);
+    }
+  };
+
+  const fetchStorageStats = async () => {
+    try {
+      const apiUrl = getApiUrl();
+      const response = await fetch(`${apiUrl}/api/admin/storage/stats`);
+      if (response.ok) {
+        const data = await response.json();
+        setStorageInfos(data.storages || []);
+        setLowStorageAlerts(data.low_alerts || []);
+      }
+    } catch (error) {
+      console.warn('Failed to fetch storage stats:', error);
     }
   };
 
@@ -2738,6 +2764,35 @@ function SettingsContent() {
         {/* Scrollable Content */}
         <div className="flex-1 overflow-y-auto overflow-x-hidden p-8 scrollbar-thin scrollbar-thumb-[#E50914]/30 scrollbar-track-transparent">
           <div className="max-w-[1920px] mx-auto w-full pb-20">
+            {/* Global Low Storage Banner - visible on any tab, dynamic for any user-added folder */}
+            {lowStorageAlerts.length > 0 && (
+              <div className="mb-6 bg-red-900/30 border border-red-500/40 rounded-lg p-4 flex items-start gap-4">
+                <div className="bg-red-500/20 rounded-full p-2">
+                  <HardDrive className="w-6 h-6 text-red-400" />
+                </div>
+                <div className="flex-1">
+                  <h3 className="text-red-300 font-semibold flex items-center gap-2">
+                    Low Storage Warning
+                    <span className="text-xs bg-red-500/20 px-2 py-1 rounded-full">{lowStorageAlerts.length} path{lowStorageAlerts.length>1?'s':''} low</span>
+                  </h3>
+                  <div className="mt-2 space-y-1">
+                    {lowStorageAlerts.map((s:any, idx:number) => (
+                      <div key={idx} className="text-sm text-red-200">
+                        <span className="font-mono font-medium">{s.name || s.path}</span>
+                        <span className="text-red-300/70"> ({s.path})</span> — {s.used_percent.toFixed(1)}% used, {(s.free/(1024**3)).toFixed(1)} GB free
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-white/50 text-xs mt-2">💡 Add new storage in Storage Paths tab — new downloads automatically use the storage with most free space (auto-failover). No hardcodes.</p>
+                </div>
+                <button
+                  onClick={() => setActiveTab('paths')}
+                  className="bg-red-500/20 hover:bg-red-500/30 text-red-300 px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+                >
+                  Manage Storage
+                </button>
+              </div>
+            )}
             <AnimatePresence mode="wait">
               {/* Dashboard Tab */}
               {activeTab === 'system' && (
@@ -4514,8 +4569,26 @@ function SettingsContent() {
                                 </div>
                                 <p className="text-white/70 font-mono text-sm mb-1">{path.path}</p>
                                 {path.description && (
-                                  <p className="text-white/50 text-sm">{path.description}</p>
+                                  <p className="text-white/50 text-sm mb-2">{path.description}</p>
                                 )}
+                                {(() => {
+                                  const info = storageInfos.find((s:any) => s.path === path.path);
+                                  if (!info) return null;
+                                  return (
+                                    <div className="mt-2">
+                                      <div className="flex items-center justify-between text-xs mb-1">
+                                        <span className={info.is_low ? 'text-red-400 font-medium' : 'text-white/60'}>
+                                          {info.used_percent.toFixed(1)}% used • {(info.free/(1024**3)).toFixed(1)} GB free
+                                        </span>
+                                        <span className="text-white/40">{(info.used/(1024**3)).toFixed(1)} / {(info.total/(1024**3)).toFixed(1)} GB</span>
+                                      </div>
+                                      <div className="w-full bg-black/30 rounded-full h-1.5">
+                                        <div className={`h-1.5 rounded-full ${info.is_low ? 'bg-red-500' : info.used_percent > 70 ? 'bg-yellow-500' : 'bg-green-500'}`} style={{ width: `${Math.min(100, info.used_percent)}%` }}></div>
+                                      </div>
+                                      {info.is_low && <span className="text-red-400 text-xs mt-1 inline-block">⚠️ Low storage — auto-failover will use next available path</span>}
+                                    </div>
+                                  );
+                                })()}
                               </div>
                               <div className="flex items-center gap-2">
                                 <MagneticButton

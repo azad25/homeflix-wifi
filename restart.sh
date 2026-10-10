@@ -8,6 +8,7 @@ echo "🔄 Restarting HomeFlix Production Server..."
 # Stop the current server
 echo "🛑 Stopping current server..."
 bash "$SCRIPT_DIR/stop.sh"
+bash "$SCRIPT_DIR/scripts/stop-service.sh"
 
 # Wait for processes to fully terminate
 echo "⏳ Waiting for shutdown..."

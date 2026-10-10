@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	raintorrent "github.com/cenkalti/rain/torrent"
@@ -45,6 +46,10 @@ type TorrentClient struct {
 	uploadSpeedLimit   int64 // bytes per second, 0 = unlimited
 	maxDownloads       int   // maximum concurrent active downloads
 	bandwidthMonitor   *BandwidthMonitor
+	// Dynamic storage failover
+	storagePaths   []string
+	storageMu      sync.RWMutex
+	storageGetFunc func() []string // optional provider to fetch active paths from DB
 }
 
 type DownloadInfo struct {
@@ -211,6 +216,94 @@ func normalizeDownloadDir(downloadDir string) (string, error) {
 	}
 
 	return filepath.Clean(absPath), nil
+}
+
+// Storage failover helpers - no hardcodes, auto-selects best available path
+
+func (tc *TorrentClient) SetStoragePaths(paths []string) {
+	tc.storageMu.Lock()
+	defer tc.storageMu.Unlock()
+	tc.storagePaths = append([]string(nil), paths...)
+	log.Printf("📁 Torrent client storage paths updated: %v", tc.storagePaths)
+}
+
+func (tc *TorrentClient) SetStorageProvider(fn func() []string) {
+	tc.storageMu.Lock()
+	defer tc.storageMu.Unlock()
+	tc.storageGetFunc = fn
+}
+
+func (tc *TorrentClient) getEffectiveStoragePaths() []string {
+	tc.storageMu.RLock()
+	defer tc.storageMu.RUnlock()
+	if tc.storageGetFunc != nil {
+		if paths := tc.storageGetFunc(); len(paths) > 0 {
+			return paths
+		}
+	}
+	if len(tc.storagePaths) > 0 {
+		return append([]string(nil), tc.storagePaths...)
+	}
+	return nil
+}
+
+func (tc *TorrentClient) getDiskFree(path string) (free uint64, total uint64, err error) {
+	if _, statErr := os.Stat(path); os.IsNotExist(statErr) {
+		_ = os.MkdirAll(path, 0755)
+	}
+	var stat syscall.Statfs_t
+	if err = syscall.Statfs(path, &stat); err != nil {
+		return 0, 0, err
+	}
+	total = stat.Blocks * uint64(stat.Bsize)
+	free = stat.Bavail * uint64(stat.Bsize)
+	return free, total, nil
+}
+
+func (tc *TorrentClient) selectBestStoragePath(requiredBytes int64) string {
+	paths := tc.getEffectiveStoragePaths()
+	// Filter to only primary paths for permanent storage (or all if none marked primary)
+	// For now use whatever is provided - caller ensures they are primary/active
+	if len(paths) == 0 {
+		// Fallback to downloadDir's parent if no storage paths configured
+		return ""
+	}
+
+	var bestPath string
+	var bestFree uint64
+	var fallbackPath string
+	var fallbackFree uint64
+
+	for _, p := range paths {
+		free, _, err := tc.getDiskFree(p)
+		if err != nil {
+			log.Printf("⚠️ Cannot stat storage path %s: %v", p, err)
+			continue
+		}
+		if free > fallbackFree {
+			fallbackFree = free
+			fallbackPath = p
+		}
+		if requiredBytes > 0 && int64(free) < requiredBytes {
+			continue
+		}
+		if free > bestFree {
+			bestFree = free
+			bestPath = p
+		}
+	}
+
+	if bestPath != "" {
+		if requiredBytes > 0 {
+			log.Printf("📁 Selected storage for %d bytes: %s (free: %.1f GB)", requiredBytes, bestPath, float64(bestFree)/(1024*1024*1024))
+		}
+		return bestPath
+	}
+	if fallbackPath != "" {
+		log.Printf("⚠️ No storage can fit %d bytes, using largest: %s (free: %.1f GB)", requiredBytes, fallbackPath, float64(fallbackFree)/(1024*1024*1024))
+		return fallbackPath
+	}
+	return ""
 }
 
 func extractInfoHashFromMagnet(magnetURI string) string {
@@ -568,13 +661,10 @@ func (tc *TorrentClient) formatSize(bytes int64) string {
 
 // moveToStorage moves completed torrent files to permanent storage
 // Only moves files from temporary random-ID folders, preserves existing organized files
+// Now uses dynamic storage selection with auto-failover - no hardcodes
 func (tc *TorrentClient) moveToStorage(sourcePath, name string) (string, error) {
-	// Define the permanent storage path
-	storagePath := "/home/azad/Downloads/homeflix-storage"
-
-	// Check if this is a temporary torrent folder (random ID pattern)
-	// Only move files that are in the pattern: /home/azad/Downloads/homeflix/[random-chars]/[content]
-	homeflixDir := "/home/azad/Downloads/homeflix"
+	// Dynamic storage selection - pick best available primary storage
+	homeflixDir := tc.downloadDir
 
 	// Check if source is within homeflix directory
 	if !strings.HasPrefix(sourcePath, homeflixDir) {
@@ -604,10 +694,57 @@ func (tc *TorrentClient) moveToStorage(sourcePath, name string) (string, error) 
 
 	log.Printf("🔍 Detected temporary torrent folder, proceeding with move: %s", firstPart)
 
+	// Determine required size for storage selection
+	var requiredBytes int64
+	if srcInfo, err := os.Stat(sourcePath); err == nil {
+		if srcInfo.IsDir() {
+			requiredBytes = tc.getDirSize(sourcePath) + tc.getDirSize(sourcePath)/10 // +10% buffer
+		} else {
+			requiredBytes = srcInfo.Size() + srcInfo.Size()/10
+		}
+	}
+
+	// Select best storage path with free space check - auto failover
+	storagePath := tc.selectBestStoragePath(requiredBytes)
+	if storagePath == "" {
+		// Fallback: try to use download dir's sibling or error
+		storagePaths := tc.getEffectiveStoragePaths()
+		if len(storagePaths) > 0 {
+			storagePath = storagePaths[0]
+			log.Printf("⚠️ No optimal storage found, fallback to: %s", storagePath)
+		} else {
+			return "", fmt.Errorf("no available storage paths configured (add storage in Settings → Media Paths)")
+		}
+	}
+
+	// Check free space explicitly before move
+	if free, _, err := tc.getDiskFree(storagePath); err == nil && requiredBytes > 0 && int64(free) < requiredBytes {
+		// Try failover to next best path that can fit
+		log.Printf("⚠️ Selected storage %s low on space (free: %.2f GB, need: %.2f GB), searching failover...", storagePath, float64(free)/(1024*1024*1024), float64(requiredBytes)/(1024*1024*1024))
+		altPath := ""
+		var altFree uint64
+		for _, p := range tc.getEffectiveStoragePaths() {
+			if p == storagePath {
+				continue
+			}
+			if f, _, e := tc.getDiskFree(p); e == nil && int64(f) >= requiredBytes && f > altFree {
+				altFree = f
+				altPath = p
+			}
+		}
+		if altPath != "" {
+			log.Printf("✅ Failover to storage: %s (free: %.2f GB)", altPath, float64(altFree)/(1024*1024*1024))
+			storagePath = altPath
+		} else {
+			log.Printf("⚠️ No storage with enough free space, proceeding with %s (may fail)", storagePath)
+		}
+	}
+
 	// Ensure storage directory exists
 	if err := os.MkdirAll(storagePath, 0755); err != nil {
 		return "", fmt.Errorf("failed to create storage directory: %v", err)
 	}
+	log.Printf("📁 Using permanent storage: %s", storagePath)
 
 	// Determine source and destination
 	var srcPath, destPath string

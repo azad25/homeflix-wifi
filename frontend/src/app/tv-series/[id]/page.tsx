@@ -317,6 +317,7 @@ export default function TVSeriesPage() {
   const [videoLoadingState, setVideoLoadingState] = useState<'idle' | 'loading' | 'loaded' | 'error' | 'fallback'>('idle');
   const [videoLoadAttempts, setVideoLoadAttempts] = useState(0);
   const [videoErrorMessage, setVideoErrorMessage] = useState<string | null>(null);
+  const videoLoadTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Use the new backend-connected My List hook
   const { myList, collections, isInMyList: isInMyListHook, toggleMyList: toggleMyListHook, addToCollection, fetchCollections } = useMyList();
@@ -717,7 +718,7 @@ export default function TVSeriesPage() {
             id: params?.id,
             title: firstEpisode.series?.title || firstEpisode.title.replace(/\s*-\s*S\d+E\d+.*$/i, '') || 'Unknown Series',
             description: firstEpisode.series?.description || firstEpisode.description || '',
-            rating: firstEpisode.rating || 0,
+            rating: firstEpisode.series?.rating || 0,
             type: 'series',
             thumbnail_path: firstEpisode.thumbnail_path,
             banner_path: firstEpisode.banner_path,
@@ -749,7 +750,7 @@ export default function TVSeriesPage() {
           media.series_id?.toString() === params?.id?.toString() ||
           (seriesData.title && media.title.toLowerCase().includes(seriesData.title.toLowerCase())) ||
           (media.file_path && seriesData.file_path &&
-            media.file_path.includes(seriesData.file_path.split('/').slice(0, -1).join('/')))
+            media.file_path.includes((seriesData.file_path || '').split('/').slice(0, -1).join('/')))
         );
       });
 
@@ -884,7 +885,7 @@ export default function TVSeriesPage() {
       const allSeries = await seriesResponse.json();
 
       // Filter out current series and get recent ones
-      const recentSeriesArray = allSeries
+      const recentSeriesArray = (Array.isArray(allSeries) ? allSeries : [])
         .filter((s: Media) => s.id?.toString() !== params?.id?.toString())
         .sort((a: Media, b: Media) => {
           const aDate = new Date(a.created_at || a.release_date || 0);
@@ -1017,6 +1018,57 @@ export default function TVSeriesPage() {
     }
   }, [series, latestEpisode, loading, isPlayerOpen, isShowingTrailer, extractYouTubeKey]);
 
+  // Handle video error with fallback to YouTube
+  const handleVideoError = useCallback(() => {
+    console.log('🎬 Handling video error, checking fallback options');
+    
+    const video = videoRef.current;
+    if (video) {
+      video.pause();
+      video.muted = true;
+      video.volume = 0;
+      video.currentTime = 0;
+      video.style.display = 'none';
+      video.style.visibility = 'hidden';
+      video.style.opacity = '0';
+    }
+
+    setIsVideoPlaying(false);
+    setIsVideoLoaded(false);
+    setVideoLoadingState('error');
+
+    // Try YouTube fallback if available
+    if (series?.tmdb_trailer_url && extractYouTubeKey(series.tmdb_trailer_url)) {
+      console.log('🎬 Using YouTube trailer fallback');
+      setUseYouTubeFallback(true);
+      setForceShowBackdrop(false);
+      setVideoLoadingState('fallback');
+    } else {
+      console.log('🎬 No trailer available, showing backdrop');
+      setForceShowBackdrop(true);
+      setVideoLoadingState('error');
+    }
+  }, [series, extractYouTubeKey]);
+
+  // Video load timeout - if video doesn't play within 6 seconds, trigger fallback
+  useEffect(() => {
+    if (videoLoadingState === 'loading' && !isPlayerOpen && !isShowingTrailer) {
+      videoLoadTimeoutRef.current = setTimeout(() => {
+        console.log('🎬 Video load timeout reached, triggering fallback');
+        setVideoLoadingState('error');
+        setVideoErrorMessage('Video load timeout');
+        handleVideoError();
+      }, 6000);
+    }
+
+    return () => {
+      if (videoLoadTimeoutRef.current) {
+        clearTimeout(videoLoadTimeoutRef.current);
+        videoLoadTimeoutRef.current = null;
+      }
+    };
+  }, [videoLoadingState, isPlayerOpen, isShowingTrailer, handleVideoError]);
+
   // Enhanced video play attempt with better error handling
   const attemptVideoPlay = useCallback(() => {
     const video = videoRef.current;
@@ -1069,38 +1121,6 @@ export default function TVSeriesPage() {
 
     tryPlay();
   }, [videoLoadingState, videoLoadAttempts]);
-
-  // Handle video error with fallback to YouTube
-  const handleVideoError = useCallback(() => {
-    console.log('🎬 Handling video error, checking fallback options');
-    
-    const video = videoRef.current;
-    if (video) {
-      video.pause();
-      video.muted = true;
-      video.volume = 0;
-      video.currentTime = 0;
-      video.style.display = 'none';
-      video.style.visibility = 'hidden';
-      video.style.opacity = '0';
-    }
-
-    setIsVideoPlaying(false);
-    setIsVideoLoaded(false);
-    setVideoLoadingState('error');
-
-    // Try YouTube fallback if available
-    if (series?.tmdb_trailer_url && extractYouTubeKey(series.tmdb_trailer_url)) {
-      console.log('🎬 Using YouTube trailer fallback');
-      setUseYouTubeFallback(true);
-      setForceShowBackdrop(false);
-      setVideoLoadingState('fallback');
-    } else {
-      console.log('🎬 No trailer available, showing backdrop');
-      setForceShowBackdrop(true);
-      setVideoLoadingState('error');
-    }
-  }, [series, extractYouTubeKey]);
 
   const handlePlay = (media?: Media) => {
     // Immediately and aggressively stop background video and trailer when opening player
@@ -1844,7 +1864,10 @@ export default function TVSeriesPage() {
         <div
           className={`absolute inset-0 pointer-events-none transition-opacity duration-1000 ${!isVideoLoaded || !isVideoPlaying || isPlayerOpen || forceShowBackdrop || (!useYouTubeFallback && !isVideoPlaying) ? 'opacity-100' : 'opacity-0'
             }`}
-          style={{ zIndex: 2 }}
+          style={{ 
+            zIndex: 2,
+            transitionDuration: forceShowBackdrop || videoLoadingState === 'error' ? '0ms' : '1000ms'
+          }}
         >
           <img
             src={getBackdropImageUrl(series)}
@@ -1968,6 +1991,21 @@ export default function TVSeriesPage() {
 
           onWaiting={() => {
             console.log('🎬 Video is buffering/waiting');
+          }}
+
+          onStalled={() => {
+            console.warn('🎬 Video stalled, triggering fallback');
+            handleVideoError();
+          }}
+
+          onSuspend={() => {
+            console.warn('🎬 Video suspended, triggering fallback');
+            handleVideoError();
+          }}
+
+          onAbort={() => {
+            console.warn('🎬 Video aborted, triggering fallback');
+            handleVideoError();
           }}
 
           onPlaying={() => {
@@ -2389,14 +2427,14 @@ export default function TVSeriesPage() {
                         </div>
 
                         {/* Genres */}
-                        {series.genres && series.genres.length > 0 && (
+                        {(series.genres && series.genres.length > 0) && (
                           <motion.div
                             className="flex flex-wrap items-center gap-1.5 min-w-0 mb-1"
                             initial={{ opacity: 0 }}
                             animate={{ opacity: 1 }}
                             transition={{ delay: 0.65, duration: 0.4 }}
                           >
-                            {series.genres.slice(0, 4).map((genre, index, arr) => (
+                            {(series.genres || []).slice(0, 4).map((genre, index, arr) => (
                               <React.Fragment key={index}>
                                 <span className="text-sm md:text-base font-semibold text-white drop-shadow-md">
                                   {typeof genre === 'string' ? genre : genre?.name || 'Unknown'}
@@ -2858,7 +2896,7 @@ export default function TVSeriesPage() {
                                     {recentSeriesItem.year && `${recentSeriesItem.year} • `}
                                     {recentSeriesItem.genres && recentSeriesItem.genres.length > 0 && (
                                       <span>
-                                        {recentSeriesItem.genres.slice(0, 2).map(g =>
+                                        {(recentSeriesItem.genres || []).slice(0, 2).map(g =>
                                           typeof g === 'string' ? g : g?.name
                                         ).filter(Boolean).join(' • ')}
                                       </span>

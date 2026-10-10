@@ -1,19 +1,25 @@
 [Unit]
 Description=HomeFlix - Netflix Clone
-After=network.target
-Wants=network.target
+After=network-online.target redis-server.service NetworkManager-wait-online.service
+Wants=network-online.target redis-server.service
+Requires=redis-server.service
 
 [Service]
 Type=simple
 User=azad
 Group=azad
 WorkingDirectory=/home/azad/homeflix-local/homeflix-wifi
-ExecStart=/home/azad/homeflix-local/homeflix-wifi/start-service.sh
-ExecStop=/home/azad/homeflix-local/homeflix-wifi/stop-service.sh
+ExecStart=/home/azad/homeflix-local/homeflix-wifi/scripts/start-service.sh
+ExecStop=/home/azad/homeflix-local/homeflix-wifi/scripts/stop-service.sh
 Restart=always
 RestartSec=10
 Environment=NODE_ENV=production
-Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/go/bin
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/go/bin:/home/azad/.local/bin:/home/azad/.npm-global/bin
+Environment=NODE_OPTIONS=--max-old-space-size=2048
+Environment=HOME=/home/azad
+LimitNOFILE=65535
+LimitNPROC=4096
+TimeoutStartSec=300
 
 [Install]
 WantedBy=multi-user.target

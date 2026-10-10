@@ -197,6 +197,43 @@ func NewTorrentHandler(db *gorm.DB, mediaScanner MediaScannerInterface, notifica
 	}
 	log.Printf("✅ Torrent client initialized successfully")
 
+	// Wire dynamic storage provider - auto failover across all active primary paths
+	// No hardcodes: if primary storage fills up, next download automatically uses next best path
+	client.SetStorageProvider(func() []string {
+		var mediaPaths []models.MediaPath
+		if err := db.Where("is_active = ?", true).Order("priority DESC, created_at ASC").Find(&mediaPaths).Error; err != nil {
+			log.Printf("⚠️ Failed to fetch storage paths for failover: %v", err)
+			return nil
+		}
+		var paths []string
+		for _, mp := range mediaPaths {
+			// Use primary and torrent paths for storage - external is read-only
+			if mp.PathType == "primary" || mp.PathType == "torrent" {
+				paths = append(paths, mp.Path)
+			}
+		}
+		// Fallback to single downloadPath if no media paths
+		if len(paths) == 0 {
+			paths = []string{config.DownloadPath}
+		}
+		return paths
+	})
+	// Seed initial storage paths
+	{
+		var mediaPaths []models.MediaPath
+		if err := db.Where("is_active = ?", true).Order("priority DESC").Find(&mediaPaths).Error; err == nil {
+			var initPaths []string
+			for _, mp := range mediaPaths {
+				if mp.PathType == "primary" || mp.PathType == "torrent" {
+					initPaths = append(initPaths, mp.Path)
+				}
+			}
+			if len(initPaths) > 0 {
+				client.SetStoragePaths(initPaths)
+			}
+		}
+	}
+
 	// Clean up any orphaned database records (torrents that were deleted but still in DB)
 	// This prevents deleted torrents from reappearing on restart
 	var allDownloads []models.TorrentDownload

@@ -738,6 +738,15 @@ func extractYearFromTitle(title string) int {
 			}
 		}
 	}
+
+	// Look for standalone year at the end (e.g. "Lanterns 2026")
+	standaloneYearPattern := regexp.MustCompile(`\s+(19|20)\d{2}\s*$`)
+	if matches := standaloneYearPattern.FindStringSubmatch(title); len(matches) > 1 {
+		if year, err := strconv.Atoi(matches[1]); err == nil && year >= 1900 && year <= 2030 {
+			return year
+		}
+	}
+
 	return 0
 }
 
@@ -748,11 +757,17 @@ func removeYearFromTitle(title string) string {
 		end := strings.LastIndex(title, ")")
 		if start < end && end == len(title)-1 {
 			yearStr := title[start+1 : end]
-			if year, err := strconv.Atoi(yearStr); err == nil && year >= 1900 && year <= 2030 {
+			if _, err := strconv.Atoi(yearStr); err == nil {
 				return strings.TrimSpace(title[:start])
 			}
 		}
 	}
+
+	// Remove standalone year at the end (e.g. "Lanterns 2026" -> "Lanterns")
+	standaloneYearPattern := regexp.MustCompile(`\s+(19|20)\d{2}\s*$`)
+	title = standaloneYearPattern.ReplaceAllString(title, "")
+	title = strings.TrimSpace(title)
+
 	return title
 }
 
@@ -2092,19 +2107,58 @@ func GetSeriesCastImages(mediaService *services.MediaService, tmdbService *servi
 
 		log.Printf("🎭 Fetching cast images for TV series: '%s'", searchTitle)
 
-		// Try to get cast images from TMDB
-		castMembers, crewMembers, err := tmdbService.GetCastImages(searchTitle, series.Year)
-		if err != nil {
-			// If that fails, try with the original title
-			castMembers, crewMembers, err = tmdbService.GetCastImages(series.Title, series.Year)
+		// Use the TV-specific TMDB lookup so cast/crew come from the correct series, not a movie search result.
+		var castMembers []services.CastMember
+		var crewMembers []services.CrewMember
+		if series.TMDBID > 0 {
+			details, detailsErr := tmdbService.GetTVDetails(series.TMDBID)
+			if detailsErr == nil {
+				for _, cast := range details.Credits.Cast {
+					imageURL := ""
+					if cast.ProfilePath != "" {
+						imageURL = "https://image.tmdb.org/t/p/w185" + cast.ProfilePath
+					}
+					castMembers = append(castMembers, services.CastMember{
+						ID:        cast.ID,
+						Name:      cast.Name,
+						Character: cast.Character,
+						ImageURL:  imageURL,
+						Order:     cast.Order,
+					})
+					if len(castMembers) >= 20 {
+						break
+					}
+				}
+				for _, crew := range details.Credits.Crew {
+					if crew.Job == "Director" || crew.Job == "Writer" || crew.Job == "Screenplay" || crew.Job == "Story" || crew.Job == "Producer" || crew.Job == "Executive Producer" {
+						imageURL := ""
+						if crew.ProfilePath != "" {
+							imageURL = "https://image.tmdb.org/t/p/w185" + crew.ProfilePath
+						}
+						crewMembers = append(crewMembers, services.CrewMember{
+							ID:       crew.ID,
+							Name:     crew.Name,
+							Job:      crew.Job,
+							ImageURL: imageURL,
+						})
+					}
+				}
+			}
+		}
+		if len(castMembers) == 0 && len(crewMembers) == 0 {
+			castMembers, crewMembers, err = tmdbService.GetTVCastImages(searchTitle, series.Year)
 			if err != nil {
-				log.Printf("❌ Failed to get series cast images: %v", err)
-				c.JSON(http.StatusNotFound, gin.H{
-					"error": "Cast images not found",
-					"cast":  []interface{}{},
-					"crew":  []interface{}{},
-				})
-				return
+				log.Printf("⚠️ First attempt failed, trying with original title: %v", err)
+				castMembers, crewMembers, err = tmdbService.GetTVCastImages(series.Title, series.Year)
+				if err != nil {
+					log.Printf("❌ Failed to get series cast images: %v", err)
+					c.JSON(http.StatusNotFound, gin.H{
+						"error": "Cast images not found",
+						"cast":  []interface{}{},
+						"crew":  []interface{}{},
+					})
+					return
+				}
 			}
 		}
 

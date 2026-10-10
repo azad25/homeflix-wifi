@@ -199,8 +199,11 @@ func main() {
 	// Load media paths from database and configure scanner
 	loadMediaPathsFromDatabase(db, mediaScanner)
 
-	// Initialize watcher service for real-time file monitoring
-	watchPaths := []string{cfg.MediaPath}
+	// Initialize watcher service for real-time file monitoring - watch ALL dynamic media paths
+	watchPaths := mediaScanner.GetMediaPaths()
+	if len(watchPaths) == 0 {
+		watchPaths = []string{cfg.MediaPath}
+	}
 	watcherService, err := services.NewWatcherService(mediaScanner, watchPaths)
 	if err != nil {
 		log.Printf("Failed to initialize watcher service: %v", err)

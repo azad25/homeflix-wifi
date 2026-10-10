@@ -21,14 +21,14 @@ const EpisodeList: React.FC<EpisodeListProps> = ({
   onSeasonSelect,
 }) => {
   const [episodes, setEpisodes] = useState<Media[]>([]);
-  const [selectedSeason, setSelectedSeason] = useState<number>(1);
   const [loading, setLoading] = useState(true);
   const [playbackProgress, setPlaybackProgress] = useState<Record<number, number>>({});
+  const [selectedSeason, setSelectedSeason] = useState<number>(1);
 
   useEffect(() => {
     fetchEpisodes();
     fetchPlaybackProgress();
-  }, [seriesId, selectedSeason]);
+  }, [seriesId]);
 
   const fetchEpisodes = async () => {
     try {
@@ -86,10 +86,6 @@ const EpisodeList: React.FC<EpisodeListProps> = ({
     return progress > 90; // Consider watched if > 90% complete
   };
 
-  const seasons = Array.from(
-    new Set(episodes.map(e => e.season_number).filter(Boolean))
-  ).sort((a, b) => (a || 0) - (b || 0));
-
   if (loading) {
     return (
       <div className="py-8 text-center text-white/60">
@@ -100,31 +96,6 @@ const EpisodeList: React.FC<EpisodeListProps> = ({
 
   return (
     <div className="py-8">
-      {/* Season Selector */}
-      {seasons.length > 1 && (
-        <div className="flex gap-2 mb-6 overflow-x-auto pb-2">
-          {seasons.map((season) => (
-            <button
-              key={season}
-              onClick={() => {
-                setSelectedSeason(season || 1);
-                if (onSeasonSelect) {
-                  onSeasonSelect(season || 1);
-                }
-              }}
-              className={`px-6 py-2 rounded-lg font-semibold whitespace-nowrap transition-all ${
-                selectedSeason === season
-                  ? 'bg-white text-black'
-                  : 'bg-white/10 text-white hover:bg-white/20'
-              }`}
-            >
-              Season {season}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {/* Episodes Grid */}
       <div className="space-y-4">
         {episodes.map((episode, index) => {
           const watched = isWatched(episode.id, episode.duration || 0);
@@ -234,7 +205,7 @@ const EpisodeList: React.FC<EpisodeListProps> = ({
 
       {episodes.length === 0 && (
         <div className="text-center py-12 text-white/60">
-          No episodes found for Season {selectedSeason}
+          No episodes found for this series.
         </div>
       )}
     </div>
