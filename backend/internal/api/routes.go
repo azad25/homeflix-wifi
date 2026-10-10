@@ -447,6 +447,11 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		// System monitoring endpoints
 		api.GET("/admin/system/stats", handlers.GetSystemStats())
 		api.GET("/admin/system/info", handlers.GetSystemInfo())
+
+		// Safe self-update endpoints (Settings > System Update)
+		api.GET("/admin/update/check", handlers.CheckUpdate())
+		api.POST("/admin/update/apply", handlers.ApplyUpdate())
+		api.GET("/admin/update/status", handlers.UpdateStatus())
 		api.GET("/admin/system/logs", handlers.GetServerLogs())
 		api.GET("/admin/system/logs/stream", handlers.StreamServerLogs())
 		api.GET("/admin/system/stats/stream", handlers.StreamSystemStats())

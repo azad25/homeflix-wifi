@@ -123,6 +123,11 @@ function SettingsContent() {
   const [actionLoading, setActionLoading] = useState<{ [key: string]: boolean }>({});
   const [scanStats, setScanStats] = useState<any>(null);
   const [systemStats, setSystemStats] = useState<any>(null);
+  const [updateInfo, setUpdateInfo] = useState<any>(null);
+  const [updateChecking, setUpdateChecking] = useState(false);
+  const [updateRunning, setUpdateRunning] = useState(false);
+  const [updateStatus, setUpdateStatus] = useState<any>(null);
+  const [updateTimer, setUpdateTimer] = useState<any>(null);
   const [terminalOutput, setTerminalOutput] = useState<string[]>([]);
   const [isScanning, setIsScanning] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -1751,6 +1756,78 @@ function SettingsContent() {
     setTerminalOutput(prev => [...prev, `[${timestamp}] ${message}`].slice(-100)); // Keep last 100 lines
   };
 
+  // ---- System Update (safe one-click git pull + build + restart) ----
+  const checkForUpdates = async (silent = false) => {
+    if (!silent) setUpdateChecking(true);
+    try {
+      const res = await fetch(`${getApiUrl()}/api/admin/update/check`);
+      if (res.ok) {
+        const data = await res.json();
+        setUpdateInfo(data);
+        if (!silent) {
+          if (!data.ok) addTerminalOutput(`❌ Update check: ${data.error}`);
+          else if (data.update_available) addTerminalOutput(`⬆️ Update available: ${data.behind} commit(s) behind origin/${data.branch}`);
+          else addTerminalOutput('✅ Already up to date');
+        }
+      } else if (!silent) addTerminalOutput('❌ Update check failed');
+    } catch (e) {
+      if (!silent) addTerminalOutput(`❌ Update check error: ${e}`);
+    } finally {
+      setUpdateChecking(false);
+    }
+  };
+
+  const pollUpdateStatus = async () => {
+    try {
+      const res = await fetch(`${getApiUrl()}/api/admin/update/status`);
+      if (!res.ok) return;
+      const st = await res.json();
+      setUpdateStatus(st);
+      if (st.state === 'done' || st.state === 'error') {
+        setUpdateRunning(false);
+        setUpdateTimer((t: any) => { if (t) clearInterval(t); return null; });
+        addTerminalOutput(st.state === 'done' ? `✅ ${st.message || 'Update complete'} - services restarted` : `❌ Update failed: ${st.message}`);
+        if (st.state === 'done') checkForUpdates(true);
+      }
+    } catch (e) {
+      // Backend is down mid-restart - keep polling until it answers
+      setUpdateStatus((p: any) => ({ ...(p || {}), reconnecting: true }));
+    }
+  };
+
+  const startUpdate = async () => {
+    if (!updateInfo?.update_available || updateRunning) return;
+    if (updateInfo.dirty) {
+      addTerminalOutput(`❌ Commit or stash local changes first: ${(updateInfo.dirty_files || []).slice(0, 5).join(', ')}`);
+      return;
+    }
+    if (!window.confirm(`Pull ${updateInfo.behind} commit(s) from origin/${updateInfo.branch}, rebuild frontend + backend and restart services?\n\nServices will be briefly unavailable. Database and media files are never touched.`)) return;
+    setUpdateRunning(true);
+    setUpdateStatus({ state: 'running', phase: 'starting', message: 'Launching update job...' });
+    addTerminalOutput('🚀 Starting system update...');
+    try {
+      const res = await fetch(`${getApiUrl()}/api/admin/update/apply`, { method: 'POST' });
+      const data = await res.json();
+      if (!data.ok) {
+        setUpdateRunning(false);
+        setUpdateStatus({ state: 'error', message: data.error });
+        addTerminalOutput(`❌ Update refused: ${data.error}`);
+        return;
+      }
+      const t = setInterval(pollUpdateStatus, 3000);
+      setUpdateTimer(t);
+    } catch (e) {
+      setUpdateRunning(false);
+      addTerminalOutput(`❌ Failed to start update: ${e}`);
+    }
+  };
+
+  useEffect(() => {
+    checkForUpdates(true);
+    return () => setUpdateTimer((t: any) => { if (t) clearInterval(t); return null; });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const regenerateAllAssets = async () => {
     setActionLoading(prev => ({ ...prev, regenerateAll: true }));
     addTerminalOutput('🔄 Starting asset regeneration for all media...');
@@ -2804,6 +2881,104 @@ function SettingsContent() {
                   className="space-y-6"
                 >
                   <SystemLogs onTerminalOutput={addTerminalOutput} />
+
+                  {/* System Update - safe one-click updates from git */}
+                  <ScrollReveal>
+                    <GlassCard className="p-6">
+                      <h2 className="text-2xl font-semibold text-white mb-2 flex items-center">
+                        <Download className="w-6 h-6 mr-3 text-[#E50914]" />
+                        System Update
+                        {updateInfo?.ok && (
+                          <span className={`ml-4 text-xs font-medium px-3 py-1 rounded-full ${
+                            updateRunning || updateStatus?.state === 'running' ? 'bg-blue-500/20 text-blue-400'
+                            : updateInfo.update_available ? 'bg-yellow-500/20 text-yellow-400'
+                            : 'bg-green-500/20 text-green-400'
+                          }`}>
+                            {updateRunning || updateStatus?.state === 'running' ? 'Updating…'
+                              : updateInfo.update_available ? `${updateInfo.behind} behind` : 'Up to date'}
+                          </span>
+                        )}
+                      </h2>
+                      <p className="text-white/60 text-sm mb-6">
+                        Pull the latest code, rebuild frontend + backend and restart services. Database, media files and local data are never touched.
+                      </p>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                        <div className="bg-white/5 rounded-lg p-4 border border-white/10">
+                          <p className="text-[10px] font-bold text-white/40 uppercase tracking-widest mb-2">Installed version</p>
+                          {updateInfo?.ok ? (
+                            <>
+                              <p className="text-white font-mono text-sm">{updateInfo.current?.short || 'unknown'} <span className="text-white/40">on {updateInfo.branch}</span></p>
+                              <p className="text-white/60 text-xs mt-1 truncate">{updateInfo.current?.subject}</p>
+                              <p className="text-white/40 text-xs flex items-center mt-1"><Clock className="w-3 h-3 mr-1" />{updateInfo.current?.date}</p>
+                            </>
+                          ) : (
+                            <p className="text-white/50 text-sm">{updateChecking ? 'Checking…' : 'Press Check for Updates'}</p>
+                          )}
+                        </div>
+                        <div className="bg-white/5 rounded-lg p-4 border border-white/10">
+                          <p className="text-[10px] font-bold text-white/40 uppercase tracking-widest mb-2">Available version</p>
+                          {updateInfo?.ok ? (
+                            updateInfo.behind > 0 ? (
+                              <>
+                                <p className="text-white font-mono text-sm">{updateInfo.remote?.short || 'unknown'} <span className="text-yellow-400">({updateInfo.behind} new)</span></p>
+                                <p className="text-white/60 text-xs mt-1 truncate">{updateInfo.remote?.subject}</p>
+                                <p className="text-white/40 text-xs flex items-center mt-1"><Clock className="w-3 h-3 mr-1" />{updateInfo.remote?.date}</p>
+                              </>
+                            ) : (
+                              <p className="text-green-400 text-sm">Same as installed - nothing to do.</p>
+                            )
+                          ) : (
+                            <p className="text-white/50 text-sm">{updateInfo && !updateInfo.ok ? updateInfo.error : 'Unknown yet'}</p>
+                          )}
+                        </div>
+                      </div>
+
+                      {updateInfo?.ok && updateInfo.dirty && (
+                        <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4 mb-6">
+                          <p className="text-yellow-400 text-sm font-medium">Local modifications block updates ({(updateInfo.dirty_files || []).length} file(s)). Commit or stash them on the server first.</p>
+                          <p className="text-yellow-400/70 text-xs mt-1 truncate">{(updateInfo.dirty_files || []).slice(0, 4).join(' · ')}</p>
+                        </div>
+                      )}
+
+                      {(updateRunning || (updateStatus && (updateStatus.state === 'running' || updateStatus.state === 'done' || updateStatus.state === 'error'))) && (
+                        <div className="bg-black/40 border border-white/10 rounded-lg p-4 mb-6 font-mono text-xs">
+                          <p className="text-blue-400 mb-1">
+                            {updateStatus?.state === 'running' ? '⏳ Phase: ' + (updateStatus?.phase || 'starting') : updateStatus?.state === 'done' ? '✅ Finished' : updateStatus?.state === 'error' ? '❌ Failed' : '…'}
+                          </p>
+                          <p className="text-white/70">{updateStatus?.message || 'Working…'}</p>
+                          {updateStatus?.reconnecting && <p className="text-yellow-400 mt-1">Services restarting - reconnecting…</p>}
+                          {updateStatus?.state === 'done' && (
+                            <button onClick={() => window.location.reload()} className="mt-3 bg-green-600/20 hover:bg-green-600/40 text-green-400 py-2 px-4 rounded-lg text-xs">
+                              Reload page
+                            </button>
+                          )}
+                        </div>
+                      )}
+
+                      <div className="flex flex-wrap gap-3">
+                        <MagneticButton
+                          onClick={() => checkForUpdates(false)}
+                          disabled={updateChecking || updateRunning}
+                          className="bg-white/10 hover:bg-white/20 text-white py-2 px-5 rounded-lg flex items-center space-x-2 disabled:opacity-50"
+                        >
+                          <RefreshCw className={`w-4 h-4 ${updateChecking ? 'animate-spin' : ''}`} />
+                          <span>{updateChecking ? 'Checking…' : 'Check for Updates'}</span>
+                        </MagneticButton>
+                        <MagneticButton
+                          onClick={startUpdate}
+                          disabled={updateRunning || !(updateInfo?.ok && updateInfo.update_available && !updateInfo.dirty)}
+                          className="bg-[#E50914]/20 hover:bg-[#E50914]/40 text-red-400 py-2 px-5 rounded-lg flex items-center space-x-2 disabled:opacity-50"
+                        >
+                          <Download className="w-4 h-4" />
+                          <span>{updateRunning ? 'Updating…' : updateInfo?.ok && updateInfo.behind > 0 ? `Update Now (${updateInfo.behind})` : 'Update Now'}</span>
+                        </MagneticButton>
+                      </div>
+                      {updateInfo?.fetch_error && (
+                        <p className="text-white/40 text-xs mt-3">Remote unreachable ({updateInfo.fetch_error.slice(0, 80)}) - showing last known state.</p>
+                      )}
+                    </GlassCard>
+                  </ScrollReveal>
 
                   {/* Legacy Maintenance Tools - Keeping them accessible below the dashboard */}
                   <div className="pt-8 border-t border-white/5 mt-8">
