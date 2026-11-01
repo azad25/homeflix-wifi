@@ -282,6 +282,9 @@ func main() {
 		c.Next()
 	})
 
+	// Compress JSON/text responses (big library and widget payloads)
+	r.Use(api.Gzip())
+
 	// CORS middleware with optimizations
 	r.Use(cors.New(cors.Config{
 		AllowOrigins:     []string{"*"},

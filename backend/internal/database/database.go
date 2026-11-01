@@ -2,10 +2,11 @@ package database
 
 import (
 	"database/sql"
-	"os"
-	"path/filepath"
 	"homeflix-backend/internal/models"
 	"log"
+	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"gorm.io/driver/sqlite"
@@ -16,13 +17,23 @@ import (
 func Initialize(databaseURL string) (*gorm.DB, error) {
 	// Configure GORM with optimized settings
 	config := &gorm.Config{
-		Logger: logger.Default.LogMode(logger.Silent), // Reduce logging overhead
-		PrepareStmt: true, // Enable prepared statement caching
-		DisableForeignKeyConstraintWhenMigrating: true, // Speed up migrations
+		Logger:                                   logger.Default.LogMode(logger.Silent), // Reduce logging overhead
+		PrepareStmt:                              true,                                  // Enable prepared statement caching
+		DisableForeignKeyConstraintWhenMigrating: true,                                  // Speed up migrations
 	}
 
 	// Open database with optimized SQLite configuration
-	db, err := gorm.Open(sqlite.Open(databaseURL+"?_journal_mode=WAL&_synchronous=NORMAL&_cache_size=1000000&_temp_store=memory&_mmap_size=268435456"), config)
+	// Connection-scoped settings belong in the DSN: the go-sqlite3 driver
+	// applies them to every pooled connection, whereas a one-off PRAGMA only
+	// reaches whichever connection happened to run it.
+	// cache_size is negative = KiB: 64MB per connection. The old value
+	// (1000000 pages) allowed ~4GB of page cache per connection across a
+	// 20-connection pool. (busy_timeout 5000 is also the driver default.)
+	sep := "?"
+	if strings.Contains(databaseURL, "?") {
+		sep = "&"
+	}
+	db, err := gorm.Open(sqlite.Open(databaseURL+sep+"_journal_mode=WAL&_synchronous=NORMAL&_busy_timeout=5000&_cache_size=-65536"), config)
 	if err != nil {
 		return nil, err
 	}
@@ -95,16 +106,16 @@ func Initialize(databaseURL string) (*gorm.DB, error) {
 // applySQLiteOptimizations applies critical SQLite PRAGMA settings for performance
 func applySQLiteOptimizations(sqlDB *sql.DB) error {
 	pragmas := []string{
-		"PRAGMA journal_mode = WAL",           // Write-Ahead Logging for better concurrency
-		"PRAGMA synchronous = NORMAL",         // Balance between safety and speed
-		"PRAGMA cache_size = 1000000",         // 1GB cache size
-		"PRAGMA temp_store = memory",          // Store temp tables in memory
-		"PRAGMA mmap_size = 268435456",        // 256MB memory-mapped I/O
-		"PRAGMA page_size = 4096",             // Optimal page size
-		"PRAGMA auto_vacuum = INCREMENTAL",    // Incremental vacuum for better performance
-		"PRAGMA busy_timeout = 5000",          // 5 second timeout for locked database
-		"PRAGMA wal_autocheckpoint = 1000",    // Checkpoint WAL every 1000 pages
-		"PRAGMA optimize",                     // Analyze and optimize query planner
+		"PRAGMA journal_mode = WAL",        // Write-Ahead Logging for better concurrency
+		"PRAGMA synchronous = NORMAL",      // Balance between safety and speed
+		"PRAGMA cache_size = -65536",       // 64MB (negative = KiB); also set per-connection via DSN
+		"PRAGMA temp_store = memory",       // Store temp tables in memory
+		"PRAGMA mmap_size = 268435456",     // 256MB memory-mapped I/O
+		"PRAGMA page_size = 4096",          // Optimal page size
+		"PRAGMA auto_vacuum = INCREMENTAL", // Incremental vacuum for better performance
+		"PRAGMA busy_timeout = 5000",       // 5 second timeout for locked database
+		"PRAGMA wal_autocheckpoint = 1000", // Checkpoint WAL every 1000 pages
+		"PRAGMA optimize",                  // Analyze and optimize query planner
 	}
 
 	for _, pragma := range pragmas {
@@ -211,13 +222,13 @@ func createDefaultGenres(db *gorm.DB) {
 func initializeDefaultMediaPaths(db *gorm.DB) {
 	var count int64
 	db.Model(&models.MediaPath{}).Count(&count)
-	
+
 	// Only create default paths if none exist
 	if count == 0 {
 		// Get home directory for torrent downloads
 		homeDir, _ := os.UserHomeDir()
 		torrentPath := filepath.Join(homeDir, "Downloads", "homeflix")
-		
+
 		defaultPaths := []models.MediaPath{
 			{
 				Path:        "/media/azad/Movies1",
@@ -241,7 +252,7 @@ func initializeDefaultMediaPaths(db *gorm.DB) {
 			db.FirstOrCreate(&mediaPath, models.MediaPath{Path: mediaPath.Path})
 			_ = os.MkdirAll(mediaPath.Path, 0755)
 		}
-		
+
 		log.Println("✅ Default media paths initialized")
 		log.Printf("📁 Primary media path: /media/azad/Movies1")
 		log.Printf("📁 Torrent download path: %s", torrentPath)
