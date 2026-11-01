@@ -180,12 +180,28 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
   set_phase "done" "Dry run complete ($SUMMARY and built, restart skipped)" "done"
   exit 0
 fi
-set_phase "restart" "Restarting services"
+# Running inside the systemd service (homeflix.service)? systemd exports
+# INVOCATION_ID to every process it starts, and this job inherits it from the
+# backend. Stopping the app ends the service, systemd kills this job too and
+# restarts HomeFlix on the new code; the new server marks the update done
+# (FinalizeUpdateAfterRestart). So: write the final message first, never
+# start a second copy via start.sh, and let systemd do the restart.
+FINAL_MSG="$SUMMARY on $BRANCH $(git log -1 --format='%h %s')"
+set_phase "restart" "Restarting services - $FINAL_MSG"
+if [[ -n "${INVOCATION_ID:-}" ]] && command -v systemctl >/dev/null 2>&1; then
+  echo "🔁 Managed by systemd - stopping the app; systemd restarts it on the new code"
+  bash "$REPO_DIR/stop.sh" >/dev/null 2>&1
+  bash "$REPO_DIR/scripts/stop-service.sh" >/dev/null 2>&1
+  # Normally killed by systemd right here. If not (KillMode=process), the
+  # service still restarts via Restart=always; nothing else to do.
+  sleep 30
+  exit 0
+fi
 bash "$REPO_DIR/stop.sh" >/dev/null 2>&1
 bash "$REPO_DIR/scripts/stop-service.sh" >/dev/null 2>&1
 sleep 6
 pkill -f "next-server" 2>/dev/null || true
 sleep 2
 bash "$REPO_DIR/start.sh" 2>&1 | tail -n 6
-set_phase "done" "Update complete ($SUMMARY) - services restarted on $BRANCH $(git log -1 --format='%h %s')" "done"
+set_phase "done" "Update complete ($FINAL_MSG) - services restarted" "done"
 echo "🎉 Update complete"

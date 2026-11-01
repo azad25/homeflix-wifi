@@ -449,6 +449,8 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		api.GET("/admin/system/info", handlers.GetSystemInfo())
 
 		// Safe self-update endpoints (Settings > System Update)
+		// Finish an update whose job was killed by the service restart.
+		handlers.FinalizeUpdateAfterRestart()
 		api.GET("/admin/update/check", handlers.CheckUpdate())
 		api.POST("/admin/update/apply", handlers.ApplyUpdate())
 		api.GET("/admin/update/status", handlers.UpdateStatus())

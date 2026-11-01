@@ -355,6 +355,44 @@ func ApplyUpdate() gin.HandlerFunc {
 	}
 }
 
+// FinalizeUpdateAfterRestart completes an update whose job was killed while
+// restarting services. Under systemd (homeflix.service, Restart=always),
+// stopping the app ends the service's main process, so systemd kills every
+// process in the service - including the update job - before it can write
+// "done", then restarts HomeFlix on the new code. The new server reaching
+// startup proves the build and restart worked, so it records the outcome.
+// Call once at startup.
+func FinalizeUpdateAfterRestart() {
+	_, statusFile, _, err := updatePaths()
+	if err != nil {
+		return
+	}
+	finalizeUpdateStatusFile(statusFile)
+}
+
+func finalizeUpdateStatusFile(statusFile string) {
+	data, err := os.ReadFile(statusFile)
+	if err != nil {
+		return
+	}
+	var st map[string]interface{}
+	if json.Unmarshal(data, &st) != nil || st["state"] != "running" || st["phase"] != "restart" {
+		return
+	}
+	msg, _ := st["message"].(string)
+	msg = strings.TrimPrefix(msg, "Restarting services")
+	msg = strings.TrimLeft(msg, " -:")
+	done := "Update complete - services restarted"
+	if msg != "" {
+		done += " (" + msg + ")"
+	}
+	st["state"] = "done"
+	st["phase"] = "done"
+	st["message"] = done
+	writeUpdateStatus(statusFile, st)
+	log.Printf("✅ Update finalized after restart: %s", done)
+}
+
 // UpdateStatus reports the current/last update job state for polling.
 func UpdateStatus() gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -375,6 +413,16 @@ func UpdateStatus() gin.HandlerFunc {
 		}
 		if st["state"] == "running" {
 			if _, alive := updateJobRunning(statusFile); !alive {
+				if st["phase"] == "restart" {
+					// Killed while restarting (systemd): the restart itself is
+					// the success signal; the new server finalizes on startup.
+					st["state"] = "done"
+					st["message"] = "Update complete - services restarted"
+					writeUpdateStatus(statusFile, st)
+					st["ok"] = true
+					c.JSON(http.StatusOK, st)
+					return
+				}
 				st["state"] = "error"
 				st["message"] = "the update job stopped unexpectedly - see update-log.txt on the server"
 			}
