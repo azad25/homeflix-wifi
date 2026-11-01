@@ -1,173 +1,223 @@
 "use client";
 
-import React, { useEffect, useState, useCallback } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { apiCall } from '@/lib/api';
-import Navbar from '@/components/Navbar';
-import ProviderContentRow from '@/components/providers/ProviderContentRow';
-import { useRouter } from 'next/navigation';
-import { Play, Sparkles, ChevronRight, Info } from 'lucide-react';
-import ProviderHero from '@/components/providers/ProviderHero';
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { ChevronRight, Info, RotateCcw, Tv } from "lucide-react";
+import Navbar from "@/components/Navbar";
+import { apiCall } from "@/lib/api";
+import TVHero, { TVHeroSlide } from "@/components/tv/TVHero";
+import TVShelf from "@/components/tv/TVShelf";
+import ProviderShelfCard from "@/components/providers/ProviderShelfCard";
+import { fetchTrailerKey, itemGenres, itemKey, itemTitle, itemYear, tmdbDetailHref, tmdbImage } from "@/lib/tmdbItem";
+
+interface ShowcaseProvider {
+  provider_id: number;
+  provider_name: string;
+  logo_path: string;
+  primary_color: string;
+  secondary_color: string;
+}
 
 interface ShowcaseItem {
-    provider: {
-        provider_id: number;
-        provider_name: string;
-        logo_path: string; // Full URL
-        primary_color: string;
-        secondary_color: string;
-    };
-    content: any[];
+  provider: ShowcaseProvider;
+  content: any[];
+}
+
+const HERO_SLIDES = 8;
+
+function ProviderLogo({ provider, size = 28 }: { provider: ShowcaseProvider; size?: number }) {
+  return (
+    <span
+      className="inline-flex shrink-0 items-center justify-center overflow-hidden rounded-[22%] bg-white/10"
+      style={{ width: size, height: size }}
+    >
+      {provider.logo_path ? (
+        <img src={provider.logo_path} alt="" className="h-full w-full object-cover" />
+      ) : (
+        <Tv className="h-1/2 w-1/2 text-white/60" />
+      )}
+    </span>
+  );
 }
 
 export default function ProvidersPage() {
-    const [showcaseData, setShowcaseData] = useState<ShowcaseItem[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [collections, setCollections] = useState<any[]>([]);
-    const router = useRouter();
+  const router = useRouter();
+  const [showcase, setShowcase] = useState<ShowcaseItem[]>([]);
+  const [collections, setCollections] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+  const [reload, setReload] = useState(0);
 
-    const fetchCollections = useCallback(async () => {
-        try {
-            const res = await apiCall('/api/collections');
-            if (res) setCollections(res);
-        } catch (err) {
-            console.warn('Failed to fetch collections', err);
-        }
-    }, []);
-
-    useEffect(() => {
-        const fetchData = async () => {
-            try {
-                // Fetch showcase data
-                const response = await apiCall('/api/providers/showcase');
-                if (response && response.showcase) {
-                    setShowcaseData(response.showcase);
-                }
-                // Fetch collections for My List functionality
-                await fetchCollections();
-            } catch (error) {
-                console.error('Failed to fetch provider showcase:', error);
-            } finally {
-                setLoading(false);
-            }
-        };
-
-        fetchData();
-    }, [fetchCollections]);
-
-    // Aggregate top content from ALL providers for the mixed hero
-    const heroItems = React.useMemo(() => {
-        if (showcaseData.length === 0) return [];
-
-        const allContent: any[] = [];
-        // Take top 2 items from each provider to mix
-        showcaseData.forEach(p => {
-            if (p.content && p.content.length > 0) {
-                p.content.slice(0, 2).forEach(item => {
-                    allContent.push({
-                        ...item,
-                        provider: {
-                            name: p.provider.provider_name,
-                            logo: p.provider.logo_path,
-                            color: p.provider.primary_color
-                        }
-                    });
-                });
-            }
-        });
-
-        // Shuffle simply
-        return allContent.sort(() => 0.5 - Math.random()).slice(0, 15);
-    }, [showcaseData]);
-
-    const handlePlay = (media: any) => {
-        router.push(`/tmdb-movie/${media.id}?type=${media.media_type || media.type || 'movie'}`);
-    };
-
-    const handleInfo = (media: any) => {
-        router.push(`/tmdb-movie/${media.id}?type=${media.media_type || media.type || 'movie'}`);
-    };
-
-    if (loading) {
-        return (
-            <div className="min-h-screen bg-[#141414] text-white flex items-center justify-center">
-                <div className="w-16 h-16 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
-            </div>
-        );
+  const fetchCollections = useCallback(async () => {
+    try {
+      const res = await apiCall("/api/collections");
+      if (Array.isArray(res)) setCollections(res);
+    } catch {
+      /* optional */
     }
+  }, []);
 
-    return (
-        <div className="min-h-screen bg-[#141414] text-white overflow-x-hidden">
-            <Navbar />
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(false);
+    (async () => {
+      try {
+        const res = await apiCall("/api/providers/showcase");
+        if (cancelled) return;
+        const list: ShowcaseItem[] = (res?.showcase || []).filter((s: ShowcaseItem) => s?.provider);
+        setShowcase(list);
+      } catch (e) {
+        console.error("Failed to load provider showcase:", e);
+        if (!cancelled) setError(true);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    fetchCollections();
+    return () => {
+      cancelled = true;
+    };
+  }, [fetchCollections, reload]);
 
-            {/* Main Hero Section (Global Mixed Showcase) */}
-            {heroItems.length > 0 && (
-                <ProviderHero
-                    items={heroItems}
-                    collections={collections}
-                    onDataRefresh={fetchCollections}
-                />
-            )}
+  // Round-robin across providers (deterministic - the old random sort
+  // reshuffled the hero whenever data refreshed).
+  const heroSlides = useMemo<TVHeroSlide[]>(() => {
+    const queues = showcase.map((s) => ({ p: s.provider, items: (s.content || []).filter((c) => c?.backdrop_path) }));
+    const out: TVHeroSlide[] = [];
+    const seen = new Set<string>();
+    for (let round = 0; out.length < HERO_SLIDES && queues.some((q) => q.items.length > round); round++) {
+      for (const q of queues) {
+        const item = q.items[round];
+        if (!item || seen.has(itemKey(item))) continue;
+        seen.add(itemKey(item));
+        out.push({
+          id: itemKey(item),
+          title: itemTitle(item),
+          overview: item.overview,
+          backdrop: tmdbImage(item.backdrop_path, "original").replace("/w1280/", "/original/"),
+          meta: [itemYear(item), ...itemGenres(item, 2), item.vote_average ? `★ ${Number(item.vote_average).toFixed(1)}` : null],
+          eyebrow: (
+            <span className="tv-glass inline-flex items-center gap-2 rounded-full py-1 pl-1 pr-3 text-[13px] font-semibold">
+              <ProviderLogo provider={q.p} size={22} />
+              {q.p.provider_name}
+            </span>
+          ),
+          resolveTrailer: () => fetchTrailerKey(item),
+          // keep the raw item for navigation
+          ...({ _item: item } as any),
+        });
+        if (out.length >= HERO_SLIDES) break;
+      }
+    }
+    return out;
+  }, [showcase]);
 
-            <div className="relative z-10 pb-20 pt-8">
-                {showcaseData.map((item, index) => {
-                    // Skip the first one if we used it for hero? 
-                    // No, show it in the list too or maybe skip if redundant. 
-                    // Let's show all but maybe with different styling.
-                    // Actually listing all is consistent.
+  const openItem = (item: any) => router.push(tmdbDetailHref(item));
+  const openProvider = (id: number) => router.push(`/providers/${id}`);
 
-                    const brandColor = item.provider.primary_color || '#fff';
+  return (
+    <div className="min-h-screen overflow-x-hidden text-white">
+      <Navbar />
 
-                    return (
-                        <div key={item.provider.provider_id} className="mb-8 group/provider">
-                            {/* Provider Header */}
-                            <div
-                                className="px-4 md:px-12 flex items-center justify-between mb-4 sticky top-[72px] z-30 py-4 transition-all duration-300 backdrop-blur-md bg-gradient-to-r from-[#141414] via-[#141414]/90 to-transparent border-b border-white/5"
-                                style={{ borderLeft: `4px solid ${brandColor}` }}
-                            >
-                                <div className="flex items-center gap-4 cursor-pointer" onClick={() => router.push(`/providers/${item.provider.provider_id}`)}>
-                                    <div className="relative w-10 h-10 md:w-12 md:h-12 bg-white/10 rounded-lg p-2 border border-white/10 overflow-hidden group-hover/provider:scale-110 transition-transform">
-                                        <img
-                                            src={item.provider.logo_path}
-                                            alt={item.provider.provider_name}
-                                            className="w-full h-full object-contain"
-                                        />
-                                        <div className="absolute inset-0 bg-white/20 opacity-0 group-hover/provider:opacity-100 transition-opacity" />
-                                    </div>
-                                    <div>
-                                        <h2 className="text-2xl md:text-3xl font-bold leading-none tracking-tight group-hover/provider:text-white/90 transition-colors">
-                                            {item.provider.provider_name}
-                                        </h2>
-                                        <p className="text-xs text-gray-400 font-medium uppercase tracking-wider mt-1 flex items-center gap-1">
-                                            Trending Content <ChevronRight className="w-3 h-3" />
-                                        </p>
-                                    </div>
-                                </div>
+      {loading ? (
+        <div className="h-[72vh] min-h-[480px] w-full animate-pulse bg-gradient-to-b from-zinc-900 to-black md:h-[86vh]" />
+      ) : heroSlides.length > 0 ? (
+        <TVHero
+          slides={heroSlides}
+          primaryLabel="Details"
+          primaryIcon={<Info className="h-[18px] w-[18px]" />}
+          onPrimary={(s) => openItem((s as any)._item)}
+        />
+      ) : (
+        <div className="h-28" />
+      )}
 
-                                <button
-                                    onClick={() => router.push(`/providers/${item.provider.provider_id}`)}
-                                    className="hidden md:flex items-center gap-2 px-6 py-2 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 transition-all hover:scale-105 active:scale-95 text-sm font-bold"
-                                    style={{ color: brandColor }}
-                                >
-                                    Explore Full Library
-                                </button>
-                            </div>
-
-                            {/* Content Grid/Scroll */}
-                            <ProviderContentRow
-                                title="" // Title handled by header above
-                                media={item.content}
-                                onPlay={handlePlay}
-                                onInfo={handleInfo}
-                                priority={index < 2}
-                                accentColor={brandColor}
-                                collections={collections}
-                                onDataRefresh={fetchCollections}
-                            />
-                        </div>
-                    );
-                })}
+      <main className="relative z-10 -mt-6 space-y-10 pb-24 md:-mt-10 md:space-y-12">
+        {error && !loading && (
+          <div className="tv-gutter">
+            <div className="tv-glass flex flex-col items-start gap-4 rounded-2xl p-6 md:flex-row md:items-center md:justify-between">
+              <div>
+                <p className="text-lg font-semibold">Couldn&apos;t load streaming services</p>
+                <p className="tv-caption mt-1">Check your connection and TMDB API key, then try again.</p>
+              </div>
+              <button className="tv-btn tv-btn-primary" onClick={() => setReload((r) => r + 1)}>
+                <RotateCcw className="h-4 w-4" /> Retry
+              </button>
             </div>
-        </div>
-    );
+          </div>
+        )}
+
+        {/* Channels row */}
+        {showcase.length > 0 && (
+          <TVShelf title="Channels" subtitle="Browse everything on your streaming services">
+            {showcase.map(({ provider }) => (
+              <button
+                key={provider.provider_id}
+                type="button"
+                onClick={() => openProvider(provider.provider_id)}
+                className="tv-card-group w-[42vw] max-w-[220px] text-left outline-none sm:w-[200px] lg:w-[220px]"
+                aria-label={`Open ${provider.provider_name}`}
+              >
+                <div
+                  className="tv-card flex aspect-video items-center justify-center"
+                  style={{
+                    background: `radial-gradient(120% 120% at 30% 20%, ${provider.primary_color || "#3a3a3c"}cc, ${
+                      provider.secondary_color || "#111"
+                    } 85%)`,
+                  }}
+                >
+                  <ProviderLogo provider={provider} size={64} />
+                </div>
+                <p className="mt-3 truncate text-[15px] font-semibold">{provider.provider_name}</p>
+              </button>
+            ))}
+          </TVShelf>
+        )}
+
+        {/* One shelf per provider */}
+        {showcase.map(({ provider, content }, i) =>
+          content?.length ? (
+            <TVShelf
+              key={provider.provider_id}
+              title={
+                <span className="flex items-center gap-3">
+                  <ProviderLogo provider={provider} size={30} />
+                  Top on {provider.provider_name}
+                </span>
+              }
+              action={
+                <button
+                  type="button"
+                  onClick={() => openProvider(provider.provider_id)}
+                  className="tv-focus flex shrink-0 items-center gap-0.5 rounded-lg px-1 text-[15px] font-medium text-white/60 transition-colors hover:text-white"
+                >
+                  See All <ChevronRight className="h-4 w-4" />
+                </button>
+              }
+            >
+              {content.map((item, idx) => (
+                <ProviderShelfCard
+                  key={itemKey(item)}
+                  item={item}
+                  onSelect={openItem}
+                  collections={collections}
+                  onDataRefresh={fetchCollections}
+                  priority={i < 2 && idx < 4}
+                />
+              ))}
+            </TVShelf>
+          ) : null
+        )}
+
+        {!loading && !error && showcase.length === 0 && (
+          <div className="tv-gutter pt-10 text-center">
+            <Tv className="mx-auto h-10 w-10 text-white/30" />
+            <p className="mt-3 text-lg font-semibold">No streaming services yet</p>
+            <p className="tv-caption mt-1">Provider content appears here once TMDB is configured.</p>
+          </div>
+        )}
+      </main>
+    </div>
+  );
 }

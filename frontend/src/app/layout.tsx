@@ -76,7 +76,7 @@ export default function RootLayout({
           }}
         />
       </head>
-      <body className="bg-black text-white antialiased font-sans" style={{ fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" }}>
+      <body className="text-white antialiased" style={{ fontFamily: 'var(--tv-font)', backgroundColor: '#000' }}>
         <DialogProvider>
           <SWRProvider>
             <NavigationLoaderProvider>
