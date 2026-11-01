@@ -44,14 +44,15 @@ set_phase() { # $1=phase $2=message [$3=state]
   local state="${3:-running}"
   # Values go through argv (never interpolated into code) so quotes or
   # backslashes in commit subjects can't break or inject into the JSON.
+  # pid lets the server tell a live job from one that died mid-run.
   python3 -c 'import json, sys
-state, phase, msg, dry, path = sys.argv[1:6]
+state, phase, msg, dry, path, pid, branch = sys.argv[1:8]
 with open(path, "w") as f:
-    json.dump({"state": state, "phase": phase, "message": msg, "dry_run": dry == "1"}, f)' \
-    "$state" "$1" "$2" "$DRY_RUN" "$STATUS_FILE" 2>/dev/null || {
+    json.dump({"state": state, "phase": phase, "message": msg, "dry_run": dry == "1", "pid": int(pid), "branch": branch}, f)' \
+    "$state" "$1" "$2" "$DRY_RUN" "$STATUS_FILE" "$$" "$TARGET_BRANCH" 2>/dev/null || {
     local esc=${2//\\/\\\\}; esc=${esc//\"/\\\"}
-    printf '{"state":"%s","phase":"%s","message":"%s","dry_run":%s}\n' \
-      "$state" "$1" "$esc" "$([[ $DRY_RUN -eq 1 ]] && echo true || echo false)" > "$STATUS_FILE"
+    printf '{"state":"%s","phase":"%s","message":"%s","dry_run":%s,"pid":%d}\n' \
+      "$state" "$1" "$esc" "$([[ $DRY_RUN -eq 1 ]] && echo true || echo false)" "$$" > "$STATUS_FILE"
   }
 }
 
@@ -63,6 +64,7 @@ CODE_CHANGED=0
 rollback() {
   [[ "$CODE_CHANGED" -eq 1 ]] || return 0
   echo "↩️ Rolling back to $OLD_BRANCH @ ${OLD_HEAD:0:12}"
+  set_phase "rollback" "Update failed - restoring $OLD_BRANCH (rebuilding, a few minutes)"
   git checkout -q "$OLD_BRANCH" 2>/dev/null && git reset -q --hard "$OLD_HEAD" 2>/dev/null || {
     echo "⚠️ Automatic rollback failed - run: git checkout $OLD_BRANCH && git reset --hard $OLD_HEAD"
     return 1
@@ -111,7 +113,16 @@ fi
 if [[ -n "$TARGET_BRANCH" && "$TARGET_BRANCH" != "$BRANCH" ]]; then
   # 2a. Switch to another release branch
   set_phase "switch" "Switching from $BRANCH to $TARGET_BRANCH"
-  git fetch origin "$TARGET_BRANCH" 2>&1 | tail -n 3 || fail "cannot fetch $TARGET_BRANCH from origin"
+  # Single-branch / shallow clones (`git clone --depth 1 -b release/v5`) only
+  # know about their own branch: register the target in the fetch config so
+  # it can be tracked and pulled by later updates, then fetch it explicitly.
+  FETCH_SPEC="+refs/heads/$TARGET_BRANCH:refs/remotes/origin/$TARGET_BRANCH"
+  if ! git config --get-all remote.origin.fetch | grep -qxF -e "$FETCH_SPEC" -e "+refs/heads/*:refs/remotes/origin/*"; then
+    git config --add remote.origin.fetch "$FETCH_SPEC"
+    echo "📌 Added $TARGET_BRANCH to this clone's fetch config (single-branch clone)"
+  fi
+  git fetch origin "+refs/heads/$TARGET_BRANCH:refs/remotes/origin/$TARGET_BRANCH" 2>&1 | tail -n 3 || fail "cannot fetch $TARGET_BRANCH from origin"
+  git rev-parse --verify -q "origin/$TARGET_BRANCH" >/dev/null || fail "origin/$TARGET_BRANCH not found after fetch"
   if git show-ref --verify --quiet "refs/heads/$TARGET_BRANCH"; then
     AHEAD=$(git rev-list --count "origin/$TARGET_BRANCH..$TARGET_BRANCH")
     [[ "$AHEAD" -gt 0 ]] && fail "local $TARGET_BRANCH has $AHEAD unpushed commit(s) - resolve manually"
@@ -126,7 +137,7 @@ if [[ -n "$TARGET_BRANCH" && "$TARGET_BRANCH" != "$BRANCH" ]]; then
   SUMMARY="switched to $TARGET_BRANCH"
 else
   # 2b. Fetch + compare (auto-discover remote state)
-  git fetch origin "$BRANCH" 2>&1 | tail -n 3 || fail "cannot reach origin - check network"
+  git fetch origin "+refs/heads/$BRANCH:refs/remotes/origin/$BRANCH" 2>&1 | tail -n 3 || fail "cannot reach origin - check network"
   BEHIND=$(git rev-list --count "HEAD..origin/$BRANCH")
   AHEAD=$(git rev-list --count "origin/$BRANCH..HEAD")
   echo "📌 Behind: $BEHIND, Ahead: $AHEAD"

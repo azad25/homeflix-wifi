@@ -168,7 +168,7 @@ func CheckUpdate() gin.HandlerFunc {
 
 		// Refresh remote refs (tolerate offline: fall back to last fetched state).
 		fetchErr := ""
-		if _, err := runGitCmd(repoRoot, 30*time.Second, "fetch", "origin", branch); err != nil {
+		if _, err := runGitCmd(repoRoot, 30*time.Second, "fetch", "origin", "+refs/heads/"+branch+":refs/remotes/origin/"+branch); err != nil {
 			fetchErr = err.Error()
 			log.Printf("⚠️ Update check: fetch failed (%v), using last known remote state", err)
 		}
@@ -204,7 +204,7 @@ func CheckUpdate() gin.HandlerFunc {
 		if list, err := remoteReleaseBranches(repoRoot); err == nil {
 			releases = list
 			if target := newerRelease(branch, list); target != "" {
-				if _, err := runGitCmd(repoRoot, 30*time.Second, "fetch", "origin", target); err == nil {
+				if _, err := runGitCmd(repoRoot, 30*time.Second, "fetch", "origin", "+refs/heads/"+target+":refs/remotes/origin/"+target); err == nil {
 					upgrade = gin.H{
 						"branch":  target,
 						"version": strings.TrimPrefix(target, "release/"),
@@ -239,6 +239,27 @@ func updateStatusStale(statusFile string) bool {
 	return err == nil && time.Since(fi.ModTime()) > updateStaleAfter
 }
 
+// updateJobRunning reports whether the status file describes a live job.
+// The script records its pid; if that process is gone (crash, reboot, kill)
+// the leftover "running" state must not block new updates.
+func updateJobRunning(statusFile string) (map[string]interface{}, bool) {
+	data, err := os.ReadFile(statusFile)
+	if err != nil {
+		return nil, false
+	}
+	var st map[string]interface{}
+	if json.Unmarshal(data, &st) != nil || st["state"] != "running" {
+		return st, false
+	}
+	if updateStatusStale(statusFile) {
+		return st, false
+	}
+	if pid, ok := st["pid"].(float64); ok && pid > 0 && !processAlive(int(pid)) {
+		return st, false
+	}
+	return st, true
+}
+
 func writeUpdateStatus(statusFile string, v map[string]interface{}) {
 	v["updated_at"] = time.Now().Format(time.RFC3339)
 	data, _ := json.MarshalIndent(v, "", "  ")
@@ -255,15 +276,11 @@ func ApplyUpdate() gin.HandlerFunc {
 			return
 		}
 
-		// Refuse concurrent runs.
-		if data, err := os.ReadFile(statusFile); err == nil {
-			var st map[string]interface{}
-			// A job killed mid-run (reboot, OOM) leaves "running" behind forever;
-			// treat it as stale after updateStaleAfter so updates aren't blocked.
-			if json.Unmarshal(data, &st) == nil && st["state"] == "running" && !updateStatusStale(statusFile) {
-				c.JSON(http.StatusOK, gin.H{"ok": false, "error": "an update is already running"})
-				return
-			}
+		// Refuse concurrent runs (but not a dead job's leftover status).
+		if st, running := updateJobRunning(statusFile); running {
+			c.JSON(http.StatusOK, gin.H{"ok": false, "already_running": true, "status": st,
+				"error": fmt.Sprintf("an update is already running (%v)", st["phase"])})
+			return
 		}
 
 		dryRun := c.Query("dry_run") == "1"
@@ -327,6 +344,11 @@ func ApplyUpdate() gin.HandlerFunc {
 			c.JSON(http.StatusOK, gin.H{"ok": false, "error": fmt.Sprintf("failed to launch updater: %v", err)})
 			return
 		}
+		// Record the job's pid right away (the script keeps it via exec).
+		writeUpdateStatus(statusFile, map[string]interface{}{
+			"state": "running", "phase": "starting", "dry_run": dryRun, "branch": targetBranch,
+			"message": "update job launched", "pid": real.Process.Pid,
+		})
 		_ = real.Process.Release()
 		log.Printf("🚀 System update job started (dry_run=%v, branch=%q)", dryRun, targetBranch)
 		c.JSON(http.StatusOK, gin.H{"ok": true, "started": true, "dry_run": dryRun, "branch": targetBranch})
@@ -350,6 +372,12 @@ func UpdateStatus() gin.HandlerFunc {
 		if json.Unmarshal(data, &st) != nil {
 			c.JSON(http.StatusOK, gin.H{"ok": true, "state": "idle"})
 			return
+		}
+		if st["state"] == "running" {
+			if _, alive := updateJobRunning(statusFile); !alive {
+				st["state"] = "error"
+				st["message"] = "the update job stopped unexpectedly - see update-log.txt on the server"
+			}
 		}
 		st["ok"] = true
 		c.JSON(http.StatusOK, st)
