@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"testing"
@@ -54,5 +55,37 @@ func TestUpdateJobRunningIgnoresDeadJobs(t *testing.T) {
 	write(`{"state":"done","pid":1}`)
 	if _, running := updateJobRunning(f); running {
 		t.Error("finished job is not running")
+	}
+}
+
+func TestFinalizeUpdateAfterRestart(t *testing.T) {
+	f := t.TempDir() + "/.update-status.json"
+	read := func() map[string]interface{} {
+		var st map[string]interface{}
+		data, _ := os.ReadFile(f)
+		_ = json.Unmarshal(data, &st)
+		return st
+	}
+	// Job killed by systemd mid-restart -> finalized as done on startup.
+	_ = os.WriteFile(f, []byte(`{"state":"running","phase":"restart","message":"Restarting services - switched to release/v5.5 on release/v5.5 abc123 feat: x","pid":999999999}`), 0644)
+	finalizeUpdateStatusFile(f)
+	st := read()
+	if st["state"] != "done" || st["phase"] != "done" {
+		t.Fatalf("not finalized: %v", st)
+	}
+	if msg, _ := st["message"].(string); msg != "Update complete - services restarted (switched to release/v5.5 on release/v5.5 abc123 feat: x)" {
+		t.Errorf("message: %q", msg)
+	}
+	// A job still building must be left alone.
+	_ = os.WriteFile(f, []byte(`{"state":"running","phase":"build-frontend"}`), 0644)
+	finalizeUpdateStatusFile(f)
+	if read()["state"] != "running" {
+		t.Error("in-progress build must not be finalized")
+	}
+	// Old-script message without details.
+	_ = os.WriteFile(f, []byte(`{"state":"running","phase":"restart","message":"Restarting services"}`), 0644)
+	finalizeUpdateStatusFile(f)
+	if m, _ := read()["message"].(string); m != "Update complete - services restarted" {
+		t.Errorf("message: %q", m)
 	}
 }
