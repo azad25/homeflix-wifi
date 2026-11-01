@@ -121,11 +121,19 @@ export function useHomeflixCast() {
   );
 
   const send = useCallback(async (deviceId: string, action: Action, extra: Record<string, unknown> = {}) => {
-    const res = await fetch(`${getApiUrl()}/api/cast/devices/${encodeURIComponent(deviceId)}/command`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Cast-Sender": senderLabel() },
-      body: JSON.stringify({ action, from: senderLabel(), ...extra }),
-    });
+    let res: Response;
+    try {
+      res = await fetch(`${getApiUrl()}/api/cast/devices/${encodeURIComponent(deviceId)}/command`, {
+        method: "POST",
+        // Only CORS-safelisted headers besides Content-Type: a custom header
+        // here fails the preflight on servers that don't allow it ("Failed to
+        // fetch"). The sender label travels in the body instead.
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, from: senderLabel(), ...extra }),
+      });
+    } catch {
+      throw new Error("Couldn't reach the HomeFlix server");
+    }
     const data = await res.json().catch(() => ({}));
     if (!res.ok || data?.ok === false) {
       throw new Error(data?.error || `TV command failed (${res.status})`);
