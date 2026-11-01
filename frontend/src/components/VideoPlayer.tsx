@@ -84,12 +84,17 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
   }, []);
   // Bumped on every load/close; a slower, superseded attach must not win
   const attachGenerationRef = useRef(0);
+  // Start position the current source was attached at (the browser / hls.js
+  // already begins there): the metadata handler must not seek again, or
+  // playback starts, re-seeks and rebuffers - the "stutter" on open.
+  const attachedStartRef = useRef<{ mediaId: number; start: number } | null>(null);
   const loadStreamSource = useCallback((video: HTMLVideoElement, mediaId: number, fallbackUrl: string) => {
     streamAttachRef.current?.destroy();
     streamAttachRef.current = null;
     const generation = ++attachGenerationRef.current;
     resolveStartPosition(mediaId).then((start) => {
       if (generation !== attachGenerationRef.current) return;
+      attachedStartRef.current = { mediaId, start };
       return attachStreamSource(video, mediaId, fallbackUrl, start).then((attached) => {
         if (generation !== attachGenerationRef.current) {
           attached.destroy();
@@ -3435,16 +3440,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                 // INSTANT auto-play for new media with zero delay and audio enabled
                 if (!hasInitiallyLoaded && video.currentTime === 0) {
                   // Activate audio context before playing
-                  const playWithAudio = async () => {
-                    try {
-                      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-                      if (audioContext.state === 'suspended') {
-                        await audioContext.resume();
-                      }
-                    } catch (error) {
-                      // Audio context activation failed for autoplay
-                    }
-
+                  const playWithAudio = () => {
                     // Ensure audio is enabled
                     video.muted = false;
                     video.volume = volume > 0 ? volume : 1.0;
@@ -3538,15 +3534,21 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
 
               setDuration(videoDuration);
 
-              // Initialize progress if it doesn't exist
-              try {
-                await initializePlaybackProgress(media.id);
-              } catch (error) {
-                // Failed to initialize progress, continuing anyway
-              }
+              // Initialize progress if it doesn't exist (never blocks startup)
+              initializePlaybackProgress(media.id).catch(() => { });
 
-              // Load saved progress or use provided start time - ONLY on initial load
-              if (!hasInitiallyLoaded) {
+              // The source was attached at its start position already: only
+              // sync state (and correct the position if the browser ignored it)
+              const attached = attachedStartRef.current;
+              if (!hasInitiallyLoaded && attached && attached.mediaId === media.id) {
+                if (attached.start > 0 && Math.abs(video.currentTime - attached.start) > 3) {
+                  video.currentTime = attached.start;
+                }
+                setCurrentTime(attached.start);
+                setResumeTime(attached.start);
+                setHasInitiallyLoaded(true);
+              } else if (!hasInitiallyLoaded) {
+                // Load saved progress or use provided start time - ONLY on initial load
                 try {
                   // Only auto-seek on initial load when video is at beginning
                   if (video.currentTime < 5) {
@@ -3627,23 +3629,9 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                 setIsMuted(false);
                 setVolume(video.volume);
 
-                // Chrome audio context activation
-                const activateAudioContext = async () => {
-                  try {
-                    const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-                    if (audioContext.state === 'suspended') {
-                      await audioContext.resume();
-                    }
-                  } catch (error) {
-                    // Audio context activation failed
-                  }
-                };
-
-                activateAudioContext();
-
                 // Handle seeking based on flags
                 if (!hasInitiallyLoaded && video.currentTime < 5) {
-                  if (forceStartFromBeginning) {
+                  if (forceStartFromBeginning && video.currentTime > 0.5) {
                     // Force start from beginning - set to 0
                     video.currentTime = 0;
                     setCurrentTime(0);
@@ -3668,7 +3656,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                 // Auto-play for new episodes with audio enabled
                 if (!hasInitiallyLoaded && video.paused) {
                   // Ensure we're at the right position before playing
-                  if (forceStartFromBeginning) {
+                  if (forceStartFromBeginning && video.currentTime > 0.5) {
                     video.currentTime = 0;
                   }
 
