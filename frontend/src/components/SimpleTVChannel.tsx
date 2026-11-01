@@ -504,7 +504,7 @@ const SimpleTVChannel: React.FC = () => {
                             e.stopPropagation();
                             navigate.push("/");
                         }}
-                        className="text-white hover:text-red-400 text-xl font-bold tracking-wider drop-shadow-lg transition-colors duration-200"
+                        className="text-white hover:text-white text-xl font-bold tracking-wider drop-shadow-lg transition-colors duration-200"
                     >
                         HOMEFLIX
                     </button>
@@ -516,7 +516,7 @@ const SimpleTVChannel: React.FC = () => {
                                 e.stopPropagation();
                                 navigate.push(currentVideo.navigate_path || "/");
                             }}
-                            className="text-white hover:text-red-400 text-2xl font-semibold leading-tight drop-shadow-lg transition-colors duration-200 line-clamp-2"
+                            className="text-white hover:text-white text-2xl font-semibold leading-tight drop-shadow-lg transition-colors duration-200 line-clamp-2"
                         >
                             {currentVideo.title}
                         </button>

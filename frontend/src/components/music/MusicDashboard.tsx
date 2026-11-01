@@ -82,8 +82,8 @@ export default function MusicDashboard() {
     title, 
     value, 
     subtitle, 
-    gradient = 'from-red-500 to-red-600',
-    iconBg = 'from-red-500/20 to-red-600/20'
+    gradient = 'from-white/20 to-white/20',
+    iconBg = 'from-white/20 to-white/20'
   }: {
     icon: React.ElementType;
     title: string;
@@ -92,18 +92,18 @@ export default function MusicDashboard() {
     gradient?: string;
     iconBg?: string;
   }) => (
-    <div className="relative bg-gradient-to-br from-gray-900/80 to-red-900/40 rounded-2xl p-6 hover:from-gray-800/90 hover:to-red-800/50 transition-all duration-300 border border-red-800/30 hover:border-red-600/50 shadow-lg hover:shadow-2xl hover:shadow-red-900/20 transform hover:-translate-y-1 overflow-hidden group">
+    <div className="relative bg-gradient-to-br from-gray-900/80 to-white/[0.04] rounded-2xl p-6 hover:from-gray-800/90 hover:to-white/[0.04] transition-all duration-300 border border-white/10 hover:border-white/30 shadow-lg hover:shadow-2xl hover:shadow-black/40 transform hover:-translate-y-1 overflow-hidden group">
       {/* Decorative gradient orb */}
       <div className={`absolute -top-10 -right-10 w-32 h-32 bg-gradient-to-br ${gradient} rounded-full blur-3xl opacity-20 group-hover:opacity-30 transition-opacity`} />
       
       <div className="relative flex items-start justify-between">
         <div className="flex-1">
-          <div className={`inline-flex p-4 rounded-xl bg-gradient-to-br ${iconBg} border border-red-700/30 mb-4 group-hover:scale-110 transition-transform`}>
-            <Icon size={28} className={`bg-gradient-to-br ${gradient} bg-clip-text text-transparent`} style={{ WebkitTextFillColor: 'transparent', WebkitBackgroundClip: 'text' }} />
+          <div className={`inline-flex p-4 rounded-xl bg-gradient-to-br ${iconBg} border border-white/10 mb-4 group-hover:scale-110 transition-transform`}>
+ <Icon size={28} className={`${gradient} text-white`} style={{ WebkitTextFillColor: 'transparent', WebkitBackgroundClip: 'text' }} />
           </div>
-          <h3 className="text-4xl font-black text-white mb-2 bg-gradient-to-r from-white to-red-100 bg-clip-text text-transparent">{value}</h3>
-          <p className="text-red-300/80 font-semibold text-sm">{title}</p>
-          {subtitle && <p className="text-red-400/50 text-xs mt-1 font-medium">{subtitle}</p>}
+ <h3 className="text-4xl font-black text-white mb-2 from-white text-white">{value}</h3>
+          <p className="text-white/60 font-semibold text-sm">{title}</p>
+          {subtitle && <p className="text-white/50 text-xs mt-1 font-medium">{subtitle}</p>}
         </div>
       </div>
     </div>
@@ -114,12 +114,12 @@ export default function MusicDashboard() {
       <div className="space-y-8">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
           {[...Array(4)].map((_, i) => (
-            <div key={i} className="bg-gradient-to-br from-gray-900/80 to-red-900/40 rounded-2xl p-6 animate-pulse border border-red-800/30 shadow-lg">
+            <div key={i} className="bg-gradient-to-br from-gray-900/80 to-white/[0.04] rounded-2xl p-6 animate-pulse border border-white/10 shadow-lg">
               <div className="flex flex-col gap-4">
-                <div className="w-16 h-16 bg-red-900/50 rounded-xl"></div>
+                <div className="w-16 h-16 bg-white/[0.05] rounded-xl"></div>
                 <div className="space-y-3">
-                  <div className="h-8 w-20 bg-red-900/50 rounded"></div>
-                  <div className="h-4 w-32 bg-red-900/50 rounded"></div>
+                  <div className="h-8 w-20 bg-white/[0.05] rounded"></div>
+                  <div className="h-4 w-32 bg-white/[0.05] rounded"></div>
                 </div>
               </div>
             </div>
@@ -132,17 +132,17 @@ export default function MusicDashboard() {
   return (
     <div className="space-y-8 pb-24">
       {/* Welcome Banner */}
-      <div className="relative bg-gradient-to-r from-red-600 via-red-700 to-red-800 rounded-2xl p-8 overflow-hidden shadow-2xl">
+      <div className="relative bg-gradient-to-r from-white/20 via-white/20 to-zinc-900 rounded-2xl p-8 overflow-hidden shadow-2xl">
         <div className="absolute inset-0 bg-[url('/noise.png')] opacity-10" />
-        <div className="absolute top-0 right-0 w-64 h-64 bg-red-500/20 rounded-full blur-3xl" />
-        <div className="absolute bottom-0 left-0 w-48 h-48 bg-red-900/30 rounded-full blur-3xl" />
+        <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full blur-3xl" />
+        <div className="absolute bottom-0 left-0 w-48 h-48 bg-white/[0.05] rounded-full blur-3xl" />
         
         <div className="relative">
           <div className="flex items-center gap-3 mb-4">
             <Headphones size={32} className="text-white" />
             <h1 className="text-3xl font-black text-white">Your Music Dashboard</h1>
           </div>
-          <p className="text-red-100 text-lg font-medium">Track your listening habits and discover new favorites</p>
+          <p className="text-white/70 text-lg font-medium">Track your listening habits and discover new favorites</p>
         </div>
       </div>
 
@@ -162,8 +162,8 @@ export default function MusicDashboard() {
           title="Liked Songs"
           value={stats.likedTracks}
           subtitle="Your favorites"
-          gradient="from-red-500 to-pink-600"
-          iconBg="from-red-500/20 to-pink-600/20"
+          gradient="from-white/20 to-white/20"
+          iconBg="from-white/20 to-white/20"
         />
         
         <StatCard
@@ -187,20 +187,20 @@ export default function MusicDashboard() {
 
       {/* Top Tracks */}
       {topTracks.length > 0 && (
-        <div className="bg-gradient-to-br from-gray-900/80 to-red-900/40 rounded-2xl p-8 border border-red-800/30 shadow-lg">
+        <div className="bg-gradient-to-br from-gray-900/80 to-white/[0.04] rounded-2xl p-8 border border-white/10 shadow-lg">
           <div className="flex items-center justify-between mb-8">
             <div className="flex items-center gap-4">
-              <div className="p-3 rounded-xl bg-gradient-to-br from-red-500/20 to-red-600/20 border border-red-700/30">
-                <TrendingUp className="text-red-400" size={28} />
+              <div className="p-3 rounded-xl bg-gradient-to-br from-white/20 to-white/20 border border-white/10">
+                <TrendingUp className="text-white" size={28} />
               </div>
               <div>
-                <h2 className="text-3xl font-black bg-gradient-to-r from-red-400 via-red-500 to-red-600 bg-clip-text text-transparent">Trending Tracks</h2>
-                <p className="text-red-300/70 text-sm font-medium">Most popular right now</p>
+ <h2 className="text-3xl font-black text-white">Trending Tracks</h2>
+                <p className="text-white/60 text-sm font-medium">Most popular right now</p>
               </div>
             </div>
             <button 
               onClick={() => playTrack(topTracks[0], topTracks)}
-              className="flex items-center gap-2 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 text-white px-6 py-3 rounded-full font-bold transition-all duration-300 transform hover:scale-105 shadow-lg"
+              className="flex items-center gap-2 bg-gradient-to-r from-white/20 to-white/20 hover:from-white/30 hover:to-white/30 text-white px-6 py-3 rounded-full font-bold transition-all duration-300 transform hover:scale-105 shadow-lg"
             >
               <PlayCircle size={20} />
               Play All
@@ -215,14 +215,14 @@ export default function MusicDashboard() {
                 <div
                   key={track.youtube_id || index}
                   onClick={() => playTrack(track, topTracks)}
-                  className="flex items-center gap-6 p-4 rounded-xl bg-gradient-to-r from-gray-900/50 to-red-900/20 hover:from-gray-800/60 hover:to-red-800/30 transition-all duration-300 group cursor-pointer border border-red-800/20 hover:border-red-600/40"
+                  className="flex items-center gap-6 p-4 rounded-xl bg-gradient-to-r from-gray-900/50 to-white/[0.04] hover:from-gray-800/60 hover:to-white/[0.04] transition-all duration-300 group cursor-pointer border border-white/10 hover:border-white/30"
                 >
                   <div className="relative">
                     <div className={`text-2xl font-black w-12 h-12 flex items-center justify-center rounded-lg ${
                       index === 0 ? 'bg-gradient-to-br from-yellow-400 to-yellow-600 text-black' :
                       index === 1 ? 'bg-gradient-to-br from-gray-300 to-gray-500 text-black' :
                       index === 2 ? 'bg-gradient-to-br from-orange-400 to-orange-600 text-black' :
-                      'bg-gradient-to-br from-red-900/50 to-red-800/50 text-red-300'
+                      'bg-gradient-to-br from-white/[0.04] to-white/[0.04] text-white/60'
                     }`}>
                       #{index + 1}
                     </div>
@@ -237,20 +237,20 @@ export default function MusicDashboard() {
                     {isPlaying && (
                       <div className="absolute inset-0 bg-black/50 rounded-xl flex items-center justify-center">
                         <div className="flex gap-1">
-                          <div className="w-1 h-3 bg-red-500 rounded animate-pulse" />
-                          <div className="w-1 h-4 bg-red-500 rounded animate-pulse" style={{ animationDelay: '150ms' }} />
-                          <div className="w-1 h-2 bg-red-500 rounded animate-pulse" style={{ animationDelay: '300ms' }} />
+                          <div className="w-1 h-3 bg-white rounded animate-pulse" />
+                          <div className="w-1 h-4 bg-white rounded animate-pulse" style={{ animationDelay: '150ms' }} />
+                          <div className="w-1 h-2 bg-white rounded animate-pulse" style={{ animationDelay: '300ms' }} />
                         </div>
                       </div>
                     )}
                   </div>
                   
                   <div className="flex-1 min-w-0">
-                    <h3 className="text-white font-bold text-lg truncate group-hover:text-red-300 transition-colors">{track.title}</h3>
-                    <p className="text-red-300/80 text-sm truncate font-medium">{track.artist}</p>
+                    <h3 className="text-white font-bold text-lg truncate group-hover:text-white transition-colors">{track.title}</h3>
+                    <p className="text-white/60 text-sm truncate font-medium">{track.artist}</p>
                   </div>
                   
-                  <div className="flex items-center gap-6 text-red-300/70 text-sm font-medium">
+                  <div className="flex items-center gap-6 text-white/60 text-sm font-medium">
                     <div className="flex items-center gap-2">
                       <Users size={16} />
                       <span>{MusicAPI.formatNumber(track.view_count)}</span>
@@ -268,9 +268,9 @@ export default function MusicDashboard() {
       )}
 
       {/* Quick Actions */}
-      <div className="bg-gradient-to-br from-gray-900/80 to-red-900/40 rounded-2xl p-8 border border-red-800/30 shadow-lg">
+      <div className="bg-gradient-to-br from-gray-900/80 to-white/[0.04] rounded-2xl p-8 border border-white/10 shadow-lg">
         <h2 className="text-2xl font-black text-white mb-6 flex items-center gap-3">
-          <Radio size={28} className="text-red-400" />
+          <Radio size={28} className="text-white" />
           Quick Actions
         </h2>
         
@@ -285,13 +285,13 @@ export default function MusicDashboard() {
             </div>
           </button>
           
-          <button className="flex items-center gap-4 p-6 bg-gradient-to-br from-red-900/30 to-pink-900/30 hover:from-red-800/40 hover:to-pink-800/40 rounded-xl transition-all duration-300 border border-red-700/30 hover:border-red-600/50 group transform hover:-translate-y-1 shadow-lg hover:shadow-red-900/20">
-            <div className="p-3 rounded-lg bg-red-500/20 group-hover:bg-red-500/30 transition-colors">
+          <button className="flex items-center gap-4 p-6 bg-gradient-to-br from-white/[0.04] to-white/[0.06] hover:from-white/[0.06] hover:to-white/[0.1] rounded-xl transition-all duration-300 border border-white/10 hover:border-white/30 group transform hover:-translate-y-1 shadow-lg hover:shadow-black/40">
+            <div className="p-3 rounded-lg bg-white/10 group-hover:bg-red-500/30 transition-colors">
               <Heart className="text-red-400" size={24} />
             </div>
             <div className="text-left">
               <span className="text-white font-bold text-lg block">Liked Songs</span>
-              <span className="text-red-300/70 text-sm">Your favorites</span>
+              <span className="text-white/60 text-sm">Your favorites</span>
             </div>
           </button>
           

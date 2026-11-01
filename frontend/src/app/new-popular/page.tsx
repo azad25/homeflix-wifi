@@ -120,7 +120,7 @@ const NewPopularPage: React.FC = () => {
           <p className="text-gray-400 mb-6">{error}</p>
           <button
             onClick={() => window.location.reload()}
-            className="px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+            className="px-6 py-3 bg-[#f5f5f7] text-black rounded-lg hover:bg-white transition-colors"
           >
             Try Again
           </button>

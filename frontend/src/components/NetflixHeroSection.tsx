@@ -263,7 +263,7 @@ const NetflixHeroSection: React.FC<NetflixHeroSectionProps> = ({
               transition={{ duration: 0.8, delay: 0.4 }}
               className="flex items-center gap-4 text-white/90 mb-6"
             >
-              <span className="bg-red-600 text-white px-3 py-1 rounded text-sm font-bold">
+              <span className="bg-white/15 text-white px-3 py-1 rounded text-sm font-bold">
                 {currentMedia.type.toUpperCase()}
               </span>
               <span className="flex items-center gap-1 text-green-400 font-semibold">

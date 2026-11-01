@@ -1021,7 +1021,7 @@ const HomeflixHero: React.FC<HomeflixHeroProps> = ({
                         overflow: visible !important;
                     }
                     .thumbnail-slider .splide__slide.is-active {
-                        border: 2px solid #ef4444 !important;
+                        border: 2px solid rgba(255,255,255,0.9) !important;
                         border-radius: 0.25rem !important;
                     }
                 `}</style>

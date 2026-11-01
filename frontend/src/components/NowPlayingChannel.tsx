@@ -881,7 +881,7 @@ const NowPlayingChannel: React.FC = () => {
               e.stopPropagation();
               navigate.push("/");
             }}
-            className="text-white hover:text-red-400 text-lg lg:text-xl font-bold tracking-wider drop-shadow-lg transition-colors duration-200 cursor-pointer"
+            className="text-white hover:text-white text-lg lg:text-xl font-bold tracking-wider drop-shadow-lg transition-colors duration-200 cursor-pointer"
           >
             HOMEFLIX
           </button>
@@ -986,7 +986,7 @@ const NowPlayingChannel: React.FC = () => {
               <h2 className="text-red text-lg lg:text-xl font-bold mb-1">
                 <button
                   onClick={() => navigate.push("/")}
-                  className="text-red-500 hover:text-red-400 text-xl lg:text-2xl font-bold tracking-wider drop-shadow-lg transition-colors duration-200 cursor-pointer">
+                  className="text-white/70 hover:text-white text-xl lg:text-2xl font-bold tracking-wider drop-shadow-lg transition-colors duration-200 cursor-pointer">
                   HomeFlix TV
                 </button></h2>
               <p className="text-gray-400 text-xs lg:text-sm truncate">

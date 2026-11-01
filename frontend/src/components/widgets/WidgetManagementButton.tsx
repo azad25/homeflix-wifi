@@ -36,7 +36,7 @@ export default function WidgetManagementButton({
         {showPerformance && (
           <button
             onClick={() => setShowPerf(true)}
-            className="bg-gradient-to-r from-red-600/20 to-red-700/20 hover:from-red-600/30 hover:to-red-700/30 backdrop-blur-xl border border-red-500/20 text-white p-3 rounded-2xl shadow-2xl transition-all duration-200 hover:scale-110"
+            className="bg-gradient-to-r from-red-600/20 to-red-700/20 hover:from-red-600/30 hover:to-red-700/30 backdrop-blur-xl border border-white/20 text-white p-3 rounded-2xl shadow-2xl transition-all duration-200 hover:scale-110"
             title="Widget Performance"
           >
             <BarChart3 className="w-5 h-5" />

@@ -1701,7 +1701,7 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
     <div className={`space-y-3 ${className}`}>
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-lg font-semibold text-white flex items-center gap-2">
-          <Bell className="w-5 h-5 text-red-400" />
+          <Bell className="w-5 h-5 text-white/70" />
           Recent Updates
         </h3>
         <div className="text-sm text-white/60">

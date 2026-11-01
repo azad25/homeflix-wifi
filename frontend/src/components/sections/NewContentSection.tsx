@@ -38,7 +38,7 @@ export const NewContentSection: React.FC<NewContentSectionProps> = ({
         className="mb-8"
       >
         <div className="flex items-center gap-3 mb-2">
-          <Calendar className="w-6 h-6 text-red-500" />
+          <Calendar className="w-6 h-6 text-white/70" />
           <h2 className="text-2xl md:text-3xl font-bold text-white">
             New Releases
           </h2>

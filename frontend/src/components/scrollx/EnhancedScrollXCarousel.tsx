@@ -284,7 +284,7 @@ const EnhancedMediaCard: React.FC<any> = ({
       >
         {/* Rank Badge */}
         {showRankBadges && index < 10 && (
-          <div className="absolute top-2 left-2 z-10 bg-red-600 text-white text-xs font-bold px-2 py-1 rounded-full">
+          <div className="absolute top-2 left-2 z-10 bg-white/15 text-white text-xs font-bold px-2 py-1 rounded-full">
             #{index + 1}
           </div>
         )}
@@ -406,7 +406,7 @@ const EnhancedMediaCard: React.FC<any> = ({
                 handleClick();
               }}
               disabled={isLoading}
-              className={`flex-1 bg-red-600 text-white px-4 py-2 rounded-lg font-bold transition-all duration-200 text-sm flex items-center justify-center ${
+              className={`flex-1 bg-white/15 text-white px-4 py-2 rounded-lg font-bold transition-all duration-200 text-sm flex items-center justify-center ${
                 isLoading 
                   ? 'opacity-75 cursor-wait bg-red-700' 
                   : 'hover:bg-red-500 hover:cursor-pointer cursor-pointer'

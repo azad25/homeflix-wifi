@@ -120,7 +120,7 @@ function TrendingCard({ item, index, isInMyList, toggleMyList, onCardClick, tmdb
                 <div className="relative w-full h-full rounded-md overflow-hidden shadow-2xl border border-white/5 group-hover:border-white/20 transition-colors bg-gray-900">
                     {/* Coming Soon Tag */}
                     {isComingSoon(item) && (
-                        <div className="absolute top-2 right-2 bg-red-600 text-white text-[9px] font-bold px-1.5 py-0.5 rounded shadow z-[60] tracking-wider pointer-events-none">
+                        <div className="absolute top-2 right-2 bg-white/15 text-white text-[9px] font-bold px-1.5 py-0.5 rounded shadow z-[60] tracking-wider pointer-events-none">
                             COMING SOON
                         </div>
                     )}

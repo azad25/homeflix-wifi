@@ -115,7 +115,7 @@ const EnhancedHorizontalRow: React.FC<EnhancedHorizontalRowProps> = ({
       {/* Title */}
       {showTitle && (
         <div className="px-4 md:px-8 lg:px-16 mb-4 sm:mb-6 relative z-[60]">
-          <h2 className="text-white text-xl sm:text-2xl md:text-3xl font-bold hover:text-red-400 transition-colors cursor-pointer bg-black/30 backdrop-blur-sm px-4 sm:px-6 py-2 sm:py-3 rounded-xl inline-block border border-red-900/20">
+          <h2 className="text-white text-xl sm:text-2xl md:text-3xl font-bold hover:text-white transition-colors cursor-pointer bg-black/30 backdrop-blur-sm px-4 sm:px-6 py-2 sm:py-3 rounded-xl inline-block border border-red-900/20">
             {title}
           </h2>
         </div>
@@ -134,7 +134,7 @@ const EnhancedHorizontalRow: React.FC<EnhancedHorizontalRowProps> = ({
             >
               <MagneticButton
                 onClick={scrollLeft}
-                className="bg-black/95 backdrop-blur-md text-white p-4 rounded-full hover:bg-red-600/90 transition-all duration-300 border border-red-900/50 shadow-2xl ring-2 ring-black/20"
+                className="bg-black/95 backdrop-blur-md text-white p-4 rounded-full hover:bg-white/20 transition-all duration-300 border border-white/10 shadow-2xl ring-2 ring-black/20"
               >
                 <ChevronLeft className="w-6 h-6" />
               </MagneticButton>
@@ -153,7 +153,7 @@ const EnhancedHorizontalRow: React.FC<EnhancedHorizontalRowProps> = ({
             >
               <MagneticButton
                 onClick={scrollRight}
-                className="bg-black/95 backdrop-blur-md text-white p-4 rounded-full hover:bg-red-600/90 transition-all duration-300 border border-red-900/50 shadow-2xl ring-2 ring-black/20"
+                className="bg-black/95 backdrop-blur-md text-white p-4 rounded-full hover:bg-white/20 transition-all duration-300 border border-white/10 shadow-2xl ring-2 ring-black/20"
               >
                 <ChevronRight className="w-6 h-6" />
               </MagneticButton>

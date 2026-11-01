@@ -83,7 +83,7 @@ export default function PlaylistManager({ onPlaylistSelect }: PlaylistManagerPro
         <h2 className="text-2xl font-bold text-white">Your Playlists</h2>
         <button
           onClick={() => setShowCreateModal(true)}
-          className="flex items-center gap-2 bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-lg transition-colors"
+          className="flex items-center gap-2 bg-green-500 hover:bg-black/55 text-white backdrop-blur-md px-4 py-2 rounded-lg transition-colors"
         >
           <Plus size={20} />
           Create Playlist
@@ -141,7 +141,7 @@ export default function PlaylistManager({ onPlaylistSelect }: PlaylistManagerPro
           <p className="text-gray-400 mb-6">Create your first playlist to organize your favorite songs</p>
           <button
             onClick={() => setShowCreateModal(true)}
-            className="bg-green-500 hover:bg-green-600 text-white px-6 py-3 rounded-lg transition-colors"
+            className="bg-green-500 hover:bg-black/55 text-white backdrop-blur-md px-6 py-3 rounded-lg transition-colors"
           >
             Create Your First Playlist
           </button>
@@ -231,7 +231,7 @@ export default function PlaylistManager({ onPlaylistSelect }: PlaylistManagerPro
                 <div className="flex gap-3 mb-4">
                   <button
                     onClick={() => handlePlayPlaylist(selectedPlaylist)}
-                    className="flex items-center gap-2 bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-lg transition-colors"
+                    className="flex items-center gap-2 bg-green-500 hover:bg-black/55 text-white backdrop-blur-md px-4 py-2 rounded-lg transition-colors"
                   >
                     <Play size={20} />
                     Play All

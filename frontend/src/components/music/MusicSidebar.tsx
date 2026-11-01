@@ -76,25 +76,25 @@ export default function MusicSidebar({ className = '' }: MusicSidebarProps) {
 
   if (!currentTrack) {
     return (
-      <div className={`w-96 bg-gradient-to-b from-black via-red-950 to-black border-l border-red-800/30 flex flex-col overflow-y-auto ${className}`}>
+      <div className={`w-96 bg-gradient-to-b from-black via-zinc-900 to-black border-l border-white/10 flex flex-col overflow-y-auto ${className}`}>
         <div className="p-8 text-center">
-          <Music size={80} className="mx-auto text-red-600/50 mb-6" />
+          <Music size={80} className="mx-auto text-white/20 mb-6" />
           <h3 className="text-white font-semibold text-xl mb-3">No music playing</h3>
-          <p className="text-red-300 text-sm">Select a song to start listening</p>
+          <p className="text-white/60 text-sm">Select a song to start listening</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className={`w-96 bg-gradient-to-b from-black via-red-950 to-black border-l border-red-800/30 flex flex-col overflow-y-auto ${className} backdrop-blur-sm`}>
+    <div className={`w-96 bg-gradient-to-b from-black via-zinc-900 to-black border-l border-white/10 flex flex-col overflow-y-auto ${className} backdrop-blur-sm`}>
       {/* Now Playing Header */}
-      <div className="p-6 border-b border-red-800/30 flex-shrink-0">
+      <div className="p-6 border-b border-white/10 flex-shrink-0">
         <div className="flex items-center justify-between">
-          <h2 className="text-white font-bold text-xl bg-gradient-to-r from-red-400 to-red-600 bg-clip-text text-transparent">Now Playing</h2>
+ <h2 className="text-white font-bold text-xl text-white">Now Playing</h2>
           <button
             onClick={() => setShowQueue(!showQueue)}
-            className="text-red-300 hover:text-white transition-colors transform hover:scale-110"
+            className="text-white/60 hover:text-white transition-colors transform hover:scale-110"
           >
             <List size={24} />
           </button>
@@ -108,10 +108,10 @@ export default function MusicSidebar({ className = '' }: MusicSidebarProps) {
             <img
               src={currentTrack.thumbnail_url}
               alt={currentTrack.title}
-              className="w-full aspect-square rounded-2xl object-cover shadow-2xl border border-red-800/20"
+              className="w-full aspect-square rounded-2xl object-cover shadow-2xl border border-white/10"
             />
             {isPlaying && (
-              <div className="absolute top-4 right-4 bg-gradient-to-r from-red-500 to-red-600 rounded-full p-3 shadow-lg">
+              <div className="absolute top-4 right-4 bg-gradient-to-r from-white/20 to-white/20 rounded-full p-3 shadow-lg">
                 <div className="flex gap-1">
                   <div className="w-1 h-3 bg-white rounded animate-pulse" style={{ animationDelay: '0ms' }} />
                   <div className="w-1 h-4 bg-white rounded animate-pulse" style={{ animationDelay: '150ms' }} />
@@ -127,8 +127,8 @@ export default function MusicSidebar({ className = '' }: MusicSidebarProps) {
           <h3 className="text-white font-bold text-2xl leading-tight line-clamp-2">
             {currentTrack.title}
           </h3>
-          <p className="text-red-300 text-lg font-medium">{currentTrack.artist}</p>
-          <div className="flex items-center justify-center gap-4 text-sm text-red-400">
+          <p className="text-white/60 text-lg font-medium">{currentTrack.artist}</p>
+          <div className="flex items-center justify-center gap-4 text-sm text-white">
             <span>{MusicAPI.formatNumber(currentTrack.view_count)} views</span>
             <span>•</span>
             <span>{MusicAPI.formatDuration(currentTrack.duration)}</span>
@@ -138,11 +138,11 @@ export default function MusicSidebar({ className = '' }: MusicSidebarProps) {
 
       {/* Progress Bar */}
       <div className="px-8 mb-6">
-        <div className="flex items-center gap-3 text-sm text-red-300 mb-3">
+        <div className="flex items-center gap-3 text-sm text-white/60 mb-3">
           <span className="font-mono">{formatTime(currentTime)}</span>
-          <div className="flex-1 bg-red-900/30 rounded-full h-2 cursor-pointer">
+          <div className="flex-1 bg-white/[0.05] rounded-full h-2 cursor-pointer">
             <div
-              className="bg-gradient-to-r from-red-500 to-red-600 rounded-full h-2 transition-all duration-300 shadow-sm"
+              className="bg-gradient-to-r from-white/20 to-white/20 rounded-full h-2 transition-all duration-300 shadow-sm"
               style={{ width: `${duration > 0 ? (currentTime / duration) * 100 : 0}%` }}
             />
           </div>
@@ -155,35 +155,35 @@ export default function MusicSidebar({ className = '' }: MusicSidebarProps) {
         <div className="flex items-center justify-center gap-4 mb-6">
           <button
             onClick={toggleShuffle}
-            className={`transition-all transform hover:scale-110 ${shuffle ? 'text-red-500' : 'text-red-300 hover:text-white'}`}
+            className={`transition-all transform hover:scale-110 ${shuffle ? 'text-white' : 'text-white/60 hover:text-white'}`}
           >
             <Shuffle size={24} />
           </button>
           
           <button
             onClick={previousTrack}
-            className="text-red-300 hover:text-white transition-colors transform hover:scale-110"
+            className="text-white/60 hover:text-white transition-colors transform hover:scale-110"
           >
             <SkipBack size={32} />
           </button>
           
           <button
             onClick={handlePlayPause}
-            className="bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 text-white rounded-full p-4 transform hover:scale-110 transition-all duration-300 shadow-lg"
+            className="bg-gradient-to-r from-white/20 to-white/20 hover:from-white/30 hover:to-white/30 text-white rounded-full p-4 transform hover:scale-110 transition-all duration-300 shadow-lg"
           >
             {isPlaying ? <Pause size={32} /> : <Play size={32} className="ml-1" />}
           </button>
           
           <button
             onClick={nextTrack}
-            className="text-red-300 hover:text-white transition-colors transform hover:scale-110"
+            className="text-white/60 hover:text-white transition-colors transform hover:scale-110"
           >
             <SkipForward size={32} />
           </button>
           
           <button
             onClick={toggleRepeat}
-            className={`transition-all transform hover:scale-110 ${repeat !== 'none' ? 'text-red-500' : 'text-red-300 hover:text-white'}`}
+            className={`transition-all transform hover:scale-110 ${repeat !== 'none' ? 'text-white' : 'text-white/60 hover:text-white'}`}
           >
             <Repeat size={24} />
           </button>
@@ -194,13 +194,13 @@ export default function MusicSidebar({ className = '' }: MusicSidebarProps) {
           {/* Like Button */}
           <button
             onClick={handleLikeTrack}
-            className="text-red-300 hover:text-red-400 transition-colors transform hover:scale-110"
+            className="text-white/60 hover:text-white transition-colors transform hover:scale-110"
           >
             <Heart size={28} className={isLiked ? 'fill-red-500 text-red-500' : ''} />
           </button>
 
           {/* More Options */}
-          <button className="text-red-300 hover:text-white transition-colors transform hover:scale-110">
+          <button className="text-white/60 hover:text-white transition-colors transform hover:scale-110">
             <MoreHorizontal size={28} />
           </button>
         </div>
@@ -209,7 +209,7 @@ export default function MusicSidebar({ className = '' }: MusicSidebarProps) {
         <div className="flex items-center gap-4">
           <button
             onClick={toggleMute}
-            className="text-red-300 hover:text-white transition-colors transform hover:scale-110"
+            className="text-white/60 hover:text-white transition-colors transform hover:scale-110"
           >
             {isMuted || volume === 0 ? <VolumeX size={24} /> : <Volume2 size={24} />}
           </button>
@@ -222,7 +222,7 @@ export default function MusicSidebar({ className = '' }: MusicSidebarProps) {
               step="0.01"
               value={volume}
               onChange={handleVolumeChange}
-              className="w-full h-2 bg-red-900/30 rounded-lg appearance-none cursor-pointer slider"
+              className="w-full h-2 bg-white/[0.05] rounded-lg appearance-none cursor-pointer slider"
             />
           </div>
         </div>
@@ -230,19 +230,19 @@ export default function MusicSidebar({ className = '' }: MusicSidebarProps) {
 
       {/* Queue Section */}
       {showQueue && (
-        <div className="flex-1 border-t border-red-800/30 overflow-hidden">
+        <div className="flex-1 border-t border-white/10 overflow-hidden">
           <div className="p-6">
             <div className="flex items-center justify-between mb-6">
               <h3 className="text-white font-semibold text-lg">Queue</h3>
-              <span className="text-red-300 text-sm bg-red-900/30 px-3 py-1 rounded-full">{queue.length} songs</span>
+              <span className="text-white/60 text-sm bg-white/[0.05] px-3 py-1 rounded-full">{queue.length} songs</span>
             </div>
             
             <div className="space-y-3 max-h-80 overflow-y-auto">
               {queue.map((track, index) => (
                 <div
                   key={`${track.id}-${index}`}
-                  className={`flex items-center gap-4 p-3 rounded-xl hover:bg-red-900/20 transition-all duration-300 ${
-                    track.id === currentTrack.id ? 'bg-red-900/30 border-l-4 border-red-500' : ''
+                  className={`flex items-center gap-4 p-3 rounded-xl hover:bg-white/[0.05] transition-all duration-300 ${
+                    track.id === currentTrack.id ? 'bg-white/[0.05] border-l-4 border-white/10' : ''
                   }`}
                 >
                   <div className="w-12 h-12 relative">
@@ -254,9 +254,9 @@ export default function MusicSidebar({ className = '' }: MusicSidebarProps) {
                     {track.id === currentTrack.id && isPlaying && (
                       <div className="absolute inset-0 bg-black/50 flex items-center justify-center rounded-lg">
                         <div className="flex gap-1">
-                          <div className="w-1 h-2 bg-red-500 rounded animate-pulse" />
-                          <div className="w-1 h-3 bg-red-500 rounded animate-pulse" style={{ animationDelay: '150ms' }} />
-                          <div className="w-1 h-2 bg-red-500 rounded animate-pulse" style={{ animationDelay: '300ms' }} />
+                          <div className="w-1 h-2 bg-white rounded animate-pulse" />
+                          <div className="w-1 h-3 bg-white rounded animate-pulse" style={{ animationDelay: '150ms' }} />
+                          <div className="w-1 h-2 bg-white rounded animate-pulse" style={{ animationDelay: '300ms' }} />
                         </div>
                       </div>
                     )}
@@ -264,14 +264,14 @@ export default function MusicSidebar({ className = '' }: MusicSidebarProps) {
                   
                   <div className="flex-1 min-w-0">
                     <h4 className={`text-sm font-semibold truncate ${
-                      track.id === currentTrack.id ? 'text-red-400' : 'text-white'
+                      track.id === currentTrack.id ? 'text-white' : 'text-white'
                     }`}>
                       {track.title}
                     </h4>
-                    <p className="text-xs text-red-300 truncate">{track.artist}</p>
+                    <p className="text-xs text-white/60 truncate">{track.artist}</p>
                   </div>
                   
-                  <div className="text-xs text-red-400 font-mono">
+                  <div className="text-xs text-white font-mono">
                     {MusicAPI.formatDuration(track.duration)}
                   </div>
                 </div>
@@ -282,10 +282,10 @@ export default function MusicSidebar({ className = '' }: MusicSidebarProps) {
       )}
 
       {/* Expand/Collapse Queue Button */}
-      <div className="p-6 border-t border-red-800/30">
+      <div className="p-6 border-t border-white/10">
         <button
           onClick={() => setShowQueue(!showQueue)}
-          className="w-full flex items-center justify-center gap-3 text-red-300 hover:text-white transition-colors py-2 rounded-lg hover:bg-red-900/20"
+          className="w-full flex items-center justify-center gap-3 text-white/60 hover:text-white transition-colors py-2 rounded-lg hover:bg-white/[0.05]"
         >
           {showQueue ? <ChevronDown size={24} /> : <ChevronUp size={24} />}
           <span className="font-medium">{showQueue ? 'Hide Queue' : 'Show Queue'}</span>
@@ -298,7 +298,7 @@ export default function MusicSidebar({ className = '' }: MusicSidebarProps) {
           width: 16px;
           height: 16px;
           border-radius: 50%;
-          background: linear-gradient(45deg, #ef4444, #dc2626);
+          background: #f5f5f7;
           cursor: pointer;
           box-shadow: 0 2px 8px rgba(239, 68, 68, 0.4);
         }
@@ -307,7 +307,7 @@ export default function MusicSidebar({ className = '' }: MusicSidebarProps) {
           width: 16px;
           height: 16px;
           border-radius: 50%;
-          background: linear-gradient(45deg, #ef4444, #dc2626);
+          background: #f5f5f7;
           cursor: pointer;
           border: none;
           box-shadow: 0 2px 8px rgba(239, 68, 68, 0.4);

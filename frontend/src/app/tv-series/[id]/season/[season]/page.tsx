@@ -567,7 +567,7 @@ export default function SeasonPage() {
                   <select
                     value={currentSeason}
                     onChange={(e) => navigate.push(`/tv-series/${params?.id}/season/${e.target.value}`)}
-                    className="appearance-none bg-white/10 backdrop-blur-sm border border-white/20 hover:border-white/50 text-white px-3 py-1.5 pr-8 rounded-lg text-xs md:text-sm font-bold cursor-pointer transition-all focus:outline-none focus:ring-2 focus:ring-red-500 shadow-xl"
+                    className="appearance-none bg-white/10 backdrop-blur-sm border border-white/20 hover:border-white/50 text-white px-3 py-1.5 pr-8 rounded-lg text-xs md:text-sm font-bold cursor-pointer transition-all focus:outline-none focus:ring-2 focus:ring-white shadow-xl"
                   >
                     {Array.from({ length: totalSeasons }, (_, i) => i + 1).map((season) => (
                       <option key={season} value={season} className="bg-black text-white">

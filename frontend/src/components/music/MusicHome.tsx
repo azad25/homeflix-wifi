@@ -18,7 +18,7 @@ interface MusicSection {
 
 export default function MusicHome() {
   const [sections, setSections] = useState<Record<string, MusicSection>>({
-    trending: { title: 'Trending Now', tracks: [], loading: true, icon: <TrendingUp size={20} />, color: 'text-red-500' },
+    trending: { title: 'Trending Now', tracks: [], loading: true, icon: <TrendingUp size={20} />, color: 'text-white' },
     charts: { title: 'Top Charts', tracks: [], loading: true, icon: <Star size={20} />, color: 'text-yellow-500' },
     newReleases: { title: 'New Releases', tracks: [], loading: true, icon: <Music size={20} />, color: 'text-green-500' },
     pop: { title: 'Pop Hits', tracks: [], loading: true, icon: <Heart size={20} />, color: 'text-pink-500' },
@@ -127,7 +127,7 @@ export default function MusicHome() {
     };
 
     return (
-      <div className={`${cardSizes[size]} flex-shrink-0 bg-gradient-to-br from-gray-900/80 to-red-900/40 rounded-2xl p-4 hover:from-gray-800/90 hover:to-red-800/50 transition-all duration-300 cursor-pointer group backdrop-blur-md border border-red-800/30 hover:border-red-600/50 shadow-lg hover:shadow-2xl hover:shadow-red-900/20 transform hover:-translate-y-1`}>
+      <div className={`${cardSizes[size]} flex-shrink-0 bg-gradient-to-br from-gray-900/80 to-white/[0.04] rounded-2xl p-4 hover:from-gray-800/90 hover:to-white/[0.04] transition-all duration-300 cursor-pointer group backdrop-blur-md border border-white/10 hover:border-white/30 shadow-lg hover:shadow-2xl hover:shadow-black/40 transform hover:-translate-y-1`}>
         <div className={`${imageSizes[size]} relative mb-4 rounded-xl overflow-hidden shadow-xl`}>
           <img
             src={track.thumbnail_url}
@@ -138,13 +138,13 @@ export default function MusicHome() {
           <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300">
             <button
               onClick={() => handlePlayTrack(track, queue)}
-              className="bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 text-white rounded-full p-5 transform hover:scale-110 transition-all duration-300 shadow-2xl"
+              className="bg-gradient-to-r from-white/20 to-white/20 hover:from-white/30 hover:to-white/30 text-white rounded-full p-5 transform hover:scale-110 transition-all duration-300 shadow-2xl"
             >
               <Play size={size === 'large' ? 32 : 28} className="ml-1" fill="white" />
             </button>
           </div>
           {isPlaying && (
-            <div className="absolute top-3 right-3 bg-gradient-to-r from-red-500 to-red-600 rounded-full p-2 shadow-lg animate-pulse">
+            <div className="absolute top-3 right-3 bg-gradient-to-r from-white/20 to-white/20 rounded-full p-2 shadow-lg animate-pulse">
               <div className="flex gap-1">
                 <div className="w-1 h-2 bg-white rounded animate-bounce" />
                 <div className="w-1 h-3 bg-white rounded animate-bounce" style={{ animationDelay: '150ms' }} />
@@ -154,11 +154,11 @@ export default function MusicHome() {
           )}
         </div>
         <div className="space-y-2">
-          <h3 className="text-white font-bold text-sm truncate group-hover:text-red-300 transition-colors leading-tight">
+          <h3 className="text-white font-bold text-sm truncate group-hover:text-white transition-colors leading-tight">
             {track.title}
           </h3>
-          <p className="text-red-300/80 text-xs truncate font-medium">{track.artist}</p>
-          <div className="flex items-center justify-between text-xs text-red-400/70 font-medium">
+          <p className="text-white/60 text-xs truncate font-medium">{track.artist}</p>
+          <div className="flex items-center justify-between text-xs text-white/70 font-medium">
             <span>{MusicAPI.formatNumber(track.view_count)} views</span>
             <span>{MusicAPI.formatDuration(track.duration)}</span>
           </div>
@@ -171,22 +171,22 @@ export default function MusicHome() {
     <div className="space-y-6">
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-4">
-          <div className={`${section.color} bg-gradient-to-br from-gray-900/50 to-red-900/30 p-3 rounded-xl border border-red-800/30`}>
+          <div className={`${section.color} bg-gradient-to-br from-gray-900/50 to-white/[0.04] p-3 rounded-xl border border-white/10`}>
             {section.icon}
           </div>
-          <h2 className="text-3xl font-black bg-gradient-to-r from-red-400 via-red-500 to-red-600 bg-clip-text text-transparent drop-shadow-lg">{section.title}</h2>
+ <h2 className="text-3xl font-black text-white drop-shadow-lg">{section.title}</h2>
         </div>
         <div className="flex items-center gap-3">
           {section.tracks.length > 0 && (
             <button
               onClick={() => handleShufflePlay(section.tracks)}
-              className="flex items-center gap-2 bg-gradient-to-r from-red-600/20 to-red-700/20 hover:from-red-600/40 hover:to-red-700/40 text-red-300 hover:text-white px-4 py-2 rounded-full transition-all duration-300 transform hover:scale-105 border border-red-600/30 backdrop-blur-sm"
+              className="flex items-center gap-2 bg-gradient-to-r from-white/20 to-white/20 hover:from-white/30 hover:to-white/30 text-white/60 hover:text-white px-4 py-2 rounded-full transition-all duration-300 transform hover:scale-105 border border-white/10 backdrop-blur-sm"
             >
               <Shuffle size={18} />
               <span className="text-sm font-bold">Shuffle Play</span>
             </button>
           )}
-          <button className="text-red-400 hover:text-red-300 transition-colors transform hover:scale-110">
+          <button className="text-white/70 hover:text-white transition-colors transform hover:scale-110">
             <ChevronRight size={28} />
           </button>
         </div>
@@ -195,11 +195,11 @@ export default function MusicHome() {
       {section.loading ? (
         <div className="flex gap-6 overflow-hidden">
           {[...Array(6)].map((_, i) => (
-            <div key={i} className="w-44 flex-shrink-0 bg-gradient-to-br from-gray-900/80 to-red-900/40 rounded-2xl p-4 animate-pulse border border-red-800/30 shadow-lg">
-              <div className="w-44 h-44 bg-red-900/50 rounded-xl mb-4"></div>
+            <div key={i} className="w-44 flex-shrink-0 bg-gradient-to-br from-gray-900/80 to-white/[0.04] rounded-2xl p-4 animate-pulse border border-white/10 shadow-lg">
+              <div className="w-44 h-44 bg-white/[0.05] rounded-xl mb-4"></div>
               <div className="space-y-3">
-                <div className="h-4 bg-red-900/50 rounded"></div>
-                <div className="h-3 bg-red-900/50 rounded w-2/3"></div>
+                <div className="h-4 bg-white/[0.05] rounded"></div>
+                <div className="h-3 bg-white/[0.05] rounded w-2/3"></div>
               </div>
             </div>
           ))}
@@ -216,9 +216,9 @@ export default function MusicHome() {
           ))}
         </div>
       ) : (
-        <div className="text-center py-16 bg-gradient-to-br from-gray-900/50 to-red-900/20 rounded-2xl border border-red-800/20">
-          <Music size={80} className="mx-auto mb-6 text-red-500/30" />
-          <p className="text-xl font-semibold text-red-300/70">No tracks available</p>
+        <div className="text-center py-16 bg-gradient-to-br from-gray-900/50 to-white/[0.04] rounded-2xl border border-white/10">
+          <Music size={80} className="mx-auto mb-6 text-white/20" />
+          <p className="text-xl font-semibold text-white/60">No tracks available</p>
         </div>
       )}
     </div>
@@ -256,17 +256,17 @@ export default function MusicHome() {
               </h1>
               
               {/* Artist */}
-              <p className="text-2xl md:text-3xl text-red-300 font-semibold drop-shadow-lg">
+              <p className="text-2xl md:text-3xl text-white/60 font-semibold drop-shadow-lg">
                 {featuredTrack.artist}
               </p>
               
               {/* Stats */}
               <div className="flex items-center gap-6 text-gray-200 text-lg">
                 <div className="flex items-center gap-2">
-                  <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
+                  <div className="w-2 h-2 bg-white rounded-full animate-pulse" />
                   <span className="font-semibold">{MusicAPI.formatNumber(featuredTrack.view_count)} views</span>
                 </div>
-                <span className="text-red-400">•</span>
+                <span className="text-white">•</span>
                 <span className="font-medium">{MusicAPI.formatDuration(featuredTrack.duration)}</span>
               </div>
               
@@ -274,7 +274,7 @@ export default function MusicHome() {
               <div className="flex items-center gap-4 pt-4">
                 <button
                   onClick={() => handlePlayTrack(featuredTrack, sections.trending.tracks)}
-                  className="flex items-center gap-3 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 text-white px-10 py-4 rounded-full font-bold text-lg transition-all duration-300 transform hover:scale-105 shadow-2xl"
+                  className="flex items-center gap-3 bg-gradient-to-r from-white/20 to-white/20 hover:from-white/30 hover:to-white/30 text-white px-10 py-4 rounded-full font-bold text-lg transition-all duration-300 transform hover:scale-105 shadow-2xl"
                 >
                   <Play size={24} className="ml-1" fill="white" />
                   Play Now
@@ -294,7 +294,7 @@ export default function MusicHome() {
           </div>
           
           {/* Decorative Elements */}
-          <div className="absolute top-8 right-8 w-32 h-32 bg-red-500/20 rounded-full blur-3xl" />
+          <div className="absolute top-8 right-8 w-32 h-32 bg-white/10 rounded-full blur-3xl" />
           <div className="absolute bottom-8 right-24 w-48 h-48 bg-red-600/10 rounded-full blur-3xl" />
         </div>
       )}
@@ -311,10 +311,10 @@ export default function MusicHome() {
 
       {/* Quick Access Genres */}
       <div className="space-y-6">
-        <h2 className="text-3xl font-black bg-gradient-to-r from-red-400 via-red-500 to-red-600 bg-clip-text text-transparent drop-shadow-lg">Browse by Genre</h2>
+ <h2 className="text-3xl font-black text-white drop-shadow-lg">Browse by Genre</h2>
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
           {[
-            { name: 'Pop', color: 'from-pink-500 to-pink-600', emoji: '🎵', shadow: 'shadow-pink-500/50' },
+            { name: 'Pop', color: 'from-white/20 to-white/20', emoji: '🎵', shadow: 'shadow-pink-500/50' },
             { name: 'Rock', color: 'from-orange-500 to-orange-600', emoji: '🎸', shadow: 'shadow-orange-500/50' },
             { name: 'Hip Hop', color: 'from-purple-500 to-purple-600', emoji: '🎤', shadow: 'shadow-purple-500/50' },
             { name: 'Electronic', color: 'from-blue-500 to-blue-600', emoji: '🎧', shadow: 'shadow-blue-500/50' },
@@ -345,13 +345,13 @@ export default function MusicHome() {
 
       {/* Mood Playlists */}
       <div className="space-y-6">
-        <h2 className="text-3xl font-black bg-gradient-to-r from-red-400 via-red-500 to-red-600 bg-clip-text text-transparent drop-shadow-lg">Music for Every Mood</h2>
+ <h2 className="text-3xl font-black text-white drop-shadow-lg">Music for Every Mood</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
           {[
             { name: 'Chill', color: 'from-cyan-400 via-cyan-500 to-blue-500', emoji: '😌', desc: 'Relax & Unwind', shadow: 'shadow-cyan-500/50' },
-            { name: 'Workout', color: 'from-red-500 via-red-600 to-orange-500', emoji: '💪', desc: 'Get Pumped', shadow: 'shadow-red-500/50' },
+            { name: 'Workout', color: 'from-white/20 via-white/20 to-orange-500', emoji: '💪', desc: 'Get Pumped', shadow: 'shadow-red-500/50' },
             { name: 'Focus', color: 'from-green-400 via-green-500 to-teal-500', emoji: '🧠', desc: 'Stay Productive', shadow: 'shadow-green-500/50' },
-            { name: 'Party', color: 'from-purple-500 via-pink-500 to-pink-600', emoji: '🎉', desc: 'Turn It Up', shadow: 'shadow-purple-500/50' },
+            { name: 'Party', color: 'from-purple-500 via-white/20 to-white/20', emoji: '🎉', desc: 'Turn It Up', shadow: 'shadow-purple-500/50' },
           ].map((mood) => (
             <button
               key={mood.name}

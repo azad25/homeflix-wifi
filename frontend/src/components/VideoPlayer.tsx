@@ -4635,7 +4635,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                     <button
                       type="button"
                       onClick={handleResumePlayback}
-                      className="px-3 py-1 text-sm bg-red-600 hover:bg-red-700 rounded transition-colors"
+                      className="px-3 py-1 text-sm bg-[#f5f5f7] text-black font-semibold hover:bg-white rounded-lg transition-colors"
                     >
                       Resume
                     </button>

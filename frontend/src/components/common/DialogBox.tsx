@@ -201,7 +201,7 @@ export default function DialogBox({
                     onKeyDown={handleKeyDown}
                     placeholder={placeholder}
                     autoFocus
-                    className="w-full bg-slate-700/50 border border-slate-600 rounded-lg px-3 py-2 text-white placeholder-slate-400 focus:border-red-500 focus:outline-none focus:ring-2 focus:ring-red-500/50 transition-all duration-200 text-sm"
+                    className="w-full bg-slate-700/50 border border-slate-600 rounded-lg px-3 py-2 text-white placeholder-slate-400 focus:border-white focus:outline-none focus:ring-2 focus:ring-white/50 transition-all duration-200 text-sm"
                   />
                 )}
               </div>

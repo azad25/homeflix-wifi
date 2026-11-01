@@ -149,7 +149,7 @@ const ContinueWatchingCard: React.FC<ContinueWatchingCardProps> = ({
 
           {/* Next Episode Badge */}
           {item.progress === 0 && item.media.type === 'episode' && (
-            <div className="absolute top-3 left-3 bg-green-600 text-white text-xs px-2 py-1 rounded-full font-semibold shadow-lg">
+            <div className="absolute top-3 left-3 bg-black/55 text-white backdrop-blur-md text-xs px-2 py-1 rounded-full font-semibold shadow-lg">
               NEXT
             </div>
           )}

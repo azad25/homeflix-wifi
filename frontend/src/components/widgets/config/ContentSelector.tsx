@@ -452,7 +452,7 @@ export default function ContentSelector({
                     />
                     {isSearching && (
                       <div className="absolute right-4 top-1/2 transform -translate-y-1/2">
-                        <Loader2 className="w-5 h-5 text-red-400 animate-spin" />
+                        <Loader2 className="w-5 h-5 text-white/70 animate-spin" />
                       </div>
                     )}
                   </div>
@@ -673,7 +673,7 @@ export default function ContentSelector({
                           onLanguagesChange([]);
                           onCountriesChange([]);
                         }}
-                        className="text-sm text-red-400 hover:text-red-300 transition-colors"
+                        className="text-sm text-white/70 hover:text-white transition-colors"
                       >
                         Clear all
                       </button>

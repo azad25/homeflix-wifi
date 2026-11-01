@@ -171,7 +171,7 @@ const NetflixCard: React.FC<NetflixCardProps> = ({
       <div className="relative bg-zinc-900 rounded-lg overflow-hidden shadow-2xl border border-zinc-800">
         {/* Rank Badge */}
         {showRankBadges && index < 10 && (
-          <div className="absolute top-3 left-3 z-20 bg-red-600 text-white text-sm font-bold px-3 py-1 rounded-full shadow-lg">
+          <div className="absolute top-3 left-3 z-20 bg-white/15 text-white text-sm font-bold px-3 py-1 rounded-full shadow-lg">
             #{index + 1}
           </div>
         )}
@@ -292,7 +292,7 @@ const NetflixCard: React.FC<NetflixCardProps> = ({
               {media.genres.slice(0, 3).map((genre, idx) => (
                 <span
                   key={idx}
-                  className="text-xs bg-red-600/20 text-red-400 px-2 py-1 rounded-full border border-red-600/30"
+                  className="text-xs bg-white/10 text-white px-2 py-1 rounded-full border border-red-600/30"
                 >
                   {genre.name}
                 </span>

@@ -173,7 +173,7 @@ const RecentlyWatchedTVCard: React.FC<RecentlyWatchedTVCardProps> = ({
 
                     {/* Episode Badge */}
                     {getEpisodeInfo() && (
-                        <div className="absolute top-2 left-2 bg-red-600 text-white px-2 py-1 text-xs font-bold rounded shadow-lg">
+                        <div className="absolute top-2 left-2 bg-white/15 text-white px-2 py-1 text-xs font-bold rounded shadow-lg">
                             {getEpisodeInfo()}
                         </div>
                     )}

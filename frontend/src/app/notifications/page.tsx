@@ -33,6 +33,9 @@ interface TileConfig {
 const NotificationsPage: React.FC = () => {
   const router = useRouter();
   const [notifications, setNotifications] = useState<Notification[]>([]);
+  // Distinguishes "still loading" from "loaded, nothing to show" (the empty
+  // state used to say "Loading" forever when there were no notifications).
+  const [feedLoaded, setFeedLoaded] = useState(false);
   const [activeTiles, setActiveTiles] = useState<TileConfig[]>([]);
   const [playingTrailers, setPlayingTrailers] = useState<Set<string>>(new Set());
   const [isLoadingFresh, setIsLoadingFresh] = useState(false);
@@ -205,8 +208,11 @@ const NotificationsPage: React.FC = () => {
       const apiUrl = getApiUrl();
       
       // Use Promise.race for timeout to prevent hanging
+      // no-store: 'force-cache' reused any cached response regardless of age,
+      // so the live feed could stay stale indefinitely (localStorage already
+      // provides the instant first paint).
       const fetchPromise = fetch(`${apiUrl}/api/notifications?limit=50`, {
-        cache: 'force-cache',
+        cache: 'no-store',
         headers: {
           'Accept': 'application/json',
         }
@@ -230,6 +236,7 @@ const NotificationsPage: React.FC = () => {
 
           // Update state
           setNotifications(enhancedNotifications);
+          setFeedLoaded(true);
 
           // Non-blocking cache save
           if (typeof requestIdleCallback !== 'undefined') {
@@ -259,6 +266,7 @@ const NotificationsPage: React.FC = () => {
       }
     } catch (error) {
       console.error('Failed to fetch notifications:', error);
+      if (mountedRef.current) setFeedLoaded(true);
       // Try to use cached data on error
       if (mountedRef.current) {
         try {
@@ -276,6 +284,9 @@ const NotificationsPage: React.FC = () => {
           console.error('Failed to load cache:', cacheError);
         }
       }
+    } finally {
+      // Any outcome (ok, HTTP error, timeout) ends the loading state.
+      if (mountedRef.current) setFeedLoaded(true);
     }
   }, [enhanceNotifications]);
 
@@ -1004,12 +1015,18 @@ const NotificationsPage: React.FC = () => {
         {notifications.length === 0 && (
           <div className="absolute inset-0 flex items-center justify-center z-30">
             <div className="text-center">
-              <div className="w-20 h-20 bg-white/5 rounded-full flex items-center justify-center mx-auto mb-6 relative">
-                <div className="w-10 h-10 border-2 border-red-500/30 border-t-red-500 rounded-full" />
-                <div className="absolute inset-0 border-2 border-red-500/10 rounded-full animate-ping"></div>
-              </div>
-              <h2 className="text-2xl font-bold text-white mb-2">Live Activity Loading</h2>
-              <p className="text-white/60">Preparing your personalized content feed...</p>
+              {feedLoaded ? (
+                <>
+                  <h2 className="text-3xl font-bold tracking-[-0.02em] text-white mb-2">You&apos;re all caught up</h2>
+                  <p className="text-white/60">New releases, trailers and recommendations will appear here.</p>
+                </>
+              ) : (
+                <>
+                  <div className="w-14 h-14 mx-auto mb-6 rounded-full border-2 border-white/15 border-t-white animate-spin" />
+                  <h2 className="text-2xl font-bold text-white mb-2">Loading activity</h2>
+                  <p className="text-white/60">Preparing your personalized content feed...</p>
+                </>
+              )}
             </div>
           </div>
         )}

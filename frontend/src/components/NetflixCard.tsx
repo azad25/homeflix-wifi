@@ -280,7 +280,7 @@ const NetflixCard: React.FC<NetflixCardProps> = ({
             </div>
           )}
           {hasPriorityGenres(media) && (
-            <div className="bg-red-600 text-white text-xs px-2 py-1 rounded-md font-semibold shadow-sm">
+            <div className="bg-white/15 text-white text-xs px-2 py-1 rounded-md font-semibold shadow-sm">
               FEATURED
             </div>
           )}
@@ -288,7 +288,7 @@ const NetflixCard: React.FC<NetflixCardProps> = ({
 
         {/* New Content Badge */}
         {isNewlyAdded(media) && (
-          <div className="absolute top-2 right-2 bg-green-600 text-white text-xs px-2 py-1 rounded-md font-semibold">
+          <div className="absolute top-2 right-2 bg-black/55 text-white backdrop-blur-md text-xs px-2 py-1 rounded-md font-semibold">
             NEW
           </div>
         )}

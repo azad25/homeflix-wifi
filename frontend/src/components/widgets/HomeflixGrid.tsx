@@ -192,7 +192,7 @@ const HomeflixCard: React.FC<HomeflixCardProps> = ({
       <div className="relative aspect-video bg-[#141414] rounded-md overflow-hidden shadow-md border border-transparent group-hover:border-white/10 transition-colors">
         {/* Coming Soon Tag */}
         {isComingSoon(media) && (
-            <div className="absolute top-2 right-2 bg-red-600 text-white text-[9px] font-bold px-1.5 py-0.5 rounded shadow z-[60] tracking-wider pointer-events-none">
+            <div className="absolute top-2 right-2 bg-white/15 text-white text-[9px] font-bold px-1.5 py-0.5 rounded shadow z-[60] tracking-wider pointer-events-none">
                 COMING SOON
             </div>
         )}

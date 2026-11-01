@@ -311,7 +311,7 @@ const LocalRelatedMedia: React.FC<LocalRelatedMediaProps> = ({ currentMedia, cla
     <div className={`${className}`}>
       <div className="w-full px-4 md:px-8 xl:px-12">
         <h2 className="text-2xl font-black tracking-tight text-white mb-6 flex items-center gap-2">
-          <Film className="w-6 h-6 text-red-500" />
+          <Film className="w-6 h-6 text-white/70" />
           More Like This
         </h2>
 
@@ -2993,7 +2993,7 @@ export default function MoviePage() {
                       <div className="grid grid-cols-1 gap-8">
                         <div>
                           <div className="flex items-center gap-3 mb-6">
-                            <Info className="w-6 h-6 text-red-500" />
+                            <Info className="w-6 h-6 text-white/70" />
                             <h3 className="text-xl font-semibold text-white">Details</h3>
                           </div>
                           <div className="space-y-4 pl-9">
@@ -3096,7 +3096,7 @@ export default function MoviePage() {
                       {(media.imdb_id || media.homepage || media.collection) && (
                         <div className="mt-8">
                           <div className="flex items-center gap-2 mb-4">
-                            <Film className="w-5 h-5 text-red-500" />
+                            <Film className="w-5 h-5 text-white/70" />
                             <h3 className="text-lg font-semibold text-white">Additional Information</h3>
                           </div>
                           <div className="space-y-2">

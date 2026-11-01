@@ -775,7 +775,7 @@ const NotificationTile: React.FC<NotificationTileProps> = ({
                 boxShadow: '0 2px 8px rgba(0,0,0,0.8)',
               }}
             >
-              <Tv className="w-3 h-3 text-red-400" />
+              <Tv className="w-3 h-3 text-white/70" />
             </div>
           )}
           <div
@@ -883,7 +883,7 @@ const NotificationTile: React.FC<NotificationTileProps> = ({
           <div className={`flex flex-wrap items-center gap-2 ${size === 'banner' ? 'mb-1' : 'mb-3'} text-xs`}>
             {/* TV Series Tag */}
             {isTVSeries() && (
-              <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-red-500/20 text-red-400 border border-red-500/30">
+              <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-white/10 text-white border border-red-500/30">
                 <Tv className="w-3 h-3" />
                 TV
               </span>
@@ -988,7 +988,7 @@ const NotificationTile: React.FC<NotificationTileProps> = ({
                 {/* TV Series Tag for single movie details */}
                 {isTVSeries() && (
                   <div className="flex items-center gap-1 mb-1">
-                    <Tv className="w-3 h-3 text-red-400" />
+                    <Tv className="w-3 h-3 text-white/70" />
                     <span className="text-red-400 text-xs font-medium">TV Series</span>
                   </div>
                 )}

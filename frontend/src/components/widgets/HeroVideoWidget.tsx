@@ -1344,7 +1344,7 @@ export default function HeroVideoWidget({
                       setSelectedMediaForPlayback(current);
                       setShowVideoPlayer(true);
                     }}
-                    className="group text-white hover:text-red-400 transition-all duration-200 hover:scale-125 hover:drop-shadow-[0_0_8px_rgba(239,68,68,0.8)]"
+                    className="group text-white hover:text-white transition-all duration-200 hover:scale-125 hover:drop-shadow-[0_0_8px_rgba(239,68,68,0.8)]"
                     title="Play"
                   >
                     <Play className="w-5 h-5 fill-current" />

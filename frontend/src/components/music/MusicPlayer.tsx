@@ -98,9 +98,9 @@ export default function MusicPlayer() {
 
     // Create gradient
     const gradient = ctx.createLinearGradient(0, canvas.height, 0, 0);
-    gradient.addColorStop(0, '#dc2626');
-    gradient.addColorStop(0.5, '#ef4444');
-    gradient.addColorStop(1, '#f87171');
+    gradient.addColorStop(0, 'rgba(255,255,255,0.35)');
+    gradient.addColorStop(0.5, 'rgba(255,255,255,0.7)');
+    gradient.addColorStop(1, '#ffffff');
 
     for (let i = 0; i < barCount; i++) {
       // Simulate different frequency ranges
@@ -213,7 +213,7 @@ export default function MusicPlayer() {
   if (!currentTrack) return null;
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 bg-gradient-to-r from-black via-red-950 to-black border-t border-red-800/30 px-4 py-3 z-50 backdrop-blur-lg overflow-hidden">
+    <div className="fixed bottom-0 left-0 right-0 bg-gradient-to-r from-black via-zinc-900 to-black border-t border-white/10 px-4 py-3 z-50 backdrop-blur-lg overflow-hidden">
       <div className="flex items-center justify-between w-full max-w-none">
         {/* Track Info - Fixed width */}
         <div className="flex items-center gap-3 w-80 min-w-0 flex-shrink-0">
@@ -224,14 +224,14 @@ export default function MusicPlayer() {
               className="w-14 h-14 rounded-lg object-cover shadow-lg"
             />
             {isPlaying && (
-              <div className="absolute -top-1 -right-1 bg-red-500 rounded-full p-1">
+              <div className="absolute -top-1 -right-1 bg-white rounded-full p-1">
                 <div className="w-2 h-2 bg-white rounded-full animate-pulse" />
               </div>
             )}
           </div>
           <div className="min-w-0 flex-1">
             <h3 className="text-white font-semibold text-sm truncate">{currentTrack.title}</h3>
-            <p className="text-red-300 text-xs truncate">{currentTrack.artist}</p>
+            <p className="text-white/60 text-xs truncate">{currentTrack.artist}</p>
           </div>
         </div>
 
@@ -240,7 +240,7 @@ export default function MusicPlayer() {
           <div className="flex items-center gap-3">
             <button
               onClick={toggleShuffle}
-              className={`transition-colors transform hover:scale-110 ${shuffle ? 'text-red-500' : 'text-red-300 hover:text-white'
+              className={`transition-colors transform hover:scale-110 ${shuffle ? 'text-white' : 'text-white/60 hover:text-white'
                 }`}
             >
               <Shuffle size={16} />
@@ -248,28 +248,28 @@ export default function MusicPlayer() {
 
             <button
               onClick={previousTrack}
-              className="text-red-300 hover:text-white transition-colors transform hover:scale-110"
+              className="text-white/60 hover:text-white transition-colors transform hover:scale-110"
             >
               <SkipBack size={20} />
             </button>
 
             <button
               onClick={handlePlayPause}
-              className="bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 text-white rounded-full p-2.5 transform hover:scale-110 transition-all duration-300 shadow-lg"
+              className="bg-gradient-to-r from-white/20 to-white/20 hover:from-white/30 hover:to-white/30 text-white rounded-full p-2.5 transform hover:scale-110 transition-all duration-300 shadow-lg"
             >
               {isPlaying ? <Pause size={20} /> : <Play size={20} className="ml-0.5" />}
             </button>
 
             <button
               onClick={nextTrack}
-              className="text-red-300 hover:text-white transition-colors transform hover:scale-110"
+              className="text-white/60 hover:text-white transition-colors transform hover:scale-110"
             >
               <SkipForward size={20} />
             </button>
 
             <button
               onClick={toggleRepeat}
-              className={`transition-colors transform hover:scale-110 ${repeat !== 'none' ? 'text-red-500' : 'text-red-300 hover:text-white'
+              className={`transition-colors transform hover:scale-110 ${repeat !== 'none' ? 'text-white' : 'text-white/60 hover:text-white'
                 }`}
             >
               <Repeat size={16} />
@@ -277,7 +277,7 @@ export default function MusicPlayer() {
 
             <button
               onClick={handleLikeTrack}
-              className="text-red-300 hover:text-red-400 transition-colors transform hover:scale-110"
+              className="text-white/60 hover:text-white transition-colors transform hover:scale-110"
             >
               <Heart size={16} className={isLiked ? 'fill-red-500 text-red-500' : ''} />
             </button>
@@ -285,11 +285,11 @@ export default function MusicPlayer() {
 
           {/* Progress Bar */}
           <div className="flex items-center gap-2 w-full max-w-md">
-            <span className="text-xs text-red-300 w-10 text-right font-mono">
+            <span className="text-xs text-white/60 w-10 text-right font-mono">
               {formatTime(localCurrentTime)}
             </span>
             <div 
-              className="flex-1 bg-red-900/30 rounded-full h-2 cursor-pointer relative group"
+              className="flex-1 bg-white/[0.05] rounded-full h-2 cursor-pointer relative group"
               onClick={handleProgressClick}
               onMouseDown={handleProgressMouseDown}
               onMouseUp={handleProgressMouseUp}
@@ -297,13 +297,13 @@ export default function MusicPlayer() {
               onMouseLeave={handleProgressMouseUp}
             >
               <div
-                className="bg-gradient-to-r from-red-500 to-red-600 rounded-full h-2 transition-all duration-100 shadow-sm relative"
+                className="bg-gradient-to-r from-white/20 to-white/20 rounded-full h-2 transition-all duration-100 shadow-sm relative"
                 style={{ width: `${localDuration > 0 ? (localCurrentTime / localDuration) * 100 : 0}%` }}
               >
                 <div className="absolute right-0 top-1/2 -translate-y-1/2 w-3 h-3 bg-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity shadow-lg" />
               </div>
             </div>
-            <span className="text-xs text-red-300 w-10 font-mono">
+            <span className="text-xs text-white/60 w-10 font-mono">
               {formatTime(localDuration)}
             </span>
           </div>
@@ -325,14 +325,14 @@ export default function MusicPlayer() {
             />
           </div>
 
-          <button className="text-red-300 hover:text-white transition-colors transform hover:scale-110">
+          <button className="text-white/60 hover:text-white transition-colors transform hover:scale-110">
             <MoreHorizontal size={18} />
           </button>
 
           <div className="flex items-center gap-2">
             <button
               onClick={toggleMute}
-              className="text-red-300 hover:text-white transition-colors transform hover:scale-110"
+              className="text-white/60 hover:text-white transition-colors transform hover:scale-110"
             >
               {isMuted || volume === 0 ? <VolumeX size={18} /> : <Volume2 size={18} />}
             </button>
@@ -345,7 +345,7 @@ export default function MusicPlayer() {
                 step="0.01"
                 value={volume}
                 onChange={handleVolumeChange}
-                className="w-full h-1.5 bg-red-900/30 rounded-lg appearance-none cursor-pointer slider"
+                className="w-full h-1.5 bg-white/[0.05] rounded-lg appearance-none cursor-pointer slider"
               />
             </div>
           </div>
@@ -369,7 +369,7 @@ export default function MusicPlayer() {
           width: 16px;
           height: 16px;
           border-radius: 50%;
-          background: linear-gradient(45deg, #ef4444, #dc2626);
+          background: #f5f5f7;
           cursor: pointer;
           box-shadow: 0 2px 8px rgba(239, 68, 68, 0.4);
         }
@@ -378,7 +378,7 @@ export default function MusicPlayer() {
           width: 16px;
           height: 16px;
           border-radius: 50%;
-          background: linear-gradient(45deg, #ef4444, #dc2626);
+          background: #f5f5f7;
           cursor: pointer;
           border: none;
           box-shadow: 0 2px 8px rgba(239, 68, 68, 0.4);

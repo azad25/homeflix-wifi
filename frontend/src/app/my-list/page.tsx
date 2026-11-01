@@ -732,7 +732,7 @@ export default function MyListPage() {
                 <circle cx="32" cy="32" r="28" stroke="rgba(255,255,255,0.2)" strokeWidth="4" fill="none" />
                 <circle
                   cx="32" cy="32" r="28"
-                  stroke="#ef4444"
+                  stroke="#f5f5f7"
                   strokeWidth="4"
                   fill="none"
                   strokeDasharray={`${2 * Math.PI * 28}`}
@@ -750,7 +750,7 @@ export default function MyListPage() {
           </div>
         </div>
         <div className="p-3">
-          <h3 className="text-white font-medium text-sm line-clamp-2 mb-2 group-hover:text-red-400 transition-colors">
+          <h3 className="text-white font-medium text-sm line-clamp-2 mb-2 group-hover:text-white transition-colors">
             {media.title}
           </h3>
           <div className="space-y-1 text-xs text-gray-400">
@@ -1033,7 +1033,7 @@ export default function MyListPage() {
                       >
                         <div className="flex items-start justify-between mb-4">
                           <div className="flex-1">
-                            <h3 className="text-white font-semibold text-lg mb-2 group-hover:text-red-400 transition-colors">
+                            <h3 className="text-white font-semibold text-lg mb-2 group-hover:text-white transition-colors">
                               {collection.name}
                             </h3>
                             {collection.description && (
@@ -1042,7 +1042,7 @@ export default function MyListPage() {
                               </p>
                             )}
                           </div>
-                          <FolderOpen className="w-6 h-6 text-gray-400 group-hover:text-red-400 transition-colors" />
+                          <FolderOpen className="w-6 h-6 text-gray-400 group-hover:text-white/70 transition-colors" />
                         </div>
                         
                         <div className="flex items-center justify-between text-sm">
@@ -1309,7 +1309,7 @@ export default function MyListPage() {
                   value={collectionForm.name}
                   onChange={(e) => setCollectionForm({ ...collectionForm, name: e.target.value })}
                   placeholder="My Awesome Collection"
-                  className="w-full px-3 py-2 bg-gray-700 text-white rounded border border-gray-600 focus:border-red-500 focus:outline-none"
+                  className="w-full px-3 py-2 bg-gray-700 text-white rounded border border-gray-600 focus:border-white/40 focus:outline-none"
                 />
               </div>
               
@@ -1322,7 +1322,7 @@ export default function MyListPage() {
                   onChange={(e) => setCollectionForm({ ...collectionForm, description: e.target.value })}
                   placeholder="Describe your collection..."
                   rows={3}
-                  className="w-full px-3 py-2 bg-gray-700 text-white rounded border border-gray-600 focus:border-red-500 focus:outline-none resize-none"
+                  className="w-full px-3 py-2 bg-gray-700 text-white rounded border border-gray-600 focus:border-white/40 focus:outline-none resize-none"
                 />
               </div>
 
@@ -1335,7 +1335,7 @@ export default function MyListPage() {
                   value={collectionForm.tags}
                   onChange={(e) => setCollectionForm({ ...collectionForm, tags: e.target.value })}
                   placeholder="action, thriller, comedy (comma-separated)"
-                  className="w-full px-3 py-2 bg-gray-700 text-white rounded border border-gray-600 focus:border-red-500 focus:outline-none"
+                  className="w-full px-3 py-2 bg-gray-700 text-white rounded border border-gray-600 focus:border-white/40 focus:outline-none"
                 />
                 <p className="text-gray-400 text-xs mt-1">Separate tags with commas</p>
               </div>
@@ -1346,7 +1346,7 @@ export default function MyListPage() {
                   id="is_public"
                   checked={collectionForm.is_public}
                   onChange={(e) => setCollectionForm({ ...collectionForm, is_public: e.target.checked })}
-                  className="w-4 h-4 text-red-600 bg-gray-700 border-gray-600 rounded focus:ring-red-500"
+                  className="w-4 h-4 text-red-600 bg-gray-700 border-gray-600 rounded focus:ring-white"
                 />
                 <label htmlFor="is_public" className="text-white text-sm">
                   Make this collection public

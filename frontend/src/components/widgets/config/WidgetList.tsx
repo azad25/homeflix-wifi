@@ -224,7 +224,7 @@ export default function WidgetList({
                       
                       <button
                         onClick={() => onDuplicate(widget)}
-                        className="p-2 bg-red-600/20 hover:bg-red-600/30 backdrop-blur-sm border border-red-500/30 text-red-200 rounded-lg transition-all duration-200 hover:scale-110"
+                        className="p-2 bg-red-600/20 hover:bg-red-600/30 backdrop-blur-sm border border-white/30 text-red-200 rounded-lg transition-all duration-200 hover:scale-110"
                         title="Duplicate widget"
                       >
                         <Copy className="w-4 h-4" />

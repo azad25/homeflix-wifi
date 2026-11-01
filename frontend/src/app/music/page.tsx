@@ -133,11 +133,11 @@ export default function MusicPage() {
   const TrackList = ({ tracks, title, showPlayAll = true }: { tracks: Track[], title: string, showPlayAll?: boolean }) => (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h2 className="text-3xl font-bold bg-gradient-to-r from-red-400 to-red-600 bg-clip-text text-transparent">{title}</h2>
+ <h2 className="text-3xl font-bold text-white">{title}</h2>
         {showPlayAll && tracks.length > 0 && (
           <button
             onClick={() => handlePlayTrack(tracks[0], tracks)}
-            className="flex items-center gap-3 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 text-white px-6 py-3 rounded-full transition-all duration-300 transform hover:scale-105 shadow-lg"
+            className="flex items-center gap-3 bg-gradient-to-r from-white/20 to-white/20 hover:from-white/30 hover:to-white/30 text-white px-6 py-3 rounded-full transition-all duration-300 transform hover:scale-105 shadow-lg"
           >
             <PlayCircle size={20} />
             Play All
@@ -154,16 +154,16 @@ export default function MusicPage() {
             <div
               key={trackKey}
               onClick={() => handlePlayTrack(track, tracks)}
-              className="flex items-center gap-6 p-4 rounded-xl bg-gradient-to-r from-gray-900/50 to-red-900/20 hover:from-gray-800/60 hover:to-red-800/30 transition-all duration-300 group backdrop-blur-sm border border-red-800/20 cursor-pointer"
+              className="flex items-center gap-6 p-4 rounded-xl bg-gradient-to-r from-gray-900/50 to-white/[0.04] hover:from-gray-800/60 hover:to-white/[0.04] transition-all duration-300 group backdrop-blur-sm border border-white/10 cursor-pointer"
             >
-              <div className="text-red-400 w-10 text-center font-bold">
+              <div className="text-white w-10 text-center font-bold">
                 {isCurrentTrack && state.isPlaying ? (
                   <div className="flex items-center justify-center">
                     <div className="flex gap-1">
-                      <div className="w-1 h-4 bg-red-500 rounded animate-pulse" style={{ animationDelay: '0ms' }} />
-                      <div className="w-1 h-6 bg-red-500 rounded animate-pulse" style={{ animationDelay: '150ms' }} />
-                      <div className="w-1 h-3 bg-red-500 rounded animate-pulse" style={{ animationDelay: '300ms' }} />
-                      <div className="w-1 h-5 bg-red-500 rounded animate-pulse" style={{ animationDelay: '450ms' }} />
+                      <div className="w-1 h-4 bg-white rounded animate-pulse" style={{ animationDelay: '0ms' }} />
+                      <div className="w-1 h-6 bg-white rounded animate-pulse" style={{ animationDelay: '150ms' }} />
+                      <div className="w-1 h-3 bg-white rounded animate-pulse" style={{ animationDelay: '300ms' }} />
+                      <div className="w-1 h-5 bg-white rounded animate-pulse" style={{ animationDelay: '450ms' }} />
                     </div>
                   </div>
                 ) : (
@@ -174,7 +174,7 @@ export default function MusicPage() {
                     e.stopPropagation();
                     handlePlayTrack(track, tracks);
                   }}
-                  className="hidden group-hover:block text-white hover:text-red-400 transition-colors"
+                  className="hidden group-hover:block text-white hover:text-white transition-colors"
                 >
                   <PlayCircle size={24} />
                 </button>
@@ -188,10 +188,10 @@ export default function MusicPage() {
               
               <div className="flex-1 min-w-0">
                 <h3 className="text-white font-semibold text-lg truncate">{track.title}</h3>
-                <p className="text-red-300 text-sm truncate">{track.artist}</p>
+                <p className="text-white/60 text-sm truncate">{track.artist}</p>
               </div>
               
-              <div className="flex items-center gap-6 text-red-300 text-sm">
+              <div className="flex items-center gap-6 text-white/60 text-sm">
                 <span>{MusicAPI.formatNumber(track.view_count)} views</span>
                 <span>{MusicAPI.formatDuration(track.duration)}</span>
                 <button
@@ -199,7 +199,7 @@ export default function MusicPage() {
                     e.stopPropagation();
                     handleLikeTrack(track.id);
                   }}
-                  className="hover:text-red-400 transition-colors transform hover:scale-110"
+                  className="hover:text-white transition-colors transform hover:scale-110"
                 >
                   <Heart size={18} className={likedTracks.some(t => t.youtube_id === track.youtube_id) ? 'fill-red-500 text-red-500' : ''} />
                 </button>
@@ -213,7 +213,7 @@ export default function MusicPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-black via-red-950 to-black">
+      <div className="min-h-screen bg-gradient-to-br from-black via-zinc-900 to-black">
         <Navbar onSearch={() => {}} />
         <div className="flex items-center justify-center h-96">
           <RedLoader size="large" />
@@ -223,7 +223,7 @@ export default function MusicPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-black via-red-950 to-black">
+    <div className="min-h-screen bg-gradient-to-br from-black via-zinc-900 to-black">
       <Navbar onSearch={() => {}} />
       
       <div className="flex mt-12">
@@ -234,14 +234,14 @@ export default function MusicPage() {
         <div className="flex-1 container mx-auto px-6 py-8 max-w-7xl mt-4 lg:mr-96 pb-32">
           {/* Header */}
           <div className="mb-8">
-            <h1 className="text-5xl font-bold bg-gradient-to-r from-red-500 via-red-400 to-red-600 bg-clip-text text-transparent mb-6 flex items-center gap-4">
-              <Music className="text-red-500" size={48} />
+ <h1 className="text-5xl font-bold text-white mb-6 flex items-center gap-4">
+              <Music className="text-white" size={48} />
               Music
             </h1>
             
             {/* Search Bar */}
             <div className="relative max-w-lg">
-              <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-red-400" size={20} />
+              <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-white" size={20} />
               <input
                 type="text"
                 placeholder="Search for songs, artists..."
@@ -252,7 +252,7 @@ export default function MusicPage() {
                     handleSearch(searchQuery);
                   }
                 }}
-                className="w-full pl-12 pr-20 py-4 bg-gradient-to-r from-gray-900/80 to-red-900/20 text-white rounded-xl border border-red-800/30 focus:border-red-500 focus:outline-none focus:ring-2 focus:ring-red-500/20 backdrop-blur-sm transition-all"
+                className="w-full pl-12 pr-20 py-4 bg-gradient-to-r from-gray-900/80 to-white/[0.04] text-white rounded-xl border border-white/10 focus:border-white focus:outline-none focus:ring-2 focus:ring-white/20 backdrop-blur-sm transition-all"
               />
               <button
                 onClick={() => handleSearch(searchQuery)}
@@ -264,7 +264,7 @@ export default function MusicPage() {
           </div>
 
           {/* Navigation Tabs */}
-          <div className="flex gap-8 mb-10 border-b border-red-800/30 overflow-x-auto pb-4">
+          <div className="flex gap-8 mb-10 border-b border-white/10 overflow-x-auto pb-4">
             {[
               { key: 'home', label: 'Home', icon: Music },
               { key: 'dashboard', label: 'Dashboard', icon: Music },
@@ -279,14 +279,14 @@ export default function MusicPage() {
                 onClick={() => setActiveTab(key as any)}
                 className={`flex items-center gap-3 pb-4 px-3 whitespace-nowrap transition-all duration-300 ${
                   activeTab === key
-                    ? 'text-red-400 border-b-2 border-red-500 transform scale-105'
-                    : 'text-gray-400 hover:text-red-300'
+                    ? 'text-white border-b-2 border-white transform scale-105'
+                    : 'text-gray-400 hover:text-white'
                 }`}
               >
                 <Icon size={20} />
                 <span className="font-medium">{label}</span>
                 {key === 'search' && searchResults.length > 0 && (
-                  <span className="bg-gradient-to-r from-red-500 to-red-600 text-white text-xs px-2 py-1 rounded-full font-bold">
+                  <span className="bg-gradient-to-r from-white/20 to-white/20 text-white text-xs px-2 py-1 rounded-full font-bold">
                     {searchResults.length}
                   </span>
                 )}
@@ -298,7 +298,7 @@ export default function MusicPage() {
           <div className="space-y-10">
             {/* YouTube API Warning */}
             {activeTab === 'search' && searchResults.length === 0 && searchQuery && !searchLoading && (
-              <div className="bg-gradient-to-r from-yellow-900/20 to-red-900/20 border border-yellow-500/30 rounded-xl p-6 mb-6">
+              <div className="bg-gradient-to-r from-yellow-900/20 to-white/[0.04] border border-yellow-500/30 rounded-xl p-6 mb-6">
                 <div className="flex items-center gap-4">
                   <div className="text-yellow-400">
                     <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -329,12 +329,12 @@ export default function MusicPage() {
                 {searchLoading ? (
                   <div className="flex items-center justify-center h-32">
                     <RedLoader />
-                    <span className="ml-4 text-red-300">Searching for "{searchQuery}"...</span>
+                    <span className="ml-4 text-white/60">Searching for "{searchQuery}"...</span>
                   </div>
                 ) : searchResults.length > 0 ? (
                   <TrackList tracks={searchResults} title={`Search Results for "${searchQuery}"`} />
                 ) : searchQuery ? (
-                  <div className="text-center text-red-300 py-16">
+                  <div className="text-center text-white/60 py-16">
                     <Search size={64} className="mx-auto mb-6 opacity-50" />
                     <p className="text-xl">No results found for "{searchQuery}"</p>
                     <p className="text-sm mt-2 opacity-75">Try searching for different keywords or check your spelling</p>
@@ -350,7 +350,7 @@ export default function MusicPage() {
                 {likedTracks.length > 0 ? (
                   <TrackList tracks={likedTracks} title="Liked Songs" />
                 ) : (
-                  <div className="text-center text-red-300 py-16 bg-gradient-to-br from-gray-900/50 to-red-900/20 rounded-2xl border border-red-800/20">
+                  <div className="text-center text-white/60 py-16 bg-gradient-to-br from-gray-900/50 to-white/[0.04] rounded-2xl border border-white/10">
                     <Heart size={80} className="mx-auto mb-6 text-red-500/30" />
                     <p className="text-xl font-semibold">No liked songs yet</p>
                     <p className="text-sm mt-2 opacity-75">Start liking songs to see them here!</p>
@@ -364,8 +364,8 @@ export default function MusicPage() {
                 {recentlyPlayed.length > 0 ? (
                   <TrackList tracks={recentlyPlayed} title="Recently Played" />
                 ) : (
-                  <div className="text-center text-red-300 py-16 bg-gradient-to-br from-gray-900/50 to-red-900/20 rounded-2xl border border-red-800/20">
-                    <Clock size={80} className="mx-auto mb-6 text-red-500/30" />
+                  <div className="text-center text-white/60 py-16 bg-gradient-to-br from-gray-900/50 to-white/[0.04] rounded-2xl border border-white/10">
+                    <Clock size={80} className="mx-auto mb-6 text-white/20" />
                     <p className="text-xl font-semibold">No recently played songs</p>
                     <p className="text-sm mt-2 opacity-75">Start listening to see your history!</p>
                   </div>

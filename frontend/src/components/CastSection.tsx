@@ -120,7 +120,7 @@ const CastSection: React.FC<CastSectionProps> = ({
         {directors.length > 0 && (
           <div>
             <div className="flex items-center gap-2 mb-4">
-              <Director className="w-5 h-5 text-red-500" />
+              <Director className="w-5 h-5 text-white/70" />
               <h3 className="text-lg font-semibold text-white">
                 Director{directors.length > 1 ? 's' : ''}
               </h3>
@@ -147,7 +147,7 @@ const CastSection: React.FC<CastSectionProps> = ({
         {stars.length > 0 && (
           <div>
             <div className="flex items-center gap-2 mb-4">
-              <Cast className="w-5 h-5 text-red-500" />
+              <Cast className="w-5 h-5 text-white/70" />
               <h3 className="text-lg font-semibold text-white">Cast</h3>
             </div>
             <div className="space-y-3">
@@ -168,7 +168,7 @@ const CastSection: React.FC<CastSectionProps> = ({
                 <div className="text-center">
                   <button
                     onClick={() => setShowMoreInfo(!showMoreInfo)}
-                    className="text-red-400 hover:text-red-300 text-sm font-medium flex items-center gap-1 mx-auto"
+                    className="text-white/70 hover:text-white text-sm font-medium flex items-center gap-1 mx-auto"
                   >
                     {showMoreInfo ? (
                       <>

@@ -622,7 +622,7 @@ export default function WidgetManager({ className = '' }: WidgetManagerProps) {
                                 <button
                                     type="button"
                                     onClick={() => setShowContentSelector(true)}
-                                    className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-500"
+                                    className="flex items-center px-4 py-2 bg-black/55 text-white backdrop-blur-md rounded-md hover:bg-blue-500"
                                 >
                                     <Search className="w-4 h-4 mr-2" />
                                     Select Content & Genres
@@ -736,7 +736,7 @@ export default function WidgetManager({ className = '' }: WidgetManagerProps) {
                                                                 config.notificationTypes = notificationTypes;
                                                                 setNewWidget(prev => ({ ...prev, config: JSON.stringify(config) }));
                                                             }}
-                                                            className="mt-0.5 rounded border-gray-500 bg-gray-600 text-red-600 focus:ring-red-500"
+                                                            className="mt-0.5 rounded border-gray-500 bg-gray-600 text-red-600 focus:ring-white"
                                                         />
                                                         <div className="flex-1">
                                                             <div className="flex items-center gap-2">
@@ -778,7 +778,7 @@ export default function WidgetManager({ className = '' }: WidgetManagerProps) {
                                             fetchFeaturedContent();
                                         }
                                     }}
-                                    className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-500"
+                                    className="flex items-center px-4 py-2 bg-black/55 text-white backdrop-blur-md rounded-md hover:bg-blue-500"
                                 >
                                     <Search className="w-4 h-4 mr-2" />
                                     Select Content & Genres
@@ -800,7 +800,7 @@ export default function WidgetManager({ className = '' }: WidgetManagerProps) {
                             <button
                                 onClick={handleCreateWidget}
                                 disabled={!newWidget.name?.trim() || saveStatus === 'saving'}
-                                className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-500 disabled:opacity-50"
+                                className="px-4 py-2 bg-[#f5f5f7] text-black rounded-lg font-semibold hover:bg-white disabled:opacity-50"
                             >
                                 {saveStatus === 'saving' ? 'Creating...' : 'Create Widget'}
                             </button>
@@ -813,7 +813,7 @@ export default function WidgetManager({ className = '' }: WidgetManagerProps) {
             {!isAddingNew && (
                 <button
                     onClick={() => setIsAddingNew(true)}
-                    className="flex items-center px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-500 mb-4"
+                    className="flex items-center px-4 py-2 bg-[#f5f5f7] text-black rounded-lg font-semibold hover:bg-white mb-4"
                 >
                     <Plus className="w-4 h-4 mr-2" />
                     Add Widget
@@ -1100,7 +1100,7 @@ export default function WidgetManager({ className = '' }: WidgetManagerProps) {
                                             }
                                             setShowContentSelector(false);
                                         }}
-                                        className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-500"
+                                        className="px-4 py-2 bg-black/55 text-white backdrop-blur-md rounded-md hover:bg-blue-500"
                                     >
                                         Apply Selection
                                     </button>
@@ -1476,7 +1476,7 @@ function WidgetCard({
                                                         config.notificationTypes = notificationTypes;
                                                         setEditForm(prev => ({ ...prev, config: JSON.stringify(config) }));
                                                     }}
-                                                    className="mt-0.5 rounded border-gray-500 bg-gray-600 text-red-600 focus:ring-red-500"
+                                                    className="mt-0.5 rounded border-gray-500 bg-gray-600 text-red-600 focus:ring-white"
                                                 />
                                                 <div className="flex-1">
                                                     <div className="flex items-center gap-2">
@@ -1518,7 +1518,7 @@ function WidgetCard({
                                 setSelectedGenres(editingSelectedGenres);
                                 setShowContentSelector(true);
                             }}
-                            className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-500"
+                            className="flex items-center px-4 py-2 bg-black/55 text-white backdrop-blur-md rounded-md hover:bg-blue-500"
                         >
                             <Search className="w-4 h-4 mr-2" />
                             Select Content & Genres
@@ -1541,7 +1541,7 @@ function WidgetCard({
                     <button
                         onClick={handleSave}
                         disabled={saveStatus === 'saving'}
-                        className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-500 disabled:opacity-50"
+                        className="px-4 py-2 bg-[#f5f5f7] text-black rounded-lg font-semibold hover:bg-white disabled:opacity-50"
                     >
                         {saveStatus === 'saving' ? 'Saving...' : 'Save Changes'}
                     </button>

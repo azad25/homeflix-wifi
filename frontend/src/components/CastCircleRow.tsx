@@ -74,7 +74,7 @@ const CastCircleRow: React.FC<CastCircleRowProps> = ({ mediaId, type }) => {
   return (
     <div className="mt-12 mb-8">
       <div className="flex items-center gap-2 mb-6">
-        <Users className="w-6 h-6 text-red-500" />
+        <Users className="w-6 h-6 text-white/70" />
         <h2 className="text-2xl font-bold text-white">Cast & Crew</h2>
       </div>
       
@@ -96,7 +96,7 @@ const CastCircleRow: React.FC<CastCircleRowProps> = ({ mediaId, type }) => {
               ) : null}
               <Users className={`w-8 h-8 text-gray-500 absolute ${person.image_url ? 'hidden' : ''}`} />
             </div>
-            <p className="text-white text-xs sm:text-sm font-medium text-center mt-3 line-clamp-1 group-hover:text-red-400 transition-colors">{person.name}</p>
+            <p className="text-white text-xs sm:text-sm font-medium text-center mt-3 line-clamp-1 group-hover:text-white transition-colors">{person.name}</p>
             <p className="text-white/50 text-[10px] sm:text-xs text-center line-clamp-1 mt-0.5">{person.displayRole}</p>
           </div>
         ))}

@@ -219,7 +219,7 @@ const UpcomingTVSeries: React.FC<UpcomingTVSeriesProps> = ({
           <p>{error}</p>
           <button 
             onClick={fetchTVSeries}
-            className="mt-2 px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
+            className="mt-2 px-4 py-2 bg-[#f5f5f7] text-black rounded hover:bg-white transition-colors"
           >
             Retry
           </button>

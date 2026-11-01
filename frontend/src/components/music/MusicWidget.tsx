@@ -156,7 +156,7 @@ export default function MusicWidget({
           <p className="text-gray-400 mb-4">Discover amazing music</p>
           <button
             onClick={() => navigate.push('/music')}
-            className="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-lg transition-colors"
+            className="bg-green-500 hover:bg-black/55 text-white backdrop-blur-md px-4 py-2 rounded-lg transition-colors"
           >
             Explore Music
           </button>

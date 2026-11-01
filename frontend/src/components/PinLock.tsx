@@ -107,7 +107,7 @@ export default function PinLock({ children }: PinLockProps) {
       >
         <div className="flex flex-col items-center gap-3">
           <div className="w-16 h-16 rounded-full bg-red-600/20 border border-red-500/30 flex items-center justify-center">
-            <Lock className="w-7 h-7 text-red-400" />
+            <Lock className="w-7 h-7 text-white/70" />
           </div>
           <div className="flex items-center gap-2 text-white/60">
             <Settings className="w-4 h-4" />

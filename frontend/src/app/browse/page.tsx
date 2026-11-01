@@ -566,7 +566,7 @@ export default function BrowsePage() {
                   placeholder="Search your collection..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full bg-black/50 backdrop-blur-md text-white pl-12 pr-10 py-3 rounded-xl border border-white/20 focus:border-red-500 focus:outline-none placeholder-gray-400 transition-all text-sm lg:text-base"
+                  className="w-full bg-black/50 backdrop-blur-md text-white pl-12 pr-10 py-3 rounded-xl border border-white/20 focus:border-white/40 focus:outline-none placeholder-gray-400 transition-all text-sm lg:text-base"
                 />
                 {searchQuery && !searchLoading && (
                   <button
@@ -585,7 +585,7 @@ export default function BrowsePage() {
                 <select
                   value={sortBy}
                   onChange={(e) => setSortBy(e.target.value)}
-                  className="w-full sm:w-auto bg-black/50 backdrop-blur-md border border-white/20 text-white px-4 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 text-sm"
+                  className="w-full sm:w-auto bg-black/50 backdrop-blur-md border border-white/20 text-white px-4 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-white text-sm"
                 >
                   <option value="recent">Recently Added</option>
                   <option value="popular">Most Popular</option>
@@ -599,7 +599,7 @@ export default function BrowsePage() {
                 <select
                   value={selectedYear}
                   onChange={(e) => setSelectedYear(e.target.value)}
-                  className="w-full sm:w-auto bg-black/50 backdrop-blur-md border border-white/20 text-white px-4 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 text-sm"
+                  className="w-full sm:w-auto bg-black/50 backdrop-blur-md border border-white/20 text-white px-4 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-white text-sm"
                 >
                   <option value="all">All Years</option>
                   {Array.from({ length: 10 }, (_, i) => 2025 - i).map(year => (
@@ -644,7 +644,7 @@ export default function BrowsePage() {
                       {selectedGenre}
                       <button
                         onClick={() => setSelectedGenre("all")}
-                        className="hover:text-red-300 transition-colors"
+                        className="hover:text-white transition-colors"
                       >
                         <X className="w-3 h-3" />
                       </button>

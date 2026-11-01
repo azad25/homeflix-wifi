@@ -1474,7 +1474,7 @@ lide indicators */}
                     <motion.div
                       className="relative"
                       style={{
-                        background: 'linear-gradient(90deg, #e50914, #ff1a2b, #e50914)',
+                        background: 'linear-gradient(90deg, rgba(255,255,255,0.75), #fff, rgba(255,255,255,0.75))',
                         borderRadius: 2,
                         boxShadow: '0 0 20px rgba(229, 9, 20, 0.9), 0 0 40px rgba(229, 9, 20, 0.5), 0 2px 4px rgba(0, 0, 0, 0.3)'
                       }}

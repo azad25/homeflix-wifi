@@ -123,7 +123,7 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({
                                     navigate.push('/notifications');
                                     onClose();
                                 }}
-                                className="text-red-400 hover:text-red-300 transition-colors text-sm font-medium"
+                                className="text-white/70 hover:text-white transition-colors text-sm font-medium"
                             >
                                 View All
                             </button>
@@ -152,7 +152,7 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({
                                         navigate.push('/notifications');
                                         onClose();
                                     }}
-                                    className="text-red-400 hover:text-red-300 transition-colors text-sm font-medium"
+                                    className="text-white/70 hover:text-white transition-colors text-sm font-medium"
                                 >
                                     View Live Activity →
                                 </button>
@@ -167,7 +167,7 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({
                                         <div className="flex items-start gap-3">
                                             <div className="flex-shrink-0">
                                                 <div className="w-10 h-10 bg-red-600/20 rounded-full flex items-center justify-center">
-                                                    <Film className="w-5 h-5 text-red-500" />
+                                                    <Film className="w-5 h-5 text-white/70" />
                                                 </div>
                                             </div>
                                             <div className="flex-1 min-w-0">
@@ -191,7 +191,7 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({
                                                                     <img
                                                                         src={getPosterUrl(movieId)}
                                                                         alt="Movie"
-                                                                        className="w-16 h-24 object-cover rounded bg-gray-800 group-hover:ring-2 group-hover:ring-red-500 transition-all"
+                                                                        className="w-16 h-24 object-cover rounded bg-gray-800 group-hover:ring-2 group-hover:ring-white transition-all"
                                                                     />
                                                                     <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-colors rounded flex items-center justify-center">
                                                                         <Film className="w-6 h-6 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
@@ -213,7 +213,7 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({
                                                                 className="flex items-center gap-2 p-2 hover:bg-white/10 rounded transition-colors"
                                                             >
                                                                 <div className="w-10 h-10 bg-red-600/20 rounded flex items-center justify-center flex-shrink-0">
-                                                                    <Film className="w-5 h-5 text-red-500" />
+                                                                    <Film className="w-5 h-5 text-white/70" />
                                                                 </div>
                                                                 <div className="flex-1 text-left">
                                                                     <p className="text-white font-medium text-sm">
@@ -265,7 +265,7 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({
                                                 navigate.push('/notifications');
                                                 onClose();
                                             }}
-                                            className="w-full text-center text-red-400 hover:text-red-300 transition-colors text-sm font-medium py-2 hover:bg-white/5 rounded"
+                                            className="w-full text-center text-white/70 hover:text-white transition-colors text-sm font-medium py-2 hover:bg-white/5 rounded"
                                         >
                                             View All Notifications in Live Activity →
                                         </button>

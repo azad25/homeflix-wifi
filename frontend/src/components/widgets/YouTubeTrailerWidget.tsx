@@ -366,7 +366,7 @@ export default function YouTubeTrailerWidget({
                         key={item.id}
                         onClick={() => setCurrentIndex(index)}
                         className={`flex-shrink-0 w-20 h-12 rounded overflow-hidden transition-all ${
-                            index === currentIndex ? 'ring-2 ring-red-500' : 'opacity-60 hover:opacity-100'
+                            index === currentIndex ? 'ring-2 ring-white' : 'opacity-60 hover:opacity-100'
                         }`}
                     >
                         <img

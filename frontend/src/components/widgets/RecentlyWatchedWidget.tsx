@@ -221,7 +221,7 @@ export default function RecentlyWatchedWidget({
       <div className="flex items-center justify-between mb-6 px-4 md:px-12">
         <div className="flex items-center gap-4">
           <div className="w-10 h-10 bg-gradient-to-br from-red-500/30 to-red-600/20 backdrop-blur-sm border border-red-400/30 rounded-xl flex items-center justify-center">
-            <Play className="w-5 h-5 text-red-400 fill-current" />
+            <Play className="w-5 h-5 text-white/70 fill-current" />
           </div>
           <div>
             <h2 className="text-xl md:text-2xl font-bold text-white">{title}</h2>

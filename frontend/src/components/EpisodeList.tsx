@@ -167,7 +167,7 @@ const EpisodeList: React.FC<EpisodeListProps> = ({
                 {/* Episode Info */}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-start justify-between gap-4 mb-2">
-                    <h3 className="text-white font-semibold text-lg group-hover:text-red-500 transition-colors">
+                    <h3 className="text-white font-semibold text-lg group-hover:text-white transition-colors">
                       {episode.title}
                     </h3>
                     <div className="flex items-center gap-2 text-white/60 text-sm flex-shrink-0">

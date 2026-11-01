@@ -734,10 +734,10 @@ export default function TrailerWidget({
                     <div
                         className="flex items-center gap-2 px-4 py-2 rounded-full backdrop-blur-md border font-semibold text-sm shadow-lg"
                         style={{
-                            backgroundColor: config.tagColor || '#ef444430',
-                            borderColor: config.tagColor ? `${config.tagColor}60` : '#ef444450',
+                            backgroundColor: config.tagColor || 'rgba(255,255,255,0.12)',
+                            borderColor: config.tagColor ? `${config.tagColor}60` : 'rgba(255,255,255,0.25)',
                             color: 'white',
-                            boxShadow: `0 0 20px ${config.tagColor || '#ef4444'}40, 0 4px 12px rgba(0,0,0,0.3)`,
+                            boxShadow: `0 0 20px ${config.tagColor || '#ffffff'}40, 0 4px 12px rgba(0,0,0,0.3)`,
                             textShadow: '0 1px 2px rgba(0,0,0,0.8)'
                         }}
                     >

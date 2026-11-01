@@ -2460,7 +2460,7 @@ export default function TVSeriesPage() {
                             className="mb-2"
                           >
                             <div className="bg-white/10 backdrop-blur-md rounded border border-white/20 px-3 py-1.5 inline-flex items-center gap-2">
-                              <PlayCircle className="w-3.5 h-3.5 text-red-400" />
+                              <PlayCircle className="w-3.5 h-3.5 text-white/70" />
                               <span className="text-white font-medium text-xs">
                                 {continueWatchingBySeason.size > 0 ? 'Continue Watching: ' : 'Latest Episode: '}
                                 <span className="text-white/80 font-normal">
@@ -2641,7 +2641,7 @@ export default function TVSeriesPage() {
                     <div className="container mx-auto px-6 md:px-12 lg:px-16">
                       <ScrollReveal direction="up" delay={0.1}>
                         <h2 className="text-2xl font-bold text-white mb-6 flex items-center gap-2">
-                          <PlayCircle className="w-7 h-7 text-red-500" />
+                          <PlayCircle className="w-7 h-7 text-white/70" />
                           Continue Watching
                         </h2>
 
@@ -2723,7 +2723,7 @@ export default function TVSeriesPage() {
                 <div className="container mx-auto px-6 md:px-12 lg:px-16">
                   <ScrollReveal direction="up" delay={0.2}>
                     <h2 className="text-3xl font-bold text-white mb-8 flex items-center gap-2">
-                      <Tv className="w-8 h-8 text-red-500" />
+                      <Tv className="w-8 h-8 text-white/70" />
                       Seasons
                     </h2>
 
@@ -2765,7 +2765,7 @@ export default function TVSeriesPage() {
 
                               <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
 
-                              <div className="absolute top-2 left-2 bg-red-600 text-white px-2 py-1 rounded text-xs font-semibold">
+                              <div className="absolute top-2 left-2 bg-white/15 text-white px-2 py-1 rounded text-xs font-semibold">
                                 S{season.season_number}
                               </div>
 
@@ -2789,7 +2789,7 @@ export default function TVSeriesPage() {
                               </div>
                             </div>
 
-                            <h3 className="text-white font-medium text-sm group-hover:text-red-400 transition-colors duration-300">
+                            <h3 className="text-white font-medium text-sm group-hover:text-white transition-colors duration-300">
                               {season.name}
                             </h3>
 
@@ -2814,7 +2814,7 @@ export default function TVSeriesPage() {
                     <ScrollReveal direction="up" delay={0.4}>
                       <div className="mt-16">
                         <h2 className="text-3xl font-bold text-white mb-8 flex items-center gap-2">
-                          <Film className="w-8 h-8 text-red-500" />
+                          <Film className="w-8 h-8 text-white/70" />
                           Recent TV Series
                         </h2>
 
@@ -2858,7 +2858,7 @@ export default function TVSeriesPage() {
                                 <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
 
                                 {/* TV Series Badge */}
-                                <div className="absolute top-2 left-2 bg-blue-600 text-white px-2 py-1 rounded text-xs font-semibold flex items-center gap-1">
+                                <div className="absolute top-2 left-2 bg-black/55 text-white backdrop-blur-md px-2 py-1 rounded text-xs font-semibold flex items-center gap-1">
                                   <Tv className="w-3 h-3" />
                                   TV
                                 </div>
@@ -2899,7 +2899,7 @@ export default function TVSeriesPage() {
                                 </div>
                               </div>
 
-                              <h3 className="text-white font-medium text-sm group-hover:text-red-400 transition-colors duration-300 line-clamp-2">
+                              <h3 className="text-white font-medium text-sm group-hover:text-white transition-colors duration-300 line-clamp-2">
                                 {recentSeriesItem.title}
                               </h3>
 

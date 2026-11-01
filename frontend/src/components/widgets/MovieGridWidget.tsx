@@ -147,7 +147,7 @@ const MovieGridCard: React.FC<MovieGridCardProps> = ({ item, columns, showRating
                 style={{ zIndex: isHovered ? 50 : 1 }}
             >
                 {isComingSoon(item) && (
-                    <div className="absolute top-2 right-2 bg-red-600 text-white text-[9px] font-bold px-1.5 py-0.5 rounded shadow z-[60] tracking-wider pointer-events-none">
+                    <div className="absolute top-2 right-2 bg-white/15 text-white text-[9px] font-bold px-1.5 py-0.5 rounded shadow z-[60] tracking-wider pointer-events-none">
                         COMING SOON
                     </div>
                 )}

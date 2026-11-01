@@ -726,7 +726,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
                           {result.seeders}
                         </span>
                         <span className="flex items-center gap-1">
-                          <Download className="w-4 h-4 text-red-400" />
+                          <Download className="w-4 h-4 text-white/70" />
                           {result.leechers}
                         </span>
                         <span className="flex items-center gap-1">

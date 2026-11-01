@@ -162,7 +162,7 @@ export default function MusicSuggestions() {
           {[
             { name: 'Top Charts', color: 'bg-gradient-to-br from-yellow-400 to-orange-500', emoji: '🏆' },
             { name: 'New Releases', color: 'bg-gradient-to-br from-green-400 to-teal-500', emoji: '🆕' },
-            { name: 'Mood & Activity', color: 'bg-gradient-to-br from-purple-400 to-pink-500', emoji: '🎭' },
+            { name: 'Mood & Activity', color: 'bg-gradient-to-br from-purple-400 to-white/20', emoji: '🎭' },
             { name: 'Genres', color: 'bg-gradient-to-br from-blue-400 to-indigo-500', emoji: '🎵' },
           ].map((category) => (
             <button

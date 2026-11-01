@@ -167,7 +167,7 @@ const RelatedMedia: React.FC<RelatedMediaProps> = ({ mediaId, mediaType, release
     <div className={`${className}`}>
       <div className="w-full px-4 md:px-8 xl:px-12">
         <h2 className="text-2xl font-black tracking-tight text-white mb-6 flex items-center gap-2">
-          <Film className="w-6 h-6 text-red-500" />
+          <Film className="w-6 h-6 text-white/70" />
           More Like This
         </h2>
 
@@ -372,7 +372,7 @@ const MovieImages: React.FC<MovieImagesProps> = ({ movieId, mediaType = 'movie',
       <div className={`${className}`}>
         <div className="w-full px-4 md:px-8 xl:px-12">
           <h2 className="text-2xl font-bold text-white mb-6 flex items-center gap-2">
-            <Film className="w-6 h-6 text-red-500" />
+            <Film className="w-6 h-6 text-white/70" />
             Images
           </h2>
 
@@ -454,7 +454,7 @@ const MovieImages: React.FC<MovieImagesProps> = ({ movieId, mediaType = 'movie',
           onClick={() => setSelectedImage(null)}
         >
           <button
-            className="absolute top-4 right-4 text-white hover:text-red-500 transition-colors"
+            className="absolute top-4 right-4 text-white hover:text-white transition-colors"
             onClick={() => setSelectedImage(null)}
           >
             <X className="w-8 h-8" />
@@ -574,7 +574,7 @@ const TMDBMovieList: React.FC<TMDBMovieListProps> = ({ endpoint, title, maxItems
       <div className={`${className}`}>
         <div className="w-full px-4 md:px-8 xl:px-12">
           <h2 className="text-2xl font-bold text-white mb-6 flex items-center gap-2">
-            <Film className="w-6 h-6 text-red-500" />
+            <Film className="w-6 h-6 text-white/70" />
             {title}
           </h2>
 
@@ -653,7 +653,7 @@ const TMDBMovieList: React.FC<TMDBMovieListProps> = ({ endpoint, title, maxItems
     <div className={`${className}`}>
       <div className="max-w-7xl mx-auto">
         <h2 className="text-2xl font-bold text-white mb-6 flex items-center gap-2">
-          <Film className="w-6 h-6 text-red-500" />
+          <Film className="w-6 h-6 text-white/70" />
           {title}
         </h2>
 
@@ -1447,7 +1447,7 @@ const TMDBMoviePage: React.FC = () => {
           <p className="text-gray-400 mb-6">{error}</p>
           <button
             onClick={() => router.back()}
-            className="px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+            className="px-6 py-3 bg-[#f5f5f7] text-black rounded-lg hover:bg-white transition-colors"
           >
             Go Back
           </button>
@@ -1811,7 +1811,7 @@ const TMDBMoviePage: React.FC = () => {
                       <div className="grid grid-cols-1 gap-8">
                         <div>
                           <div className="flex items-center gap-3 mb-6">
-                            <Info className="w-6 h-6 text-red-500" />
+                            <Info className="w-6 h-6 text-white/70" />
                             <h3 className="text-xl font-semibold text-white">Details</h3>
                           </div>
                           <div className="space-y-4 pl-9">
@@ -1937,7 +1937,7 @@ const TMDBMoviePage: React.FC = () => {
                         <div className="mt-8">
                           <div className="flex items-center justify-between mb-6">
                             <div className="flex items-center gap-2">
-                              <Users className="w-5 h-5 text-red-500" />
+                              <Users className="w-5 h-5 text-white/70" />
                               <h3 className="text-lg font-semibold text-white">Cast</h3>
                             </div>
                             {(mediaDetails?.credits?.cast?.length || 0) > 6 && (
@@ -1966,7 +1966,7 @@ const TMDBMoviePage: React.FC = () => {
                                   <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
                                 </div>
                                 <div className="p-3">
-                                  <h4 className="font-semibold text-white mb-1 group-hover:text-red-400 transition-colors text-sm">
+                                  <h4 className="font-semibold text-white mb-1 group-hover:text-white transition-colors text-sm">
                                     {actor.name}
                                   </h4>
                                   <p className="text-xs text-gray-400 line-clamp-2">

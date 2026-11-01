@@ -471,7 +471,7 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
                                     )}
 
                                     <div className="min-w-0 flex-1">
-                                      <h4 className="text-white font-medium truncate group-hover:text-red-400 transition-colors">
+                                      <h4 className="text-white font-medium truncate group-hover:text-white transition-colors">
                                         {suggestion.title}
                                       </h4>
                                     </div>

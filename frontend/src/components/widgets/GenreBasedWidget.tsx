@@ -82,7 +82,7 @@ function GenreCard({ item, logoSrc, imageSrc, logoErrors, setLogoErrors, onCardC
             <div className="aspect-video w-full rounded-md shadow-md bg-[#141414] overflow-hidden relative border border-transparent hover:border-white/10 transition-colors">
                 {/* Coming Soon Tag */}
                 {isComingSoon(item) && (
-                    <div className="absolute top-2 right-2 bg-red-600 text-white text-[9px] font-bold px-1.5 py-0.5 rounded shadow z-[60] tracking-wider pointer-events-none">
+                    <div className="absolute top-2 right-2 bg-white/15 text-white text-[9px] font-bold px-1.5 py-0.5 rounded shadow z-[60] tracking-wider pointer-events-none">
                         COMING SOON
                     </div>
                 )}
@@ -355,7 +355,7 @@ export default function GenreBasedWidget({
                         {title || genre}
                     </h2>
                     {showHotBadge && (
-                        <span className="text-[10px] md:text-xs font-semibold text-[#e50914] bg-[#e50914]/10 px-2 py-0.5 rounded uppercase tracking-wider hidden md:inline-block">
+                        <span className="text-[10px] md:text-xs font-semibold text-white/85 bg-white/10 px-2 py-0.5 rounded uppercase tracking-wider hidden md:inline-block">
                             Top Picks
                         </span>
                     )}

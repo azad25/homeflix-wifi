@@ -154,7 +154,7 @@ export default function RecommendationSection({ currentMedia, className = '', on
     <div className={`w-full ${className}`}>
       <div className="relative">
         <h2 className="text-2xl font-black tracking-tight text-white mb-6 flex items-center gap-2">
-          <Film className="w-6 h-6 text-red-500" />
+          <Film className="w-6 h-6 text-white/70" />
           You Might Also Like
         </h2>
 
@@ -278,7 +278,7 @@ export default function RecommendationSection({ currentMedia, className = '', on
                          )}
                          {movie.duration && movie.duration > 0 && (
                            <div className="flex items-center gap-1 drop-shadow-md">
-                             <Clock className="w-3 h-3 text-red-400" />
+                             <Clock className="w-3 h-3 text-white/70" />
                              {formatRuntime(Math.floor(movie.duration / 60))}
                            </div>
                          )}

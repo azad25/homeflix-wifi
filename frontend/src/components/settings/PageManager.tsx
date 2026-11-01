@@ -334,7 +334,7 @@ export default function PageManager() {
               <input type="checkbox" checked={form.is_nav_visible} onChange={(e) => setForm({ ...form, is_nav_visible: e.target.checked })} />
               Show in navbar
             </label>
-            <button onClick={createPage} disabled={creating} className="px-3 py-2 bg-red-600/20 hover:bg-red-600/30 border border-red-500/30 rounded-lg text-red-200 flex items-center gap-2">
+            <button onClick={createPage} disabled={creating} className="px-3 py-2 bg-[#f5f5f7] hover:bg-white rounded-lg text-black font-semibold flex items-center gap-2">
               <Plus className="w-4 h-4" /> Create
             </button>
           </div>
@@ -378,7 +378,7 @@ export default function PageManager() {
                     <a href={`/${p.slug}`} target="_blank" rel="noopener noreferrer" className="px-2 py-1 bg-white/10 hover:bg-white/15 rounded-lg border border-white/10 text-white/80 flex items-center gap-1 text-xs">
                       <ExternalLink className="w-4 h-4" /> View
                     </a>
-                    <button onClick={() => handleManageWidgets(p.slug)} className="px-3 py-1.5 bg-red-600/20 hover:bg-red-600/30 rounded-lg border border-red-500/30 text-red-200 text-sm flex items-center gap-2">
+                    <button onClick={() => handleManageWidgets(p.slug)} className="px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg border border-white/10 text-white text-sm flex items-center gap-2">
                       <Settings className="w-4 h-4" /> Manage Widgets
                     </button>
                     <button
@@ -389,7 +389,7 @@ export default function PageManager() {
                     >
                       {p.is_nav_visible ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
                     </button>
-                    <button onClick={() => deletePage(p.slug)} className="px-2 py-1 bg-red-600/20 hover:bg-red-600/30 rounded-lg border border-red-500/30 text-red-200">
+                    <button onClick={() => deletePage(p.slug)} className="px-2 py-1 bg-white/10 hover:bg-white/20 rounded-lg border border-white/10 text-white">
                       <Trash2 className="w-4 h-4" />
                     </button>
                   </div>
@@ -410,7 +410,7 @@ export default function PageManager() {
                         <div className="flex items-center gap-2">
                           <button
                             onClick={() => createNewWidget(p.slug)}
-                            className="text-xs px-2.5 py-1.5 rounded bg-red-600/20 hover:bg-red-600/30 border border-red-500/30 text-red-200 flex items-center gap-1"
+                            className="text-xs px-2.5 py-1.5 rounded bg-white/10 hover:bg-white/20 border border-white/10 text-white flex items-center gap-1"
                             title="Create new widget"
                           >
                             <Plus className="w-4 h-4" />
@@ -479,7 +479,7 @@ export default function PageManager() {
                                       }
                                     }}
                                     title="Edit widget"
-                                    className="p-1.5 bg-red-600/20 hover:bg-red-600/30 text-red-200 hover:text-red-100 rounded transition-colors"
+                                    className="p-1.5 bg-white/10 hover:bg-white/20 text-white rounded transition-colors"
                                   >
                                     <Edit2 className="w-4 h-4" />
                                   </button>

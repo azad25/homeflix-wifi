@@ -610,7 +610,7 @@ export default function WidgetEditor({
                       type="checkbox"
                       checked={config[key] !== false}
                       onChange={(e) => setConfig({ ...config, [key]: e.target.checked })}
-                      className="w-4 h-4 text-red-500 bg-white/10 border-white/20 rounded focus:ring-red-500 focus:ring-2"
+                      className="w-4 h-4 text-red-500 bg-white/10 border-white/20 rounded focus:ring-white focus:ring-2"
                     />
                     <span className="text-sm text-white/80">{label}</span>
                   </label>
@@ -711,7 +711,7 @@ export default function WidgetEditor({
                           type="checkbox"
                           checked={config.autoPlay !== false}
                           onChange={(e) => setConfig({ ...config, autoPlay: e.target.checked })}
-                          className="w-4 h-4 text-red-500 bg-white/10 border-white/20 rounded focus:ring-red-500 focus:ring-2"
+                          className="w-4 h-4 text-red-500 bg-white/10 border-white/20 rounded focus:ring-white focus:ring-2"
                         />
                         <span className="text-sm text-white/80">Auto-play video trailers</span>
                       </label>
@@ -746,7 +746,7 @@ export default function WidgetEditor({
                         type="checkbox"
                         checked={config.showTrailerBadge !== false}
                         onChange={(e) => setConfig({ ...config, showTrailerBadge: e.target.checked })}
-                        className="w-4 h-4 text-red-500 bg-white/10 border-white/20 rounded focus:ring-red-500 focus:ring-2"
+                        className="w-4 h-4 text-red-500 bg-white/10 border-white/20 rounded focus:ring-white focus:ring-2"
                       />
                       <span className="text-sm text-white/80">Show Trailer Badge</span>
                     </label>
@@ -755,7 +755,7 @@ export default function WidgetEditor({
                         type="checkbox"
                         checked={config.showVideoControls !== false}
                         onChange={(e) => setConfig({ ...config, showVideoControls: e.target.checked })}
-                        className="w-4 h-4 text-red-500 bg-white/10 border-white/20 rounded focus:ring-red-500 focus:ring-2"
+                        className="w-4 h-4 text-red-500 bg-white/10 border-white/20 rounded focus:ring-white focus:ring-2"
                       />
                       <span className="text-sm text-white/80">Video Controls</span>
                     </label>
@@ -764,7 +764,7 @@ export default function WidgetEditor({
                         type="checkbox"
                         checked={config.showThumbnails !== false}
                         onChange={(e) => setConfig({ ...config, showThumbnails: e.target.checked })}
-                        className="w-4 h-4 text-red-500 bg-white/10 border-white/20 rounded focus:ring-red-500 focus:ring-2"
+                        className="w-4 h-4 text-red-500 bg-white/10 border-white/20 rounded focus:ring-white focus:ring-2"
                       />
                       <span className="text-sm text-white/80">Show Thumbnails</span>
                     </label>
@@ -773,7 +773,7 @@ export default function WidgetEditor({
                         type="checkbox"
                         checked={config.openInYouTube !== false}
                         onChange={(e) => setConfig({ ...config, openInYouTube: e.target.checked })}
-                        className="w-4 h-4 text-red-500 bg-white/10 border-white/20 rounded focus:ring-red-500 focus:ring-2"
+                        className="w-4 h-4 text-red-500 bg-white/10 border-white/20 rounded focus:ring-white focus:ring-2"
                       />
                       <span className="text-sm text-white/80">YouTube Link</span>
                     </label>
@@ -901,7 +901,7 @@ export default function WidgetEditor({
                         type="checkbox"
                         checked={config.showNotificationIcon !== false}
                         onChange={(e) => setConfig({ ...config, showNotificationIcon: e.target.checked })}
-                        className="w-4 h-4 text-red-500 bg-white/10 border-white/20 rounded focus:ring-red-500 focus:ring-2"
+                        className="w-4 h-4 text-red-500 bg-white/10 border-white/20 rounded focus:ring-white focus:ring-2"
                       />
                       <span className="text-sm text-white/80">Show Icons</span>
                     </label>
@@ -910,7 +910,7 @@ export default function WidgetEditor({
                         type="checkbox"
                         checked={config.showTimestamp !== false}
                         onChange={(e) => setConfig({ ...config, showTimestamp: e.target.checked })}
-                        className="w-4 h-4 text-red-500 bg-white/10 border-white/20 rounded focus:ring-red-500 focus:ring-2"
+                        className="w-4 h-4 text-red-500 bg-white/10 border-white/20 rounded focus:ring-white focus:ring-2"
                       />
                       <span className="text-sm text-white/80">Show Timestamps</span>
                     </label>
