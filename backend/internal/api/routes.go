@@ -1,6 +1,10 @@
 package api
 
 import (
+	"context"
+	"log"
+	"time"
+
 	"homeflix-backend/internal/api/handlers"
 	torrentHandlers "homeflix-backend/internal/handlers"
 	"homeflix-backend/internal/models"
@@ -294,6 +298,22 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		api.GET("/cast/devices/:id/status", handlers.GetCastDeviceStatus(castHub))
 		api.GET("/cast/devices/:id/events", handlers.CastDeviceEvents(castHub))
 		api.POST("/cast/devices/:id/command", handlers.SendCastCommand(castHub))
+
+		// TV app self-updates (see docs/TV_APP_UPDATES.md): drop an APK into
+		// ./app-updates/tv (or upload it); TVs are told over the cast socket.
+		tvUpdates := services.NewTVAppUpdates()
+		tvUpdates.OnNewRelease = func(rel *services.TVAppRelease) {
+			n := castHub.Broadcast(map[string]interface{}{
+				"type": "update_available", "version_code": rel.VersionCode, "version_name": rel.VersionName,
+			})
+			log.Printf("📦 TV update %s announced to %d TV(s)", rel.VersionName, n)
+		}
+		go tvUpdates.Watch(context.Background(), time.Minute)
+		api.GET("/app/tv/latest", handlers.GetTVAppLatest(tvUpdates))
+		api.GET("/app/tv/download/:code", handlers.DownloadTVApp(tvUpdates))
+		api.HEAD("/app/tv/download/:code", handlers.DownloadTVApp(tvUpdates))
+		api.POST("/admin/app/tv/upload", handlers.UploadTVApp(tvUpdates))
+		api.POST("/admin/app/tv/rescan", handlers.RescanTVApp(tvUpdates))
 
 		// Personalised recommendations learned from watch history
 		tasteService := services.NewTasteService(db)

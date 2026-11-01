@@ -92,6 +92,10 @@ Every command looks like:
 Ignore unknown fields. For an unknown action, send `ok:false` with
 `"error":"unsupported action"`.
 
+### Other server → TV messages
+- `{"type":"update_available","version_code":8,"version_name":"5.3"}`: a new TV app
+  build was published. Check `/api/app/tv/latest` now. No ack is needed. See `TV_APP_UPDATES.md`.
+
 ### Acknowledge every command within 8 seconds
 
 ```json
