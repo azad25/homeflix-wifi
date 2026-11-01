@@ -316,6 +316,16 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
     href: string;
   }
 
+  const TOP_TABS: NavItem[] = [
+    { name: "Home", href: "/" },
+    { name: "Movies", href: "/movies" },
+    { name: "TV Shows", href: "/tv-shows" },
+    { name: "Channels", href: "/providers" },
+    { name: "Trailers", href: "/trailers" },
+    { name: "My List", href: "/my-list" },
+    { name: "Library", href: "/browse" },
+  ];
+
   const navItems: NavItem[] = [
     // { name: "Movies", href: "/movies" },
     // { name: "TV Shows", href: "/tv-shows" },
@@ -327,11 +337,12 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
   ];
 
   return (
-    <motion.nav
-      initial={{ opacity: 0, y: -50 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.5 }}
-      className={`fixed top-0 left-0 right-0 z-40 transition-all duration-300 ${isScrolled ? "bg-black/95 backdrop-blur-sm" : "bg-transparent"
+    // No mount animation: every page renders its own Navbar, so a slide-in
+    // replayed on each navigation and made page changes feel slow.
+    <nav
+      className={`fixed top-0 left-0 right-0 z-40 transition-[background-color,backdrop-filter,border-color] duration-300 border-b ${isScrolled
+        ? "bg-black/55 backdrop-blur-2xl backdrop-saturate-150 border-white/[0.06]"
+        : "bg-gradient-to-b from-black/60 to-transparent border-transparent"
         }`}
     >
       <div className="px-4 md:px-8 lg:px-16">
@@ -342,21 +353,41 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
               href="/"
               className="text-2xl font-black tracking-tight text-white drop-shadow-md hover:scale-105 transition-transform cursor-pointer flex items-center"
               onClick={(e) => {
-                // If we are already on the home page, force a reload to refresh content and fix stuck spinner
-                if (pathname === "/") {
-                  e.preventDefault();
-                  window.location.reload();
-                }
                 // If there's a custom home page and user wants to bypass it, add ?original=true
                 // This can be triggered by holding Ctrl/Cmd while clicking
                 if (homePageSlug && (e.ctrlKey || e.metaKey)) {
                   e.preventDefault();
                   navigate.push("/?original=true");
+                  return;
+                }
+                // Already home: scroll to top instead of a full page reload.
+                if (pathname === "/") {
+                  e.preventDefault();
+                  window.scrollTo({ top: 0, behavior: "smooth" });
                 }
               }}
             >
               Home<span className="text-red-500">Flix</span>
             </NavigationLink>
+          </div>
+
+          {/* Apple TV style tab bar */}
+          <div className="absolute left-1/2 hidden -translate-x-1/2 lg:block">
+            <div className="flex items-center gap-0.5 rounded-full bg-white/[0.08] p-1 backdrop-blur-2xl backdrop-saturate-150 border border-white/[0.06]">
+              {TOP_TABS.map((tab) => {
+                const active = tab.href === "/" ? pathname === "/" : pathname?.startsWith(tab.href);
+                return (
+                  <NavigationLink
+                    key={tab.href}
+                    href={tab.href}
+                    className={`tv-focus rounded-full px-4 py-1.5 text-[14px] font-semibold tracking-[-0.01em] transition-colors duration-200 ${active ? "bg-white text-black" : "text-white/75 hover:text-white hover:bg-white/10"
+                      }`}
+                  >
+                    {tab.name}
+                  </NavigationLink>
+                );
+              })}
+            </div>
           </div>
 
           {/* Right Side */}
@@ -657,7 +688,7 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
           )}
         </AnimatePresence>
       </div>
-    </motion.nav>
+    </nav>
   );
 };
 

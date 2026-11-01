@@ -9,12 +9,12 @@ export const useNavigate = () => {
   const { startLoading } = useNavigationLoader();
 
   const push = useCallback((href: string) => {
-    startLoading();
+    startLoading(href);
     router.push(href);
   }, [router, startLoading]);
 
   const replace = useCallback((href: string) => {
-    startLoading();
+    startLoading(href);
     router.replace(href);
   }, [router, startLoading]);
 
@@ -29,7 +29,7 @@ export const useNavigate = () => {
   }, [router, startLoading]);
 
   const refresh = useCallback(() => {
-    startLoading();
+    // refresh() keeps the same URL, so no route change would clear the loader.
     router.refresh();
   }, [router, startLoading]);
 
