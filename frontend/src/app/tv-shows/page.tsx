@@ -1,920 +1,292 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
-import { usePageTitle } from '@/hooks/usePageTitle';
-import { Play, Info, Star, Calendar } from "lucide-react";
-import { useNavigate } from '@/hooks/useNavigate';
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { usePageTitle } from "@/hooks/usePageTitle";
+import { useNavigate } from "@/hooks/useNavigate";
 import Navbar from "@/components/Navbar";
-import VideoPlayer from '@/components/VideoPlayer';
-import RedLoader from '@/components/RedLoader';
-import { getApiUrl, fetchUniqueRecommendations, preloadAssets } from '@/lib/api';
-import RecentlyWatchedTVShows from '@/components/RecentlyWatchedTVShows';
-
-import { Media } from '@/types/media';
-import { ParallaxSection, ScrollReveal } from '@/components/scrollx';
-import BackendWidgetRenderer from '@/components/widgets/BackendWidgetRenderer';
-
+import VideoPlayer from "@/components/VideoPlayer";
+import { apiCall, getApiUrl } from "@/lib/api";
+import { Media } from "@/types/media";
+import BackendWidgetRenderer from "@/components/widgets/BackendWidgetRenderer";
+import ErrorBoundary from "@/components/ErrorBoundary";
+import TVHero, { TVHeroSlide } from "@/components/tv/TVHero";
+import TVShelf from "@/components/tv/TVShelf";
+import TVArtworkCard from "@/components/tv/TVArtworkCard";
+import { TVGridSkeleton, TVPageHeader } from "@/components/tv/TVPage";
+import { mediaYouTubeKey } from "@/lib/mediaArt";
+import { fetchTrailerKey } from "@/lib/tmdbItem";
+import { Tv } from "lucide-react";
 
 interface Series {
-  id: number | string;
+  id: number;
   title: string;
   description?: string;
-  rating?: number;
   year?: number;
+  rating?: number;
+  genre_names?: string[];
   total_seasons?: number;
   total_episodes?: number;
-  genres?: Array<{ name: string }>;
-  episodes: Media[];
-  seasons: Season[];
-  thumbnail_path?: string;
-  banner_path?: string;
+  network?: string;
+  certification?: string;
   poster_path?: string;
   backdrop_path?: string;
-  tmdb_backdrop_url?: string;
   tmdb_poster_url?: string;
+  tmdb_backdrop_url?: string;
+  tmdb_trailer_url?: string;
+  trailer_url?: string;
+  logo_path?: string;
+  tmdb_id?: number;
+  created_at?: string;
 }
 
-interface Season {
-  id: number;
-  season_number: number;
-  name: string;
-  episode_count: number;
-  episodes: Media[];
-  thumbnail_path?: string;
+interface RecentItem {
+  media_id: number;
+  last_watched_at?: string;
+  progress_seconds: number;
+  duration_seconds: number;
+  media: Media & { series_title?: string };
 }
+
+const api = () => getApiUrl();
+const posterOf = (s: Series) => s.tmdb_poster_url || `${api()}/api/series/${s.id}/poster`;
+const backdropOf = (s: Series) => s.tmdb_backdrop_url || `${api()}/api/series/${s.id}/backdrop`;
+const logoOf = (s: Series) => (s.logo_path ? `${api()}/api/series/${s.id}/logo` : null);
+const seasonsLabel = (s: Series) =>
+  s.total_seasons ? `${s.total_seasons} Season${s.total_seasons === 1 ? "" : "s"}` : null;
+
+const byNewest = (a: Series, b: Series) =>
+  new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime() || b.id - a.id;
 
 export default function TVShowsPage() {
-  usePageTitle('TV Shows');
+  usePageTitle("TV Shows");
   const navigate = useNavigate();
-  const [seriesList, setSeriesList] = useState<Series[]>([]);
-  const [actionSeries, setActionSeries] = useState<Series[]>([]);
-  const [dramaSeries, setDramaSeries] = useState<Series[]>([]);
-  const [comedySeries, setComedySeries] = useState<Series[]>([]);
-  const [selectedMedia, setSelectedMedia] = useState<Media | null>(null);
-  const [isPlayerOpen, setIsPlayerOpen] = useState(false);
+  const [series, setSeries] = useState<Series[]>([]);
+  const [recent, setRecent] = useState<RecentItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [refreshKey, setRefreshKey] = useState(0);
+  const [selectedMedia, setSelectedMedia] = useState<Media | null>(null);
+  const [startTime, setStartTime] = useState(0);
+  const [isPlayerOpen, setIsPlayerOpen] = useState(false);
 
-
-
-  const extractSeasonNumber = (title: string): number | null => {
-    const seasonMatch = title.match(/[Ss](\d+)[Ee](\d+)|[Ss]eason\s*(\d+)/i);
-    if (seasonMatch) {
-      return parseInt(seasonMatch[1] || seasonMatch[3]);
-    }
-    return null;
-  };
-
-  const extractEpisodeNumber = (title: string): number | null => {
-    const episodeMatch = title.match(/[Ss](\d+)[Ee](\d+)|[Ee]pisode\s*(\d+)/i);
-    if (episodeMatch) {
-      return parseInt(episodeMatch[2] || episodeMatch[3]);
-    }
-    return null;
-  };
-
-  const handlePlayNext = (nextMedia: Media) => {
-    setSelectedMedia(nextMedia);
-    setIsPlayerOpen(true);
-  };
-
+  // One request for the whole page. The previous version fetched every
+  // series' seasons AND every season's episodes on load and every 5 minutes
+  // (hundreds of requests) just to render posters; episodes are now looked
+  // up only when you press Play. apiCall caches, so revisits are instant.
   useEffect(() => {
-    fetchData();
+    let cancelled = false;
+    apiCall("/api/series")
+      .then((data: Series[]) => {
+        if (!cancelled && Array.isArray(data)) setSeries(data);
+      })
+      .catch((e: unknown) => console.error("Failed to load TV series:", e))
+      .finally(() => !cancelled && setLoading(false));
 
-    // Set up auto-refresh every 5 minutes for recommendations
-    const interval = setInterval(() => {
-      fetchData();
-      setRefreshKey(prev => prev + 1); // Force refresh of cached assets
-    }, 5 * 60 * 1000); // 5 minutes in milliseconds
-
-    return () => clearInterval(interval);
+    fetch(`${api()}/api/playback/recently-watched?limit=20`, { headers: { "X-User-ID": "1" } })
+      .then((r) => (r.ok ? r.json() : []))
+      .then((items: RecentItem[]) => {
+        if (cancelled || !Array.isArray(items)) return;
+        // One entry per show: the most recently watched episode.
+        const seen = new Set<number>();
+        setRecent(
+          items.filter((it) => {
+            const m = it?.media;
+            if (!m || m.type !== "episode") return false;
+            const sid = m.series_id || m.id;
+            if (seen.has(sid)) return false;
+            seen.add(sid);
+            return true;
+          })
+        );
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  // Add manual refresh function for debugging
-  const forceRefresh = () => {
-    setLoading(true);
-    setRefreshKey(prev => prev + 1);
-    fetchData();
-  };
+  const openSeries = useCallback((s: Series | number) => navigate.push(`/tv-series/${typeof s === "number" ? s : s.id}`), [navigate]);
 
-  // Helper function to generate series poster URL with cache busting
-  const getPosterUrl = (seriesId: number | string) => {
-    // Use the correct series poster endpoint
-    return `${getApiUrl()}/api/series/${seriesId}/poster?v=${refreshKey}`;
-  };
-
-  const fetchData = async () => {
-    try {
-      const apiUrl = getApiUrl();
-
-      // First try to fetch series using the proper hierarchical API
-      try {
-        const seriesResponse = await fetch(`${apiUrl}/api/series`);
-
-        if (seriesResponse.ok) {
-          const seriesData = await seriesResponse.json();
-          console.log(`Fetched ${seriesData.length} TV series from /api/series`);
-
-          if (Array.isArray(seriesData) && seriesData.length > 0) {
-            // Process series data and fetch seasons for each
-            const processedSeries = await Promise.all(
-              seriesData.map(async (series: any) => {
-                try {
-                  // Fetch seasons for this series
-                  const seasonsResponse = await fetch(`${apiUrl}/api/series/${series.id}/seasons`);
-                  const seasons = seasonsResponse.ok ? await seasonsResponse.json() : [];
-
-                  return {
-                    id: series.id,
-                    title: series.title || series.name || 'Untitled Series',
-                    description: series.description || series.overview || '',
-                    rating: series.rating || series.vote_average || 0,
-                    year: series.year || series.first_air_date?.substring(0, 4) || null,
-                    total_seasons: series.total_seasons || seasons.length || 0,
-                    total_episodes: series.total_episodes || 0,
-                    genres: series.genres || [],
-                    episodes: [], // Episodes will be in seasons
-                    seasons: await Promise.all(seasons.map(async (season: any) => {
-                      // Fetch episodes for this season
-                      try {
-                        const episodesResponse = await fetch(`${apiUrl}/api/series/${series.id}/seasons/${season.season_number || season.id}/episodes`);
-                        const seasonEpisodes = episodesResponse.ok ? await episodesResponse.json() : [];
-
-                        return {
-                          id: season.id || season.season_number,
-                          season_number: season.season_number || season.id,
-                          name: season.name || `Season ${season.season_number || season.id}`,
-                          episode_count: season.episode_count || seasonEpisodes.length || 0,
-                          episodes: seasonEpisodes.map((ep: any) => ({
-                            id: ep.id,
-                            title: ep.title || ep.name,
-                            thumbnail_path: ep.thumbnail_path || ep.still_path,
-                            description: ep.description || ep.overview,
-                            file_path: ep.file_path, // Required for video preview
-                            type: ep.type || 'episode',
-                            duration: ep.duration,
-                            quality: ep.quality,
-                            series_id: series.id
-                          })),
-                          thumbnail_path: season.poster_path || season.thumbnail_path
-                        };
-                      } catch (error) {
-                        console.warn(`Error fetching episodes for season ${season.season_number}:`, error);
-                        return {
-                          id: season.id || season.season_number,
-                          season_number: season.season_number || season.id,
-                          name: season.name || `Season ${season.season_number || season.id}`,
-                          episode_count: season.episode_count || 0,
-                          episodes: [],
-                          thumbnail_path: season.poster_path || season.thumbnail_path
-                        };
-                      }
-                    })),
-                    thumbnail_path: series.poster_path || series.thumbnail_path,
-                    banner_path: series.backdrop_path || series.banner_path,
-                    poster_path: series.poster_path
-                  } as Series;
-                } catch (error) {
-                  console.warn(`Error processing series ${series.id}:`, error);
-                  return {
-                    id: series.id,
-                    title: series.title || series.name || 'Untitled Series',
-                    description: series.description || '',
-                    rating: series.rating || 0,
-                    genres: series.genres || [],
-                    episodes: [],
-                    seasons: [],
-                    total_seasons: 0,
-                    total_episodes: 0
-                  } as Series;
-                }
-              })
-            );
-
-            setSeriesList(processedSeries);
-
-            // Categorize series by genre
-            setActionSeries(processedSeries.filter(series =>
-              series.genres?.some(g => g.name.toLowerCase().includes('action'))
-            ).slice(0, 10));
-
-            setDramaSeries(processedSeries.filter(series =>
-              series.genres?.some(g => g.name.toLowerCase().includes('drama'))
-            ).slice(0, 10));
-
-            setComedySeries(processedSeries.filter(series =>
-              series.genres?.some(g => g.name.toLowerCase().includes('comedy'))
-            ).slice(0, 10));
-
-            setLoading(false);
-            return;
-          }
-        }
-      } catch (error) {
-        console.warn("Series API not available, falling back to episodes:", error);
-      }
-
-      // Fallback: Fetch TV episodes and build series from them
-      const tvShowsResponse = await fetch(`${apiUrl}/api/media/tv-shows`);
-
-      if (!tvShowsResponse.ok) {
-        throw new Error(`HTTP error! status: ${tvShowsResponse.status}`);
-      }
-
-      const episodes = await tvShowsResponse.json();
-
-      // Ensure we have valid data
-      if (!Array.isArray(episodes)) {
-        console.warn("TV shows API returned non-array data:", episodes);
-        setLoading(false);
-        return;
-      }
-
-      console.log(`Fetched ${episodes.length} TV show episodes`);
-
-      // If no episodes found, try fallback to all media filtered for episodes
-      if (episodes.length === 0) {
-        console.log("No episodes found via TV shows endpoint, trying fallback...");
-        const allMediaResponse = await fetch(`${apiUrl}/api/media`);
-        const allMedia = await allMediaResponse.json();
-
-        const filteredEpisodes = allMedia.filter((item: Media) =>
-          item.type === 'episode' ||
-          item.type === 'tv' ||
-          item.title.toLowerCase().includes('series') ||
-          item.title.toLowerCase().includes('episode')
-        );
-
-        console.log(`Fallback found ${filteredEpisodes.length} episodes`);
-
-        if (filteredEpisodes.length > 0) {
-          // Build fallback series from filtered episodes
-          const fallbackSeriesMap = new Map<string, Series>();
-
-          filteredEpisodes.forEach((ep: Media) => {
-            const title = ep.title.replace(/\s*-\s*S\d+E\d+.*$/i, '');
-
-            if (!fallbackSeriesMap.has(title)) {
-              fallbackSeriesMap.set(title, {
-                id: ep.id,
-                title,
-                description: ep.description || '',
-                rating: ep.rating || 0,
-                genres: ep.genres || [],
-                episodes: [],
-                seasons: [],
-                thumbnail_path: ep.thumbnail_path,
-                banner_path: ep.banner_path,
-                poster_path: ep.thumbnail_path
-              });
-            }
-
-            fallbackSeriesMap.get(title)!.episodes.push(ep);
-          });
-
-          const fallbackSeries = Array.from(fallbackSeriesMap.values());
-          setSeriesList(fallbackSeries);
-          setLoading(false);
-          return;
-        }
-      }
-
-      // Build series groups from episodes
-      const seriesMap = new Map<string | number, Series>();
-      episodes.forEach((ep: Media) => {
-        // Extract series info - prefer explicit series_id, then embedded series object, else fallback to media id
-        const sid = ep.series_id ?? ep.series?.id ?? ep.id;
-        const title = (ep.series?.title || ep.title || 'Untitled Series').replace(/\s*-\s*S\d+E\d+.*$/i, '');
-
-        if (!seriesMap.has(sid)) {
-          seriesMap.set(sid, {
-            id: sid as number | string,
-            title,
-            description: ep.series?.description || ep.description || '',
-            rating: ep.rating || 0,
-            total_seasons: ep.series?.total_seasons,
-            total_episodes: ep.series?.total_episodes,
-            genres: ep.genres || [],
-            episodes: [],
-            seasons: [],
-            thumbnail_path: ep.thumbnail_path,
-            banner_path: ep.banner_path,
-            poster_path: ep.thumbnail_path
-          });
-        }
-
-        const group = seriesMap.get(sid)!;
-        group.episodes.push(ep);
-      });
-
-      // Process each series to build seasons
-      const allSeries = Array.from(seriesMap.values()).map(series => {
-        // Group episodes by season
-        const seasonMap = new Map<number, Season>();
-
-        series.episodes.forEach(ep => {
-          const seasonNum = extractSeasonNumber(ep.title) || 1;
-
-          if (!seasonMap.has(seasonNum)) {
-            seasonMap.set(seasonNum, {
-              id: seasonNum,
-              season_number: seasonNum,
-              name: `Season ${seasonNum}`,
-              episode_count: 0,
-              episodes: [],
-              thumbnail_path: ep.thumbnail_path
-            });
-          }
-
-          const season = seasonMap.get(seasonNum)!;
-          season.episodes.push(ep);
-          season.episode_count = season.episodes.length;
-        });
-
-        // Convert seasons map to array and sort
-        const seasons = Array.from(seasonMap.values())
-          .sort((a, b) => a.season_number - b.season_number);
-
-        // Sort episodes within each season
-        seasons.forEach(season => {
-          season.episodes.sort((a, b) => {
-            const aEp = extractEpisodeNumber(a.title) || 0;
-            const bEp = extractEpisodeNumber(b.title) || 0;
-            return aEp - bEp;
-          });
-        });
-
-        return {
-          ...series,
-          seasons,
-          episodes: series.episodes.sort((a, b) => (b.id || 0) - (a.id || 0)),
-          total_seasons: seasons.length,
-          total_episodes: series.episodes.length
-        };
-      }).sort((a, b) => b.episodes.length - a.episodes.length || (b.episodes[0]?.id || 0) - (a.episodes[0]?.id || 0));
-
-      setSeriesList(allSeries);
-
-      // Categorize series by genre
-      setActionSeries(allSeries.filter(series =>
-        series.genres?.some(g => g.name.toLowerCase().includes('action'))
-      ).slice(0, 10));
-
-      setDramaSeries(allSeries.filter(series =>
-        series.genres?.some(g => g.name.toLowerCase().includes('drama'))
-      ).slice(0, 10));
-
-      setComedySeries(allSeries.filter(series =>
-        series.genres?.some(g => g.name.toLowerCase().includes('comedy'))
-      ).slice(0, 10));
-
-      setLoading(false);
-    } catch (error) {
-      console.error("Error fetching TV shows:", error);
-      setLoading(false);
-    }
-  };
-
-  const handlePlay = (media: Media | Series, startTime?: number) => {
-    if ('seasons' in media) {
-      // If it's a series, find the first episode from the first season
-      const firstSeason = media.seasons.find(season => season.episodes.length > 0);
-      if (firstSeason && firstSeason.episodes.length > 0) {
-        // Convert the episode data to Media format
-        const firstEpisode = firstSeason.episodes[0];
-        setSelectedMedia({
-          id: firstEpisode.id,
-          title: firstEpisode.title,
-          thumbnail_path: firstEpisode.thumbnail_path,
-          description: firstEpisode.description,
-          type: 'episode',
-          series_id: media.id
-        } as Media);
-      }
-    } else {
-      // If it's an episode
-      setSelectedMedia(media as Media);
-    }
+  const play = useCallback((media: Media, at = 0) => {
+    setSelectedMedia(media);
+    setStartTime(at);
     setIsPlayerOpen(true);
-  };
+  }, []);
 
-  const handleInfo = (media: Media | Series) => {
-    if ('seasons' in media) {
-      // If it's a series, go to series detail page
-      navigate.push(`/tv-series/${media.id}`);
-    } else {
-      // If it's an episode, try to get the series ID, otherwise use the media ID
-      const seriesId = (media as Media).series_id || media.id;
-      navigate.push(`/tv-series/${seriesId}`);
-    }
-  };
+  // First episode of the first season, looked up on demand.
+  const playSeries = useCallback(
+    async (s: Series) => {
+      try {
+        const seasons: any[] = await fetch(`${api()}/api/series/${s.id}/seasons`).then((r) => (r.ok ? r.json() : []));
+        const first = [...(seasons || [])]
+          .filter((x) => (x.season_number ?? 1) > 0)
+          .sort((a, b) => (a.season_number ?? 0) - (b.season_number ?? 0))[0] || seasons?.[0];
+        if (!first) return openSeries(s);
+        const eps: any[] = await fetch(`${api()}/api/series/${s.id}/seasons/${first.season_number ?? first.id}/episodes`).then((r) =>
+          r.ok ? r.json() : []
+        );
+        const ep = [...(eps || [])].sort((a, b) => (a.episode_number ?? 0) - (b.episode_number ?? 0))[0];
+        if (!ep) return openSeries(s);
+        play({ ...ep, type: "episode", series_id: s.id } as Media);
+      } catch {
+        openSeries(s);
+      }
+    },
+    [openSeries, play]
+  );
 
-  const handleSeasonClick = (series: Series, seasonNumber: number) => {
-    navigate.push(`/tv-series/${series.id}/season/${seasonNumber}`);
-  };
+  const heroSlides = useMemo<TVHeroSlide[]>(() => {
+    const pool = [...series]
+      .filter((s) => s.tmdb_backdrop_url || s.backdrop_path)
+      .sort((a, b) => byNewest(a, b) || (b.rating || 0) - (a.rating || 0))
+      .slice(0, 8);
+    return pool.map((s) => {
+      const key = mediaYouTubeKey(s);
+      return {
+        id: `series-${s.id}`,
+        title: s.title,
+        overview: s.description,
+        backdrop: backdropOf(s),
+        logo: logoOf(s),
+        meta: [s.year, ...(s.genre_names || []).slice(0, 2), seasonsLabel(s), s.certification],
+        trailerKey: key,
+        resolveTrailer: !key && s.tmdb_id ? () => fetchTrailerKey({ id: s.tmdb_id, media_type: "tv" }) : undefined,
+        ...({ _series: s } as any),
+      };
+    });
+  }, [series]);
 
+  const shelves = useMemo(() => {
+    const out: { title: string; items: Series[]; variant: "landscape" | "poster" }[] = [];
+    if (!series.length) return out;
+    out.push({ title: "Recently Added", items: [...series].sort(byNewest).slice(0, 20), variant: "landscape" });
+    const rated = series.filter((s) => (s.rating || 0) > 0).sort((a, b) => (b.rating || 0) - (a.rating || 0));
+    if (rated.length >= 4) out.push({ title: "Top Rated", items: rated.slice(0, 20), variant: "poster" });
 
+    // Genre rows from the API's genre_names (the old page read series.genres,
+    // which the API never sends, so its genre rows were always empty).
+    const counts = new Map<string, number>();
+    series.forEach((s) => (s.genre_names || []).forEach((g) => counts.set(g, (counts.get(g) || 0) + 1)));
+    [...counts.entries()]
+      .filter(([, n]) => n >= 3)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 4)
+      .forEach(([g]) =>
+        out.push({
+          title: g,
+          items: series.filter((s) => s.genre_names?.includes(g)).sort((a, b) => (b.rating || 0) - (a.rating || 0)),
+          variant: "poster",
+        })
+      );
+    return out;
+  }, [series]);
 
-
-
-
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-black flex items-center justify-center">
-        <RedLoader size="large" />
-      </div>
-    );
-  }
+  const allSorted = useMemo(() => [...series].sort((a, b) => a.title.localeCompare(b.title)), [series]);
 
   return (
-    <div className="min-h-screen bg-black">
+    <div className="min-h-screen overflow-x-hidden bg-black text-white">
       <Navbar />
 
-      {/* Widget System Integration */}
-      <BackendWidgetRenderer 
-        page="tv-shows" 
-        className="relative z-10 py-8 mt-12"
-      />
+      {loading ? (
+        <div className="h-[72vh] min-h-[480px] w-full animate-pulse bg-gradient-to-b from-zinc-900 to-black md:h-[86vh]" />
+      ) : heroSlides.length > 0 ? (
+        <TVHero
+          slides={heroSlides}
+          onPrimary={(s) => playSeries((s as any)._series)}
+          onSecondary={(s) => openSeries((s as any)._series)}
+          primaryLabel="Play"
+          secondaryLabel="Details"
+        />
+      ) : (
+        <div className="h-24" />
+      )}
 
-      {/* Main Content with Parallax Background */}
-      <div className="relative bg-black" style={{ overflow: 'visible' }}>
-        <div className="relative z-10 py-12" style={{ overflow: 'visible' }}>
+      <main className="relative z-10 -mt-6 space-y-10 pb-24 md:-mt-10 md:space-y-12">
+        {recent.length > 0 && (
+          <TVShelf title="Continue Watching">
+            {recent.map((it, i) => {
+              const m = it.media as any;
+              const left = Math.max(0, (it.duration_seconds || 0) - (it.progress_seconds || 0));
+              const label = [
+                m.season_number && m.episode_number ? `S${m.season_number}:E${m.episode_number}` : null,
+                left > 60 ? `${Math.round(left / 60)} min left` : null,
+              ].filter(Boolean).join(" · ");
+              const sid = m.series_id || m.id;
+              return (
+                <TVArtworkCard
+                  key={`cw-${it.media_id}`}
+                  title={m.series_title || m.series?.title || m.title}
+                  image={m.episode_still_path ? `${api()}/api/episode-stills/${m.id}` : `${api()}/api/series/${sid}/backdrop`}
+                  caption={label || m.episode_title || undefined}
+                  progress={it.duration_seconds ? it.progress_seconds / it.duration_seconds : undefined}
+                  priority={i < 4}
+                  onSelect={() => play(it.media, it.progress_seconds || 0)}
+                />
+              );
+            })}
+          </TVShelf>
+        )}
 
-          {/* Recently Watched TV Shows */}
-          <div className="container mx-auto px-6 md:px-12 lg:px-16 mb-16">
-            <RecentlyWatchedTVShows
-              onPlay={handlePlay}
-              onInfo={handleInfo}
-            />
-          </div>
+        {/* Widgets configured for this page */}
+        <ErrorBoundary>
+          <BackendWidgetRenderer page="tv-shows" className="space-y-10 md:space-y-12" />
+        </ErrorBoundary>
 
-          {/* All TV Series */}
-          {seriesList.length > 0 && (
-            <ParallaxSection speed={0.3}>
-              <ScrollReveal direction="up" delay={0.1}>
-                <div className="container mx-auto px-6 md:px-12 lg:px-16 mb-16">
-                  <h2 className="text-3xl font-bold text-white mb-8">All TV Series</h2>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6">
-                    {seriesList.map((series) => {
-                      // Get fallback thumbnail from first available episode
-                      const getFallbackThumbnail = () => {
-                        if (series.seasons.length === 0) {
-                          return null;
-                        }
+        {shelves.map((sh, si) => (
+          <TVShelf key={sh.title} title={sh.title}>
+            {sh.items.map((s, i) => (
+              <TVArtworkCard
+                key={`${sh.title}-${s.id}`}
+                title={s.title}
+                variant={sh.variant}
+                image={sh.variant === "landscape" ? backdropOf(s) : posterOf(s)}
+                logo={sh.variant === "landscape" ? logoOf(s) : null}
+                caption={[s.year, seasonsLabel(s), s.rating ? `★ ${Number(s.rating).toFixed(1)}` : null].filter(Boolean).join(" · ") || undefined}
+                priority={si === 0 && i < 4}
+                onSelect={() => openSeries(s)}
+              />
+            ))}
+          </TVShelf>
+        ))}
 
-                        // Get first season with episodes
-                        const firstSeasonWithEpisodes = series.seasons.find(season => season.episodes && season.episodes.length > 0);
-
-                        if (firstSeasonWithEpisodes && firstSeasonWithEpisodes.episodes.length > 0) {
-                          return firstSeasonWithEpisodes.episodes[0];
-                        }
-
-                        return null;
-                      };
-
-                      const fallbackEpisode = getFallbackThumbnail();
-
-                      return (
-                        <div key={series.id} className="group cursor-pointer">
-                          <div
-                            className="relative aspect-[2/3] bg-gray-800 rounded-lg overflow-hidden mb-3 group-hover:scale-105 transition-transform duration-300"
-                            onClick={() => handleInfo(series)}
-                          >
-                            {/* Use series poster with proper fallback chain */}
-                            <img
-                              src={getPosterUrl(series.id)}
-                              alt={series.title}
-                              className="w-full h-full object-cover"
-                              loading="lazy"
-                              onError={(e) => {
-                                const target = e.target as HTMLImageElement;
-                                const apiUrl = getApiUrl();
-                                // Fallback chain: series poster -> series thumbnail -> episode thumbnail -> gradient
-                                if (!target.src.includes('/api/series/') && !target.src.includes('/poster')) {
-                                  target.src = `${apiUrl}/api/series/${series.id}/poster`;
-                                } else if (series.thumbnail_path && !target.src.includes(`/api/thumbnails/${series.id}`)) {
-                                  target.src = `${apiUrl}/api/thumbnails/${series.id}`;
-                                } else if (fallbackEpisode && !target.src.includes(`/api/thumbnails/${fallbackEpisode.id}`)) {
-                                  target.src = `${apiUrl}/api/thumbnails/${fallbackEpisode.id}`;
-                                } else {
-                                  // Final fallback: Show gradient
-                                  const parent = target.parentElement!;
-                                  parent.innerHTML = `
-                                    <div class="w-full h-full bg-gradient-to-br from-red-600 to-red-800 flex items-center justify-center">
-                                      <span class="text-2xl font-bold text-white">${series.title.charAt(0)}</span>
-                                    </div>
-                                  `;
-                                }
-                              }}
-                            />
-                            {/* Remove the conditional poster_path check */}
-                            {false && fallbackEpisode ? (
-                              <img
-                                src={`${getApiUrl()}/api/thumbnails/${fallbackEpisode?.id}`}
-                                alt={series.title}
-                                className="w-full h-full object-cover"
-                                loading="lazy"
-                              />
-                            ) : series.thumbnail_path ? (
-                              <img
-                                src={`${getApiUrl()}/api/thumbnails/${series.id}`}
-                                alt={series.title}
-                                className="w-full h-full object-cover"
-                                loading="lazy"
-                              />
-                            ) : (
-                              <div className="w-full h-full bg-gradient-to-br from-red-600 to-red-800 flex flex-col items-center justify-center p-4">
-                                <svg className="w-16 h-16 text-white/50 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 4v16M17 4v16M3 8h4m10 0h4M3 12h18M3 16h4m10 0h4M4 20h16a1 1 0 001-1V5a1 1 0 00-1-1H4a1 1 0 00-1 1v14a1 1 0 001 1z" />
-                                </svg>
-                                <span className="text-sm font-bold text-white text-center line-clamp-2">{series.title}</span>
-                              </div>
-                            )}
-                            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-                            <div className="absolute bottom-0 left-0 right-0 p-3 transform translate-y-full group-hover:translate-y-0 transition-transform duration-300">
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handlePlay(series);
-                                }}
-                                className="w-full bg-[#f5f5f7] hover:bg-white text-black py-2 px-4 rounded-lg text-sm font-medium flex items-center justify-center gap-2 mb-2"
-                              >
-                                <Play className="w-4 h-4" />
-                                Play
-                              </button>
-                              <div className="text-white text-xs text-center">
-                                {series.seasons.length} Season{series.seasons.length !== 1 ? 's' : ''} • {series.seasons.reduce((total, season) => total + season.episode_count, 0)} Episodes
-                              </div>
-                            </div>
-                          </div>
-                          <h3 className="text-white font-medium text-sm group-hover:text-red-400 transition-colors duration-300 line-clamp-2">
-                            {series.title}
-                          </h3>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              </ScrollReveal>
-            </ParallaxSection>
-          )}
-
-          {/* Series with Seasons */}
-          {seriesList.length > 0 && (
-            <div>
-              {seriesList.slice(0, 8).map((series, index) => (
-                <ParallaxSection key={`series-${series.id}`} speed={0.4 + index * 0.05}>
-                  <ScrollReveal direction="up" delay={0.2 + index * 0.1}>
-                    <div className="container mx-auto px-6 md:px-12 lg:px-16 mb-12">
-                      <div className="flex items-center justify-between mb-6">
-                        <h2 className="text-2xl font-bold text-white">{series.title}</h2>
-                        <button
-                          onClick={() => handleInfo(series)}
-                          className="text-red-400 hover:text-red-300 text-sm font-medium flex items-center gap-1"
-                        >
-                          View Series
-                          <Info className="w-4 h-4" />
-                        </button>
-                      </div>
-
-                      {/* Seasons Grid */}
-                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
-                        {series.seasons.map((season) => {
-                          // Get first episode from season for fallback
-                          const firstEpisode = season.episodes.length > 0 ? season.episodes[0] : null;
-
-                          return (
-                            <div
-                              key={`${series.id}-season-${season.season_number}`}
-                              className="group cursor-pointer"
-                              onClick={() => handleSeasonClick(series, season.season_number)}
-                            >
-                              <div className="relative aspect-[2/3] bg-gray-800 rounded-lg overflow-hidden mb-3 group-hover:scale-105 transition-transform duration-300">
-                                {/* Use series poster for seasons */}
-                                <img
-                                  src={getPosterUrl(series.id)}
-                                  alt={`${series.title} ${season.name}`}
-                                  className="w-full h-full object-cover"
-                                  loading="lazy"
-                                  onError={(e) => {
-                                    const target = e.target as HTMLImageElement;
-                                    const apiUrl = getApiUrl();
-                                    // Fallback chain: series poster -> series thumbnail -> first episode thumbnail -> gradient
-                                    if (!target.src.includes('/api/series/') && !target.src.includes('/poster')) {
-                                      target.src = `${apiUrl}/api/series/${series.id}/poster`;
-                                    } else if (series.thumbnail_path && !target.src.includes(`/api/thumbnails/${series.id}`)) {
-                                      target.src = `${apiUrl}/api/thumbnails/${series.id}`;
-                                    } else if (firstEpisode && !target.src.includes(`/api/thumbnails/${firstEpisode.id}`)) {
-                                      target.src = `${apiUrl}/api/thumbnails/${firstEpisode.id}`;
-                                    } else {
-                                      // Final fallback: Show gradient with season number
-                                      const parent = target.parentElement!;
-                                      parent.innerHTML = `
-                                        <div class="w-full h-full bg-gradient-to-br from-red-600 to-red-800 flex flex-col items-center justify-center">
-                                          <span class="text-4xl font-bold text-white">S${season.season_number}</span>
-                                          <span class="text-sm font-medium text-white/80 text-center px-2">${series.title}</span>
-                                        </div>
-                                      `;
-                                    }
-                                  }}
-                                />
-                                <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-                                <div className="absolute top-2 left-2 bg-red-600 text-white px-2 py-1 rounded text-xs font-semibold">
-                                  S{season.season_number}
-                                </div>
-                                <div className="absolute bottom-0 left-0 right-0 p-3 transform translate-y-full group-hover:translate-y-0 transition-transform duration-300">
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      if (season.episodes.length > 0) {
-                                        const firstEpisode = season.episodes[0];
-                                        setSelectedMedia({
-                                          id: firstEpisode.id,
-                                          title: firstEpisode.title,
-                                          thumbnail_path: firstEpisode.thumbnail_path,
-                                          description: firstEpisode.description,
-                                          type: 'episode',
-                                          series_id: series.id
-                                        } as Media);
-                                        setIsPlayerOpen(true);
-                                      }
-                                    }}
-                                    className="w-full bg-[#f5f5f7] hover:bg-white text-black py-2 px-3 rounded text-xs font-medium flex items-center justify-center gap-1"
-                                  >
-                                    <Play className="w-3 h-3" />
-                                    Play
-                                  </button>
-                                </div>
-                              </div>
-                              <h3 className="text-white font-medium text-sm group-hover:text-red-400 transition-colors duration-300">
-                                {season.name}
-                              </h3>
-                              <p className="text-white/60 text-xs mt-1">
-                                {season.episode_count} Episode{season.episode_count !== 1 ? 's' : ''}
-                              </p>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  </ScrollReveal>
-                </ParallaxSection>
+        {/* Full library */}
+        <section className="tv-gutter pt-2">
+          <TVPageHeader title="All Shows" subtitle={series.length ? `${series.length} series in your library` : undefined} className="mb-6" />
+          {loading ? (
+            <TVGridSkeleton count={12} />
+          ) : allSorted.length === 0 ? (
+            <div className="py-16 text-center">
+              <Tv className="mx-auto h-10 w-10 text-white/30" />
+              <p className="mt-3 text-lg font-semibold">No TV shows yet</p>
+              <p className="tv-caption mt-1">Add series to your media folder and run a scan from Settings.</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-x-5 gap-y-8 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-8">
+              {allSorted.map((s, i) => (
+                <TVArtworkCard
+                  key={`all-${s.id}`}
+                  title={s.title}
+                  variant="poster"
+                  image={posterOf(s)}
+                  caption={[s.year, seasonsLabel(s)].filter(Boolean).join(" · ") || undefined}
+                  priority={i < 12}
+                  onSelect={() => openSeries(s)}
+                  className="!w-full !max-w-none"
+                />
               ))}
             </div>
           )}
+        </section>
+      </main>
 
-          {/* Action Series */}
-          {actionSeries.length > 0 && (
-            <ParallaxSection speed={0.6}>
-              <ScrollReveal direction="up" delay={0.8}>
-                <div className="container mx-auto px-6 md:px-12 lg:px-16 mb-12">
-                  <h2 className="text-2xl font-bold text-white mb-6">Action & Adventure Series</h2>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
-                    {actionSeries.map((series) => {
-                      // Get fallback thumbnail from first available episode
-                      const getFallbackThumbnail = () => {
-                        if (series.seasons.length === 0) {
-                          return null;
-                        }
-
-                        // Get first season with episodes
-                        const firstSeasonWithEpisodes = series.seasons.find(season => season.episodes && season.episodes.length > 0);
-
-                        if (firstSeasonWithEpisodes && firstSeasonWithEpisodes.episodes.length > 0) {
-                          return firstSeasonWithEpisodes.episodes[0];
-                        }
-
-                        return null;
-                      };
-
-                      const fallbackEpisode = getFallbackThumbnail();
-
-                      return (
-                        <div key={series.id} className="group cursor-pointer" onClick={() => handleInfo(series)}>
-                          <div className="relative aspect-[2/3] bg-gray-800 rounded-lg overflow-hidden mb-3 group-hover:scale-105 transition-transform duration-300">
-                            {/* Use series poster with proper fallback chain */}
-                            <img
-                              src={getPosterUrl(series.id)}
-                              alt={series.title}
-                              className="w-full h-full object-cover"
-                              loading="lazy"
-                              onError={(e) => {
-                                const target = e.target as HTMLImageElement;
-                                const apiUrl = getApiUrl();
-                                // Fallback chain: series poster -> series thumbnail -> episode thumbnail -> gradient
-                                if (!target.src.includes('/api/series/') && !target.src.includes('/poster')) {
-                                  target.src = `${apiUrl}/api/series/${series.id}/poster`;
-                                } else if (series.thumbnail_path && !target.src.includes(`/api/thumbnails/${series.id}`)) {
-                                  target.src = `${apiUrl}/api/thumbnails/${series.id}`;
-                                } else if (fallbackEpisode && !target.src.includes(`/api/thumbnails/${fallbackEpisode.id}`)) {
-                                  target.src = `${apiUrl}/api/thumbnails/${fallbackEpisode.id}`;
-                                } else {
-                                  // Final fallback: Show gradient
-                                  const parent = target.parentElement!;
-                                  parent.innerHTML = `
-                                    <div class="w-full h-full bg-gradient-to-br from-red-600 to-red-800 flex items-center justify-center">
-                                      <span class="text-2xl font-bold text-white">${series.title.charAt(0)}</span>
-                                    </div>
-                                  `;
-                                }
-                              }}
-                            />
-                            {false && fallbackEpisode ? (
-                              <img
-                                src={`${getApiUrl()}/api/thumbnails/${fallbackEpisode?.id}`}
-                                alt={series.title}
-                                className="w-full h-full object-cover"
-                                loading="lazy"
-                              />
-                            ) : series.thumbnail_path ? (
-                              <img
-                                src={`${getApiUrl()}/api/thumbnails/${series.id}`}
-                                alt={series.title}
-                                className="w-full h-full object-cover"
-                                loading="lazy"
-                              />
-                            ) : (
-                              <div className="w-full h-full bg-gradient-to-br from-red-600 to-red-800 flex flex-col items-center justify-center p-4">
-                                <svg className="w-16 h-16 text-white/50 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 4v16M17 4v16M3 8h4m10 0h4M3 12h18M3 16h4m10 0h4M4 20h16a1 1 0 001-1V5a1 1 0 00-1-1H4a1 1 0 00-1 1v14a1 1 0 001 1z" />
-                                </svg>
-                                <span className="text-sm font-bold text-white text-center line-clamp-2">{series.title}</span>
-                              </div>
-                            )}
-                          </div>
-                          <h3 className="text-white font-medium text-sm group-hover:text-red-400 transition-colors duration-300 line-clamp-2">
-                            {series.title}
-                          </h3>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              </ScrollReveal>
-            </ParallaxSection>
-          )}
-
-          {/* Drama Series */}
-          {dramaSeries.length > 0 && (
-            <ParallaxSection speed={0.7}>
-              <ScrollReveal direction="up" delay={1.0}>
-                <div className="container mx-auto px-6 md:px-12 lg:px-16 mb-12">
-                  <h2 className="text-2xl font-bold text-white mb-6">Drama Series</h2>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
-                    {dramaSeries.map((series) => {
-                      // Get fallback thumbnail from first available episode
-                      const getFallbackThumbnail = () => {
-                        if (series.seasons.length === 0) {
-                          return null;
-                        }
-
-                        // Get first season with episodes
-                        const firstSeasonWithEpisodes = series.seasons.find(season => season.episodes && season.episodes.length > 0);
-
-                        if (firstSeasonWithEpisodes && firstSeasonWithEpisodes.episodes.length > 0) {
-                          return firstSeasonWithEpisodes.episodes[0];
-                        }
-
-                        return null;
-                      };
-
-                      const fallbackEpisode = getFallbackThumbnail();
-
-                      return (
-                        <div key={series.id} className="group cursor-pointer" onClick={() => handleInfo(series)}>
-                          <div className="relative aspect-[2/3] bg-gray-800 rounded-lg overflow-hidden mb-3 group-hover:scale-105 transition-transform duration-300">
-                            {/* Use series poster with proper fallback chain */}
-                            <img
-                              src={getPosterUrl(series.id)}
-                              alt={series.title}
-                              className="w-full h-full object-cover"
-                              loading="lazy"
-                              onError={(e) => {
-                                const target = e.target as HTMLImageElement;
-                                const apiUrl = getApiUrl();
-                                // Fallback chain: series poster -> series thumbnail -> episode thumbnail -> gradient
-                                if (!target.src.includes('/api/series/') && !target.src.includes('/poster')) {
-                                  target.src = `${apiUrl}/api/series/${series.id}/poster`;
-                                } else if (series.thumbnail_path && !target.src.includes(`/api/thumbnails/${series.id}`)) {
-                                  target.src = `${apiUrl}/api/thumbnails/${series.id}`;
-                                } else if (fallbackEpisode && !target.src.includes(`/api/thumbnails/${fallbackEpisode.id}`)) {
-                                  target.src = `${apiUrl}/api/thumbnails/${fallbackEpisode.id}`;
-                                } else {
-                                  // Final fallback: Show gradient
-                                  const parent = target.parentElement!;
-                                  parent.innerHTML = `
-                                    <div class="w-full h-full bg-gradient-to-br from-red-600 to-red-800 flex items-center justify-center">
-                                      <span class="text-2xl font-bold text-white">${series.title.charAt(0)}</span>
-                                    </div>
-                                  `;
-                                }
-                              }}
-                            />
-                          </div>
-                          <h3 className="text-white font-medium text-sm group-hover:text-red-400 transition-colors duration-300 line-clamp-2">
-                            {series.title}
-                          </h3>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              </ScrollReveal>
-            </ParallaxSection>
-          )}
-
-          {/* Comedy Series */}
-          {comedySeries.length > 0 && (
-            <ParallaxSection speed={0.8}>
-              <ScrollReveal direction="up" delay={1.2}>
-                <div className="container mx-auto px-6 md:px-12 lg:px-16 mb-12">
-                  <h2 className="text-2xl font-bold text-white mb-6">Comedy Series</h2>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
-                    {comedySeries.map((series) => {
-                      // Get fallback thumbnail from first available episode
-                      const getFallbackThumbnail = () => {
-                        if (series.seasons.length === 0) {
-                          return null;
-                        }
-
-                        // Get first season with episodes
-                        const firstSeasonWithEpisodes = series.seasons.find(season => season.episodes && season.episodes.length > 0);
-
-                        if (firstSeasonWithEpisodes && firstSeasonWithEpisodes.episodes.length > 0) {
-                          return firstSeasonWithEpisodes.episodes[0];
-                        }
-
-                        return null;
-                      };
-
-                      const fallbackEpisode = getFallbackThumbnail();
-
-                      return (
-                        <div key={series.id} className="group cursor-pointer" onClick={() => handleInfo(series)}>
-                          <div className="relative aspect-[2/3] bg-gray-800 rounded-lg overflow-hidden mb-3 group-hover:scale-105 transition-transform duration-300">
-                            {/* Use series poster with proper fallback chain */}
-                            <img
-                              src={getPosterUrl(series.id)}
-                              alt={series.title}
-                              className="w-full h-full object-cover"
-                              loading="lazy"
-                              onError={(e) => {
-                                const target = e.target as HTMLImageElement;
-                                const apiUrl = getApiUrl();
-                                // Fallback chain: series poster -> series thumbnail -> episode thumbnail -> gradient
-                                if (!target.src.includes('/api/series/') && !target.src.includes('/poster')) {
-                                  target.src = `${apiUrl}/api/series/${series.id}/poster`;
-                                } else if (series.thumbnail_path && !target.src.includes(`/api/thumbnails/${series.id}`)) {
-                                  target.src = `${apiUrl}/api/thumbnails/${series.id}`;
-                                } else if (fallbackEpisode && !target.src.includes(`/api/thumbnails/${fallbackEpisode.id}`)) {
-                                  target.src = `${apiUrl}/api/thumbnails/${fallbackEpisode.id}`;
-                                } else {
-                                  // Final fallback: Show gradient
-                                  const parent = target.parentElement!;
-                                  parent.innerHTML = `
-                                    <div class="w-full h-full bg-gradient-to-br from-red-600 to-red-800 flex items-center justify-center">
-                                      <span class="text-2xl font-bold text-white">${series.title.charAt(0)}</span>
-                                    </div>
-                                  `;
-                                }
-                              }}
-                            />
-                            {false && (
-                              <div className="w-full h-full bg-gradient-to-br from-red-600 to-red-800 flex flex-col items-center justify-center p-4">
-                                <svg className="w-16 h-16 text-white/50 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 4v16M17 4v16M3 8h4m10 0h4M3 12h18M3 16h4m10 0h4M4 20h16a1 1 0 001-1V5a1 1 0 00-1-1H4a1 1 0 00-1 1v14a1 1 0 001 1z" />
-                                </svg>
-                                <span className="text-sm font-bold text-white text-center line-clamp-2">{series.title}</span>
-                              </div>
-                            )}
-                          </div>
-                          <h3 className="text-white font-medium text-sm group-hover:text-red-400 transition-colors duration-300 line-clamp-2">
-                            {series.title}
-                          </h3>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              </ScrollReveal>
-            </ParallaxSection>
-          )}
-        </div>
-      </div>
-
-      {/* Video Player Modal */}
       {selectedMedia && (
         <VideoPlayer
           media={selectedMedia}
           isOpen={isPlayerOpen}
-          onClose={() => setIsPlayerOpen(false)}
-          startTime={0}
-          onPlayNext={(nextMedia) => {
-            console.log('🎬 TV shows page onPlayNext called with:', nextMedia.title);
-            setSelectedMedia(nextMedia);
-            console.log('🎬 Updated selectedMedia to:', nextMedia.title);
-            // Keep player open and switch to next episode
+          onClose={() => {
+            setIsPlayerOpen(false);
+            setSelectedMedia(null);
           }}
+          startTime={startTime}
+          onPlayNext={(next) => play(next, 0)}
         />
       )}
     </div>
