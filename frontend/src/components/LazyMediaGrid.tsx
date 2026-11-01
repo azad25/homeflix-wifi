@@ -295,7 +295,7 @@ const LazyMediaGrid: React.FC<LazyMediaGridProps> = ({
           ) : (
             <MagneticButton
               onClick={onLoadMore}
-              className="bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-lg font-semibold"
+              className="bg-[#f5f5f7] hover:bg-white text-black px-6 py-3 rounded-lg font-semibold"
             >
               Load More
             </MagneticButton>

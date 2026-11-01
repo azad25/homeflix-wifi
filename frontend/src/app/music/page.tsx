@@ -256,7 +256,7 @@ export default function MusicPage() {
               />
               <button
                 onClick={() => handleSearch(searchQuery)}
-                className="absolute right-2 top-1/2 transform -translate-y-1/2 bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg transition-colors"
+                className="absolute right-2 top-1/2 transform -translate-y-1/2 bg-[#f5f5f7] hover:bg-white text-black px-4 py-2 rounded-lg transition-colors"
               >
                 Search
               </button>

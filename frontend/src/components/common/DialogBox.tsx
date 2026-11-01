@@ -24,51 +24,51 @@ const typeConfig = {
   alert: { 
     icon: AlertCircle, 
     bgGradient: 'from-red-600 to-red-700',
-    textColor: 'text-red-100',
-    accentColor: 'bg-red-500/10 border-red-500/20',
-    buttonColor: 'bg-red-600 hover:bg-red-700 text-white'
+    textColor: 'text-white/90',
+    accentColor: 'bg-white/[0.04] border-white/10',
+    buttonColor: 'bg-[#f5f5f7] hover:bg-white text-black'
   },
   confirm: { 
     icon: AlertCircle, 
     bgGradient: 'from-red-600 to-red-700',
-    textColor: 'text-red-100',
-    accentColor: 'bg-red-500/10 border-red-500/20',
-    buttonColor: 'bg-red-600 hover:bg-red-700 text-white'
+    textColor: 'text-white/90',
+    accentColor: 'bg-white/[0.04] border-white/10',
+    buttonColor: 'bg-[#f5f5f7] hover:bg-white text-black'
   },
   prompt: { 
     icon: Info, 
     bgGradient: 'from-red-600 to-red-700',
-    textColor: 'text-red-100',
-    accentColor: 'bg-red-500/10 border-red-500/20',
-    buttonColor: 'bg-red-600 hover:bg-red-700 text-white'
+    textColor: 'text-white/90',
+    accentColor: 'bg-white/[0.04] border-white/10',
+    buttonColor: 'bg-[#f5f5f7] hover:bg-white text-black'
   },
   info: { 
     icon: Info, 
     bgGradient: 'from-red-600 to-red-700',
-    textColor: 'text-red-100',
-    accentColor: 'bg-red-500/10 border-red-500/20',
-    buttonColor: 'bg-red-600 hover:bg-red-700 text-white'
+    textColor: 'text-white/90',
+    accentColor: 'bg-white/[0.04] border-white/10',
+    buttonColor: 'bg-[#f5f5f7] hover:bg-white text-black'
   },
   success: { 
     icon: CheckCircle, 
     bgGradient: 'from-red-600 to-red-700',
-    textColor: 'text-red-100',
-    accentColor: 'bg-red-500/10 border-red-500/20',
-    buttonColor: 'bg-red-600 hover:bg-red-700 text-white'
+    textColor: 'text-white/90',
+    accentColor: 'bg-white/[0.04] border-white/10',
+    buttonColor: 'bg-[#f5f5f7] hover:bg-white text-black'
   },
   error: { 
     icon: AlertCircle, 
     bgGradient: 'from-red-600 to-red-700',
     textColor: 'text-red-100',
     accentColor: 'bg-red-500/10 border-red-500/20',
-    buttonColor: 'bg-red-600 hover:bg-red-700 text-white'
+    buttonColor: 'bg-[#f5f5f7] hover:bg-white text-black'
   },
   warning: { 
     icon: AlertTriangle, 
     bgGradient: 'from-red-600 to-red-700',
     textColor: 'text-red-100',
     accentColor: 'bg-red-500/10 border-red-500/20',
-    buttonColor: 'bg-red-600 hover:bg-red-700 text-white'
+    buttonColor: 'bg-[#f5f5f7] hover:bg-white text-black'
   }
 };
 
@@ -112,7 +112,7 @@ export default function DialogBox({
     if (isDangerous) {
       return 'bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white shadow-lg shadow-red-500/50';
     }
-    return `${config.buttonColor} shadow-lg shadow-red-500/50`;
+    return `${config.buttonColor} shadow-lg`;
   };
 
   return (

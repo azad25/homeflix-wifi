@@ -319,8 +319,13 @@ const LocalMoviesHeroSlider: React.FC<LocalMoviesHeroSliderProps> = ({
 
     if (loading) {
         return (
-            <div className="h-screen bg-black flex items-center justify-center">
-                <div className="animate-spin w-12 h-12 border-4 border-red-600 border-t-transparent rounded-full"></div>
+            <div className="relative h-[72vh] min-h-[480px] w-full animate-pulse bg-gradient-to-b from-zinc-900 to-black md:h-[86vh]">
+                <div className="tv-gutter absolute bottom-20 left-0 w-full max-w-2xl space-y-4">
+                    <div className="h-14 w-3/4 rounded-xl bg-white/10" />
+                    <div className="h-4 w-1/3 rounded bg-white/10" />
+                    <div className="h-4 w-full rounded bg-white/[0.07]" />
+                    <div className="flex gap-3 pt-2"><div className="h-11 w-32 rounded-xl bg-white/15" /><div className="h-11 w-11 rounded-full bg-white/10" /></div>
+                </div>
             </div>
         );
     }
@@ -473,9 +478,9 @@ const LocalMoviesHeroSlider: React.FC<LocalMoviesHeroSliderProps> = ({
                                     <div className="flex items-center gap-3 pointer-events-auto">
                                         <button
                                             onClick={() => onInfo(movie)}
-                                            className="flex items-center gap-2 bg-white text-black px-6 py-3 rounded-md font-bold hover:bg-gray-200 transition-colors"
+                                            className="tv-btn tv-btn-primary"
                                         >
-                                            <Play className="w-5 h-5 fill-black" />
+                                            <Play className="w-[18px] h-[18px] fill-current" />
                                             Play
                                         </button>
                                         {/* <button
@@ -497,7 +502,7 @@ const LocalMoviesHeroSlider: React.FC<LocalMoviesHeroSliderProps> = ({
                                             onCollectionCreated={fetchCollections}
                                             onDataRefresh={fetchCollections}
                                         >
-                                            <button className="p-3 rounded-full border border-white/30 bg-black/30 backdrop-blur-sm hover:bg-white/10 transition-colors">
+                                            <button className="tv-btn tv-btn-secondary tv-btn-icon" aria-label="My List">
                                                 {isInMyList(movie.tmdb_id ? parseInt(`9${movie.tmdb_id}`) : movie.id) ? (
                                                     <Check className="w-5 h-5" />
                                                 ) : (
@@ -507,7 +512,8 @@ const LocalMoviesHeroSlider: React.FC<LocalMoviesHeroSliderProps> = ({
                                         </MyListTooltip>
                                         <button
                                             onClick={toggleMute}
-                                            className="p-3 rounded-full border border-white/30 bg-black/30 backdrop-blur-sm hover:bg-white/10 transition-colors"
+                                            aria-label={isMuted ? 'Unmute' : 'Mute'}
+                                            className="tv-btn tv-btn-secondary tv-btn-icon"
                                         >
                                             {isMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
                                         </button>
@@ -528,9 +534,13 @@ const LocalMoviesHeroSlider: React.FC<LocalMoviesHeroSliderProps> = ({
                     .thumbnail-slider .splide__slide {
                         overflow: visible !important;
                     }
+                    .thumbnail-slider .splide__slide {
+                        border-radius: 10px !important;
+                    }
                     .thumbnail-slider .splide__slide.is-active {
-                        border: 2px solid #ef4444 !important;
-                        border-radius: 0.25rem !important;
+                        border: 2px solid rgba(255,255,255,0.9) !important;
+                        border-radius: 10px !important;
+                        box-shadow: 0 12px 28px -8px rgba(0,0,0,0.8);
                     }
                 `}</style>
                 <Splide
@@ -573,14 +583,14 @@ const LocalMoviesHeroSlider: React.FC<LocalMoviesHeroSliderProps> = ({
                             <img
                                 src={getPosterUrl(movie)}
                                 alt={movie.title}
-                                className="w-full h-full object-cover rounded"
+                                className="w-full h-full object-cover rounded-[9px]"
                                 onError={(e) => {
                                     // Replace broken image with black background
                                     e.currentTarget.style.display = 'none';
                                     e.currentTarget.parentElement!.style.backgroundColor = '#000';
                                 }}
                             />
-                            <div className="absolute inset-0 bg-black/20 rounded" />
+                            <div className="absolute inset-0 bg-black/20 rounded-[9px]" />
                         </SplideSlide>
                     ))}
                 </Splide>

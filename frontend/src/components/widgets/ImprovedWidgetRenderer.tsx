@@ -279,7 +279,7 @@ export default function ImprovedWidgetRenderer({
                 console.log('Refreshing widgets cache...');
                 cacheUtils.refreshWidgets();
               }}
-              className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm transition-colors mb-2"
+              className="bg-[#f5f5f7] hover:bg-white text-black px-4 py-2 rounded-lg text-sm transition-colors mb-2"
             >
               Refresh Widgets
             </button>

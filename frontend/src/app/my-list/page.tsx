@@ -966,7 +966,7 @@ export default function MyListPage() {
                 </p>
                 <MagneticButton
                   onClick={() => router.push('/browse')}
-                  className="bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-lg font-semibold"
+                  className="bg-[#f5f5f7] hover:bg-white text-black px-6 py-3 rounded-lg font-semibold"
                 >
                   Browse Content
                 </MagneticButton>
@@ -992,7 +992,7 @@ export default function MyListPage() {
                 </p>
                 <MagneticButton
                   onClick={() => router.push('/browse')}
-                  className="bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-lg font-semibold"
+                  className="bg-[#f5f5f7] hover:bg-white text-black px-6 py-3 rounded-lg font-semibold"
                 >
                   Browse Content
                 </MagneticButton>
@@ -1008,7 +1008,7 @@ export default function MyListPage() {
               <h2 className="text-2xl font-bold text-white">Your Collections</h2>
               <MagneticButton
                 onClick={openCreateModal}
-                className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg font-semibold flex items-center gap-2"
+                className="bg-[#f5f5f7] hover:bg-white text-black px-4 py-2 rounded-lg font-semibold flex items-center gap-2"
               >
                 <Plus className="w-4 h-4" />
                 Create Collection
@@ -1085,7 +1085,7 @@ export default function MyListPage() {
                             e.stopPropagation();
                             handleDeleteCollection(collection.id);
                           }}
-                          className="p-2 bg-red-600 hover:bg-red-700 text-white rounded transition-colors"
+                          className="p-2 bg-[#f5f5f7] hover:bg-white text-black rounded transition-colors"
                           title="Delete collection"
                         >
                           <Trash2 className="w-4 h-4" />
@@ -1260,7 +1260,7 @@ export default function MyListPage() {
                 </p>
                 <MagneticButton
                   onClick={openCreateModal}
-                  className="bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-lg font-semibold"
+                  className="bg-[#f5f5f7] hover:bg-white text-black px-6 py-3 rounded-lg font-semibold"
                 >
                   <Plus className="w-4 h-4 mr-2" />
                   Create Collection

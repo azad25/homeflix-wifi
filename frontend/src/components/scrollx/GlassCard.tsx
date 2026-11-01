@@ -27,24 +27,20 @@ export const GlassCard: React.FC<GlassCardProps> = ({
     xl: 'backdrop-blur-xl'
   };
 
-  const borderClass = border ? 'border border-white/20' : '';
-  
+  const borderClass = border ? 'border border-white/10' : '';
+
   return (
     <motion.div
-      className={`
-        ${blurClasses[blur]}
-        bg-white/[${opacity}]
-        ${borderClass}
-        rounded-xl
-        shadow-xl
-        ${className}
-      `}
+      // The background used to be the dynamic class `bg-white/[${opacity}]`,
+      // which Tailwind can't see at build time, so it never applied.
+      className={`${blurClasses[blur]} backdrop-saturate-150 ${borderClass} rounded-2xl shadow-xl ${className}`}
+      style={{ backgroundColor: `rgba(255, 255, 255, ${Math.min(0.2, Math.max(0, opacity * 0.6))})` }}
       // No scale on hover: scaling large cards (e.g. the settings media panel)
       // shifts every control inside by 10-20px as the pointer enters, so
       // clicks landed beside buttons that were still moving.
       whileHover={hover ? {
         boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.35)",
-        borderColor: "rgba(255, 255, 255, 0.3)"
+        borderColor: "rgba(255, 255, 255, 0.18)"
       } : {}}
       transition={{ duration: 0.3, ease: "easeOut" }}
     >

@@ -1387,7 +1387,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
               >
                 <MagneticButton
                   onClick={() => onInfo(currentMedia)}
-                  className="bg-transparent text-white px-8 py-3 rounded-md font-bold text-lg hover:bg-white/10 transition-all duration-300 flex items-center gap-2 border border-white/30"
+                  className="tv-btn tv-btn-secondary"
                 >
                   <Play className="w-6 h-6 fill-current" />
                   Play
@@ -1395,7 +1395,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
 
                 <MagneticButton
                   onClick={() => onInfo(currentMedia)}
-                  className="bg-transparent text-white px-8 py-3 rounded-md font-bold text-lg hover:bg-white/10 transition-all duration-300 flex items-center gap-2 border border-white/30"
+                  className="tv-btn tv-btn-secondary"
                 >
                   <Info className="w-6 h-6" />
                   More Info
@@ -1413,7 +1413,7 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
                   onCollectionCreated={fetchCollections}
                 >
                   <MagneticButton
-                    className="bg-transparent text-white px-8 py-3 rounded-md font-bold text-lg hover:bg-white/10 transition-all duration-300 flex items-center gap-2 border border-white/30"
+                    className="tv-btn tv-btn-secondary"
                   >
                     {isInMyList(currentMedia.tmdb_id ? parseInt(`9${currentMedia.tmdb_id}`) : currentMedia.id) ? (
                       <>

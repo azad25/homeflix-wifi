@@ -438,7 +438,7 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
                       >
                         {isLoadingSuggestions ? (
                           <div className="p-4 text-center text-white/60">
-                            <div className="animate-spin w-5 h-5 border-2 border-red-500 border-t-transparent rounded-full mx-auto"></div>
+                            <div className="animate-spin w-5 h-5 border-2 border-white/80 border-t-transparent rounded-full mx-auto"></div>
                             <span className="ml-2">Searching...</span>
                           </div>
                         ) : suggestions.length > 0 ? (

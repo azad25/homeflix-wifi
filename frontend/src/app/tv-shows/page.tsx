@@ -537,7 +537,7 @@ export default function TVShowsPage() {
                                   e.stopPropagation();
                                   handlePlay(series);
                                 }}
-                                className="w-full bg-red-600 hover:bg-red-700 text-white py-2 px-4 rounded-lg text-sm font-medium flex items-center justify-center gap-2 mb-2"
+                                className="w-full bg-[#f5f5f7] hover:bg-white text-black py-2 px-4 rounded-lg text-sm font-medium flex items-center justify-center gap-2 mb-2"
                               >
                                 <Play className="w-4 h-4" />
                                 Play
@@ -639,7 +639,7 @@ export default function TVShowsPage() {
                                         setIsPlayerOpen(true);
                                       }
                                     }}
-                                    className="w-full bg-red-600 hover:bg-red-700 text-white py-2 px-3 rounded text-xs font-medium flex items-center justify-center gap-1"
+                                    className="w-full bg-[#f5f5f7] hover:bg-white text-black py-2 px-3 rounded text-xs font-medium flex items-center justify-center gap-1"
                                   >
                                     <Play className="w-3 h-3" />
                                     Play

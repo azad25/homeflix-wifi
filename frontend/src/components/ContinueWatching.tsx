@@ -507,7 +507,7 @@ export const ContinueWatching: React.FC<ContinueWatchingProps> = ({
             <p className="text-red-400 mb-4">{error}</p>
             <button
               onClick={fetchContinueWatching}
-              className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg transition-colors"
+              className="bg-[#f5f5f7] hover:bg-white text-black px-4 py-2 rounded-lg transition-colors"
             >
               Try Again
             </button>

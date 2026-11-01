@@ -141,7 +141,7 @@ export default function RecommendationSection({ currentMedia, className = '', on
   if (loading) {
     return (
       <div className={`py-12 flex justify-center ${className}`}>
-        <div className="w-8 h-8 border-4 border-red-600 border-t-transparent rounded-full animate-spin" />
+        <div className="w-8 h-8 border-4 border-white/80 border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }

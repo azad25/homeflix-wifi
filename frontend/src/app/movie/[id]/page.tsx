@@ -2219,7 +2219,7 @@ export default function MoviePage() {
         <p className="text-xl text-white/80 mb-8">The requested media could not be found.</p>
         <button
           onClick={() => safeNavigate.back()}
-          className="bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-lg transition-colors"
+          className="bg-[#f5f5f7] hover:bg-white text-black px-6 py-3 rounded-lg transition-colors"
         >
           Go Back
         </button>

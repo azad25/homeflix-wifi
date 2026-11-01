@@ -771,7 +771,7 @@ const HomeflixHero: React.FC<HomeflixHeroProps> = ({
     if (loading) {
         return (
             <div className="h-screen bg-black flex items-center justify-center">
-                <div className="animate-spin w-12 h-12 border-4 border-red-600 border-t-transparent rounded-full"></div>
+                <div className="animate-spin w-12 h-12 border-4 border-white/80 border-t-transparent rounded-full"></div>
             </div>
         );
     }
@@ -965,7 +965,7 @@ const HomeflixHero: React.FC<HomeflixHeroProps> = ({
                                 <div className="flex items-center gap-3 pointer-events-auto">
                                     <button
                                         onClick={() => onInfo(movie)}
-                                        className="flex items-center gap-2 bg-white text-black px-6 py-3 rounded-md font-bold hover:bg-gray-200 transition-colors"
+                                        className="flex items-center gap-2 bg-[#f5f5f7] text-black px-6 py-3 rounded-xl font-semibold hover:bg-white transition-colors"
                                     >
                                         <Play className="w-5 h-5 fill-black" />
                                         Play
@@ -1006,7 +1006,7 @@ const HomeflixHero: React.FC<HomeflixHeroProps> = ({
             {/* Loading indicator for new content */}
             {isLoadingNewContent && (
                 <div className="absolute top-4 right-4 z-40 flex items-center gap-2 bg-black/70 px-4 py-2 rounded-full">
-                    <div className="animate-spin w-4 h-4 border-2 border-red-600 border-t-transparent rounded-full"></div>
+                    <div className="animate-spin w-4 h-4 border-2 border-white/80 border-t-transparent rounded-full"></div>
                     <span className="text-sm text-white">Loading new content...</span>
                 </div>
             )}

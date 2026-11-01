@@ -465,7 +465,7 @@ const SimpleTVChannel: React.FC = () => {
                     <p className="text-white text-xl mb-4">{error}</p>
                     <button
                         onClick={fetchVideos}
-                        className="bg-red-600 hover:bg-red-700 text-white px-6 py-2 rounded-lg transition-colors"
+                        className="bg-[#f5f5f7] hover:bg-white text-black px-6 py-2 rounded-lg transition-colors"
                     >
                         Try Again
                     </button>

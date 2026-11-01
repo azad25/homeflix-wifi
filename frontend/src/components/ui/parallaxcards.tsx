@@ -89,7 +89,7 @@ const Button: React.FC<{
   const baseClasses = "px-6 py-3 rounded-lg font-medium transition-all duration-200";
   
   const variantClasses = {
-    default: "bg-red-600 hover:bg-red-700 text-white",
+    default: "bg-[#f5f5f7] hover:bg-white text-black",
     destructive: "bg-red-500 hover:bg-red-600 text-white",
     outline: "border-2 border-white text-white hover:bg-white hover:text-black",
     secondary: "bg-gray-600 hover:bg-gray-700 text-white",

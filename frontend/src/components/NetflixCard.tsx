@@ -388,7 +388,7 @@ const NetflixCard: React.FC<NetflixCardProps> = ({
                   handlePlayClick();
                 }}
                 disabled={isLoading}
-                className="bg-white text-black px-4 py-2 rounded-md font-bold hover:bg-gray-200 transition-colors duration-200 flex items-center gap-2 cursor-pointer"
+                className="bg-[#f5f5f7] text-black px-4 py-2 rounded-xl font-semibold hover:bg-white transition-colors duration-200 flex items-center gap-2 cursor-pointer"
               >
                 {isLoading ? (
                   <div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin" />

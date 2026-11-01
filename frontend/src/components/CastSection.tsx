@@ -101,7 +101,7 @@ const CastSection: React.FC<CastSectionProps> = ({
       <div className="mb-12">
         <h2 className="text-2xl font-bold text-white mb-6">Cast & Crew</h2>
         <div className="flex items-center justify-center py-8">
-          <div className="w-8 h-8 border-2 border-red-500 border-t-transparent rounded-full animate-spin" />
+          <div className="w-8 h-8 border-2 border-white/80 border-t-transparent rounded-full animate-spin" />
         </div>
       </div>
     );

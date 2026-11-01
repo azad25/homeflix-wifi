@@ -1840,7 +1840,7 @@ export default function TVSeriesPage() {
         <p className="text-xl text-white/80 mb-8">The requested TV series could not be found.</p>
         <button
           onClick={() => safeNavigate.back()}
-          className="bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-lg transition-colors"
+          className="bg-[#f5f5f7] hover:bg-white text-black px-6 py-3 rounded-lg transition-colors"
         >
           Go Back
         </button>
@@ -2780,7 +2780,7 @@ export default function TVSeriesPage() {
                                       const firstEpisode = episodes.find(ep => ep.id === season.episodes![0].id);
                                       if (firstEpisode) handlePlay(firstEpisode);
                                     }}
-                                    className="w-full bg-red-600 hover:bg-red-700 text-white py-2 px-3 rounded text-xs font-medium flex items-center justify-center gap-1"
+                                    className="w-full bg-[#f5f5f7] hover:bg-white text-black py-2 px-3 rounded text-xs font-medium flex items-center justify-center gap-1"
                                   >
                                     <Play className="w-3 h-3" />
                                     Play
