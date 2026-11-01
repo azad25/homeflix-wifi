@@ -233,6 +233,30 @@ func (h *CastHub) SendCommand(deviceID string, cmd CastCommand) (CastAck, error)
 	}
 }
 
+// Broadcast sends a server→TV message (e.g. {"type":"update_available"}) to
+// every connected TV. Best effort: a TV with a full send queue is skipped.
+// Returns how many TVs it was queued for.
+func (h *CastHub) Broadcast(msg interface{}) int {
+	payload, err := json.Marshal(msg)
+	if err != nil {
+		return 0
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	n := 0
+	for _, d := range h.devices {
+		if !d.info.Online {
+			continue
+		}
+		select {
+		case d.send <- payload:
+			n++
+		default:
+		}
+	}
+	return n
+}
+
 // Serve runs a TV connection until it closes. Blocks.
 func (h *CastHub) Serve(conn *websocket.Conn, info CastDeviceInfo) {
 	now := time.Now()
