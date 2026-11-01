@@ -49,15 +49,18 @@ func TestScan_PicksHighestVersion_AndAnnouncesNewOnes(t *testing.T) {
 	if err := u.Scan(); err != nil || u.Latest() != nil {
 		t.Fatalf("empty dir: latest=%v err=%v", u.Latest(), err)
 	}
+	// The server started with an empty folder; the user then drops the FIRST build in.
+	// That must reach the TVs (this was the "TV never offered the update" bug).
 	copyFile(t, "testdata/homeflix-tv-6.apk", filepath.Join(dir, "anything.apk"))
 	os.WriteFile(filepath.Join(dir, "broken.apk"), []byte("nope"), 0o644)
 	u.Scan()
 	if l := u.Latest(); l == nil || l.VersionCode != 6 {
 		t.Fatalf("want 6, got %+v", l)
 	}
-	if len(announced) != 0 {
-		t.Fatalf("first build found at startup must not be announced: %v", announced)
+	if len(announced) != 1 || announced[0] != 6 {
+		t.Fatalf("first build dropped in after startup must be announced: %v", announced)
 	}
+	announced = nil
 
 	copyFile(t, "testdata/homeflix-tv-7.apk", filepath.Join(dir, "newer.apk"))
 	os.WriteFile(filepath.Join(dir, "newer.txt"), []byte("Faster trailers\n"), 0o644)
@@ -87,6 +90,18 @@ func TestScan_PicksHighestVersion_AndAnnouncesNewOnes(t *testing.T) {
 	}
 }
 
+func TestScan_StartupStaysQuiet(t *testing.T) {
+	dir := t.TempDir()
+	copyFile(t, "testdata/homeflix-tv-7.apk", filepath.Join(dir, "a.apk"))
+	u := &TVAppUpdates{Dir: dir, cache: map[string]apkCacheEntry{}}
+	var announced []int64
+	u.OnNewRelease = func(r *TVAppRelease) { announced = append(announced, r.VersionCode) }
+	u.Scan() // server start: already-published build is not re-announced
+	if len(announced) != 0 || u.Latest() == nil {
+		t.Fatalf("startup: latest=%v announced=%v", u.Latest(), announced)
+	}
+}
+
 func TestPublish_ValidatesAndStores(t *testing.T) {
 	dir := t.TempDir()
 	u := &TVAppUpdates{Dir: dir, cache: map[string]apkCacheEntry{}}
@@ -105,7 +120,7 @@ func TestPublish_ValidatesAndStores(t *testing.T) {
 		t.Fatal("stored file missing")
 	}
 	if len(announced) != 1 {
-		t.Fatalf("upload must announce even the first build: %v", announced)
+		t.Fatalf("upload must announce exactly once: %v", announced)
 	}
 	entries, _ := os.ReadDir(dir)
 	for _, e := range entries {

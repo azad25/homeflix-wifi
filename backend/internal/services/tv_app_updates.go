@@ -53,9 +53,10 @@ type TVAppUpdates struct {
 	// OnNewRelease is called when a newer version than before is published.
 	OnNewRelease func(*TVAppRelease)
 
-	mu     sync.Mutex
-	cache  map[string]apkCacheEntry
-	latest *TVAppRelease
+	mu      sync.Mutex
+	scanned bool // the startup scan has run; later finds are announced
+	cache   map[string]apkCacheEntry
+	latest  *TVAppRelease
 }
 
 // NewTVAppUpdates uses $HOMEFLIX_TV_UPDATES_DIR or ./app-updates/tv.
@@ -90,12 +91,21 @@ func (u *TVAppUpdates) Release(versionCode int64) *TVAppRelease {
 
 // Scan re-reads Dir. APKs are only hashed when new or changed.
 func (u *TVAppUpdates) Scan() error {
+	_, err := u.scan()
+	return err
+}
+
+// scan re-reads Dir and reports whether a newer build was announced to the TVs.
+// Only the server's startup scan stays quiet (TVs check on launch anyway); any
+// build that appears later — dropped in or uploaded, even the very first one —
+// is pushed to connected TVs immediately.
+func (u *TVAppUpdates) scan() (bool, error) {
 	if err := os.MkdirAll(u.Dir, 0o755); err != nil {
-		return err
+		return false, err
 	}
 	entries, err := os.ReadDir(u.Dir)
 	if err != nil {
-		return err
+		return false, err
 	}
 	seen := map[string]bool{}
 	for _, e := range entries {
@@ -145,15 +155,18 @@ func (u *TVAppUpdates) Scan() error {
 	prev := u.latest
 	u.latest = best
 	notify := u.OnNewRelease
+	startup := !u.scanned
+	u.scanned = true
 	u.mu.Unlock()
 
 	if best != nil && (prev == nil || best.VersionCode > prev.VersionCode) {
 		log.Printf("📦 TV update: published %s (%d)", best.VersionName, best.VersionCode)
-		if notify != nil && prev != nil { // don't announce on server start
+		if notify != nil && !startup {
 			notify(best)
+			return true, nil
 		}
 	}
-	return nil
+	return false, nil
 }
 
 func describeAPK(path string, fi os.FileInfo) (*TVAppRelease, error) {
@@ -229,18 +242,23 @@ func (u *TVAppUpdates) Publish(r io.Reader, notes string) (*TVAppRelease, error)
 	if strings.TrimSpace(notes) != "" {
 		_ = os.WriteFile(final+".txt", []byte(strings.TrimSpace(notes)+"\n"), 0o644)
 	}
-	// Uploading is an explicit publish: announce even if it's the first build.
+	// Uploading is an explicit publish: announce it even if it happens to be
+	// the server's first scan.
 	u.mu.Lock()
-	hadNone := u.latest == nil
+	prevCode := int64(0)
+	if u.latest != nil {
+		prevCode = u.latest.VersionCode
+	}
 	u.mu.Unlock()
-	if err := u.Scan(); err != nil {
+	announced, err := u.scan()
+	if err != nil {
 		return nil, err
 	}
 	rel := u.Release(info.VersionCode)
 	if rel == nil {
 		return nil, ErrNotTVApp
 	}
-	if hadNone && u.OnNewRelease != nil {
+	if !announced && rel.VersionCode > prevCode && u.OnNewRelease != nil {
 		u.OnNewRelease(rel)
 	}
 	return rel, nil
