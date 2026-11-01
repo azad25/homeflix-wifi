@@ -65,7 +65,15 @@ const UpcomingMovies: React.FC<UpcomingMoviesProps> = ({
       }
       
       const data = await response.json();
-      setUpcomingData(data);
+      // Any list may be missing when a TMDB call fails; default to [].
+      const asList = (v: any) => (Array.isArray(v) ? v : []);
+      setUpcomingData({
+        ...data,
+        trending_daily: asList(data?.trending_daily),
+        trending_weekly: asList(data?.trending_weekly),
+        now_playing: asList(data?.now_playing),
+        upcoming: asList(data?.upcoming),
+      });
       setError(null);
     } catch (err) {
       console.error("Error fetching upcoming movies:", err);

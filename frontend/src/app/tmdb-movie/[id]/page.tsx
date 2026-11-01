@@ -327,7 +327,13 @@ const MovieImages: React.FC<MovieImagesProps> = ({ movieId, mediaType = 'movie',
       }
 
       const data = await response.json();
-      setImages(data);
+      // TMDB omits empty image groups; normalise so the section can't crash.
+      setImages({
+        ...data,
+        backdrops: Array.isArray(data?.backdrops) ? data.backdrops : [],
+        posters: Array.isArray(data?.posters) ? data.posters : [],
+        logos: Array.isArray(data?.logos) ? data.logos : [],
+      });
       setError(null);
     } catch (err) {
       console.error('Error fetching movie images:', err);

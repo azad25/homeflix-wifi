@@ -34,7 +34,12 @@ const CastCircleRow: React.FC<CastCircleRowProps> = ({ mediaId, type }) => {
         
         if (response.ok) {
           const data = await response.json();
-          setCastData(data);
+          // Partial or failed TMDB responses omit cast/crew: never crash the page.
+          setCastData({
+            ...data,
+            cast: Array.isArray(data?.cast) ? data.cast : [],
+            crew: Array.isArray(data?.crew) ? data.crew : [],
+          });
         }
       } catch (err) {
         console.error('Failed to fetch cast images:', err);

@@ -64,7 +64,15 @@ const UpcomingTVSeries: React.FC<UpcomingTVSeriesProps> = ({
       }
       
       const data = await response.json();
-      setTVSeriesData(data);
+      // Any list may be missing when a TMDB call fails; default to [].
+      const asList = (v: any) => (Array.isArray(v) ? v : []);
+      setTVSeriesData({
+        ...data,
+        airing_today: asList(data?.airing_today),
+        on_the_air: asList(data?.on_the_air),
+        trending_daily: asList(data?.trending_daily),
+        trending_weekly: asList(data?.trending_weekly),
+      });
       setError(null);
     } catch (err) {
       console.error("Error fetching TV series:", err);
