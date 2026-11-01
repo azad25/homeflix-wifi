@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Search, Bell, User, Menu, X, Film, Tv, Music, List, Compass, Settings, HelpCircle, LogOut } from "lucide-react";
+import { Search, Bell, User, Menu, X, Film, Tv, Music, List, Compass, Settings, HelpCircle, LogOut, Info } from "lucide-react";
 import { usePathname } from "next/navigation";
 import NavigationLink from "./NavigationLink";
 import { useNavigate } from "@/hooks/useNavigate";
@@ -557,7 +557,8 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
             <div className="relative" ref={notificationRef}>
               <button
                 onClick={() => setIsNotificationOpen(!isNotificationOpen)}
-                className="text-white/80 hover:text-white transition-colors hidden md:block relative flex items-center justify-center"
+                aria-label="Notifications"
+                className="text-white/80 hover:text-white transition-colors relative flex items-center justify-center"
               >
                 <Bell className="w-5 h-5" />
                 {notificationCount > 0 && (
@@ -666,7 +667,8 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
                         { name: 'Providers', icon: Tv, href: '/providers' },
                         { name: 'Trailers', icon: Film, href: '/trailers' },
                         { name: 'Settings', icon: Settings, href: '/settings' },
-                        { name: 'Library', icon: List, href: '/browse' }
+                        { name: 'Library', icon: List, href: '/browse' },
+                        { name: 'About', icon: Info, href: '/about' }
                       ].map((item) => (
                         <a
                           key={item.name}
@@ -683,6 +685,9 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
 
                 {/* Footer / Sign Out */}
                 <div className="p-6 border-t border-white/10 bg-black/40">
+                  <a href="/about" className="block mb-4 text-center text-xs text-white/40 hover:text-white/70 transition-colors">
+                    HomeFlix · developed by <span className="text-white/70 font-semibold">Ferdous Azad</span>
+                  </a>
                   <a href="#" className="flex items-center justify-center gap-3 w-full px-4 py-3 rounded-xl bg-red-600/10 hover:bg-red-600/20 text-red-500 hover:text-red-400 transition-all duration-300 font-semibold shadow-lg">
                     <LogOut className="w-5 h-5" />
                     <span>Sign Out</span>

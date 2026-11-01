@@ -7,6 +7,7 @@ import { useDialog } from '@/hooks/useDialog';
 import { Settings, Database, Upload, Trash2, Video, ImageIcon, Folder, File, Play, Info, Edit3, RefreshCw, Save, X, Star, Clock, Globe, Eye, Zap, Search, Server, Activity, HardDrive, BarChart3, TrendingUp, FileSearch, Timer, Download, Film, Layout, Hammer, Menu, Lock } from 'lucide-react';
 import Image from 'next/image';
 import Navbar from '@/components/Navbar';
+import DeveloperCredit from '@/components/about/DeveloperCredit';
 import { getApiUrl } from '@/lib/api';
 import { Media } from '@/types/media';
 import { FolderTree, GlassCard, ScrollReveal, MagneticButton } from '@/components/scrollx';
@@ -2830,6 +2831,7 @@ function SettingsContent() {
           {/* <NavButton active={activeTab === 'widgets'} onClick={() => setActiveTab('widgets')} icon={<Layout />} label="Widgets" /> */}
           <NavButton active={activeTab === 'pages'} onClick={() => setActiveTab('pages')} onClose={() => setSidebarOpen(false)} icon={<File />} label="Pages" />
           <NavButton active={activeTab === 'general'} onClick={() => setActiveTab('general')} onClose={() => setSidebarOpen(false)} icon={<Settings />} label="General" />
+          <NavButton active={activeTab === 'about'} onClick={() => setActiveTab('about')} onClose={() => setSidebarOpen(false)} icon={<Info />} label="About" />
         </nav>
 
         <div className="p-4 border-t border-white/5 bg-black/20">
@@ -2872,6 +2874,7 @@ function SettingsContent() {
                 {activeTab === 'widgets' && 'Widget Manager'}
                 {activeTab === 'pages' && 'Page Editor'}
                 {activeTab === 'general' && 'General Settings'}
+                {activeTab === 'about' && 'About HomeFlix'}
               </h2>
               <p className="text-sm text-white/50 mt-1">
                 {activeTab === 'system' && 'Real-time system monitoring and logs'}
@@ -2882,6 +2885,7 @@ function SettingsContent() {
                 {activeTab === 'widgets' && 'Customize dashboard widgets'}
                 {activeTab === 'pages' && 'Manage custom pages'}
                 {activeTab === 'general' && 'App preferences and configurations'}
+                {activeTab === 'about' && 'Developer, contact and open source'}
               </p>
             </div>
           </div>
@@ -2949,6 +2953,13 @@ function SettingsContent() {
                 exit={{ opacity: 0, y: -10 }}
                 transition={{ duration: 0.2 }}
               >
+              {/* About Tab */}
+              {activeTab === 'about' && (
+                <div className="max-w-3xl">
+                  <DeveloperCredit />
+                </div>
+              )}
+
               {/* Dashboard Tab */}
               {activeTab === 'system' && (
                 <motion.div
