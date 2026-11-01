@@ -1,6 +1,10 @@
 package handlers
 
-import "testing"
+import (
+	"fmt"
+	"os"
+	"testing"
+)
 
 func TestReleaseVersionsAndUpgradeTarget(t *testing.T) {
 	branches := []string{"release/v5", "release/v5.5", "release/v5.10", "release/v4.9", "release/v6.0"}
@@ -28,5 +32,27 @@ func TestReleaseVersionsAndUpgradeTarget(t *testing.T) {
 		if releaseVersion(bad) != nil {
 			t.Errorf("%q should not parse as a release branch", bad)
 		}
+	}
+}
+
+func TestUpdateJobRunningIgnoresDeadJobs(t *testing.T) {
+	dir := t.TempDir()
+	f := dir + "/.update-status.json"
+	write := func(s string) {
+		if err := os.WriteFile(f, []byte(s), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(fmt.Sprintf(`{"state":"running","phase":"build-frontend","pid":%d}`, os.Getpid()))
+	if _, running := updateJobRunning(f); !running {
+		t.Error("live pid should count as running")
+	}
+	write(`{"state":"running","phase":"switch","pid":999999999}`)
+	if _, running := updateJobRunning(f); running {
+		t.Error("dead pid must not block updates")
+	}
+	write(`{"state":"done","pid":1}`)
+	if _, running := updateJobRunning(f); running {
+		t.Error("finished job is not running")
 	}
 }

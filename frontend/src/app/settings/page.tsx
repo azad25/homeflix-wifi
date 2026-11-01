@@ -2049,6 +2049,15 @@ function SettingsContent() {
       const qs = targetBranch ? `?branch=${encodeURIComponent(targetBranch)}` : '';
       const res = await fetch(`${getApiUrl()}/api/admin/update/apply${qs}`, { method: 'POST' });
       const data = await res.json();
+      if (!data.ok && data.already_running) {
+        // A job is in progress (e.g. started before a page reload): follow it
+        // instead of reporting a failure.
+        setUpdateStatus(data.status || { state: 'running', phase: 'running', message: 'Update in progress…' });
+        addTerminalOutput('⏳ An update is already in progress - showing its progress');
+        stopUpdatePolling();
+        updateTimerRef.current = setInterval(pollUpdateStatus, 3000);
+        return;
+      }
       if (!data.ok) {
         setUpdateRunning(false);
         setUpdateStatus({ state: 'error', message: data.error });
@@ -2065,6 +2074,22 @@ function SettingsContent() {
 
   useEffect(() => {
     checkForUpdates(true);
+    // Re-attach to an update that is still running (page reloaded mid-update).
+    (async () => {
+      try {
+        const res = await fetch(`${getApiUrl()}/api/admin/update/status`);
+        if (!res.ok) return;
+        const st = await res.json();
+        if (st?.state === 'running') {
+          setUpdateRunning(true);
+          setUpdateStatus(st);
+          stopUpdatePolling();
+          updateTimerRef.current = setInterval(pollUpdateStatus, 3000);
+        }
+      } catch {
+        /* backend restarting */
+      }
+    })();
     return stopUpdatePolling;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
