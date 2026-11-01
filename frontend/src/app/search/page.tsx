@@ -1,5 +1,6 @@
 "use client";
 
+import { TVGridSkeleton } from '@/components/tv/TVPage';
 import React, { useState, useEffect, useCallback } from "react";
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { Search, Filter, X, Film, Tv, Star, Calendar, Clock, Grid, List, SortAsc, SortDesc } from 'lucide-react';
@@ -338,62 +339,54 @@ export default function SearchPage() {
   ).length;
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-red-900/20 via-black to-black text-white">
+    <div className="min-h-screen bg-black text-white">
       <Navbar onSearch={handleSearch} />
 
       {/* Main Content Container */}
-      <div className="relative bg-gradient-to-b from-red-900/20 via-black to-black min-h-screen pt-24">
+      <div className="relative bg-black min-h-screen pt-24">
         <div className="container mx-auto px-4 py-8 max-w-7xl">
           {/* Search Header */}
           <div className="mb-8">
-            <div className="text-center mb-8">
-              <h1 className="text-4xl md:text-6xl font-bold text-white mb-6 flex items-center justify-center gap-4 tracking-wider">
-                <FloatingElement>
-                  <Search className="w-12 h-12" />
-                </FloatingElement>
-                S E A R C H   L I B R A R Y
-              </h1>
-              
+            <div className="mb-8">
+              <h1 className="mb-5 text-[34px] font-bold tracking-[-0.03em] text-white md:text-5xl">Search</h1>
+
               {/* Search Bar */}
-              <div className="relative max-w-3xl mx-auto">
-                <Search className="absolute left-6 top-1/2 transform -translate-y-1/2 text-gray-400 w-6 h-6" />
+              <div className="relative max-w-3xl">
+                <Search className="pointer-events-none absolute left-5 top-1/2 z-10 h-5 w-5 -translate-y-1/2 text-white/50" />
                 <input
-                  type="text"
-                  placeholder="Search for movies, TV shows, genres..."
+                  type="search"
+                  autoFocus
+                  placeholder="Movies, TV shows, genres…"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value || '')}
-                  className="w-full bg-black/50 backdrop-blur-md text-white pl-16 pr-6 py-6 rounded-2xl border border-white/20 focus:border-red-500 focus:outline-none text-xl placeholder-gray-400"
+                  aria-label="Search"
+                  className="w-full rounded-2xl border border-white/10 bg-white/[0.08] py-4 pl-14 pr-5 text-lg text-white placeholder-white/40 backdrop-blur-xl transition-colors focus:border-white/40 focus:bg-white/[0.12] focus:outline-none md:text-xl"
                 />
               </div>
             </div>
 
             {/* Filter Controls */}
-            <div className="flex flex-wrap justify-center gap-4 mb-8">
-              <MagneticButton
+            <div className="mb-8 flex flex-wrap gap-3">
+              <button
+                type="button"
                 onClick={() => setShowFilters(!showFilters)}
-                className={`px-6 py-3 rounded-lg font-semibold transition-all ${
-                  showFilters 
-                    ? 'bg-red-600 hover:bg-red-700 text-white' 
-                    : 'bg-black/50 backdrop-blur-md border border-white/20 text-white hover:bg-white/10'
-                }`}
+                aria-expanded={showFilters}
+                className={`tv-btn ${showFilters ? 'tv-btn-primary' : 'tv-btn-secondary'}`}
               >
-                <Filter className="w-4 h-4 mr-2" />
+                <Filter className="h-4 w-4" />
                 Filters
                 {activeFiltersCount > 0 && (
-                  <span className="ml-2 bg-red-600 text-white rounded-full px-2 py-1 text-xs">
+                  <span className={`rounded-full px-1.5 text-xs font-bold leading-5 ${showFilters ? 'bg-black/10' : 'bg-white/20'}`}>
                     {activeFiltersCount}
                   </span>
                 )}
-              </MagneticButton>
-              
+              </button>
+
               {activeFiltersCount > 0 && (
-                <MagneticButton
-                  onClick={clearFilters}
-                  className="px-6 py-3 rounded-lg font-semibold bg-gray-600 hover:bg-gray-700 text-white"
-                >
-                  <X className="w-4 h-4 mr-2" />
-                  Clear Filters
-                </MagneticButton>
+                <button type="button" onClick={clearFilters} className="tv-btn tv-btn-secondary">
+                  <X className="h-4 w-4" />
+                  Clear
+                </button>
               )}
             </div>
 
@@ -408,7 +401,7 @@ export default function SearchPage() {
                       <select
                         value={filters.type}
                         onChange={(e) => setFilters(prev => ({ ...prev, type: e.target.value }))}
-                        className="w-full bg-black/50 backdrop-blur-md border border-white/20 text-white px-4 py-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
+                        className="w-full bg-white/[0.08] backdrop-blur-xl border border-white/10 text-white px-4 py-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-white/40"
                       >
                         <option value="all">All Types</option>
                         <option value="movie">Movies Only</option>
@@ -422,7 +415,7 @@ export default function SearchPage() {
                       <select
                         value={filters.source}
                         onChange={(e) => setFilters(prev => ({ ...prev, source: e.target.value }))}
-                        className="w-full bg-black/50 backdrop-blur-md border border-white/20 text-white px-4 py-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
+                        className="w-full bg-white/[0.08] backdrop-blur-xl border border-white/10 text-white px-4 py-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-white/40"
                       >
                         <option value="all">All Sources</option>
                         <option value="local">Local Library</option>
@@ -436,7 +429,7 @@ export default function SearchPage() {
                       <select
                         value={filters.rating}
                         onChange={(e) => setFilters(prev => ({ ...prev, rating: e.target.value }))}
-                        className="w-full bg-black/50 backdrop-blur-md border border-white/20 text-white px-4 py-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
+                        className="w-full bg-white/[0.08] backdrop-blur-xl border border-white/10 text-white px-4 py-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-white/40"
                       >
                         <option value="all">Any Rating</option>
                         <option value="7">7+ Stars</option>
@@ -451,7 +444,7 @@ export default function SearchPage() {
                       <select
                         value={filters.year}
                         onChange={(e) => setFilters(prev => ({ ...prev, year: e.target.value }))}
-                        className="w-full bg-black/50 backdrop-blur-md border border-white/20 text-white px-4 py-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
+                        className="w-full bg-white/[0.08] backdrop-blur-xl border border-white/10 text-white px-4 py-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-white/40"
                       >
                         <option value="all">Any Year</option>
                         <option value="2024">2024</option>
@@ -470,7 +463,7 @@ export default function SearchPage() {
                       <select
                         value={filters.sortBy}
                         onChange={(e) => setFilters(prev => ({ ...prev, sortBy: e.target.value }))}
-                        className="w-full bg-black/50 backdrop-blur-md border border-white/20 text-white px-4 py-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
+                        className="w-full bg-white/[0.08] backdrop-blur-xl border border-white/10 text-white px-4 py-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-white/40"
                       >
                         <option value="relevance">Most Relevant</option>
                         <option value="popularity">Most Popular</option>
@@ -489,14 +482,12 @@ export default function SearchPage() {
           {/* Results Section */}
           <div className="flex-1 min-w-0">
             {loading ? (
-              <div className="text-center py-16">
-                <RedLoader size="large" />
-              </div>
+              <TVGridSkeleton count={12} />
             ) : hasSearched ? (
               <div>
                 {/* Results Header */}
                 <div className="mb-6">
-                  <p className="text-gray-300 text-lg">
+                  <p className="text-[15px] text-[var(--tv-text-secondary)]">
                     {totalResults} result{totalResults !== 1 ? 's' : ''} 
                     {searchQuery && ` for "${searchQuery}"`}
                   </p>
@@ -504,106 +495,26 @@ export default function SearchPage() {
 
                 {/* Results Display */}
                 {searchResults.length > 0 ? (
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6">
-                    {searchResults.map((result) => (
-                      <div key={`${result._source}-${result.media_type}-${result.id}`} className="group">
-                        <div 
-                          onClick={() => handleResultClick(result)}
-                          className="bg-gray-800/50 rounded-lg overflow-hidden hover:bg-gray-700/50 transition-all duration-300 cursor-pointer hover:scale-105 hover:shadow-2xl"
-                        >
-                          {/* Poster */}
-                          <div className="aspect-[2/3] relative overflow-hidden">
-                            <img
-                              src={getPosterUrl(result)}
-                              alt={result.title}
-                              className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500 bg-gray-800"
-                              onError={(e) => {
-                                const target = e.target as HTMLImageElement;
-                                const apiUrl = getApiUrl();
-                                
-                                // Try fallback sources for TV series
-                                if (result._source === 'local' && (result.media_type === 'tv' || result.type === 'tv' || result.type === 'series')) {
-                                  // First fallback: try TMDB poster if available
-                                  if (result.poster_path && !target.src.includes('tmdb')) {
-                                    target.src = `https://image.tmdb.org/t/p/w500${result.poster_path}`;
-                                    return;
-                                  }
-                                  // Second fallback: try thumbnail endpoint
-                                  if (!target.src.includes('/api/thumbnails/')) {
-                                    target.src = `${apiUrl}/api/thumbnails/${result.id}`;
-                                    return;
-                                  }
-                                }
-                                
-                                // Final fallback: clean black background with title initial
-                                const parent = target.parentElement;
-                                if (parent) {
-                                  const initial = result.title?.charAt(0)?.toUpperCase() || '?';
-                                  const mediaIcon = result.media_type === 'movie' ? '🎬' : '📺';
-                                  parent.innerHTML = `
-                                    <div class="w-full h-full bg-black flex flex-col items-center justify-center text-white">
-                                      <div class="text-5xl mb-2">${mediaIcon}</div>
-                                      <div class="text-6xl font-bold text-gray-700">${initial}</div>
-                                    </div>
-                                  `;
-                                }
-                              }}
-                            />
-                            
-                            {/* Media Type Badge */}
-                            <div className="absolute top-2 left-2 flex flex-col gap-1">
-                              <span className={`px-2 py-1 rounded-full text-xs font-semibold ${
-                                result.media_type === 'movie' 
-                                  ? 'bg-blue-600 text-white' 
-                                  : 'bg-green-600 text-white'
-                              }`}>
-                                {result.media_type === 'movie' ? 'Movie' : 'TV'}
-                              </span>
-                              {result._source === 'local' && (
-                                <span className="bg-yellow-600 text-white text-xs px-2 py-0.5 rounded-full font-semibold">
-                                  Library
-                                </span>
-                              )}
-                            </div>
-
-                            {/* Rating Badge */}
-                            {result.vote_average > 0 && (
-                              <div className="absolute top-2 right-2">
-                                <span className="bg-black/70 text-yellow-400 px-2 py-1 rounded-full text-xs font-semibold flex items-center gap-1">
-                                  ★ {result.vote_average.toFixed(1)}
-                                </span>
-                              </div>
-                            )}
-
-                            {/* Hover Overlay */}
-                            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-                              <div className="absolute bottom-4 left-4 right-4">
-                                <button className="w-full bg-red-600 hover:bg-red-700 text-white py-2 px-4 rounded-lg font-semibold transition-colors">
-                                  View Details
-                                </button>
-                              </div>
-                            </div>
-                          </div>
-
-                          {/* Info */}
-                          <div className="p-4">
-                            <h3 className="font-semibold text-white mb-2 line-clamp-2 group-hover:text-red-400 transition-colors">
-                              {result.title}
-                            </h3>
-                            
-                            <div className="flex items-center text-sm text-gray-400 mb-2">
-                              <span>{result.year || (result.release_date ? new Date(result.release_date).getFullYear() : new Date().getFullYear())}</span>
-                            </div>
-
-                            {result.overview && (
-                              <p className="text-gray-400 text-sm line-clamp-3">
-                                {result.overview}
-                              </p>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    ))}
+                  <div className="grid grid-cols-2 gap-x-5 gap-y-8 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+                    {searchResults.map((result) => {
+                      const d = result.release_date || result.first_air_date;
+                      const y = result.year || (d ? new Date(d).getFullYear() : null);
+                      const isTv = result.media_type !== 'movie';
+                      return (
+                        <SearchResultCard
+                          key={`${result._source}-${result.media_type}-${result.id}`}
+                          title={result.title}
+                          src={getPosterUrl(result)}
+                          fallbacks={[
+                            result._source === 'local' && result.poster_path ? `https://image.tmdb.org/t/p/w500${result.poster_path}` : null,
+                            result._source === 'local' ? `${getApiUrl()}/api/thumbnails/${result.id}` : null,
+                          ]}
+                          caption={[Number.isFinite(y) ? y : null, isTv ? 'TV Show' : 'Movie', result.vote_average > 0 ? `★ ${result.vote_average.toFixed(1)}` : null].filter(Boolean).join(' · ')}
+                          badge={result._source === 'local' ? 'In Library' : null}
+                          onSelect={() => handleResultClick(result)}
+                        />
+                      );
+                    })}
                   </div>
                 ) : (
                   <div className="text-center py-16">
@@ -617,12 +528,9 @@ export default function SearchPage() {
                         : "Try adjusting your search terms or filters"
                       }
                     </p>
-                    <MagneticButton
-                      onClick={clearFilters}
-                      className="bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-lg font-semibold"
-                    >
+                    <button type="button" onClick={clearFilters} className="tv-btn tv-btn-primary">
                       Clear Filters
-                    </MagneticButton>
+                    </button>
                   </div>
                 )}
               </div>
@@ -641,5 +549,46 @@ export default function SearchPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+/** Apple TV poster result. Image fallbacks are tried in order without
+ * touching the DOM directly (the old card overwrote innerHTML on error). */
+function SearchResultCard({ title, src, fallbacks, caption, badge, onSelect }: {
+  title: string;
+  src: string;
+  fallbacks: (string | null)[];
+  caption: string;
+  badge?: string | null;
+  onSelect: () => void;
+}) {
+  const chain = React.useMemo(() => [src, ...fallbacks].filter(Boolean) as string[], [src, fallbacks]);
+  const [idx, setIdx] = useState(0);
+  const current = chain[idx];
+  return (
+    <button type="button" onClick={onSelect} className="tv-card-group block w-full text-left outline-none" aria-label={title}>
+      <div className="tv-card aspect-[2/3] w-full">
+        {current ? (
+          <img
+            src={current}
+            alt=""
+            loading="lazy"
+            decoding="async"
+            onError={() => setIdx((i) => i + 1)}
+            className="absolute inset-0 h-full w-full object-cover"
+          />
+        ) : (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-gradient-to-br from-zinc-800 to-zinc-900 p-3 text-center">
+            <span className="text-3xl font-bold text-white/30">{title?.charAt(0)?.toUpperCase() || '?'}</span>
+            <span className="line-clamp-2 text-xs font-semibold text-white/60">{title}</span>
+          </div>
+        )}
+        {badge && (
+          <span className="absolute left-2 top-2 rounded-md bg-black/55 px-1.5 py-0.5 text-[10px] font-bold text-white backdrop-blur-md">{badge}</span>
+        )}
+      </div>
+      <p className="mt-2.5 truncate text-[14px] font-semibold text-[var(--tv-text)]">{title}</p>
+      {caption && <p className="tv-caption mt-0.5 truncate">{caption}</p>}
+    </button>
   );
 }

@@ -437,7 +437,7 @@ export default function TVShowsPage() {
       />
 
       {/* Main Content with Parallax Background */}
-      <div className="relative bg-gradient-to-b from-red-900/20 via-black to-black" style={{ overflow: 'visible' }}>
+      <div className="relative bg-black" style={{ overflow: 'visible' }}>
         <div className="relative z-10 py-12" style={{ overflow: 'visible' }}>
 
           {/* Recently Watched TV Shows */}

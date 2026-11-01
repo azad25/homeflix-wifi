@@ -1,5 +1,6 @@
 "use client";
 
+import { TVPageHeader, TVPageShell, TVGridSkeleton } from '@/components/tv/TVPage';
 import React, { useState, useEffect, useCallback } from "react";
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { Film, Search, X, Grid, List } from "lucide-react";
@@ -422,14 +423,18 @@ export default function BrowsePage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-black flex items-center justify-center">
-        <RedLoader size="large" />
+      <div className="min-h-screen bg-black text-white">
+        <Navbar onSearch={handleSearch} />
+        <TVPageShell>
+          <TVPageHeader title="Library" subtitle="Loading your collection…" className="mb-8" />
+          <TVGridSkeleton count={18} />
+        </TVPageShell>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-red-900/20 via-black to-black text-white">
+    <div className="min-h-screen bg-black text-white">
       <Navbar onSearch={handleSearch} />
 
       {/* Hero Section */}
@@ -449,7 +454,7 @@ export default function BrowsePage() {
       />
 
       {/* Main Content with Responsive Layout */}
-      <div className="relative bg-gradient-to-b from-red-900/20 via-black to-black min-h-screen">
+      <div className="relative bg-black min-h-screen">
         <div className="flex flex-col lg:flex-row h-full">
           {/* Mobile Genre Filter - Horizontal scroll on mobile */}
           <div className="lg:hidden px-4 py-4 border-b border-white/10">
@@ -457,7 +462,7 @@ export default function BrowsePage() {
               <button
                 onClick={() => setSelectedGenre("all")}
                 className={`flex-shrink-0 px-4 py-2 rounded-full text-sm transition-all ${selectedGenre === "all"
-                  ? "bg-red-600 text-white"
+                  ? "bg-white text-black font-semibold"
                   : "bg-black/50 text-gray-300 hover:bg-white/10 hover:text-white"
                   }`}
               >
@@ -473,7 +478,7 @@ export default function BrowsePage() {
                     key={genre.id}
                     onClick={() => setSelectedGenre(genre.name)}
                     className={`flex-shrink-0 px-4 py-2 rounded-full text-sm transition-all ${selectedGenre === genre.name
-                      ? "bg-red-600 text-white"
+                      ? "bg-white text-black font-semibold"
                       : "bg-black/50 text-gray-300 hover:bg-white/10 hover:text-white"
                       }`}
                   >
@@ -496,7 +501,7 @@ export default function BrowsePage() {
                 <button
                   onClick={() => setSelectedGenre("all")}
                   className={`w-full text-left px-4 py-2 rounded-lg mb-2 transition-all text-sm ${selectedGenre === "all"
-                    ? "bg-red-600 text-white"
+                    ? "bg-white text-black font-semibold"
                     : "text-gray-300 hover:bg-white/10 hover:text-white"
                     }`}
                 >
@@ -518,7 +523,7 @@ export default function BrowsePage() {
                         key={genre.id}
                         onClick={() => setSelectedGenre(genre.name)}
                         className={`w-full text-left px-4 py-2 rounded-lg transition-all text-sm ${selectedGenre === genre.name
-                          ? "bg-red-600 text-white"
+                          ? "bg-white text-black font-semibold"
                           : "text-gray-300 hover:bg-white/10 hover:text-white"
                           }`}
                       >
@@ -538,10 +543,10 @@ export default function BrowsePage() {
           <div className="flex-1 px-4 lg:px-6 py-4 lg:py-6 overflow-hidden">
             {/* Header */}
             <div className="mb-6">
-              <h1 className="text-2xl md:text-3xl font-bold text-white mb-2">
-                Browse Collection
+              <h1 className="text-[34px] md:text-5xl font-bold tracking-[-0.03em] text-white mb-1.5">
+                Library
               </h1>
-              <p className="text-gray-300">
+              <p className="text-[15px] text-[var(--tv-text-secondary)]">
                 Discover your next favorite from {allMedia.length} titles
               </p>
             </div>
@@ -607,14 +612,14 @@ export default function BrowsePage() {
               <div className="flex bg-black/50 backdrop-blur-md border border-white/20 rounded-lg overflow-hidden">
                 <button
                   onClick={() => setViewMode("grid")}
-                  className={`px-3 py-2 transition-all ${viewMode === "grid" ? "bg-red-600 text-white" : "text-gray-400 hover:text-white"
+                  className={`px-3 py-2 transition-all ${viewMode === "grid" ? "bg-white text-black font-semibold" : "text-gray-400 hover:text-white"
                     }`}
                 >
                   <Grid className="w-4 h-4" />
                 </button>
                 <button
                   onClick={() => setViewMode("list")}
-                  className={`px-3 py-2 transition-all ${viewMode === "list" ? "bg-red-600 text-white" : "text-gray-400 hover:text-white"
+                  className={`px-3 py-2 transition-all ${viewMode === "list" ? "bg-white text-black font-semibold" : "text-gray-400 hover:text-white"
                     }`}
                 >
                   <List className="w-4 h-4" />
@@ -635,7 +640,7 @@ export default function BrowsePage() {
               {(selectedGenre !== "all" || selectedYear !== "all" || searchQuery) && (
                 <div className="flex items-center gap-2">
                   {selectedGenre !== "all" && (
-                    <span className="bg-red-600/20 text-red-400 px-2 py-1 rounded-full text-xs flex items-center gap-1">
+                    <span className="bg-white/10 text-white px-2.5 py-1 rounded-full text-xs flex items-center gap-1">
                       {selectedGenre}
                       <button
                         onClick={() => setSelectedGenre("all")}
@@ -684,7 +689,7 @@ export default function BrowsePage() {
               <div>
                 {filteredMedia.length > 0 ? (
                   <div className={viewMode === "grid"
-                    ? "grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-8 xl:grid-cols-10 2xl:grid-cols-12 gap-1.5 sm:gap-2"
+                    ? "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-8 gap-x-5 gap-y-8"
                     : "space-y-3"
                   }>
                     {displayedMedia.map((media, index) => (
@@ -708,7 +713,7 @@ export default function BrowsePage() {
                         <MagneticButton
                           onClick={handleLoadMore}
                           disabled={loadingMore}
-                          className="bg-red-600 hover:bg-red-700 disabled:bg-gray-600 text-white px-4 lg:px-6 py-2 rounded-lg font-semibold transition-colors text-sm"
+                          className="tv-btn tv-btn-secondary"
                         >
                           {loadingMore ? <RedLoader size="small" /> : 'Load More'}
                         </MagneticButton>
@@ -733,7 +738,7 @@ export default function BrowsePage() {
                         setSelectedGenre("all");
                         setSelectedYear("all");
                       }}
-                      className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg font-semibold text-sm"
+                      className="tv-btn tv-btn-primary"
                     >
                       Clear Filters
                     </MagneticButton>

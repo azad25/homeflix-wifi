@@ -1,5 +1,6 @@
 "use client";
 
+import { TVSegmented } from '@/components/tv/TVPage';
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -139,7 +140,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
 
   useEffect(() => {
     fetchConfig();
-    fetchDownloads();
+    // fetchDownloads runs from its own effect below (it was called twice on mount).
     fetchBandwidthStats();
 
     // Auto-search if media info is provided
@@ -562,13 +563,16 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
   };
 
   return (
-    <div className="bg-black p-6 min-h-screen">
+    <div className="min-h-screen p-1 md:p-2">
       {/* Header */}
-      <div className="flex items-center justify-between mb-8">
-        <h2 className="text-2xl font-bold text-white flex items-center gap-3">
-          <Download className="w-6 h-6 text-[#E50914]" />
-          Torrent Downloads
-        </h2>
+      <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between mb-6">
+        {/* Settings already titles this panel; show our own title only when
+            embedded elsewhere (e.g. a movie page's download flow). */}
+        {mediaInfo && (
+          <h2 className="text-3xl font-bold tracking-[-0.03em] text-white md:text-4xl">
+            Downloads
+          </h2>
+        )}
 
         {mediaInfo && (
           <div className="text-sm text-white/60">
@@ -586,26 +590,17 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
       </div>
 
       {/* Tabs */}
-      <div className="flex space-x-2 mb-8 bg-black/50 rounded-lg p-1 border border-white/10">
-        {[
-          { id: 'search', label: 'Search Torrents', icon: Search },
-          { id: 'downloads', label: 'Downloads', icon: Download },
-          { id: 'config', label: 'Settings', icon: Settings }
-        ].map(({ id, label, icon: Icon }) => (
-          <button
-            key={id}
-            onClick={() => setActiveTab(id as any)}
-            className={`flex items-center gap-2 px-6 py-2 rounded-md text-sm font-medium transition-all ${
-              activeTab === id
-                ? 'bg-white/10 text-[#E50914] shadow-lg'
-                : 'text-white/60 hover:text-white hover:bg-white/5'
-            }`}
-          >
-            <Icon className="w-4 h-4" />
-            {label}
-          </button>
-        ))}
-      </div>
+      <TVSegmented
+        className="mb-8"
+        ariaLabel="Download sections"
+        value={activeTab}
+        onChange={(k) => setActiveTab(k)}
+        segments={[
+          { key: 'search', label: 'Search', icon: <Search className="w-4 h-4" /> },
+          { key: 'downloads', label: 'Downloads', icon: <Download className="w-4 h-4" />, badge: totalCount || null },
+          { key: 'config', label: 'Settings', icon: <Settings className="w-4 h-4" /> },
+        ]}
+      />
 
       {/* Error Display */}
       <AnimatePresence>
@@ -614,13 +609,13 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -20 }}
-            className="bg-[#E50914]/20 border border-[#E50914]/50 rounded-lg p-4 mb-6 flex items-center gap-3 backdrop-blur-sm"
+            className="bg-white/10 border border-white/20 rounded-lg p-4 mb-6 flex items-center gap-3 backdrop-blur-sm"
           >
             <AlertCircle className="w-5 h-5 text-[#E50914] flex-shrink-0" />
             <span className="text-white/90 text-sm">{error}</span>
             <button 
               onClick={() => setError(null)} 
-              className="ml-auto text-[#E50914] hover:text-[#E50914]/80 transition-colors"
+              className="ml-auto text-white/70 hover:text-white transition-colors"
             >
               <X className="w-4 h-4" />
             </button>
@@ -649,7 +644,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
                   placeholder={mediaInfo?.media_type === 'tv'
                     ? "Search for TV series... (will search all seasons automatically)"
                     : "Search for movies or TV shows... (edit to customize search)"}
-                  className="w-full pl-10 pr-4 py-2.5 bg-black/50 border border-white/10 rounded-lg text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-[#E50914]/50 focus:border-transparent transition-all"
+                  className="w-full pl-10 pr-4 py-2.5 bg-black/50 border border-white/10 rounded-lg text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-white/30 focus:border-transparent transition-all"
                   onKeyPress={(e) => e.key === 'Enter' && searchTorrents()}
                 />
                 <p className="text-xs text-white/60 mt-1">
@@ -661,7 +656,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
               <select
                 value={qualityFilter}
                 onChange={(e) => setQualityFilter(e.target.value)}
-                className="px-4 py-2 bg-black/50 border border-white/10 rounded-lg text-white focus:outline-none focus:border-[#E50914]"
+                className="px-4 py-2 bg-black/50 border border-white/10 rounded-lg text-white focus:outline-none focus:border-white/40"
               >
                 <option value="">All Qualities</option>
                 <option value="2160p">4K (2160p)</option>
@@ -672,7 +667,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
               <button
                 onClick={() => searchTorrents()}
                 disabled={searchLoading || !searchQuery.trim()}
-                className="px-6 py-2.5 bg-[#E50914] hover:bg-[#E50914]/80 disabled:bg-white/10 disabled:text-white/40 disabled:cursor-not-allowed text-white rounded-lg font-medium transition-all flex items-center gap-2 hover:shadow-lg hover:shadow-[#E50914]/10 disabled:shadow-none"
+                className="px-6 py-2.5 bg-[#f5f5f7] hover:bg-white disabled:bg-white/10 disabled:text-white/40 disabled:cursor-not-allowed text-black rounded-xl font-semibold transition-all flex items-center gap-2"
               >
                 {searchLoading ? (
                   <RefreshCw className="w-4 h-4 animate-spin" />
@@ -757,7 +752,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
                       <button
                         onClick={() => startDownload(result)}
                         disabled={loading}
-                        className="p-2 bg-[#E50914]/20 hover:bg-[#E50914]/30 disabled:bg-white/5 disabled:text-white/30 text-[#E50914] rounded-lg font-medium transition-all flex items-center justify-center border border-[#E50914]/30 hover:border-[#E50914]/50"
+                        className="p-2 bg-white/10 hover:bg-white/20 disabled:bg-white/5 disabled:text-white/30 text-white rounded-xl font-semibold transition-all flex items-center justify-center border border-white/10"
                         title="Download torrent"
                       >
                         <Download className="w-4 h-4" />
@@ -882,7 +877,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
                   value={downloadSearchQuery}
                   onChange={(e) => setDownloadSearchQuery(e.target.value)}
                   placeholder="Search downloads by name..."
-                  className="w-full px-4 py-2 bg-black/50 border border-white/10 rounded-lg text-white placeholder-white/40 focus:outline-none focus:border-[#E50914]"
+                  className="w-full px-4 py-2 bg-black/50 border border-white/10 rounded-lg text-white placeholder-white/40 focus:outline-none focus:border-white/40"
                   onKeyPress={(e) => {
                     if (e.key === 'Enter') {
                       setCurrentPage(1);
@@ -894,7 +889,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
               <select
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value)}
-                className="px-4 py-2 bg-black/50 border border-white/10 rounded-lg text-white focus:outline-none focus:border-[#E50914]"
+                className="px-4 py-2 bg-black/50 border border-white/10 rounded-lg text-white focus:outline-none focus:border-white/40"
               >
                 <option value="">All Status</option>
                 <option value="downloading">Downloading</option>
@@ -904,7 +899,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
               </select>
               <button
                 onClick={searchDownloads}
-                className="px-6 py-2 bg-[#E50914] hover:bg-[#E50914]/80 text-white rounded-lg font-medium transition-colors flex items-center gap-2"
+                className="px-6 py-2 bg-[#f5f5f7] hover:bg-white text-black rounded-xl font-semibold transition-colors flex items-center gap-2"
               >
                 <Search className="w-4 h-4" />
                 Filter
@@ -997,7 +992,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
                 {/* Throttling Warning */}
                 {((bandwidthStats.download_limit > 0 && bandwidthStats.total_download_rate > bandwidthStats.download_limit) ||
                   (bandwidthStats.upload_limit > 0 && bandwidthStats.total_upload_rate > bandwidthStats.upload_limit)) && (
-                  <div className="mt-3 p-2 bg-[#E50914]/20 border border-[#E50914]/50 rounded text-sm text-white/90 flex items-center gap-2">
+                  <div className="mt-3 p-2 bg-white/10 border border-white/20 rounded text-sm text-white/90 flex items-center gap-2">
                     <AlertCircle className="w-4 h-4" />
                     <span>Bandwidth limit exceeded - throttling may be active</span>
                   </div>
@@ -1050,7 +1045,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
                     <button
                       onClick={() => removeDownload(download.id, download.name)}
                       disabled={operationsInProgress.has(download.id)}
-                      className="p-2 text-white/60 hover:text-[#E50914] hover:bg-white/10 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition-colors"
+                      className="p-2 text-white/60 hover:text-white hover:bg-white/10 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition-colors"
                       title="Ultra-safe removal (protects other torrents)"
                     >
                       {operationsInProgress.has(download.id) ? (
@@ -1070,7 +1065,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
                   </div>
                   <div className="w-full bg-white/10 rounded-full h-2">
                     <div
-                      className="bg-[#E50914] h-2 rounded-full transition-all duration-300"
+                      className="bg-white h-2 rounded-full transition-all duration-300"
                       style={{ width: `${download.progress}%` }}
                     />
                   </div>
@@ -1162,7 +1157,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
                   placeholder="http://localhost:9117"
                   value={config.jackett_url || ''}
                   onChange={(e) => setConfig({ ...config, jackett_url: e.target.value })}
-                  className="w-full px-4 py-2 bg-black/50 border border-white/10 rounded-lg text-white focus:outline-none focus:border-[#E50914]"
+                  className="w-full px-4 py-2 bg-black/50 border border-white/10 rounded-lg text-white focus:outline-none focus:border-white/40"
                 />
                 <p className="text-xs text-white/60 mt-1">URL of your Jackett server</p>
               </div>
@@ -1176,7 +1171,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
                   placeholder="Enter your Jackett API key"
                   value={config.jackett_api_key || ''}
                   onChange={(e) => setConfig({ ...config, jackett_api_key: e.target.value })}
-                  className="w-full px-4 py-2 bg-black/50 border border-white/10 rounded-lg text-white focus:outline-none focus:border-[#E50914]"
+                  className="w-full px-4 py-2 bg-black/50 border border-white/10 rounded-lg text-white focus:outline-none focus:border-white/40"
                 />
                 <p className="text-xs text-white/60 mt-1">API key from your Jackett dashboard</p>
               </div>
@@ -1201,7 +1196,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
                           }
                           setConfig({ ...config, enabled_sources: sources.join(',') });
                         }}
-                        className="w-4 h-4 text-[#E50914] bg-black/50 border-white/10 rounded focus:ring-[#E50914]"
+                        className="w-4 h-4 text-white/70 bg-black/50 border-white/10 rounded focus:ring-white/30"
                       />
                       <span className="text-sm text-white/80">{source}</span>
                     </label>
@@ -1219,7 +1214,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
                       type="checkbox"
                       checked={config.use_proxy}
                       onChange={(e) => setConfig({ ...config, use_proxy: e.target.checked })}
-                      className="w-4 h-4 text-[#E50914] bg-black/50 border-white/10 rounded focus:ring-[#E50914]"
+                      className="w-4 h-4 text-white/70 bg-black/50 border-white/10 rounded focus:ring-white/30"
                     />
                     <span className="text-sm text-white/80">Use Proxy</span>
                   </label>
@@ -1229,7 +1224,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
                       placeholder="http://proxy:port"
                       value={config.proxy_url}
                       onChange={(e) => setConfig({ ...config, proxy_url: e.target.value })}
-                      className="w-full px-4 py-2 bg-black/50 border border-white/10 rounded-lg text-white focus:outline-none focus:border-[#E50914]"
+                      className="w-full px-4 py-2 bg-black/50 border border-white/10 rounded-lg text-white focus:outline-none focus:border-white/40"
                     />
                   )}
                 </div>
@@ -1243,7 +1238,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
                   type="text"
                   value={config.download_path}
                   onChange={(e) => setConfig({ ...config, download_path: e.target.value })}
-                  className="w-full px-4 py-2 bg-black/50 border border-white/10 rounded-lg text-white focus:outline-none focus:border-[#E50914]"
+                  className="w-full px-4 py-2 bg-black/50 border border-white/10 rounded-lg text-white focus:outline-none focus:border-white/40"
                 />
               </div>
 
@@ -1255,7 +1250,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
                   type="number"
                   value={config.min_seeders}
                   onChange={(e) => setConfig({ ...config, min_seeders: parseInt(e.target.value) })}
-                  className="w-full px-4 py-2 bg-black/50 border border-white/10 rounded-lg text-white focus:outline-none focus:border-[#E50914]"
+                  className="w-full px-4 py-2 bg-black/50 border border-white/10 rounded-lg text-white focus:outline-none focus:border-white/40"
                 />
               </div>
 
@@ -1267,7 +1262,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
                   type="number"
                   value={config.max_downloads}
                   onChange={(e) => setConfig({ ...config, max_downloads: parseInt(e.target.value) })}
-                  className="w-full px-4 py-2 bg-black/50 border border-white/10 rounded-lg text-white focus:outline-none focus:border-[#E50914]"
+                  className="w-full px-4 py-2 bg-black/50 border border-white/10 rounded-lg text-white focus:outline-none focus:border-white/40"
                 />
               </div>
 
@@ -1278,7 +1273,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
                 <select
                   value={config.preferred_quality}
                   onChange={(e) => setConfig({ ...config, preferred_quality: e.target.value })}
-                  className="w-full px-4 py-2 bg-black/50 border border-white/10 rounded-lg text-white focus:outline-none focus:border-[#E50914]"
+                  className="w-full px-4 py-2 bg-black/50 border border-white/10 rounded-lg text-white focus:outline-none focus:border-white/40"
                 >
                   <option value="2160p">4K (2160p)</option>
                   <option value="1080p">1080p</option>
@@ -1501,7 +1496,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
                 id="auto_download"
                 checked={config.auto_download}
                 onChange={(e) => setConfig({ ...config, auto_download: e.target.checked })}
-                className="w-4 h-4 text-[#E50914] bg-black/50 border-white/10 rounded focus:ring-[#E50914]"
+                className="w-4 h-4 text-white/70 bg-black/50 border-white/10 rounded focus:ring-white/30"
               />
               <label htmlFor="auto_download" className="text-sm text-white/80">
                 Enable automatic downloads for watchlist items
@@ -1525,7 +1520,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
               <button
                 onClick={() => updateConfig(config)}
                 disabled={loading}
-                className="px-6 py-2 bg-[#E50914] hover:bg-[#E50914]/80 disabled:bg-white/10 disabled:text-white/40 disabled:cursor-not-allowed text-white rounded-lg font-medium transition-colors flex items-center gap-2"
+                className="px-6 py-2 bg-[#f5f5f7] hover:bg-white disabled:bg-white/10 disabled:text-white/40 disabled:cursor-not-allowed text-black rounded-xl font-semibold transition-colors flex items-center gap-2"
               >
                 {loading ? (
                   <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>

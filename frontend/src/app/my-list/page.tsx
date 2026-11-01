@@ -1,5 +1,6 @@
 "use client";
 
+import { TVPageHeader, TVPageShell, TVSegmented, TVGridSkeleton } from '@/components/tv/TVPage';
 import React, { useState, useEffect } from "react";
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { Play, Info, Trash2, Heart, Film, Tv, Download, CheckCircle, Pause, AlertCircle, FolderOpen, Plus, Grid3X3, Edit, X, RotateCcw } from 'lucide-react';
@@ -67,6 +68,30 @@ interface CollectionItem {
 }
 
 type TabType = 'watchlist' | 'downloads' | 'collections';
+
+// TMDB detail lookups, shared and cached for the session. The list loaders
+// below used to await one fetch per item in sequence (N round-trips); now
+// every lookup is started up front and the loops just collect results.
+type CachedJson = { ok: boolean; status: number; json: () => Promise<any> };
+const tmdbDetailCache = new Map<string, Promise<CachedJson>>();
+const tmdbFetch = (url: string): Promise<CachedJson> => {
+  let p = tmdbDetailCache.get(url);
+  if (!p) {
+    p = fetch(url)
+      .then(async (r) => {
+        const data = r.ok ? await r.json().catch(() => null) : null;
+        return { ok: r.ok && data !== null, status: r.status, json: async () => data };
+      })
+      .catch((e) => {
+        tmdbDetailCache.delete(url); // allow retry later
+        throw e;
+      });
+    tmdbDetailCache.set(url, p);
+  }
+  return p;
+};
+const tmdbDetailUrl = (apiUrl: string, tmdbId: string | number, mediaType?: string) =>
+  `${apiUrl}/api/tmdb-movie/${tmdbId}${mediaType ? `?type=${mediaType}` : ''}`;
 
 export default function MyListPage() {
   usePageTitle('My List');
@@ -164,6 +189,12 @@ export default function MyListPage() {
           console.log('My List items from backend:', myListItems.length, 'items');
           
           const mediaList = [];
+          // Start every TMDB lookup in parallel before the ordered loop.
+          for (const item of myListItems) {
+            if (!(item.media && item.media.id && item.media.title) && item.media_id && item.media_id.toString().startsWith('9')) {
+              tmdbFetch(tmdbDetailUrl(apiUrl, item.media_id.toString().substring(1), item.media_type || 'movie')).catch(() => undefined);
+            }
+          }
           for (const item of myListItems) {
             if (item.media && item.media.id && item.media.title) {
               // Local media - use as is
@@ -175,7 +206,7 @@ export default function MyListPage() {
               console.log('Processing TMDB content with ID:', item.media_id, 'TMDB ID:', tmdbId);
               try {
                 // Fetch TMDB data to reconstruct media object
-                const tmdbResponse = await fetch(`${apiUrl}/api/tmdb-movie/${tmdbId}?type=${item.media_type || 'movie'}`);
+                const tmdbResponse = await tmdbFetch(tmdbDetailUrl(apiUrl, tmdbId, item.media_type || 'movie'));
                 if (tmdbResponse.ok) {
                   const tmdbData = await tmdbResponse.json();
                   const mediaData = tmdbData.data || tmdbData;
@@ -407,6 +438,11 @@ export default function MyListPage() {
         // Process items to handle TMDB content
         const processedItems = [];
         for (const item of items) {
+          if (!(item.media && item.media.id && item.media.title) && item.media_id && item.media_id.toString().startsWith('9')) {
+            tmdbFetch(tmdbDetailUrl(apiUrl, item.media_id.toString().substring(1), item.media_type)).catch(() => undefined);
+          }
+        }
+        for (const item of items) {
           if (item.media && item.media.id && item.media.title) {
             // Local media - use as is
             processedItems.push(item);
@@ -415,11 +451,13 @@ export default function MyListPage() {
             const tmdbId = item.media_id.toString().substring(1); // Remove the '9' prefix
             try {
               // Fetch TMDB data to reconstruct media object
-              const tmdbResponse = await fetch(`${apiUrl}/api/tmdb-movie/${tmdbId}`);
+              // Pass the type when known: without it the backend tries the id as
+              // a movie first, so TV entries could resolve to an unrelated movie.
+              const tmdbResponse = await tmdbFetch(tmdbDetailUrl(apiUrl, tmdbId, item.media_type));
               if (tmdbResponse.ok) {
                 const tmdbData = await tmdbResponse.json();
                 const mediaData = tmdbData.data || tmdbData;
-                const mediaType = tmdbData.media_type || 'movie';
+                const mediaType = tmdbData.media_type || item.media_type || 'movie';
                 
                 const reconstructedMedia = {
                   id: item.media_id, // Use the prefixed ID
@@ -483,6 +521,11 @@ export default function MyListPage() {
         const data = await response.json();
         const downloads = data.downloads || [];
         const downloadingItems: DownloadingMedia[] = [];
+        for (const download of downloads) {
+          if (download.tmdb_id && (download.status === 'downloading' || download.status === 'paused')) {
+            tmdbFetch(tmdbDetailUrl(apiUrl, download.tmdb_id, download.media_type || 'movie')).catch(() => undefined);
+          }
+        }
         
         for (const download of downloads) {
           // Show both downloading and paused downloads in the downloads tab
@@ -497,7 +540,7 @@ export default function MyListPage() {
               });
             } else {
               try {
-                const tmdbResponse = await fetch(`${apiUrl}/api/tmdb-movie/${download.tmdb_id}?type=${download.media_type || 'movie'}`);
+                const tmdbResponse = await tmdbFetch(tmdbDetailUrl(apiUrl, download.tmdb_id, download.media_type || 'movie'));
                 if (tmdbResponse.ok) {
                   const tmdbData = await tmdbResponse.json();
                   const mediaData = tmdbData.data || tmdbData;
@@ -735,88 +778,50 @@ export default function MyListPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-black flex items-center justify-center">
-        <RedLoader size="large" />
+      <div className="min-h-screen text-white">
+        <Navbar />
+        <TVPageShell>
+          <TVPageHeader title="My List" subtitle="Everything you've saved, downloading and collected" className="mb-8" />
+          <TVGridSkeleton />
+        </TVPageShell>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-red-900/20 via-black to-black">
+    <div className="min-h-screen text-white">
       <Navbar />
       
-      <div className="pt-20 px-4 md:px-8 lg:px-16">
-        {/* Header */}
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
-          <div>
-            <h1 className="text-4xl font-bold text-white mb-2 flex items-center gap-3 tracking-wider">
-              <Heart className="w-10 h-10 text-red-500" />
-              M Y   L I S T
-            </h1>
-            <p className="text-gray-400">Your personal collection of favorites</p>
-          </div>
-          
-          {/* Refresh Button */}
-          <button
-            onClick={handleManualRefresh}
-            disabled={loading}
-            className="flex items-center gap-2 px-4 py-2 bg-gray-800 hover:bg-gray-700 disabled:bg-gray-600 text-white rounded-lg transition-colors border border-gray-600 hover:border-gray-500"
-            title="Refresh lists and collections"
-          >
-            <RotateCcw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-            <span className="text-sm font-medium">
+      <div className="tv-gutter pb-24 pt-24 md:pt-28">
+        <TVPageHeader
+          title="My List"
+          subtitle="Everything you've saved, downloading and collected"
+          className="mb-6"
+          actions={
+            <button
+              onClick={handleManualRefresh}
+              disabled={loading}
+              className="tv-btn tv-btn-secondary"
+              title="Refresh lists and collections"
+            >
+              <RotateCcw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
               {loading ? 'Refreshing...' : 'Refresh'}
-            </span>
-          </button>
-        </div>
+            </button>
+          }
+        />
 
         {/* Tabs */}
-        <div className="flex items-center gap-1 mb-6 border-b border-gray-800">
-          <button
-            onClick={() => setActiveTab('watchlist')}
-            className={`flex items-center gap-2 px-6 py-3 text-sm font-medium transition-all border-b-2 -mb-[2px] ${
-              activeTab === 'watchlist'
-                ? 'text-white border-red-500'
-                : 'text-gray-400 border-transparent hover:text-white'
-            }`}
-          >
-            <Heart className="w-4 h-4" />
-            Watchlist
-            <span className="ml-1 bg-gray-700 text-gray-300 px-2 py-0.5 rounded-full text-xs">
-              {filteredList.length}
-            </span>
-          </button>
-          <button
-            onClick={() => setActiveTab('downloads')}
-            className={`flex items-center gap-2 px-6 py-3 text-sm font-medium transition-all border-b-2 -mb-[2px] ${
-              activeTab === 'downloads'
-                ? 'text-white border-red-500'
-                : 'text-gray-400 border-transparent hover:text-white'
-            }`}
-          >
-            <Download className="w-4 h-4" />
-            Downloads
-            {downloadingMedia.length > 0 && (
-              <span className="ml-1 bg-red-600 text-white px-2 py-0.5 rounded-full text-xs animate-pulse">
-                {downloadingMedia.length}
-              </span>
-            )}
-          </button>
-          <button
-            onClick={() => setActiveTab('collections')}
-            className={`flex items-center gap-2 px-6 py-3 text-sm font-medium transition-all border-b-2 -mb-[2px] ${
-              activeTab === 'collections'
-                ? 'text-white border-red-500'
-                : 'text-gray-400 border-transparent hover:text-white'
-            }`}
-          >
-            <FolderOpen className="w-4 h-4" />
-            Collections
-            <span className="ml-1 bg-gray-700 text-gray-300 px-2 py-0.5 rounded-full text-xs">
-              {userCollections.length}
-            </span>
-          </button>
-        </div>
+        <TVSegmented
+          className="mb-8"
+          ariaLabel="My List sections"
+          value={activeTab}
+          onChange={(k) => setActiveTab(k)}
+          segments={[
+            { key: 'watchlist', label: 'Watchlist', icon: <Heart className="w-4 h-4" />, badge: filteredList.length },
+            { key: 'downloads', label: 'Downloads', icon: <Download className="w-4 h-4" />, badge: downloadingMedia.length || null },
+            { key: 'collections', label: 'Collections', icon: <FolderOpen className="w-4 h-4" />, badge: userCollections.length },
+          ]}
+        />
 
         {/* Tab Content */}
         {activeTab === 'watchlist' && (
@@ -824,20 +829,20 @@ export default function MyListPage() {
             {/* Controls */}
             <div className="flex flex-wrap gap-4 mb-6">
               <Select value={filterType} onValueChange={setFilterType}>
-                <SelectTrigger className="w-48 bg-gray-800 border-gray-700 text-white">
+                <SelectTrigger className="w-48 rounded-full border-white/10 bg-white/[0.08] text-white backdrop-blur-xl">
                   <SelectValue placeholder="All Types" />
                 </SelectTrigger>
-                <SelectContent className="bg-gray-800 border-gray-700">
+                <SelectContent className="rounded-2xl border-white/10 bg-zinc-900/95 backdrop-blur-2xl">
                   <SelectItem value="all" className="text-white hover:bg-gray-700">All Types</SelectItem>
                   <SelectItem value="movie" className="text-white hover:bg-gray-700">Movies</SelectItem>
                   <SelectItem value="episode" className="text-white hover:bg-gray-700">TV Shows</SelectItem>
                 </SelectContent>
               </Select>
               <Select value={sortBy} onValueChange={setSortBy}>
-                <SelectTrigger className="w-48 bg-gray-800 border-gray-700 text-white">
+                <SelectTrigger className="w-48 rounded-full border-white/10 bg-white/[0.08] text-white backdrop-blur-xl">
                   <SelectValue placeholder="Sort by" />
                 </SelectTrigger>
-                <SelectContent className="bg-gray-800 border-gray-700">
+                <SelectContent className="rounded-2xl border-white/10 bg-zinc-900/95 backdrop-blur-2xl">
                   <SelectItem value="added" className="text-white hover:bg-gray-700">Recently Added</SelectItem>
                   <SelectItem value="title" className="text-white hover:bg-gray-700">Title A-Z</SelectItem>
                   <SelectItem value="rating" className="text-white hover:bg-gray-700">Highest Rated</SelectItem>
@@ -865,7 +870,7 @@ export default function MyListPage() {
                             <h3 className="text-xl font-bold text-white">Library</h3>
                             <span className="text-sm text-gray-400">({localContent.length} items)</span>
                           </div>
-                          <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-7 lg:grid-cols-9 xl:grid-cols-12 2xl:grid-cols-15 gap-1.5">
+                          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-8 gap-x-5 gap-y-8">
                             {localContent.map((media, index) => (
                               <div key={media.id} className="relative">
                                 <MyListTooltip
@@ -910,7 +915,7 @@ export default function MyListPage() {
                             <h3 className="text-xl font-bold text-white">TMDB</h3>
                             <span className="text-sm text-gray-400">({tmdbContent.length} items)</span>
                           </div>
-                          <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-7 lg:grid-cols-9 xl:grid-cols-12 2xl:grid-cols-15 gap-1.5">
+                          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-8 gap-x-5 gap-y-8">
                             {tmdbContent.map((media, index) => (
                               <div key={media.id} className="relative">
                                 <MyListTooltip
@@ -1131,7 +1136,7 @@ export default function MyListPage() {
                                     <h3 className="text-xl font-bold text-white">Library</h3>
                                     <span className="text-sm text-gray-400">({localItems.length} items)</span>
                                   </div>
-                                  <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-7 lg:grid-cols-9 xl:grid-cols-12 2xl:grid-cols-15 gap-1.5">
+                                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-8 gap-x-5 gap-y-8">
                                     {localItems.map((item, index) => (
                                       <div key={item.id} className="relative">
                                         <MyListTooltip
@@ -1185,7 +1190,7 @@ export default function MyListPage() {
                                     <h3 className="text-xl font-bold text-white">TMDB</h3>
                                     <span className="text-sm text-gray-400">({tmdbItems.length} items)</span>
                                   </div>
-                                  <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-7 lg:grid-cols-9 xl:grid-cols-12 2xl:grid-cols-15 gap-1.5">
+                                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-8 gap-x-5 gap-y-8">
                                     {tmdbItems.map((item, index) => (
                                       <div key={item.id} className="relative">
                                         <MyListTooltip

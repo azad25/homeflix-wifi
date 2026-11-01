@@ -1,9 +1,9 @@
 "use client";
 
-import React, { useState, useRef, useEffect } from 'react';
-import { Play, Info, Plus, Check } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { Play, Plus, Check } from 'lucide-react';
 import { Media } from '@/types/media';
-import { getApiUrl, loadAssetWithFallback } from '@/lib/api';
+import { getApiUrl } from '@/lib/api';
 import { useImageWithFallback } from '@/lib/imageUtils';
 
 interface NetflixMediaCardProps {
@@ -17,6 +17,20 @@ interface NetflixMediaCardProps {
   disableHover?: boolean;
 }
 
+const PREVIEW_DWELL_MS = 650;
+
+// Library items have numeric DB ids; TMDB entries saved to lists use a
+// "9"-prefixed id and have no local preview clip.
+const hasLocalPreview = (m: Media) =>
+  !(m as any).tmdb_id || !String(m.id).startsWith('9') || !!(m as any).file_path;
+
+/**
+ * Apple TV style poster card (2:3) used by library grids (Browse, TV
+ * Series, My List). The whole card opens details; Play and My List sit on
+ * the artwork. Preview clips load only after a hover dwell - the old card
+ * HEAD-probed preview URLs for every card on mount (hundreds of requests on
+ * large grids).
+ */
 const NetflixMediaCard: React.FC<NetflixMediaCardProps> = ({
   media,
   onPlay,
@@ -27,259 +41,135 @@ const NetflixMediaCard: React.FC<NetflixMediaCardProps> = ({
   showPreviewOnHover = true,
   disableHover = false,
 }) => {
-  const [isHovered, setIsHovered] = useState(false);
-  const [showPreview, setShowPreview] = useState(false);
-  const [previewUrl, setPreviewUrl] = useState<string>('');
   const [imageError, setImageError] = useState(false);
   const [fallbackError, setFallbackError] = useState(false);
-  const [previewError, setPreviewError] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
-
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const previewTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const [imgLoaded, setImgLoaded] = useState(false);
+  const [previewOn, setPreviewOn] = useState(false);
+  const [previewFailed, setPreviewFailed] = useState(false);
+  const dwellRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const { primarySrc, fallbackSrc } = useImageWithFallback(media.id, media.poster_url);
 
-  // Load assets on mount
-  useEffect(() => {
-    loadAssets();
-  }, [media.id]);
+  useEffect(() => () => {
+    if (dwellRef.current) clearTimeout(dwellRef.current);
+  }, []);
 
-  const loadAssets = async () => {
-    setIsLoading(true);
-    try {
-      // Load preview only (poster/thumbnail handled by useImageWithFallback)
-      const preview = await loadAssetWithFallback('preview', media.id);
-      if (preview) {
-        setPreviewUrl(preview);
-      }
-    } catch (error) {
-      console.warn('Failed to load preview for media:', media.id);
-    } finally {
-      setIsLoading(false);
-    }
+  const canPreview = showPreviewOnHover && !disableHover && !previewFailed && hasLocalPreview(media);
+  const previewUrl = `${getApiUrl()}/api/preview-clips/${media.id}`;
+
+  const startDwell = () => {
+    if (!canPreview) return;
+    if (dwellRef.current) clearTimeout(dwellRef.current);
+    dwellRef.current = setTimeout(() => setPreviewOn(true), PREVIEW_DWELL_MS);
   };
-
-  const handleMouseEnter = () => {
-    if (disableHover) return;
-    setIsHovered(true);
-
-    // Always try to show preview on hover if available
-    if (previewUrl && !previewError) {
-      // Delay preview to avoid triggering on quick hovers
-      hoverTimeoutRef.current = setTimeout(() => {
-        setShowPreview(true);
-        // Start video after a brief delay
-        previewTimeoutRef.current = setTimeout(() => {
-          if (videoRef.current) {
-            videoRef.current.currentTime = 0;
-            videoRef.current.play().catch(() => {
-              setPreviewError(true);
-            });
-          }
-        }, 200);
-      }, 500); // 500ms delay like Netflix
-    }
-  };
-
-  const handleMouseLeave = () => {
-    setIsHovered(false);
-    setShowPreview(false);
-
-    // Clear timeouts
-    if (hoverTimeoutRef.current) {
-      clearTimeout(hoverTimeoutRef.current);
-    }
-    if (previewTimeoutRef.current) {
-      clearTimeout(previewTimeoutRef.current);
-    }
-
-    // Stop video
-    if (videoRef.current) {
-      videoRef.current.pause();
-      videoRef.current.currentTime = 0;
-    }
+  const stopDwell = () => {
+    if (dwellRef.current) clearTimeout(dwellRef.current);
+    dwellRef.current = null;
+    setPreviewOn(false);
   };
 
   const handleImageError = (event: React.SyntheticEvent<HTMLImageElement>) => {
-    const img = event.currentTarget;
-
-    if (img.src === primarySrc && !imageError) {
-      // First error: poster failed, try thumbnail
-      setImageError(true);
-      img.src = fallbackSrc;
-    } else if (!fallbackError) {
-      // Second error: thumbnail also failed
-      setFallbackError(true);
-    }
+    if (event.currentTarget.src === primarySrc && !imageError) setImageError(true);
+    else setFallbackError(true);
   };
 
-  const handleVideoError = () => {
-    setPreviewError(true);
-    setShowPreview(false);
-  };
-
-  const getDisplayImage = () => {
-    // Use poster as primary, thumbnail as fallback
-    if (fallbackError) return null;
-    return imageError ? fallbackSrc : primarySrc;
-  };
-
-  const formatRating = (rating: number) => {
-    return rating ? `${rating.toFixed(1)}★` : '';
-  };
-
-  const formatDuration = (seconds: number) => {
-    if (!seconds) return '';
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
-  };
+  const imageSrc = fallbackError ? null : imageError ? fallbackSrc : primarySrc;
+  const year =
+    media.year ||
+    (media.release_date ? new Date(media.release_date).getFullYear() : null);
+  const typeLabel = media.type === 'episode' || media.type === 'tv' || media.type === 'series' ? 'TV Show' : 'Movie';
+  const quality = media.quality
+    ? media.quality.includes('2160') || media.quality.toLowerCase().includes('4k')
+      ? '4K'
+      : 'HD'
+    : null;
 
   return (
     <div
-      className={`group relative transition-all duration-200 ${isHovered && !disableHover ? 'z-50 scale-105' : 'z-10'
-        }`}
-      onMouseEnter={handleMouseEnter}
-      onMouseLeave={handleMouseLeave}
+      className="tv-card-group group/poster relative"
+      onMouseEnter={startDwell}
+      onMouseLeave={stopDwell}
+      onFocus={startDwell}
+      onBlur={stopDwell}
     >
-      {/* Main Card */}
-      <div className="aspect-[2/3] bg-gray-800 rounded-md overflow-hidden relative">
-        {/* Loading State */}
-        {isLoading && (
-          <div className="absolute inset-0 bg-gray-800 animate-pulse flex items-center justify-center">
-            <div className="w-6 h-6 border-2 border-red-500 border-t-transparent rounded-full animate-spin"></div>
-          </div>
-        )}
+      <button
+        type="button"
+        onClick={() => onInfo(media)}
+        aria-label={`${media.title}${year ? `, ${year}` : ''}`}
+        className="block w-full text-left outline-none"
+      >
+        <div className="tv-card aspect-[2/3] w-full">
+          {!imgLoaded && imageSrc && <div className="absolute inset-0 animate-pulse bg-white/[0.06]" />}
 
-        {/* Preview Video (Netflix-style) */}
-        {showPreview && previewUrl && !previewError && (
-          <video
-            ref={videoRef}
-            className="absolute inset-0 w-full h-full object-cover z-20"
-            muted
-            loop
-            playsInline
-            onError={handleVideoError}
-          >
-            <source src={previewUrl} type="video/mp4" />
-          </video>
-        )}
-
-        {/* Thumbnail Image */}
-        {!showPreview && getDisplayImage() && (
-          <img
-            src={getDisplayImage() || ''}
-            alt={media.title}
-            className="w-full h-full object-cover transition-transform duration-200 group-hover:scale-105"
-            onError={handleImageError}
-            loading={priority === 'high' ? 'eager' : 'lazy'}
-          />
-        )}
-
-        {/* Fallback for missing images */}
-        {(fallbackError || !getDisplayImage()) && !isLoading && (
-          <div className="absolute inset-0 bg-gradient-to-br from-gray-700 to-gray-900 flex items-center justify-center">
-            <div className="text-center text-gray-400">
-              <div className="text-xl mb-1">🎬</div>
-              <div className="text-[10px] font-medium px-1">{media.title}</div>
+          {imageSrc ? (
+            <img
+              src={imageSrc}
+              alt=""
+              onLoad={() => setImgLoaded(true)}
+              onError={handleImageError}
+              loading={priority === 'high' ? 'eager' : 'lazy'}
+              decoding="async"
+              className="absolute inset-0 h-full w-full object-cover"
+            />
+          ) : (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-gradient-to-br from-zinc-800 to-zinc-900 p-3 text-center">
+              <span className="text-2xl">🎬</span>
+              <span className="line-clamp-3 text-xs font-semibold text-white/70">{media.title}</span>
             </div>
-          </div>
-        )}
+          )}
 
-        {/* Gradient Overlay */}
-        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-200" />
-
-        {/* Controls Overlay (Netflix-style) */}
-        <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-          <div className="flex gap-1.5">
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onPlay(media);
+          {previewOn && canPreview && (
+            <video
+              className="absolute inset-0 h-full w-full object-cover"
+              src={previewUrl}
+              muted
+              loop
+              autoPlay
+              playsInline
+              preload="auto"
+              onError={() => {
+                setPreviewFailed(true);
+                setPreviewOn(false);
               }}
-              className="bg-white text-black p-2 rounded-full hover:bg-gray-200 transition-colors shadow-lg"
-              title="Play"
-            >
-              <Play className="w-3 h-3 fill-current" />
-            </button>
+            />
+          )}
 
-            {onAddToList && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onAddToList(media);
-                }}
-                className="bg-gray-800/80 text-white p-2 rounded-full hover:bg-gray-700/80 transition-colors shadow-lg border border-gray-600"
-                title={isInList ? "Remove from My List" : "Add to My List"}
-              >
-                {isInList ? <Check className="w-3 h-3" /> : <Plus className="w-3 h-3" />}
-              </button>
-            )}
-
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onInfo(media);
-              }}
-              className="bg-gray-800/80 text-white p-2 rounded-full hover:bg-gray-700/80 transition-colors shadow-lg border border-gray-600"
-              title="More Info"
-            >
-              <Info className="w-3 h-3" />
-            </button>
-          </div>
+          {quality && (
+            <span className="absolute left-2 top-2 rounded-md bg-black/55 px-1.5 py-0.5 text-[10px] font-bold tracking-wide text-white backdrop-blur-md">
+              {quality}
+            </span>
+          )}
         </div>
 
-        {/* Rating Badge */}
-        {media.rating && (
-          <div className="absolute top-1.5 right-1.5 bg-black/80 text-white text-[10px] px-1.5 py-0.5 rounded backdrop-blur-sm">
-            {formatRating(media.rating)}
-          </div>
-        )}
+        <div className="mt-2.5 min-w-0 px-0.5">
+          <p className="truncate text-[14px] font-semibold leading-tight text-[var(--tv-text)]" title={media.title}>
+            {media.title}
+          </p>
+          <p className="tv-caption mt-0.5 truncate">
+            {[year, typeLabel, media.rating ? `★ ${Number(media.rating).toFixed(1)}` : null].filter(Boolean).join(' · ')}
+          </p>
+        </div>
+      </button>
 
-        {/* Quality Badge */}
-        {media.quality && (
-          <div className="absolute top-1.5 left-1.5 border border-white/50 text-white text-[9px] px-1 py-0.5 rounded font-medium backdrop-blur-sm">
-            {media.quality.includes('2160') || media.quality.toLowerCase().includes('4k') ? '4K' : 'HD'}
-          </div>
-        )}
-      </div>
-
-      {/* Title and Info (Netflix-style) */}
-      <div className="mt-1.5 px-0.5">
-        <h3
-          className="text-white text-xs font-medium truncate group-hover:text-red-400 transition-colors cursor-pointer"
-          onClick={() => onInfo(media)}
-          title={media.title}
+      {/* Quick actions over the artwork (siblings of the card button). */}
+      <div className="pointer-events-none absolute inset-x-0 top-0 flex aspect-[2/3] items-end justify-between p-2.5 opacity-0 transition-opacity duration-200 group-hover/poster:opacity-100 group-focus-within/poster:opacity-100">
+        <button
+          type="button"
+          onClick={() => onPlay(media)}
+          aria-label={`Play ${media.title}`}
+          className="tv-focus pointer-events-auto flex h-9 w-9 items-center justify-center rounded-full bg-white text-black shadow-lg transition-transform hover:scale-110"
         >
-          {media.title}
-        </h3>
-
-        <div className="flex items-center justify-between mt-0.5">
-          <p className="text-gray-400 text-[10px] capitalize">
-            {media.type === 'episode' ? 'TV Series' : media.type}
-          </p>
-
-          <p className="text-gray-500 text-[10px]">
-            {media.year || (media.release_date ? new Date(media.release_date).getFullYear() : (media.created_at ? new Date(media.created_at).getFullYear() : ''))}
-          </p>
-        </div>
-
-        {/* Genres (shown on hover) */}
-        {media.genres && media.genres.length > 0 && (
-          <div className="absolute left-0 right-0 px-0.5 mt-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none group-hover:pointer-events-auto">
-            <div className="flex flex-wrap gap-0.5">
-              {media.genres.slice(0, 2).map((genre, index) => (
-                <span
-                  key={index}
-                  className="text-[9px] text-gray-300 bg-gray-800/90 px-1.5 py-0.5 rounded backdrop-blur-md border border-white/10"
-                >
-                  {genre.name}
-                </span>
-              ))}
-            </div>
-          </div>
+          <Play className="ml-0.5 h-4 w-4 fill-current" />
+        </button>
+        {onAddToList && (
+          <button
+            type="button"
+            onClick={() => onAddToList(media)}
+            aria-label={isInList ? `Remove ${media.title} from My List` : `Add ${media.title} to My List`}
+            className="tv-glass tv-focus pointer-events-auto flex h-9 w-9 items-center justify-center rounded-full text-white transition-transform hover:scale-110"
+          >
+            {isInList ? <Check className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+          </button>
         )}
       </div>
     </div>

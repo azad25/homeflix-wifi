@@ -100,7 +100,7 @@ function PinChangeForm() {
       {msg && (
         <p className={`text-sm font-medium ${msg.ok ? 'text-green-400' : 'text-red-400'}`}>{msg.text}</p>
       )}
-      <button type="submit" className="bg-red-600 hover:bg-red-700 text-white font-semibold px-6 py-2 rounded-lg transition-colors">
+      <button type="submit" className="tv-btn tv-btn-primary">
         Change PIN
       </button>
     </form>
@@ -2651,7 +2651,7 @@ function SettingsContent() {
         className="bg-white/5 backdrop-blur-sm rounded-lg p-6 border border-white/10"
       >
         <h4 className="text-white font-semibold mb-4 flex items-center">
-          {type === 'trailer' ? <Video className="w-5 h-5 mr-2 text-[#E50914]" /> : <ImageIcon className="w-5 h-5 mr-2 text-[#E50914]" />}
+          {type === 'trailer' ? <Video className="w-5 h-5 mr-2 text-white/70" /> : <ImageIcon className="w-5 h-5 mr-2 text-white/70" />}
           {label}
         </h4>
 
@@ -2676,7 +2676,7 @@ function SettingsContent() {
               <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-lg flex items-center justify-center">
                 <MagneticButton
                   onClick={() => onDelete(type)}
-                  className="bg-[#E50914] hover:bg-[#E50914]/80 text-white p-3 rounded-full"
+                  className="bg-[#f5f5f7] hover:bg-white text-black p-3 rounded-full"
                 >
                   <Trash2 className="w-5 h-5" />
                 </MagneticButton>
@@ -2685,7 +2685,7 @@ function SettingsContent() {
             <p className="text-white/60 text-sm">Asset uploaded successfully</p>
           </div>
         ) : (
-          <div className="border-2 border-dashed border-white/20 rounded-lg p-8 text-center hover:border-[#E50914]/50 transition-colors duration-300">
+          <div className="border-2 border-dashed border-white/20 rounded-lg p-8 text-center hover:border-white/30 transition-colors duration-300">
             <div className="text-white/40 mb-4">
               {type === 'trailer' ? <Video className="w-12 h-12 mx-auto" /> : <ImageIcon className="w-12 h-12 mx-auto" />}
             </div>
@@ -2707,7 +2707,7 @@ function SettingsContent() {
                   const fileInput = document.getElementById(`file-input-${type}`) as HTMLInputElement;
                   fileInput?.click();
                 }}
-                className="bg-[#E50914] hover:bg-[#E50914]/80 text-white px-6 py-3 rounded-lg inline-flex items-center gap-2"
+                className="bg-[#f5f5f7] hover:bg-white text-black px-6 py-3 rounded-lg inline-flex items-center gap-2"
                 disabled={uploading}
               >
                 <Upload className="w-4 h-4" />
@@ -2726,15 +2726,16 @@ function SettingsContent() {
         onClick();
         onClose?.();
       }}
-      className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 group ${active
-        ? 'bg-gradient-to-r from-[#E50914] to-[#B8070F] text-white shadow-lg shadow-red-600/20'
-        : 'text-white/60 hover:text-white hover:bg-white/5'
+      aria-current={active ? 'page' : undefined}
+      className={`tv-focus w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors duration-200 group ${active
+        ? 'bg-white text-black'
+        : 'text-white/70 hover:text-white hover:bg-white/[0.08]'
         }`}
     >
-      <div className={`p-2 rounded-lg transition-colors ${active ? 'bg-white/20' : 'bg-white/5 group-hover:bg-white/10'}`}>
-        {React.cloneElement(icon, { size: 18 })}
+      <div className={`flex h-8 w-8 items-center justify-center rounded-lg transition-colors ${active ? 'bg-black/[0.06]' : 'bg-white/[0.06] group-hover:bg-white/10'}`}>
+        {React.cloneElement(icon, { size: 17 })}
       </div>
-      <span className="font-medium text-sm">{label}</span>
+      <span className="font-semibold text-[15px] tracking-[-0.01em]">{label}</span>
     </button>
   );
 
@@ -2747,7 +2748,7 @@ function SettingsContent() {
   }
 
   return (
-    <div className="h-screen w-full bg-[#050505] text-white overflow-hidden font-sans selection:bg-red-500/30 relative">
+    <div className="h-screen w-full bg-[#050505] text-white overflow-hidden font-sans selection:bg-white/20 relative">
       {/* Mobile Backdrop Overlay */}
       <AnimatePresence>
         {sidebarOpen && isMobile && (
@@ -2769,14 +2770,14 @@ function SettingsContent() {
           opacity: isMobile ? (sidebarOpen ? 1 : 0.5) : 1
         }}
         transition={{ type: 'spring', duration: 0.3, bounce: 0 }}
-        className="fixed top-0 left-0 h-full w-72 bg-black/40 backdrop-blur-3xl border-r border-white/5 flex flex-col z-50 shadow-2xl"
+        className="fixed top-0 left-0 h-full w-72 bg-zinc-950/70 backdrop-blur-3xl backdrop-saturate-150 border-r border-white/[0.06] flex flex-col z-50 shadow-2xl"
       >
         <div className="p-8 pb-4">
           <div className="flex items-center gap-3 mb-1">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#E50914] to-[#B8070F] flex items-center justify-center shadow-lg shadow-red-600/20">
+            <div className="w-8 h-8 rounded-[9px] bg-gradient-to-b from-zinc-500 to-zinc-700 flex items-center justify-center shadow-md">
               <Settings className="w-5 h-5 text-white" />
             </div>
-            <h1 className="text-xl font-bold tracking-tight text-white">Settings</h1>
+            <h1 className="text-2xl font-bold tracking-[-0.02em] text-white">Settings</h1>
           </div>
         </div>
         <div className="px-8 pb-4">
@@ -2800,7 +2801,7 @@ function SettingsContent() {
 
         <div className="p-4 border-t border-white/5 bg-black/20">
           <div className="rounded-xl p-3 bg-white/5 border border-white/5 flex items-center gap-3 hover:bg-white/10 transition-colors cursor-pointer">
-            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[#E50914] to-black ring-2 ring-white/10 flex items-center justify-center font-bold text-sm">A</div>
+            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-white/20 to-black ring-2 ring-white/10 flex items-center justify-center font-bold text-sm">A</div>
             <div className="flex-1 overflow-hidden">
               <div className="text-sm font-medium text-white truncate">Administrator</div>
               <div className="text-[10px] text-white/50 truncate">admin@homeflix.local</div>
@@ -2829,10 +2830,10 @@ function SettingsContent() {
             </motion.button>
 
             <div className="ml-4 min-w-0">
-              <h2 className="text-2xl font-semibold text-white tracking-tight">
+              <h2 className="text-2xl font-bold text-white tracking-[-0.02em]">
                 {activeTab === 'system' && 'System Dashboard'}
                 {activeTab === 'media' && 'Media Library'}
-                {activeTab === 'torrent' && 'Torrent Manager'}
+                {activeTab === 'torrent' && 'Downloads'}
                 {activeTab === 'paths' && 'Storage Paths'}
                 {activeTab === 'subtitles' && 'Subtitles'}
                 {activeTab === 'widgets' && 'Widget Manager'}
@@ -2872,7 +2873,7 @@ function SettingsContent() {
         </header>
 
         {/* Scrollable Content */}
-        <div className="flex-1 overflow-y-auto overflow-x-hidden p-8 scrollbar-thin scrollbar-thumb-[#E50914]/30 scrollbar-track-transparent">
+        <div className="flex-1 overflow-y-auto overflow-x-hidden p-8 scrollbar-thin scrollbar-thumb-white/30 scrollbar-track-transparent">
           <div className="max-w-[1920px] mx-auto w-full pb-20">
             {/* Global Low Storage Banner - visible on any tab, dynamic for any user-added folder */}
             {lowStorageAlerts.length > 0 && (
@@ -2930,7 +2931,7 @@ function SettingsContent() {
                   <ScrollReveal>
                     <GlassCard className="p-6">
                       <h2 className="text-2xl font-semibold text-white mb-2 flex items-center">
-                        <Download className="w-6 h-6 mr-3 text-[#E50914]" />
+                        <Download className="w-6 h-6 mr-3 text-white/70" />
                         System Update
                         {updateInfo?.ok && (
                           <span className={`ml-4 text-xs font-medium px-3 py-1 rounded-full ${
@@ -3012,7 +3013,7 @@ function SettingsContent() {
                         <MagneticButton
                           onClick={startUpdate}
                           disabled={updateRunning || !(updateInfo?.ok && updateInfo.update_available && !updateInfo.dirty)}
-                          className="bg-[#E50914]/20 hover:bg-[#E50914]/40 text-red-400 py-2 px-5 rounded-lg flex items-center space-x-2 disabled:opacity-50"
+                          className="bg-white/10 hover:bg-white/20 text-red-400 py-2 px-5 rounded-lg flex items-center space-x-2 disabled:opacity-50"
                         >
                           <Download className="w-4 h-4" />
                           <span>{updateRunning ? 'Updating…' : updateInfo?.ok && updateInfo.behind > 0 ? `Update Now (${updateInfo.behind})` : 'Update Now'}</span>
@@ -3073,7 +3074,7 @@ function SettingsContent() {
                     <ScrollReveal>
                       <GlassCard className="p-6">
                         <h2 className="text-xl font-semibold text-white mb-6 flex items-center">
-                          <Folder className="w-6 h-6 mr-3 text-[#E50914]" />
+                          <Folder className="w-6 h-6 mr-3 text-white/70" />
                           Media Library
                         </h2>
 
@@ -3086,7 +3087,7 @@ function SettingsContent() {
                               placeholder="Search media..."
                               value={searchQuery}
                               onChange={(e) => setSearchQuery(e.target.value)}
-                              className="w-full bg-black/50 border border-white/20 rounded-lg pl-10 pr-4 py-2 text-white placeholder-white/50 focus:border-[#E50914] focus:outline-none transition-colors"
+                              className="w-full bg-black/50 border border-white/20 rounded-lg pl-10 pr-4 py-2 text-white placeholder-white/50 focus:border-white/40 focus:outline-none transition-colors"
                             />
                             {searchQuery && (
                               <button
@@ -3145,7 +3146,7 @@ function SettingsContent() {
                         <div className="max-h-96 overflow-y-auto">
                           {loadingTreeData ? (
                             <div className="flex items-center justify-center py-8">
-                              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-[#E50914]"></div>
+                              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-white/40"></div>
                               <span className="ml-2 text-white/60">Loading TV series hierarchy...</span>
                             </div>
                           ) : (
@@ -3229,7 +3230,7 @@ function SettingsContent() {
                                       navigate.push(`/movie/${selectedMedia.id}`);
                                     }
                                   }}
-                                  className="bg-[#E50914] hover:bg-[#E50914]/80 text-white px-4 py-2 rounded-lg flex items-center space-x-2"
+                                  className="bg-[#f5f5f7] hover:bg-white text-black px-4 py-2 rounded-lg flex items-center space-x-2"
                                   title={`Watch ${selectedMedia.type === 'tv' ? 'Series' : 'Movie'}`}
                                 >
                                   <Play className="w-4 h-4" />
@@ -3252,7 +3253,7 @@ function SettingsContent() {
                                 <MagneticButton
                                   onClick={handleEditToggle}
                                   className={`px-4 py-2 rounded-lg flex items-center space-x-2 ${selectedMedia.isEditing
-                                    ? 'bg-[#E50914] hover:bg-[#E50914]/80 text-white'
+                                    ? 'bg-[#f5f5f7] hover:bg-white text-white'
                                     : 'bg-white/10 hover:bg-white/20 text-white'
                                     }`}
                                 >
@@ -3378,7 +3379,7 @@ function SettingsContent() {
                                 <MagneticButton
                                   onClick={handleSaveChanges}
                                   disabled={actionLoading.save}
-                                  className="bg-[#E50914] hover:bg-[#E50914]/80 text-white px-6 py-2 rounded-lg flex items-center space-x-2"
+                                  className="bg-[#f5f5f7] hover:bg-white text-black px-6 py-2 rounded-lg flex items-center space-x-2"
                                 >
                                   {actionLoading.save ? (
                                     <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
@@ -3466,7 +3467,7 @@ function SettingsContent() {
                           {/* Media Information */}
                           <GlassCard className="p-6">
                             <h3 className="text-xl font-semibold text-white mb-6 flex items-center">
-                              <Info className="w-6 h-6 mr-3 text-[#E50914]" />
+                              <Info className="w-6 h-6 mr-3 text-white/70" />
                               Media Information
                             </h3>
 
@@ -3704,7 +3705,7 @@ function SettingsContent() {
                                             href={selectedMedia.tmdb_trailer_url}
                                             target="_blank"
                                             rel="noopener noreferrer"
-                                            className="text-[#E50914] hover:text-[#E50914]/80 flex items-center gap-2 transition-colors"
+                                            className="text-white/70 hover:text-white flex items-center gap-2 transition-colors"
                                           >
                                             <Video className="w-4 h-4" />
                                             Watch Trailer
@@ -3828,7 +3829,7 @@ function SettingsContent() {
                                               href={selectedMedia.tmdb_trailer_url}
                                               target="_blank"
                                               rel="noopener noreferrer"
-                                              className="text-[#E50914] hover:text-[#E50914]/80 flex items-center gap-1 transition-colors"
+                                              className="text-white/70 hover:text-white flex items-center gap-1 transition-colors"
                                             >
                                               <Video className="w-3 h-3" />
                                               Available
@@ -3859,7 +3860,7 @@ function SettingsContent() {
                                 <div className="flex flex-wrap gap-2">
                                   {selectedMedia.genre_names && selectedMedia.genre_names.length > 0 ? (
                                     selectedMedia.genre_names.map((genre, index) => (
-                                      <span key={index} className="bg-[#E50914]/20 text-[#E50914] px-3 py-1 rounded-full text-sm">
+                                      <span key={index} className="bg-white/10 text-white/70 px-3 py-1 rounded-full text-sm">
                                         {typeof genre === 'string' ? genre : (genre as any)?.name || String(genre)}
                                       </span>
                                     ))
@@ -3883,7 +3884,7 @@ function SettingsContent() {
                                         navigate.push(`/movie/${selectedMedia.id}`);
                                       }
                                     }}
-                                    className="bg-[#E50914] hover:bg-[#E50914]/80 text-white px-4 py-2 rounded-lg flex items-center space-x-2 text-sm"
+                                    className="bg-[#f5f5f7] hover:bg-white text-black px-4 py-2 rounded-lg flex items-center space-x-2 text-sm"
                                   >
                                     <Play className="w-4 h-4" />
                                     <span>Watch Now</span>
@@ -3910,7 +3911,7 @@ function SettingsContent() {
                           {selectedMedia?.file_path && (
                             <GlassCard className="p-6">
                               <h3 className="text-xl font-semibold text-white mb-4 flex items-center">
-                                <File className="w-6 h-6 mr-3 text-[#E50914]" />
+                                <File className="w-6 h-6 mr-3 text-white/70" />
                                 File Information
                               </h3>
                               <div className="bg-white/5 backdrop-blur-sm rounded-lg p-4 border border-white/10">
@@ -3930,7 +3931,7 @@ function SettingsContent() {
                           {/* Asset Management */}
                           <GlassCard className="p-6">
                             <h3 className="text-xl font-semibold text-white mb-6 flex items-center">
-                              <ImageIcon className="w-6 h-6 mr-3 text-[#E50914]" />
+                              <ImageIcon className="w-6 h-6 mr-3 text-white/70" />
                               Asset Management
                             </h3>
 
@@ -3975,19 +3976,19 @@ function SettingsContent() {
                               {/* Subtitle Upload Section */}
                               <div className="bg-white/5 backdrop-blur-sm rounded-lg p-6 border border-white/10">
                                 <h4 className="text-white font-semibold mb-4 flex items-center">
-                                  <FileSearch className="w-5 h-5 mr-2 text-[#E50914]" />
+                                  <FileSearch className="w-5 h-5 mr-2 text-white/70" />
                                   Subtitles
                                 </h4>
 
                                 <div className="space-y-4">
                                   {/* Upload Subtitle */}
-                                  <div className="border-2 border-dashed border-white/20 rounded-lg p-6 text-center hover:border-[#E50914]/50 transition-colors duration-300">
+                                  <div className="border-2 border-dashed border-white/20 rounded-lg p-6 text-center hover:border-white/30 transition-colors duration-300">
                                     <div className="text-white/40 mb-4">
                                       <FileSearch className="w-8 h-8 mx-auto" />
                                     </div>
                                     <p className="text-white/60 text-sm mb-4">Upload subtitle files (.srt, .vtt, .ass, .ssa, .sub, .sbv)</p>
                                     <label htmlFor="subtitle-upload" className="cursor-pointer inline-block">
-                                      <div className="bg-[#E50914] hover:bg-[#E50914]/80 text-white px-4 py-2 rounded-lg inline-flex items-center gap-2 transition-colors duration-300 hover:scale-105">
+                                      <div className="bg-[#f5f5f7] hover:bg-white text-black px-4 py-2 rounded-lg inline-flex items-center gap-2 transition-colors duration-300 hover:scale-105">
                                         <Upload className="w-4 h-4" />
                                         {uploading ? 'Uploading...' : 'Upload Subtitles'}
                                       </div>
@@ -4059,7 +4060,7 @@ function SettingsContent() {
                             {selectedMedia && (
                               <div className="bg-white/5 backdrop-blur-sm rounded-lg p-6 border border-white/10 mt-6 w-full">
                                 <h4 className="text-white font-semibold mb-4 flex items-center">
-                                  <Globe className="w-5 h-5 mr-2 text-[#E50914]" />
+                                  <Globe className="w-5 h-5 mr-2 text-white/70" />
                                   OpenSubtitles Search
                                 </h4>
 
@@ -4072,7 +4073,7 @@ function SettingsContent() {
                                         placeholder={`Search subtitles for "${selectedMedia.title}"...`}
                                         value={openSubtitlesQuery}
                                         onChange={(e) => setOpenSubtitlesQuery(e.target.value)}
-                                        className="w-full bg-black/50 border border-white/20 rounded-lg px-4 py-2 text-white placeholder-white/50 focus:border-[#E50914] focus:outline-none transition-colors"
+                                        className="w-full bg-black/50 border border-white/20 rounded-lg px-4 py-2 text-white placeholder-white/50 focus:border-white/40 focus:outline-none transition-colors"
                                         onKeyPress={(e) => {
                                           if (e.key === 'Enter') {
                                             handleOpenSubtitlesSearch();
@@ -4083,7 +4084,7 @@ function SettingsContent() {
                                     <select
                                       value={selectedLanguage}
                                       onChange={(e) => setSelectedLanguage(e.target.value)}
-                                      className="bg-black/50 border border-white/20 rounded-lg px-3 py-2 text-white focus:border-[#E50914] focus:outline-none transition-colors"
+                                      className="bg-black/50 border border-white/20 rounded-lg px-3 py-2 text-white focus:border-white/40 focus:outline-none transition-colors"
                                     >
                                       <option value="en">English</option>
                                       <option value="es">Spanish</option>
@@ -4100,7 +4101,7 @@ function SettingsContent() {
                                     <MagneticButton
                                       onClick={() => handleOpenSubtitlesSearch()}
                                       disabled={openSubtitlesLoading || !openSubtitlesQuery.trim()}
-                                      className="bg-[#E50914] hover:bg-[#E50914]/80 text-white px-6 py-2 rounded-lg flex items-center space-x-2 transition-colors"
+                                      className="bg-[#f5f5f7] hover:bg-white text-black px-6 py-2 rounded-lg flex items-center space-x-2 transition-colors"
                                     >
                                       {openSubtitlesLoading ? (
                                         <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
@@ -4185,7 +4186,7 @@ function SettingsContent() {
                                                 <span className="text-white/60 text-sm">
                                                   ({subtitle.attributes?.feature_details?.year || 'Unknown Year'})
                                                 </span>
-                                                <span className="bg-[#E50914]/20 text-[#E50914] px-2 py-1 rounded text-xs">
+                                                <span className="bg-white/10 text-white/70 px-2 py-1 rounded text-xs">
                                                   {subtitle.attributes?.language?.toUpperCase() || 'Unknown'}
                                                 </span>
                                               </div>
@@ -4247,10 +4248,10 @@ function SettingsContent() {
                               <motion.div
                                 initial={{ opacity: 0, y: 20 }}
                                 animate={{ opacity: 1, y: 0 }}
-                                className="mt-6 bg-[#E50914]/20 border border-[#E50914]/30 rounded-lg p-4"
+                                className="mt-6 bg-white/10 border border-white/15 rounded-lg p-4"
                               >
                                 <div className="flex items-center space-x-3">
-                                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-[#E50914]"></div>
+                                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white/40"></div>
                                   <p className="text-white">Uploading asset...</p>
                                 </div>
                               </motion.div>
@@ -4282,7 +4283,7 @@ function SettingsContent() {
                     <ScrollReveal>
                       <GlassCard className="p-6">
                         <h2 className="text-2xl font-semibold text-white mb-6 flex items-center">
-                          <Search className="w-6 h-6 mr-3 text-[#E50914]" />
+                          <Search className="w-6 h-6 mr-3 text-white/70" />
                           Media Library Scanning
                         </h2>
 
@@ -4448,7 +4449,7 @@ function SettingsContent() {
                         <div className="bg-white/5 rounded-lg p-6 border border-white/10">
                           <div className="flex items-center justify-between mb-4">
                             <h3 className="text-lg font-semibold text-white flex items-center">
-                              <BarChart3 className="w-5 h-5 mr-2 text-[#E50914]" />
+                              <BarChart3 className="w-5 h-5 mr-2 text-white/70" />
                               Scan Statistics
                             </h3>
                             <MagneticButton
@@ -4495,7 +4496,7 @@ function SettingsContent() {
                     <ScrollReveal>
                       <GlassCard className="p-6">
                         <h2 className="text-2xl font-semibold text-white mb-6 flex items-center">
-                          <BarChart3 className="w-6 h-6 mr-3 text-[#E50914]" />
+                          <BarChart3 className="w-6 h-6 mr-3 text-white/70" />
                           System Analytics
                         </h2>
 
@@ -4567,7 +4568,7 @@ function SettingsContent() {
                         {/* Cache Management */}
                         <div className="bg-white/5 rounded-lg p-6 border border-white/10 mb-6">
                           <h3 className="text-lg font-semibold text-white mb-4 flex items-center">
-                            <HardDrive className="w-5 h-5 mr-2 text-[#E50914]" />
+                            <HardDrive className="w-5 h-5 mr-2 text-white/70" />
                             Cache Management
                           </h3>
                           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -4611,7 +4612,7 @@ function SettingsContent() {
                         {systemStats?.queues && (
                           <div className="bg-white/5 rounded-lg p-6 border border-white/10">
                             <h3 className="text-lg font-semibold text-white mb-4 flex items-center">
-                              <Activity className="w-5 h-5 mr-2 text-[#E50914]" />
+                              <Activity className="w-5 h-5 mr-2 text-white/70" />
                               Task Queue Status
                             </h3>
                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -4639,7 +4640,7 @@ function SettingsContent() {
                     <ScrollReveal>
                       <GlassCard className="p-6">
                         <h2 className="text-2xl font-semibold text-white mb-6 flex items-center gap-3">
-                          <Lock className="w-6 h-6 text-[#E50914]" />
+                          <Lock className="w-6 h-6 text-white/70" />
                           Settings PIN
                         </h2>
                         <PinChangeForm />
@@ -4667,7 +4668,7 @@ function SettingsContent() {
                       </div>
                       <MagneticButton
                         onClick={() => setShowAddPathForm(!showAddPathForm)}
-                        className="bg-[#E50914] hover:bg-[#B8070F] text-white px-6 py-3 rounded-lg font-semibold transition-all duration-300 shadow-lg shadow-red-500/25"
+                        className="bg-[#f5f5f7] hover:bg-white text-black px-6 py-3 rounded-xl font-semibold transition-all duration-300"
                       >
                         <Folder className="w-5 h-5 mr-2" />
                         Add Media Path
@@ -4691,7 +4692,7 @@ function SettingsContent() {
                               value={newMediaPath.path}
                               onChange={(e) => setNewMediaPath({ ...newMediaPath, path: e.target.value })}
                               placeholder="/path/to/media/directory"
-                              className="w-full px-4 py-3 bg-black/50 border border-white/20 rounded-lg text-white placeholder-white/50 focus:border-[#E50914] focus:outline-none transition-colors"
+                              className="w-full px-4 py-3 bg-black/50 border border-white/20 rounded-lg text-white placeholder-white/50 focus:border-white/40 focus:outline-none transition-colors"
                             />
                           </div>
                           <div>
@@ -4701,7 +4702,7 @@ function SettingsContent() {
                               value={newMediaPath.name}
                               onChange={(e) => setNewMediaPath({ ...newMediaPath, name: e.target.value })}
                               placeholder="Friendly name for this path"
-                              className="w-full px-4 py-3 bg-black/50 border border-white/20 rounded-lg text-white placeholder-white/50 focus:border-[#E50914] focus:outline-none transition-colors"
+                              className="w-full px-4 py-3 bg-black/50 border border-white/20 rounded-lg text-white placeholder-white/50 focus:border-white/40 focus:outline-none transition-colors"
                             />
                           </div>
                           <div>
@@ -4709,7 +4710,7 @@ function SettingsContent() {
                             <select
                               value={newMediaPath.path_type}
                               onChange={(e) => setNewMediaPath({ ...newMediaPath, path_type: e.target.value })}
-                              className="w-full px-4 py-3 bg-black/50 border border-white/20 rounded-lg text-white focus:border-[#E50914] focus:outline-none transition-colors"
+                              className="w-full px-4 py-3 bg-black/50 border border-white/20 rounded-lg text-white focus:border-white/40 focus:outline-none transition-colors"
                             >
                               <option value="primary">Primary</option>
                               <option value="torrent">Torrent Downloads</option>
@@ -4723,7 +4724,7 @@ function SettingsContent() {
                               value={newMediaPath.priority}
                               onChange={(e) => setNewMediaPath({ ...newMediaPath, priority: parseInt(e.target.value) || 0 })}
                               placeholder="0"
-                              className="w-full px-4 py-3 bg-black/50 border border-white/20 rounded-lg text-white placeholder-white/50 focus:border-[#E50914] focus:outline-none transition-colors"
+                              className="w-full px-4 py-3 bg-black/50 border border-white/20 rounded-lg text-white placeholder-white/50 focus:border-white/40 focus:outline-none transition-colors"
                             />
                           </div>
                           <div className="md:col-span-2">
@@ -4733,14 +4734,14 @@ function SettingsContent() {
                               value={newMediaPath.description}
                               onChange={(e) => setNewMediaPath({ ...newMediaPath, description: e.target.value })}
                               placeholder="Optional description"
-                              className="w-full px-4 py-3 bg-black/50 border border-white/20 rounded-lg text-white placeholder-white/50 focus:border-[#E50914] focus:outline-none transition-colors"
+                              className="w-full px-4 py-3 bg-black/50 border border-white/20 rounded-lg text-white placeholder-white/50 focus:border-white/40 focus:outline-none transition-colors"
                             />
                           </div>
                         </div>
                         <div className="flex gap-4 mt-6">
                           <MagneticButton
                             onClick={addMediaPath}
-                            className="bg-[#E50914] hover:bg-[#B8070F] text-white px-6 py-3 rounded-lg font-semibold transition-all duration-300"
+                            className="bg-[#f5f5f7] hover:bg-white text-black px-6 py-3 rounded-xl font-semibold transition-all duration-300"
                           >
                             <Save className="w-4 h-4 mr-2" />
                             Add Path
@@ -4775,7 +4776,7 @@ function SettingsContent() {
                             <div className="flex items-center justify-between">
                               <div className="flex-1">
                                 <div className="flex items-center gap-3 mb-2">
-                                  <Folder className="w-5 h-5 text-[#E50914]" />
+                                  <Folder className="w-5 h-5 text-white/70" />
                                   <h3 className="text-lg font-semibold text-white">{path.name}</h3>
                                   <span className={`px-2 py-1 rounded-full text-xs font-medium ${path.path_type === 'primary' ? 'bg-blue-500/20 text-blue-400' :
                                     path.path_type === 'torrent' ? 'bg-green-500/20 text-green-400' :
@@ -4836,7 +4837,7 @@ function SettingsContent() {
                     </div>
 
                     {/* Quick Actions */}
-                    <div className="mt-8 p-6 bg-gradient-to-r from-[#E50914]/10 to-transparent rounded-lg border border-[#E50914]/20">
+                    <div className="mt-8 p-6 bg-gradient-to-r from-white/5 to-transparent rounded-lg border border-white/10">
                       <h3 className="text-lg font-semibold text-white mb-4">Quick Actions</h3>
                       <div className="flex flex-wrap gap-4">
                         <MagneticButton
@@ -4848,7 +4849,7 @@ function SettingsContent() {
                         </MagneticButton>
                         <MagneticButton
                           onClick={() => triggerScan('full')}
-                          className="bg-[#E50914]/20 hover:bg-[#E50914]/30 text-[#E50914] px-4 py-2 rounded-lg font-medium transition-all duration-300"
+                          className="bg-white/10 hover:bg-white/20 text-white/70 px-4 py-2 rounded-lg font-medium transition-all duration-300"
                         >
                           <Search className="w-4 h-4 mr-2" />
                           Scan All Paths
@@ -4864,7 +4865,7 @@ function SettingsContent() {
                 <ScrollReveal>
                   <GlassCard className="p-8">
                     <h2 className="text-2xl font-semibold text-white mb-6 flex items-center">
-                      <FileSearch className="w-6 h-6 mr-3 text-[#E50914]" />
+                      <FileSearch className="w-6 h-6 mr-3 text-white/70" />
                       Subtitle Management
                     </h2>
 
@@ -4872,7 +4873,7 @@ function SettingsContent() {
                       {/* OpenSubtitles Search Section */}
                       <div className="bg-white/5 backdrop-blur-sm rounded-lg p-6 border border-white/10">
                         <h3 className="text-xl font-semibold text-white mb-4 flex items-center">
-                          <Globe className="w-5 h-5 mr-2 text-[#E50914]" />
+                          <Globe className="w-5 h-5 mr-2 text-white/70" />
                           OpenSubtitles Search
                         </h3>
                         <p className="text-white/70 mb-6">
@@ -4889,7 +4890,7 @@ function SettingsContent() {
                                 placeholder="Enter movie or TV show title..."
                                 value={openSubtitlesQuery}
                                 onChange={(e) => setOpenSubtitlesQuery(e.target.value)}
-                                className="w-full bg-black/50 border border-white/20 rounded-lg px-4 py-3 text-white placeholder-white/50 focus:border-[#E50914] focus:outline-none transition-colors"
+                                className="w-full bg-black/50 border border-white/20 rounded-lg px-4 py-3 text-white placeholder-white/50 focus:border-white/40 focus:outline-none transition-colors"
                                 onKeyPress={(e) => {
                                   if (e.key === 'Enter') {
                                     handleOpenSubtitlesSearch(true);
@@ -4903,7 +4904,7 @@ function SettingsContent() {
                               <select
                                 value={selectedLanguage}
                                 onChange={(e) => setSelectedLanguage(e.target.value)}
-                                className="w-full bg-black/50 border border-white/20 rounded-lg px-4 py-3 text-white focus:border-[#E50914] focus:outline-none transition-colors"
+                                className="w-full bg-black/50 border border-white/20 rounded-lg px-4 py-3 text-white focus:border-white/40 focus:outline-none transition-colors"
                               >
                                 <option value="en">English</option>
                                 <option value="es">Spanish</option>
@@ -4932,7 +4933,7 @@ function SettingsContent() {
                             <MagneticButton
                               onClick={() => handleOpenSubtitlesSearch(true)}
                               disabled={openSubtitlesLoading || !openSubtitlesQuery.trim()}
-                              className="w-full bg-[#E50914] hover:bg-[#E50914]/80 text-white px-6 py-3 rounded-lg flex items-center justify-center space-x-2 transition-colors"
+                              className="w-full bg-[#f5f5f7] hover:bg-white text-black px-6 py-3 rounded-lg flex items-center justify-center space-x-2 transition-colors"
                             >
                               {openSubtitlesLoading ? (
                                 <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
@@ -4994,7 +4995,7 @@ function SettingsContent() {
                                             <span className="text-white/60 text-xs">
                                               ({subtitleData.year})
                                             </span>
-                                            <span className="bg-[#E50914]/20 text-[#E50914] px-2 py-1 rounded text-xs">
+                                            <span className="bg-white/10 text-white/70 px-2 py-1 rounded text-xs">
                                               {subtitleData.language.toUpperCase()}
                                             </span>
                                           </div>
@@ -5100,7 +5101,7 @@ function SettingsContent() {
                       {/* Subtitle Management Tools */}
                       <div className="bg-white/5 backdrop-blur-sm rounded-lg p-6 border border-white/10">
                         <h3 className="text-xl font-semibold text-white mb-4 flex items-center">
-                          <Settings className="w-5 h-5 mr-2 text-[#E50914]" />
+                          <Settings className="w-5 h-5 mr-2 text-white/70" />
                           Subtitle Tools
                         </h3>
 
@@ -5159,7 +5160,7 @@ function SettingsContent() {
                       {/* Configuration */}
                       <div className="bg-white/5 backdrop-blur-sm rounded-lg p-6 border border-white/10">
                         <h3 className="text-xl font-semibold text-white mb-4 flex items-center">
-                          <Settings className="w-5 h-5 mr-2 text-[#E50914]" />
+                          <Settings className="w-5 h-5 mr-2 text-white/70" />
                           Configuration
                         </h3>
 
@@ -5199,7 +5200,7 @@ function SettingsContent() {
                 <ScrollReveal>
                   <GlassCard className="p-8">
                     <h2 className="text-2xl font-semibold text-white mb-6 flex items-center">
-                      <Layout className="w-6 h-6 mr-3 text-[#E50914]" />
+                      <Layout className="w-6 h-6 mr-3 text-white/70" />
                       Pages
                     </h2>
                     <PageManager />
@@ -5212,7 +5213,7 @@ function SettingsContent() {
                 <ScrollReveal>
                   <GlassCard className="p-8">
                     <h2 className="text-2xl font-semibold text-white mb-6 flex items-center">
-                      <Settings className="w-6 h-6 mr-3 text-[#E50914]" />
+                      <Settings className="w-6 h-6 mr-3 text-white/70" />
                       General Settings
                     </h2>
                     <div className="space-y-6">
@@ -5255,7 +5256,7 @@ function SettingsContent() {
                       {/* TMDB Integration Section */}
                       <div className="bg-white/5 rounded-lg p-6">
                         <h3 className="text-lg font-semibold text-white mb-3 flex items-center">
-                          <Film className="w-5 h-5 mr-2 text-[#E50914]" />
+                          <Film className="w-5 h-5 mr-2 text-white/70" />
                           TMDB Integration
                         </h3>
                         <p className="text-white/70 text-sm mb-4">
