@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, Suspense } from 'react';
+import React, { useState, useEffect, useRef, Suspense } from 'react';
 import PinLock, { apiChangePin } from '@/components/PinLock';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { useDialog } from '@/hooks/useDialog';
@@ -127,7 +127,13 @@ function SettingsContent() {
   const [updateChecking, setUpdateChecking] = useState(false);
   const [updateRunning, setUpdateRunning] = useState(false);
   const [updateStatus, setUpdateStatus] = useState<any>(null);
-  const [updateTimer, setUpdateTimer] = useState<any>(null);
+  // Ref (not state): the unmount cleanup must be able to clear the interval;
+  // a state updater queued during unmount never runs, leaking the poller.
+  const updateTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const stopUpdatePolling = () => {
+    if (updateTimerRef.current) clearInterval(updateTimerRef.current);
+    updateTimerRef.current = null;
+  };
   const [terminalOutput, setTerminalOutput] = useState<string[]>([]);
   const [isScanning, setIsScanning] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -1785,7 +1791,7 @@ function SettingsContent() {
       setUpdateStatus(st);
       if (st.state === 'done' || st.state === 'error') {
         setUpdateRunning(false);
-        setUpdateTimer((t: any) => { if (t) clearInterval(t); return null; });
+        stopUpdatePolling();
         addTerminalOutput(st.state === 'done' ? `✅ ${st.message || 'Update complete'} - services restarted` : `❌ Update failed: ${st.message}`);
         if (st.state === 'done') checkForUpdates(true);
       }
@@ -1814,8 +1820,8 @@ function SettingsContent() {
         addTerminalOutput(`❌ Update refused: ${data.error}`);
         return;
       }
-      const t = setInterval(pollUpdateStatus, 3000);
-      setUpdateTimer(t);
+      stopUpdatePolling();
+      updateTimerRef.current = setInterval(pollUpdateStatus, 3000);
     } catch (e) {
       setUpdateRunning(false);
       addTerminalOutput(`❌ Failed to start update: ${e}`);
@@ -1824,7 +1830,7 @@ function SettingsContent() {
 
   useEffect(() => {
     checkForUpdates(true);
-    return () => setUpdateTimer((t: any) => { if (t) clearInterval(t); return null; });
+    return stopUpdatePolling;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

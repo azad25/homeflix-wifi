@@ -134,6 +134,7 @@ seg*.ts
 
 # Self-update runtime state (Settings > System Update)
 .update-status.json
+update-log.txt
 
 # Scratch markdown notes - kept local, existing tracked docs stay tracked
 *.md

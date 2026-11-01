@@ -2759,7 +2759,7 @@ func (ns *NotificationService) CreateTMDBUpcomingTVNotification() error {
 		return err
 	}
 
-	log.Printf("📺 Created TMDB upcoming TV notification with %d series (trailer: %s)", len(curatedSeries), trailerKey != "")
+	log.Printf("📺 Created TMDB upcoming TV notification with %d series (trailer: %t)", len(curatedSeries), trailerKey != "")
 	return nil
 }
 
@@ -2894,7 +2894,7 @@ func (ns *NotificationService) CreateTMDBNowAiringTVNotification() error {
 		return err
 	}
 
-	log.Printf("📺 Created TMDB now airing TV notification with %d series (trailer: %s)", len(curatedSeries), trailerKey != "")
+	log.Printf("📺 Created TMDB now airing TV notification with %d series (trailer: %t)", len(curatedSeries), trailerKey != "")
 	return nil
 }
 

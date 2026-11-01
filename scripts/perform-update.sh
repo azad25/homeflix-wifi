@@ -1,9 +1,13 @@
 #!/bin/bash
 # HomeFlix safe self-update: pull -> build backend -> build frontend -> restart.
 # Launched detached by POST /api/admin/update/apply (see update_handlers.go).
-# Progress: .update-status.json (polled by Settings UI), details: update.log
+# Progress: .update-status.json (polled by Settings UI), details: update-log.txt
+# (not *.log: start.sh wipes *.log in the repo root during the restart step)
 # Usage: scripts/perform-update.sh [--dry-run]   (dry-run skips the restart)
 set -u
+# Without pipefail, `cmd | tail || fail` only sees tail's exit status, so a
+# failed fetch/pull/build would silently continue on to the restart.
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -15,8 +19,17 @@ DRY_RUN=0
 
 set_phase() { # $1=phase $2=message [$3=state]
   local state="${3:-running}"
-  python3 -c "import json; d={'state':'$state','phase':'$1','message':'''$2''','dry_run':$DRY_RUN}; open('$STATUS_FILE','w').write(json.dumps(d))" 2>/dev/null || \
-    printf '{"state":"%s","phase":"%s","message":"%s","dry_run":%d}\n' "$state" "$1" "$2" "$DRY_RUN" > "$STATUS_FILE"
+  # Values go through argv (never interpolated into code) so quotes or
+  # backslashes in commit subjects can't break or inject into the JSON.
+  python3 -c 'import json, sys
+state, phase, msg, dry, path = sys.argv[1:6]
+with open(path, "w") as f:
+    json.dump({"state": state, "phase": phase, "message": msg, "dry_run": dry == "1"}, f)' \
+    "$state" "$1" "$2" "$DRY_RUN" "$STATUS_FILE" 2>/dev/null || {
+    local esc=${2//\\/\\\\}; esc=${esc//\"/\\\"}
+    printf '{"state":"%s","phase":"%s","message":"%s","dry_run":%s}\n' \
+      "$state" "$1" "$esc" "$([[ $DRY_RUN -eq 1 ]] && echo true || echo false)" > "$STATUS_FILE"
+  }
 }
 fail() { echo "❌ $1"; set_phase "failed" "$1" "error"; exit 1; }
 

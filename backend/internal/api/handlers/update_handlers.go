@@ -22,7 +22,9 @@ func updatePaths() (repoRoot, statusFile, logFile string, err error) {
 	}
 	repoRoot = strings.TrimSpace(string(out))
 	statusFile = filepath.Join(repoRoot, ".update-status.json")
-	logFile = filepath.Join(repoRoot, "update.log")
+	// Not *.log: start.sh deletes *.log in the repo root during the restart
+	// step, which would wipe the update's own log mid-run.
+	logFile = filepath.Join(repoRoot, "update-log.txt")
 	return repoRoot, statusFile, logFile, nil
 }
 
@@ -128,6 +130,14 @@ func CheckUpdate() gin.HandlerFunc {
 	}
 }
 
+// A full pull + Go build + Next.js build comfortably finishes well within this.
+const updateStaleAfter = 45 * time.Minute
+
+func updateStatusStale(statusFile string) bool {
+	fi, err := os.Stat(statusFile)
+	return err == nil && time.Since(fi.ModTime()) > updateStaleAfter
+}
+
 func writeUpdateStatus(statusFile string, v map[string]interface{}) {
 	v["updated_at"] = time.Now().Format(time.RFC3339)
 	data, _ := json.MarshalIndent(v, "", "  ")
@@ -147,7 +157,9 @@ func ApplyUpdate() gin.HandlerFunc {
 		// Refuse concurrent runs.
 		if data, err := os.ReadFile(statusFile); err == nil {
 			var st map[string]interface{}
-			if json.Unmarshal(data, &st) == nil && st["state"] == "running" {
+			// A job killed mid-run (reboot, OOM) leaves "running" behind forever;
+			// treat it as stale after updateStaleAfter so updates aren't blocked.
+			if json.Unmarshal(data, &st) == nil && st["state"] == "running" && !updateStatusStale(statusFile) {
 				c.JSON(http.StatusOK, gin.H{"ok": false, "error": "an update is already running"})
 				return
 			}

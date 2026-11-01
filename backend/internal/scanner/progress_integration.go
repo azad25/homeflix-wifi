@@ -129,6 +129,6 @@ func LogWithProgress(progress *ProgressTracker, format string, args ...interface
 	if progress != nil {
 		progress.LogWithProgress(message)
 	} else {
-		log.Printf(message)
+		log.Print(message)
 	}
 }

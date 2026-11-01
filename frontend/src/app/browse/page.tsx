@@ -23,6 +23,10 @@ interface Genre {
   description: string;
 }
 
+// Series and media rows come from separate tables with overlapping ids.
+const isSeriesItem = (m: Media) => (m as any).type === 'series';
+const browseKey = (m: Media) => `${isSeriesItem(m) ? 'series' : 'media'}-${m.id}`;
+
 export default function BrowsePage() {
   usePageTitle('Browse Collection');
   const navigate = useNavigate();
@@ -182,8 +186,9 @@ export default function BrowsePage() {
         console.warn('Failed to fetch genres, using empty array');
       }
 
-      // Merge TV series into the collection (series ids never collide
-      // with media ids). Poster resolves via the series poster endpoint.
+      // Merge TV series into the collection. Series and media live in separate
+      // tables, so their ids DO overlap - always distinguish by type (see
+      // isSeriesItem / browseKey). Poster resolves via the series poster endpoint.
       if (seriesResponse && seriesResponse.ok) {
         try {
           const seriesData = await seriesResponse.json();
@@ -237,14 +242,13 @@ export default function BrowsePage() {
 
         // Filter search results to only include items that are in allMedia
         // This ensures we only show movies and TV series, not episodes
-        const mediaIds = new Set(allMedia.map(m => m.id));
+        const mediaIds = new Set(allMedia.filter(m => !isSeriesItem(m)).map(m => m.id));
         filtered = searchResults.filter((media: Media) => mediaIds.has(media.id));
 
         // Backend search covers media rows only - union in matching TV series
         const q = searchQuery.toLowerCase();
-        const seenIds = new Set(filtered.map((m: Media) => m.id));
         const seriesMatches = allMedia.filter(m =>
-          (m as any).type === 'series' && !seenIds.has(m.id) &&
+          isSeriesItem(m) &&
           ((m.title || '').toLowerCase().includes(q) || (m.description || '').toLowerCase().includes(q))
         );
         if (seriesMatches.length > 0) {
@@ -277,12 +281,12 @@ export default function BrowsePage() {
           const genreResults = await fetchMediaByGenre(selectedGenre, 1);
 
           // Filter to only include items that are in allMedia (movies and TV series)
-          const mediaIds = new Set(allMedia.map(m => m.id));
+          const mediaIds = new Set(allMedia.filter(m => !isSeriesItem(m)).map(m => m.id));
           filtered = genreResults.filter((media: Media) => mediaIds.has(media.id));
 
           // Backend genre API covers media rows only - union in matching TV series
           const seriesGenreMatches = allMedia.filter(m =>
-            (m as any).type === 'series' &&
+            isSeriesItem(m) &&
             (m.genres || []).some(genre => genreMatches(genre.name, selectedGenre))
           );
           if (seriesGenreMatches.length > 0) {
@@ -684,7 +688,7 @@ export default function BrowsePage() {
                     : "space-y-3"
                   }>
                     {displayedMedia.map((media, index) => (
-                      <div key={media.id} className="group">
+                      <div key={browseKey(media)} className="group">
                         <div>
                           <NetflixMediaCard
                             media={media}

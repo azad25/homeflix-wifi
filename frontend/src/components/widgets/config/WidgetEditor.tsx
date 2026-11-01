@@ -143,6 +143,7 @@ export default function WidgetEditor({
       'trending': 'from-orange-500/20 to-orange-600/20 border-orange-400/30',
       'popular': 'from-purple-500/20 to-purple-600/20 border-purple-400/30',
       'recent': 'from-cyan-500/20 to-cyan-600/20 border-cyan-400/30',
+      'latest': 'from-teal-500/20 to-teal-600/20 border-teal-400/30',
       'recently-played': 'from-yellow-500/20 to-yellow-600/20 border-yellow-400/30',
       'now-playing': 'from-red-500/20 to-red-600/20 border-red-400/30',
       'upcoming': 'from-indigo-500/20 to-indigo-600/20 border-indigo-400/30',
