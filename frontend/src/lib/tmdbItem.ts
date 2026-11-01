@@ -44,10 +44,40 @@ export const itemGenres = (item: any, max = 2): string[] =>
   (item?.genre_ids || []).map((id: number) => TMDB_GENRES[id]).filter(Boolean).slice(0, max);
 
 /** Fetch the best YouTube trailer key for a TMDB item via the backend. */
-export async function fetchTrailerKey(item: any, apiBase = ""): Promise<string | null> {
+const trailerCache = new Map<string, Promise<string | null>>();
+const TRAILER_SS_PREFIX = "hfx-trailer:";
+
+export function fetchTrailerKey(item: any, apiBase = ""): Promise<string | null> {
   const fromUrl = (url?: string) => url?.match(/(?:v=|youtu\.be\/|embed\/)([a-zA-Z0-9_-]{11})/)?.[1] || null;
   const direct = fromUrl(item?.trailer_url);
-  if (direct) return direct;
+  if (direct) return Promise.resolve(direct);
+  const cacheKey = `${itemType(item)}-${item?.id}`;
+  const hit = trailerCache.get(cacheKey);
+  if (hit) return hit;
+  try {
+    const stored = typeof window !== "undefined" ? window.sessionStorage.getItem(TRAILER_SS_PREFIX + cacheKey) : null;
+    if (stored !== null) {
+      const p = Promise.resolve(stored || null);
+      trailerCache.set(cacheKey, p);
+      return p;
+    }
+  } catch {
+    /* storage unavailable */
+  }
+  const p = lookupTrailerKey(item, apiBase).then((key) => {
+    try {
+      window.sessionStorage.setItem(TRAILER_SS_PREFIX + cacheKey, key || "");
+    } catch {
+      /* ignore */
+    }
+    return key;
+  });
+  trailerCache.set(cacheKey, p);
+  return p;
+}
+
+async function lookupTrailerKey(item: any, apiBase: string): Promise<string | null> {
+  const fromUrl = (url?: string) => url?.match(/(?:v=|youtu\.be\/|embed\/)([a-zA-Z0-9_-]{11})/)?.[1] || null;
   try {
     const res = await fetch(`${apiBase}/api/tmdb-movie/${item.id}?type=${itemType(item)}`);
     if (!res.ok) return null;

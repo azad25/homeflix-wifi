@@ -54,8 +54,14 @@ export default function RootLayout({
     <html lang="en" className="dark">
       <head>
         {/* DNS prefetch for external resources */}
-        <link rel="dns-prefetch" href="//image.tmdb.org" />
-        <link rel="preconnect" href="//image.tmdb.org" crossOrigin="anonymous" />
+        {/* No crossOrigin: <img> requests are non-CORS, and a CORS preconnect
+            can't be reused for them (it was a wasted connection). */}
+        <link rel="preconnect" href="https://image.tmdb.org" />
+        {/* Trailers: warm YouTube's player + thumbnail hosts. */}
+        <link rel="preconnect" href="https://www.youtube.com" />
+        <link rel="preconnect" href="https://www.youtube-nocookie.com" />
+        <link rel="preconnect" href="https://i.ytimg.com" />
+        <link rel="dns-prefetch" href="https://www.google.com" />
         {/* Self-hosted Inter font preloaded - no external URL */}
         <link rel="preload" href="/fonts/Inter/InterVariable.woff2" as="font" type="font/woff2" crossOrigin="anonymous" />
 

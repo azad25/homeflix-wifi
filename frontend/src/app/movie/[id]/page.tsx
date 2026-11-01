@@ -42,6 +42,7 @@ import {
 import DynamicTitle from '@/components/DynamicTitle';
 import { useNavigate } from "@/hooks/useNavigate";
 import RecentlyWatched from "@/components/RecentlyWatched";
+import { loadYouTubeAPI } from '@/lib/youtube';
 
 // Local Related Media Component for local media files
 interface LocalRelatedMediaProps {
@@ -628,20 +629,13 @@ export default function MoviePage() {
 
   // Load YouTube IFrame API for fallback trailers
   useEffect(() => {
-    if (window.YT && window.YT.Player) {
-      setYtReady(true);
-      return;
-    }
-
-    const tag = document.createElement('script');
-    tag.src = 'https://www.youtube.com/iframe_api';
-    const firstScriptTag = document.getElementsByTagName('script')[0];
-    firstScriptTag.parentNode?.insertBefore(tag, firstScriptTag);
-
-    window.onYouTubeIframeAPIReady = () => {
-      setYtReady(true);
-    };
-  }, []);
+        // Shared loader: one script, one promise, and it chains
+        // window.onYouTubeIframeAPIReady instead of overwriting it (several
+        // components used to clobber each other's ready callback).
+        let cancelled = false;
+        loadYouTubeAPI().then(() => { if (!cancelled) setYtReady(true); }).catch(() => { /* offline */ });
+        return () => { cancelled = true; };
+    }, []);
 
   // Extract YouTube video key from URL
   const extractYouTubeKey = useCallback((url: string): string | null => {

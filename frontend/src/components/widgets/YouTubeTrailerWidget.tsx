@@ -3,6 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Play, Pause, Volume2, VolumeX, SkipForward } from 'lucide-react';
 import { Media } from '@/types/media';
+import { loadYouTubeAPI } from '@/lib/youtube';
 
 // Declare global YouTube types
 declare global {
@@ -50,19 +51,12 @@ export default function YouTubeTrailerWidget({
 
     // Load YouTube IFrame API
     useEffect(() => {
-        if (window.YT && window.YT.Player) {
-            setYtReady(true);
-            return;
-        }
-
-        const tag = document.createElement('script');
-        tag.src = 'https://www.youtube.com/iframe_api';
-        const firstScriptTag = document.getElementsByTagName('script')[0];
-        firstScriptTag.parentNode?.insertBefore(tag, firstScriptTag);
-
-        window.onYouTubeIframeAPIReady = () => {
-            setYtReady(true);
-        };
+        // Shared loader: one script, one promise, and it chains
+        // window.onYouTubeIframeAPIReady instead of overwriting it (several
+        // components used to clobber each other's ready callback).
+        let cancelled = false;
+        loadYouTubeAPI().then(() => { if (!cancelled) setYtReady(true); }).catch(() => { /* offline */ });
+        return () => { cancelled = true; };
     }, []);
 
     // Extract YouTube video key from URL

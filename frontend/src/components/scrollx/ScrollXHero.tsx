@@ -11,6 +11,7 @@ import RedLoader from '../RedLoader';
 import { cleanMovieTitle } from '@/lib/titleUtils';
 import { useMyList } from '@/hooks/useMyList';
 import MyListTooltip from '@/components/ui/MyListTooltip';
+import { loadYouTubeAPI } from '@/lib/youtube';
 
 // Declare global YouTube types
 declare global {
@@ -134,20 +135,13 @@ const ScrollXHero: React.FC<ScrollXHeroProps> = ({
 
   // Load YouTube IFrame API for trailer fallback
   useEffect(() => {
-    if (window.YT && window.YT.Player) {
-      setYtReady(true);
-      return;
-    }
-
-    const tag = document.createElement('script');
-    tag.src = 'https://www.youtube.com/iframe_api';
-    const firstScriptTag = document.getElementsByTagName('script')[0];
-    firstScriptTag.parentNode?.insertBefore(tag, firstScriptTag);
-
-    window.onYouTubeIframeAPIReady = () => {
-      setYtReady(true);
-    };
-  }, []);
+        // Shared loader: one script, one promise, and it chains
+        // window.onYouTubeIframeAPIReady instead of overwriting it (several
+        // components used to clobber each other's ready callback).
+        let cancelled = false;
+        loadYouTubeAPI().then(() => { if (!cancelled) setYtReady(true); }).catch(() => { /* offline */ });
+        return () => { cancelled = true; };
+    }, []);
 
   // Extract YouTube video key from URL
   const extractYouTubeKey = useCallback((url: string): string | null => {

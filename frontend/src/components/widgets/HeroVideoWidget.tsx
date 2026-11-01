@@ -12,6 +12,7 @@ import { useRecommendationScore } from '@/lib/swr-api';
 import { useMyList } from '@/hooks/useMyList';
 import MyListTooltip from '@/components/ui/MyListTooltip';
 import GenreStyledText from '@/components/GenreStyledText';
+import { loadYouTubeAPI } from '@/lib/youtube';
 
 export type HeroMode = "preview" | "trailer" | "mixed";
 
@@ -664,32 +665,14 @@ export default function HeroVideoWidget({
 
   // Load YouTube API
   useEffect(() => {
-    if (mode === "trailer" || mode === "mixed") {
-      if ((window as any).YT && (window as any).YT.Player) {
-        setYtReady(true);
-        return;
-      }
-      const existing = document.querySelector('script[src*="youtube.com/iframe_api"]');
-      const prev = (window as any).onYouTubeIframeAPIReady;
-      (window as any).onYouTubeIframeAPIReady = () => {
-        try { prev && prev(); } catch { }
-        setYtReady(true);
-      };
-      if (!existing) {
-        const tag = document.createElement("script");
-        tag.src = "https://www.youtube.com/iframe_api";
-        document.head.appendChild(tag);
-      }
-      const check = setInterval(() => {
-        if ((window as any).YT && (window as any).YT.Player) {
-          setYtReady(true);
-          clearInterval(check);
-        }
-      }, 100);
-      return () => { clearInterval(check); };
-    } else {
+    if (mode !== "trailer" && mode !== "mixed") {
       setYtReady(true);
+      return;
     }
+    // Shared loader (chains window.onYouTubeIframeAPIReady, single script).
+    let cancelled = false;
+    loadYouTubeAPI().then(() => { if (!cancelled) setYtReady(true); }).catch(() => { /* offline */ });
+    return () => { cancelled = true; };
   }, [mode]);
 
   const startDefaultProgress = useCallback(() => {

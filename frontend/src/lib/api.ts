@@ -118,31 +118,44 @@ export const loadAssetWithFallback = async (type: 'thumbnail' | 'poster' | 'prev
   return urls[0];
 };
 
-// Preload assets for Netflix-like performance (thumbnails, posters, and previews)
+// Preload assets for faster first paint of rows/heroes.
+// Loads the primary URL directly: the browser cache and the <img> fallback
+// handle misses. (This used to HEAD-probe up to three URLs per asset - one
+// with a cache-busting ?t= - for 20 items x N types on every widget render,
+// i.e. dozens of extra requests that also defeated HTTP caching.)
+const preloadedAssetUrls = new Set<string>();
+const idle = (fn: () => void) => {
+  if (typeof window === 'undefined') return;
+  const ric = (window as any).requestIdleCallback as ((cb: () => void, o?: any) => void) | undefined;
+  if (ric) ric(fn, { timeout: 1500 });
+  else setTimeout(fn, 50);
+};
+
 export const preloadAssets = (mediaList: any[], types: ('thumbnail' | 'poster' | 'preview')[] = ['poster', 'thumbnail']) => {
-  const preloadPromises: Promise<void>[] = [];
-
-  mediaList.slice(0, 20).forEach(media => { // Preload first 20 items
-    types.forEach(type => {
-      const promise = loadAssetWithFallback(type, media.id)
-        .then(url => {
-          // Preload the image/video
-          if (type === 'preview') {
-            const video = document.createElement('video');
-            video.preload = 'metadata';
-            video.src = url;
-          } else {
-            const img = new Image();
-            img.src = url;
-          }
-        })
-        .catch(() => { }); // Ignore preload errors
-
-      preloadPromises.push(promise);
+  if (typeof window === 'undefined' || !Array.isArray(mediaList)) return Promise.resolve([]);
+  idle(() => {
+    mediaList.slice(0, 20).forEach((media, index) => {
+      if (!media || media.id == null) return;
+      types.forEach(type => {
+        // Video previews are heavy: only warm metadata for the first few.
+        if (type === 'preview' && index >= 3) return;
+        const url = getAssetUrl(type, media.id, false) as string;
+        if (preloadedAssetUrls.has(url)) return;
+        preloadedAssetUrls.add(url);
+        if (type === 'preview') {
+          const video = document.createElement('video');
+          video.preload = 'metadata';
+          video.muted = true;
+          video.src = url;
+        } else {
+          const img = new Image();
+          img.decoding = 'async';
+          img.src = url;
+        }
+      });
     });
   });
-
-  return Promise.allSettled(preloadPromises);
+  return Promise.resolve([]);
 };
 
 // Enhanced API call with retry logic for assets

@@ -5,6 +5,7 @@ import { swrConfig } from '@/lib/swr-api';
 import { useEffect } from 'react';
 import { preloadEssentialData } from '@/lib/cacheService';
 import { preloadEssentialWidgets } from '@/utils/widgetCache';
+import { loadYouTubeAPI } from '@/lib/youtube';
 
 interface SWRProviderProps {
   children: React.ReactNode;
@@ -21,6 +22,8 @@ export default function SWRProvider({ children }: SWRProviderProps) {
           preloadEssentialData();
           // Preload widget data
           preloadEssentialWidgets();
+          // Warm the YouTube player API so the first trailer starts fast.
+          loadYouTubeAPI().catch(() => undefined);
         });
       } else {
         setTimeout(() => {

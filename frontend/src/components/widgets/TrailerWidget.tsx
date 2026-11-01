@@ -10,6 +10,7 @@ import { useNavigate } from '@/hooks/useNavigate';
 import { useMyList } from '@/hooks/useMyList';
 import MyListTooltip from '@/components/ui/MyListTooltip';
 import GenreStyledText from '@/components/GenreStyledText';
+import { loadYouTubeAPI } from '@/lib/youtube';
 
 // Declare global YouTube types
 declare global {
@@ -156,86 +157,12 @@ export default function TrailerWidget({
 
     // Load YouTube IFrame API and enable auto-play
     useEffect(() => {
-        // Check if YouTube API is already loaded by another component
-        if (window.YT && window.YT.Player) {
-            setYtReady(true);
-            console.log('YouTube IFrame API already loaded by another component');
-            return;
-        }
-
-        // Check if API is already being loaded
-        const existingScript = document.querySelector('script[src*="youtube.com/iframe_api"]');
-        if (existingScript) {
-            console.log('YouTube IFrame API script already exists, waiting for load...');
-            // Wait for existing script to load
-            const checkReady = setInterval(() => {
-                if (window.YT && window.YT.Player) {
-                    setYtReady(true);
-                    clearInterval(checkReady);
-                    console.log('YouTube IFrame API ready (from existing script)');
-                }
-            }, 100);
-
-            // Timeout after 10 seconds
-            setTimeout(() => {
-                clearInterval(checkReady);
-                if (!window.YT || !window.YT.Player) {
-                    console.warn('YouTube API failed to load within timeout');
-                }
-            }, 10000);
-            return;
-        }
-
-        // Load the API script
-        const tag = document.createElement('script');
-        tag.src = 'https://www.youtube.com/iframe_api';
-        tag.onerror = () => {
-            console.error('Failed to load YouTube IFrame API');
-            // Fallback: try again after a delay
-            setTimeout(() => {
-                const retryTag = document.createElement('script');
-                retryTag.src = 'https://www.youtube.com/iframe_api';
-                document.head.appendChild(retryTag);
-            }, 2000);
-        };
-        const firstScriptTag = document.getElementsByTagName('script')[0];
-        firstScriptTag.parentNode?.insertBefore(tag, firstScriptTag);
-
-        // Store original callback if it exists
-        const originalCallback = window.onYouTubeIframeAPIReady;
-
-        window.onYouTubeIframeAPIReady = () => {
-            // Call original callback first if it exists
-            if (originalCallback && typeof originalCallback === 'function') {
-                try {
-                    originalCallback();
-                } catch (e) {
-                    console.warn('Error calling original YouTube API callback:', e);
-                }
-            }
-
-            setYtReady(true);
-            console.log('YouTube IFrame API ready (TrailerWidget)');
-        };
-
-        // Timeout fallback
-        setTimeout(() => {
-            if (!window.YT || !window.YT.Player) {
-                console.warn('YouTube API failed to load within timeout');
-            }
-        }, 10000);
-
-        // Try to enable auto-play by creating a silent audio context
-        try {
-            const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-            audioContext.resume().then(() => {
-                console.log('Audio context resumed for auto-play');
-            }).catch(() => {
-                console.log('Could not resume audio context');
-            });
-        } catch (e) {
-            console.log('Audio context not available');
-        }
+        // Shared loader: one script, one promise, and it chains
+        // window.onYouTubeIframeAPIReady instead of overwriting it (several
+        // components used to clobber each other's ready callback).
+        let cancelled = false;
+        loadYouTubeAPI().then(() => { if (!cancelled) setYtReady(true); }).catch(() => { /* offline */ });
+        return () => { cancelled = true; };
     }, []);
 
     // Convert media prop to trailers

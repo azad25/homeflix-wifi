@@ -899,6 +899,12 @@ const TMDBMoviePage: React.FC = () => {
   const containerRef = useRef<HTMLDivElement>(null);
 
   const [mediaDetails, setMediaDetails] = useState<UnifiedMediaDetails | null>(null);
+  // Movies have release_date, TV shows first_air_date; never render NaN.
+  const detailsYear = (() => {
+    const d: any = mediaDetails;
+    const y = new Date(d?.release_date || d?.first_air_date || '').getFullYear();
+    return Number.isFinite(y) ? y : null;
+  })();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -1652,7 +1658,7 @@ const TMDBMoviePage: React.FC = () => {
                 animate={{ opacity: 1 }}
                 transition={{ delay: 0.6, duration: 0.4 }}
               >
-                <span>{new Date(mediaDetails?.release_date || '').getFullYear() || new Date().getFullYear()}</span>
+                {detailsYear && <span>{detailsYear}</span>}
                 {mediaDetails?.media_type === 'movie' && mediaDetails?.runtime && mediaDetails.runtime > 0 && (
                   <>
                     <span className="text-white/40">|</span>
@@ -1986,7 +1992,7 @@ const TMDBMoviePage: React.FC = () => {
                         <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 hover:opacity-100 transition-opacity duration-300">
                           <div className="absolute bottom-0 left-0 right-0 p-4">
                             <h3 className="text-white font-bold text-sm mb-1">{mediaDetails?.title}</h3>
-                            <p className="text-white/80 text-xs mb-1">{new Date(mediaDetails?.release_date || '').getFullYear()}</p>
+                            {detailsYear && <p className="text-white/80 text-xs mb-1">{detailsYear}</p>}
                             {(mediaDetails?.vote_average || 0) > 0 && (
                               <div className="flex items-center gap-1">
                                 <Star className="w-3 h-3 text-yellow-400 fill-current" />

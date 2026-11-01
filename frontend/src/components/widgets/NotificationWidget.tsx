@@ -32,6 +32,7 @@ import { resolveMediaRoute } from '@/lib/mediaNavigation';
 import { Media } from '@/types/media';
 import { useMyList } from '@/hooks/useMyList';
 import MyListTooltip from '@/components/ui/MyListTooltip';
+import { loadYouTubeAPI } from '@/lib/youtube';
 
 // Genre-based text styling utility
 const getGenreTextStyle = (genres: string[] = []) => {
@@ -533,31 +534,13 @@ const NotificationWidget: React.FC<NotificationWidgetProps> = ({ widget, classNa
 
   // Load YouTube IFrame API asynchronously and non-blocking
   useEffect(() => {
-    if (window.YT && window.YT.Player) {
-      setYtReady(true);
-      return;
-    }
-
-    // Use requestIdleCallback for non-blocking script loading
-    const loadYouTubeAPI = () => {
-      const tag = document.createElement('script');
-      tag.src = 'https://www.youtube.com/iframe_api';
-      tag.async = true;
-      tag.defer = true;
-      const firstScriptTag = document.getElementsByTagName('script')[0];
-      firstScriptTag.parentNode?.insertBefore(tag, firstScriptTag);
-
-      window.onYouTubeIframeAPIReady = () => {
-        setYtReady(true);
-      };
-    };
-
-    if (typeof requestIdleCallback !== 'undefined') {
-      requestIdleCallback(loadYouTubeAPI, { timeout: 2000 });
-    } else {
-      setTimeout(loadYouTubeAPI, 100);
-    }
-  }, []);
+        // Shared loader: one script, one promise, and it chains
+        // window.onYouTubeIframeAPIReady instead of overwriting it (several
+        // components used to clobber each other's ready callback).
+        let cancelled = false;
+        loadYouTubeAPI().then(() => { if (!cancelled) setYtReady(true); }).catch(() => { /* offline */ });
+        return () => { cancelled = true; };
+    }, []);
 
   // Extract YouTube video key from URL
   const extractYouTubeKey = (url: string): string | null => {
