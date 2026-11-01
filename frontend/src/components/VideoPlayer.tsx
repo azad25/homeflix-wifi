@@ -21,7 +21,9 @@
  */
 
 import React, { useRef, useEffect, useState, useCallback, useMemo } from "react";
-import { Play, Pause, Volume2, VolumeX, Maximize, RotateCcw, RotateCw, X, Minimize, Subtitles, Tv, Settings } from 'lucide-react';
+import { Play, Pause, Volume2, VolumeX, Volume1, Maximize, X, Minimize, Tv, Settings, ArrowLeft, MessageSquareText, Gauge, SkipForward } from 'lucide-react';
+import AudioSubtitlesPanel from './player/AudioSubtitlesPanel';
+import { PlayerIconButton, SkipIcon, SpeedControl } from './player/PlayerControls';
 import { motion, AnimatePresence } from 'framer-motion';
 import { getApiUrl } from '@/lib/api';
 import { attachStreamSource, AttachedStream, fetchStreamInfo } from '@/lib/streamSource';
@@ -185,6 +187,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
   const [currentSubtitleText, setCurrentSubtitleText] = useState<string>('');
   const [audioIssueDetected, setAudioIssueDetected] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showTracksPanel, setShowTracksPanel] = useState(false);
   const settingsButtonRef = useRef<HTMLButtonElement>(null);
   const [currentSubtitleTrack, setCurrentSubtitleTrack] = useState<number | null>(null);
   const [currentAudioTrack, setCurrentAudioTrack] = useState<number | null>(null);
@@ -1778,9 +1781,27 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
 
     const video = videoRef.current;
     if (video) {
+      // defaultPlaybackRate too: browsers reset playbackRate to it whenever
+      // the source (re)loads (HLS start, retries, quality switches).
+      video.defaultPlaybackRate = rate;
       video.playbackRate = rate;
     }
   }, []);
+
+  // Re-apply the chosen speed after any source (re)load.
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    const apply = () => {
+      if (video.playbackRate !== playbackRate) video.playbackRate = playbackRate;
+    };
+    video.addEventListener('loadedmetadata', apply);
+    video.addEventListener('play', apply);
+    return () => {
+      video.removeEventListener('loadedmetadata', apply);
+      video.removeEventListener('play', apply);
+    };
+  }, [playbackRate]);
 
 
 
@@ -4317,54 +4338,13 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                 className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/50 pointer-events-none z-20"
                 onClick={(e) => e.stopPropagation()}
               >
-                {/* Top Controls */}
-                <div className="absolute top-0 left-0 right-0 p-6 flex justify-between items-center pointer-events-auto">
-                  <div>
-                    {(() => {
-                      const logoUrl = media.type === 'episode' && media.series_id
-                        ? `${getApiUrl()}/api/series/${media.series_id}/logo`
-                        : media.logo_path
-                          ? `${getApiUrl()}/api/${media.logo_path}`
-                          : null;
+                {/* Top Controls: back on the left, cast on the right */}
+                <div className="absolute top-0 left-0 right-0 flex items-center justify-between px-4 pt-4 md:px-7 md:pt-6 pointer-events-auto">
+                  <PlayerIconButton label="Back (Esc)" onClick={handleClose}>
+                    <ArrowLeft className="h-8 w-8" strokeWidth={2.2} />
+                  </PlayerIconButton>
 
-                      return logoUrl ? (
-                        <div className="flex flex-col items-start">
-                          <img
-                            src={logoUrl}
-                            alt={media.title}
-                            className="max-h-16 w-auto object-contain mb-1"
-                            onError={(e) => {
-                              // Mark URL as failed to prevent infinite retries
-                              const target = e.currentTarget;
-                              failedImageUrls.current.add(target.src);
-                              target.style.display = 'none';
-                              const titleEl = document.getElementById('video-player-title-fallback');
-                              if (titleEl) titleEl.style.display = 'block';
-                            }}
-                          />
-                          <h1
-                            id="video-player-title-fallback"
-                            className="text-white text-2xl font-bold"
-                            style={{ display: 'none' }}
-                          >
-                            {media.title}
-                          </h1>
-                          {media.type === 'episode' && (
-                            <span className="text-white/80 text-sm font-medium ml-1">
-                              {media.season_number ? `S${media.season_number}` : ''}
-                              {media.episode_number ? `E${media.episode_number}` : ''}
-                              {media.season_number && media.episode_number ? ' • ' : ''}
-                              {media.episode_title || media.title}
-                            </span>
-                          )}
-                        </div>
-                      ) : (
-                        <h1 className="text-white text-2xl font-bold">{media.episode_title || media.title}</h1>
-                      );
-                    })()}
-                  </div>
-
-                  <div className="flex items-center gap-4">
+                  <div className="flex items-center gap-3">
                     {/* Cast: HomeFlix TV apps + Chromecast */}
                     <HomeflixCastControl
                       cast={homeflixCast}
@@ -4379,20 +4359,11 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                         onClick: handleCastClick,
                       }}
                     />
-
-                    <button
-                      onClick={handleClose}
-                      className="text-white hover:text-red-500 transition-colors p-3 bg-black/50 rounded-full hover:bg-black/70 border border-white/20 hover:border-red-500/50 z-50"
-                      title="Close (Esc)"
-                      type="button"
-                    >
-                      <X className="w-6 h-6" />
-                    </button>
                   </div>
                 </div>
 
                 {/* Bottom Controls */}
-                <div className="absolute bottom-0 left-0 right-0 p-10 pointer-events-auto z-50">
+                <div className="absolute bottom-0 left-0 right-0 px-4 pb-3 pt-10 md:px-7 md:pb-5 pointer-events-auto z-50">
                   <div
                     className="progress-container relative w-full h-1 cursor-pointer hover:h-1.5 transition-all duration-150 mb-4 group"
                     onClick={(e) => {
@@ -4524,152 +4495,116 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                   </div>
 
 
-                  {/* Control Buttons */}
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                      <button
-                        type="button"
-                        onClick={togglePlay}
-                        className="text-white hover:text-white/70 transition-colors"
-                        title={isPlaying ? "Pause (Space)" : "Play (Space)"}
-                      >
-                        {(isCasting && castState.isConnected ? castState.playerState === 'PLAYING' : isPlaying) ? (
-                          <Pause className="w-8 h-8" />
-                        ) : (
-                          <Play className="w-8 h-8 fill-current" />
-                        )}
-                      </button>
+                  {/* Control Buttons (Netflix-style row) */}
+                  {(() => {
+                    const chromecasting = isCasting && castState.isConnected;
+                    const playingNow = chromecasting ? castState.playerState === 'PLAYING' : isPlaying;
+                    const mutedNow = chromecasting ? castState.isMuted : isMuted;
+                    const volNow = mutedNow ? 0 : (chromecasting ? castState.volumeLevel : volume);
+                    const shownTime = chromecasting ? castState.currentTime : currentTime;
+                    const shownDuration = chromecasting ? castState.duration : duration;
+                    const episodeLabel = media.type === 'episode'
+                      ? [media.season_number ? `S${media.season_number}` : '', media.episode_number ? `E${media.episode_number}` : ''].join(':').replace(/^:|:$/g, '')
+                      : '';
+                    return (
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex min-w-0 items-center gap-1 md:gap-3">
+                          <PlayerIconButton label={playingNow ? 'Pause (Space)' : 'Play (Space)'} onClick={togglePlay}>
+                            {playingNow ? <Pause className="h-9 w-9 fill-current" strokeWidth={0} /> : <Play className="h-9 w-9 fill-current" strokeWidth={0} />}
+                          </PlayerIconButton>
+                          <PlayerIconButton label="Back 10 seconds (←)" onClick={() => seekBackward(10)}>
+                            <SkipIcon direction="back" />
+                          </PlayerIconButton>
+                          <PlayerIconButton label="Forward 10 seconds (→)" onClick={() => seekForward(10)}>
+                            <SkipIcon direction="forward" />
+                          </PlayerIconButton>
 
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => seekBackward(10)}
-                          className="text-white hover:text-red-500 transition-colors flex items-center gap-1"
-                          title="Skip back 10 seconds (←)"
-                        >
-                          <RotateCcw className="w-5 h-5" />
-                          <span className="text-xs">10</span>
-                        </button>
+                          {/* Volume: slider reveals on hover/focus */}
+                          <div className="group/vol flex items-center">
+                            <PlayerIconButton label={mutedNow ? 'Unmute (m)' : 'Mute (m)'} onClick={toggleMute}>
+                              {mutedNow || volNow === 0 ? <VolumeX className="h-8 w-8" /> : volNow < 0.5 ? <Volume1 className="h-8 w-8" /> : <Volume2 className="h-8 w-8" />}
+                            </PlayerIconButton>
+                            <div className="w-0 overflow-hidden opacity-0 transition-all duration-200 group-hover/vol:w-28 group-hover/vol:opacity-100 group-focus-within/vol:w-28 group-focus-within/vol:opacity-100">
+                              <input
+                                type="range"
+                                min="0"
+                                max="100"
+                                value={volNow * 100}
+                                onChange={handleVolumeChange}
+                                aria-label="Volume"
+                                className="ml-1 h-1 w-24 cursor-pointer appearance-none rounded-full volume-slider"
+                                style={{
+                                  background: `linear-gradient(to right, #fff 0%, #fff ${volNow * 100}%, rgba(255,255,255,0.3) ${volNow * 100}%, rgba(255,255,255,0.3) 100%)`,
+                                  WebkitAppearance: 'none',
+                                  appearance: 'none'
+                                }}
+                              />
+                            </div>
+                          </div>
 
-                        <button
-                          type="button"
-                          onClick={() => seekForward(10)}
-                          className="text-white hover:text-red-500 transition-colors flex items-center gap-1"
-                          title="Skip forward 10 seconds (→)"
-                        >
-                          <RotateCw className="w-5 h-5" />
-                          <span className="text-xs">10</span>
-                        </button>
-                        {/* Next Episode Button - Only show for episodes when next episode exists */}
-                        {nextEpisode && media.type === 'episode' && (
-                          <button
-                            type="button"
-                            onClick={() => {
+                          <span className="hidden whitespace-nowrap pl-1 text-[13px] tabular-nums text-white/75 sm:inline">
+                            {formatTime(shownTime)} / {shownDuration > 0 ? formatTime(shownDuration) : 'Live'}
+                          </span>
 
-                              handlePlayNext();
-                            }}
-                            className="bg-black/50 text-white rounded-full p-3 hover:bg-black/70 transition-all duration-200 hover:scale-110 flex items-center gap-2"
-                            title={`Play Next Episode: ${nextEpisode.title}`}
-                          >
-                            <span className="text-sm font-medium">Next</span>
-                            <Play className="w-5 h-5" />
-                          </button>
-                        )}
-                      </div>
-
-                      <div className="flex items-center gap-4">
-                        <button
-                          type="button"
-                          onClick={toggleMute}
-                          className="text-white hover:text-white/70 transition-colors"
-                          title={isMuted ? "Unmute (m)" : "Mute (m)"}
-                        >
-                          {(isCasting && castState.isConnected ? castState.isMuted : isMuted) ? (
-                            <VolumeX className="w-6 h-6" />
-                          ) : (
-                            <Volume2 className="w-6 h-6" />
+                          {/* Chromecast status */}
+                          {chromecasting && (
+                            <div className="hidden items-center gap-2 text-sm text-white/80 md:flex">
+                              <Tv className="h-4 w-4" />
+                              <span className="truncate">Casting to {castState.deviceName}</span>
+                              {castState.playerState === 'BUFFERING' && (
+                                <div className="h-3 w-3 animate-spin rounded-full border border-white/70 border-t-transparent" />
+                              )}
+                            </div>
                           )}
-                        </button>
-
-                        {/* Volume Slider */}
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="range"
-                            min="0"
-                            max="100"
-                            value={(isCasting && castState.isConnected ? castState.isMuted : isMuted) ? 0 : (isCasting && castState.isConnected ? castState.volumeLevel : volume) * 100}
-                            onChange={handleVolumeChange}
-                            className="w-20 h-1 bg-white/30 rounded-lg appearance-none cursor-pointer volume-slider"
-                            style={{
-                              background: `linear-gradient(to right, #ef4444 0%, #ef4444 ${isMuted ? 0 : volume * 100}%, rgba(255,255,255,0.3) ${isMuted ? 0 : volume * 100}%, rgba(255,255,255,0.3) 100%)`,
-                              WebkitAppearance: 'none',
-                              appearance: 'none'
-                            }}
-                          />
                         </div>
 
-
-
-                        <span className="text-white text-sm">
-                          {formatTime(isCasting && castState.isConnected ? castState.currentTime : currentTime)} / {duration > 0 ? formatTime(isCasting && castState.isConnected ? castState.duration : duration) : 'Live'}
-                        </span>
-
-                        {/* Cast status indicator */}
-                        {isCasting && castState.isConnected && (
-                          <div className="flex items-center gap-2 text-blue-400 text-sm">
-                            <Tv className="w-4 h-4" />
-                            <span>Casting to {castState.deviceName}</span>
-                            {castState.playerState === 'BUFFERING' && (
-                              <div className="w-3 h-3 border border-blue-400 border-t-transparent rounded-full animate-spin" />
+                        {/* Centered title */}
+                        <div className="pointer-events-none hidden min-w-0 flex-1 justify-center px-4 text-center lg:flex">
+                          <p className="truncate text-[17px] text-white/95">
+                            {media.type === 'episode' ? (
+                              <>
+                                <span className="font-semibold">{(media as any).series_title || media.title}</span>
+                                {episodeLabel && <span className="ml-2 text-white/80">{episodeLabel}</span>}
+                                {media.episode_title && <span className="ml-2 text-white/70">{media.episode_title}</span>}
+                              </>
+                            ) : (
+                              media.title
                             )}
-                            {castState.playerState === 'PLAYING' && (
-                              <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
-                            )}
-                          </div>
-                        )}
+                          </p>
+                        </div>
+
+                        <div className="flex items-center gap-1 md:gap-3">
+                          {/* Next Episode */}
+                          {nextEpisode && media.type === 'episode' && (
+                            <PlayerIconButton label={`Next Episode: ${nextEpisode.title}`} onClick={() => handlePlayNext()}>
+                              <SkipForward className="h-8 w-8 fill-current" strokeWidth={1.5} />
+                            </PlayerIconButton>
+                          )}
+
+                          {/* Audio & Subtitles panel */}
+                          <PlayerIconButton
+                            label={`Audio & Subtitles${availableSubtitles.length ? ` (${availableSubtitles.length} subtitle track${availableSubtitles.length > 1 ? 's' : ''})` : ''} - c toggles subtitles`}
+                            onClick={() => setShowTracksPanel((v) => !v)}
+                            active={showTracksPanel || subtitlesEnabled}
+                          >
+                            <MessageSquareText className={`h-8 w-8 ${subtitlesEnabled ? 'fill-white/25' : ''}`} />
+                          </PlayerIconButton>
+
+                          {/* Playback speed */}
+                          <SpeedControl rate={playbackRate} onChange={handlePlaybackRateChange} icon={<Gauge className="h-8 w-8" />} />
+
+                          {/* Advanced settings: subtitle style, stable volume, boost */}
+                          <PlayerIconButton label="Settings" onClick={() => setShowSettings(true)} buttonRef={settingsButtonRef}>
+                            <Settings className="h-7 w-7" />
+                          </PlayerIconButton>
+
+                          <PlayerIconButton label={isFullscreen ? 'Exit Fullscreen (f)' : 'Fullscreen (f)'} onClick={toggleFullscreen}>
+                            {isFullscreen ? <Minimize className="h-8 w-8" /> : <Maximize className="h-8 w-8" />}
+                          </PlayerIconButton>
+                        </div>
                       </div>
-                    </div>
-
-                    <div className="flex items-center gap-4">
-                      {/* Subtitles Button */}
-                      {availableSubtitles.length > 0 && (
-                        <button
-                          type="button"
-                          onClick={toggleSubtitles}
-                          className={`transition-colors ${subtitlesEnabled ? 'text-red-500 hover:text-red-400' : 'text-white hover:text-white/70'
-                            }`}
-                          title={`${subtitlesEnabled ? "Disable" : "Enable"} Subtitles (c) - ${availableSubtitles.length} track${availableSubtitles.length > 1 ? 's' : ''} available (${availableSubtitles.filter(s => s.trackType === 'internal').length} internal, ${availableSubtitles.filter(s => s.trackType === 'external').length} external)`}
-                        >
-                          <Subtitles className="w-6 h-6" />
-                        </button>
-                      )}
-
-                      {/* Settings Button */}
-                      <button
-                        ref={settingsButtonRef}
-                        type="button"
-                        onClick={() => setShowSettings(true)}
-                        className="text-white hover:text-white/70 transition-colors"
-                        title="Settings"
-                      >
-                        <Settings className="w-6 h-6" />
-                      </button>
-
-
-                      <button
-                        type="button"
-                        onClick={toggleFullscreen}
-                        className="text-white hover:text-white/70 transition-colors"
-                        title={isFullscreen ? "Exit Fullscreen (f)" : "Enter Fullscreen (f)"}
-                      >
-                        {isFullscreen ? (
-                          <Minimize className="w-6 h-6" />
-                        ) : (
-                          <Maximize className="w-6 h-6" />
-                        )}
-                      </button>
-                    </div>
-                  </div>
+                    );
+                  })()}
                 </div>
               </motion.div>
             )}
@@ -4729,6 +4664,21 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
               />
             )
           }
+
+          {/* Audio & Subtitles panel */}
+          <AudioSubtitlesPanel
+            open={showTracksPanel}
+            onClose={() => setShowTracksPanel(false)}
+            mediaId={media.id}
+            currentAudio={currentAudioTrack}
+            currentSubtitle={currentSubtitleTrack}
+            subtitlesOn={subtitlesEnabled}
+            onSelectAudio={handleAudioTrackChange}
+            onSelectSubtitle={(trackId) => {
+              handleSubtitleTrackChange(trackId);
+              setSubtitlesEnabled(trackId !== null);
+            }}
+          />
 
           {/* Settings Panel */}
           <VideoPlayerSettings
