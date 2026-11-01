@@ -20,13 +20,14 @@
  * - Optimized for unlimited LAN bandwidth
  */
 
-import React, { useRef, useEffect, useState, useCallback } from "react";
+import React, { useRef, useEffect, useState, useCallback, useMemo } from "react";
 import { Play, Pause, Volume2, VolumeX, Maximize, RotateCcw, RotateCw, X, Minimize, Subtitles, Tv, Settings } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { getApiUrl } from '@/lib/api';
 import { attachStreamSource, AttachedStream, fetchStreamInfo } from '@/lib/streamSource';
 import RedLoader from './RedLoader';
-import CastButton from './CastButton';
+import HomeflixCastControl, { HomeflixCastRemote } from './cast/HomeflixCastControl';
+import { useHomeflixCast, CastMediaRef } from '@/hooks/useHomeflixCast';
 import VideoPlayerSettings from './VideoPlayerSettings';
 import { useChromecast, CastMedia } from '@/hooks/useChromecast';
 
@@ -151,6 +152,29 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
   const [showResumeNotification, setShowResumeNotification] = useState(false);
   const [resumeTime, setResumeTime] = useState(0);
   const [isCasting, setIsCasting] = useState(false);
+
+  // Cast to the HomeFlix TV app. Owned here (not by the auto-hiding controls
+  // bar) so the session and remote survive the controls hiding.
+  const homeflixCast = useHomeflixCast();
+  const castMediaRef: CastMediaRef = useMemo(() => ({
+    id: media.id,
+    type: media.type === 'episode' ? 'episode' : 'movie',
+    title: media.title,
+    series_id: media.series_id || undefined,
+    season: media.season_number || undefined,
+    episode: media.episode_number || undefined,
+    poster: `${getApiUrl()}/api/posters/${media.id}`,
+  }), [media.id, media.type, media.title, media.series_id, media.season_number, media.episode_number]);
+  const handleHomeflixCastStart = useCallback(() => {
+    videoRef.current?.pause();
+    setIsPlaying(false);
+  }, []);
+  const handleHomeflixCastEnd = useCallback((position: number) => {
+    const video = videoRef.current;
+    if (!video || position < 0) return; // stopped: stay paused here
+    if (position > 0) video.currentTime = position;
+    video.play().catch(() => { });
+  }, []);
   const [isTranscoded, setIsTranscoded] = useState(false);
   const [hasInitiallyLoaded, setHasInitiallyLoaded] = useState(false);
   const [showIntroAnimation, setShowIntroAnimation] = useState(true);
@@ -1168,6 +1192,13 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
   // Hide intro animation after it completes AND video is actually playing
   useEffect(() => {
     if (showIntroAnimation && isOpen) {
+      // Never cover the player forever: if the stream fails or stalls the
+      // video never reaches "playing", and the intro used to stay up
+      // indefinitely (hiding controls and the loading/buffering state).
+      if (!isPlaying) {
+        const safety = setTimeout(() => setShowIntroAnimation(false), 10000);
+        return () => clearTimeout(safety);
+      }
       // Wait for video to actually start playing before hiding intro
       if (isPlaying) {
         // Add a minimum display time for the animation
@@ -4101,7 +4132,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
                 transition={{ duration: 0.2 }}
-                className="absolute inset-0 flex items-center justify-center bg-black/60 backdrop-blur-sm z-40"
+                className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/60 backdrop-blur-sm z-40"
               >
                 {/* HOMEFLIX branded seeking screen */}
                 <div className="flex flex-col items-center">
@@ -4334,14 +4365,19 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                   </div>
 
                   <div className="flex items-center gap-4">
-                    {/* Cast Button */}
-                    <CastButton
-                      isAvailable={castState.isAvailable}
-                      isConnected={castState.isConnected}
-                      isConnecting={castState.isConnecting}
-                      deviceName={castState.deviceName}
-                      onClick={handleCastClick}
-                      className="p-3 bg-black/50 rounded-full hover:bg-black/70 border border-white/20 hover:border-blue-500/50 transition-all"
+                    {/* Cast: HomeFlix TV apps + Chromecast */}
+                    <HomeflixCastControl
+                      cast={homeflixCast}
+                      media={castMediaRef}
+                      getCurrentTime={() => videoRef.current?.currentTime || 0}
+                      onCastStart={handleHomeflixCastStart}
+                      onCastEnd={handleHomeflixCastEnd}
+                      chromecast={{
+                        available: castState.isAvailable,
+                        connected: castState.isConnected,
+                        deviceName: castState.deviceName,
+                        onClick: handleCastClick,
+                      }}
                     />
 
                     <button
@@ -4595,16 +4631,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                     </div>
 
                     <div className="flex items-center gap-4">
-                      {/* Cast Button in bottom controls */}
-                      <CastButton
-                        isAvailable={castState.isAvailable}
-                        isConnected={castState.isConnected}
-                        isConnecting={castState.isConnecting}
-                        deviceName={castState.deviceName}
-                        onClick={handleCastClick}
-                        className=""
-                      />
-
                       {/* Subtitles Button */}
                       {availableSubtitles.length > 0 && (
                         <button
@@ -5085,6 +5111,9 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
               </motion.div>
             )}
           </AnimatePresence>
+
+          {/* HomeFlix TV remote: stays mounted while controls auto-hide */}
+          <HomeflixCastRemote cast={homeflixCast} media={castMediaRef} onCastEnd={handleHomeflixCastEnd} />
         </motion.div>
       )}
     </AnimatePresence>

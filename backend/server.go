@@ -271,7 +271,8 @@ func main() {
 		// Media streams get no deadline: a movie is one long response read
 		// at playback speed, and a fixed timeout stops it mid-play. Client
 		// disconnects still cancel the request context.
-		if strings.HasPrefix(c.Request.URL.Path, "/api/stream/") {
+		// Long-lived cast connections (TV WebSocket, status SSE) too.
+		if strings.HasPrefix(c.Request.URL.Path, "/api/stream/") || strings.HasPrefix(c.Request.URL.Path, "/api/cast/") {
 			c.Next()
 			return
 		}

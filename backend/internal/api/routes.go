@@ -287,6 +287,14 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		api.GET("/media/:id/cast-images", handlers.GetCastImages(mediaService, tmdbService))
 		api.POST("/admin/generate-recommendations", handlers.GenerateRecommendations(geminiService))
 
+		// Cast to the HomeFlix TV app (see docs/TV_CAST_PROTOCOL.md)
+		castHub := services.NewCastHub()
+		api.GET("/cast/tv/ws", handlers.CastTVSocket(castHub))
+		api.GET("/cast/devices", handlers.ListCastDevices(castHub))
+		api.GET("/cast/devices/:id/status", handlers.GetCastDeviceStatus(castHub))
+		api.GET("/cast/devices/:id/events", handlers.CastDeviceEvents(castHub))
+		api.POST("/cast/devices/:id/command", handlers.SendCastCommand(castHub))
+
 		// Personalised recommendations learned from watch history
 		tasteService := services.NewTasteService(db)
 		api.GET("/recommendations/for-you", handlers.GetForYouRecommendations(tasteService))

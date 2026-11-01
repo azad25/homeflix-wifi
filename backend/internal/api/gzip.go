@@ -125,6 +125,12 @@ func (w *gzipResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	return w.ResponseWriter.Hijack()
 }
 
+// Unwrap lets http.ResponseController reach the underlying connection
+// (e.g. to lift the server's WriteTimeout for long-lived streams).
+func (w *gzipResponseWriter) Unwrap() http.ResponseWriter {
+	return w.ResponseWriter
+}
+
 func (w *gzipResponseWriter) finish() {
 	if w.compress && w.gz != nil {
 		_ = w.gz.Close()
