@@ -340,9 +340,14 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
     // No mount animation: every page renders its own Navbar, so a slide-in
     // replayed on each navigation and made page changes feel slow.
     <nav
-      className={`fixed top-0 left-0 right-0 z-40 transition-[background-color,backdrop-filter,border-color] duration-300 border-b ${isScrolled
-        ? "bg-black/55 backdrop-blur-2xl backdrop-saturate-150 border-white/[0.06]"
-        : "bg-gradient-to-b from-black/60 to-transparent border-transparent"
+      // No border and no hard-edged blurred bar: a transparent border-b
+      // repeated the gradient's dark top colour underneath it (background is
+      // sized to the padding box), drawing a 1px black line under the nav, and
+      // the blurred bar's edge read as a dark seam over hero artwork. The tab
+      // pill carries its own glass, so the bar is just a soft fade.
+      className={`fixed top-0 left-0 right-0 z-40 transition-opacity duration-300 ${isScrolled
+        ? "bg-gradient-to-b from-black/90 via-black/60 to-transparent"
+        : "bg-gradient-to-b from-black/60 to-transparent"
         }`}
     >
       <div className="px-4 md:px-8 lg:px-16">
