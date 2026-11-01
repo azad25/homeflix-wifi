@@ -21,6 +21,9 @@ interface HomeflixCastControlProps {
   /** Existing Chromecast integration, offered in the same menu. */
   chromecast?: { available: boolean; connected: boolean; deviceName?: string | null; onClick: () => void };
   className?: string;
+  /** Menu direction: "up" for bottom bars (default), "down" for top bars. */
+  placement?: "up" | "down";
+  onOpenChange?: (open: boolean) => void;
 }
 
 const fmt = (s: number) => {
@@ -44,8 +47,16 @@ export default function HomeflixCastControl({
   onCastEnd,
   chromecast,
   className = "",
+  placement = "up",
+  onOpenChange,
 }: HomeflixCastControlProps) {
   const [open, setOpen] = useState(false);
+  const onOpenChangeRef = useRef(onOpenChange);
+  onOpenChangeRef.current = onOpenChange;
+  useEffect(() => {
+    onOpenChangeRef.current?.(open);
+  }, [open]);
+  const down = placement === "down";
   const menuRef = useRef<HTMLDivElement>(null);
   const { refreshDevices } = cast;
 
@@ -104,11 +115,13 @@ export default function HomeflixCastControl({
         {open && (
           <motion.div
             role="menu"
-            initial={{ opacity: 0, y: 6, scale: 0.98 }}
+            initial={{ opacity: 0, y: down ? -6 : 6, scale: 0.98 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 6, scale: 0.98 }}
+            exit={{ opacity: 0, y: down ? -6 : 6, scale: 0.98 }}
             transition={{ duration: 0.15 }}
-            className="absolute bottom-full right-0 z-[70] mb-3 w-72 overflow-hidden rounded-2xl border border-white/10 bg-zinc-900/90 p-2 text-white shadow-2xl backdrop-blur-2xl"
+            className={`absolute right-0 z-[70] w-72 max-w-[calc(100vw-2rem)] overflow-y-auto ${
+              down ? "top-full mt-3 max-h-[calc(100vh-7rem)]" : "bottom-full mb-3 max-h-[calc(100vh-8rem)]"
+            } rounded-2xl border border-white/10 bg-zinc-900/90 p-2 text-white shadow-2xl backdrop-blur-2xl`}
           >
             <div className="flex items-center justify-between px-2 pb-2 pt-1">
               <p className="text-sm font-semibold">Play on TV</p>

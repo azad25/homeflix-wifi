@@ -192,6 +192,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
   const [currentSubtitleText, setCurrentSubtitleText] = useState<string>('');
   const [audioIssueDetected, setAudioIssueDetected] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  // Cast device menu open: keep the controls (and the menu inside them) up
+  const castMenuOpenRef = useRef(false);
   const [showTracksPanel, setShowTracksPanel] = useState(false);
   const settingsButtonRef = useRef<HTMLButtonElement>(null);
   const [currentSubtitleTrack, setCurrentSubtitleTrack] = useState<number | null>(null);
@@ -2410,7 +2412,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
           clearTimeout(controlsTimeoutRef.current);
         }
         controlsTimeoutRef.current = setTimeout(() => {
-          if (!showSettings && !isDragging) {
+          if (!showSettings && !isDragging && !castMenuOpenRef.current) {
             setShowControls(false);
             const container = containerRef.current;
             if (container) {
@@ -2893,7 +2895,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
       }
 
       controlsTimeoutRef.current = setTimeout(() => {
-        if (isPlaying && !isDragging && !showSettings) {
+        if (isPlaying && !isDragging && !showSettings && !castMenuOpenRef.current) {
           setShowControls(false);
           // Hide cursor when controls hide
           if (container) {
@@ -2905,7 +2907,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
 
     const handleMouseLeave = () => {
       // Immediately hide controls and cursor when mouse leaves the video area
-      if (isPlaying && !isDragging && !showSettings) {
+      if (isPlaying && !isDragging && !showSettings && !castMenuOpenRef.current) {
         setShowControls(false);
         const container = containerRef.current;
         if (container) {
@@ -3267,6 +3269,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                 clearTimeout(controlsTimeoutRef.current);
               }
               controlsTimeoutRef.current = setTimeout(() => {
+                if (castMenuOpenRef.current) return;
                 setShowControls(false);
                 const container = containerRef.current;
                 if (container) {
@@ -4340,6 +4343,14 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
                       getCurrentTime={() => videoRef.current?.currentTime || 0}
                       onCastStart={handleHomeflixCastStart}
                       onCastEnd={handleHomeflixCastEnd}
+                      placement="down"
+                      onOpenChange={(o) => {
+                        castMenuOpenRef.current = o;
+                        if (o) {
+                          if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
+                          setShowControls(true);
+                        }
+                      }}
                       chromecast={{
                         available: castState.isAvailable,
                         connected: castState.isConnected,
