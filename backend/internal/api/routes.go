@@ -287,6 +287,11 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		api.GET("/media/:id/cast-images", handlers.GetCastImages(mediaService, tmdbService))
 		api.POST("/admin/generate-recommendations", handlers.GenerateRecommendations(geminiService))
 
+		// Personalised recommendations learned from watch history
+		tasteService := services.NewTasteService(db)
+		api.GET("/recommendations/for-you", handlers.GetForYouRecommendations(tasteService))
+		api.GET("/recommendations/more-like/:kind/:id", handlers.GetMoreLikeThis(tasteService))
+
 		// Main recommendations endpoint (handles category-based routing)
 		api.GET("/recommendations", handlers.GetRecommendations(recommendationService))
 

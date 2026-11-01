@@ -10,6 +10,7 @@ import HomeflixHero from '@/components/LocalMoviesHeroSlider';
 import { WidgetManagementButton } from '@/components/widgets';
 import BackendWidgetRenderer from '@/components/widgets/BackendWidgetRenderer';
 import ErrorBoundary from "@/components/ErrorBoundary";
+import ForYouShelves from "@/components/tv/ForYouShelves";
 
 // Memoized components for better performance
 const MemoizedHomeflixHero = React.memo(HomeflixHero);
@@ -112,6 +113,13 @@ export default function Home() {
 
       {/* HomeflixHero Section - Enhanced hero with preview clips and YouTube trailers */}
       <MemoizedHomeflixHero onPlay={handlePlay} onInfo={handleInfo} maxMovies={10} />
+
+      {/* Personalised rows learned from watch history */}
+      <ErrorBoundary>
+        <div className="relative z-10 pt-6">
+          <ForYouShelves />
+        </div>
+      </ErrorBoundary>
 
       {/* Widgets configured for the home page (Settings > Pages/Widgets).
           This was dropped by mistake in an unrelated commit, which left the
