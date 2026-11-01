@@ -129,7 +129,34 @@ const LocalRelatedMedia: React.FC<LocalRelatedMediaProps> = ({ currentMedia, cla
         const apiUrl = getApiUrl();
         if (!apiUrl) throw new Error('API URL not available');
 
-        const response = await fetch(`${apiUrl}/api/media/movies`, {
+        // Server-side "More Like This" (cast, director, franchise, genres...).
+        // Previously this page downloaded the whole movie library on every
+        // visit and compared genres in the browser.
+        try {
+          const likeRes = await fetch(`${apiUrl}/api/recommendations/more-like/movie/${currentMedia.id}?limit=12`, {
+            signal: controller.signal
+          });
+          if (likeRes.ok) {
+            const like = await likeRes.json();
+            const items = Array.isArray(like?.items) ? like.items : [];
+            if (items.length > 0) {
+              setRelatedMedia(items
+                .filter((it: any) => it.type === 'movie')
+                .map((it: any) => ({
+                  ...it,
+                  genres: (it.genre_names || []).map((name: string) => ({ name })),
+                  similarity: it.score,
+                })));
+              fetchedRef.current = currentMedia.id;
+              return;
+            }
+          }
+        } catch (likeErr: any) {
+          if (likeErr?.name === 'AbortError') throw likeErr;
+          // fall through to the client-side genre match below
+        }
+
+        const response = await fetch(`${apiUrl}/api/media/movies?limit=500`, {
           signal: controller.signal
         });
 
