@@ -5,6 +5,7 @@ import { Play, Plus, Check } from 'lucide-react';
 import { Media } from '@/types/media';
 import { getApiUrl } from '@/lib/api';
 import { useImageWithFallback } from '@/lib/imageUtils';
+import { useNearViewport } from '@/hooks/useNearViewport';
 
 interface NetflixMediaCardProps {
   media: Media;
@@ -49,6 +50,10 @@ const NetflixMediaCard: React.FC<NetflixMediaCardProps> = ({
   const dwellRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const { primarySrc, fallbackSrc } = useImageWithFallback(media.id, media.poster_url);
+  // Explicit near-viewport loading (native lazy loading sometimes skipped
+  // posters until the card was hovered).
+  const [cardRef, near] = useNearViewport<HTMLDivElement>(priority === 'high');
+  const imgRef = useRef<HTMLImageElement | null>(null);
 
   useEffect(() => () => {
     if (dwellRef.current) clearTimeout(dwellRef.current);
@@ -74,6 +79,12 @@ const NetflixMediaCard: React.FC<NetflixMediaCardProps> = ({
   };
 
   const imageSrc = fallbackError ? null : imageError ? fallbackSrc : primarySrc;
+
+  // Images served from cache can finish before React attaches onLoad.
+  useEffect(() => {
+    const img = imgRef.current;
+    if (img && img.complete && img.naturalWidth > 0) setImgLoaded(true);
+  }, [near, imageSrc]);
   const year =
     media.year ||
     (media.release_date ? new Date(media.release_date).getFullYear() : null);
@@ -86,6 +97,7 @@ const NetflixMediaCard: React.FC<NetflixMediaCardProps> = ({
 
   return (
     <div
+      ref={cardRef}
       className="tv-card-group group/poster relative"
       onMouseEnter={startDwell}
       onMouseLeave={stopDwell}
@@ -102,15 +114,16 @@ const NetflixMediaCard: React.FC<NetflixMediaCardProps> = ({
           {!imgLoaded && imageSrc && <div className="absolute inset-0 animate-pulse bg-white/[0.06]" />}
 
           {imageSrc ? (
-            <img
-              src={imageSrc}
-              alt=""
-              onLoad={() => setImgLoaded(true)}
-              onError={handleImageError}
-              loading={priority === 'high' ? 'eager' : 'lazy'}
-              decoding="async"
-              className="absolute inset-0 h-full w-full object-cover"
-            />
+            near && (
+              <img
+                ref={imgRef}
+                src={imageSrc}
+                alt=""
+                onLoad={() => setImgLoaded(true)}
+                onError={handleImageError}
+                className="absolute inset-0 h-full w-full object-cover"
+              />
+            )
           ) : (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-gradient-to-br from-zinc-800 to-zinc-900 p-3 text-center">
               <span className="text-2xl">🎬</span>

@@ -406,9 +406,9 @@ body {
   overflow: hidden;
   background: var(--tv-bg-elevated);
   box-shadow: 0 6px 16px -8px rgba(0, 0, 0, 0.6);
-  transform: translateZ(0);
+  /* No permanent translateZ/will-change: promoting every card in a large
+     grid to its own GPU layer can leave some unpainted until hovered. */
   transition: transform 0.35s var(--tv-ease), box-shadow 0.35s var(--tv-ease);
-  will-change: transform;
   outline: none;
 }
 .tv-card::after {

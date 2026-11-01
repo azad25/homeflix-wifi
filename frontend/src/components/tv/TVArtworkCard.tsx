@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
+import { useNearViewport } from "@/hooks/useNearViewport";
 import { Film } from "lucide-react";
 
 interface TVArtworkCardProps {
@@ -44,20 +45,22 @@ export default function TVArtworkCard({
   overlay,
 }: TVArtworkCardProps) {
   const [failed, setFailed] = useState(false);
+  // Shelves scroll horizontally: observe with a wide margin on both axes.
+  const [wrapRef, near] = useNearViewport<HTMLElement>(priority, "600px 800px");
   const width = variant === "landscape" ? "w-[78vw] max-w-[320px] sm:w-[300px] lg:w-[340px]" : "w-[40vw] max-w-[190px] sm:w-[170px] lg:w-[190px]";
   const aspect = variant === "landscape" ? "aspect-video" : "aspect-[2/3]";
 
   const art = (
     <div className={`tv-card ${aspect} w-full`}>
       {image && !failed ? (
-        <img
-          src={image}
-          alt=""
-          loading={priority ? "eager" : "lazy"}
-          decoding="async"
-          onError={() => setFailed(true)}
-          className="absolute inset-0 h-full w-full object-cover"
-        />
+        near && (
+          <img
+            src={image}
+            alt=""
+            onError={() => setFailed(true)}
+            className="absolute inset-0 h-full w-full object-cover"
+          />
+        )
       ) : (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-gradient-to-br from-zinc-800 to-zinc-900 p-3 text-center">
           <Film className="h-7 w-7 text-white/30" />
@@ -96,14 +99,14 @@ export default function TVArtworkCard({
 
   if (href) {
     return (
-      <a href={href} className={common} aria-label={title} onClick={onSelect}>
+      <a ref={wrapRef as React.Ref<HTMLAnchorElement>} href={href} className={common} aria-label={title} onClick={onSelect}>
         {art}
         {label}
       </a>
     );
   }
   return (
-    <button type="button" className={common} aria-label={title} onClick={onSelect}>
+    <button ref={wrapRef as React.Ref<HTMLButtonElement>} type="button" className={common} aria-label={title} onClick={onSelect}>
       {art}
       {label}
     </button>
