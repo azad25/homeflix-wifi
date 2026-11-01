@@ -1432,6 +1432,21 @@ func (s *MediaService) CreateSubtitleTrack(track *models.SubtitleTrack) error {
 	})
 }
 
+// UpsertExternalSubtitleTrack stores an external subtitle track, replacing
+// any existing track rows for the same media + file path. Re-downloading a
+// subtitle overwrites the same file on disk, and the file watcher may also
+// register it, so a plain insert left duplicate entries behind.
+func (s *MediaService) UpsertExternalSubtitleTrack(track *models.SubtitleTrack) error {
+	return s.DBManager.WithTx(func(tx *gorm.DB) error {
+		if err := tx.Unscoped().
+			Where("media_id = ? AND file_path = ? AND track_type = ?", track.MediaID, track.FilePath, "external").
+			Delete(&models.SubtitleTrack{}).Error; err != nil {
+			return err
+		}
+		return tx.Create(track).Error
+	})
+}
+
 // CreateAudioTrack creates a new audio track entry
 func (s *MediaService) CreateAudioTrack(track *models.AudioTrack) error {
 	return s.DBManager.WithTx(func(tx *gorm.DB) error {

@@ -328,11 +328,11 @@ func (s *SubtitleMatcherService) DownloadAndSaveSubtitle(media *models.Media, su
 		IsHearing:   subtitle.Attributes.HearingImpaired,
 	}
 	
-	if err := s.mediaService.CreateSubtitleTrack(subtitleTrack); err != nil {
+	if err := s.mediaService.UpsertExternalSubtitleTrack(subtitleTrack); err != nil {
 		return fmt.Errorf("failed to create subtitle track: %v", err)
 	}
-	
-	log.Printf("✅ Subtitle track created in database")
+
+	log.Printf("✅ Subtitle track saved in database")
 	return nil
 }
 

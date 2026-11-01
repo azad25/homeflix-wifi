@@ -107,6 +107,230 @@ function PinChangeForm() {
   );
 }
 
+// SubtitleList component to show existing subtitles
+// Defined at module level on purpose: when it lived inside SettingsContent,
+// every parent render created a new component type, so React remounted it,
+// refetched, and flashed "Loading subtitles..." - collapsing its height and
+// making the panel (and the Auto Download button under it) jump around,
+// which swallowed clicks. `refreshKey` triggers explicit reloads instead.
+function SubtitleList({ mediaId, refreshKey = 0, onSubtitleDeleted, dialog, addTerminalOutput }: {
+mediaId: number;
+refreshKey?: number;
+onSubtitleDeleted: () => void;
+dialog: any;
+addTerminalOutput: (message: string) => void;
+}) {
+  const [subtitles, setSubtitles] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [clearingAll, setClearingAll] = useState(false);
+
+  // Only show the loading state when switching media; refreshes keep the
+  // current list on screen so the layout doesn't jump.
+  useEffect(() => {
+    setLoading(true);
+    setSubtitles([]);
+  }, [mediaId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadSubtitles = async () => {
+      try {
+        const response = await fetch(`${getApiUrl()}/api/media/${mediaId}/subtitles`);
+        if (response.ok && !cancelled) {
+          const data = await response.json();
+          setSubtitles(Array.isArray(data) ? data : []);
+        }
+      } catch (error) {
+        console.error('Failed to load subtitles:', error);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+
+    loadSubtitles();
+    return () => { cancelled = true; };
+  }, [mediaId, refreshKey]);
+
+  const handleDeleteSubtitle = async (trackId: number) => {
+    const confirmed = await dialog.confirm(
+      'Delete Subtitle',
+      'Are you sure you want to delete this subtitle?',
+      true
+    );
+    if (!confirmed) return;
+
+    try {
+      const response = await fetch(`${getApiUrl()}/api/admin/media/${mediaId}/subtitles/${trackId}`, {
+        method: 'DELETE'
+      });
+
+      if (response.ok) {
+        setSubtitles(prev => prev.filter(sub => sub.id !== trackId));
+        addTerminalOutput(`✅ Deleted subtitle track: ${trackId}`);
+        onSubtitleDeleted();
+      } else {
+        const errorData = await response.json().catch(() => ({ error: response.statusText }));
+        addTerminalOutput(`❌ Failed to delete subtitle: ${errorData.error || response.statusText}`);
+      }
+    } catch (error) {
+      addTerminalOutput(`❌ Error deleting subtitle: ${error}`);
+    }
+  };
+
+  const handleClearAllSubtitles = async () => {
+    if (subtitles.length === 0) return;
+
+    const confirmed = await dialog.confirm(
+      'Delete All Subtitles',
+      `Are you sure you want to delete ALL ${subtitles.length} subtitle(s)? This action cannot be undone.`,
+      true
+    );
+    if (!confirmed) return;
+
+    setClearingAll(true);
+    addTerminalOutput(`🗑️ Clearing all ${subtitles.length} subtitles for media ID: ${mediaId}`);
+
+    try {
+      let deletedCount = 0;
+      let errorCount = 0;
+
+      // Delete each subtitle individually
+      for (const subtitle of subtitles) {
+        try {
+          const response = await fetch(`${getApiUrl()}/api/admin/media/${mediaId}/subtitles/${subtitle.id}`, {
+            method: 'DELETE'
+          });
+
+          if (response.ok) {
+            deletedCount++;
+            addTerminalOutput(`✅ Deleted subtitle: ${subtitle.language || 'Unknown'} (ID: ${subtitle.id})`);
+          } else {
+            errorCount++;
+            const errorData = await response.json().catch(() => ({ error: response.statusText }));
+            addTerminalOutput(`❌ Failed to delete subtitle ${subtitle.id}: ${errorData.error || response.statusText}`);
+          }
+        } catch (error) {
+          errorCount++;
+          addTerminalOutput(`❌ Error deleting subtitle ${subtitle.id}: ${error}`);
+        }
+      }
+
+      // Update local state
+      setSubtitles([]);
+
+      // Summary message
+      if (deletedCount > 0) {
+        addTerminalOutput(`✅ Successfully deleted ${deletedCount} subtitle(s)`);
+      }
+      if (errorCount > 0) {
+        addTerminalOutput(`⚠️ Failed to delete ${errorCount} subtitle(s)`);
+      }
+
+      // Notify parent component
+      onSubtitleDeleted();
+
+    } catch (error) {
+      addTerminalOutput(`❌ Error during bulk subtitle deletion: ${error}`);
+    } finally {
+      setClearingAll(false);
+    }
+  };
+
+  const handleDownloadSubtitle = async (subtitle: any) => {
+    try {
+      const response = await fetch(`${getApiUrl()}/api/media/${mediaId}/subtitles/${subtitle.id}/file`);
+
+      if (response.ok) {
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${subtitle.language || 'subtitle'}.srt`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+        addTerminalOutput(`✅ Downloaded subtitle: ${subtitle.language}`);
+      } else {
+        addTerminalOutput(`❌ Failed to download subtitle`);
+      }
+    } catch (error) {
+      addTerminalOutput(`❌ Error downloading subtitle: ${error}`);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="mt-4">
+        <h5 className="text-white/80 text-sm font-medium mb-2">Available Subtitles:</h5>
+        <div className="text-white/60 text-sm">Loading subtitles...</div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-4">
+      <div className="flex items-center justify-between mb-2">
+        <h5 className="text-white/80 text-sm font-medium">Available Subtitles ({subtitles.length}):</h5>
+        {subtitles.length > 0 && (
+          <button
+            onClick={handleClearAllSubtitles}
+            disabled={clearingAll}
+            className="text-red-400 hover:text-red-300 text-xs px-2 py-1 rounded bg-red-400/10 hover:bg-red-400/20 transition-colors duration-200 flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
+            title="Delete all subtitles for this media"
+          >
+            {clearingAll ? (
+              <>
+                <div className="animate-spin rounded-full h-3 w-3 border-b border-red-400"></div>
+                <span>Clearing...</span>
+              </>
+            ) : (
+              <>
+                <Trash2 className="w-3 h-3" />
+                <span>Clear All</span>
+              </>
+            )}
+          </button>
+        )}
+      </div>
+      <div className="space-y-2 max-h-32 overflow-y-auto">
+        {subtitles.length === 0 ? (
+          <div className="text-white/60 text-sm">No subtitles found</div>
+        ) : (
+          subtitles.map((subtitle) => (
+            <div key={subtitle.id} className="flex items-center justify-between bg-white/5 rounded p-2">
+              <div className="flex-1">
+                <div className="text-white text-sm font-medium">{String(subtitle.language || 'Unknown')}</div>
+                <div className="text-white/60 text-xs">
+                  {String(subtitle.track_type || '')} • {String(subtitle.codec_name || '')}
+                  {subtitle.is_default && ' • Default'}
+                  {subtitle.is_forced && ' • Forced'}
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => handleDownloadSubtitle(subtitle)}
+                  className="text-blue-400 hover:text-blue-300 p-1"
+                  title="Download subtitle as SRT"
+                >
+                  <Download className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => handleDeleteSubtitle(subtitle.id)}
+                  className="text-red-400 hover:text-red-300 p-1"
+                  title="Delete subtitle"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
 function SettingsContent() {
   usePageTitle('Settings');
   const dialog = useDialog();
@@ -157,6 +381,9 @@ function SettingsContent() {
   const [openSubtitlesQuery, setOpenSubtitlesQuery] = useState('');
   const [selectedLanguage, setSelectedLanguage] = useState('en');
   const [downloadingSubtitle, setDownloadingSubtitle] = useState<number | null>(null);
+  // Bumped after any action that adds subtitles so <SubtitleList> reloads.
+  const [subtitleRefreshKey, setSubtitleRefreshKey] = useState(0);
+  const refreshSubtitles = () => setSubtitleRefreshKey(k => k + 1);
   const [folderTreeData, setFolderTreeData] = useState<any[]>([]);
   const [loadingTreeData, setLoadingTreeData] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -1980,6 +2207,7 @@ function SettingsContent() {
       }
 
       addTerminalOutput(`✅ Subtitle upload completed for ${selectedMedia.title}`);
+      refreshSubtitles();
 
       // Refresh media data to show new subtitles
       const mediaResponse = await fetch(`${getApiUrl()}/api/media/${selectedMedia.id}`);
@@ -2010,6 +2238,7 @@ function SettingsContent() {
       if (response.ok) {
         const result = await response.json();
         addTerminalOutput(`✅ Subtitle scan completed successfully`);
+        refreshSubtitles();
         addTerminalOutput(`📊 Found ${result.totalSubtitles || 0} subtitle files`);
         addTerminalOutput(`📝 Matched ${result.matchedSubtitles || 0} subtitles to media`);
         addTerminalOutput(`⚠️ Unmatched ${result.unmatchedSubtitles || 0} subtitle files`);
@@ -2253,6 +2482,7 @@ function SettingsContent() {
       if (response.ok) {
         const result = await response.json();
         addTerminalOutput(`✅ Subtitle downloaded successfully: ${result.language}`);
+        refreshSubtitles();
         addTerminalOutput(`📁 Saved as: ${result.path}`);
 
         if (result.remaining !== undefined) {
@@ -2376,209 +2606,6 @@ function SettingsContent() {
     }
   };
 
-  // SubtitleList component to show existing subtitles
-  const SubtitleList = ({ mediaId, onSubtitleDeleted, dialog }: { mediaId: number, onSubtitleDeleted: () => void, dialog: any }) => {
-    const [subtitles, setSubtitles] = useState<any[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [clearingAll, setClearingAll] = useState(false);
-
-    useEffect(() => {
-      const loadSubtitles = async () => {
-        try {
-          const response = await fetch(`${getApiUrl()}/api/media/${mediaId}/subtitles`);
-          if (response.ok) {
-            const data = await response.json();
-            setSubtitles(data || []);
-          }
-        } catch (error) {
-          console.error('Failed to load subtitles:', error);
-        } finally {
-          setLoading(false);
-        }
-      };
-
-      loadSubtitles();
-    }, [mediaId]);
-
-    const handleDeleteSubtitle = async (trackId: number) => {
-      const confirmed = await dialog.confirm(
-        'Delete Subtitle',
-        'Are you sure you want to delete this subtitle?',
-        true
-      );
-      if (!confirmed) return;
-
-      try {
-        const response = await fetch(`${getApiUrl()}/api/admin/media/${mediaId}/subtitles/${trackId}`, {
-          method: 'DELETE'
-        });
-
-        if (response.ok) {
-          setSubtitles(prev => prev.filter(sub => sub.id !== trackId));
-          addTerminalOutput(`✅ Deleted subtitle track: ${trackId}`);
-          onSubtitleDeleted();
-        } else {
-          const errorData = await response.json().catch(() => ({ error: response.statusText }));
-          addTerminalOutput(`❌ Failed to delete subtitle: ${errorData.error || response.statusText}`);
-        }
-      } catch (error) {
-        addTerminalOutput(`❌ Error deleting subtitle: ${error}`);
-      }
-    };
-
-    const handleClearAllSubtitles = async () => {
-      if (subtitles.length === 0) return;
-
-      const confirmed = await dialog.confirm(
-        'Delete All Subtitles',
-        `Are you sure you want to delete ALL ${subtitles.length} subtitle(s)? This action cannot be undone.`,
-        true
-      );
-      if (!confirmed) return;
-
-      setClearingAll(true);
-      addTerminalOutput(`🗑️ Clearing all ${subtitles.length} subtitles for media ID: ${mediaId}`);
-
-      try {
-        let deletedCount = 0;
-        let errorCount = 0;
-
-        // Delete each subtitle individually
-        for (const subtitle of subtitles) {
-          try {
-            const response = await fetch(`${getApiUrl()}/api/admin/media/${mediaId}/subtitles/${subtitle.id}`, {
-              method: 'DELETE'
-            });
-
-            if (response.ok) {
-              deletedCount++;
-              addTerminalOutput(`✅ Deleted subtitle: ${subtitle.language || 'Unknown'} (ID: ${subtitle.id})`);
-            } else {
-              errorCount++;
-              const errorData = await response.json().catch(() => ({ error: response.statusText }));
-              addTerminalOutput(`❌ Failed to delete subtitle ${subtitle.id}: ${errorData.error || response.statusText}`);
-            }
-          } catch (error) {
-            errorCount++;
-            addTerminalOutput(`❌ Error deleting subtitle ${subtitle.id}: ${error}`);
-          }
-        }
-
-        // Update local state
-        setSubtitles([]);
-
-        // Summary message
-        if (deletedCount > 0) {
-          addTerminalOutput(`✅ Successfully deleted ${deletedCount} subtitle(s)`);
-        }
-        if (errorCount > 0) {
-          addTerminalOutput(`⚠️ Failed to delete ${errorCount} subtitle(s)`);
-        }
-
-        // Notify parent component
-        onSubtitleDeleted();
-
-      } catch (error) {
-        addTerminalOutput(`❌ Error during bulk subtitle deletion: ${error}`);
-      } finally {
-        setClearingAll(false);
-      }
-    };
-
-    const handleDownloadSubtitle = async (subtitle: any) => {
-      try {
-        const response = await fetch(`${getApiUrl()}/api/media/${mediaId}/subtitles/${subtitle.id}/file`);
-
-        if (response.ok) {
-          const blob = await response.blob();
-          const url = window.URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = `${subtitle.language || 'subtitle'}.srt`;
-          document.body.appendChild(a);
-          a.click();
-          window.URL.revokeObjectURL(url);
-          document.body.removeChild(a);
-          addTerminalOutput(`✅ Downloaded subtitle: ${subtitle.language}`);
-        } else {
-          addTerminalOutput(`❌ Failed to download subtitle`);
-        }
-      } catch (error) {
-        addTerminalOutput(`❌ Error downloading subtitle: ${error}`);
-      }
-    };
-
-    if (loading) {
-      return (
-        <div className="mt-4">
-          <h5 className="text-white/80 text-sm font-medium mb-2">Available Subtitles:</h5>
-          <div className="text-white/60 text-sm">Loading subtitles...</div>
-        </div>
-      );
-    }
-
-    return (
-      <div className="mt-4">
-        <div className="flex items-center justify-between mb-2">
-          <h5 className="text-white/80 text-sm font-medium">Available Subtitles ({subtitles.length}):</h5>
-          {subtitles.length > 0 && (
-            <button
-              onClick={handleClearAllSubtitles}
-              disabled={clearingAll}
-              className="text-red-400 hover:text-red-300 text-xs px-2 py-1 rounded bg-red-400/10 hover:bg-red-400/20 transition-colors duration-200 flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
-              title="Delete all subtitles for this media"
-            >
-              {clearingAll ? (
-                <>
-                  <div className="animate-spin rounded-full h-3 w-3 border-b border-red-400"></div>
-                  <span>Clearing...</span>
-                </>
-              ) : (
-                <>
-                  <Trash2 className="w-3 h-3" />
-                  <span>Clear All</span>
-                </>
-              )}
-            </button>
-          )}
-        </div>
-        <div className="space-y-2 max-h-32 overflow-y-auto">
-          {subtitles.length === 0 ? (
-            <div className="text-white/60 text-sm">No subtitles found</div>
-          ) : (
-            subtitles.map((subtitle) => (
-              <div key={subtitle.id} className="flex items-center justify-between bg-white/5 rounded p-2">
-                <div className="flex-1">
-                  <div className="text-white text-sm font-medium">{String(subtitle.language || 'Unknown')}</div>
-                  <div className="text-white/60 text-xs">
-                    {String(subtitle.track_type || '')} • {String(subtitle.codec_name || '')}
-                    {subtitle.is_default && ' • Default'}
-                    {subtitle.is_forced && ' • Forced'}
-                  </div>
-                </div>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => handleDownloadSubtitle(subtitle)}
-                    className="text-blue-400 hover:text-blue-300 p-1"
-                    title="Download subtitle as SRT"
-                  >
-                    <Download className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => handleDeleteSubtitle(subtitle.id)}
-                    className="text-red-400 hover:text-red-300 p-1"
-                    title="Delete subtitle"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-      </div>
-    );
-  };
 
   const NetflixFileUploadSection = ({
     type,
@@ -2876,7 +2903,18 @@ function SettingsContent() {
                 </button>
               </div>
             )}
+            {/* One keyed child: AnimatePresence tracks children by key, and the
+                tabs below are unkeyed conditionals ('system' even renders twice).
+                That made it serve cached tab elements with stale click handlers
+                (e.g. Auto Download Best Match needing a second click). */}
             <AnimatePresence mode="wait">
+              <motion.div
+                key={activeTab}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                transition={{ duration: 0.2 }}
+              >
               {/* Dashboard Tab */}
               {activeTab === 'system' && (
                 <motion.div
@@ -3999,7 +4037,9 @@ function SettingsContent() {
                                   {selectedMedia && (
                                     <SubtitleList
                                       mediaId={selectedMedia.id}
+                                      refreshKey={subtitleRefreshKey}
                                       dialog={dialog}
+                                      addTerminalOutput={addTerminalOutput}
                                       onSubtitleDeleted={() => {
                                         // Refresh media data when subtitle is deleted
                                         fetchMediaList();
@@ -4098,6 +4138,7 @@ function SettingsContent() {
                                           if (response.ok) {
                                             const result = await response.json();
                                             addTerminalOutput(`✅ Subtitle downloaded successfully`);
+                                            refreshSubtitles();
                                             addTerminalOutput(`📁 Language: ${result.language || 'Unknown'}`);
                                             
                                             // Refresh media data
@@ -5243,6 +5284,7 @@ function SettingsContent() {
                 </ScrollReveal>
               )}
 
+              </motion.div>
             </AnimatePresence>
 
             {/* Modals */}

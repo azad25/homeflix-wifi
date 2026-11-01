@@ -39,9 +39,12 @@ export const GlassCard: React.FC<GlassCardProps> = ({
         shadow-xl
         ${className}
       `}
+      // No scale on hover: scaling large cards (e.g. the settings media panel)
+      // shifts every control inside by 10-20px as the pointer enters, so
+      // clicks landed beside buttons that were still moving.
       whileHover={hover ? {
-        scale: 1.02,
-        boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.25)"
+        boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.35)",
+        borderColor: "rgba(255, 255, 255, 0.3)"
       } : {}}
       transition={{ duration: 0.3, ease: "easeOut" }}
     >

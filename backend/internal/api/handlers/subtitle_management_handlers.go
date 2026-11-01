@@ -118,6 +118,7 @@ func DownloadSubtitleForMedia(matcherService *services.SubtitleMatcherService, m
 		c.JSON(http.StatusOK, gin.H{
 			"status":   "success",
 			"message":  "Subtitle downloaded successfully",
+			"language": "en",
 			"media_id": media.ID,
 			"title":    media.Title,
 		})

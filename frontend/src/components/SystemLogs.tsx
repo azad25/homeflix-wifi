@@ -766,7 +766,17 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
       const response = await fetch(`${getApiUrl()}/api/admin/system/info`);
       if (response.ok) {
         const data = await response.json();
-        setSystemInfo(data);
+        // Older backends / failed probes omit whole sections; fill them in so
+        // the dashboard never crashes on e.g. systemInfo.cpu.model.
+        const na = 'N/A';
+        setSystemInfo({
+          cpu: { model: na, cores: 0, threads: 0, max_freq: na, cache: na, arch: na, ...(data?.cpu || {}) },
+          gpu: { model: na, vendor: na, driver: na, memory: na, ...(data?.gpu || {}) },
+          memory: { total: na, type: na, speed: na, slots: na, ...(data?.memory || {}) },
+          disk: { model: na, type: na, total: na, ...(data?.disk || {}), partitions: Array.isArray(data?.disk?.partitions) ? data.disk.partitions : [] },
+          network: { hostname: na, ip_address: na, mac_address: na, ...(data?.network || {}), interfaces: Array.isArray(data?.network?.interfaces) ? data.network.interfaces : [] },
+          os: { name: na, version: na, kernel: na, platform: na, uptime: na, ...(data?.os || {}) },
+        } as SystemInfo);
         addTerminalOutput('💻 System information loaded');
       }
     } catch (error) {
