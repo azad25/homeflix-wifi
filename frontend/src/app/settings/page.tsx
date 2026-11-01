@@ -2001,6 +2001,7 @@ function SettingsContent() {
           if (!data.ok) addTerminalOutput(`❌ Update check: ${data.error}`);
           else if (data.update_available) addTerminalOutput(`⬆️ Update available: ${data.behind} commit(s) behind origin/${data.branch}`);
           else addTerminalOutput('✅ Already up to date');
+          if (data.ok && data.upgrade?.branch) addTerminalOutput(`🆕 New release available: ${data.upgrade.version} (${data.upgrade.branch})`);
         }
       } else if (!silent) addTerminalOutput('❌ Update check failed');
     } catch (e) {
@@ -2028,18 +2029,25 @@ function SettingsContent() {
     }
   };
 
-  const startUpdate = async () => {
-    if (!updateInfo?.update_available || updateRunning) return;
+  // targetBranch: switch to a newer release branch (e.g. release/v5.5)
+  // instead of pulling the current one.
+  const startUpdate = async (targetBranch?: string) => {
+    if (updateRunning || !updateInfo?.ok) return;
+    if (!targetBranch && !updateInfo.update_available) return;
     if (updateInfo.dirty) {
       addTerminalOutput(`❌ Commit or stash local changes first: ${(updateInfo.dirty_files || []).slice(0, 5).join(', ')}`);
       return;
     }
-    if (!window.confirm(`Pull ${updateInfo.behind} commit(s) from origin/${updateInfo.branch}, rebuild frontend + backend and restart services?\n\nServices will be briefly unavailable. Database and media files are never touched.`)) return;
+    const prompt = targetBranch
+      ? `Upgrade from ${updateInfo.branch} to ${targetBranch}?\n\nThe server switches to the new release branch, rebuilds frontend + backend and restarts. If a build fails it rolls back automatically. Database and media files are never touched.`
+      : `Pull ${updateInfo.behind} commit(s) from origin/${updateInfo.branch}, rebuild frontend + backend and restart services?\n\nServices will be briefly unavailable. Database and media files are never touched.`;
+    if (!window.confirm(prompt)) return;
     setUpdateRunning(true);
     setUpdateStatus({ state: 'running', phase: 'starting', message: 'Launching update job...' });
-    addTerminalOutput('🚀 Starting system update...');
+    addTerminalOutput(targetBranch ? `🚀 Upgrading to ${targetBranch}...` : '🚀 Starting system update...');
     try {
-      const res = await fetch(`${getApiUrl()}/api/admin/update/apply`, { method: 'POST' });
+      const qs = targetBranch ? `?branch=${encodeURIComponent(targetBranch)}` : '';
+      const res = await fetch(`${getApiUrl()}/api/admin/update/apply${qs}`, { method: 'POST' });
       const data = await res.json();
       if (!data.ok) {
         setUpdateRunning(false);
@@ -2985,6 +2993,28 @@ function SettingsContent() {
                         </div>
                       )}
 
+                      {updateInfo?.ok && updateInfo.upgrade?.branch && (
+                        <div className="bg-blue-500/10 border border-blue-400/30 rounded-lg p-4 mb-6 flex flex-col md:flex-row md:items-center gap-4">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-blue-300 text-sm font-semibold">New release available: {updateInfo.upgrade.version}</p>
+                            <p className="text-white/70 text-xs mt-1 truncate">
+                              {updateInfo.upgrade.remote?.short} · {updateInfo.upgrade.remote?.subject}
+                            </p>
+                            <p className="text-white/40 text-xs mt-1">
+                              You&apos;re on {updateInfo.branch}. Upgrading switches the server to {updateInfo.upgrade.branch}; it rolls back automatically if a build fails.
+                            </p>
+                          </div>
+                          <MagneticButton
+                            onClick={() => startUpdate(updateInfo.upgrade.branch)}
+                            disabled={updateRunning || updateInfo.dirty}
+                            className="bg-blue-500/20 hover:bg-blue-500/40 text-blue-200 py-2 px-5 rounded-lg flex items-center space-x-2 disabled:opacity-50 shrink-0"
+                          >
+                            <Download className="w-4 h-4" />
+                            <span>{updateRunning ? 'Updating…' : `Upgrade to ${updateInfo.upgrade.version}`}</span>
+                          </MagneticButton>
+                        </div>
+                      )}
+
                       {(updateRunning || (updateStatus && (updateStatus.state === 'running' || updateStatus.state === 'done' || updateStatus.state === 'error'))) && (
                         <div className="bg-black/40 border border-white/10 rounded-lg p-4 mb-6 font-mono text-xs">
                           <p className="text-blue-400 mb-1">
@@ -3010,7 +3040,7 @@ function SettingsContent() {
                           <span>{updateChecking ? 'Checking…' : 'Check for Updates'}</span>
                         </MagneticButton>
                         <MagneticButton
-                          onClick={startUpdate}
+                          onClick={() => startUpdate()}
                           disabled={updateRunning || !(updateInfo?.ok && updateInfo.update_available && !updateInfo.dirty)}
                           className="bg-[#E50914]/20 hover:bg-[#E50914]/40 text-red-400 py-2 px-5 rounded-lg flex items-center space-x-2 disabled:opacity-50"
                         >

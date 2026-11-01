@@ -8,6 +8,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -67,6 +70,86 @@ func gitCommitInfo(dir, rev string) map[string]string {
 	return info
 }
 
+// Release branches look like release/v5, release/v5.5, release/v6.0.1.
+var releaseBranchRe = regexp.MustCompile(`^release/v(\d+(?:\.\d+)*)$`)
+
+// releaseVersion parses "release/v5.5" into [5 5]; nil if not a release branch.
+func releaseVersion(branch string) []int {
+	m := releaseBranchRe.FindStringSubmatch(branch)
+	if m == nil {
+		return nil
+	}
+	parts := strings.Split(m[1], ".")
+	out := make([]int, len(parts))
+	for i, p := range parts {
+		n, err := strconv.Atoi(p)
+		if err != nil {
+			return nil
+		}
+		out[i] = n
+	}
+	return out
+}
+
+// compareVersions returns -1, 0 or 1 (missing parts count as 0: v5 == v5.0).
+func compareVersions(a, b []int) int {
+	for i := 0; i < len(a) || i < len(b); i++ {
+		var x, y int
+		if i < len(a) {
+			x = a[i]
+		}
+		if i < len(b) {
+			y = b[i]
+		}
+		if x != y {
+			if x < y {
+				return -1
+			}
+			return 1
+		}
+	}
+	return 0
+}
+
+// remoteReleaseBranches lists release/* branches on origin, oldest first.
+func remoteReleaseBranches(repoRoot string) ([]string, error) {
+	out, err := runGitCmd(repoRoot, 20*time.Second, "ls-remote", "--heads", "origin", "refs/heads/release/*")
+	if err != nil {
+		return nil, err
+	}
+	var branches []string
+	for _, line := range strings.Split(out, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) != 2 {
+			continue
+		}
+		name := strings.TrimPrefix(fields[1], "refs/heads/")
+		if releaseVersion(name) != nil {
+			branches = append(branches, name)
+		}
+	}
+	sort.Slice(branches, func(i, j int) bool {
+		return compareVersions(releaseVersion(branches[i]), releaseVersion(branches[j])) < 0
+	})
+	return branches, nil
+}
+
+// newerRelease returns the highest release branch newer than current ("" if none).
+func newerRelease(current string, branches []string) string {
+	cur := releaseVersion(current)
+	if cur == nil {
+		return "" // not on a release branch: don't suggest switching
+	}
+	best := ""
+	for _, b := range branches {
+		v := releaseVersion(b)
+		if compareVersions(v, cur) > 0 && (best == "" || compareVersions(v, releaseVersion(best)) > 0) {
+			best = b
+		}
+	}
+	return best
+}
+
 // CheckUpdate compares the local checkout with the remote branch.
 // Auto-discovers the current branch and its origin counterpart.
 func CheckUpdate() gin.HandlerFunc {
@@ -115,9 +198,27 @@ func CheckUpdate() gin.HandlerFunc {
 			dirtyFiles = append(dirtyFiles, line)
 		}
 
+		// Newer release branches (e.g. on release/v5, offer release/v5.5).
+		var releases []string
+		var upgrade gin.H
+		if list, err := remoteReleaseBranches(repoRoot); err == nil {
+			releases = list
+			if target := newerRelease(branch, list); target != "" {
+				if _, err := runGitCmd(repoRoot, 30*time.Second, "fetch", "origin", target); err == nil {
+					upgrade = gin.H{
+						"branch":  target,
+						"version": strings.TrimPrefix(target, "release/"),
+						"remote":  gitCommitInfo(repoRoot, "origin/"+target),
+					}
+				}
+			}
+		}
+
 		c.JSON(http.StatusOK, gin.H{
 			"ok":               true,
 			"branch":           branch,
+			"releases":         releases,
+			"upgrade":          upgrade,
 			"current":          gitCommitInfo(repoRoot, "HEAD"),
 			"remote":           gitCommitInfo(repoRoot, remoteRef),
 			"behind":           behind,
@@ -166,6 +267,28 @@ func ApplyUpdate() gin.HandlerFunc {
 		}
 
 		dryRun := c.Query("dry_run") == "1"
+
+		// Optional switch to another release branch (validated against origin).
+		targetBranch := strings.TrimSpace(c.Query("branch"))
+		if targetBranch != "" {
+			if releaseVersion(targetBranch) == nil {
+				c.JSON(http.StatusOK, gin.H{"ok": false, "error": "invalid release branch"})
+				return
+			}
+			list, err := remoteReleaseBranches(repoRoot)
+			if err != nil {
+				c.JSON(http.StatusOK, gin.H{"ok": false, "error": "cannot reach origin: " + err.Error()})
+				return
+			}
+			found := false
+			for _, b := range list {
+				found = found || b == targetBranch
+			}
+			if !found {
+				c.JSON(http.StatusOK, gin.H{"ok": false, "error": "branch " + targetBranch + " not found on origin"})
+				return
+			}
+		}
 		script := filepath.Join(repoRoot, "scripts", "perform-update.sh")
 		if _, err := os.Stat(script); err != nil {
 			c.JSON(http.StatusOK, gin.H{"ok": false, "error": "updater script missing: scripts/perform-update.sh"})
@@ -176,6 +299,7 @@ func ApplyUpdate() gin.HandlerFunc {
 			"state":   "running",
 			"phase":   "starting",
 			"dry_run": dryRun,
+			"branch":  targetBranch,
 			"message": "update job launched",
 		})
 
@@ -184,6 +308,9 @@ func ApplyUpdate() gin.HandlerFunc {
 		real := exec.Command("setsid", "bash", script)
 		if dryRun {
 			real.Args = append(real.Args, "--dry-run")
+		}
+		if targetBranch != "" {
+			real.Args = append(real.Args, "--branch", targetBranch)
 		}
 		real.Dir = repoRoot
 		lf, err := os.OpenFile(logFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
@@ -201,8 +328,8 @@ func ApplyUpdate() gin.HandlerFunc {
 			return
 		}
 		_ = real.Process.Release()
-		log.Printf("🚀 System update job started (dry_run=%v)", dryRun)
-		c.JSON(http.StatusOK, gin.H{"ok": true, "started": true, "dry_run": dryRun})
+		log.Printf("🚀 System update job started (dry_run=%v, branch=%q)", dryRun, targetBranch)
+		c.JSON(http.StatusOK, gin.H{"ok": true, "started": true, "dry_run": dryRun, "branch": targetBranch})
 	}
 }
 
