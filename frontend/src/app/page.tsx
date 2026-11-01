@@ -113,6 +113,13 @@ export default function Home() {
       {/* HomeflixHero Section - Enhanced hero with preview clips and YouTube trailers */}
       <MemoizedHomeflixHero onPlay={handlePlay} onInfo={handleInfo} maxMovies={10} />
 
+      {/* Widgets configured for the home page (Settings > Pages/Widgets).
+          This was dropped by mistake in an unrelated commit, which left the
+          home page as a lone hero and hid every "home" widget. */}
+      <ErrorBoundary>
+        <BackendWidgetRenderer page="home" className="relative z-10 space-y-10 pb-20 pt-6 md:space-y-12" />
+      </ErrorBoundary>
+
       {/* Video Player Modal */}
       {selectedMedia && (
         <VideoPlayer

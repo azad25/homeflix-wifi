@@ -9,14 +9,13 @@ import FeaturedBanner from './FeaturedBanner';
 import HalfWidthBanner from './HalfWidthBanner';
 import TrendingSlideshow from './TrendingSlideshow';
 import ComingSoonBanner from './ComingSoonBanner';
-import MovieGridWidget from './MovieGridWidget';
-import GenreBasedWidget from './GenreBasedWidget';
 import BackdropSlideshow from './BackdropSlideshow';
 import TrailerWidget from './TrailerWidget';
 import RecentlyWatchedWidget from './RecentlyWatchedWidget';
 import NotificationWidget from './NotificationWidget';
-import HomeflixGrid from './HomeflixGrid';
 import HeroVideoWidget from './HeroVideoWidget';
+import TVMediaShelf from '@/components/tv/TVMediaShelf';
+import TVMediaHero from '@/components/tv/TVMediaHero';
 
 interface BackendWidgetRendererProps {
     page: string;
@@ -275,7 +274,17 @@ export default function BackendWidgetRenderer({
             switch (widgetWithData.type) {
                 case 'featured-banner':
                 case 'specific-content':
-                    return (
+                    return media.length > 0 ? (
+                        <TVMediaHero
+                            key={widgetWithData.id}
+                            media={media}
+                            autoScroll={config.autoScroll !== false}
+                            scrollInterval={config.scrollInterval || 8}
+                            showLogo={config.showLogo !== false}
+                            showDescription={config.showDescription !== false}
+                            previews={config.autoPlay !== false}
+                        />
+                    ) : (
                         <FeaturedBanner
                             key={widgetWithData.id}
                             media={media}
@@ -377,43 +386,40 @@ export default function BackendWidgetRenderer({
                 case 'movie-grid':
                 case 'new-releases':
                 case 'recently-added':
-                    return (
-                        <MovieGridWidget
-                            key={widgetWithData.id}
-                            media={media}
-                            title={config.title || widgetWithData.name}
-                            subtitle={config.subtitle}
-                            maxItems={widgetWithData.max_items}
-                            showRating={config.showRating !== false}
-                        />
-                    );
-
                 case 'homeflix-grid':
+                    // Apple TV shelf. `cardStyle: "poster"` in widget config
+                    // switches to 2:3 posters.
                     return (
-                        <HomeflixGrid
+                        <TVMediaShelf
                             key={widgetWithData.id}
                             media={media}
                             title={config.title || widgetWithData.name}
                             subtitle={config.subtitle}
                             maxItems={widgetWithData.max_items}
                             showRating={config.showRating !== false}
-                            showYear={config.showYear !== false}
-                            autoScroll={config.autoScroll !== false}
-                            scrollInterval={config.scrollInterval || 5000}
+                            variant={config.cardStyle === 'poster' ? 'poster' : 'landscape'}
+                            className="py-2"
                         />
                     );
 
-                case 'genre-based':
-                    const genre = config.genreFilter?.[0] || config.genre_filter?.[0] || 'Action';
+                case 'genre-based': {
+                    const genre = config.genreFilter?.[0] || config.genre_filter?.[0];
+                    // Backend data is usually pre-filtered; filter here only if
+                    // it isn't, so a misconfigured genre never empties the row.
+                    const matching = genre
+                        ? media.filter((m: any) => (m.genre_names || []).some((g: string) => g.toLowerCase() === String(genre).toLowerCase()))
+                        : media;
                     return (
-                        <GenreBasedWidget
+                        <TVMediaShelf
                             key={widgetWithData.id}
-                            media={media}
-                            genre={genre}
-                            title={config.title || widgetWithData.name}
+                            media={matching.length ? matching : media}
+                            title={config.title || widgetWithData.name || genre}
                             maxItems={widgetWithData.max_items}
+                            variant={config.cardStyle === 'landscape' ? 'landscape' : 'poster'}
+                            className="py-2"
                         />
                     );
+                }
 
                 case 'trailer':
                     return (
@@ -446,11 +452,13 @@ export default function BackendWidgetRenderer({
 
                 case 'popular':
                     return (
-                        <TrendingSlideshow
+                        <TVMediaShelf
                             key={widgetWithData.id}
                             media={media}
-                            title={config.title || 'Popular Now'}
+                            title={config.title || widgetWithData.name || 'Popular Now'}
                             maxItems={widgetWithData.max_items}
+                            showRating
+                            className="py-2"
                         />
                     );
 
