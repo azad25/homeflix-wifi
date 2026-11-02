@@ -6,6 +6,7 @@ import { Media } from '@/types/media';
 import { getApiUrl } from '@/lib/api';
 import { useImageWithFallback } from '@/lib/imageUtils';
 import { useNearViewport } from '@/hooks/useNearViewport';
+import { usePreference } from '@/lib/preferences';
 
 interface NetflixMediaCardProps {
   media: Media;
@@ -59,7 +60,8 @@ const NetflixMediaCard: React.FC<NetflixMediaCardProps> = ({
     if (dwellRef.current) clearTimeout(dwellRef.current);
   }, []);
 
-  const canPreview = showPreviewOnHover && !disableHover && !previewFailed && hasLocalPreview(media);
+  const previewsOn = usePreference('autoplayPreviews');
+  const canPreview = previewsOn && showPreviewOnHover && !disableHover && !previewFailed && hasLocalPreview(media);
   const previewUrl = `${getApiUrl()}/api/preview-clips/${media.id}`;
 
   const startDwell = () => {

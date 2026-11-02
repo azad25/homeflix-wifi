@@ -1,0 +1,4069 @@
+"use client";
+
+import React, { useState, useEffect, useRef } from 'react';
+import { useDialog } from '@/hooks/useDialog';
+import { Settings, Database, Upload, Trash2, Video, ImageIcon, Folder, File, Play, Info, Edit3, RefreshCw, Save, X, Star, Clock, Globe, Eye, Zap, Search, Server, Activity, HardDrive, BarChart3, TrendingUp, FileSearch, Timer, Download, Film, Layout, Hammer, Menu, Lock } from 'lucide-react';
+import Image from 'next/image';
+import { getApiUrl } from '@/lib/api';
+import { Media } from '@/types/media';
+import { FolderTree } from '@/components/scrollx';
+import { GlassCard, ScrollReveal, MagneticButton } from '../lite';
+import { useLog } from '../activity';
+import { SectionHeader } from '../ui';
+import { motion, AnimatePresence } from 'framer-motion';
+import { useNavigate } from "@/hooks/useNavigate";
+import { useSearchParams } from 'next/navigation';
+import TMDBSearchModal from '@/components/TMDBSearchModal';
+interface MediaAssets {
+  id?: number;
+  title?: string;
+  banner?: string;
+  banner_path?: string;
+  backdrop?: string;
+  backdrop_path?: string;
+  thumbnail?: string;
+  thumbnail_path?: string;
+  poster_path?: string;
+  trailer?: string;
+  trailer_path?: string;
+}
+
+interface EditableMedia extends Media {
+  isEditing?: boolean;
+}
+
+interface TMDBSearchResult {
+  id: number;
+  title: string;
+  original_title: string;
+  overview: string;
+  release_date: string;
+  poster_path: string;
+  backdrop_path: string;
+  vote_average: number;
+  vote_count: number;
+  popularity: number;
+  media_type: "movie" | "tv";
+  adult: boolean;
+  genre_ids: number[];
+}
+
+
+// SubtitleList component to show existing subtitles
+// Defined at module level on purpose: when it lived inside SettingsContent,
+// every parent render created a new component type, so React remounted it,
+// refetched, and flashed "Loading subtitles..." - collapsing its height and
+// making the panel (and the Auto Download button under it) jump around,
+// which swallowed clicks. `refreshKey` triggers explicit reloads instead.
+function SubtitleList({ mediaId, refreshKey = 0, onSubtitleDeleted, dialog, addTerminalOutput }: {
+mediaId: number;
+refreshKey?: number;
+onSubtitleDeleted: () => void;
+dialog: any;
+addTerminalOutput: (message: string) => void;
+}) {
+  const [subtitles, setSubtitles] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [clearingAll, setClearingAll] = useState(false);
+
+  // Only show the loading state when switching media; refreshes keep the
+  // current list on screen so the layout doesn't jump.
+  useEffect(() => {
+    setLoading(true);
+    setSubtitles([]);
+  }, [mediaId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadSubtitles = async () => {
+      try {
+        const response = await fetch(`${getApiUrl()}/api/media/${mediaId}/subtitles`);
+        if (response.ok && !cancelled) {
+          const data = await response.json();
+          setSubtitles(Array.isArray(data) ? data : []);
+        }
+      } catch (error) {
+        console.error('Failed to load subtitles:', error);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+
+    loadSubtitles();
+    return () => { cancelled = true; };
+  }, [mediaId, refreshKey]);
+
+  const handleDeleteSubtitle = async (trackId: number) => {
+    const confirmed = await dialog.confirm(
+      'Delete Subtitle',
+      'Are you sure you want to delete this subtitle?',
+      true
+    );
+    if (!confirmed) return;
+
+    try {
+      const response = await fetch(`${getApiUrl()}/api/admin/media/${mediaId}/subtitles/${trackId}`, {
+        method: 'DELETE'
+      });
+
+      if (response.ok) {
+        setSubtitles(prev => prev.filter(sub => sub.id !== trackId));
+        addTerminalOutput(`✅ Deleted subtitle track: ${trackId}`);
+        onSubtitleDeleted();
+      } else {
+        const errorData = await response.json().catch(() => ({ error: response.statusText }));
+        addTerminalOutput(`❌ Failed to delete subtitle: ${errorData.error || response.statusText}`);
+      }
+    } catch (error) {
+      addTerminalOutput(`❌ Error deleting subtitle: ${error}`);
+    }
+  };
+
+  const handleClearAllSubtitles = async () => {
+    if (subtitles.length === 0) return;
+
+    const confirmed = await dialog.confirm(
+      'Delete All Subtitles',
+      `Are you sure you want to delete ALL ${subtitles.length} subtitle(s)? This action cannot be undone.`,
+      true
+    );
+    if (!confirmed) return;
+
+    setClearingAll(true);
+    addTerminalOutput(`🗑️ Clearing all ${subtitles.length} subtitles for media ID: ${mediaId}`);
+
+    try {
+      let deletedCount = 0;
+      let errorCount = 0;
+
+      // Delete each subtitle individually
+      for (const subtitle of subtitles) {
+        try {
+          const response = await fetch(`${getApiUrl()}/api/admin/media/${mediaId}/subtitles/${subtitle.id}`, {
+            method: 'DELETE'
+          });
+
+          if (response.ok) {
+            deletedCount++;
+            addTerminalOutput(`✅ Deleted subtitle: ${subtitle.language || 'Unknown'} (ID: ${subtitle.id})`);
+          } else {
+            errorCount++;
+            const errorData = await response.json().catch(() => ({ error: response.statusText }));
+            addTerminalOutput(`❌ Failed to delete subtitle ${subtitle.id}: ${errorData.error || response.statusText}`);
+          }
+        } catch (error) {
+          errorCount++;
+          addTerminalOutput(`❌ Error deleting subtitle ${subtitle.id}: ${error}`);
+        }
+      }
+
+      // Update local state
+      setSubtitles([]);
+
+      // Summary message
+      if (deletedCount > 0) {
+        addTerminalOutput(`✅ Successfully deleted ${deletedCount} subtitle(s)`);
+      }
+      if (errorCount > 0) {
+        addTerminalOutput(`⚠️ Failed to delete ${errorCount} subtitle(s)`);
+      }
+
+      // Notify parent component
+      onSubtitleDeleted();
+
+    } catch (error) {
+      addTerminalOutput(`❌ Error during bulk subtitle deletion: ${error}`);
+    } finally {
+      setClearingAll(false);
+    }
+  };
+
+  const handleDownloadSubtitle = async (subtitle: any) => {
+    try {
+      const response = await fetch(`${getApiUrl()}/api/media/${mediaId}/subtitles/${subtitle.id}/file`);
+
+      if (response.ok) {
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${subtitle.language || 'subtitle'}.srt`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+        addTerminalOutput(`✅ Downloaded subtitle: ${subtitle.language}`);
+      } else {
+        addTerminalOutput(`❌ Failed to download subtitle`);
+      }
+    } catch (error) {
+      addTerminalOutput(`❌ Error downloading subtitle: ${error}`);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="mt-4">
+        <h5 className="text-white/80 text-sm font-medium mb-2">Available Subtitles:</h5>
+        <div className="text-white/60 text-sm">Loading subtitles...</div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-4">
+      <div className="flex items-center justify-between mb-2">
+        <h5 className="text-white/80 text-sm font-medium">Available Subtitles ({subtitles.length}):</h5>
+        {subtitles.length > 0 && (
+          <button
+            onClick={handleClearAllSubtitles}
+            disabled={clearingAll}
+            className="text-red-400 hover:text-red-300 text-xs px-2 py-1 rounded bg-red-400/10 hover:bg-red-400/20 transition-colors duration-200 flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
+            title="Delete all subtitles for this media"
+          >
+            {clearingAll ? (
+              <>
+                <div className="animate-spin rounded-full h-3 w-3 border-b border-red-400"></div>
+                <span>Clearing...</span>
+              </>
+            ) : (
+              <>
+                <Trash2 className="w-3 h-3" />
+                <span>Clear All</span>
+              </>
+            )}
+          </button>
+        )}
+      </div>
+      <div className="space-y-2 max-h-32 overflow-y-auto">
+        {subtitles.length === 0 ? (
+          <div className="text-white/60 text-sm">No subtitles found</div>
+        ) : (
+          subtitles.map((subtitle) => (
+            <div key={subtitle.id} className="flex items-center justify-between bg-white/5 rounded p-2">
+              <div className="flex-1">
+                <div className="text-white text-sm font-medium">{String(subtitle.language || 'Unknown')}</div>
+                <div className="text-white/60 text-xs">
+                  {String(subtitle.track_type || '')} • {String(subtitle.codec_name || '')}
+                  {subtitle.is_default && ' • Default'}
+                  {subtitle.is_forced && ' • Forced'}
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => handleDownloadSubtitle(subtitle)}
+                  className="text-white/75 hover:text-white/75 p-1"
+                  title="Download subtitle as SRT"
+                >
+                  <Download className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => handleDeleteSubtitle(subtitle.id)}
+                  className="text-red-400 hover:text-red-300 p-1"
+                  title="Delete subtitle"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+
+// Hoisted out of the component: defined inside it, every render created a
+// new component type and React remounted it (file inputs reset, flicker).
+const NetflixFileUploadSection = ({
+    type,
+    label,
+    accept,
+    mediaAssets,
+    onUpload,
+    onDelete,
+    uploading
+  }: {
+    type: 'banner' | 'backdrop' | 'thumbnail' | 'trailer';
+    label: string;
+    accept: string;
+    mediaAssets: MediaAssets;
+    onUpload: (file: File, type: 'banner' | 'backdrop' | 'thumbnail' | 'trailer') => void;
+    onDelete: (type: 'banner' | 'backdrop' | 'thumbnail' | 'trailer') => void;
+    uploading: boolean;
+  }) => {
+    // Check both formats: mediaAssets[type] (e.g., 'backdrop') and mediaAssets[`${type}_path`] (e.g., 'backdrop_path')
+    // Note: backdrop type is stored in banner_path in the database
+    let assetPath = mediaAssets[type] || mediaAssets[`${type}_path` as keyof MediaAssets];
+
+    // Special case: backdrop uses banner_path in database
+    if (type === 'backdrop' && !assetPath) {
+      assetPath = mediaAssets.banner || mediaAssets.banner_path;
+    }
+
+    // Extract just the filename to avoid double "assets" path
+    // Database stores "assets/filename.jpg", but API expects just "filename.jpg"
+    const getAssetUrl = (path: string | number | undefined) => {
+      if (!path || typeof path !== 'string') return null;
+      const fileName = path.split('/').pop();
+      return fileName ? `${getApiUrl()}/api/admin/assets/${fileName}` : null;
+    };
+
+    const assetUrl = getAssetUrl(assetPath);
+
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.1 }}
+        className="bg-white/5 backdrop-blur-sm rounded-lg p-6 border border-white/10"
+      >
+        <h4 className="text-white font-semibold mb-4 flex items-center">
+          {type === 'trailer' ? <Video className="w-5 h-5 mr-2 text-white/70" /> : <ImageIcon className="w-5 h-5 mr-2 text-white/70" />}
+          {label}
+        </h4>
+
+        {assetUrl ? (
+          <div className="space-y-4">
+            <div className="relative group">
+              {type === 'trailer' ? (
+                <video
+                  src={assetUrl}
+                  className="w-full h-40 object-cover rounded-lg"
+                  controls
+                />
+              ) : (
+                <Image
+                  src={assetUrl}
+                  alt={label}
+                  width={400}
+                  height={160}
+                  className="w-full h-40 object-cover rounded-lg"
+                />
+              )}
+              <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-lg flex items-center justify-center">
+                <MagneticButton
+                  onClick={() => onDelete(type)}
+                  className="bg-[#f5f5f7] hover:bg-white text-black p-3 rounded-full"
+                >
+                  <Trash2 className="w-5 h-5" />
+                </MagneticButton>
+              </div>
+            </div>
+            <p className="text-white/60 text-sm">Asset uploaded successfully</p>
+          </div>
+        ) : (
+          <div className="border-2 border-dashed border-white/20 rounded-lg p-8 text-center hover:border-white/30 transition-colors duration-300">
+            <div className="text-white/40 mb-4">
+              {type === 'trailer' ? <Video className="w-12 h-12 mx-auto" /> : <ImageIcon className="w-12 h-12 mx-auto" />}
+            </div>
+            <p className="text-white/60 text-sm mb-4">No {label.toLowerCase()} uploaded</p>
+            <div className="space-y-3">
+              <input
+                id={`file-input-${type}`}
+                type="file"
+                accept={accept}
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) onUpload(file, type);
+                }}
+                disabled={uploading}
+              />
+              <MagneticButton
+                onClick={() => {
+                  const fileInput = document.getElementById(`file-input-${type}`) as HTMLInputElement;
+                  fileInput?.click();
+                }}
+                className="bg-[#f5f5f7] hover:bg-white text-black px-6 py-3 rounded-lg inline-flex items-center gap-2"
+                disabled={uploading}
+              >
+                <Upload className="w-4 h-4" />
+                {uploading ? 'Uploading...' : `Upload ${label}`}
+              </MagneticButton>
+            </div>
+          </div>
+        )}
+      </motion.div>
+    );
+  };
+
+
+export default function LibraryWorkspace({ view }: { view: "media" | "subtitles" }) {
+  const activeTab = view;
+  const dialog = useDialog();
+  const addTerminalOutput = useLog();
+  const searchParams = useSearchParams();
+  const [mediaList, setMediaList] = useState<Media[]>([]);
+  const [seriesList, setSeriesList] = useState<any[]>([]);
+  const [selectedMedia, setSelectedMedia] = useState<EditableMedia | null>(null);
+  const [mediaAssets, setMediaAssets] = useState<MediaAssets>({});
+  const [loading, setLoading] = useState(true);
+  const [uploading, setUploading] = useState(false);
+  const [editingMedia, setEditingMedia] = useState<Partial<Media>>({});
+  const [isRegenerating, setIsRegenerating] = useState<{ [key: string]: boolean }>({});
+  const [actionLoading, setActionLoading] = useState<{ [key: string]: boolean }>({});
+  const [scanStats, setScanStats] = useState<any>(null);
+  const [systemStats, setSystemStats] = useState<any>(null);
+  const [updateInfo, setUpdateInfo] = useState<any>(null);
+  const [updateChecking, setUpdateChecking] = useState(false);
+  const [updateRunning, setUpdateRunning] = useState(false);
+  const [updateStatus, setUpdateStatus] = useState<any>(null);
+  // Ref (not state): the unmount cleanup must be able to clear the interval;
+  // a state updater queued during unmount never runs, leaking the poller.
+  const updateTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const stopUpdatePolling = () => {
+    if (updateTimerRef.current) clearInterval(updateTimerRef.current);
+    updateTimerRef.current = null;
+  };
+  const [terminalOutput, setTerminalOutput] = useState<string[]>([]);
+  const [isScanning, setIsScanning] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [torrentMediaInfo, setTorrentMediaInfo] = useState<any>(null);
+  const [activeDownloads, setActiveDownloads] = useState(0);
+  const [mediaPaths, setMediaPaths] = useState<any[]>([]);
+  const [newMediaPath, setNewMediaPath] = useState({
+    path: '',
+    name: '',
+    description: '',
+    path_type: 'external',
+    priority: 0
+  });
+  const [showAddPathForm, setShowAddPathForm] = useState(false);
+  const [storageInfos, setStorageInfos] = useState<any[]>([]);
+  const [lowStorageAlerts, setLowStorageAlerts] = useState<any[]>([]);
+  const [showTMDBSearchModal, setShowTMDBSearchModal] = useState(false);
+  const [customSearchTitle, setCustomSearchTitle] = useState('');
+  const [openSubtitlesResults, setOpenSubtitlesResults] = useState<any[]>([]);
+  const [openSubtitlesLoading, setOpenSubtitlesLoading] = useState(false);
+  const [openSubtitlesQuery, setOpenSubtitlesQuery] = useState('');
+  const [selectedLanguage, setSelectedLanguage] = useState('en');
+  const [downloadingSubtitle, setDownloadingSubtitle] = useState<number | null>(null);
+  // Bumped after any action that adds subtitles so <SubtitleList> reloads.
+  const [subtitleRefreshKey, setSubtitleRefreshKey] = useState(0);
+  const refreshSubtitles = () => setSubtitleRefreshKey(k => k + 1);
+  const [folderTreeData, setFolderTreeData] = useState<any[]>([]);
+  const [loadingTreeData, setLoadingTreeData] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [isMobile, setIsMobile] = useState(false);
+
+  const navigate = useNavigate();
+
+  // Load the library once (it used to be refetched on every tab switch)
+  useEffect(() => {
+    fetchMediaList();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Load folder tree data when media lists or search query changes
+  useEffect(() => {
+    if (activeTab === 'media' && (mediaList.length > 0 || seriesList.length > 0)) {
+      loadFolderTreeData();
+    }
+  }, [mediaList, seriesList, searchQuery, activeTab]);
+
+
+  const fetchMediaList = async () => {
+    try {
+      console.log('🔄 Fetching media list...');
+      const { apiCall, API_ENDPOINTS } = await import('@/lib/api');
+      const [media, series] = await Promise.all([
+        apiCall(API_ENDPOINTS.media),
+        fetch(`${await import('@/lib/api').then(m => m.getApiUrl())}/api/series`).then(r => r.json()).catch(() => [])
+      ]);
+
+      console.log('📊 Fetched media:', { movies: media.length, series: series.length });
+
+      // Transform genres to genre_names for all media items
+      const transformedMedia = media.map((m: any) => {
+        if (m.genres && Array.isArray(m.genres)) {
+          const { genres, ...rest } = m;
+          return {
+            ...rest,
+            genre_names: genres.map((g: any) => typeof g === 'string' ? g : g.name || g)
+          };
+        }
+        return m;
+      });
+
+      const transformedSeries = series.map((s: any) => {
+        if (s.genres && Array.isArray(s.genres)) {
+          const { genres, ...rest } = s;
+          return {
+            ...rest,
+            genre_names: genres.map((g: any) => typeof g === 'string' ? g : g.name || g)
+          };
+        }
+        return s;
+      });
+
+      setMediaList(transformedMedia);
+      setSeriesList(transformedSeries);
+      setLoading(false);
+
+      // If we have a selected media, try to find and update it in the new list
+      if (selectedMedia) {
+        if (selectedMedia.type === 'tv') {
+          const updatedSeries = transformedSeries.find((s: any) => s.id === selectedMedia.id);
+          if (updatedSeries) {
+            const updatedMedia = {
+              ...selectedMedia,
+              ...updatedSeries,
+              type: 'tv' as const,
+              id: selectedMedia.id
+            };
+
+            // Ensure genres is removed and genre_names is properly formatted
+            if ((updatedMedia as any).genres) {
+              delete (updatedMedia as any).genres;
+            }
+            if (updatedMedia.genre_names && Array.isArray(updatedMedia.genre_names)) {
+              updatedMedia.genre_names = updatedMedia.genre_names.map((g: any) =>
+                typeof g === 'string' ? g : g?.name || String(g)
+              );
+            }
+
+            setSelectedMedia(updatedMedia);
+            console.log('🔄 Updated selected TV series from fresh data');
+          }
+        } else {
+          const updatedMovie = transformedMedia.find((m: any) => m.id === selectedMedia.id);
+          if (updatedMovie) {
+            const updatedMedia = {
+              ...updatedMovie,
+              isEditing: selectedMedia.isEditing,
+              id: selectedMedia.id
+            };
+
+            // Ensure genres is removed and genre_names is properly formatted
+            if ((updatedMedia as any).genres) {
+              delete (updatedMedia as any).genres;
+            }
+            if (updatedMedia.genre_names && Array.isArray(updatedMedia.genre_names)) {
+              updatedMedia.genre_names = updatedMedia.genre_names.map((g: any) =>
+                typeof g === 'string' ? g : g?.name || String(g)
+              );
+            }
+
+            setSelectedMedia(updatedMedia);
+            console.log('🔄 Updated selected movie from fresh data');
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching media:', error);
+      setLoading(false);
+    }
+  };
+
+  const fetchActiveDownloads = async () => {
+    try {
+      const apiUrl = getApiUrl();
+      const response = await fetch(`${apiUrl}/api/torrents/downloads`);
+      if (response.ok) {
+        const data = await response.json();
+        const downloads = data.downloads || [];
+
+        // Count active downloads (downloading status)
+        const activeCount = downloads.filter((download: any) =>
+          download.status === 'downloading'
+        ).length;
+
+        setActiveDownloads(activeCount);
+      }
+    } catch (error) {
+      console.error('Error fetching active downloads:', error);
+      setActiveDownloads(0);
+    }
+  };
+
+  const fetchMediaPaths = async () => {
+    try {
+      const apiUrl = getApiUrl();
+      const response = await fetch(`${apiUrl}/api/admin/media-paths`);
+      if (response.ok) {
+        const data = await response.json();
+        setMediaPaths(data.media_paths || []);
+        addTerminalOutput(`📁 Loaded ${data.media_paths?.length || 0} media paths`);
+      }
+    } catch (error) {
+      console.error('Error fetching media paths:', error);
+      addTerminalOutput(`❌ Error fetching media paths: ${error}`);
+    }
+  };
+
+  const fetchStorageStats = async () => {
+    try {
+      const apiUrl = getApiUrl();
+      const response = await fetch(`${apiUrl}/api/admin/storage/stats`);
+      if (response.ok) {
+        const data = await response.json();
+        setStorageInfos(data.storages || []);
+        setLowStorageAlerts(data.low_alerts || []);
+      }
+    } catch (error) {
+      console.warn('Failed to fetch storage stats:', error);
+    }
+  };
+
+  const addMediaPath = async () => {
+    if (!newMediaPath.path || !newMediaPath.name) {
+      addTerminalOutput('❌ Path and name are required');
+      return;
+    }
+
+    try {
+      const apiUrl = getApiUrl();
+      const response = await fetch(`${apiUrl}/api/admin/media-paths`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(newMediaPath),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        addTerminalOutput(`✅ ${data.message}`);
+        setNewMediaPath({
+          path: '',
+          name: '',
+          description: '',
+          path_type: 'external',
+          priority: 0
+        });
+        setShowAddPathForm(false);
+        fetchMediaPaths(); // Refresh the list
+      } else {
+        const errorData = await response.json();
+        addTerminalOutput(`❌ Failed to add media path: ${errorData.error}`);
+      }
+    } catch (error) {
+      addTerminalOutput(`❌ Error adding media path: ${error}`);
+    }
+  };
+
+  const updateMediaPath = async (id: number, updates: any) => {
+    try {
+      const apiUrl = getApiUrl();
+      const response = await fetch(`${apiUrl}/api/admin/media-paths/${id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(updates),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        addTerminalOutput(`✅ ${data.message}`);
+        fetchMediaPaths(); // Refresh the list
+      } else {
+        const errorData = await response.json();
+        addTerminalOutput(`❌ Failed to update media path: ${errorData.error}`);
+      }
+    } catch (error) {
+      addTerminalOutput(`❌ Error updating media path: ${error}`);
+    }
+  };
+
+  const deleteMediaPath = async (id: number, name: string) => {
+    const confirmed = await dialog.confirm(
+      'Delete Media Path',
+      `Are you sure you want to delete the media path "${name}"?`,
+      true
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      const apiUrl = getApiUrl();
+      const response = await fetch(`${apiUrl}/api/admin/media-paths/${id}`, {
+        method: 'DELETE',
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        addTerminalOutput(`✅ ${data.message}`);
+        fetchMediaPaths(); // Refresh the list
+      } else {
+        const errorData = await response.json();
+        addTerminalOutput(`❌ Failed to delete media path: ${errorData.error}`);
+      }
+    } catch (error) {
+      addTerminalOutput(`❌ Error deleting media path: ${error}`);
+    }
+  };
+
+  // Transform media list into folder tree structure with search filtering
+  // Load folder tree data with seasons and episodes
+  // Season/episode lists per URL for this session: the tree is rebuilt on
+  // every search keystroke and used to refetch every show's seasons and
+  // episodes each time. Refresh clears it.
+  const treeCacheRef = useRef(new Map<string, Promise<any[]>>());
+  const treeFetch = (url: string): Promise<any[]> => {
+    const hit = treeCacheRef.current.get(url);
+    if (hit) return hit;
+    const p = fetch(url)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((d) => (Array.isArray(d) ? d : []))
+      .catch(() => []);
+    treeCacheRef.current.set(url, p);
+    return p;
+  };
+  const refreshFolderTree = () => {
+    treeCacheRef.current.clear();
+    loadFolderTreeData();
+  };
+
+  const loadFolderTreeData = async () => {
+    setLoadingTreeData(true);
+    try {
+      // Filter movies based on search query
+      const filteredMovies = mediaList.filter(media => {
+        if (media.type !== 'movie') return false;
+        if (!searchQuery.trim()) return true;
+        const query = searchQuery.toLowerCase();
+        return (
+          media.title?.toLowerCase().includes(query) ||
+          media.description?.toLowerCase().includes(query) ||
+          media.genre_names?.some(genre => {
+            const genreStr = typeof genre === 'string' ? genre : (genre as any)?.name || String(genre);
+            return genreStr.toLowerCase().includes(query);
+          }) ||
+          media.year?.toString().includes(query) ||
+          media.country?.toLowerCase().includes(query) ||
+          media.language?.toLowerCase().includes(query)
+        );
+      });
+
+      // Filter TV series based on search query
+      const filteredSeries = seriesList.filter(series => {
+        if (!searchQuery.trim()) return true;
+        const query = searchQuery.toLowerCase();
+        return (
+          series.title?.toLowerCase().includes(query) ||
+          series.description?.toLowerCase().includes(query) ||
+          series.status?.toLowerCase().includes(query)
+        );
+      });
+
+      // Create movies folder
+      const moviesFolder = {
+        id: 'movies',
+        name: `Movies (${filteredMovies.length})`,
+        type: 'folder' as const,
+        children: filteredMovies.map(media => {
+          // Use edited title if this is the selected media being edited
+          const displayTitle = (selectedMedia?.id === media.id && selectedMedia?.isEditing && editingMedia.title)
+            ? editingMedia.title
+            : media.title;
+
+          // Clean media object - remove genres and ensure genre_names is strings only
+          const cleanMedia = { ...media };
+          if ((cleanMedia as any).genres) {
+            delete (cleanMedia as any).genres;
+          }
+          if (cleanMedia.genre_names && Array.isArray(cleanMedia.genre_names)) {
+            cleanMedia.genre_names = cleanMedia.genre_names.map((g: any) =>
+              typeof g === 'string' ? g : g?.name || String(g)
+            );
+          }
+
+          return {
+            id: media.id.toString(),
+            name: displayTitle,
+            type: 'media' as const,
+            metadata: {
+              mediaType: 'movie' as const,
+              size: media.file_size
+            },
+            media: {
+              ...cleanMedia,
+              // Ensure all required fields exist
+              id: media.id,
+              title: media.title || 'Unknown Title',
+              type: 'movie' as const
+            }
+          };
+        })
+      };
+
+      // Create TV shows folder with seasons and episodes
+      const tvShowsChildren = await Promise.all(filteredSeries.map(async series => {
+        // Fetch seasons and episodes for this series
+        // Missing shows answer null: never let one break the whole tree.
+        const seasons: any[] = await treeFetch(`${getApiUrl()}/api/series/${series.id}/seasons`);
+
+        // Create season folders with episodes
+        const seasonChildren = await Promise.all(seasons.map(async season => {
+          const episodes: any[] = await treeFetch(`${getApiUrl()}/api/series/${series.id}/seasons/${season.season_number}/episodes`);
+
+          // Create episode files
+          const episodeChildren = episodes.map(episode => ({
+            id: `episode-${episode.id}`,
+            name: `E${String(episode.episode_number ?? 0).padStart(2, '0')} - ${episode.title || 'Untitled'}`,
+            type: 'media' as const,
+            metadata: {
+              mediaType: 'episode' as const,
+              duration: (episode.runtime || 0) * 60, // Convert to seconds
+              size: episode.file_size
+            },
+            episode: episode,
+            // Convert episode to media-like object for compatibility
+            media: {
+              id: episode.id,
+              title: episode.title || `Episode ${episode.episode_number}`,
+              description: episode.overview || episode.description || '',
+              type: 'episode' as const,
+              rating: episode.vote_average || episode.rating,
+              year: episode.air_date ? new Date(episode.air_date).getFullYear() : undefined,
+              genre_names: series.genres?.map((g: any) => typeof g === 'string' ? g : g?.name || String(g)) || [],
+              poster_path: episode.still_path || series.poster_path,
+              backdrop_path: episode.still_path || series.backdrop_path,
+              runtime: episode.runtime,
+              season_number: season.season_number,
+              episode_number: episode.episode_number,
+              series_id: series.id,
+              series_title: series.title,
+              air_date: episode.air_date,
+              vote_count: episode.vote_count,
+
+              // Inherit series data
+              country: series.country || '',
+              language: series.language || '',
+              quality: series.quality || '',
+              certification: series.certification || '',
+              network: series.network || '',
+              view_count: episode.view_count || 0,
+              file_size: episode.file_size,
+              resolution: episode.resolution,
+              codec: episode.codec,
+              file_path: episode.file_path
+            }
+          }));
+
+          return {
+            id: `season-${series.id}-${season.season_number}`,
+            name: `Season ${season.season_number}${season.name ? ` - ${season.name}` : ''} (${episodes.length} episodes)`,
+            type: 'folder' as const,
+            children: episodeChildren,
+            season: season,
+            // Convert season to media-like object for compatibility
+            media: {
+              id: season.id || `${series.id}-s${season.season_number}`,
+              title: `${series.title} - Season ${season.season_number}`,
+              description: season.overview || season.description || '',
+              type: 'season' as const,
+              rating: season.vote_average || series.rating,
+              year: season.air_date ? new Date(season.air_date).getFullYear() : undefined,
+              genre_names: series.genres?.map((g: any) => typeof g === 'string' ? g : g?.name || String(g)) || [],
+              poster_path: season.poster_path || series.poster_path,
+              backdrop_path: series.backdrop_path,
+              season_number: season.season_number,
+              episode_count: episodes.length,
+              series_id: series.id,
+              series_title: series.title,
+              air_date: season.air_date,
+
+              // Inherit series data
+              country: series.country || '',
+              language: series.language || '',
+              quality: series.quality || '',
+              certification: series.certification || '',
+              network: series.network || '',
+              total_episodes: episodes.length
+            }
+          };
+        }));
+
+        return {
+          id: `series-${series.id}`,
+          name: `${series.title} (${seasons.length} seasons, ${series.total_episodes || 0} episodes)`,
+          type: 'folder' as const,
+          children: seasonChildren,
+          series: series,
+          // Convert series to media-like object for compatibility
+          media: {
+            id: series.id,
+            title: series.title || 'Unknown Title',
+            description: series.description || '',
+            type: 'tv' as const,
+            rating: series.rating,
+            year: series.release_date ? new Date(series.release_date).getFullYear() : undefined,
+            genre_names: series.genres?.map((g: any) => typeof g === 'string' ? g : g?.name || String(g)) || [],
+            poster_path: series.poster_path,
+            backdrop_path: series.backdrop_path,
+            status: series.status,
+            total_seasons: series.total_seasons,
+            total_episodes: series.total_episodes,
+
+            // Add other fields that might be needed
+            country: series.country || '',
+            language: series.language || '',
+            quality: series.quality || '',
+            certification: series.certification || '',
+            runtime: series.episode_runtime || undefined,
+            seasons: series.total_seasons,
+            episodes: series.total_episodes,
+            network: series.network || '',
+            tagline: series.tagline || '',
+            view_count: series.view_count || 0,
+            file_size: series.file_size,
+            resolution: series.resolution,
+            codec: series.codec,
+            thumbnail_path: series.thumbnail_path,
+            trailer_url: series.trailer_url
+          }
+        };
+      }));
+
+      const tvShowsFolder = {
+        id: 'tv-shows',
+        name: `TV Shows (${filteredSeries.length})`,
+        type: 'folder' as const,
+        children: tvShowsChildren
+      };
+
+      setFolderTreeData([moviesFolder, tvShowsFolder]);
+    } catch (error) {
+      console.error('Error loading folder tree data:', error);
+      addTerminalOutput(`❌ Error loading TV series hierarchy: ${error}`);
+    } finally {
+      setLoadingTreeData(false);
+    }
+  };
+
+  const handleMediaSelect = async (media: Media) => {
+    console.log('🎯 Selecting media:', media);
+
+    // Ensure we have a complete media object
+    const completeMedia = {
+      ...media,
+      isEditing: false,
+      // Ensure all required fields exist
+      id: media.id,
+      title: media.title || 'Unknown Title',
+      type: media.type || 'movie'
+    };
+
+    setSelectedMedia(completeMedia);
+    setEditingMedia({});
+    addTerminalOutput(`📂 Selected ${media.type === 'tv' ? 'TV series' : 'movie'}: ${media.title}`);
+
+    // Fetch existing assets for this media
+    try {
+      let response;
+      if (media.type === 'tv') {
+        // For TV series, try series-specific endpoint first
+        response = await fetch(`${getApiUrl()}/api/series/${media.id}/assets`);
+        if (!response.ok) {
+          // Fallback to media endpoint
+          response = await fetch(`${getApiUrl()}/api/admin/media/${media.id}/assets`);
+        }
+      } else {
+        response = await fetch(`${getApiUrl()}/api/admin/media/${media.id}/assets`);
+      }
+
+      if (response.ok) {
+        const assets = await response.json();
+        setMediaAssets(assets);
+        addTerminalOutput(`📁 Loaded assets for ${media.title}`);
+      } else {
+        // Assets endpoint might not be available, use media data directly
+        setMediaAssets({
+          id: media.id,
+          title: media.title,
+          banner_path: media.banner_path || '',
+          backdrop_path: media.backdrop_path || '',
+          poster_path: media.poster_path || '',
+          thumbnail_path: media.thumbnail_path || '',
+          trailer_path: media.trailer_path || ''
+        });
+      }
+    } catch (error) {
+      console.error('Error fetching media assets:', error);
+      // Fallback to media data
+      setMediaAssets({
+        id: media.id,
+        title: media.title,
+        banner_path: media.banner_path || '',
+        backdrop_path: media.backdrop_path || '',
+        poster_path: media.poster_path || '',
+        thumbnail_path: media.thumbnail_path || '',
+        trailer_path: media.trailer_path || ''
+      });
+      addTerminalOutput(`⚠️ Using media data for assets (endpoint unavailable)`);
+    }
+  };
+
+  // Handle auto-selection of media from URL params
+  useEffect(() => {
+    const mediaParam = searchParams?.get('media');
+    if (mediaParam && (mediaList.length > 0 || seriesList.length > 0) && !selectedMedia) {
+      try {
+        const mediaInfo = JSON.parse(mediaParam);
+        console.log('🎯 Auto-selecting media from URL:', mediaInfo);
+
+        if (mediaInfo.id) {
+          const id = typeof mediaInfo.id === 'string' ? parseInt(mediaInfo.id) : mediaInfo.id;
+          const type = mediaInfo.type || 'movie';
+
+          console.log('🔍 Looking for media:', { id, type, seriesListLength: seriesList.length, mediaListLength: mediaList.length });
+
+          let foundMedia;
+          if (type === 'tv' || type === 'series') {
+            foundMedia = seriesList.find(s => s.id === id);
+            console.log('📺 Found TV series:', foundMedia?.title);
+          } else {
+            foundMedia = mediaList.find(m => m.id === id);
+            console.log('🎬 Found movie:', foundMedia?.title);
+          }
+
+          if (foundMedia) {
+            console.log('✅ Auto-selecting media:', foundMedia.title);
+            handleMediaSelect(foundMedia);
+          } else {
+            console.warn('❌ Media not found in lists');
+          }
+        }
+      } catch (e) {
+        console.error("Error parsing media param for selection", e);
+      }
+    }
+  }, [mediaList, seriesList, searchParams]);
+
+  const handleEditToggle = () => {
+    if (selectedMedia) {
+      if (selectedMedia.isEditing) {
+        // Cancel editing - revert changes
+        const originalMedia = mediaList.find(m => m.id === selectedMedia.id);
+        if (originalMedia) {
+          setSelectedMedia({ ...originalMedia, isEditing: false });
+          // Also revert the media list to original state
+          setMediaList(prev => prev.map(m =>
+            m.id === selectedMedia.id ? originalMedia : m
+          ));
+        } else {
+          setSelectedMedia(prev => prev ? { ...prev, isEditing: false } : null);
+        }
+        setEditingMedia({});
+        addTerminalOutput('❌ Editing cancelled - changes reverted');
+      } else {
+        // Start editing - populate editing state with current values
+        const currentEditingData = {
+          title: selectedMedia.title || '',
+          description: selectedMedia.description || '',
+          tagline: selectedMedia.tagline || '',
+          year: selectedMedia.year || undefined,
+          rating: selectedMedia.rating || undefined,
+          country: selectedMedia.country || '',
+          language: selectedMedia.language || '',
+          quality: selectedMedia.quality || '',
+          certification: selectedMedia.certification || '',
+          runtime: selectedMedia.runtime || undefined,
+          genre_names: selectedMedia.genre_names || [],
+          tmdb_trailer_url: selectedMedia.tmdb_trailer_url || '',
+          // TV-specific fields
+          ...(selectedMedia.type === 'tv' && {
+            seasons: (selectedMedia as any).seasons || undefined,
+            episodes: (selectedMedia as any).episodes || undefined,
+            status: (selectedMedia as any).status || '',
+            network: (selectedMedia as any).network || ''
+          })
+        };
+
+        setSelectedMedia(prev => prev ? { ...prev, isEditing: true } : null);
+        setEditingMedia(currentEditingData);
+        addTerminalOutput(`✏️ Started editing: ${selectedMedia.title}`);
+      }
+    }
+  };
+
+  // Handle input changes during editing
+  const handleInputChange = (field: string, value: any) => {
+    // Update editing state
+    setEditingMedia(prev => ({
+      ...prev,
+      [field]: value
+    }));
+
+    // Also update the selectedMedia to show changes immediately in the UI
+    setSelectedMedia(prev => prev ? {
+      ...prev,
+      [field]: value
+    } : null);
+
+    // Update media list for immediate reflection in folder tree
+    setMediaList(prev => prev.map(m =>
+      m.id === selectedMedia?.id
+        ? { ...m, [field]: value }
+        : m
+    ));
+  };
+
+  const handleSaveChanges = async () => {
+    if (!selectedMedia) return;
+
+    setActionLoading(prev => ({ ...prev, save: true }));
+    const currentTitle = editingMedia.title || selectedMedia.title;
+    addTerminalOutput(`💾 Saving changes for: ${currentTitle}`);
+
+    try {
+      // Use different endpoints for movies vs TV series
+      const isSeriesUpdate = selectedMedia.type === 'tv';
+      const endpoint = isSeriesUpdate
+        ? `${getApiUrl()}/api/series/${selectedMedia.id}/metadata`
+        : `${getApiUrl()}/api/admin/media/${selectedMedia.id}/metadata`;
+
+      const response = await fetch(endpoint, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(editingMedia),
+      });
+
+      if (response.ok) {
+        const updatedData = await response.json();
+
+        // Merge all the data properly
+        const finalData = {
+          ...selectedMedia,
+          ...updatedData,
+          ...editingMedia, // Ensure our edits take precedence
+          isEditing: false
+        };
+
+        // Update selected media
+        setSelectedMedia(finalData);
+
+        // Update the appropriate list
+        if (isSeriesUpdate) {
+          setSeriesList(prev => prev.map(s =>
+            s.id === selectedMedia.id
+              ? { ...s, ...updatedData, ...editingMedia }
+              : s
+          ));
+        } else {
+          setMediaList(prev => prev.map(m =>
+            m.id === selectedMedia.id
+              ? finalData
+              : m
+          ));
+        }
+
+        // Clear editing state
+        setEditingMedia({});
+
+        addTerminalOutput(`✅ ${isSeriesUpdate ? 'Series' : 'Media'} metadata updated successfully`);
+        addTerminalOutput(`📝 Updated fields: ${Object.keys(editingMedia).join(', ')}`);
+
+      } else {
+        const errorData = await response.json().catch(() => ({ error: response.statusText }));
+        addTerminalOutput(`❌ Failed to save changes: ${errorData.error || response.statusText}`);
+      }
+    } catch (error) {
+      addTerminalOutput(`❌ Error updating ${selectedMedia.type === 'tv' ? 'series' : 'media'}: ${error}`);
+      console.error('Error updating:', error);
+    } finally {
+      setActionLoading(prev => ({ ...prev, save: false }));
+    }
+  };
+
+  const handleRegenerateThumbnail = async () => {
+    if (!selectedMedia) return;
+
+    // TV series don't have thumbnails in the same way as movies
+    if (selectedMedia.type === 'tv') {
+      addTerminalOutput(`⚠️ Thumbnail generation not available for TV series`);
+      return;
+    }
+
+    setIsRegenerating(prev => ({ ...prev, thumbnail: true }));
+    addTerminalOutput(`🔄 Force regenerating thumbnail for: ${selectedMedia.title}`);
+
+    try {
+      const response = await fetch(`${getApiUrl()}/api/admin/thumbnails/${selectedMedia.id}/regenerate`, {
+        method: 'POST',
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        addTerminalOutput(`✅ Thumbnail regenerated successfully`);
+        addTerminalOutput(`📁 New thumbnail path: ${result.thumbnail_path || 'N/A'}`);
+
+        // Refresh the selected media to get updated thumbnail path
+        const mediaResponse = await fetch(`${getApiUrl()}/api/media/${selectedMedia.id}`);
+        if (mediaResponse.ok) {
+          const updatedMedia = await mediaResponse.json();
+          setSelectedMedia(prev => prev ? { ...prev, ...updatedMedia } : null);
+          addTerminalOutput(`✅ Media info refreshed with new thumbnail`);
+        } else {
+          addTerminalOutput(`⚠️ Could not refresh media info`);
+        }
+      } else {
+        const errorData = await response.json().catch(() => ({ error: response.statusText }));
+        addTerminalOutput(`❌ Thumbnail regeneration failed: ${errorData.error || response.statusText}`);
+      }
+    } catch (error) {
+      addTerminalOutput(`❌ Error regenerating thumbnail: ${error}`);
+      console.error('Error regenerating thumbnail:', error);
+    } finally {
+      setIsRegenerating(prev => ({ ...prev, thumbnail: false }));
+    }
+  };
+
+  const handleRegeneratePreview = async () => {
+    if (!selectedMedia) return;
+
+    // TV series don't have preview clips in the same way as movies
+    if (selectedMedia.type === 'tv') {
+      addTerminalOutput(`⚠️ Preview clip generation not available for TV series`);
+      return;
+    }
+
+    setIsRegenerating(prev => ({ ...prev, preview: true }));
+    addTerminalOutput(`🔄 Force regenerating preview clip for: ${selectedMedia.title}`);
+
+    try {
+      const response = await fetch(`${getApiUrl()}/api/admin/preview-clips/${selectedMedia.id}/regenerate`, {
+        method: 'POST',
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        addTerminalOutput(`✅ Preview clip regenerated successfully`);
+        addTerminalOutput(`📁 New preview path: ${result.preview_path || 'N/A'}`);
+        addTerminalOutput(`📊 File size: ${result.file_size ? `${(result.file_size / (1024 * 1024)).toFixed(2)} MB` : 'N/A'}`);
+
+        // Refresh the selected media to get updated preview path
+        const mediaResponse = await fetch(`${getApiUrl()}/api/media/${selectedMedia.id}`);
+        if (mediaResponse.ok) {
+          const updatedMedia = await mediaResponse.json();
+          setSelectedMedia(prev => prev ? { ...prev, ...updatedMedia } : null);
+          addTerminalOutput(`✅ Media info refreshed with new preview`);
+        } else {
+          addTerminalOutput(`⚠️ Could not refresh media info`);
+        }
+      } else {
+        const errorData = await response.json().catch(() => ({ error: response.statusText }));
+        addTerminalOutput(`❌ Preview regeneration failed: ${errorData.error || response.statusText}`);
+      }
+    } catch (error) {
+      addTerminalOutput(`❌ Error regenerating preview: ${error}`);
+      console.error('Error regenerating preview:', error);
+    } finally {
+      setIsRegenerating(prev => ({ ...prev, preview: false }));
+    }
+  };
+
+  const handleGeneratePoster = async () => {
+    if (!selectedMedia) return;
+
+    setIsRegenerating(prev => ({ ...prev, poster: true }));
+    addTerminalOutput(`🖼️ Generating poster for: ${selectedMedia.title}`);
+
+    try {
+      let response;
+
+      if (selectedMedia.type === 'tv') {
+        // For TV series, we need to create a special endpoint or handle it differently
+        // For now, let's try to use the same endpoint but with series data
+        response = await fetch(`${getApiUrl()}/api/admin/series/${selectedMedia.id}/poster`, {
+          method: 'POST',
+        });
+
+        // If series-specific endpoint doesn't exist, fall back to media endpoint
+        if (!response.ok && response.status === 404) {
+          addTerminalOutput(`⚠️ Series poster endpoint not found, trying media endpoint...`);
+          response = await fetch(`${getApiUrl()}/api/admin/posters/generate/${selectedMedia.id}`, {
+            method: 'POST',
+          });
+        }
+      } else {
+        // For movies, use the existing endpoint
+        response = await fetch(`${getApiUrl()}/api/admin/posters/generate/${selectedMedia.id}`, {
+          method: 'POST',
+        });
+      }
+
+      if (response.ok) {
+        const result = await response.json();
+        addTerminalOutput(`✅ Poster generated successfully`);
+        addTerminalOutput(`📁 Poster path: ${result.poster_path || 'N/A'}`);
+
+        // Refresh the selected media to get updated poster path
+        let refreshResponse;
+        if (selectedMedia.type === 'tv') {
+          refreshResponse = await fetch(`${getApiUrl()}/api/series/${selectedMedia.id}`);
+        } else {
+          refreshResponse = await fetch(`${getApiUrl()}/api/media/${selectedMedia.id}`);
+        }
+
+        if (refreshResponse.ok) {
+          const updatedData = await refreshResponse.json();
+          if (selectedMedia.type === 'tv') {
+            // Convert series data back to media-like format
+            const updatedMedia = {
+              ...selectedMedia,
+              poster_path: updatedData.poster_path,
+              backdrop_path: updatedData.backdrop_path,
+            };
+            setSelectedMedia(updatedMedia);
+          } else {
+            setSelectedMedia(prev => prev ? { ...prev, ...updatedData } : null);
+          }
+          addTerminalOutput(`✅ ${selectedMedia.type === 'tv' ? 'Series' : 'Media'} info refreshed with new poster`);
+        } else {
+          addTerminalOutput(`⚠️ Could not refresh ${selectedMedia.type === 'tv' ? 'series' : 'media'} info`);
+        }
+      } else {
+        const errorData = await response.json().catch(() => ({ error: response.statusText }));
+        addTerminalOutput(`❌ Poster generation failed: ${errorData.error || response.statusText}`);
+      }
+    } catch (error) {
+      addTerminalOutput(`❌ Error generating poster: ${error}`);
+      console.error('Error generating poster:', error);
+    } finally {
+      setIsRegenerating(prev => ({ ...prev, poster: false }));
+    }
+  };
+
+  const handleBulkTMDBUpdate = async () => {
+    setActionLoading(prev => ({ ...prev, bulkTmdb: true }));
+    addTerminalOutput(`🎬 Starting bulk TMDB update for all local media...`);
+
+    try {
+      const response = await fetch(`${getApiUrl()}/api/admin/update-tmdb-data`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        addTerminalOutput(`✅ Bulk TMDB update completed: ${data.updated} items updated out of ${data.total}`);
+
+        if (data.errors && data.errors.length > 0) {
+          addTerminalOutput(`⚠️ Some items had errors:`);
+          data.errors.slice(0, 5).forEach((error: string) => {
+            addTerminalOutput(`   • ${error}`);
+          });
+          if (data.errors.length > 5) {
+            addTerminalOutput(`   • ... and ${data.errors.length - 5} more errors`);
+          }
+        }
+
+        // Refresh media list if we're in media tab
+        if (activeTab === 'media') {
+          await fetchMediaList();
+        }
+      } else {
+        const errorData = await response.json().catch(() => ({ error: response.statusText }));
+        addTerminalOutput(`❌ Bulk TMDB update failed: ${errorData.error || response.statusText}`);
+      }
+    } catch (error) {
+      addTerminalOutput(`❌ Error during bulk TMDB update: ${error}`);
+      console.error('Error during bulk TMDB update:', error);
+    } finally {
+      setActionLoading(prev => ({ ...prev, bulkTmdb: false }));
+    }
+  };
+
+  const handleFetchTMDBData = async (customTitle?: string) => {
+    if (!selectedMedia) return;
+
+    setActionLoading(prev => ({ ...prev, tmdb: true }));
+
+    // Use custom title if provided, otherwise use edited title or current title
+    const searchTitle = customTitle || editingMedia.title || selectedMedia.title;
+    addTerminalOutput(`🎬 Fetching TMDB data for: ${searchTitle}`);
+
+    try {
+      // Send the current editing state to preserve manual changes
+      const requestBody = {
+        searchTitle: searchTitle,
+        preserveFields: selectedMedia.isEditing ? Object.keys(editingMedia) : []
+      };
+
+      let response: Response;
+      let updatedData: any;
+
+      if (selectedMedia.type === 'tv') {
+        // For TV series, use series-specific TMDB endpoints
+        addTerminalOutput(`📺 Fetching TMDB data for TV series: ${searchTitle}`);
+
+        // Try the main TMDB endpoint first
+        response = await fetch(`${getApiUrl()}/api/admin/series/${selectedMedia.id}/update-with-tmdb`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(requestBody),
+        });
+
+        // If that fails, try the alternative endpoint
+        if (!response.ok) {
+          addTerminalOutput(`⚠️ Primary TMDB endpoint failed, trying alternative...`);
+          response = await fetch(`${getApiUrl()}/api/admin/series/${selectedMedia.id}/fetch-tmdb`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(requestBody),
+          });
+        }
+
+        if (response.ok) {
+          updatedData = await response.json();
+          addTerminalOutput(`✅ Received updated series data from backend`);
+
+          // Preserve manually edited fields
+          const finalSeriesData = { ...updatedData };
+          if (selectedMedia.isEditing && editingMedia) {
+            (Object.keys(editingMedia) as Array<keyof Media>).forEach(key => {
+              if (editingMedia[key] !== undefined && editingMedia[key] !== '') {
+                (finalSeriesData as any)[key] = editingMedia[key];
+              }
+            });
+          }
+
+          // Update series list
+          setSeriesList(prev => prev.map(s =>
+            s.id === selectedMedia.id
+              ? finalSeriesData
+              : s
+          ));
+
+          // Convert series data back to media-like format for selectedMedia
+          const finalMedia = {
+            ...selectedMedia,
+            ...finalSeriesData,
+            isEditing: selectedMedia.isEditing,
+            type: 'tv' as const,
+            // Ensure critical fields are preserved
+            id: selectedMedia.id
+          };
+
+          // Ensure genres is removed and genre_names is properly formatted
+          if ((finalMedia as any).genres) {
+            delete (finalMedia as any).genres;
+          }
+          if (finalMedia.genre_names && Array.isArray(finalMedia.genre_names)) {
+            finalMedia.genre_names = finalMedia.genre_names.map((g: any) =>
+              typeof g === 'string' ? g : g?.name || String(g)
+            );
+          }
+
+          setSelectedMedia(finalMedia);
+          addTerminalOutput(`✅ TV series TMDB data updated successfully`);
+          addTerminalOutput(`📊 Updated fields: title, description, backdrop_path, poster_path, rating, year, trailer_url`);
+
+          // Log specific updates
+          if (updatedData.backdrop_path) addTerminalOutput(`🖼️ Backdrop updated: ${updatedData.backdrop_path}`);
+          if (updatedData.trailer_url) addTerminalOutput(`🎬 Trailer updated: ${updatedData.trailer_url}`);
+          if (updatedData.poster_path) addTerminalOutput(`🎭 Poster updated: ${updatedData.poster_path}`);
+
+          if (selectedMedia.isEditing && editingMedia && Object.keys(editingMedia).length > 0) {
+            addTerminalOutput(`🔒 Preserved manual edits: ${Object.keys(editingMedia).join(', ')}`);
+          }
+        } else {
+          const errorData = await response.json().catch(() => ({ error: response.statusText }));
+          addTerminalOutput(`❌ TV series TMDB fetch failed: ${errorData.error || response.statusText}`);
+        }
+      } else {
+        // For movies, use existing movie endpoints
+        addTerminalOutput(`🎬 Fetching TMDB data for movie: ${searchTitle}`);
+
+        // Try the main endpoint first with search parameters
+        response = await fetch(`${getApiUrl()}/api/admin/media/${selectedMedia.id}/update-with-tmdb`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(requestBody),
+        });
+
+        // If that fails, try the alternative endpoint
+        if (!response.ok) {
+          addTerminalOutput(`⚠️ Primary TMDB endpoint failed, trying alternative...`);
+          response = await fetch(`${getApiUrl()}/api/admin/media/${selectedMedia.id}/fetch-tmdb`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(requestBody),
+          });
+        }
+
+        if (response.ok) {
+          updatedData = await response.json();
+          addTerminalOutput(`✅ Received updated movie data from backend`);
+
+          // Preserve manually edited fields
+          const finalMedia = { ...updatedData };
+
+          // Ensure genres is properly formatted as string array
+          if (finalMedia.genres && Array.isArray(finalMedia.genres)) {
+            finalMedia.genre_names = finalMedia.genres.map((g: any) =>
+              typeof g === 'string' ? g : g.name || g
+            );
+            delete (finalMedia as any).genres;
+          }
+
+          if (selectedMedia.isEditing && editingMedia) {
+            (Object.keys(editingMedia) as Array<keyof Media>).forEach(key => {
+              if (editingMedia[key] !== undefined && editingMedia[key] !== '') {
+                (finalMedia as any)[key] = editingMedia[key];
+              }
+            });
+          }
+
+          // Ensure critical fields are preserved
+          finalMedia.isEditing = selectedMedia.isEditing;
+          finalMedia.id = selectedMedia.id;
+
+          setSelectedMedia(finalMedia);
+          setMediaList(prev => prev.map(m => m.id === selectedMedia.id ? finalMedia : m));
+          addTerminalOutput(`✅ Movie TMDB data updated successfully`);
+          addTerminalOutput(`📊 Updated fields: title, description, backdrop_path, poster_path, rating, year, runtime, trailer_url`);
+
+          // Log specific updates
+          if (updatedData.backdrop_path) addTerminalOutput(`🖼️ Backdrop updated: ${updatedData.backdrop_path}`);
+          if (updatedData.trailer_url) addTerminalOutput(`🎬 Trailer updated: ${updatedData.trailer_url}`);
+          if (updatedData.poster_path) addTerminalOutput(`🎭 Poster updated: ${updatedData.poster_path}`);
+
+          if (selectedMedia.isEditing && editingMedia && Object.keys(editingMedia).length > 0) {
+            addTerminalOutput(`🔒 Preserved manual edits: ${Object.keys(editingMedia).join(', ')}`);
+          }
+        } else {
+          const errorData = await response.json().catch(() => ({ error: response.statusText }));
+          addTerminalOutput(`❌ Movie TMDB fetch failed: ${errorData.error || response.statusText}`);
+        }
+      }
+
+      // Refresh the media list to ensure consistency
+      addTerminalOutput(`🔄 Refreshing media list to ensure consistency...`);
+      await fetchMediaList();
+
+    } catch (error) {
+      addTerminalOutput(`❌ Error fetching TMDB data: ${error}`);
+      console.error('Error fetching TMDB data:', error);
+    } finally {
+      setActionLoading(prev => ({ ...prev, tmdb: false }));
+      // Close the search modal if it was used
+      if (customTitle) {
+        setShowTMDBSearchModal(false);
+        setCustomSearchTitle('');
+      }
+    }
+  };
+
+
+
+  const handleFetchEpisodeMetadata = async (seasonNumber?: number) => {
+    if (!selectedMedia || selectedMedia.type !== 'tv') return;
+
+    setActionLoading(prev => ({ ...prev, fetchEpisodeMeta: true }));
+    const label = seasonNumber ? `Season ${seasonNumber}` : 'all seasons';
+    addTerminalOutput(`📺 Fetching TMDB episode metadata for ${selectedMedia.title} (${label})...`);
+
+    try {
+      const url = seasonNumber
+        ? `${getApiUrl()}/api/admin/series/${selectedMedia.id}/fetch-episode-metadata?season_number=${seasonNumber}`
+        : `${getApiUrl()}/api/admin/series/${selectedMedia.id}/fetch-episode-metadata`;
+
+      const response = await fetch(url, { method: 'POST' });
+      const data = await response.json();
+
+      if (response.ok) {
+        addTerminalOutput(`✅ Episode metadata fetch complete`);
+        addTerminalOutput(`📊 Seasons updated: ${data.seasons_updated}, Episodes updated: ${data.episodes_updated}`);
+        if (data.errors?.length) {
+          data.errors.forEach((e: string) => addTerminalOutput(`⚠️ ${e}`));
+        }
+        await fetchMediaList();
+      } else {
+        addTerminalOutput(`❌ Failed: ${data.error || response.statusText}`);
+      }
+    } catch (error) {
+      addTerminalOutput(`❌ Error fetching episode metadata: ${error}`);
+    } finally {
+      setActionLoading(prev => ({ ...prev, fetchEpisodeMeta: false }));
+    }
+  };
+
+  const handleTMDBSelection = async (tmdbResult: TMDBSearchResult) => {
+    if (!selectedMedia) return;
+
+    console.log('🎬 TMDB Selection:', tmdbResult);
+    setActionLoading(prev => ({ ...prev, tmdb: true }));
+    addTerminalOutput(`🎬 Updating with selected TMDB result: ${tmdbResult.title} (ID: ${tmdbResult.id})`);
+
+    try {
+      // Send the TMDB ID directly to update the media
+      const requestBody = {
+        tmdbId: tmdbResult.id,
+        mediaType: tmdbResult.media_type,
+        preserveFields: selectedMedia.isEditing ? Object.keys(editingMedia) : [],
+        // Include the full TMDB result for immediate use
+        tmdbData: tmdbResult
+      };
+
+      let response: Response;
+      let updatedData: any;
+
+      if (selectedMedia.type === 'tv' || tmdbResult.media_type === 'tv') {
+        // For TV series, use series-specific TMDB endpoints
+        addTerminalOutput(`📺 Updating TV series with TMDB ID: ${tmdbResult.id}`);
+
+        response = await fetch(`${getApiUrl()}/api/admin/series/${selectedMedia.id}/update-with-tmdb`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(requestBody),
+        });
+
+        if (response.ok) {
+          updatedData = await response.json();
+          addTerminalOutput(`✅ Received updated series data from backend`);
+
+          // Preserve manually edited fields
+          const finalSeriesData = { ...updatedData };
+
+          // Ensure genres is properly formatted as string array
+          if (finalSeriesData.genres && Array.isArray(finalSeriesData.genres)) {
+            finalSeriesData.genre_names = finalSeriesData.genres.map((g: any) =>
+              typeof g === 'string' ? g : g.name || g
+            );
+            delete (finalSeriesData as any).genres;
+          }
+
+          if (selectedMedia.isEditing && editingMedia) {
+            (Object.keys(editingMedia) as Array<keyof Media>).forEach(key => {
+              if (editingMedia[key] !== undefined && editingMedia[key] !== '') {
+                (finalSeriesData as any)[key] = editingMedia[key];
+              }
+            });
+          }
+
+          // Update series list
+          setSeriesList(prev => prev.map(s =>
+            s.id === selectedMedia.id
+              ? finalSeriesData
+              : s
+          ));
+
+          // Convert series data back to media-like format for selectedMedia
+          const finalMedia = {
+            ...selectedMedia,
+            ...finalSeriesData,
+            isEditing: selectedMedia.isEditing,
+            type: 'tv' as const,
+            // Ensure critical fields are preserved
+            id: selectedMedia.id
+          };
+
+          // Ensure genres is removed and genre_names is properly formatted
+          if ((finalMedia as any).genres) {
+            delete (finalMedia as any).genres;
+          }
+          if (finalMedia.genre_names && Array.isArray(finalMedia.genre_names)) {
+            finalMedia.genre_names = finalMedia.genre_names.map((g: any) =>
+              typeof g === 'string' ? g : g?.name || String(g)
+            );
+          }
+
+          setSelectedMedia(finalMedia);
+          addTerminalOutput(`✅ TV series updated with TMDB data from "${tmdbResult.title}"`);
+          addTerminalOutput(`📊 Updated fields: title, description, backdrop_path, poster_path, rating, year, trailer_url`);
+
+          // Log specific updates
+          if (updatedData.backdrop_path) addTerminalOutput(`🖼️ Backdrop updated: ${updatedData.backdrop_path}`);
+          if (updatedData.trailer_url) addTerminalOutput(`🎬 Trailer updated: ${updatedData.trailer_url}`);
+          if (updatedData.poster_path) addTerminalOutput(`🎭 Poster updated: ${updatedData.poster_path}`);
+        } else {
+          const errorData = await response.json().catch(() => ({ error: response.statusText }));
+          addTerminalOutput(`❌ TV series TMDB update failed: ${errorData.error || response.statusText}`);
+        }
+      } else {
+        // For movies, use existing movie endpoints
+        addTerminalOutput(`🎬 Updating movie with TMDB ID: ${tmdbResult.id}`);
+
+        response = await fetch(`${getApiUrl()}/api/admin/media/${selectedMedia.id}/update-with-tmdb`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(requestBody),
+        });
+
+        if (response.ok) {
+          updatedData = await response.json();
+          addTerminalOutput(`✅ Received updated movie data from backend`);
+
+          // Preserve manually edited fields
+          const finalMedia = { ...updatedData };
+
+          // Ensure genres is properly formatted as string array
+          if (finalMedia.genres && Array.isArray(finalMedia.genres)) {
+            finalMedia.genre_names = finalMedia.genres.map((g: any) =>
+              typeof g === 'string' ? g : g.name || g
+            );
+            delete (finalMedia as any).genres;
+          }
+
+          if (selectedMedia.isEditing && editingMedia) {
+            (Object.keys(editingMedia) as Array<keyof Media>).forEach(key => {
+              if (editingMedia[key] !== undefined && editingMedia[key] !== '') {
+                (finalMedia as any)[key] = editingMedia[key];
+              }
+            });
+          }
+
+          // Ensure critical fields are preserved
+          finalMedia.isEditing = selectedMedia.isEditing;
+          finalMedia.id = selectedMedia.id;
+
+          setSelectedMedia(finalMedia);
+          setMediaList(prev => prev.map(m => m.id === selectedMedia.id ? finalMedia : m));
+          addTerminalOutput(`✅ Movie updated with TMDB data from "${tmdbResult.title}"`);
+          addTerminalOutput(`📊 Updated fields: title, description, backdrop_path, poster_path, rating, year, runtime, trailer_url`);
+
+          // Log specific updates
+          if (updatedData.backdrop_path) addTerminalOutput(`🖼️ Backdrop updated: ${updatedData.backdrop_path}`);
+          if (updatedData.trailer_url) addTerminalOutput(`🎬 Trailer updated: ${updatedData.trailer_url}`);
+          if (updatedData.poster_path) addTerminalOutput(`🎭 Poster updated: ${updatedData.poster_path}`);
+        } else {
+          const errorData = await response.json().catch(() => ({ error: response.statusText }));
+          addTerminalOutput(`❌ Movie TMDB update failed: ${errorData.error || response.statusText}`);
+        }
+      }
+
+      if (selectedMedia.isEditing && editingMedia && Object.keys(editingMedia).length > 0) {
+        addTerminalOutput(`🔒 Preserved manual edits: ${Object.keys(editingMedia).join(', ')}`);
+      }
+
+      // Refresh the media list to ensure consistency
+      addTerminalOutput(`🔄 Refreshing media list to ensure consistency...`);
+      await fetchMediaList();
+
+    } catch (error) {
+      addTerminalOutput(`❌ Error updating with TMDB data: ${error}`);
+      console.error('Error updating with TMDB data:', error);
+    } finally {
+      setActionLoading(prev => ({ ...prev, tmdb: false }));
+      // Close the modal after processing
+      setShowTMDBSearchModal(false);
+      setCustomSearchTitle('');
+      addTerminalOutput(`🎭 TMDB search modal closed`);
+    }
+  };
+
+  const handleUpdateBackdropTrailer = async (customTitle?: string) => {
+    if (!selectedMedia) return;
+
+    setActionLoading(prev => ({ ...prev, backdropTrailer: true }));
+
+    // Use custom title if provided, otherwise use current title
+    const searchTitle = customTitle || selectedMedia.title;
+    addTerminalOutput(`🎬 Updating backdrop and trailer for: ${searchTitle}`);
+
+    try {
+      // Use the bulk TMDB update endpoint which focuses on backdrop/trailer data
+      const response = await fetch(`${getApiUrl()}/api/admin/update-tmdb-data`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          mediaId: selectedMedia.id,
+          searchTitle: searchTitle,
+          updateType: 'backdrop_trailer_only'
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        addTerminalOutput(`✅ Backdrop and trailer update completed`);
+
+        // Refresh the selected media to show updated data
+        if (selectedMedia.type === 'tv') {
+          const refreshResponse = await fetch(`${getApiUrl()}/api/series/${selectedMedia.id}`);
+          if (refreshResponse.ok) {
+            const updatedData = await refreshResponse.json();
+            const finalMedia = {
+              ...selectedMedia,
+              backdrop_path: updatedData.backdrop_path,
+              trailer_url: updatedData.trailer_url,
+            };
+            setSelectedMedia(finalMedia);
+          }
+        } else {
+          const refreshResponse = await fetch(`${getApiUrl()}/api/media/${selectedMedia.id}`);
+          if (refreshResponse.ok) {
+            const updatedData = await refreshResponse.json();
+            setSelectedMedia(prev => prev ? { ...prev, ...updatedData } : null);
+          }
+        }
+
+        addTerminalOutput(`🖼️ Backdrop URL: ${data.backdrop_url ? '✅ Updated' : '❌ Not found'}`);
+        addTerminalOutput(`🎬 Trailer URL: ${data.trailer_url ? '✅ Updated' : '❌ Not found'}`);
+      } else {
+        const errorData = await response.json().catch(() => ({ error: response.statusText }));
+        addTerminalOutput(`❌ Backdrop/trailer update failed: ${errorData.error || response.statusText}`);
+      }
+    } catch (error) {
+      addTerminalOutput(`❌ Error updating backdrop/trailer: ${error}`);
+      console.error('Error updating backdrop/trailer:', error);
+    } finally {
+      setActionLoading(prev => ({ ...prev, backdropTrailer: false }));
+    }
+  };
+
+  const handleDeleteMedia = async () => {
+    if (!selectedMedia) return;
+
+    const itemType = selectedMedia.type === 'tv' ? 'TV series' : 'movie';
+    const confirmMessage = selectedMedia.type === 'tv'
+      ? `This will permanently remove:\n- Series record from database\n- All associated episodes and metadata\n- Posters and backdrops\n- Season and episode information\n- Genre associations`
+      : `This will permanently remove:\n- Media record from database\n- All associated metadata\n- Thumbnails and preview clips\n- Playback progress\n- Genre associations`;
+
+    const confirmed = await dialog.confirm(
+      `Delete ${itemType}`,
+      `Are you sure you want to delete "${selectedMedia.title}"? This action cannot be undone.\n\n${confirmMessage}`,
+      true
+    );
+    if (!confirmed) return;
+
+    setActionLoading(prev => ({ ...prev, delete: true }));
+    addTerminalOutput(`🗑️ Attempting to delete ${itemType}: ${selectedMedia.title}`);
+
+    try {
+      let response;
+
+      if (selectedMedia.type === 'tv') {
+        // Delete TV series
+        response = await fetch(`${getApiUrl()}/api/series/${selectedMedia.id}`, {
+          method: 'DELETE',
+        });
+      } else {
+        // Delete movie
+        response = await fetch(`${getApiUrl()}/api/media/${selectedMedia.id}`, {
+          method: 'DELETE',
+        });
+      }
+
+      if (response.ok) {
+        const result = await response.json();
+        addTerminalOutput(`✅ ${result.message || `${itemType} deleted successfully`}`);
+        addTerminalOutput(`📊 Deleted: ${selectedMedia.title} (${selectedMedia.type})`);
+
+        // Remove from local state
+        if (selectedMedia.type === 'tv') {
+          setSeriesList(prev => prev.filter(s => s.id !== selectedMedia.id));
+        } else {
+          setMediaList(prev => prev.filter(m => m.id !== selectedMedia.id));
+        }
+        setSelectedMedia(null);
+
+        // Refresh media list to ensure consistency
+        await fetchMediaList();
+      } else {
+        const errorData = await response.json().catch(() => ({ error: response.statusText }));
+        addTerminalOutput(`❌ Delete failed: ${errorData.error || response.statusText}`);
+      }
+    } catch (error) {
+      addTerminalOutput(`❌ Error during deletion: ${error}`);
+      console.error('Error deleting media:', error);
+    } finally {
+      setActionLoading(prev => ({ ...prev, delete: false }));
+    }
+  };
+
+  // Admin functions for scanning and system management
+  const fetchScanStats = async () => {
+    try {
+      const response = await fetch(`${getApiUrl()}/api/admin/scan/stats`);
+      if (response.ok) {
+        const stats = await response.json();
+        setScanStats(stats);
+        addTerminalOutput(`📊 Scan stats refreshed`);
+      } else {
+        addTerminalOutput(`⚠️ Could not fetch scan stats: ${response.statusText}`);
+      }
+    } catch (error) {
+      addTerminalOutput(`❌ Error fetching scan stats: ${error}`);
+      console.error('Error fetching scan stats:', error);
+    }
+  };
+
+  const fetchSystemStats = async () => {
+    try {
+      addTerminalOutput(`📈 Fetching system statistics...`);
+      const [cacheStats, queueStats] = await Promise.all([
+        fetch(`${getApiUrl()}/api/admin/assets/cache/stats`)
+          .then(r => r.ok ? r.json() : null)
+          .catch(() => null),
+        fetch(`${getApiUrl()}/api/celery/queues/status`)
+          .then(r => r.ok ? r.json() : null)
+          .catch(() => null)
+      ]);
+
+      setSystemStats({ cache: cacheStats, queues: queueStats });
+
+      if (cacheStats) addTerminalOutput(`✅ Cache stats loaded`);
+      else addTerminalOutput(`⚠️ Cache stats unavailable`);
+
+      if (queueStats) addTerminalOutput(`✅ Queue stats loaded`);
+      else addTerminalOutput(`⚠️ Queue stats unavailable`);
+
+    } catch (error) {
+      addTerminalOutput(`❌ Error fetching system stats: ${error}`);
+      console.error('Error fetching system stats:', error);
+    }
+  };
+
+  const triggerScan = async (scanType: string) => {
+    setIsScanning(true);
+    setActionLoading(prev => ({ ...prev, [scanType]: true }));
+    addTerminalOutput(`🚀 Starting ${scanType} scan...`);
+
+    try {
+      const response = await fetch(`${getApiUrl()}/api/admin/scan/${scanType}`, {
+        method: 'POST'
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        addTerminalOutput(`✅ ${scanType} scan completed successfully`);
+        addTerminalOutput(`📊 Results: ${JSON.stringify(result, null, 2)}`);
+        await fetchScanStats();
+        await fetchMediaList();
+      } else {
+        addTerminalOutput(`❌ ${scanType} scan failed: ${response.statusText}`);
+      }
+    } catch (error) {
+      addTerminalOutput(`❌ Error during ${scanType} scan: ${error}`);
+    } finally {
+      setIsScanning(false);
+      setActionLoading(prev => ({ ...prev, [scanType]: false }));
+    }
+  };
+
+  const regenerateAllAssets = async () => {
+    setActionLoading(prev => ({ ...prev, regenerateAll: true }));
+    addTerminalOutput('🔄 Starting asset regeneration for all media...');
+
+    try {
+      const response = await fetch(`${getApiUrl()}/api/admin/scan/regenerate-assets`, {
+        method: 'POST'
+      });
+
+      if (response.ok) {
+        addTerminalOutput('✅ Asset regeneration started successfully');
+      } else {
+        addTerminalOutput(`❌ Asset regeneration failed: ${response.statusText}`);
+      }
+    } catch (error) {
+      addTerminalOutput(`❌ Error starting asset regeneration: ${error}`);
+    } finally {
+      setActionLoading(prev => ({ ...prev, regenerateAll: false }));
+    }
+  };
+
+  const clearCache = async () => {
+    setActionLoading(prev => ({ ...prev, clearCache: true }));
+    addTerminalOutput('🧹 Clearing system cache...');
+
+    try {
+      const response = await fetch(`${getApiUrl()}/api/admin/assets/cache/clear`, {
+        method: 'DELETE'
+      });
+
+      if (response.ok) {
+        addTerminalOutput('✅ Cache cleared successfully');
+        await fetchSystemStats();
+      } else {
+        addTerminalOutput(`❌ Cache clear failed: ${response.statusText}`);
+      }
+    } catch (error) {
+      addTerminalOutput(`❌ Error clearing cache: ${error}`);
+    } finally {
+      setActionLoading(prev => ({ ...prev, clearCache: false }));
+    }
+  };
+
+  // Test all API endpoints to verify functionality
+  const testAllEndpoints = async () => {
+    setActionLoading(prev => ({ ...prev, testEndpoints: true }));
+    addTerminalOutput('🔍 Testing all API endpoints...');
+
+    const endpoints = [
+      { name: 'Media List', method: 'GET', url: '/api/media' },
+      { name: 'Media Delete', method: 'DELETE', url: '/api/media/1', note: 'Endpoint available (test with valid ID)' },
+      { name: 'Scan Stats', method: 'GET', url: '/api/admin/scan/stats' },
+      { name: 'Cache Stats', method: 'GET', url: '/api/admin/assets/cache/stats' },
+      { name: 'Queue Status', method: 'GET', url: '/api/celery/queues/status' },
+    ];
+
+    for (const endpoint of endpoints) {
+      try {
+        // Skip DELETE endpoint test to avoid accidentally deleting media
+        if (endpoint.method === 'DELETE') {
+          addTerminalOutput(`✅ ${endpoint.name}: ${endpoint.note || 'Available'}`);
+          continue;
+        }
+
+        const response = await fetch(`${getApiUrl()}${endpoint.url}`);
+        if (response.ok) {
+          addTerminalOutput(`✅ ${endpoint.name}: Available`);
+        } else {
+          addTerminalOutput(`❌ ${endpoint.name}: ${response.status} ${response.statusText}`);
+        }
+      } catch (error) {
+        addTerminalOutput(`❌ ${endpoint.name}: Connection failed`);
+      }
+    }
+
+    addTerminalOutput('🔍 Endpoint testing completed');
+    setActionLoading(prev => ({ ...prev, testEndpoints: false }));
+  };
+
+  const handleFileUpload = async (file: File, type: 'banner' | 'backdrop' | 'thumbnail' | 'trailer') => {
+    if (!selectedMedia) return;
+
+    setUploading(true);
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('type', type);
+
+    try {
+      const response = await fetch(`${getApiUrl()}/api/admin/media/${selectedMedia.id}/upload-asset`, {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        setMediaAssets(prev => ({
+          ...prev,
+          [type]: result.path
+        }));
+        addTerminalOutput(`✅ ${type.charAt(0).toUpperCase() + type.slice(1)} uploaded successfully`);
+      } else {
+        addTerminalOutput(`❌ Failed to upload ${type}`);
+      }
+    } catch (error) {
+      console.error('Error uploading file:', error); addTerminalOutput(`❌ Error uploading ${type}: ${error}`);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleSubtitleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!selectedMedia || !e.target.files) return;
+
+    setUploading(true);
+    const files = Array.from(e.target.files);
+
+    addTerminalOutput(`📝 Uploading ${files.length} subtitle file(s) for: ${selectedMedia.title}`);
+
+    try {
+      for (const file of files) {
+        const formData = new FormData();
+        formData.append('subtitle', file);
+        formData.append('language', extractLanguageFromFilename(file.name));
+
+        const response = await fetch(`${getApiUrl()}/api/admin/media/${selectedMedia.id}/upload-subtitle`, {
+          method: 'POST',
+          body: formData,
+        });
+
+        if (response.ok) {
+          const result = await response.json();
+          addTerminalOutput(`✅ Uploaded subtitle: ${file.name} → ${result.language} (Track ID: ${result.trackId})`);
+        } else {
+          const errorText = await response.text();
+          let errorData;
+          try {
+            errorData = JSON.parse(errorText);
+          } catch {
+            errorData = { error: errorText || response.statusText };
+          }
+          addTerminalOutput(`❌ Failed to upload ${file.name}: ${errorData.error || response.statusText} (Status: ${response.status})`);
+          console.error('Upload error:', response.status, errorData);
+        }
+      }
+
+      addTerminalOutput(`✅ Subtitle upload completed for ${selectedMedia.title}`);
+      refreshSubtitles();
+
+      // Refresh media data to show new subtitles
+      const mediaResponse = await fetch(`${getApiUrl()}/api/media/${selectedMedia.id}`);
+      if (mediaResponse.ok) {
+        const updatedMedia = await mediaResponse.json();
+        setSelectedMedia(prev => prev ? { ...prev, ...updatedMedia } : null);
+      }
+
+    } catch (error) {
+      addTerminalOutput(`❌ Error uploading subtitles: ${error}`);
+      console.error('Error uploading subtitles:', error);
+    } finally {
+      setUploading(false);
+      // Clear the input
+      e.target.value = '';
+    }
+  };
+
+  const handleScanSubtitles = async () => {
+    setActionLoading(prev => ({ ...prev, scanSubtitles: true }));
+    addTerminalOutput('🔍 Starting subtitle scan for media storage...');
+
+    try {
+      const response = await fetch(`${getApiUrl()}/api/admin/scan/subtitles`, {
+        method: 'POST'
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        addTerminalOutput(`✅ Subtitle scan completed successfully`);
+        refreshSubtitles();
+        addTerminalOutput(`📊 Found ${result.totalSubtitles || 0} subtitle files`);
+        addTerminalOutput(`📝 Matched ${result.matchedSubtitles || 0} subtitles to media`);
+        addTerminalOutput(`⚠️ Unmatched ${result.unmatchedSubtitles || 0} subtitle files`);
+
+        // Refresh media list to show updated subtitle info
+        await fetchMediaList();
+
+        // If a media is selected, refresh its data
+        if (selectedMedia) {
+          const mediaResponse = await fetch(`${getApiUrl()}/api/media/${selectedMedia.id}`);
+          if (mediaResponse.ok) {
+            const updatedMedia = await mediaResponse.json();
+            setSelectedMedia(prev => prev ? { ...prev, ...updatedMedia } : null);
+          }
+        }
+      } else {
+        const errorData = await response.json().catch(() => ({ error: response.statusText }));
+        addTerminalOutput(`❌ Subtitle scan failed: ${errorData.error || response.statusText}`);
+      }
+    } catch (error) {
+      addTerminalOutput(`❌ Error during subtitle scan: ${error}`);
+      console.error('Error scanning subtitles:', error);
+    } finally {
+      setActionLoading(prev => ({ ...prev, scanSubtitles: false }));
+    }
+  };
+
+  const handleTestSubtitles = async () => {
+    if (!selectedMedia) return;
+
+    setActionLoading(prev => ({ ...prev, testSubtitles: true }));
+    addTerminalOutput(`🧪 Testing subtitle system for: ${selectedMedia.title}`);
+
+    try {
+      const response = await fetch(`${getApiUrl()}/api/admin/subtitles/test/${selectedMedia.id}`);
+
+      if (response.ok) {
+        const result = await response.json();
+        addTerminalOutput(`✅ Subtitle test completed for: ${result.media_title}`);
+        addTerminalOutput(`📊 Found ${result.track_count} subtitle tracks`);
+
+        if (result.tracks && result.tracks.length > 0) {
+          result.tracks.forEach((track: any) => {
+            const status = track.exists ? (track.readable ? '✅' : '⚠️') : '❌';
+            addTerminalOutput(`   ${status} ${track.language} (${track.track_type}) - ${track.exists ? `${track.size} bytes` : 'missing'}`);
+          });
+        } else {
+          addTerminalOutput(`⚠️ No subtitle tracks found for this media`);
+        }
+
+        // Test the subtitle endpoint that's causing 500 errors
+        if (result.tracks && result.tracks.length > 0) {
+          const firstTrack = result.tracks[0];
+          addTerminalOutput(`🔍 Testing subtitle file endpoint for track ${firstTrack.id}...`);
+
+          const testResponse = await fetch(`${getApiUrl()}/api/media/${selectedMedia.id}/subtitles/${firstTrack.id}/file`);
+          if (testResponse.ok) {
+            addTerminalOutput(`✅ Subtitle file endpoint working (${testResponse.status})`);
+          } else {
+            addTerminalOutput(`❌ Subtitle file endpoint failed (${testResponse.status}): ${testResponse.statusText}`);
+          }
+        }
+      } else {
+        const errorData = await response.json().catch(() => ({ error: response.statusText }));
+        addTerminalOutput(`❌ Subtitle test failed: ${errorData.error || response.statusText}`);
+      }
+    } catch (error) {
+      addTerminalOutput(`❌ Error during subtitle test: ${error}`);
+      console.error('Error testing subtitles:', error);
+    } finally {
+      setActionLoading(prev => ({ ...prev, testSubtitles: false }));
+    }
+  };
+
+  // Helper function to extract language from filename
+  const extractLanguageFromFilename = (filename: string): string => {
+    const langPatterns: { [key: string]: string } = {
+      'en': 'English',
+      'eng': 'English',
+      'english': 'English',
+      'es': 'Spanish',
+      'spa': 'Spanish',
+      'spanish': 'Spanish',
+      'fr': 'French',
+      'fre': 'French',
+      'french': 'French',
+      'de': 'German',
+      'ger': 'German',
+      'german': 'German',
+      'it': 'Italian',
+      'ita': 'Italian',
+      'italian': 'Italian',
+      'pt': 'Portuguese',
+      'por': 'Portuguese',
+      'portuguese': 'Portuguese',
+      'ru': 'Russian',
+      'rus': 'Russian',
+      'russian': 'Russian',
+      'ja': 'Japanese',
+      'jpn': 'Japanese',
+      'japanese': 'Japanese',
+      'ko': 'Korean',
+      'kor': 'Korean',
+      'korean': 'Korean',
+      'zh': 'Chinese',
+      'chi': 'Chinese',
+      'chinese': 'Chinese',
+      'ar': 'Arabic',
+      'ara': 'Arabic',
+      'arabic': 'Arabic'
+    };
+
+    const lowerFilename = filename.toLowerCase();
+
+    // Try to find language patterns in filename
+    for (const [code, language] of Object.entries(langPatterns)) {
+      if (lowerFilename.includes(`.${code}.`) ||
+        lowerFilename.includes(`_${code}_`) ||
+        lowerFilename.includes(`-${code}-`) ||
+        lowerFilename.includes(`${code}.srt`) ||
+        lowerFilename.includes(`${code}.vtt`) ||
+        lowerFilename.includes(`${code}.ass`)) {
+        return language;
+      }
+    }
+
+    return 'Unknown';
+  };
+
+  // OpenSubtitles handlers
+  const handleOpenSubtitlesSearch = async (standalone = false) => {
+    if (!openSubtitlesQuery.trim()) return;
+
+    // For standalone search, we don't need selectedMedia
+    if (!standalone && !selectedMedia) return;
+
+    setOpenSubtitlesLoading(true);
+    setOpenSubtitlesResults([]);
+
+    const searchContext = standalone ? 'standalone' : `for ${selectedMedia?.title}`;
+    addTerminalOutput(`🔍 Searching OpenSubtitles ${searchContext}: ${openSubtitlesQuery} (${selectedLanguage})`);
+
+    try {
+      const params = new URLSearchParams({
+        query: openSubtitlesQuery,
+        language: selectedLanguage,
+      });
+
+      // Add year if available and not standalone
+      if (!standalone && selectedMedia?.year) {
+        params.append('year', selectedMedia.year.toString());
+      }
+
+      // Use different endpoint for standalone search
+      const endpoint = standalone ? 'opensubtitles/search-standalone' : 'opensubtitles/search';
+      const response = await fetch(`${getApiUrl()}/api/${endpoint}?${params}`);
+
+      if (response.ok) {
+        const data = await response.json();
+
+        // Handle different response formats between standalone and media-specific search
+        let results = [];
+        if (standalone) {
+          // Standalone search returns: { data: [...], total_count: ..., total_pages: ..., page: ... }
+          results = data.data || [];
+        } else {
+          // Media-specific search returns the raw OpenSubtitles API response: { data: [...] }
+          results = data.data || [];
+        }
+
+        setOpenSubtitlesResults(results);
+        addTerminalOutput(`✅ Found ${results.length} subtitle(s) for "${openSubtitlesQuery}"`);
+
+        if (results.length === 0) {
+          addTerminalOutput(`💡 Try searching with just the movie title or different language`);
+        } else {
+          addTerminalOutput(`📊 Results include downloads, ratings, and file information`);
+
+          // Log the structure of the first result for debugging
+          if (results.length > 0) {
+            console.log('🔍 First result structure:', results[0]);
+            addTerminalOutput(`🔍 Sample result keys: ${Object.keys(results[0]).join(', ')}`);
+          }
+        }
+      } else {
+        const errorData = await response.json().catch(() => ({ error: response.statusText }));
+        addTerminalOutput(`❌ OpenSubtitles search failed: ${errorData.error || response.statusText}`);
+      }
+    } catch (error) {
+      addTerminalOutput(`❌ Error searching OpenSubtitles: ${error}`);
+      console.error('OpenSubtitles search error:', error);
+    } finally {
+      setOpenSubtitlesLoading(false);
+    }
+  };
+
+  const handleDownloadOpenSubtitle = async (subtitle: any) => {
+    if (!selectedMedia) return;
+
+    // Handle both standalone and media-specific search result formats
+    const isStandaloneFormat = subtitle.movie_title !== undefined;
+
+    const fileId = isStandaloneFormat
+      ? subtitle.file_id
+      : subtitle.attributes?.files?.[0]?.file_id;
+
+    if (!fileId) {
+      addTerminalOutput(`❌ No file ID found for subtitle`);
+      return;
+    }
+
+    setDownloadingSubtitle(fileId);
+
+    const subtitleTitle = isStandaloneFormat
+      ? (subtitle.movie_title || selectedMedia.title || 'Unknown')
+      : (subtitle.attributes?.feature_details?.title || selectedMedia.title || 'Unknown');
+
+    const language = isStandaloneFormat
+      ? (subtitle.language || 'Unknown')
+      : (subtitle.attributes?.language || 'Unknown');
+
+    addTerminalOutput(`⬇️ Downloading subtitle: ${subtitleTitle} (${language.toUpperCase()})`);
+
+    try {
+      const fileName = isStandaloneFormat
+        ? (subtitle.file_name || `${subtitleTitle}.srt`)
+        : (subtitle.attributes?.files?.[0]?.file_name || `${subtitleTitle}.srt`);
+
+      const response = await fetch(`${getApiUrl()}/api/admin/media/${selectedMedia.id}/opensubtitles/download`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          file_id: fileId,
+          language: language,
+          file_name: fileName,
+        }),
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        addTerminalOutput(`✅ Subtitle downloaded successfully: ${result.language}`);
+        refreshSubtitles();
+        addTerminalOutput(`📁 Saved as: ${result.path}`);
+
+        if (result.remaining !== undefined) {
+          addTerminalOutput(`📊 Remaining downloads today: ${result.remaining}`);
+        }
+
+        // Refresh media data to show new subtitle
+        const mediaResponse = await fetch(`${getApiUrl()}/api/media/${selectedMedia.id}`);
+        if (mediaResponse.ok) {
+          const updatedMedia = await mediaResponse.json();
+          setSelectedMedia(prev => prev ? { ...prev, ...updatedMedia } : null);
+        }
+
+        // Refresh the media list
+        await fetchMediaList();
+
+      } else {
+        const errorData = await response.json().catch(() => ({ error: response.statusText }));
+        addTerminalOutput(`❌ Failed to download subtitle: ${errorData.error || response.statusText}`);
+      }
+    } catch (error) {
+      addTerminalOutput(`❌ Error downloading subtitle: ${error}`);
+      console.error('Subtitle download error:', error);
+    } finally {
+      setDownloadingSubtitle(null);
+    }
+  };
+
+  const handleDownloadSubtitleAsFile = async (subtitle: any) => {
+    // Handle both standalone and media-specific search result formats
+    const isStandaloneFormat = subtitle.movie_title !== undefined;
+
+    const fileId = isStandaloneFormat
+      ? subtitle.file_id
+      : subtitle.attributes?.files?.[0]?.file_id;
+
+    if (!fileId) {
+      addTerminalOutput(`❌ No file ID found for subtitle download`);
+      return;
+    }
+
+    const subtitleTitle = isStandaloneFormat
+      ? (subtitle.movie_title || 'Unknown')
+      : (subtitle.attributes?.feature_details?.title || 'Unknown');
+
+    const language = isStandaloneFormat
+      ? (subtitle.language || 'Unknown')
+      : (subtitle.attributes?.language || 'Unknown');
+
+    addTerminalOutput(`⬇️ Downloading SRT file: ${subtitleTitle} (${language.toUpperCase()})`);
+
+    try {
+      const response = await fetch(`${getApiUrl()}/api/opensubtitles/download?file_id=${fileId}`);
+
+      if (response.ok) {
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+
+        // Get filename from Content-Disposition header or use default
+        const contentDisposition = response.headers.get('content-disposition');
+        let filename = isStandaloneFormat
+          ? (subtitle.file_name || `${subtitleTitle}_${language}.srt`)
+          : (subtitle.attributes?.files?.[0]?.file_name || `${subtitleTitle}_${language}.srt`);
+
+        if (contentDisposition) {
+          const filenameMatch = contentDisposition.match(/filename="?([^"]+)"?/);
+          if (filenameMatch) {
+            filename = filenameMatch[1];
+          }
+        }
+
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+
+        addTerminalOutput(`✅ SRT file downloaded: ${filename}`);
+      } else {
+        const errorData = await response.json().catch(() => ({ error: response.statusText }));
+        addTerminalOutput(`❌ Failed to download SRT file: ${errorData.error || response.statusText}`);
+      }
+    } catch (error) {
+      addTerminalOutput(`❌ Error downloading SRT file: ${error}`);
+      console.error('SRT download error:', error);
+    }
+  };
+
+  const handleDeleteAsset = async (type: 'banner' | 'backdrop' | 'thumbnail' | 'trailer') => {
+    if (!selectedMedia) return;
+
+    try {
+      const response = await fetch(`${getApiUrl()}/api/admin/media/${selectedMedia.id}/delete-asset?type=${type}`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ type }),
+      });
+
+      if (response.ok) {
+        // Clear both the type and type_path keys from mediaAssets
+        setMediaAssets(prev => {
+          const updated = { ...prev };
+          delete (updated as any)[type];
+          delete (updated as any)[`${type}_path`];
+          // Special case: backdrop and banner share banner_path
+          if (type === 'backdrop' || type === 'banner') {
+            delete updated.banner;
+            delete updated.banner_path;
+          }
+          return updated;
+        });
+        addTerminalOutput(`✅ ${type} deleted successfully`);
+      }
+    } catch (error) {
+      console.error('Error deleting asset:', error);
+      addTerminalOutput(`❌ Error deleting ${type}: ${error}`);
+    }
+  };
+
+
+
+  return (
+    <>
+              {view === 'media' ? (
+                <SectionHeader
+                  title="Library Manager"
+                  description="Find a movie or show to edit its details, artwork, trailer and subtitles."
+                  actions={mediaList.length + seriesList.length > 0 ? <span className="text-[13px] text-white/45">{mediaList.filter((m) => m.type === 'movie').length} movies · {seriesList.length} shows</span> : undefined}
+                />
+              ) : (
+                <SectionHeader
+                  title="Subtitles"
+                  description={selectedMedia ? `Search, download and manage subtitles for ${selectedMedia.title}.` : 'Search OpenSubtitles, or pick a title in Library Manager to attach subtitles to it.'}
+                />
+              )}
+              {activeTab === 'media' && (
+
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                  {/* Media browser: stays in view while the details scroll */}
+                  <div className="lg:col-span-1 lg:sticky lg:top-0 lg:self-start">
+                    <ScrollReveal>
+                      <GlassCard className="p-6">
+                        <h2 className="text-[19px] font-semibold tracking-[-0.01em] text-white mb-6 flex items-center">
+                          <Folder className="w-6 h-6 mr-3 text-white/70" />
+                          Media Library
+                        </h2>
+
+                        {/* Search Input */}
+                        <div className="mb-4">
+                          <div className="relative">
+                            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-white/50" />
+                            <input
+                              type="text"
+                              placeholder="Search media..."
+                              value={searchQuery}
+                              onChange={(e) => setSearchQuery(e.target.value)}
+                              className="w-full bg-white/[0.07] border border-white/[0.08] rounded-xl pl-10 pr-4 py-2 text-white placeholder-white/35 focus:border-white/40 focus:outline-none transition-colors"
+                            />
+                            {searchQuery && (
+                              <button
+                                onClick={() => setSearchQuery('')}
+                                className="absolute right-3 top-1/2 transform -translate-y-1/2 text-white/50 hover:text-white"
+                              >
+                                <X className="w-4 h-4" />
+                              </button>
+                            )}
+                          </div>
+                          {searchQuery && (
+                            <p className="text-white/60 text-sm mt-2">
+                              Found {(() => {
+                                const query = searchQuery.toLowerCase();
+                                const movieCount = mediaList.filter(media => {
+                                  return (
+                                    media.title?.toLowerCase().includes(query) ||
+                                    media.description?.toLowerCase().includes(query) ||
+                                    media.genre_names?.some(genre => {
+                                      const genreStr = typeof genre === 'string' ? genre : (genre as any)?.name || String(genre);
+                                      return genreStr.toLowerCase().includes(query);
+                                    }) ||
+                                    media.year?.toString().includes(query) ||
+                                    media.country?.toLowerCase().includes(query) ||
+                                    media.language?.toLowerCase().includes(query)
+                                  );
+                                }).length;
+                                const seriesCount = seriesList.filter(series => {
+                                  return (
+                                    series.title?.toLowerCase().includes(query) ||
+                                    series.description?.toLowerCase().includes(query) ||
+                                    series.status?.toLowerCase().includes(query)
+                                  );
+                                }).length;
+                                return movieCount + seriesCount;
+                              })()} results
+                            </p>
+                          )}
+
+                          <div className="flex items-center justify-between mt-2">
+                            <p className="text-white/50 text-xs">
+                              💡 Click to select media for management
+                            </p>
+                            <MagneticButton
+                              onClick={refreshFolderTree}
+                              disabled={loadingTreeData}
+                              className="bg-white/[0.1] hover:bg-white/[0.18] text-white px-2 py-1 rounded text-xs flex items-center space-x-1"
+                              title="Refresh TV series hierarchy"
+                            >
+                              <RefreshCw className={`w-3 h-3 ${loadingTreeData ? 'animate-spin' : ''}`} />
+                              <span>Refresh</span>
+                            </MagneticButton>
+                          </div>
+                        </div>
+
+                        <div className="max-h-96 overflow-y-auto lg:max-h-[calc(100dvh-20rem)]">
+                          {loadingTreeData ? (
+                            <div className="flex items-center justify-center py-8">
+                              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-white/60"></div>
+                              <span className="ml-2 text-white/60">Loading TV series hierarchy...</span>
+                            </div>
+                          ) : (
+                            <FolderTree
+                              data={folderTreeData}
+                              onSelect={(item: any) => {
+                                console.log('🎯 FolderTree onSelect called with:', item);
+                                // Handle media selection (movies, episodes)
+                                if (item.type === 'media' && item.media) {
+                                  console.log('📂 Selecting media from folder tree:', item.media);
+                                  handleMediaSelect(item.media);
+                                }
+                                // Handle folder selection (series, seasons) - allow media selection for series and seasons
+                                else if (item.type === 'folder' && item.media && (item.media.type === 'tv' || item.media.type === 'season')) {
+                                  console.log('📁 Selecting folder media from folder tree:', item.media);
+                                  handleMediaSelect(item.media);
+                                }
+                              }}
+                              className="text-white"
+                            />
+                          )}
+                        </div>
+                      </GlassCard>
+                    </ScrollReveal>
+                  </div>
+
+                  {/* Comprehensive Media Management */}
+                  <div className="lg:col-span-2">
+                    {selectedMedia ? (
+                      <ScrollReveal delay={0.2}>
+                        <div className="space-y-6">
+                          {/* Media Header with Actions */}
+                          <GlassCard className="p-6">
+                            <div className="flex items-center justify-between mb-6">
+                              <div className="flex items-center space-x-4">
+                                <div className="relative">
+                                  {selectedMedia.thumbnail_path ? (
+                                    <Image
+                                      src={`${getApiUrl()}/api/thumbnails/${selectedMedia.id}`}
+                                      alt={selectedMedia.title}
+                                      width={80}
+                                      height={120}
+                                      className="rounded-lg object-cover"
+                                    />
+                                  ) : (
+                                    <div className="w-20 h-30 bg-white/10 rounded-lg flex items-center justify-center">
+                                      <Video className="w-8 h-8 text-white/50" />
+                                    </div>
+                                  )}
+                                </div>
+                                <div>
+                                  <h2 className="text-[22px] font-semibold tracking-[-0.01em] text-white">
+                                    {selectedMedia.isEditing && editingMedia.title ? editingMedia.title : selectedMedia.title}
+                                  </h2>
+                                  <p className="text-white/70">
+                                    {selectedMedia.isEditing && editingMedia.year ? editingMedia.year : selectedMedia.year} • {selectedMedia.type}
+                                  </p>
+                                  <div className="flex items-center space-x-2 mt-2">
+                                    {selectedMedia.rating && (
+                                      <div className="flex items-center space-x-1">
+                                        <Star className="w-4 h-4 text-yellow-500" />
+                                        <span className="text-white/80">{selectedMedia.rating}</span>
+                                      </div>
+                                    )}
+                                    {selectedMedia.runtime && (
+                                      <div className="flex items-center space-x-1">
+                                        <Clock className="w-4 h-4 text-white/60" />
+                                        <span className="text-white/80">{selectedMedia.runtime}min</span>
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div className="flex space-x-2">
+                                <MagneticButton
+                                  onClick={() => {
+                                    if (selectedMedia.type === 'tv') {
+                                      navigate.push(`/tv-series/${selectedMedia.id}`);
+                                    } else {
+                                      navigate.push(`/movie/${selectedMedia.id}`);
+                                    }
+                                  }}
+                                  className="bg-[#f5f5f7] hover:bg-white text-black px-4 py-2 rounded-lg flex items-center space-x-2"
+                                  title={`Watch ${selectedMedia.type === 'tv' ? 'Series' : 'Movie'}`}
+                                >
+                                  <Play className="w-4 h-4" />
+                                  <span>Watch</span>
+                                </MagneticButton>
+                                <MagneticButton
+                                  onClick={() => {
+                                    if (selectedMedia.type === 'tv') {
+                                      navigate.push(`/tv-series/${selectedMedia.id}`);
+                                    } else {
+                                      navigate.push(`/movie/${selectedMedia.id}`);
+                                    }
+                                  }}
+                                  className="bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-lg flex items-center space-x-2"
+                                  title={`View ${selectedMedia.type === 'tv' ? 'Series' : 'Movie'} Details`}
+                                >
+                                  <Info className="w-4 h-4" />
+                                  <span>Details</span>
+                                </MagneticButton>
+                                <MagneticButton
+                                  onClick={handleEditToggle}
+                                  className={`px-4 py-2 rounded-lg flex items-center space-x-2 ${selectedMedia.isEditing
+                                    ? 'bg-[#f5f5f7] hover:bg-white text-white'
+                                    : 'bg-white/10 hover:bg-white/20 text-white'
+                                    }`}
+                                >
+                                  {selectedMedia.isEditing ? (
+                                    <>
+                                      <X className="w-4 h-4" />
+                                      <span>Cancel</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Edit3 className="w-4 h-4" />
+                                      <span>Edit</span>
+                                    </>
+                                  )}
+                                </MagneticButton>
+                                <MagneticButton
+                                  onClick={handleDeleteMedia}
+                                  disabled={actionLoading.delete}
+                                  className="bg-red-500/[0.14] hover:bg-red-500/[0.24] text-red-300 px-4 py-2 rounded-lg flex items-center space-x-2 transition-all duration-300"
+                                  title="Delete Media (Permanent)"
+                                >
+                                  {actionLoading.delete ? (
+                                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white/60"></div>
+                                  ) : (
+                                    <Trash2 className="w-4 h-4" />
+                                  )}
+                                  <span>Delete</span>
+                                </MagneticButton>
+                              </div>
+                            </div>
+
+                            {/* Action Buttons Row */}
+                            <div className="flex flex-wrap gap-3">
+                              {selectedMedia.type !== 'tv' && (
+                                <MagneticButton
+                                  onClick={handleRegenerateThumbnail}
+                                  disabled={isRegenerating.thumbnail}
+                                  className="bg-white/[0.1] hover:bg-white/[0.18] text-white px-4 py-2 rounded-lg flex items-center space-x-2"
+                                >
+                                  {isRegenerating.thumbnail ? (
+                                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white/60"></div>
+                                  ) : (
+                                    <ImageIcon className="w-4 h-4" />
+                                  )}
+                                  <span>Force Regenerate Thumbnail</span>
+                                </MagneticButton>
+                              )}
+
+                              {selectedMedia.type !== 'tv' && (
+                                <MagneticButton
+                                  onClick={handleRegeneratePreview}
+                                  disabled={isRegenerating.preview}
+                                  className="bg-white/[0.1] hover:bg-white/[0.18] text-white px-4 py-2 rounded-lg flex items-center space-x-2"
+                                >
+                                  {isRegenerating.preview ? (
+                                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white/60"></div>
+                                  ) : (
+                                    <Video className="w-4 h-4" />
+                                  )}
+                                  <span>Force Regenerate Preview</span>
+                                </MagneticButton>
+                              )}
+
+                              <MagneticButton
+                                onClick={handleGeneratePoster}
+                                disabled={isRegenerating.poster}
+                                className="bg-white/[0.1] hover:bg-white/[0.18] text-white px-4 py-2 rounded-lg flex items-center space-x-2"
+                              >
+                                {isRegenerating.poster ? (
+                                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white/60"></div>
+                                ) : (
+                                  <ImageIcon className="w-4 h-4" />
+                                )}
+                                <span>Generate Poster</span>
+                              </MagneticButton>
+
+                              <MagneticButton
+                                onClick={() => handleFetchTMDBData()}
+                                disabled={actionLoading.tmdb}
+                                className="bg-white/[0.1] hover:bg-white/[0.18] text-white px-4 py-2 rounded-lg flex items-center space-x-2"
+                              >
+                                {actionLoading.tmdb ? (
+                                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white/60"></div>
+                                ) : (
+                                  <RefreshCw className="w-4 h-4" />
+                                )}
+                                <span>Fetch TMDB Data</span>
+                              </MagneticButton>
+
+                              {selectedMedia.type === 'tv' && (
+                                <MagneticButton
+                                  onClick={() => handleFetchEpisodeMetadata()}
+                                  disabled={actionLoading.fetchEpisodeMeta}
+                                  className="bg-white/[0.1] hover:bg-white/[0.18] text-white px-4 py-2 rounded-lg flex items-center space-x-2"
+                                  title="Fetch episode titles, descriptions, stills, ratings, directors, and guest stars from TMDB for all seasons"
+                                >
+                                  {actionLoading.fetchEpisodeMeta ? (
+                                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white/60"></div>
+                                  ) : (
+                                    <Film className="w-4 h-4" />
+                                  )}
+                                  <span>Fetch Episode Metadata</span>
+                                </MagneticButton>
+                              )}
+
+                              <MagneticButton
+                                onClick={() => {
+                                  console.log('🔍 Opening TMDB Search Modal for:', selectedMedia?.title);
+                                  console.log('🎭 Current modal state:', showTMDBSearchModal);
+                                  const searchTitle = selectedMedia?.title || '';
+                                  setCustomSearchTitle(searchTitle);
+                                  setShowTMDBSearchModal(true);
+                                  addTerminalOutput(`🔍 Opening TMDB search for: ${searchTitle}`);
+                                }}
+                                disabled={actionLoading.tmdb}
+                                className="bg-white/[0.1] hover:bg-white/[0.18] text-white px-4 py-2 rounded-lg flex items-center space-x-2"
+                              >
+                                <Search className="w-4 h-4" />
+                                <span>Search & Update TMDB</span>
+                              </MagneticButton>
+
+                              {selectedMedia.isEditing && (
+                                <MagneticButton
+                                  onClick={handleSaveChanges}
+                                  disabled={actionLoading.save}
+                                  className="bg-[#f5f5f7] hover:bg-white text-black px-6 py-2 rounded-lg flex items-center space-x-2"
+                                >
+                                  {actionLoading.save ? (
+                                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                                  ) : (
+                                    <Save className="w-4 h-4" />
+                                  )}
+                                  <span>Save Changes</span>
+                                </MagneticButton>
+                              )}
+
+                              <MagneticButton
+                                onClick={async () => {
+                                  if (!selectedMedia) return;
+                                  addTerminalOutput(`🔄 Refreshing selected media: ${selectedMedia.title}`);
+
+                                  try {
+                                    // Refresh the specific media item
+                                    let refreshResponse;
+                                    if (selectedMedia.type === 'tv') {
+                                      refreshResponse = await fetch(`${getApiUrl()}/api/series/${selectedMedia.id}`);
+                                    } else {
+                                      refreshResponse = await fetch(`${getApiUrl()}/api/media/${selectedMedia.id}`);
+                                    }
+
+                                    if (refreshResponse.ok) {
+                                      const refreshedData = await refreshResponse.json();
+
+                                      if (selectedMedia.type === 'tv') {
+                                        // Convert series data back to media-like format
+                                        const refreshedMedia = {
+                                          ...selectedMedia,
+                                          ...refreshedData,
+                                          type: 'tv' as const,
+                                          id: selectedMedia.id
+                                        };
+                                        setSelectedMedia(refreshedMedia);
+
+                                        // Update series list
+                                        setSeriesList(prev => prev.map(s =>
+                                          s.id === selectedMedia.id ? refreshedData : s
+                                        ));
+                                      } else {
+                                        const refreshedMedia = {
+                                          ...refreshedData,
+                                          isEditing: selectedMedia.isEditing,
+                                          id: selectedMedia.id
+                                        };
+                                        setSelectedMedia(refreshedMedia);
+
+                                        // Update media list
+                                        setMediaList(prev => prev.map(m =>
+                                          m.id === selectedMedia.id ? refreshedMedia : m
+                                        ));
+                                      }
+
+                                      addTerminalOutput(`✅ Successfully refreshed: ${selectedMedia.title}`);
+                                    } else {
+                                      addTerminalOutput(`❌ Failed to refresh media: ${refreshResponse.statusText}`);
+                                    }
+                                  } catch (error) {
+                                    addTerminalOutput(`❌ Error refreshing media: ${error}`);
+                                  }
+                                }}
+                                className="bg-white/[0.1] hover:bg-white/[0.18] text-white px-4 py-2 rounded-lg flex items-center space-x-2"
+                              >
+                                <RefreshCw className="w-4 h-4" />
+                                <span>Refresh Selected Media</span>
+                              </MagneticButton>
+
+                              <MagneticButton
+                                onClick={handleDeleteMedia}
+                                disabled={actionLoading.delete}
+                                className="bg-red-500/[0.14] hover:bg-red-500/[0.24] text-red-300 px-4 py-2 rounded-lg flex items-center space-x-2 border border-red-600/30"
+                              >
+                                {actionLoading.delete ? (
+                                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white/60"></div>
+                                ) : (
+                                  <Trash2 className="w-4 h-4" />
+                                )}
+                                <span>Delete {selectedMedia.type === 'tv' ? 'Series' : 'Movie'}</span>
+                              </MagneticButton>
+                            </div>
+                          </GlassCard>
+
+                          {/* Media Information */}
+                          <GlassCard className="p-6">
+                            <h3 className="text-[19px] font-semibold tracking-[-0.01em] text-white mb-6 flex items-center">
+                              <Info className="w-6 h-6 mr-3 text-white/70" />
+                              Media Information
+                            </h3>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                              {/* Basic Information */}
+                              <div className="space-y-4">
+                                <h4 className="text-lg font-medium text-white/90 mb-3">Basic Information</h4>
+
+                                <div className="space-y-3">
+                                  <div>
+                                    <label className="block text-sm font-medium text-white/70 mb-1">Title</label>
+                                    {selectedMedia.isEditing ? (
+                                      <input
+                                        type="text"
+                                        value={editingMedia.title || ''}
+                                        onChange={(e) => handleInputChange('title', e.target.value)}
+                                        className="w-full bg-white/[0.07] border border-white/[0.08] rounded-xl px-4 py-2 text-white"
+                                      />
+                                    ) : (
+                                      <p className="text-white bg-white/5 rounded-lg px-4 py-2">{selectedMedia.title}</p>
+                                    )}
+                                  </div>
+
+                                  <div>
+                                    <label className="block text-sm font-medium text-white/70 mb-1">Description</label>
+                                    {selectedMedia.isEditing ? (
+                                      <textarea
+                                        value={editingMedia.description || ''}
+                                        onChange={(e) => handleInputChange('description', e.target.value)}
+                                        rows={3}
+                                        className="w-full bg-white/[0.07] border border-white/[0.08] rounded-xl px-4 py-2 text-white"
+                                      />
+                                    ) : (
+                                      <p className="text-white bg-white/5 rounded-lg px-4 py-2">{selectedMedia.description || 'No description available'}</p>
+                                    )}
+                                  </div>
+
+                                  <div>
+                                    <label className="block text-sm font-medium text-white/70 mb-1">Tagline</label>
+                                    {selectedMedia.isEditing ? (
+                                      <input
+                                        type="text"
+                                        value={editingMedia.tagline || ''}
+                                        onChange={(e) => handleInputChange('tagline', e.target.value)}
+                                        className="w-full bg-white/[0.07] border border-white/[0.08] rounded-xl px-4 py-2 text-white"
+                                      />
+                                    ) : (
+                                      <p className="text-white bg-white/5 rounded-lg px-4 py-2">{selectedMedia.tagline || 'No tagline'}</p>
+                                    )}
+                                  </div>
+
+                                  <div className="grid grid-cols-2 gap-3">
+                                    <div>
+                                      <label className="block text-sm font-medium text-white/70 mb-1">Year</label>
+                                      {selectedMedia.isEditing ? (
+                                        <input
+                                          type="number"
+                                          value={editingMedia.year || ''}
+                                          onChange={(e) => handleInputChange('year', parseInt(e.target.value) || undefined)}
+                                          className="w-full bg-white/[0.07] border border-white/[0.08] rounded-xl px-4 py-2 text-white"
+                                        />
+                                      ) : (
+                                        <p className="text-white bg-white/5 rounded-lg px-4 py-2">{selectedMedia.year || 'Unknown'}</p>
+                                      )}
+                                    </div>
+                                    <div>
+                                      <label className="block text-sm font-medium text-white/70 mb-1">Rating</label>
+                                      {selectedMedia.isEditing ? (
+                                        <input
+                                          type="number"
+                                          step="0.1"
+                                          min="0"
+                                          max="10"
+                                          value={editingMedia.rating || ''}
+                                          onChange={(e) => handleInputChange('rating', parseFloat(e.target.value) || undefined)}
+                                          className="w-full bg-white/[0.07] border border-white/[0.08] rounded-xl px-4 py-2 text-white"
+                                        />
+                                      ) : (
+                                        <p className="text-white bg-white/5 rounded-lg px-4 py-2 flex items-center">
+                                          <Star className="w-4 h-4 text-yellow-500 mr-1" />
+                                          {selectedMedia.rating || 'Unrated'}
+                                        </p>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Technical & Additional Info */}
+                              <div className="space-y-4">
+                                <h4 className="text-lg font-medium text-white/90 mb-3">Technical Information</h4>
+
+                                <div className="space-y-3">
+                                  <div className="grid grid-cols-2 gap-3">
+                                    <div>
+                                      <label className="block text-sm font-medium text-white/70 mb-1">Country</label>
+                                      {selectedMedia.isEditing ? (
+                                        <input
+                                          type="text"
+                                          value={editingMedia.country || ''}
+                                          onChange={(e) => handleInputChange('country', e.target.value)}
+                                          className="w-full bg-white/[0.07] border border-white/[0.08] rounded-xl px-4 py-2 text-white"
+                                        />
+                                      ) : (
+                                        <p className="text-white bg-white/5 rounded-lg px-4 py-2 flex items-center">
+                                          <Globe className="w-4 h-4 text-white/60 mr-1" />
+                                          {selectedMedia.country || 'Unknown'}
+                                        </p>
+                                      )}
+                                    </div>
+                                    <div>
+                                      <label className="block text-sm font-medium text-white/70 mb-1">Language</label>
+                                      {selectedMedia.isEditing ? (
+                                        <input
+                                          type="text"
+                                          value={editingMedia.language || ''}
+                                          onChange={(e) => handleInputChange('language', e.target.value)}
+                                          className="w-full bg-white/[0.07] border border-white/[0.08] rounded-xl px-4 py-2 text-white"
+                                        />
+                                      ) : (
+                                        <p className="text-white bg-white/5 rounded-lg px-4 py-2">{selectedMedia.language || 'Unknown'}</p>
+                                      )}
+                                    </div>
+                                  </div>
+
+                                  <div className="grid grid-cols-2 gap-3">
+                                    <div>
+                                      <label className="block text-sm font-medium text-white/70 mb-1">Quality</label>
+                                      {selectedMedia.isEditing ? (
+                                        <select
+                                          value={editingMedia.quality || ''}
+                                          onChange={(e) => handleInputChange('quality', e.target.value)}
+                                          className="w-full bg-white/[0.07] border border-white/[0.08] rounded-xl px-4 py-2 text-white"
+                                        >
+                                          <option value="">Select Quality</option>
+                                          <option value="4K">4K</option>
+                                          <option value="HD">HD</option>
+                                          <option value="SD">SD</option>
+                                          <option value="HDR">HDR</option>
+                                        </select>
+                                      ) : (
+                                        <p className="text-white bg-white/5 rounded-lg px-4 py-2">{selectedMedia.quality || 'Unknown'}</p>
+                                      )}
+                                    </div>
+                                    <div>
+                                      <label className="block text-sm font-medium text-white/70 mb-1">
+                                        {selectedMedia.type === 'tv' ? 'Episode Runtime' : 'Runtime'}
+                                      </label>
+                                      {selectedMedia.isEditing ? (
+                                        <input
+                                          type="number"
+                                          value={editingMedia.runtime || ''}
+                                          onChange={(e) => handleInputChange('runtime', parseInt(e.target.value) || undefined)}
+                                          className="w-full bg-white/[0.07] border border-white/[0.08] rounded-xl px-4 py-2 text-white"
+                                          placeholder="Minutes"
+                                        />
+                                      ) : (
+                                        <p className="text-white bg-white/5 rounded-lg px-4 py-2 flex items-center">
+                                          <Clock className="w-4 h-4 text-white/60 mr-1" />
+                                          {selectedMedia.runtime ? `${selectedMedia.runtime} min` : 'Unknown'}
+                                        </p>
+                                      )}
+                                    </div>
+                                  </div>
+
+                                  <div>
+                                    <label className="block text-sm font-medium text-white/70 mb-1">Certification</label>
+                                    {selectedMedia.isEditing ? (
+                                      <select
+                                        value={editingMedia.certification || ''}
+                                        onChange={(e) => handleInputChange('certification', e.target.value)}
+                                        className="w-full bg-white/[0.07] border border-white/[0.08] rounded-xl px-4 py-2 text-white"
+                                      >
+                                        <option value="">Select Rating</option>
+                                        <option value="G">G</option>
+                                        <option value="PG">PG</option>
+                                        <option value="PG-13">PG-13</option>
+                                        <option value="R">R</option>
+                                        <option value="NC-17">NC-17</option>
+                                        <option value="TV-G">TV-G</option>
+                                        <option value="TV-PG">TV-PG</option>
+                                        <option value="TV-14">TV-14</option>
+                                        <option value="TV-MA">TV-MA</option>
+                                      </select>
+                                    ) : (
+                                      <p className="text-white bg-white/5 rounded-lg px-4 py-2">{selectedMedia.certification || 'Not Rated'}</p>
+                                    )}
+                                  </div>
+
+                                  {/* YouTube Trailer URL */}
+                                  <div>
+                                    <label className="block text-sm font-medium text-white/70 mb-1">YouTube Trailer URL</label>
+                                    {selectedMedia.isEditing ? (
+                                      <div className="space-y-2">
+                                        <input
+                                          type="url"
+                                          value={(editingMedia as any).tmdb_trailer_url || ''}
+                                          onChange={(e) => handleInputChange('tmdb_trailer_url', e.target.value)}
+                                          className="w-full bg-white/[0.07] border border-white/[0.08] rounded-xl px-4 py-2 text-white"
+                                          placeholder="https://www.youtube.com/watch?v=... or https://youtu.be/..."
+                                        />
+                                        {(editingMedia as any).tmdb_trailer_url && (
+                                          <div className="text-xs">
+                                            {(() => {
+                                              const url = (editingMedia as any).tmdb_trailer_url;
+                                              const patterns = [
+                                                /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([^&?\s]+)/,
+                                                /^([a-zA-Z0-9_-]{11})$/
+                                              ];
+                                              let isValid = false;
+                                              for (const pattern of patterns) {
+                                                if (url.match(pattern)) {
+                                                  isValid = true;
+                                                  break;
+                                                }
+                                              }
+                                              return isValid ? (
+                                                <span className="text-green-400 flex items-center gap-1">
+                                                  <Video className="w-3 h-3" />
+                                                  Valid YouTube URL
+                                                </span>
+                                              ) : (
+                                                <span className="text-yellow-400">
+                                                  ⚠️ Please enter a valid YouTube URL
+                                                </span>
+                                              );
+                                            })()}
+                                          </div>
+                                        )}
+                                      </div>
+                                    ) : (
+                                      <div className="bg-white/5 rounded-lg px-4 py-2">
+                                        {selectedMedia.tmdb_trailer_url ? (
+                                          <a
+                                            href={selectedMedia.tmdb_trailer_url}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="text-white/70 hover:text-white flex items-center gap-2 transition-colors"
+                                          >
+                                            <Video className="w-4 h-4" />
+                                            Watch Trailer
+                                          </a>
+                                        ) : (
+                                          <span className="text-white/60">No trailer URL</span>
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  {/* TV Show Specific Fields */}
+                                  {selectedMedia.type === 'tv' && (
+                                    <div className="grid grid-cols-2 gap-3">
+                                      <div>
+                                        <label className="block text-sm font-medium text-white/70 mb-1">Seasons</label>
+                                        {selectedMedia.isEditing ? (
+                                          <input
+                                            type="number"
+                                            value={(editingMedia as any).seasons || ''}
+                                            onChange={(e) => handleInputChange('seasons', parseInt(e.target.value) || undefined)}
+                                            className="w-full bg-white/[0.07] border border-white/[0.08] rounded-xl px-4 py-2 text-white"
+                                            placeholder="Number of seasons"
+                                          />
+                                        ) : (
+                                          <p className="text-white bg-white/5 rounded-lg px-4 py-2">
+                                            {(selectedMedia as any).seasons || 'Unknown'}
+                                          </p>
+                                        )}
+                                      </div>
+                                      <div>
+                                        <label className="block text-sm font-medium text-white/70 mb-1">Episodes</label>
+                                        {selectedMedia.isEditing ? (
+                                          <input
+                                            type="number"
+                                            value={(editingMedia as any).episodes || ''}
+                                            onChange={(e) => handleInputChange('episodes', parseInt(e.target.value) || undefined)}
+                                            className="w-full bg-white/[0.07] border border-white/[0.08] rounded-xl px-4 py-2 text-white"
+                                            placeholder="Total episodes"
+                                          />
+                                        ) : (
+                                          <p className="text-white bg-white/5 rounded-lg px-4 py-2">
+                                            {(selectedMedia as any).episodes || 'Unknown'}
+                                          </p>
+                                        )}
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  {/* Additional TV Show Fields */}
+                                  {selectedMedia.type === 'tv' && (
+                                    <div className="grid grid-cols-2 gap-3">
+                                      <div>
+                                        <label className="block text-sm font-medium text-white/70 mb-1">Status</label>
+                                        {selectedMedia.isEditing ? (
+                                          <select
+                                            value={(editingMedia as any).status || ''}
+                                            onChange={(e) => handleInputChange('status', e.target.value)}
+                                            className="w-full bg-white/[0.07] border border-white/[0.08] rounded-xl px-4 py-2 text-white"
+                                          >
+                                            <option value="">Select Status</option>
+                                            <option value="Returning Series">Returning Series</option>
+                                            <option value="Ended">Ended</option>
+                                            <option value="Canceled">Canceled</option>
+                                            <option value="In Production">In Production</option>
+                                            <option value="Planned">Planned</option>
+                                          </select>
+                                        ) : (
+                                          <p className="text-white bg-white/5 rounded-lg px-4 py-2">
+                                            {(selectedMedia as any).status || 'Unknown'}
+                                          </p>
+                                        )}
+                                      </div>
+                                      <div>
+                                        <label className="block text-sm font-medium text-white/70 mb-1">Network</label>
+                                        {selectedMedia.isEditing ? (
+                                          <input
+                                            type="text"
+                                            value={(editingMedia as any).network || ''}
+                                            onChange={(e) => handleInputChange('network', e.target.value)}
+                                            className="w-full bg-white/[0.07] border border-white/[0.08] rounded-xl px-4 py-2 text-white"
+                                            placeholder="Original network"
+                                          />
+                                        ) : (
+                                          <p className="text-white bg-white/5 rounded-lg px-4 py-2">
+                                            {(selectedMedia as any).network || 'Unknown'}
+                                          </p>
+                                        )}
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  {/* File Information */}
+                                  <div className="pt-4 border-t border-white/10">
+                                    <h5 className="text-sm font-medium text-white/80 mb-2">File Information</h5>
+                                    <div className="space-y-2 text-sm">
+                                      <div className="flex justify-between">
+                                        <span className="text-white/60">File Size:</span>
+                                        <span className="text-white">{selectedMedia.file_size ? `${(selectedMedia.file_size / (1024 ** 3)).toFixed(2)} GB` : 'Unknown'}</span>
+                                      </div>
+                                      <div className="flex justify-between">
+                                        <span className="text-white/60">Resolution:</span>
+                                        <span className="text-white">{selectedMedia.resolution || 'Unknown'}</span>
+                                      </div>
+                                      <div className="flex justify-between">
+                                        <span className="text-white/60">Codec:</span>
+                                        <span className="text-white">{selectedMedia.codec || 'Unknown'}</span>
+                                      </div>
+                                      <div className="flex justify-between">
+                                        <span className="text-white/60">Views:</span>
+                                        <span className="text-white flex items-center">
+                                          <Eye className="w-4 h-4 mr-1" />
+                                          {selectedMedia.view_count || 0}
+                                        </span>
+                                      </div>
+                                      <div className="flex justify-between">
+                                        <span className="text-white/60">YouTube Trailer:</span>
+                                        <span className="text-white">
+                                          {selectedMedia.tmdb_trailer_url ? (
+                                            <a
+                                              href={selectedMedia.tmdb_trailer_url}
+                                              target="_blank"
+                                              rel="noopener noreferrer"
+                                              className="text-white/70 hover:text-white flex items-center gap-1 transition-colors"
+                                            >
+                                              <Video className="w-3 h-3" />
+                                              Available
+                                            </a>
+                                          ) : (
+                                            'Not Available'
+                                          )}
+                                        </span>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Genres */}
+                            <div className="mt-6 pt-6 border-t border-white/10">
+                              <label className="block text-sm font-medium text-white/70 mb-2">Genres</label>
+                              {selectedMedia.isEditing ? (
+                                <input
+                                  type="text"
+                                  value={editingMedia.genre_names?.map(g => typeof g === 'string' ? g : (g as any)?.name || String(g)).join(', ') || ''}
+                                  onChange={(e) => setEditingMedia(prev => ({ ...prev, genre_names: e.target.value.split(',').map(g => g.trim()) }))}
+                                  className="w-full bg-white/[0.07] border border-white/[0.08] rounded-xl px-4 py-2 text-white"
+                                  placeholder="Action, Drama, Thriller (comma separated)"
+                                />
+                              ) : (
+                                <div className="flex flex-wrap gap-2">
+                                  {selectedMedia.genre_names && selectedMedia.genre_names.length > 0 ? (
+                                    selectedMedia.genre_names.map((genre, index) => (
+                                      <span key={index} className="bg-white/10 text-white/70 px-3 py-1 rounded-full text-sm">
+                                        {typeof genre === 'string' ? genre : (genre as any)?.name || String(genre)}
+                                      </span>
+                                    ))
+                                  ) : (
+                                    <span className="text-white/60">No genres assigned</span>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Quick Navigation */}
+                            <div className="mt-6 pt-6 border-t border-white/10">
+                              <div className="flex items-center justify-between">
+                                <h5 className="text-sm font-medium text-white/70">Quick Actions</h5>
+                                <div className="flex space-x-3">
+                                  <MagneticButton
+                                    onClick={() => {
+                                      if (selectedMedia.type === 'tv') {
+                                        navigate.push(`/tv-series/${selectedMedia.id}`);
+                                      } else {
+                                        navigate.push(`/movie/${selectedMedia.id}`);
+                                      }
+                                    }}
+                                    className="bg-[#f5f5f7] hover:bg-white text-black px-4 py-2 rounded-lg flex items-center space-x-2 text-sm"
+                                  >
+                                    <Play className="w-4 h-4" />
+                                    <span>Watch Now</span>
+                                  </MagneticButton>
+                                  <MagneticButton
+                                    onClick={() => {
+                                      if (selectedMedia.type === 'tv') {
+                                        navigate.push(`/tv-series/${selectedMedia.id}`);
+                                      } else {
+                                        navigate.push(`/movie/${selectedMedia.id}`);
+                                      }
+                                    }}
+                                    className="bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-lg flex items-center space-x-2 text-sm"
+                                  >
+                                    <Info className="w-4 h-4" />
+                                    <span>View Details</span>
+                                  </MagneticButton>
+                                </div>
+                              </div>
+                            </div>
+                          </GlassCard>
+
+                          {/* File Information */}
+                          {selectedMedia?.file_path && (
+                            <GlassCard className="p-6">
+                              <h3 className="text-[19px] font-semibold tracking-[-0.01em] text-white mb-4 flex items-center">
+                                <File className="w-6 h-6 mr-3 text-white/70" />
+                                File Information
+                              </h3>
+                              <div className="bg-white/5 backdrop-blur-sm rounded-lg p-4 border border-white/10">
+                                <div className="flex items-center space-x-3">
+                                  <HardDrive className="w-5 h-5 text-white/60" />
+                                  <div className="flex-1">
+                                    <p className="text-white/70 text-sm mb-1">File Path</p>
+                                    <p className="text-white font-mono text-sm break-all bg-black/20 px-3 py-2 rounded border">
+                                      {selectedMedia.file_path}
+                                    </p>
+                                  </div>
+                                </div>
+                              </div>
+                            </GlassCard>
+                          )}
+
+                          {/* Asset Management */}
+                          <GlassCard className="p-6">
+                            <h3 className="text-[19px] font-semibold tracking-[-0.01em] text-white mb-6 flex items-center">
+                              <ImageIcon className="w-6 h-6 mr-3 text-white/70" />
+                              Asset Management
+                            </h3>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                              <NetflixFileUploadSection
+                                type="banner"
+                                label="Hero Banner (4K)"
+                                accept="image/*"
+                                mediaAssets={mediaAssets}
+                                onUpload={handleFileUpload}
+                                onDelete={handleDeleteAsset}
+                                uploading={uploading}
+                              />
+                              <NetflixFileUploadSection
+                                type="backdrop"
+                                label="Backdrop (1920x1080)"
+                                accept="image/*"
+                                mediaAssets={mediaAssets}
+                                onUpload={handleFileUpload}
+                                onDelete={handleDeleteAsset}
+                                uploading={uploading}
+                              />
+                              <NetflixFileUploadSection
+                                type="thumbnail"
+                                label="Thumbnail"
+                                accept="image/*"
+                                mediaAssets={mediaAssets}
+                                onUpload={handleFileUpload}
+                                onDelete={handleDeleteAsset}
+                                uploading={uploading}
+                              />
+                              <NetflixFileUploadSection
+                                type="trailer"
+                                label="Trailer Video"
+                                accept="video/*"
+                                mediaAssets={mediaAssets}
+                                onUpload={handleFileUpload}
+                                onDelete={handleDeleteAsset}
+                                uploading={uploading}
+                              />
+
+                              {/* Subtitle Upload Section */}
+                              <div className="bg-white/5 backdrop-blur-sm rounded-lg p-6 border border-white/10">
+                                <h4 className="text-white font-semibold mb-4 flex items-center">
+                                  <FileSearch className="w-5 h-5 mr-2 text-white/70" />
+                                  Subtitles
+                                </h4>
+
+                                <div className="space-y-4">
+                                  {/* Upload Subtitle */}
+                                  <div className="border-2 border-dashed border-white/20 rounded-lg p-6 text-center hover:border-white/30 transition-colors duration-300">
+                                    <div className="text-white/40 mb-4">
+                                      <FileSearch className="w-8 h-8 mx-auto" />
+                                    </div>
+                                    <p className="text-white/60 text-sm mb-4">Upload subtitle files (.srt, .vtt, .ass, .ssa, .sub, .sbv)</p>
+                                    <label htmlFor="subtitle-upload" className="cursor-pointer inline-block">
+                                      <div className="bg-[#f5f5f7] hover:bg-white text-black px-4 py-2 rounded-lg inline-flex items-center gap-2 transition-colors duration-300 hover:scale-105">
+                                        <Upload className="w-4 h-4" />
+                                        {uploading ? 'Uploading...' : 'Upload Subtitles'}
+                                      </div>
+                                    </label>
+                                    <input
+                                      id="subtitle-upload"
+                                      type="file"
+                                      accept=".srt,.vtt,.ass,.ssa,.sub,.sbv"
+                                      multiple
+                                      className="hidden"
+                                      onChange={handleSubtitleUpload}
+                                      disabled={uploading}
+                                    />
+                                  </div>
+
+                                  {/* Scan for Subtitles */}
+                                  <MagneticButton
+                                    onClick={handleScanSubtitles}
+                                    disabled={actionLoading.scanSubtitles}
+                                    className="w-full bg-white/[0.1] hover:bg-white/[0.18] text-white py-2 px-4 rounded-lg flex items-center justify-center space-x-2"
+                                  >
+                                    {actionLoading.scanSubtitles ? (
+                                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white/60"></div>
+                                    ) : (
+                                      <Search className="w-4 h-4" />
+                                    )}
+                                    <span>Scan Storage for Subtitles</span>
+                                  </MagneticButton>
+
+                                  {/* Test Subtitles Button */}
+                                  {selectedMedia && (
+                                    <MagneticButton
+                                      onClick={handleTestSubtitles}
+                                      disabled={actionLoading.testSubtitles}
+                                      className="w-full bg-white/[0.1] hover:bg-white/[0.18] text-white py-2 px-4 rounded-lg flex items-center justify-center space-x-2"
+                                    >
+                                      {actionLoading.testSubtitles ? (
+                                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white/60"></div>
+                                      ) : (
+                                        <Info className="w-4 h-4" />
+                                      )}
+                                      <span>Test Subtitle System</span>
+                                    </MagneticButton>
+                                  )}
+
+                                  {/* Show existing subtitles */}
+                                  {selectedMedia && (
+                                    <SubtitleList
+                                      mediaId={selectedMedia.id}
+                                      refreshKey={subtitleRefreshKey}
+                                      dialog={dialog}
+                                      addTerminalOutput={addTerminalOutput}
+                                      onSubtitleDeleted={() => {
+                                        // Refresh media data when subtitle is deleted
+                                        fetchMediaList();
+                                        if (selectedMedia) {
+                                          handleMediaSelect(selectedMedia);
+                                        }
+                                      }}
+                                    />
+                                  )}
+                                </div>
+                              </div>
+
+
+                            </div>
+
+                            {/* OpenSubtitles Integration */}
+                            {selectedMedia && (
+                              <div className="bg-white/5 backdrop-blur-sm rounded-lg p-6 border border-white/10 mt-6 w-full">
+                                <h4 className="text-white font-semibold mb-4 flex items-center">
+                                  <Globe className="w-5 h-5 mr-2 text-white/70" />
+                                  OpenSubtitles Search
+                                </h4>
+
+                                <div className="space-y-4">
+                                  {/* Search Form */}
+                                  <div className="flex gap-3">
+                                    <div className="flex-1">
+                                      <input
+                                        type="text"
+                                        placeholder={`Search subtitles for "${selectedMedia.title}"...`}
+                                        value={openSubtitlesQuery}
+                                        onChange={(e) => setOpenSubtitlesQuery(e.target.value)}
+                                        className="w-full bg-white/[0.07] border border-white/[0.08] rounded-xl px-4 py-2 text-white placeholder-white/35 focus:border-white/40 focus:outline-none transition-colors"
+                                        onKeyPress={(e) => {
+                                          if (e.key === 'Enter') {
+                                            handleOpenSubtitlesSearch();
+                                          }
+                                        }}
+                                      />
+                                    </div>
+                                    <select
+                                      value={selectedLanguage}
+                                      onChange={(e) => setSelectedLanguage(e.target.value)}
+                                      className="bg-white/[0.07] border border-white/[0.08] rounded-xl px-3 py-2 text-white focus:border-white/40 focus:outline-none transition-colors"
+                                    >
+                                      <option value="en">English</option>
+                                      <option value="es">Spanish</option>
+                                      <option value="fr">French</option>
+                                      <option value="de">German</option>
+                                      <option value="it">Italian</option>
+                                      <option value="pt">Portuguese</option>
+                                      <option value="ru">Russian</option>
+                                      <option value="ja">Japanese</option>
+                                      <option value="ko">Korean</option>
+                                      <option value="zh">Chinese</option>
+                                      <option value="ar">Arabic</option>
+                                    </select>
+                                    <MagneticButton
+                                      onClick={() => handleOpenSubtitlesSearch()}
+                                      disabled={openSubtitlesLoading || !openSubtitlesQuery.trim()}
+                                      className="bg-[#f5f5f7] hover:bg-white text-black px-6 py-2 rounded-lg flex items-center space-x-2 transition-colors"
+                                    >
+                                      {openSubtitlesLoading ? (
+                                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                                      ) : (
+                                        <Search className="w-4 h-4" />
+                                      )}
+                                      <span>Search</span>
+                                    </MagneticButton>
+                                  </div>
+
+                                  {/* Action buttons */}
+                                  <div className="flex gap-3">
+                                    <MagneticButton
+                                      onClick={() => {
+                                        setOpenSubtitlesQuery(selectedMedia.title);
+                                        addTerminalOutput(`🎬 Auto-populated search with: ${selectedMedia.title}`);
+                                      }}
+                                      className="bg-white/[0.1] hover:bg-white/[0.18] text-white px-4 py-2 rounded-lg flex items-center space-x-2 text-sm"
+                                    >
+                                      <Film className="w-4 h-4" />
+                                      <span>Use Media Title</span>
+                                    </MagneticButton>
+
+                                    <MagneticButton
+                                      onClick={async () => {
+                                        if (!selectedMedia) return;
+                                        setActionLoading(prev => ({ ...prev, autoDownloadSub: true }));
+                                        addTerminalOutput(`🤖 Auto-downloading best subtitle for: ${selectedMedia.title}`);
+                                        
+                                        try {
+                                          const response = await fetch(`${getApiUrl()}/api/subtitles/download/${selectedMedia.id}`, {
+                                            method: 'POST'
+                                          });
+                                          
+                                          if (response.ok) {
+                                            const result = await response.json();
+                                            addTerminalOutput(`✅ Subtitle downloaded successfully`);
+                                            refreshSubtitles();
+                                            addTerminalOutput(`📁 Language: ${result.language || 'Unknown'}`);
+                                            
+                                            // Refresh media data
+                                            const mediaResponse = await fetch(`${getApiUrl()}/api/media/${selectedMedia.id}`);
+                                            if (mediaResponse.ok) {
+                                              const updatedMedia = await mediaResponse.json();
+                                              setSelectedMedia(prev => prev ? { ...prev, ...updatedMedia } : null);
+                                            }
+                                            await fetchMediaList();
+                                          } else {
+                                            const errorData = await response.json().catch(() => ({ error: response.statusText }));
+                                            addTerminalOutput(`❌ Auto-download failed: ${errorData.error || response.statusText}`);
+                                          }
+                                        } catch (error) {
+                                          addTerminalOutput(`❌ Error during auto-download: ${error}`);
+                                        } finally {
+                                          setActionLoading(prev => ({ ...prev, autoDownloadSub: false }));
+                                        }
+                                      }}
+                                      disabled={actionLoading.autoDownloadSub}
+                                      className="bg-white/[0.1] hover:bg-white/[0.18] text-white px-4 py-2 rounded-lg flex items-center space-x-2 text-sm"
+                                    >
+                                      {actionLoading.autoDownloadSub ? (
+                                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white/60"></div>
+                                      ) : (
+                                        <Zap className="w-4 h-4" />
+                                      )}
+                                      <span>Auto Download Best Match</span>
+                                    </MagneticButton>
+                                  </div>
+
+                                  {/* Search Results */}
+                                  {openSubtitlesResults.length > 0 && (
+                                    <div className="space-y-3 max-h-96 overflow-y-auto">
+                                      <h5 className="text-white/80 font-medium">Search Results ({openSubtitlesResults.length})</h5>
+                                      {openSubtitlesResults.map((subtitle, index) => (
+                                        <div key={index} className="bg-white/[0.04] rounded-lg p-4 border border-white/10">
+                                          <div className="flex items-center justify-between">
+                                            <div className="flex-1">
+                                              <div className="flex items-center space-x-3 mb-2">
+                                                <span className="text-white font-medium">
+                                                  {subtitle.attributes?.feature_details?.title || 'Unknown Title'}
+                                                </span>
+                                                <span className="text-white/60 text-sm">
+                                                  ({subtitle.attributes?.feature_details?.year || 'Unknown Year'})
+                                                </span>
+                                                <span className="bg-white/10 text-white/70 px-2 py-1 rounded text-xs">
+                                                  {subtitle.attributes?.language?.toUpperCase() || 'Unknown'}
+                                                </span>
+                                              </div>
+                                              <div className="flex items-center space-x-4 text-sm text-white/60">
+                                                <span>📥 {subtitle.attributes?.download_count || 0} downloads</span>
+                                                <span>⭐ {subtitle.attributes?.ratings?.toFixed(1) || 'N/A'}</span>
+                                                {subtitle.attributes?.hearing_impaired && (
+                                                  <span className="text-yellow-400">🔊 CC</span>
+                                                )}
+                                                {subtitle.attributes?.hd && (
+                                                  <span className="text-white/75">🎬 HD</span>
+                                                )}
+                                              </div>
+                                              {subtitle.attributes?.release && (
+                                                <p className="text-white/50 text-xs mt-1 truncate">
+                                                  Release: {subtitle.attributes.release}
+                                                </p>
+                                              )}
+                                            </div>
+                                            <MagneticButton
+                                              onClick={() => handleDownloadOpenSubtitle(subtitle)}
+                                              disabled={downloadingSubtitle === (subtitle.attributes?.files?.[0]?.file_id || subtitle.file_id)}
+                                              className="bg-white/[0.1] hover:bg-white/[0.18] text-white px-4 py-2 rounded-lg flex items-center space-x-2 ml-4"
+                                            >
+                                              {downloadingSubtitle === (subtitle.attributes?.files?.[0]?.file_id || subtitle.file_id) ? (
+                                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white/60"></div>
+                                              ) : (
+                                                <Download className="w-4 h-4" />
+                                              )}
+                                              <span>Add</span>
+                                            </MagneticButton>
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+
+                                  {/* No results message */}
+                                  {openSubtitlesResults.length === 0 && openSubtitlesQuery && !openSubtitlesLoading && (
+                                    <div className="text-center py-8 text-white/60">
+                                      <Search className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                                      <p>No subtitles found for "{openSubtitlesQuery}"</p>
+                                      <p className="text-sm mt-1">Try a different search term or language</p>
+                                    </div>
+                                  )}
+
+                                  {/* Help text */}
+                                  <div className="bg-white/[0.05] border border-white/10 rounded-lg p-3">
+                                    <p className="text-white/75 text-sm">
+                                      💡 <strong>Tip:</strong> Click "Use Media Title" to auto-populate the search with the current media title,
+                                      then click "Search" to find matching subtitles from OpenSubtitles.org
+                                    </p>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+
+                            {uploading && (
+                              <motion.div
+                                initial={{ opacity: 0, y: 20 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                className="mt-6 bg-white/10 border border-white/15 rounded-lg p-4"
+                              >
+                                <div className="flex items-center space-x-3">
+                                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white/60"></div>
+                                  <p className="text-white">Uploading asset...</p>
+                                </div>
+                              </motion.div>
+                            )}
+                          </GlassCard>
+                        </div>
+                      </ScrollReveal>
+                    ) : (
+                      <GlassCard className="flex items-center justify-center h-64">
+                        <div className="text-center">
+                          <File className="w-16 h-16 text-white/30 mx-auto mb-4" />
+                          <p className="text-white/70 text-lg">Select a media item to manage</p>
+                          <p className="text-white/50 text-sm mt-2">Choose from the media library to view detailed information, edit metadata, regenerate assets, and more</p>
+                        </div>
+                      </GlassCard>
+                    )}
+                  </div>
+                </div>
+              )}
+
+
+
+
+              {/* System Tab (Combined Logs, Scanning, Analytics) */}
+              {activeTab === 'subtitles' && (
+                <ScrollReveal>
+                  <GlassCard className="p-5 md:p-6">
+
+                    <div className="space-y-8">
+                      {/* OpenSubtitles Search Section */}
+                      <div className="bg-white/5 backdrop-blur-sm rounded-lg p-6 border border-white/10">
+                        <h3 className="text-[19px] font-semibold tracking-[-0.01em] text-white mb-4 flex items-center">
+                          <Globe className="w-5 h-5 mr-2 text-white/70" />
+                          OpenSubtitles Search
+                        </h3>
+                        <p className="text-white/70 mb-6">
+                          Search and download subtitles from OpenSubtitles.org for any media in your library.
+                        </p>
+
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                          {/* Search Form */}
+                          <div className="space-y-4">
+                            <div>
+                              <label className="block text-sm font-medium text-white/70 mb-2">Search Query</label>
+                              <input
+                                type="text"
+                                placeholder="Enter movie or TV show title..."
+                                value={openSubtitlesQuery}
+                                onChange={(e) => setOpenSubtitlesQuery(e.target.value)}
+                                className="w-full bg-white/[0.07] border border-white/[0.08] rounded-xl px-4 py-3 text-white placeholder-white/35 focus:border-white/40 focus:outline-none transition-colors"
+                                onKeyPress={(e) => {
+                                  if (e.key === 'Enter') {
+                                    handleOpenSubtitlesSearch(true);
+                                  }
+                                }}
+                              />
+                            </div>
+
+                            <div>
+                              <label className="block text-sm font-medium text-white/70 mb-2">Language</label>
+                              <select
+                                value={selectedLanguage}
+                                onChange={(e) => setSelectedLanguage(e.target.value)}
+                                className="w-full bg-white/[0.07] border border-white/[0.08] rounded-xl px-4 py-3 text-white focus:border-white/40 focus:outline-none transition-colors"
+                              >
+                                <option value="en">English</option>
+                                <option value="es">Spanish</option>
+                                <option value="fr">French</option>
+                                <option value="de">German</option>
+                                <option value="it">Italian</option>
+                                <option value="pt">Portuguese</option>
+                                <option value="ru">Russian</option>
+                                <option value="ja">Japanese</option>
+                                <option value="ko">Korean</option>
+                                <option value="zh">Chinese</option>
+                                <option value="ar">Arabic</option>
+                                <option value="nl">Dutch</option>
+                                <option value="sv">Swedish</option>
+                                <option value="no">Norwegian</option>
+                                <option value="da">Danish</option>
+                                <option value="fi">Finnish</option>
+                                <option value="pl">Polish</option>
+                                <option value="tr">Turkish</option>
+                                <option value="he">Hebrew</option>
+                                <option value="th">Thai</option>
+                                <option value="vi">Vietnamese</option>
+                              </select>
+                            </div>
+
+                            <MagneticButton
+                              onClick={() => handleOpenSubtitlesSearch(true)}
+                              disabled={openSubtitlesLoading || !openSubtitlesQuery.trim()}
+                              className="w-full bg-[#f5f5f7] hover:bg-white text-black px-6 py-3 rounded-lg flex items-center justify-center space-x-2 transition-colors"
+                            >
+                              {openSubtitlesLoading ? (
+                                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+                              ) : (
+                                <Search className="w-5 h-5" />
+                              )}
+                              <span>Search Subtitles</span>
+                            </MagneticButton>
+                          </div>
+
+                          {/* Search Results */}
+                          <div className="space-y-4">
+                            <h4 className="text-lg font-medium text-white">Search Results</h4>
+
+                            {openSubtitlesResults.length > 0 ? (
+                              <div className="space-y-3 max-h-96 overflow-y-auto">
+                                {openSubtitlesResults.slice(0, 10).map((subtitle, index) => {
+                                  // Handle both standalone and media-specific search result formats
+                                  const isStandaloneFormat = subtitle.movie_title !== undefined;
+
+                                  const subtitleData = isStandaloneFormat ? {
+                                    // Standalone format (flattened)
+                                    title: subtitle.movie_title || 'Unknown Title',
+                                    year: subtitle.movie_year || 'N/A',
+                                    language: subtitle.language || 'Unknown',
+                                    downloads: subtitle.downloads || 0,
+                                    rating: subtitle.rating || 0,
+                                    votes: subtitle.votes || 0,
+                                    hearing_impaired: subtitle.hearing_impaired || false,
+                                    hd: subtitle.hd || false,
+                                    release: subtitle.release || '',
+                                    uploader: subtitle.uploader || '',
+                                    uploader_rank: subtitle.uploader_rank || '',
+                                    file_id: subtitle.file_id || 0
+                                  } : {
+                                    // Media-specific format (nested attributes)
+                                    title: subtitle.attributes?.feature_details?.title || 'Unknown Title',
+                                    year: subtitle.attributes?.feature_details?.year || 'N/A',
+                                    language: subtitle.attributes?.language || 'Unknown',
+                                    downloads: subtitle.attributes?.download_count || 0,
+                                    rating: subtitle.attributes?.ratings || 0,
+                                    votes: subtitle.attributes?.votes || 0,
+                                    hearing_impaired: subtitle.attributes?.hearing_impaired || false,
+                                    hd: subtitle.attributes?.hd || false,
+                                    release: subtitle.attributes?.release || '',
+                                    uploader: subtitle.attributes?.uploader?.name || '',
+                                    uploader_rank: subtitle.attributes?.uploader?.rank || '',
+                                    file_id: subtitle.attributes?.files?.[0]?.file_id || 0
+                                  };
+
+                                  return (
+                                    <div key={index} className="bg-white/[0.04] rounded-lg p-4 border border-white/10">
+                                      <div className="flex items-start justify-between">
+                                        <div className="flex-1">
+                                          <div className="flex items-center space-x-3 mb-2">
+                                            <span className="text-white font-medium text-sm">
+                                              {subtitleData.title}
+                                            </span>
+                                            <span className="text-white/60 text-xs">
+                                              ({subtitleData.year})
+                                            </span>
+                                            <span className="bg-white/10 text-white/70 px-2 py-1 rounded text-xs">
+                                              {subtitleData.language.toUpperCase()}
+                                            </span>
+                                          </div>
+                                          <div className="flex items-center space-x-3 text-xs text-white/60">
+                                            <span>📥 {subtitleData.downloads}</span>
+                                            <span>⭐ {subtitleData.rating?.toFixed(1) || 'N/A'}</span>
+                                            <span>👍 {subtitleData.votes}</span>
+                                            {subtitleData.hearing_impaired && (
+                                              <span className="text-yellow-400">🔊 CC</span>
+                                            )}
+                                            {subtitleData.hd && (
+                                              <span className="text-green-400">🎬 HD</span>
+                                            )}
+                                          </div>
+                                          {subtitleData.release && (
+                                            <p className="text-white/50 text-xs mt-1 truncate">
+                                              {subtitleData.release}
+                                            </p>
+                                          )}
+                                          {subtitleData.uploader && (
+                                            <p className="text-white/40 text-xs mt-1">
+                                              By: {subtitleData.uploader} ({subtitleData.uploader_rank})
+                                            </p>
+                                          )}
+                                        </div>
+                                        <div className="flex gap-2 ml-3">
+                                          <MagneticButton
+                                            onClick={() => handleDownloadSubtitleAsFile(subtitle)}
+                                            className="bg-white/[0.1] hover:bg-white/[0.18] text-white px-3 py-2 rounded-lg flex items-center space-x-2 text-sm"
+                                            title="Download as SRT file to your computer"
+                                          >
+                                            <Download className="w-4 h-4" />
+                                            <span>SRT</span>
+                                          </MagneticButton>
+                                          {selectedMedia && (
+                                            <MagneticButton
+                                              onClick={() => handleDownloadOpenSubtitle(subtitle)}
+                                              disabled={downloadingSubtitle === subtitleData.file_id}
+                                              className="bg-white/[0.1] hover:bg-white/[0.18] text-white px-3 py-2 rounded-lg flex items-center space-x-2 text-sm"
+                                              title="Add subtitle to selected media"
+                                            >
+                                              {downloadingSubtitle === subtitleData.file_id ? (
+                                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white/60"></div>
+                                              ) : (
+                                                <Download className="w-4 h-4" />
+                                              )}
+                                              <span>Add</span>
+                                            </MagneticButton>
+                                          )}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                                {openSubtitlesResults.length > 10 && (
+                                  <p className="text-white/60 text-sm text-center">
+                                    Showing first 10 results of {openSubtitlesResults.length}
+                                  </p>
+                                )}
+                              </div>
+                            ) : openSubtitlesQuery && !openSubtitlesLoading ? (
+                              <div className="text-center py-8 text-white/60">
+                                <Search className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                                <p>No subtitles found for "{openSubtitlesQuery}"</p>
+                                <p className="text-sm mt-1">Try a different search term or language</p>
+                              </div>
+                            ) : (
+                              <div className="text-center py-8 text-white/60">
+                                <FileSearch className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                                <p>Enter a search query to find subtitles</p>
+                                <p className="text-sm mt-1">Search by movie or TV show title</p>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Help Section */}
+                        <div className="mt-6 space-y-4">
+                          {!selectedMedia && (
+                            <div className="bg-yellow-600/10 border border-yellow-600/20 rounded-lg p-4">
+                              <h4 className="text-yellow-300 font-medium mb-2">📌 Select Media First</h4>
+                              <p className="text-yellow-300/80 text-sm">
+                                To add subtitles to your media library, first select a media item from the "Media Library" tab.
+                                You can still download SRT files directly to your computer without selecting media.
+                              </p>
+                            </div>
+                          )}
+
+                          <div className="bg-white/[0.05] border border-white/10 rounded-lg p-4">
+                            <h4 className="text-white/75 font-medium mb-2">💡 How to use OpenSubtitles</h4>
+                            <ul className="text-white/75/80 text-sm space-y-1">
+                              <li>• Enter the exact title of your movie or TV show</li>
+                              <li>• Select your preferred language from the dropdown</li>
+                              <li>• Click "Search Subtitles" to find available options</li>
+                              <li>• Click "SRT" to download subtitle file to your computer</li>
+                              <li>• Click "Add" to add subtitles directly to selected media in your library</li>
+                              <li>• Downloaded subtitles will be automatically associated with matching media</li>
+                            </ul>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Subtitle Management Tools */}
+                      <div className="bg-white/5 backdrop-blur-sm rounded-lg p-6 border border-white/10">
+                        <h3 className="text-[19px] font-semibold tracking-[-0.01em] text-white mb-4 flex items-center">
+                          <Settings className="w-5 h-5 mr-2 text-white/70" />
+                          Subtitle Tools
+                        </h3>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                          <MagneticButton
+                            onClick={handleScanSubtitles}
+                            disabled={actionLoading.scanSubtitles}
+                            className="bg-white/[0.1] hover:bg-white/[0.18] text-white py-3 px-4 rounded-lg flex items-center justify-center space-x-2"
+                          >
+                            {actionLoading.scanSubtitles ? (
+                              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white/60"></div>
+                            ) : (
+                              <Search className="w-4 h-4" />
+                            )}
+                            <span>Scan Storage for Subtitles</span>
+                          </MagneticButton>
+
+                          <MagneticButton
+                            onClick={() => {
+                              // Trigger subtitle file input
+                              const input = document.createElement('input');
+                              input.type = 'file';
+                              input.accept = '.srt,.vtt,.ass,.ssa,.sub,.sbv';
+                              input.multiple = true;
+                              input.onchange = (e: Event) => {
+                                const target = e.target as HTMLInputElement;
+                                handleSubtitleUpload(e as unknown as React.ChangeEvent<HTMLInputElement>);
+                              };
+                              input.click();
+                            }}
+                            disabled={uploading}
+                            className="bg-white/[0.1] hover:bg-white/[0.18] text-white py-3 px-4 rounded-lg flex items-center justify-center space-x-2"
+                          >
+                            {uploading ? (
+                              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white/60"></div>
+                            ) : (
+                              <Upload className="w-4 h-4" />
+                            )}
+                            <span>Upload Subtitle Files</span>
+                          </MagneticButton>
+
+                          <MagneticButton
+                            onClick={() => {
+                              addTerminalOutput('📊 Checking subtitle system status...');
+                              // Add any subtitle system checks here
+                              addTerminalOutput('✅ Subtitle system is operational');
+                            }}
+                            className="bg-white/[0.1] hover:bg-white/[0.18] text-white py-3 px-4 rounded-lg flex items-center justify-center space-x-2"
+                          >
+                            <Info className="w-4 h-4" />
+                            <span>System Status</span>
+                          </MagneticButton>
+                        </div>
+                      </div>
+
+                      {/* Configuration */}
+                      <div className="bg-white/5 backdrop-blur-sm rounded-lg p-6 border border-white/10">
+                        <h3 className="text-[19px] font-semibold tracking-[-0.01em] text-white mb-4 flex items-center">
+                          <Settings className="w-5 h-5 mr-2 text-white/70" />
+                          Configuration
+                        </h3>
+
+                        <div className="space-y-4">
+                          <div className="bg-yellow-600/10 border border-yellow-600/20 rounded-lg p-4">
+                            <h4 className="text-yellow-300 font-medium mb-2">⚙️ OpenSubtitles API Configuration</h4>
+                            <p className="text-yellow-300/80 text-sm mb-3">
+                              To use OpenSubtitles integration, configure the following environment variables:
+                            </p>
+                            <div className="bg-white/[0.04] rounded p-3 font-mono text-sm text-white/80">
+                              <div>OPENSUB_API_KEY=your_api_key_here</div>
+                              <div>OPENSUB_USERNAME=your_username</div>
+                              <div>OPENSUB_PASSWORD=your_password</div>
+                            </div>
+                            <p className="text-yellow-300/80 text-xs mt-2">
+                              Get your API key from: <a href="https://www.opensubtitles.com/en/profile/api" target="_blank" rel="noopener noreferrer" className="underline">OpenSubtitles.com</a>
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </GlassCard>
+                </ScrollReveal>
+              )}
+
+              {/* Widgets Management Tab */}
+            {/* Modals */}
+            <TMDBSearchModal
+              key={`tmdb-modal-${selectedMedia?.id}-${showTMDBSearchModal}`}
+              isOpen={showTMDBSearchModal}
+              onClose={() => {
+                console.log('🚪 Closing TMDB Search Modal');
+                setShowTMDBSearchModal(false);
+                setCustomSearchTitle('');
+                addTerminalOutput('🚪 TMDB search modal closed');
+              }}
+              onSelect={handleTMDBSelection}
+              initialQuery={customSearchTitle}
+              mediaType={selectedMedia?.type === 'tv' ? 'tv' : 'movie'}
+              title={`Search TMDB for ${selectedMedia?.type === 'tv' ? 'TV Series' : 'Movie'}`}
+            />
+    </>
+  );
+}

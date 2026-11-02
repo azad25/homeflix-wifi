@@ -73,16 +73,16 @@ const TreeNodeComponent: React.FC<TreeNodeComponentProps> = ({
   const getIcon = () => {
     if (node.type === 'folder') {
       return isOpen ? (
-        <FolderOpen className="w-4 h-4 text-yellow-500" />
+        <FolderOpen className="w-4 h-4 text-white/70" />
       ) : (
-        <Folder className="w-4 h-4 text-yellow-600" />
+        <Folder className="w-4 h-4 text-white/55" />
       );
     }
     if (node.type === 'media') {
       return node.metadata?.mediaType === 'movie' ? (
-        <Film className="w-4 h-4 text-blue-500" />
+        <Film className="w-4 h-4 text-white/55" />
       ) : (
-        <Tv className="w-4 h-4 text-purple-500" />
+        <Tv className="w-4 h-4 text-white/55" />
       );
     }
     return <File className="w-4 h-4 text-gray-400" />;

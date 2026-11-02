@@ -531,7 +531,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'completed': return 'text-green-400';
-      case 'downloading': return 'text-blue-400';
+      case 'downloading': return 'text-white/75';
       case 'paused': return 'text-yellow-400';
       case 'error': return 'text-red-400';
       default: return 'text-white/60';
@@ -578,7 +578,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
           <div className="text-sm text-white/60">
             <div>
               Searching for: <span className="text-white font-medium">{mediaInfo.title}</span>
-              <span className="ml-2 text-blue-400">({mediaInfo.media_type === 'tv' ? 'TV Series' : 'Movie'})</span>
+              <span className="ml-2 text-white/75">({mediaInfo.media_type === 'tv' ? 'TV Series' : 'Movie'})</span>
             </div>
             <div className="text-xs mt-1 text-green-400">
               ✨ {mediaInfo.media_type === 'tv'
@@ -611,7 +611,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
             exit={{ opacity: 0, y: -20 }}
             className="bg-white/10 border border-white/20 rounded-lg p-4 mb-6 flex items-center gap-3 backdrop-blur-sm"
           >
-            <AlertCircle className="w-5 h-5 text-[#E50914] flex-shrink-0" />
+            <AlertCircle className="w-5 h-5 text-white/70 flex-shrink-0" />
             <span className="text-white/90 text-sm">{error}</span>
             <button 
               onClick={() => setError(null)} 
@@ -700,7 +700,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.2, delay: index * 0.03 }}
-                  className="bg-black/30 rounded-xl p-4 hover:bg-black/50 transition-all border border-white/10 hover:border-white/20 backdrop-blur-sm"
+                  className="bg-white/[0.04] rounded-xl p-4 hover:bg-black/50 transition-all border border-white/10 hover:border-white/20 backdrop-blur-sm"
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex-1">
@@ -711,7 +711,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
                             Verified
                           </span>
                         )}
-                        <span className="bg-blue-600/20 text-blue-400 text-[10px] px-2 py-0.5 rounded-full border border-blue-500/30">
+                        <span className="bg-white/[0.05] text-white/75 text-[10px] px-2 py-0.5 rounded-full border border-white/10">
                           {result.quality}
                         </span>
                       </div>
@@ -740,7 +740,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
                       <button
                         onClick={() => previewTorrentFiles(result)}
                         disabled={filePreviewLoading === result.magnet_uri}
-                        className="p-2 bg-blue-500/15 hover:bg-blue-500/25 disabled:bg-white/5 disabled:text-white/30 text-blue-300 rounded-lg font-medium transition-all flex items-center justify-center border border-blue-500/25 hover:border-blue-500/45"
+                        className="p-2 bg-white/[0.14]/15 hover:bg-white/[0.14]/25 disabled:bg-white/5 disabled:text-white/30 text-white/75 rounded-lg font-medium transition-all flex items-center justify-center border border-white/40/25 hover:border-white/40/45"
                         title="Preview files"
                       >
                         {filePreviewLoading === result.magnet_uri ? (
@@ -767,7 +767,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
                         exit={{ opacity: 0, height: 0, marginTop: 0 }}
                         className="overflow-hidden"
                       >
-                        <div className="bg-black/40 border border-white/10 rounded-lg p-3">
+                        <div className="bg-white/[0.04] border border-white/10 rounded-lg p-3">
                           <div className="text-xs text-white/60 mb-2">
                             {(torrentFilePreviews[result.magnet_uri]?.files.length || 0)} files • {torrentFilePreviews[result.magnet_uri]?.totalSizeHuman || 'Unknown'}
                           </div>
@@ -794,13 +794,13 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
                 <motion.div 
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
-                  className="text-center py-16 text-white/60 bg-black/30 rounded-xl border border-white/10 mt-6"
+                  className="text-center py-16 text-white/60 bg-white/[0.04] rounded-xl border border-white/10 mt-6"
                 >
                   <Search className="w-12 h-12 mx-auto mb-4 opacity-30" />
                   <p className="text-sm">No torrents found for <span className="text-white/40">"{searchQuery}"</span></p>
                   <div className="text-xs mt-6 space-y-3 max-w-2xl mx-auto px-4">
-                    <div className="bg-black/30 border border-white/10 rounded-lg p-4 text-left">
-                      <p className="text-amber-400/80 mb-2 flex items-center gap-2">
+                    <div className="bg-white/[0.04] border border-white/10 rounded-lg p-4 text-left">
+                      <p className="text-white/75/80 mb-2 flex items-center gap-2">
                         <Info className="w-4 h-4" />
                         <span>Search Tips</span>
                       </p>
@@ -808,46 +808,46 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
                       {mediaInfo?.media_type === 'tv' ? (
                         <>
                           <li className="flex items-start gap-2">
-                            <span className="text-amber-400/60">•</span>
+                            <span className="text-white/75/60">•</span>
                             <span>Search automatically includes all seasons</span>
                           </li>
                           <li className="flex items-start gap-2">
-                            <span className="text-amber-400/60">•</span>
+                            <span className="text-white/75/60">•</span>
                             <span>Try just the series name without year</span>
                           </li>
                           <li className="flex items-start gap-2">
-                            <span className="text-amber-400/60">•</span>
+                            <span className="text-white/75/60">•</span>
                             <span>Use simpler search terms</span>
                           </li>
                           <li className="flex items-start gap-2">
-                            <span className="text-amber-400/60">•</span>
+                            <span className="text-white/75/60">•</span>
                             <span>Try different quality filters</span>
                           </li>
                           <li className="flex items-start gap-2">
-                            <span className="text-amber-400/60">•</span>
+                            <span className="text-white/75/60">•</span>
                             <span>Check if Jackett is configured in Settings</span>
                           </li>
                         </>
                       ) : (
                         <>
                           <li className="flex items-start gap-2">
-                            <span className="text-amber-400/60">•</span>
+                            <span className="text-white/75/60">•</span>
                             <span>Remove year from movie titles</span>
                           </li>
                           <li className="flex items-start gap-2">
-                            <span className="text-amber-400/60">•</span>
+                            <span className="text-white/75/60">•</span>
                             <span>Use simpler search terms</span>
                           </li>
                           <li className="flex items-start gap-2">
-                            <span className="text-amber-400/60">•</span>
+                            <span className="text-white/75/60">•</span>
                             <span>Try different quality filters</span>
                           </li>
                           <li className="flex items-start gap-2">
-                            <span className="text-amber-400/60">•</span>
+                            <span className="text-white/75/60">•</span>
                             <span>For TV shows, try just the series name</span>
                           </li>
                           <li className="flex items-start gap-2">
-                            <span className="text-amber-400/60">•</span>
+                            <span className="text-white/75/60">•</span>
                             <span>Check if Jackett is configured in Settings</span>
                           </li>
                         </>
@@ -921,7 +921,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
               <div className="mb-6 p-4 bg-black/50 rounded-lg border border-white/10">
                 <div className="flex items-center justify-between mb-3">
                   <h3 className="text-lg font-medium text-white flex items-center gap-2">
-                    <RefreshCw className="w-5 h-5 text-blue-400" />
+                    <RefreshCw className="w-5 h-5 text-white/75" />
                     Bandwidth Usage
                   </h3>
                   <div className="text-sm text-white/60">
@@ -962,7 +962,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
                       <span className="text-sm text-white/70 flex items-center gap-1">
-                        <Upload className="w-4 h-4 text-blue-400" />
+                        <Upload className="w-4 h-4 text-white/75" />
                         Upload Speed
                       </span>
                       <span className="text-sm font-medium text-white">
@@ -975,7 +975,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
                           className={`h-2 rounded-full transition-all duration-300 ${
                             bandwidthStats.total_upload_rate > bandwidthStats.upload_limit
                               ? 'bg-red-500'
-                              : 'bg-blue-500'
+                              : 'bg-white/[0.14]'
                           }`}
                           style={{
                             width: `${Math.min(100, (bandwidthStats.total_upload_rate / bandwidthStats.upload_limit) * 100)}%`
@@ -1079,7 +1079,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
                       {formatSpeed(download.download_rate)}
                     </span>
                     <span className="flex items-center gap-1">
-                      <Upload className="w-4 h-4 text-blue-400" />
+                      <Upload className="w-4 h-4 text-white/75" />
                       {formatSpeed(download.upload_rate)}
                     </span>
                     <span className="flex items-center gap-1">
@@ -1286,7 +1286,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
             {/* Performance Settings Section */}
             <div className="col-span-full">
               <h3 className="text-lg font-medium text-white mb-4 flex items-center gap-2">
-                <RefreshCw className="w-5 h-5 text-blue-400" />
+                <RefreshCw className="w-5 h-5 text-white/75" />
                 Performance Settings (High-Speed Downloads)
               </h3>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 p-4 bg-black/50 rounded-lg border border-white/10">
@@ -1300,7 +1300,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
                     max="1000"
                     value={config.max_peer_connections}
                     onChange={(e) => setConfig({ ...config, max_peer_connections: parseInt(e.target.value) || 500 })}
-                    className="w-full px-4 py-2 bg-black/50 border border-white/10 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                    className="w-full px-4 py-2 bg-black/50 border border-white/10 rounded-lg text-white focus:outline-none focus:border-white/40"
                   />
                   <p className="text-xs text-white/60 mt-1">Higher = faster downloads (500 recommended)</p>
                 </div>
@@ -1315,7 +1315,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
                     max="500"
                     value={config.max_peer_accepts}
                     onChange={(e) => setConfig({ ...config, max_peer_accepts: parseInt(e.target.value) || 200 })}
-                    className="w-full px-4 py-2 bg-black/50 border border-white/10 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                    className="w-full px-4 py-2 bg-black/50 border border-white/10 rounded-lg text-white focus:outline-none focus:border-white/40"
                   />
                   <p className="text-xs text-white/60 mt-1">Incoming peer connections (200 recommended)</p>
                 </div>
@@ -1330,7 +1330,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
                     max="4096"
                     value={config.max_open_files}
                     onChange={(e) => setConfig({ ...config, max_open_files: parseInt(e.target.value) || 1024 })}
-                    className="w-full px-4 py-2 bg-black/50 border border-white/10 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                    className="w-full px-4 py-2 bg-black/50 border border-white/10 rounded-lg text-white focus:outline-none focus:border-white/40"
                   />
                   <p className="text-xs text-white/60 mt-1">File handles for I/O performance (1024 recommended)</p>
                 </div>
@@ -1345,7 +1345,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
                     max="65000"
                     value={config.port_range_start}
                     onChange={(e) => setConfig({ ...config, port_range_start: parseInt(e.target.value) || 50000 })}
-                    className="w-full px-4 py-2 bg-black/50 border border-white/10 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                    className="w-full px-4 py-2 bg-black/50 border border-white/10 rounded-lg text-white focus:outline-none focus:border-white/40"
                   />
                   <p className="text-xs text-white/60 mt-1">Starting port for torrent client</p>
                 </div>
@@ -1360,14 +1360,14 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
                     max="65535"
                     value={config.port_range_end}
                     onChange={(e) => setConfig({ ...config, port_range_end: parseInt(e.target.value) || 50100 })}
-                    className="w-full px-4 py-2 bg-black/50 border border-white/10 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                    className="w-full px-4 py-2 bg-black/50 border border-white/10 rounded-lg text-white focus:outline-none focus:border-white/40"
                   />
                   <p className="text-xs text-white/60 mt-1">Ending port for torrent client</p>
                 </div>
 
                 <div className="flex items-center justify-center">
                   <div className="text-center">
-                    <div className="text-2xl font-bold text-blue-400">
+                    <div className="text-2xl font-bold text-white/75">
                       {config.port_range_end - config.port_range_start + 1}
                     </div>
                     <div className="text-xs text-white/60">Available Ports</div>
@@ -1375,8 +1375,8 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
                 </div>
               </div>
 
-              <div className="mt-3 p-3 bg-blue-600/20 border border-blue-500/30 rounded-lg text-blue-300 text-sm">
-                <p className="text-sm text-blue-200">
+              <div className="mt-3 p-3 bg-white/[0.05] border border-white/10 rounded-lg text-white/75 text-sm">
+                <p className="text-sm text-white/75">
                   <strong>💡 Performance Tip:</strong> These settings are optimized for high-speed connections (60Mbps+).
                   Higher peer connections = faster downloads but more CPU/memory usage.
                   Restart required after changing these settings.
@@ -1451,25 +1451,25 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
                     </button>
                     <button
                       onClick={() => setConfig({ ...config, download_speed_limit: 5120, upload_speed_limit: 1024 })}
-                      className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs transition-colors"
+                      className="px-3 py-1 bg-[#f5f5f7] hover:bg-white text-black rounded text-xs transition-colors"
                     >
                       5MB/s ↓ 1MB/s ↑
                     </button>
                     <button
                       onClick={() => setConfig({ ...config, download_speed_limit: 10240, upload_speed_limit: 2048 })}
-                      className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs transition-colors"
+                      className="px-3 py-1 bg-[#f5f5f7] hover:bg-white text-black rounded text-xs transition-colors"
                     >
                       10MB/s ↓ 2MB/s ↑
                     </button>
                     <button
                       onClick={() => setConfig({ ...config, download_speed_limit: 20480, upload_speed_limit: 5120 })}
-                      className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs transition-colors"
+                      className="px-3 py-1 bg-[#f5f5f7] hover:bg-white text-black rounded text-xs transition-colors"
                     >
                       20MB/s ↓ 5MB/s ↑
                     </button>
                     <button
                       onClick={() => setConfig({ ...config, download_speed_limit: 51200, upload_speed_limit: 10240 })}
-                      className="px-3 py-1 bg-purple-600 hover:bg-purple-700 text-white rounded text-xs transition-colors"
+                      className="px-3 py-1 bg-[#f5f5f7] hover:bg-white text-black rounded text-xs transition-colors"
                     >
                       50MB/s ↓ 10MB/s ↑
                     </button>
@@ -1507,7 +1507,7 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
               <button
                 onClick={testJackettConnection}
                 disabled={loading || !config?.jackett_url || !config?.jackett_api_key}
-                className="px-6 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-white/10 disabled:text-white/40 disabled:cursor-not-allowed text-white rounded-lg font-medium transition-colors flex items-center gap-2"
+                className="px-6 py-2 bg-white/[0.14] hover:bg-blue-700 disabled:bg-white/10 disabled:text-white/40 disabled:cursor-not-allowed text-white rounded-lg font-medium transition-colors flex items-center gap-2"
               >
                 {loading ? (
                   <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>

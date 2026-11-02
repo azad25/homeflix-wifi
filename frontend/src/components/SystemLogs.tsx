@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { Activity, HardDrive, Server, TrendingUp, Timer, FileSearch, Trash2, RefreshCw, Search, X, Cpu, Monitor, MemoryStick, Database, Wifi, Info, Zap, Terminal, Play, Square, RotateCcw, Code, Hammer, Database as DatabaseIcon, AlertTriangle } from 'lucide-react';
-import { MagneticButton, GlassCard, ScrollReveal } from '@/components/scrollx';
+import { MagneticButton, GlassCard, ScrollReveal } from '@/components/settings/lite';
 import { getApiUrl } from '@/lib/api';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
@@ -103,6 +103,8 @@ interface SystemInfo {
 
 interface SystemLogsProps {
   onTerminalOutput?: (message: string) => void;
+  /** Show storage usage + low-space warnings (off when Settings has a Storage section). */
+  showStorage?: boolean;
 }
 
 interface ServerStatus {
@@ -137,13 +139,19 @@ interface StorageInfo {
   is_low: boolean;
 }
 
-export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
+export default function SystemLogs({ onTerminalOutput, showStorage = true }: SystemLogsProps) {
   const [systemStats, setSystemStats] = useState<SystemStats | null>(null);
   const [statsHistory, setStatsHistory] = useState<any[]>([]);
   const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null);
   const [serverLogs, setServerLogs] = useState<LogEntry[]>([]);
   const [isLogsConnected, setIsLogsConnected] = useState(false);
   const [isStatsConnected, setIsStatsConnected] = useState(false);
+  // Polling intervals are created once; they read live connection state
+  // from refs (the state values above are frozen in their closures).
+  const logsLiveRef = useRef(false);
+  const statsLiveRef = useRef(false);
+  logsLiveRef.current = isLogsConnected;
+  statsLiveRef.current = isStatsConnected;
   const [storageInfos, setStorageInfos] = useState<StorageInfo[]>([]);
   const [lowAlerts, setLowAlerts] = useState<StorageInfo[]>([]);
   const [logsWebSocket, setLogsWebSocket] = useState<WebSocket | null>(null);
@@ -271,19 +279,20 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
     connectToTerminal();
 
     // Set up polling as fallback - force refresh every time
+    // Fallback polling: only while the WebSocket for that stream is down and
+    // the tab is visible (it used to poll every 2-3s no matter what).
+    const visible = () => typeof document === 'undefined' || document.visibilityState === 'visible';
     const logsInterval = setInterval(() => {
-      fetchInitialLogs(); // Always fetch, regardless of WebSocket status
-    }, 3000); // Poll every 3 seconds
+      if (visible() && !logsLiveRef.current) fetchInitialLogs();
+    }, 4000);
 
     const statsInterval = setInterval(() => {
-      if (!isStatsConnected) {
-        fetchSystemStats();
-      }
-    }, 2000); // Poll every 2 seconds for system stats
+      if (visible() && !statsLiveRef.current) fetchSystemStats();
+    }, 3000);
 
     const storageInterval = setInterval(() => {
-      fetchStorageStats();
-    }, 10000); // Poll storage every 10s
+      if (visible()) fetchStorageStats();
+    }, 30000);
 
     return () => {
       disconnectWebSockets();
@@ -834,7 +843,9 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
   // Fetch server status periodically
   useEffect(() => {
     fetchServerStatus();
-    const interval = setInterval(fetchServerStatus, 10000);
+    const interval = setInterval(() => {
+      if (document.visibilityState === 'visible') fetchServerStatus();
+    }, 10000);
     return () => clearInterval(interval);
   }, []);
 
@@ -919,9 +930,9 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
       <ScrollReveal>
         <GlassCard className="p-6">
           <div className="flex items-center justify-between mb-6">
-            <h2 className="text-2xl font-semibold text-white flex items-center">
-              <Activity className="w-6 h-6 mr-3 text-[#E50914]" />
-              HomeFlix
+            <h2 className="text-[22px] font-semibold tracking-[-0.01em] text-white flex items-center">
+              <Activity className="w-6 h-6 mr-3 text-white/70" />
+              Live Status
             </h2>
             <div className="flex items-center space-x-4">
               <div className="flex items-center space-x-2">
@@ -939,7 +950,7 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
               <button
                 onClick={clearAllCache}
                 title="Clear all cache data (pages, widgets, notifications)"
-                className="bg-red-600/20 hover:bg-red-600/40 text-red-400 px-3 py-2 rounded-lg flex items-center space-x-2 text-sm transition-colors"
+                className="bg-red-500/[0.14] hover:bg-red-500/[0.24] text-red-300 px-3 py-2 rounded-lg flex items-center space-x-2 text-sm transition-colors"
               >
                 <DatabaseIcon className="w-4 h-4" />
                 <span>Clear Cache</span>
@@ -947,7 +958,7 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
               <div className="text-white/50 text-xs">
                 {serverLogs.length} entries
                 {isFetchingLogs && (
-                  <div className="text-blue-400 text-xs animate-pulse">
+                  <div className="text-white/75 text-xs animate-pulse">
                     Fetching...
                   </div>
                 )}
@@ -960,8 +971,8 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
             </div>
           </div>
 
-          {/* Low Storage Alerts - dynamic, any storage added via Settings */}
-          {lowAlerts.length > 0 && (
+          {/* Storage now has its own section (Settings > Storage) */}
+          {showStorage && lowAlerts.length > 0 && (
             <div className="mb-6 bg-red-900/30 border border-red-500/40 rounded-lg p-4">
               <div className="flex items-center space-x-3 mb-3">
                 <AlertTriangle className="w-6 h-6 text-red-400" />
@@ -989,10 +1000,10 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
           )}
 
           {/* Per-Storage Usage (all user-added folders) */}
-          {storageInfos.length > 0 && (
+          {showStorage && storageInfos.length > 0 && (
             <div className="mb-6">
               <h3 className="text-white/80 text-sm font-medium mb-3 flex items-center">
-                <HardDrive className="w-4 h-4 mr-2 text-purple-400" />
+                <HardDrive className="w-4 h-4 mr-2 text-white/75" />
                 Storage Paths {lowAlerts.length > 0 && <span className="ml-2 text-red-400">({lowAlerts.length} low)</span>}
                 <button onClick={fetchStorageStats} className="ml-auto text-white/50 hover:text-white text-xs px-2 py-1 bg-white/5 rounded">Refresh</button>
               </h3>
@@ -1008,7 +1019,7 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
                       <span className={`text-lg font-bold ${s.is_low ? 'text-red-400' : 'text-white'}`}>{s.used_percent.toFixed(1)}%</span>
                       <span className="text-white/60 text-xs">{(s.free / (1024**3)).toFixed(1)} GB free</span>
                     </div>
-                    <div className="w-full bg-black/30 rounded-full h-2">
+                    <div className="w-full bg-white/[0.04] rounded-full h-2">
                       <div className={`h-2 rounded-full ${s.is_low ? 'bg-red-500' : s.used_percent > 70 ? 'bg-yellow-500' : 'bg-green-500'}`} style={{ width: `${Math.min(100, s.used_percent)}%` }}></div>
                     </div>
                     <div className="text-white/30 text-xs mt-1">{(s.used / (1024**3)).toFixed(1)} / {(s.total / (1024**3)).toFixed(1)} GB</div>
@@ -1022,10 +1033,10 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
           {systemStats && (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
               {/* CPU Stats */}
-              <div className="bg-gradient-to-br from-blue-600/20 to-blue-800/20 rounded-lg p-4 border border-blue-500/20 h-64 flex flex-col">
+              <div className="bg-white/[0.05] rounded-lg p-4 border border-white/10 h-64 flex flex-col">
                 <div className="flex items-center justify-between mb-2">
-                  <div className="text-blue-400 text-sm font-medium">CPU Usage</div>
-                  <Activity className="w-5 h-5 text-blue-400" />
+                  <div className="text-white/75 text-sm font-medium">CPU Usage</div>
+                  <Activity className="w-5 h-5 text-white/75" />
                 </div>
                 <div className="text-2xl font-bold text-white mb-1">
                   {systemStats.cpu?.usage?.toFixed(1) || '0.0'}%
@@ -1057,7 +1068,7 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
               </div>
 
               {/* Memory Stats */}
-              <div className="bg-gradient-to-br from-green-600/20 to-green-800/20 rounded-lg p-4 border border-green-500/20 h-64 flex flex-col">
+              <div className="bg-white/[0.05] rounded-lg p-4 border border-green-500/20 h-64 flex flex-col">
                 <div className="flex items-center justify-between mb-2">
                   <div className="text-green-400 text-sm font-medium">Memory</div>
                   <HardDrive className="w-5 h-5 text-green-400" />
@@ -1092,10 +1103,10 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
               </div>
 
               {/* Disk Stats */}
-              <div className="bg-gradient-to-br from-purple-600/20 to-purple-800/20 rounded-lg p-4 border border-purple-500/20 h-64 flex flex-col">
+              <div className="bg-white/[0.05] rounded-lg p-4 border border-white/10 h-64 flex flex-col">
                 <div className="flex items-center justify-between mb-2">
-                  <div className="text-purple-400 text-sm font-medium">Disk Usage</div>
-                  <HardDrive className="w-5 h-5 text-purple-400" />
+                  <div className="text-white/75 text-sm font-medium">Disk Usage</div>
+                  <HardDrive className="w-5 h-5 text-white/75" />
                 </div>
                 <div className="text-2xl font-bold text-white mb-1">
                   {systemStats.disk?.used_percent?.toFixed(1) || '0.0'}%
@@ -1127,10 +1138,10 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
               </div>
 
               {/* Process Stats */}
-              <div className="bg-gradient-to-br from-orange-600/20 to-orange-800/20 rounded-lg p-4 border border-orange-500/20 h-64 flex flex-col">
+              <div className="bg-white/[0.05] rounded-lg p-4 border border-white/10 h-64 flex flex-col">
                 <div className="flex items-center justify-between mb-2">
-                  <div className="text-orange-400 text-sm font-medium">Process CPU</div>
-                  <Server className="w-5 h-5 text-orange-400" />
+                  <div className="text-white/75 text-sm font-medium">Process CPU</div>
+                  <Server className="w-5 h-5 text-white/75" />
                 </div>
                 <div className="text-2xl font-bold text-white mb-1">
                   {systemStats.process?.cpu_percent?.toFixed(1) || '0.0'}%
@@ -1169,12 +1180,12 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
               <div className="bg-white/5 rounded-lg p-4 border border-white/10">
                 <div className="flex items-center justify-between mb-2">
                   <div className="text-white/80 text-sm font-medium">Network Traffic</div>
-                  <TrendingUp className="w-5 h-5 text-cyan-400" />
+                  <TrendingUp className="w-5 h-5 text-white/75" />
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <div className="text-xs text-white/60 mb-1">Received</div>
-                    <div className="text-lg font-bold text-cyan-400">
+                    <div className="text-lg font-bold text-white/75">
                       {((systemStats.network.bytes_received || 0) / (1024 ** 3)).toFixed(2)}GB
                     </div>
                     <div className="text-xs text-white/50">
@@ -1214,8 +1225,8 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
       <ScrollReveal delay={0.05}>
         <GlassCard className="p-6">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-2xl font-semibold text-white flex items-center">
-              <Terminal className="w-6 h-6 mr-3 text-[#E50914]" />
+            <h2 className="text-[22px] font-semibold tracking-[-0.01em] text-white flex items-center">
+              <Terminal className="w-6 h-6 mr-3 text-white/70" />
               Live Terminal Output
             </h2>
             <div className="flex items-center space-x-4">
@@ -1250,7 +1261,7 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
                   }
                   setTimeout(connectToTerminal, 500);
                 }}
-                className="bg-green-600/20 hover:bg-green-600/40 text-green-400 px-3 py-2 rounded-lg flex items-center space-x-2 text-sm"
+                className="bg-white/[0.1] hover:bg-white/[0.18] text-white px-3 py-2 rounded-lg flex items-center space-x-2 text-sm"
               >
                 <RefreshCw className="w-4 h-4" />
                 <span>Reconnect</span>
@@ -1275,8 +1286,8 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
                     className={`flex items-start space-x-2 py-0.5 ${line.type === 'stderr' ? 'text-red-400' :
                         line.type === 'warning' ? 'text-yellow-400' :
                           line.type === 'success' ? 'text-green-400' :
-                            line.type === 'progress' ? 'text-blue-400' :
-                              line.type === 'info' ? 'text-cyan-400' :
+                            line.type === 'progress' ? 'text-white/75' :
+                              line.type === 'info' ? 'text-white/75' :
                                 'text-white/90'
                       }`}
                   >
@@ -1285,7 +1296,7 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
                     </span>
                     <span className="flex-1 break-all">{line.message}</span>
                     {line.progress !== undefined && line.progress >= 0 && (
-                      <span className="text-blue-400 text-xs whitespace-nowrap">
+                      <span className="text-white/75 text-xs whitespace-nowrap">
                         [{line.progress.toFixed(1)}%]
                       </span>
                     )}
@@ -1325,8 +1336,8 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
       <ScrollReveal delay={0.03}>
         <GlassCard className="p-6">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-2xl font-semibold text-white flex items-center">
-              <Server className="w-6 h-6 mr-3 text-[#E50914]" />
+            <h2 className="text-[22px] font-semibold tracking-[-0.01em] text-white flex items-center">
+              <Server className="w-6 h-6 mr-3 text-white/70" />
               Server Control
             </h2>
             <button
@@ -1341,7 +1352,7 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {/* Production Server */}
-            <div className="bg-gradient-to-br from-green-600/10 to-green-800/10 rounded-lg p-4 border border-green-500/20">
+            <div className="bg-white/[0.05] rounded-lg p-4 border border-green-500/20">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-lg font-semibold text-white flex items-center">
                   <Server className="w-5 h-5 text-green-400 mr-2" />
@@ -1372,7 +1383,7 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
 
               {/* Server URLs */}
               {serverStatus?.production && (serverStatus.production.frontend || serverStatus.production.backend) && (
-                <div className="mb-4 p-3 bg-black/30 rounded-lg border border-green-500/20">
+                <div className="mb-4 p-3 bg-white/[0.04] rounded-lg border border-green-500/20">
                   <div className="text-green-400 text-xs font-medium mb-2">🌐 Server URLs:</div>
                   {serverStatus.production.frontend && (
                     <div className="mb-1">
@@ -1406,7 +1417,7 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
                   onClick={() => serverAction('start', 'production')}
                   disabled={isServerActionLoading}
                   title="Start production server"
-                  className="flex-1 bg-green-600/20 hover:bg-green-600/40 text-green-400 px-3 py-2 rounded-lg flex items-center justify-center space-x-2 text-sm disabled:opacity-50 transition-colors"
+                  className="flex-1 bg-white/[0.1] hover:bg-white/[0.18] text-white px-3 py-2 rounded-lg flex items-center justify-center space-x-2 text-sm disabled:opacity-50 transition-colors"
                 >
                   <Play className="w-4 h-4" />
                   <span>Start</span>
@@ -1415,7 +1426,7 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
                   onClick={() => serverAction('stop', 'production')}
                   disabled={isServerActionLoading}
                   title="Stop production server"
-                  className="flex-1 bg-red-600/20 hover:bg-red-600/40 text-red-400 px-3 py-2 rounded-lg flex items-center justify-center space-x-2 text-sm disabled:opacity-50 transition-colors"
+                  className="flex-1 bg-red-500/[0.14] hover:bg-red-500/[0.24] text-red-300 px-3 py-2 rounded-lg flex items-center justify-center space-x-2 text-sm disabled:opacity-50 transition-colors"
                 >
                   <Square className="w-4 h-4" />
                   <span>Stop</span>
@@ -1424,7 +1435,7 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
                   onClick={() => serverAction('restart', 'production')}
                   disabled={isServerActionLoading}
                   title="Restart production server"
-                  className="flex-1 bg-yellow-600/20 hover:bg-yellow-600/40 text-yellow-400 px-3 py-2 rounded-lg flex items-center justify-center space-x-2 text-sm disabled:opacity-50 transition-colors"
+                  className="flex-1 bg-white/[0.1] hover:bg-white/[0.18] text-white px-3 py-2 rounded-lg flex items-center justify-center space-x-2 text-sm disabled:opacity-50 transition-colors"
                 >
                   <RotateCcw className="w-4 h-4" />
                   <span>Restart</span>
@@ -1436,10 +1447,10 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
                   <MagneticButton
                     onClick={() => buildProject('backend')}
                     disabled={isBuildingBackend || isBuildingFrontend}
-                    className="flex-1 bg-blue-600/20 hover:bg-blue-600/40 text-blue-400 px-3 py-2 rounded-lg flex items-center justify-center space-x-2 text-sm disabled:opacity-50"
+                    className="flex-1 bg-white/[0.1] hover:bg-white/[0.18] text-white px-3 py-2 rounded-lg flex items-center justify-center space-x-2 text-sm disabled:opacity-50"
                   >
                     {isBuildingBackend ? (
-                      <div className="animate-spin w-4 h-4 border-2 border-blue-400 border-t-transparent rounded-full" />
+                      <div className="animate-spin w-4 h-4 border-2 border-white/40 border-t-transparent rounded-full" />
                     ) : (
                       <Hammer className="w-4 h-4" />
                     )}
@@ -1448,10 +1459,10 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
                   <MagneticButton
                     onClick={() => buildProject('frontend')}
                     disabled={isBuildingBackend || isBuildingFrontend}
-                    className="flex-1 bg-cyan-600/20 hover:bg-cyan-600/40 text-cyan-400 px-3 py-2 rounded-lg flex items-center justify-center space-x-2 text-sm disabled:opacity-50"
+                    className="flex-1 bg-white/[0.1] hover:bg-white/[0.18] text-white px-3 py-2 rounded-lg flex items-center justify-center space-x-2 text-sm disabled:opacity-50"
                   >
                     {isBuildingFrontend ? (
-                      <div className="animate-spin w-4 h-4 border-2 border-cyan-400 border-t-transparent rounded-full" />
+                      <div className="animate-spin w-4 h-4 border-2 border-white/40 border-t-transparent rounded-full" />
                     ) : (
                       <Hammer className="w-4 h-4" />
                     )}
@@ -1462,10 +1473,10 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
             </div>
 
             {/* Development Server */}
-            <div className="bg-gradient-to-br from-purple-600/10 to-purple-800/10 rounded-lg p-4 border border-purple-500/20">
+            <div className="bg-white/[0.05] rounded-lg p-4 border border-white/10">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-lg font-semibold text-white flex items-center">
-                  <Code className="w-5 h-5 text-purple-400 mr-2" />
+                  <Code className="w-5 h-5 text-white/75 mr-2" />
                   Development Server
                 </h3>
                 <div className="flex items-center space-x-2">
@@ -1493,15 +1504,15 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
 
               {/* Development Server URLs */}
               {serverStatus?.development && (serverStatus.development.frontend || serverStatus.development.backend) && (
-                <div className="mb-4 p-3 bg-black/30 rounded-lg border border-purple-500/20">
-                  <div className="text-purple-400 text-xs font-medium mb-2">🔧 Dev Server URLs:</div>
+                <div className="mb-4 p-3 bg-white/[0.04] rounded-lg border border-white/10">
+                  <div className="text-white/75 text-xs font-medium mb-2">🔧 Dev Server URLs:</div>
                   {serverStatus.development.frontend && (
                     <div className="mb-1">
                       <a 
                         href={serverStatus.development.urls.frontend} 
                         target="_blank" 
                         rel="noopener noreferrer"
-                        className="text-purple-300 hover:text-purple-200 text-xs underline"
+                        className="text-white/75 hover:text-white/75 text-xs underline"
                       >
                         📱 Dev Frontend: {serverStatus.development.urls.frontend}
                       </a>
@@ -1513,7 +1524,7 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
                         href={serverStatus.development.urls.backend} 
                         target="_blank" 
                         rel="noopener noreferrer"
-                        className="text-purple-300 hover:text-purple-200 text-xs underline"
+                        className="text-white/75 hover:text-white/75 text-xs underline"
                       >
                         🔧 Dev Backend: {serverStatus.development.urls.backend}
                       </a>
@@ -1527,7 +1538,7 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
                   onClick={() => serverAction('start', 'dev')}
                   disabled={isServerActionLoading}
                   title="Start development server"
-                  className="flex-1 bg-green-600/20 hover:bg-green-600/40 text-green-400 px-3 py-2 rounded-lg flex items-center justify-center space-x-2 text-sm disabled:opacity-50 transition-colors"
+                  className="flex-1 bg-white/[0.1] hover:bg-white/[0.18] text-white px-3 py-2 rounded-lg flex items-center justify-center space-x-2 text-sm disabled:opacity-50 transition-colors"
                 >
                   <Play className="w-4 h-4" />
                   <span>Start</span>
@@ -1536,7 +1547,7 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
                   onClick={() => serverAction('stop', 'dev')}
                   disabled={isServerActionLoading}
                   title="Stop development server"
-                  className="flex-1 bg-red-600/20 hover:bg-red-600/40 text-red-400 px-3 py-2 rounded-lg flex items-center justify-center space-x-2 text-sm disabled:opacity-50 transition-colors"
+                  className="flex-1 bg-red-500/[0.14] hover:bg-red-500/[0.24] text-red-300 px-3 py-2 rounded-lg flex items-center justify-center space-x-2 text-sm disabled:opacity-50 transition-colors"
                 >
                   <Square className="w-4 h-4" />
                   <span>Stop</span>
@@ -1545,7 +1556,7 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
                   onClick={() => serverAction('restart', 'dev')}
                   disabled={isServerActionLoading}
                   title="Restart development server"
-                  className="flex-1 bg-yellow-600/20 hover:bg-yellow-600/40 text-yellow-400 px-3 py-2 rounded-lg flex items-center justify-center space-x-2 text-sm disabled:opacity-50 transition-colors"
+                  className="flex-1 bg-white/[0.1] hover:bg-white/[0.18] text-white px-3 py-2 rounded-lg flex items-center justify-center space-x-2 text-sm disabled:opacity-50 transition-colors"
                 >
                   <RotateCcw className="w-4 h-4" />
                   <span>Restart</span>
@@ -1557,10 +1568,10 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
                   <MagneticButton
                     onClick={() => buildProject('backend')}
                     disabled={isBuildingBackend || isBuildingFrontend}
-                    className="flex-1 bg-blue-600/20 hover:bg-blue-600/40 text-blue-400 px-3 py-2 rounded-lg flex items-center justify-center space-x-2 text-sm disabled:opacity-50"
+                    className="flex-1 bg-white/[0.1] hover:bg-white/[0.18] text-white px-3 py-2 rounded-lg flex items-center justify-center space-x-2 text-sm disabled:opacity-50"
                   >
                     {isBuildingBackend ? (
-                      <div className="animate-spin w-4 h-4 border-2 border-blue-400 border-t-transparent rounded-full" />
+                      <div className="animate-spin w-4 h-4 border-2 border-white/40 border-t-transparent rounded-full" />
                     ) : (
                       <Hammer className="w-4 h-4" />
                     )}
@@ -1569,10 +1580,10 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
                   <MagneticButton
                     onClick={() => buildProject('frontend')}
                     disabled={isBuildingBackend || isBuildingFrontend}
-                    className="flex-1 bg-cyan-600/20 hover:bg-cyan-600/40 text-cyan-400 px-3 py-2 rounded-lg flex items-center justify-center space-x-2 text-sm disabled:opacity-50"
+                    className="flex-1 bg-white/[0.1] hover:bg-white/[0.18] text-white px-3 py-2 rounded-lg flex items-center justify-center space-x-2 text-sm disabled:opacity-50"
                   >
                     {isBuildingFrontend ? (
-                      <div className="animate-spin w-4 h-4 border-2 border-cyan-400 border-t-transparent rounded-full" />
+                      <div className="animate-spin w-4 h-4 border-2 border-white/40 border-t-transparent rounded-full" />
                     ) : (
                       <Hammer className="w-4 h-4" />
                     )}
@@ -1585,7 +1596,7 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
 
           {isServerActionLoading && (
             <div className="mt-4 flex items-center justify-center text-white/60">
-              <div className="animate-spin w-5 h-5 border-2 border-[#E50914] border-t-transparent rounded-full mr-2"></div>
+              <div className="animate-spin w-5 h-5 border-2 border-white/20 border-t-transparent rounded-full mr-2"></div>
               <span>Processing server action...</span>
             </div>
           )}
@@ -1596,8 +1607,8 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
       <ScrollReveal delay={0.07}>
         <GlassCard className="p-6">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-2xl font-semibold text-white flex items-center">
-              <Terminal className="w-6 h-6 mr-3 text-[#E50914]" />
+            <h2 className="text-[22px] font-semibold tracking-[-0.01em] text-white flex items-center">
+              <Terminal className="w-6 h-6 mr-3 text-white/70" />
               Command Executor
             </h2>
             <div className="flex items-center space-x-2">
@@ -1620,7 +1631,7 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
           </div>
 
           {!isTerminalAuthenticated ? (
-            <div className="bg-gradient-to-br from-yellow-600/20 to-yellow-800/20 rounded-lg p-6 border border-yellow-500/20 mb-4">
+            <div className="bg-white/[0.05] rounded-lg p-6 border border-yellow-500/20 mb-4">
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center space-x-2">
                   <div className="text-yellow-400 text-2xl">🔐</div>
@@ -1643,7 +1654,7 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
                     onKeyPress={(e) => e.key === 'Enter' && !isAuthenticating && authenticateTerminal()}
                     placeholder="Enter password..."
                     disabled={isAuthenticating}
-                    className="w-full bg-black/50 border border-white/20 rounded-lg px-4 py-2 text-white placeholder-white/50 focus:border-yellow-400 focus:outline-none transition-colors disabled:opacity-50"
+                    className="w-full bg-white/[0.07] border border-white/[0.08] rounded-xl px-4 py-2 text-white placeholder-white/35 focus:border-yellow-400 focus:outline-none transition-colors disabled:opacity-50"
                   />
                   {passwordError && (
                     <div className="text-red-400 text-xs mt-2 space-y-2">
@@ -1656,7 +1667,7 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
                               authenticateTerminal();
                             }
                           }}
-                          className="bg-blue-600/20 hover:bg-blue-600/40 text-blue-400 px-3 py-1 rounded text-xs"
+                          className="bg-white/[0.1] hover:bg-white/[0.18] text-white px-3 py-1 rounded text-xs"
                         >
                           🔄 Retry Connection
                         </MagneticButton>
@@ -1673,7 +1684,7 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
                 <MagneticButton
                   onClick={authenticateTerminal}
                   disabled={isAuthenticating || !terminalPassword}
-                  className="w-full bg-yellow-600/20 hover:bg-yellow-600/40 text-yellow-400 px-4 py-2 rounded-lg font-medium transition-colors disabled:opacity-50 flex items-center justify-center space-x-2"
+                  className="w-full bg-white/[0.1] hover:bg-white/[0.18] text-white px-4 py-2 rounded-lg font-medium transition-colors disabled:opacity-50 flex items-center justify-center space-x-2"
                 >
                   {isAuthenticating ? (
                     <>
@@ -1690,7 +1701,7 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
 
               <div className="mt-4 pt-4 border-t border-white/10 text-white/50 text-xs space-y-2">
                 <p>⚠️ Advanced feature - be careful with commands executed here</p>
-                <div className="bg-blue-600/10 border border-blue-500/20 rounded p-2 text-blue-400">
+                <div className="bg-white/[0.05] border border-white/10 rounded p-2 text-white/75">
                   <p className="font-medium mb-1">💡 Troubleshooting:</p>
                   <ul className="space-y-1 text-xs">
                     <li>• Check if backend server is running on port 8252/8253</li>
@@ -1712,14 +1723,14 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
                     onChange={(e) => setCommandInput(e.target.value)}
                     onKeyPress={(e) => e.key === 'Enter' && executeCommand()}
                     placeholder="Enter terminal command (e.g., ls -la, ps aux, docker ps)..."
-                    className="w-full bg-black/50 border border-white/20 rounded-lg px-4 py-2 text-white placeholder-white/50 focus:border-[#E50914] focus:outline-none transition-colors font-mono text-sm"
+                    className="w-full bg-white/[0.07] border border-white/[0.08] rounded-xl px-4 py-2 text-white placeholder-white/35 focus:border-white/20 focus:outline-none transition-colors font-mono text-sm"
                     disabled={!isTerminalAuthenticated}
                   />
                 </div>
                 <MagneticButton
                   onClick={executeCommand}
                   disabled={isCommandExecuting || !commandInput.trim()}
-                  className="bg-green-600/20 hover:bg-green-600/40 text-green-400 px-4 py-2 rounded-lg flex items-center space-x-2 disabled:opacity-50"
+                  className="bg-white/[0.1] hover:bg-white/[0.18] text-white px-4 py-2 rounded-lg flex items-center space-x-2 disabled:opacity-50"
                 >
                   <Play className="w-4 h-4" />
                   <span>{isCommandExecuting ? 'Running...' : 'Execute'}</span>
@@ -1734,14 +1745,14 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
                     setPasswordError('');
                     addTerminalOutput('🔓 Terminal session closed by user');
                   }}
-                  className="bg-red-600/20 hover:bg-red-600/40 text-red-400 px-4 py-2 rounded-lg flex items-center space-x-2"
+                  className="bg-red-500/[0.14] hover:bg-red-500/[0.24] text-red-300 px-4 py-2 rounded-lg flex items-center space-x-2"
                 >
                   <span>🔒 Lock Terminal</span>
                 </MagneticButton>
               </div>
 
               {/* Command History / Output display in terminal lines above */}
-              <div className="bg-blue-600/10 border border-blue-500/20 rounded-lg p-3 text-blue-400 text-xs flex items-start space-x-2">
+              <div className="bg-white/[0.05] border border-white/10 rounded-lg p-3 text-white/75 text-xs flex items-start space-x-2">
                 <Info className="w-4 h-4 mt-0.5 flex-shrink-0" />
                 <div>
                   <p>Command output appears in the Terminal Output section above</p>
@@ -1834,17 +1845,17 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
         <ScrollReveal delay={0.1}>
           <GlassCard className="p-6">
             <div className="flex items-center justify-between mb-6">
-              <h2 className="text-2xl font-semibold text-white flex items-center">
-                <Info className="w-6 h-6 mr-3 text-[#E50914]" />
+              <h2 className="text-[22px] font-semibold tracking-[-0.01em] text-white flex items-center">
+                <Info className="w-6 h-6 mr-3 text-white/70" />
                 System Hardware Information
               </h2>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {/* CPU Information */}
-              <div className="bg-gradient-to-br from-blue-600/10 to-blue-800/10 rounded-lg p-4 border border-blue-500/20">
+              <div className="bg-white/[0.05] rounded-lg p-4 border border-white/10">
                 <div className="flex items-center mb-3">
-                  <Cpu className="w-5 h-5 text-blue-400 mr-2" />
+                  <Cpu className="w-5 h-5 text-white/75 mr-2" />
                   <h3 className="text-lg font-semibold text-white">CPU</h3>
                 </div>
                 <div className="space-y-2 text-sm">
@@ -1872,7 +1883,7 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
               </div>
 
               {/* GPU Information */}
-              <div className="bg-gradient-to-br from-green-600/10 to-green-800/10 rounded-lg p-4 border border-green-500/20">
+              <div className="bg-white/[0.05] rounded-lg p-4 border border-green-500/20">
                 <div className="flex items-center mb-3">
                   <Monitor className="w-5 h-5 text-green-400 mr-2" />
                   <h3 className="text-lg font-semibold text-white">GPU</h3>
@@ -1898,9 +1909,9 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
               </div>
 
               {/* Memory Information */}
-              <div className="bg-gradient-to-br from-purple-600/10 to-purple-800/10 rounded-lg p-4 border border-purple-500/20">
+              <div className="bg-white/[0.05] rounded-lg p-4 border border-white/10">
                 <div className="flex items-center mb-3">
-                  <MemoryStick className="w-5 h-5 text-purple-400 mr-2" />
+                  <MemoryStick className="w-5 h-5 text-white/75 mr-2" />
                   <h3 className="text-lg font-semibold text-white">RAM</h3>
                 </div>
                 <div className="space-y-2 text-sm">
@@ -1924,9 +1935,9 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
               </div>
 
               {/* Disk Information */}
-              <div className="bg-gradient-to-br from-orange-600/10 to-orange-800/10 rounded-lg p-4 border border-orange-500/20">
+              <div className="bg-white/[0.05] rounded-lg p-4 border border-white/10">
                 <div className="flex items-center mb-3">
-                  <Database className="w-5 h-5 text-orange-400 mr-2" />
+                  <Database className="w-5 h-5 text-white/75 mr-2" />
                   <h3 className="text-lg font-semibold text-white">Storage</h3>
                 </div>
                 <div className="space-y-2 text-sm">
@@ -1956,9 +1967,9 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
               </div>
 
               {/* Network Information */}
-              <div className="bg-gradient-to-br from-cyan-600/10 to-cyan-800/10 rounded-lg p-4 border border-cyan-500/20">
+              <div className="bg-white/[0.05] rounded-lg p-4 border border-white/10">
                 <div className="flex items-center mb-3">
-                  <Wifi className="w-5 h-5 text-cyan-400 mr-2" />
+                  <Wifi className="w-5 h-5 text-white/75 mr-2" />
                   <h3 className="text-lg font-semibold text-white">Network</h3>
                 </div>
                 <div className="space-y-2 text-sm">
@@ -1988,9 +1999,9 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
               </div>
 
               {/* OS Information */}
-              <div className="bg-gradient-to-br from-pink-600/10 to-pink-800/10 rounded-lg p-4 border border-pink-500/20">
+              <div className="bg-white/[0.05] rounded-lg p-4 border border-white/10">
                 <div className="flex items-center mb-3">
-                  <Server className="w-5 h-5 text-pink-400 mr-2" />
+                  <Server className="w-5 h-5 text-white/75 mr-2" />
                   <h3 className="text-lg font-semibold text-white">Operating System</h3>
                 </div>
                 <div className="space-y-2 text-sm">
@@ -2025,8 +2036,8 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
       <ScrollReveal delay={0.2}>
         <GlassCard className="p-6">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-xl font-semibold text-white flex items-center">
-              <FileSearch className="w-6 h-6 mr-3 text-[#E50914]" />
+            <h3 className="text-[19px] font-semibold tracking-[-0.01em] text-white flex items-center">
+              <FileSearch className="w-6 h-6 mr-3 text-white/70" />
               Real-time Server Logs
             </h3>
             <div className="flex items-center space-x-2">
@@ -2046,7 +2057,7 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
                   fetchInitialLogs();
                   fetchSystemStats();
                 }}
-                className="bg-blue-600/20 hover:bg-blue-600/40 text-blue-400 px-3 py-2 rounded-lg flex items-center space-x-2 text-sm"
+                className="bg-white/[0.1] hover:bg-white/[0.18] text-white px-3 py-2 rounded-lg flex items-center space-x-2 text-sm"
               >
                 <RefreshCw className="w-4 h-4" />
                 <span>Refresh</span>
@@ -2060,7 +2071,7 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
                     addTerminalOutput('🔄 Attempting to reconnect WebSockets');
                   }, 1000);
                 }}
-                className="bg-green-600/20 hover:bg-green-600/40 text-green-400 px-3 py-2 rounded-lg flex items-center space-x-2 text-sm"
+                className="bg-white/[0.1] hover:bg-white/[0.18] text-white px-3 py-2 rounded-lg flex items-center space-x-2 text-sm"
               >
                 <RefreshCw className="w-4 h-4" />
                 <span>Reconnect</span>
@@ -2097,7 +2108,7 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
                     addTerminalOutput(`🚨 Force refresh failed: ${error}`);
                   }
                 }}
-                className="bg-red-600/20 hover:bg-red-600/40 text-red-400 px-3 py-2 rounded-lg flex items-center space-x-2 text-sm"
+                className="bg-red-500/[0.14] hover:bg-red-500/[0.24] text-red-300 px-3 py-2 rounded-lg flex items-center space-x-2 text-sm"
               >
                 <Zap className="w-4 h-4" />
                 <span>Force Refresh</span>
@@ -2114,7 +2125,7 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
                 placeholder="Filter logs by message, level, or source..."
                 value={filterText}
                 onChange={(e) => setFilterText(e.target.value)}
-                className="w-full bg-black/50 border border-white/20 rounded-lg pl-10 pr-10 py-2 text-white placeholder-white/50 focus:border-[#E50914] focus:outline-none transition-colors text-sm"
+                className="w-full bg-white/[0.07] border border-white/[0.08] rounded-xl pl-10 pr-10 py-2 text-white placeholder-white/35 focus:border-white/20 focus:outline-none transition-colors text-sm"
               />
               {filterText && (
                 <button
@@ -2144,7 +2155,7 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
                     key={index}
                     className={`flex items-start space-x-3 py-1 px-2 rounded hover:bg-white/5 transition-colors ${log.level === 'ERROR' || log.level === 'FATAL' ? 'bg-red-500/10' :
                       log.level === 'WARN' ? 'bg-yellow-500/10' :
-                        log.level === 'DEBUG' ? 'bg-blue-500/10' :
+                        log.level === 'DEBUG' ? 'bg-white/[0.05]' :
                           ''
                       }`}
                   >
@@ -2153,12 +2164,12 @@ export default function SystemLogs({ onTerminalOutput }: SystemLogsProps) {
                     </span>
                     <span className={`text-xs font-bold whitespace-nowrap ${log.level === 'ERROR' || log.level === 'FATAL' ? 'text-red-400' :
                       log.level === 'WARN' ? 'text-yellow-400' :
-                        log.level === 'DEBUG' ? 'text-blue-400' :
+                        log.level === 'DEBUG' ? 'text-white/75' :
                           'text-green-400'
                       }`}>
                       {log.level || 'INFO'}
                     </span>
-                    <span className="text-cyan-400 text-xs whitespace-nowrap">
+                    <span className="text-white/75 text-xs whitespace-nowrap">
                       [{log.source || 'server'}]
                     </span>
                     <span className="text-white/90 text-xs flex-1 break-all">

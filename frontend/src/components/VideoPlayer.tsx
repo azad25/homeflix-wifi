@@ -33,6 +33,7 @@ import { useHomeflixCast, CastMediaRef } from '@/hooks/useHomeflixCast';
 import VideoPlayerSettings from './VideoPlayerSettings';
 import { useChromecast, CastMedia } from '@/hooks/useChromecast';
 
+import { getPreferences } from '@/lib/preferences';
 import { updatePlaybackProgress, getPlaybackProgress, trackView, initializePlaybackProgress } from '@/lib/playback';
 import NextEpisodePreview from './NextEpisodePreview';
 import NewMoviesPauseSection from './NewMoviesPauseSection';
@@ -198,7 +199,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
   const settingsButtonRef = useRef<HTMLButtonElement>(null);
   const [currentSubtitleTrack, setCurrentSubtitleTrack] = useState<number | null>(null);
   const [currentAudioTrack, setCurrentAudioTrack] = useState<number | null>(null);
-  const [playbackRate, setPlaybackRate] = useState(1);
+  const [playbackRate, setPlaybackRate] = useState(() => getPreferences().playbackRate || 1);
   const [subtitleStyle, setSubtitleStyle] = useState({
     fontSize: 18,
     fontFamily: 'Arial, sans-serif',
@@ -1852,13 +1853,9 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
 
     const handleEnded = () => {
       setIsPlaying(false);
+      // Advancing to the next episode happens in the <video onEnded> handler
+      // (this listener used to start it a second time 5s later).
       setShowNextEpisode(true);
-
-      if (nextEpisode && onPlayNext) {
-        setTimeout(() => {
-          onPlayNext(nextEpisode);
-        }, 5000);
-      }
     };
 
     // Add event listeners
@@ -3310,8 +3307,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media, isOpen, onClose, start
 
               }
 
-              // Auto-play next episode if available
-              if (nextEpisode) {
+              // Auto-play next episode if available (Settings > Playback)
+              if (nextEpisode && getPreferences().autoplayNext) {
 
 
                 // Use setTimeout to ensure state is updated before playing next

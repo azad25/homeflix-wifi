@@ -1,8 +1,9 @@
 "use client";
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Tv, RefreshCw, Download, Upload, Clock, GitBranch } from "lucide-react";
-import { GlassCard, MagneticButton } from "@/components/scrollx";
+import { RefreshCw, Download, Upload, Clock, GitBranch } from "lucide-react";
+import { Badge, Button, Group, Notice } from "./ui";
+import { useLog } from "./activity";
 import { getApiUrl } from "@/lib/api";
 
 interface Release {
@@ -42,7 +43,8 @@ const when = (d?: string) => (d ? new Date(d).toLocaleString() : "");
  * repository into backend/app-updates/tv, or upload one by hand. Publishing
  * a newer build tells every connected TV to update itself.
  */
-export default function TVAppUpdateCard({ onLog }: { onLog?: (line: string) => void }) {
+export default function TVAppUpdateCard() {
+  const onLog = useLog();
   const [status, setStatus] = useState<SourceStatus | null>(null);
   const [checking, setChecking] = useState(false);
   const [busy, setBusy] = useState<null | "fetch" | "upload">(null);
@@ -67,7 +69,7 @@ export default function TVAppUpdateCard({ onLog }: { onLog?: (line: string) => v
 
   const report = (ok: boolean, text: string) => {
     setMessage({ ok, text });
-    onLog?.(`${ok ? "📺" : "❌"} TV app: ${text}`);
+    onLog(`${ok ? "📺" : "❌"} TV app: ${text}`);
   };
 
   const fetchLatest = async () => {
@@ -110,106 +112,73 @@ export default function TVAppUpdateCard({ onLog }: { onLog?: (line: string) => v
   const available = !!status?.update_available;
 
   return (
-    <GlassCard className="p-6">
-      <h2 className="mb-2 flex items-center text-2xl font-semibold text-white">
-        <Tv className="mr-3 h-6 w-6 text-white/70" />
-        HomeFlix TV App
-        {status && !status.error && (
-          <span
-            className={`ml-4 rounded-full px-3 py-1 text-xs font-medium ${
-              available ? "bg-yellow-500/20 text-yellow-400" : "bg-green-500/20 text-green-400"
-            }`}
-          >
-            {available ? "New version" : "Up to date"}
-          </span>
-        )}
-      </h2>
-      <p className="mb-6 text-sm text-white/60">
-        Bring the newest TV app build onto this server from the TV app repository, or upload an APK. Connected TVs are
-        told to update as soon as a newer build is published.
-      </p>
-
-      <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-2">
-        <div className="rounded-lg border border-white/10 bg-white/5 p-4">
-          <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-white/40">On this server</p>
+    <Group
+      title={
+        <span className="flex items-center gap-2.5">
+          HomeFlix TV App
+          {status && !status.error && <Badge tone={available ? "warning" : "success"}>{available ? "New version" : "Up to date"}</Badge>}
+        </span>
+      }
+      description="Bring the newest TV app build onto this server, or upload an APK. Connected TVs update themselves as soon as a newer build is published."
+      footer={status?.dir ? `Builds are stored in ${status.dir}` : undefined}
+      padded
+    >
+      <div className="grid gap-4 md:grid-cols-2">
+        <div className="min-w-0 rounded-xl bg-white/[0.05] p-4">
+          <p className="mb-2 text-[12px] font-semibold text-white/45">On this server</p>
           {local ? (
             <>
-              <p className="font-mono text-sm text-white">
-                {local.version_name} <span className="text-white/40">({local.version_code})</span>
+              <p className="text-[15px] font-medium text-white">
+                Version {local.version_name} <span className="text-white/40">({local.version_code})</span>
               </p>
-              {local.notes && <p className="mt-1 truncate text-xs text-white/60">{local.notes}</p>}
-              <p className="mt-1 flex items-center text-xs text-white/40">
-                <Clock className="mr-1 h-3 w-3" />
+              {local.notes && <p className="mt-1 truncate text-[13px] text-white/60">{local.notes}</p>}
+              <p className="mt-1.5 flex items-center gap-1 text-[12px] text-white/45">
+                <Clock className="h-3 w-3" />
                 {when(local.released_at)} · {mb(local.size)}
               </p>
             </>
           ) : (
-            <p className="text-sm text-white/50">{status ? "No TV app published yet" : "Loading…"}</p>
+            <p className="text-[14px] text-white/55">{status ? "No TV app published yet" : "Loading…"}</p>
           )}
         </div>
-        <div className="rounded-lg border border-white/10 bg-white/5 p-4">
-          <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-white/40">In the repository</p>
+        <div className="min-w-0 rounded-xl bg-white/[0.05] p-4">
+          <p className="mb-2 text-[12px] font-semibold text-white/45">In the repository</p>
           {remote ? (
             <>
-              <p className="font-mono text-sm text-white">
-                {remote.version_name || "unknown"}{" "}
-                <span className={available ? "text-yellow-400" : "text-white/40"}>({remote.version_code || "?"})</span>
+              <p className="text-[15px] font-medium text-white">
+                Version {remote.version_name || "unknown"}{" "}
+                <span className={available ? "text-[#ffd84d]" : "text-white/40"}>({remote.version_code || "?"})</span>
               </p>
-              {remote.commit_message && <p className="mt-1 truncate text-xs text-white/60">{remote.commit_message}</p>}
-              <p className="mt-1 flex items-center text-xs text-white/40">
-                <GitBranch className="mr-1 h-3 w-3" />
+              {remote.commit_message && <p className="mt-1 truncate text-[13px] text-white/60">{remote.commit_message}</p>}
+              <p className="mt-1.5 flex flex-wrap items-center gap-1 text-[12px] text-white/45">
+                <GitBranch className="h-3 w-3" />
                 {remote.repo} · {remote.branch}
                 {remote.commit_date ? ` · ${when(remote.commit_date)}` : ""}
                 {remote.size ? ` · ${mb(remote.size)}` : ""}
               </p>
             </>
           ) : (
-            <p className="text-sm text-white/50">{status?.error || "Checking…"}</p>
+            <p className="text-[14px] text-white/55">{status?.error || "Checking…"}</p>
           )}
         </div>
       </div>
 
       {message && (
-        <div
-          className={`mb-6 rounded-lg border p-3 text-sm ${
-            message.ok ? "border-green-500/20 bg-green-500/10 text-green-300" : "border-red-500/20 bg-red-500/10 text-red-300"
-          }`}
-        >
-          {message.text}
+        <div className="mt-4">
+          <Notice tone={message.ok ? "success" : "danger"}>{message.text}</Notice>
         </div>
       )}
 
-      <div className="flex flex-wrap gap-3">
-        <MagneticButton
-          onClick={() => check(true)}
-          disabled={checking || !!busy}
-          className="flex items-center space-x-2 rounded-lg bg-white/10 px-5 py-2 text-white hover:bg-white/20 disabled:opacity-50"
-        >
-          <RefreshCw className={`h-4 w-4 ${checking ? "animate-spin" : ""}`} />
-          <span>{checking ? "Checking…" : "Check Repository"}</span>
-        </MagneticButton>
-        <MagneticButton
-          onClick={fetchLatest}
-          disabled={!!busy || !available}
-          className="flex items-center space-x-2 rounded-lg bg-white px-5 py-2 font-semibold text-black hover:bg-white/90 disabled:bg-white/10 disabled:text-white/40"
-        >
-          <Download className={`h-4 w-4 ${busy === "fetch" ? "animate-bounce" : ""}`} />
-          <span>
-            {busy === "fetch"
-              ? "Downloading…"
-              : available && remote
-                ? `Download ${remote.version_name} to Server`
-                : "Download to Server"}
-          </span>
-        </MagneticButton>
-        <MagneticButton
-          onClick={() => fileRef.current?.click()}
-          disabled={!!busy}
-          className="flex items-center space-x-2 rounded-lg bg-white/10 px-5 py-2 text-white hover:bg-white/20 disabled:opacity-50"
-        >
-          <Upload className="h-4 w-4" />
-          <span>{busy === "upload" ? "Uploading…" : "Upload APK"}</span>
-        </MagneticButton>
+      <div className="mt-5 flex flex-wrap gap-2.5">
+        <Button variant="primary" icon={<Download />} onClick={fetchLatest} disabled={!!busy || !available} loading={busy === "fetch"}>
+          {busy === "fetch" ? "Downloading…" : available && remote ? `Download ${remote.version_name} to Server` : "Download to Server"}
+        </Button>
+        <Button icon={<RefreshCw className={checking ? "animate-spin" : ""} />} onClick={() => check(true)} disabled={checking || !!busy}>
+          {checking ? "Checking…" : "Check Repository"}
+        </Button>
+        <Button icon={<Upload />} onClick={() => fileRef.current?.click()} disabled={!!busy} loading={busy === "upload"}>
+          {busy === "upload" ? "Uploading…" : "Upload APK"}
+        </Button>
         <input
           ref={fileRef}
           type="file"
@@ -221,7 +190,6 @@ export default function TVAppUpdateCard({ onLog }: { onLog?: (line: string) => v
           }}
         />
       </div>
-      {status?.dir && <p className="mt-3 text-xs text-white/40">Builds are stored in {status.dir}</p>}
-    </GlassCard>
+    </Group>
   );
 }

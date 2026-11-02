@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import { getPreferences } from "@/lib/preferences";
 import { AnimatePresence, motion } from "framer-motion";
 import { Info, Play, Volume2, VolumeX } from "lucide-react";
 import { loadYouTubeAPI, YT_STATE } from "@/lib/youtube";
@@ -98,7 +99,7 @@ export default function TVHero({
   useEffect(() => {
     setTrailerKey(null);
     setPlaying(false);
-    if (!previews || !slide) return;
+    if (!previews || !getPreferences().autoplayPreviews || !slide) return;
     if (typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
     let cancelled = false;
     const t = setTimeout(async () => {

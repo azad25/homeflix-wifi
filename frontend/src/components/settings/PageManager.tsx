@@ -304,10 +304,6 @@ export default function PageManager() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h3 className="text-xl font-semibold text-white">Pages</h3>
-      </div>
-
       {/* Create form */}
       <div className="bg-white/5 border border-white/10 rounded-xl p-4">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
@@ -432,7 +428,7 @@ export default function PageManager() {
                                 key={widget.id}
                                 value={widget}
                                 onDragEnd={() => saveOrder()}
-                                className="bg-black/30 border border-white/10 rounded-lg p-3 text-sm text-white/80 flex items-center gap-3 transition-colors relative"
+                                className="bg-white/[0.04] border border-white/10 rounded-lg p-3 text-sm text-white/80 flex items-center gap-3 transition-colors relative"
                               >
                                 <div className="cursor-grab hover:text-white text-white/40 active:cursor-grabbing">
                                   <GripVertical className="w-5 h-5 pointer-events-none" />
