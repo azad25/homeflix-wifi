@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -26,7 +27,10 @@ func tasteUserID(c *gin.Context) string {
 func GetForYouRecommendations(taste *services.TasteService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		perRow, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
-		res, err := taste.Recommend(tasteUserID(c), perRow)
+		// ?kind=movie|series for the Movies / Shows pages; ?unique=1 = no title in two rows.
+		res, err := taste.RecommendWith(tasteUserID(c), services.RecommendOptions{
+			PerRow: perRow, Kind: c.Query("kind"), Unique: c.Query("unique") == "1" || c.Query("unique") == "true",
+		})
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
@@ -123,5 +127,21 @@ func ListTasteRatings(taste *services.TasteService) gin.HandlerFunc {
 		}
 		c.Header("Cache-Control", "no-store")
 		c.JSON(http.StatusOK, gin.H{"ratings": list})
+	}
+}
+
+// GetTop10Chart ranks what's being watched: ?kind=movie|series|all&limit=10.
+// Titles rank by recent plays (episodes roll up to their show); quiet servers
+// are topped up from the catalog. See docs/PERSONALISATION.md.
+func GetTop10Chart(taste *services.TasteService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		limit, _ := strconv.Atoi(c.DefaultQuery("limit", "10"))
+		res, err := taste.Chart(c.DefaultQuery("kind", "all"), limit, time.Now())
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.Header("Cache-Control", "private, max-age=60")
+		c.JSON(http.StatusOK, res)
 	}
 }

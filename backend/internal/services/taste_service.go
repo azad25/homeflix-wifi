@@ -572,7 +572,24 @@ func toItems(list []scored) []TasteItem {
 }
 
 // Recommend builds the personalised home rows for a user.
+// RecommendOptions narrows /recommendations/for-you.
+type RecommendOptions struct {
+	PerRow int
+	// Kind limits recommendations to "movie" or "series" (empty = both).
+	Kind string
+	// Unique: every title appears in at most one row (TV pages want no repeats).
+	Unique bool
+}
+
 func (s *TasteService) Recommend(userID string, perRow int) (*TasteResult, error) {
+	return s.RecommendWith(userID, RecommendOptions{PerRow: perRow})
+}
+
+func (s *TasteService) RecommendWith(userID string, opts RecommendOptions) (*TasteResult, error) {
+	perRow := opts.PerRow
+	if opts.Kind != "movie" && opts.Kind != "series" {
+		opts.Kind = ""
+	}
 	if perRow <= 0 || perRow > 40 {
 		perRow = 20
 	}
@@ -593,7 +610,7 @@ func (s *TasteService) Recommend(userID string, perRow int) (*TasteResult, error
 		}
 	}
 	if positives == 0 {
-		return s.fallback(idx, perRow, dislikedKeys(signals)), nil
+		return s.fallback(idx, perRow, dislikedKeys(signals), opts.Kind), nil
 	}
 
 	// Profile vector.
@@ -630,7 +647,7 @@ func (s *TasteService) Recommend(userID string, perRow int) (*TasteResult, error
 	}
 	var cands []scored
 	for _, u := range idx.units {
-		if watched[u.key] || u.norm == 0 {
+		if watched[u.key] || u.norm == 0 || (opts.Kind != "" && u.kind != opts.Kind) {
 			continue
 		}
 		sim := cosine(profile, pn, u.vec, u.norm)
@@ -649,12 +666,16 @@ func (s *TasteService) Recommend(userID string, perRow int) (*TasteResult, error
 
 	res := &TasteResult{Personalized: true, Signals: len(signals)}
 	res.TopFeatures = topFeatures(profile, idx, 8)
-	rowUse := map[string]int{} // an item may appear in at most 3 rows
+	rowUse := map[string]int{} // an item may appear in at most 3 rows (1 with Unique)
+	maxUse := 3
+	if opts.Unique {
+		maxUse = 1
+	}
 
 	addRow := func(row TasteRow, list []scored, minItems int) {
 		filtered := list[:0:0]
 		for _, s := range list {
-			if rowUse[s.u.key] >= 3 {
+			if rowUse[s.u.key] >= maxUse {
 				continue
 			}
 			filtered = append(filtered, s)
@@ -693,7 +714,20 @@ func (s *TasteService) Recommend(userID string, perRow int) (*TasteResult, error
 	if len(pool) > perRow*4 {
 		pool = pool[:perRow*4]
 	}
-	addRow(TasteRow{ID: "top-picks", Title: "Top Picks for You", Kind: "top-picks"}, mmr(pool, perRow, 0.75), 1)
+	topN := perRow
+	if opts.Unique {
+		// Titles can't repeat, so leave some for the themed rows below.
+		if third := len(cands) / 3; third < topN {
+			topN = third
+		}
+		if topN < 6 {
+			topN = 6
+		}
+		if topN > perRow {
+			topN = perRow
+		}
+	}
+	addRow(TasteRow{ID: "top-picks", Title: "Top Picks for You", Kind: "top-picks"}, mmr(pool, topN, 0.75), 1)
 
 	// 2. Continue a franchise.
 	for col := range watchedCollections {
@@ -747,6 +781,18 @@ func (s *TasteService) Recommend(userID string, perRow int) (*TasteResult, error
 		}
 	}
 
+	// New arrivals that match their taste (Apple TV's "New for You").
+	{
+		var fresh []scored
+		for _, c := range cands {
+			if now.Sub(c.u.createdAt) <= 60*24*time.Hour && c.rel > 0.02 {
+				fresh = append(fresh, scored{u: c.u, score: c.rel + 0.02, reason: "New on HomeFlix", feat: c.feat, rel: c.rel})
+			}
+		}
+		sort.Slice(fresh, func(i, j int) bool { return fresh[i].score > fresh[j].score })
+		addRow(TasteRow{ID: "new-for-you", Title: "New for You", Kind: "new-for-you"}, fresh, 3)
+	}
+
 	// 4/5. People they keep coming back to.
 	addPersonRows := func(prefix, kind, titleFmt string, max, minItems int) {
 		type fv struct {
@@ -786,11 +832,34 @@ func (s *TasteService) Recommend(userID string, perRow int) (*TasteResult, error
 	addPersonRows("cast:", "actor", "More with %s", 2, 3)
 	addPersonRows("dir:", "director", "From Director %s", 1, 2)
 
+	// Highly rated titles few people reach for, matched to their taste.
+	{
+		var pops []float64
+		for _, c := range cands {
+			if c.u.popularity > 0 {
+				pops = append(pops, c.u.popularity)
+			}
+		}
+		sort.Float64s(pops)
+		median := 0.0
+		if len(pops) > 0 {
+			median = pops[len(pops)/2]
+		}
+		var gems []scored
+		for _, c := range cands {
+			if c.u.rating >= 7.0 && c.u.popularity > 0 && c.u.popularity <= median && c.rel > 0.02 {
+				gems = append(gems, scored{u: c.u, score: 0.7*c.rel + 0.3*c.u.rating/10, reason: "Highly rated, less known", rel: c.rel})
+			}
+		}
+		sort.Slice(gems, func(i, j int) bool { return gems[i].score > gems[j].score })
+		addRow(TasteRow{ID: "hidden-gems", Title: "Hidden Gems for You", Kind: "hidden-gems"}, gems, 4)
+	}
+
 	// 6. Favourite genre.
 	addPersonRows("gen:", "genre", "More %s for You", 2, 5)
 
 	if len(res.Rows) == 0 {
-		return s.fallback(idx, perRow, dislikedKeys(signals)), nil
+		return s.fallback(idx, perRow, dislikedKeys(signals), opts.Kind), nil
 	}
 	return res, nil
 }
@@ -836,11 +905,11 @@ func dislikedKeys(signals []tasteSignal) map[string]bool {
 	return out
 }
 
-func (s *TasteService) fallback(idx *tasteIndex, perRow int, exclude map[string]bool) *TasteResult {
+func (s *TasteService) fallback(idx *tasteIndex, perRow int, exclude map[string]bool, kind string) *TasteResult {
 	res := &TasteResult{Personalized: false}
 	units := make([]*tasteUnit, 0, len(idx.units))
 	for _, u := range idx.units {
-		if !exclude[u.key] {
+		if !exclude[u.key] && (kind == "" || u.kind == kind) {
 			units = append(units, u)
 		}
 	}

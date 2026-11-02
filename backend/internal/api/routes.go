@@ -366,6 +366,8 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		api.POST("/admin/buzz/refresh", handlers.RefreshBuzz(buzzService))
 		api.GET("/recommendations/for-you", handlers.GetForYouRecommendations(tasteService))
 		api.GET("/recommendations/more-like/:kind/:id", handlers.GetMoreLikeThis(tasteService))
+		// Top 10 charts from real plays (kind = movie | series | all).
+		api.GET("/charts/top10", handlers.GetTop10Chart(tasteService))
 		// Thumbs ratings (kind = movie | series) that steer the recommendations above.
 		api.GET("/ratings", handlers.ListTasteRatings(tasteService))
 		api.GET("/ratings/:kind/:id", handlers.GetTasteRating(tasteService))

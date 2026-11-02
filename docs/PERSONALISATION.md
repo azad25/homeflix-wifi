@@ -34,3 +34,39 @@ GET    /api/mylist/check/{seriesId}?type=series   → {"in_list": true}
 ```
 
 In `GET /api/mylist`, show entries have `"media_type": "series"` and a `series` object. Their `media` object is empty.
+
+## Page options
+
+`GET /api/recommendations/for-you` takes these query parameters:
+
+| Parameter | Effect |
+|---|---|
+| `kind=movie` or `kind=series` | Only movies or only shows, for the Movies and Shows pages. |
+| `unique=1` | No title appears in more than one row. Top Picks then takes about a third of the candidates (at least 6), so the themed rows still have titles. |
+| `limit` | Titles per row (default 20). |
+
+Besides Top Picks, Because You Watched/Liked, More with <actor>, From Director <name> and Continue <collection>, it also returns:
+
+- **New for You:** titles added in the last 60 days that match your taste.
+- **Hidden Gems for You:** titles rated 7+ with below-median popularity that match your taste.
+
+## Top 10 charts
+
+`GET /api/charts/top10?kind=movie|series|all&limit=10` ranks what's actually being watched:
+
+- **Scoring:** each viewer's play of a title scores by how far they got:
+
+  | How far they got | Score |
+  |---|---|
+  | Pressed play | 0.25 |
+  | 10% or more | 0.55 |
+  | 40% or more | 0.8 |
+  | Finished | 1.0 |
+
+  - Each further episode they played adds 0.15, capped at 1.8.
+  - The score fades with a 3.5-day half-life.
+  - Viewers' scores add up, so two viewers outrank one binge.
+- **Episodes** count towards their show.
+- **Tiers:** this week's plays rank first, then this month's, then all time.
+- **Catalog fill:** any remaining places go to the best rated, most popular and newest titles.
+- **Response:** `{kind, window_days, source: plays|mixed|catalog, items:[{…title, rank, plays}]}`
