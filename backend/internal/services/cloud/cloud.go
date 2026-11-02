@@ -187,7 +187,9 @@ func (s *Service) Info(ctx context.Context) Info {
 		if err != nil {
 			in.Error = err.Error()
 		}
-		in.Remotes = r
+		if r != nil {
+			in.Remotes = r
+		}
 	}
 	s.mu.Lock()
 	in.Settings = s.settings
@@ -202,7 +204,7 @@ func (s *Service) Remotes(ctx context.Context) ([]Remote, error) {
 	if err != nil {
 		return []Remote{}, err
 	}
-	var rs []Remote
+	rs := []Remote{} // never null in JSON (no remotes is normal)
 	sc := bufio.NewScanner(strings.NewReader(out))
 	for sc.Scan() {
 		line := strings.TrimSpace(sc.Text())

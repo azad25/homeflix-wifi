@@ -51,6 +51,24 @@ const FIELD_LABEL: Record<string, string> = {
 };
 const SECRET = new Set(["token", "secret_access_key", "key", "pass"]);
 
+// Tolerate missing / null fields from older servers or rclone errors.
+function normalize(d: any): Info {
+  return {
+    installed: !!d?.installed,
+    version: d?.version,
+    fuse: !!d?.fuse,
+    remotes: Array.isArray(d?.remotes) ? d.remotes : [],
+    settings: {
+      mounts: Array.isArray(d?.settings?.mounts) ? d.settings.mounts : [],
+      offload_when_low: !!d?.settings?.offload_when_low,
+      offload_target: d?.settings?.offload_target || "",
+      offload_idle_days: d?.settings?.offload_idle_days || 30,
+    },
+    types: d?.types || {},
+    error: d?.error,
+  };
+}
+
 export default function CloudStorage() {
   const log = useLog();
   const dialog = useDialog();
@@ -63,7 +81,7 @@ export default function CloudStorage() {
   const load = useCallback(async () => {
     try {
       const r = await fetch(`${getApiUrl()}/api/admin/cloud`, { cache: "no-store" });
-      setInfo(await r.json());
+      setInfo(normalize(await r.json()));
     } catch {
       /* server unreachable */
     }
@@ -89,7 +107,7 @@ export default function CloudStorage() {
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || r.statusText);
-      if (d.installed !== undefined) setInfo(d);
+      if (d.installed !== undefined) setInfo(normalize(d));
       else load();
       if (ok) log(`✅ ${ok}`);
       return true;
@@ -128,6 +146,13 @@ export default function CloudStorage() {
           </div>
         ) : (
           <>
+            {info.error && (
+              <div className="p-4 md:px-5">
+                <Notice tone="warning" title="rclone reported a problem">
+                  <span className="font-mono text-[12px]">{info.error}</span>
+                </Notice>
+              </div>
+            )}
             <Row
               icon={<Terminal />}
               title={info.version || "rclone"}

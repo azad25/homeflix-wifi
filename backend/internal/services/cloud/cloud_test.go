@@ -2,6 +2,7 @@ package cloud
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -123,5 +124,13 @@ func TestOffloadMovesIdleTitles(t *testing.T) {
 	s.db.First(&got, m.ID)
 	if got.FilePath != moved {
 		t.Fatalf("library not updated: %s", got.FilePath)
+	}
+}
+
+func TestInfoWithNoRemotesIsNotNull(t *testing.T) {
+	s, _ := newTest(t) // fresh rclone: no remotes configured
+	b, _ := json.Marshal(s.Info(context.Background()))
+	if !strings.Contains(string(b), `"remotes":[]`) {
+		t.Fatalf("remotes must be an empty list: %s", b)
 	}
 }
