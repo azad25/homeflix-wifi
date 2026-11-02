@@ -249,6 +249,29 @@ func buildCatalog(ctx context.Context, client, lanClient *http.Client, st Settin
 		cat.Channels = append(cat.Channels, ch)
 	}
 
+	// Official YouTube live streams: merged into a matching channel of the
+	// same country (extra source) or added as their own channel.
+	var yts []YouTubeChannel
+	if st.OfficialYouTube {
+		for _, y := range OfficialYouTube {
+			if countries[y.Country] {
+				yts = append(yts, y)
+			}
+		}
+	}
+	yts = append(yts, st.YouTubeChannels...)
+	byName := map[string]*Channel{}
+	for _, c := range cat.Channels {
+		byName[c.Country+"|"+normName(c.Name)] = c
+	}
+	for _, yc := range youtubeChannels(yts) {
+		if c := byName[yc.Country+"|"+normName(yc.Name)]; c != nil {
+			c.Streams = append(c.Streams, yc.Streams...)
+			continue
+		}
+		cat.Channels = append(cat.Channels, yc)
+	}
+
 	for _, pl := range st.CustomPlaylists {
 		// The admin's own playlists may live on the local network.
 		custom, err := fetchM3U(ctx, lanClient, pl)
@@ -259,6 +282,12 @@ func buildCatalog(ctx context.Context, client, lanClient *http.Client, st Settin
 	}
 	sortChannels(cat.Channels)
 	return cat, nil
+}
+
+func normName(s string) string {
+	s = strings.ToLower(s)
+	s = strings.NewReplacer(" tv", "", " television", "", " hd", "", " ", "", "-", "", ".", "").Replace(s)
+	return s
 }
 
 func sortChannels(chs []*Channel) {

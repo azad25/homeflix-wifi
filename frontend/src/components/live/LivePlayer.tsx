@@ -90,6 +90,9 @@ export default function LivePlayer({
   const [guideIdx, setGuideIdx] = useState(0);
   const [typed, setTyped] = useState("");
   const [volumeHud, setVolumeHud] = useState(false);
+  // Broadcaster's official YouTube live stream (when no direct stream plays).
+  const [youtube, setYoutube] = useState<string | null>(null);
+  const ytRef = useRef<HTMLIFrameElement>(null);
   const lastRef = useRef<LiveChannel | null>(null);
   const prevChannelRef = useRef<LiveChannel | null>(null);
   const timers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
@@ -122,8 +125,10 @@ export default function LivePlayer({
     if (!video || !channel) return;
     let cancelled = false;
     let sources: string[] = [];
+    let youtubeId = "";
     let idx = 0;
     setState("loading");
+    setYoutube(null);
 
     const destroy = () => {
       hlsRef.current?.destroy();
@@ -133,6 +138,11 @@ export default function LivePlayer({
       if (cancelled) return;
       destroy();
       if (idx >= sources.length) {
+        if (youtubeId) {
+          video.removeAttribute("src");
+          setYoutube(youtubeId);
+          return;
+        }
         setState("failed");
         return;
       }
@@ -185,6 +195,7 @@ export default function LivePlayer({
         const data = await res.json();
         if (cancelled) return;
         sources = Array.isArray(data?.urls) ? data.urls : [];
+        youtubeId = typeof data?.youtube_id === "string" ? data.youtube_id : "";
         tryNext();
       } catch {
         if (!cancelled) setState("failed");
@@ -208,10 +219,18 @@ export default function LivePlayer({
 
   useEffect(() => {
     const v = videoRef.current;
-    if (!v) return;
-    v.muted = muted;
-    v.volume = volume;
-  }, [muted, volume]);
+    if (v) {
+      v.muted = muted;
+      v.volume = volume;
+    }
+    // Same controls for the YouTube player (IFrame API commands).
+    const send = (func: string, args: unknown[] = []) =>
+      ytRef.current?.contentWindow?.postMessage(JSON.stringify({ event: "command", func, args }), "*");
+    if (youtube) {
+      send(muted ? "mute" : "unMute");
+      send("setVolume", [Math.round(volume * 100)]);
+    }
+  }, [muted, volume, youtube]);
 
   // ---- full screen ----
   useEffect(() => {
@@ -326,6 +345,23 @@ export default function LivePlayer({
     >
       <video ref={videoRef} className="h-full w-full bg-black object-contain" playsInline autoPlay />
 
+      {youtube && (
+        // Official live stream from the broadcaster's YouTube channel. Pointer
+        // events stay on the stage so the TV controls and keys keep working.
+        <iframe
+          ref={ytRef}
+          key={youtube}
+          src={`https://www.youtube-nocookie.com/embed/${youtube}?autoplay=1&controls=0&rel=0&modestbranding=1&playsinline=1&enablejsapi=1&iv_load_policy=3`}
+          title={channel?.name || "Live"}
+          allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
+          onLoad={() => {
+            setState("playing");
+            ytRef.current?.contentWindow?.postMessage(JSON.stringify({ event: "listening" }), "*");
+          }}
+          className="pointer-events-none absolute inset-0 h-full w-full border-0"
+        />
+      )}
+
       {!channel && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-white/55">
           <Tv className="h-10 w-10" />
@@ -385,7 +421,7 @@ export default function LivePlayer({
                     <span className="h-2 w-2 rounded-full bg-[#ff453a]" /> LIVE
                   </span>
                 )}
-                {[cap(channel.categories?.[0]), channel.quality, channel.country].filter(Boolean).join(" · ")}
+                {[cap(channel.categories?.[0]), youtube ? "via YouTube" : channel.quality, channel.country].filter(Boolean).join(" · ")}
               </p>
             </div>
             <span className={`shrink-0 font-semibold tabular-nums text-white/85 ${big ? "text-2xl" : "text-[15px]"}`}>{clock}</span>

@@ -386,7 +386,7 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
                   <NavigationLink
                     key={tab.href}
                     href={tab.href}
-                    className={`tv-focus rounded-full px-4 py-1.5 text-[14px] font-semibold tracking-[-0.01em] transition-colors duration-200 ${active ? "bg-white text-black" : "text-white/75 hover:text-white hover:bg-white/10"
+                    className={`tv-focus whitespace-nowrap rounded-full px-3 py-1.5 text-[13px] font-semibold tracking-[-0.01em] transition-colors duration-200 xl:px-4 xl:text-[14px] ${active ? "bg-white text-black" : "text-white/75 hover:text-white hover:bg-white/10"
                       }`}
                   >
                     {tab.name}

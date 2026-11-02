@@ -64,6 +64,15 @@ country, then name. If `enabled` is false, hide Live TV.
 }
 ```
 
+Some channels are broadcasters' official **YouTube live streams** (or have
+one as a backup source). Then the response also has
+`"youtube_id": "<11-char video id>"` (it may come with an empty `urls`). Play
+the HLS `urls` first; if there are none or all fail, play `youtube_id`:
+on the TV app either embed `https://www.youtube-nocookie.com/embed/<id>?autoplay=1&controls=0`
+in a WebView (keep D-pad handling in the app: channel up/down still zaps),
+or hand off to the YouTube app with an `ACTION_VIEW` intent for
+`https://www.youtube.com/watch?v=<id>`. Such channels report `quality: "YouTube"`.
+
 `urls` are HLS playlists, best first (working, smooth 1080p/720p before
 4K, fastest). Prefix them with the server URL and play the first; on a
 fatal player error move to the next one; when all fail show "not available

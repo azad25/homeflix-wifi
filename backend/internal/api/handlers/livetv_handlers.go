@@ -34,7 +34,7 @@ func ListLiveTVChannels(s *livetv.Service) gin.HandlerFunc {
 // Returns proxied HLS playlist paths, best first; try them in order.
 func PlayLiveTVChannel(s *livetv.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		ch, urls, err := s.Play(c.Param("id"))
+		ch, urls, youtubeID, err := s.Play(c.Request.Context(), c.Param("id"))
 		switch {
 		case errors.Is(err, livetv.ErrNoChannel):
 			c.JSON(http.StatusNotFound, gin.H{"error": "channel not found"})
@@ -42,7 +42,7 @@ func PlayLiveTVChannel(s *livetv.Service) gin.HandlerFunc {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
 		default:
 			c.Header("Cache-Control", "no-store")
-			c.JSON(http.StatusOK, gin.H{"channel": ch, "urls": urls})
+			c.JSON(http.StatusOK, gin.H{"channel": ch, "urls": urls, "youtube_id": youtubeID})
 		}
 	}
 }

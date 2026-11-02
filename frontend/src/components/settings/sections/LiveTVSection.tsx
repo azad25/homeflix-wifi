@@ -12,6 +12,8 @@ interface Settings {
   exclude_categories: string[];
   custom_playlists: string[];
   hide_offline: boolean;
+  official_youtube?: boolean;
+  youtube_channels?: { name: string; ref: string; country: string; category: string }[];
 }
 
 interface Status {
@@ -51,6 +53,7 @@ export default function LiveTVSection() {
   const [status, setStatus] = useState<Status | null>(null);
   const [saving, setSaving] = useState(false);
   const [playlists, setPlaylists] = useState("");
+  const [yt, setYt] = useState({ name: "", ref: "", country: "BD", category: "news" });
 
   const load = useCallback(async () => {
     try {
@@ -200,6 +203,60 @@ export default function LiveTVSection() {
               </button>
             );
           })}
+        </div>
+      </Group>
+
+      <Group
+        title="YouTube Live Channels"
+        description="Many broadcasters stream live for free on their own YouTube channels. HomeFlix checks which are live right now and plays them like any other channel."
+      >
+        <Row
+          icon={<Tv />}
+          title="Official broadcaster streams"
+          description="Somoy TV, Jamuna TV, Ekattor TV, Independent TV, ATN News, ATN Bangla, Channel 24, Banglavision and NTV (for the countries selected above)."
+        >
+          <Toggle label="Official broadcaster streams" checked={settings.official_youtube !== false} onChange={(v) => save({ ...current, official_youtube: v })} />
+        </Row>
+        {(settings.youtube_channels || []).map((c, i) => (
+          <Row key={c.ref + i} icon={<Tv />} title={c.name} description={`${c.ref} · ${c.country || "Other"} · ${c.category || "general"}`}>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => save({ ...current, youtube_channels: (settings.youtube_channels || []).filter((_, j) => j !== i) })}
+            >
+              Remove
+            </Button>
+          </Row>
+        ))}
+        <div className="grid gap-3 p-4 md:grid-cols-[1fr_1.4fr_90px_130px_auto] md:items-end md:px-5">
+          <Field label="Name">
+            <input className={inputClass} value={yt.name} onChange={(e) => setYt({ ...yt, name: e.target.value })} placeholder="DBC News" />
+          </Field>
+          <Field label="YouTube @handle, channel ID or URL">
+            <input className={inputClass} value={yt.ref} onChange={(e) => setYt({ ...yt, ref: e.target.value.trim() })} placeholder="@channelname" />
+          </Field>
+          <Field label="Country">
+            <input className={inputClass} maxLength={2} value={yt.country} onChange={(e) => setYt({ ...yt, country: e.target.value.toUpperCase() })} />
+          </Field>
+          <Field label="Category">
+            <select className={inputClass} value={yt.category} onChange={(e) => setYt({ ...yt, category: e.target.value })}>
+              {CATEGORIES.map((c) => (
+                <option key={c} value={c}>
+                  {cap(c)}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Button
+            variant="primary"
+            disabled={!yt.name || !yt.ref}
+            onClick={() => {
+              save({ ...current, youtube_channels: [...(settings.youtube_channels || []), yt] });
+              setYt({ name: "", ref: "", country: yt.country, category: yt.category });
+            }}
+          >
+            Add
+          </Button>
         </div>
       </Group>
 

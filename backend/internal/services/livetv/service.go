@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -24,6 +25,10 @@ type Settings struct {
 	CustomPlaylists   []string `json:"custom_playlists"`
 	// Hide channels whose streams failed the last check.
 	HideOffline bool `json:"hide_offline"`
+	// Broadcasters' official YouTube live streams for the selected countries.
+	OfficialYouTube bool `json:"official_youtube"`
+	// Extra YouTube live channels added by the admin.
+	YouTubeChannels []YouTubeChannel `json:"youtube_channels"`
 }
 
 // DefaultSettings: Bangladesh, India, USA, China, Korea, major EU countries
@@ -35,6 +40,8 @@ func DefaultSettings() Settings {
 		ExcludeCategories: []string{},
 		CustomPlaylists:   []string{},
 		HideOffline:       true,
+		OfficialYouTube:   true,
+		YouTubeChannels:   []YouTubeChannel{},
 	}
 }
 
@@ -48,6 +55,7 @@ type Service struct {
 	catalog  *Catalog
 	byID     map[string]*Channel
 
+	yt       *ytResolver
 	syncing  atomic.Bool
 	checking atomic.Bool
 	lastErr  atomic.Value // string
@@ -67,6 +75,7 @@ func NewService() *Service {
 		client: newClient(false, 60*time.Second),
 		kick:   make(chan struct{}, 1),
 	}
+	s.yt = newYTResolver(newClient(false, 20*time.Second))
 	s.settings = DefaultSettings()
 	_ = s.store.load("settings.json", &s.settings)
 	var cat Catalog
@@ -129,7 +138,8 @@ func (s *Service) UpdateSettings(st Settings) error {
 	}
 	if strings.Join(old.Countries, ",") != strings.Join(st.Countries, ",") ||
 		strings.Join(old.ExcludeCategories, ",") != strings.Join(st.ExcludeCategories, ",") ||
-		strings.Join(old.CustomPlaylists, "\n") != strings.Join(st.CustomPlaylists, "\n") {
+		strings.Join(old.CustomPlaylists, "\n") != strings.Join(st.CustomPlaylists, "\n") ||
+		old.OfficialYouTube != st.OfficialYouTube || fmt.Sprint(old.YouTubeChannels) != fmt.Sprint(st.YouTubeChannels) {
 		s.Refresh()
 	}
 	return nil
@@ -273,31 +283,53 @@ var (
 
 // Play returns proxied playlist URLs for a channel, best first. Clients try
 // them in order (a stream can die between checks).
-func (s *Service) Play(id string) (*ChannelView, []string, error) {
+func (s *Service) Play(ctx context.Context, id string) (*ChannelView, []string, string, error) {
 	s.mu.RLock()
 	c := s.byID[id]
 	s.mu.RUnlock()
 	if c == nil {
-		return nil, nil, ErrNoChannel
+		return nil, nil, "", ErrNoChannel
 	}
 	var urls []string
+	youtubeID := ""
+	healthy := false
+	var ytRefs []string
 	for _, st := range orderStreams(c.Streams) {
+		if isYouTube(st) {
+			ytRefs = append(ytRefs, strings.TrimPrefix(st.URL, youtubeScheme))
+			continue
+		}
 		if st.OK != nil && !*st.OK {
 			continue
 		}
+		if st.OK != nil && *st.OK {
+			healthy = true
+		}
 		urls = append(urls, s.proxy.Sign(target{URL: st.URL, UA: st.UserAgent, Ref: st.Referrer, LAN: st.LAN}, "index.m3u8"))
 	}
-	if len(urls) == 0 {
-		// Every stream failed its last check: still offer them, a check can be wrong.
-		for _, st := range c.Streams {
-			urls = append(urls, s.proxy.Sign(target{URL: st.URL, UA: st.UserAgent, Ref: st.Referrer, LAN: st.LAN}, "index.m3u8"))
+	// The broadcaster's YouTube live stream: used when no direct stream is
+	// known to work (looking it up costs a request, so not on every tune).
+	if !healthy {
+		for _, ref := range ytRefs {
+			if id, _, err := s.yt.Live(ctx, ref); err == nil && id != "" {
+				youtubeID = id
+				break
+			}
 		}
 	}
-	if len(urls) == 0 {
-		return nil, nil, ErrNoStream
+	if len(urls) == 0 && youtubeID == "" {
+		// Every stream failed its last check: still offer them, a check can be wrong.
+		for _, st := range c.Streams {
+			if !isYouTube(st) {
+				urls = append(urls, s.proxy.Sign(target{URL: st.URL, UA: st.UserAgent, Ref: st.Referrer, LAN: st.LAN}, "index.m3u8"))
+			}
+		}
+	}
+	if len(urls) == 0 && youtubeID == "" {
+		return nil, nil, "", ErrNoStream
 	}
 	v := ChannelView{ID: c.ID, Name: c.Name, Country: c.Country, Categories: c.Categories, Logo: c.Logo, Status: c.Status(), Quality: c.Quality()}
-	return &v, urls, nil
+	return &v, urls, youtubeID, nil
 }
 
 var qualityRank = map[string]int{"1080p": 0, "720p": 1, "1080i": 2, "2160p": 3, "576p": 4, "576i": 4, "480p": 5, "360p": 6}
@@ -428,11 +460,15 @@ func (s *Service) checkAll(ctx context.Context) {
 	}
 	defer s.checking.Store(false)
 	s.mu.RLock()
-	var jobs []*Stream
+	type job struct {
+		ch *Channel
+		st *Stream
+	}
+	var jobs []job
 	if s.catalog != nil {
 		for _, c := range s.catalog.Channels {
 			for i := range c.Streams {
-				jobs = append(jobs, &c.Streams[i])
+				jobs = append(jobs, job{c, &c.Streams[i]})
 			}
 		}
 	}
@@ -440,14 +476,30 @@ func (s *Service) checkAll(ctx context.Context) {
 	s.total.Store(int64(len(jobs)))
 	s.progress.Store(0)
 
-	work := make(chan *Stream)
+	work := make(chan job)
 	var wg sync.WaitGroup
 	for w := 0; w < 16; w++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			for st := range work {
-				ok, ms := s.proxy.Probe(ctx, target{URL: st.URL, UA: st.UserAgent, Ref: st.Referrer, LAN: st.LAN})
+			for j := range work {
+				st := j.st
+				var ok bool
+				var ms int
+				if isYouTube(*st) {
+					start := time.Now()
+					id, avatar, err := s.yt.Live(ctx, strings.TrimPrefix(st.URL, youtubeScheme))
+					ok, ms = err == nil && id != "", int(time.Since(start).Milliseconds())
+					if avatar != "" {
+						s.mu.Lock()
+						if j.ch.Logo == "" {
+							j.ch.Logo = avatar
+						}
+						s.mu.Unlock()
+					}
+				} else {
+					ok, ms = s.proxy.Probe(ctx, target{URL: st.URL, UA: st.UserAgent, Ref: st.Referrer, LAN: st.LAN})
+				}
 				s.mu.Lock()
 				st.OK, st.LatencyMs, st.CheckedAt = &ok, ms, time.Now().UTC()
 				s.mu.Unlock()
