@@ -117,6 +117,7 @@ type tasteSignal struct {
 	weight      float64
 	engagement  float64
 	lastWatched time.Time
+	liked       bool // thumbs up / love: "Because You Liked …"
 }
 
 // TasteService builds and caches the feature index and scores users.
@@ -370,7 +371,19 @@ func recencyDecay(lastWatched, now time.Time) float64 {
 	return math.Max(0.15, math.Pow(0.5, days/tasteRecencyHalfLife))
 }
 
+// loadSignals is everything that says what the user likes: what they watched
+// (and how much), their thumbs ratings and their My List.
 func (s *TasteService) loadSignals(idx *tasteIndex, userID string, now time.Time) ([]tasteSignal, error) {
+	watched, err := s.loadWatchSignals(idx, userID, now)
+	if err != nil {
+		return nil, err
+	}
+	out := s.withExplicitSignals(idx, userID, now, watched)
+	sort.Slice(out, func(i, j int) bool { return out[i].lastWatched.After(out[j].lastWatched) })
+	return out, nil
+}
+
+func (s *TasteService) loadWatchSignals(idx *tasteIndex, userID string, now time.Time) ([]tasteSignal, error) {
 	var progress []models.PlaybackProgress
 	q := s.db.Model(&models.PlaybackProgress{}).Order("last_watched DESC").Limit(tasteMaxSignals)
 	if err := q.Where("user_id = ?", userID).Find(&progress).Error; err != nil {
@@ -580,7 +593,7 @@ func (s *TasteService) Recommend(userID string, perRow int) (*TasteResult, error
 		}
 	}
 	if positives == 0 {
-		return s.fallback(idx, perRow), nil
+		return s.fallback(idx, perRow, dislikedKeys(signals)), nil
 	}
 
 	// Profile vector.
@@ -724,7 +737,11 @@ func (s *TasteService) Recommend(userID string, perRow int) (*TasteResult, error
 		}
 		sort.Slice(near, func(i, j int) bool { return near[i].score > near[j].score })
 		before := len(res.Rows)
-		addRow(TasteRow{ID: "because-" + sg.unit.key, Title: "Because You Watched " + sg.unit.title, Kind: "because"}, mmr(near, perRow, 0.8), 2)
+		verb := "Watched"
+		if sg.liked {
+			verb = "Liked"
+		}
+		addRow(TasteRow{ID: "because-" + sg.unit.key, Title: "Because You " + verb + " " + sg.unit.title, Kind: "because"}, mmr(near, perRow, 0.8), 2)
 		if len(res.Rows) > before {
 			seeds++
 		}
@@ -773,7 +790,7 @@ func (s *TasteService) Recommend(userID string, perRow int) (*TasteResult, error
 	addPersonRows("gen:", "genre", "More %s for You", 2, 5)
 
 	if len(res.Rows) == 0 {
-		return s.fallback(idx, perRow), nil
+		return s.fallback(idx, perRow, dislikedKeys(signals)), nil
 	}
 	return res, nil
 }
@@ -808,9 +825,25 @@ func topFeatures(profile map[string]float64, idx *tasteIndex, n int) []string {
 }
 
 // fallback rows for users with no history yet.
-func (s *TasteService) fallback(idx *tasteIndex, perRow int) *TasteResult {
+// dislikedKeys are titles the user rated "not for me" (or walked away from).
+func dislikedKeys(signals []tasteSignal) map[string]bool {
+	out := map[string]bool{}
+	for _, sg := range signals {
+		if sg.weight < 0 {
+			out[sg.unit.key] = true
+		}
+	}
+	return out
+}
+
+func (s *TasteService) fallback(idx *tasteIndex, perRow int, exclude map[string]bool) *TasteResult {
 	res := &TasteResult{Personalized: false}
-	units := append([]*tasteUnit(nil), idx.units...)
+	units := make([]*tasteUnit, 0, len(idx.units))
+	for _, u := range idx.units {
+		if !exclude[u.key] {
+			units = append(units, u)
+		}
+	}
 
 	byRating := append([]*tasteUnit(nil), units...)
 	sort.Slice(byRating, func(i, j int) bool {

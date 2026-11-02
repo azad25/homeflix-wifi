@@ -107,10 +107,22 @@ func (s *CollectionService) GetCollectionItems(collectionID uint) ([]models.Coll
 
 // My List operations
 
+// MyListSeries is the media_type of a whole TV series in My List; its
+// MediaID holds the series id (series and media ids are separate sequences).
+const MyListSeries = "series"
+
+// myListScope keeps series entries and media entries with the same number apart.
+func myListScope(db *gorm.DB, mediaType string) *gorm.DB {
+	if mediaType == MyListSeries {
+		return db.Where("media_type = ?", MyListSeries)
+	}
+	return db.Where("(media_type IS NULL OR media_type <> ?)", MyListSeries)
+}
+
 func (s *CollectionService) AddToMyList(userID, mediaID uint, mediaType, notes string, priority int) error {
 	// Check if item already exists in my list
 	var existingItem models.MyListItem
-	err := s.db.Where("user_id = ? AND media_id = ?", userID, mediaID).First(&existingItem).Error
+	err := myListScope(s.db.Where("user_id = ? AND media_id = ?", userID, mediaID), mediaType).First(&existingItem).Error
 	if err == nil {
 		return fmt.Errorf("item already exists in my list")
 	}
@@ -127,7 +139,11 @@ func (s *CollectionService) AddToMyList(userID, mediaID uint, mediaType, notes s
 }
 
 func (s *CollectionService) RemoveFromMyList(userID, mediaID uint) error {
-	return s.db.Where("user_id = ? AND media_id = ?", userID, mediaID).
+	return s.RemoveFromMyListOfType(userID, mediaID, "")
+}
+
+func (s *CollectionService) RemoveFromMyListOfType(userID, mediaID uint, mediaType string) error {
+	return myListScope(s.db.Where("user_id = ? AND media_id = ?", userID, mediaID), mediaType).
 		Delete(&models.MyListItem{}).Error
 }
 
@@ -137,9 +153,16 @@ func (s *CollectionService) GetMyList(userID uint) ([]models.MyListItem, error) 
 	err := s.db.Where("user_id = ?", userID).
 		Order("priority DESC, added_at DESC").
 		Find(&items).Error
-	
-	// For each item, try to load the media if it exists locally
+
+	// For each item, try to load the media (or series) if it exists locally
 	for i := range items {
+		if items[i].MediaType == MyListSeries {
+			var series models.Series
+			if err := s.db.First(&series, items[i].MediaID).Error; err == nil {
+				items[i].Series = &series
+			}
+			continue
+		}
 		var media models.Media
 		if err := s.db.First(&media, items[i].MediaID).Error; err == nil {
 			items[i].Media = media
@@ -147,14 +170,17 @@ func (s *CollectionService) GetMyList(userID uint) ([]models.MyListItem, error) 
 		// If media doesn't exist locally (like TMDB content), leave Media empty
 		// The frontend should handle this case
 	}
-	
+
 	return items, err
 }
 
 func (s *CollectionService) IsInMyList(userID, mediaID uint) (bool, error) {
+	return s.IsInMyListOfType(userID, mediaID, "")
+}
+
+func (s *CollectionService) IsInMyListOfType(userID, mediaID uint, mediaType string) (bool, error) {
 	var count int64
-	err := s.db.Model(&models.MyListItem{}).
-		Where("user_id = ? AND media_id = ?", userID, mediaID).
+	err := myListScope(s.db.Model(&models.MyListItem{}).Where("user_id = ? AND media_id = ?", userID, mediaID), mediaType).
 		Count(&count).Error
 	return count > 0, err
 }

@@ -68,6 +68,7 @@ func Initialize(databaseURL string) (*gorm.DB, error) {
 		&models.WatchlistItem{},
 		&models.ViewHistory{},
 		&models.UserRating{},
+		&models.TasteRating{}, // thumbs ratings for personalised recommendations
 		&models.Recommendation{},
 		&models.PlaybackProgress{},
 		&models.WatchHistory{},

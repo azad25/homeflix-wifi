@@ -41,13 +41,15 @@ type MyListItem struct {
 	ID        uint      `json:"id" gorm:"primaryKey"`
 	UserID    uint      `json:"user_id" gorm:"not null;index"`
 	MediaID   uint      `json:"media_id" gorm:"not null;index"`
-	MediaType string    `json:"media_type"` // movie, tv, episode
+	MediaType string    `json:"media_type"` // movie, tv, episode, or "series" (MediaID is then a series id)
 	Notes     string    `json:"notes"`
 	Priority  int       `json:"priority" gorm:"default:0"` // For user prioritization
 	AddedAt   time.Time `json:"added_at" gorm:"autoCreateTime"`
 	
 	// Relationships
 	Media Media `json:"media,omitempty" gorm:"foreignKey:MediaID"`
+	// Filled for media_type "series" items.
+	Series *Series `json:"series,omitempty" gorm:"-"`
 }
 
 // CollectionStats represents statistics for a collection

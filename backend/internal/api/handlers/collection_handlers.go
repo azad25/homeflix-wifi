@@ -206,6 +206,9 @@ func (h *CollectionHandlers) AddToMyList(c *gin.Context) {
 		request.MediaType = "movie"
 		request.Priority = 0
 	}
+	if c.Query("type") == services.MyListSeries {
+		request.MediaType = services.MyListSeries
+	}
 
 	if err := h.collectionService.AddToMyList(userID, uint(mediaID), request.MediaType, request.Notes, request.Priority); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -224,7 +227,8 @@ func (h *CollectionHandlers) RemoveFromMyList(c *gin.Context) {
 
 	userID := getUserIDFromContext(c)
 
-	if err := h.collectionService.RemoveFromMyList(userID, uint(mediaID)); err != nil {
+	// ?type=series removes a whole series (the id is then a series id).
+	if err := h.collectionService.RemoveFromMyListOfType(userID, uint(mediaID), c.Query("type")); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -253,7 +257,7 @@ func (h *CollectionHandlers) CheckMyList(c *gin.Context) {
 
 	userID := getUserIDFromContext(c)
 
-	inList, err := h.collectionService.IsInMyList(userID, uint(mediaID))
+	inList, err := h.collectionService.IsInMyListOfType(userID, uint(mediaID), c.Query("type"))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

@@ -323,6 +323,12 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		tasteService := services.NewTasteService(db)
 		api.GET("/recommendations/for-you", handlers.GetForYouRecommendations(tasteService))
 		api.GET("/recommendations/more-like/:kind/:id", handlers.GetMoreLikeThis(tasteService))
+		// Thumbs ratings (kind = movie | series) that steer the recommendations above.
+		api.GET("/ratings", handlers.ListTasteRatings(tasteService))
+		api.GET("/ratings/:kind/:id", handlers.GetTasteRating(tasteService))
+		api.PUT("/ratings/:kind/:id", handlers.PutTasteRating(tasteService))
+		api.POST("/ratings/:kind/:id", handlers.PutTasteRating(tasteService))
+		api.DELETE("/ratings/:kind/:id", handlers.DeleteTasteRating(tasteService))
 
 		// Main recommendations endpoint (handles category-based routing)
 		api.GET("/recommendations", handlers.GetRecommendations(recommendationService))

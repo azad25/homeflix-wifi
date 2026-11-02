@@ -58,6 +58,7 @@ func InitializePostgreSQL(host, user, password, dbname string, port int, sslmode
 		&models.WatchlistItem{},
 		&models.ViewHistory{},
 		&models.UserRating{},
+		&models.TasteRating{}, // thumbs ratings for personalised recommendations
 		&models.Recommendation{},
 		&models.PlaybackProgress{},
 		&models.WatchHistory{},
