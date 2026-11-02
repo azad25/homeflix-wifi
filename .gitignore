@@ -138,3 +138,4 @@ update-log.txt
 
 # Scratch markdown notes - kept local, existing tracked docs stay tracked
 *.md
+!RELEASE_NOTES.md
