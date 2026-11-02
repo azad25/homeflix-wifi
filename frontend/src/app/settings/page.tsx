@@ -20,6 +20,7 @@ import SystemLogs from '@/components/SystemLogs';
 import WidgetManager from '@/components/settings/WidgetManager';
 import EnhancedWidgetManager from '@/components/settings/EnhancedWidgetManager';
 import PageManager from '@/components/settings/PageManager';
+import TVAppUpdateCard from '@/components/settings/TVAppUpdateCard';
 import { useSearchParams } from 'next/navigation';
 interface MediaAssets {
   id?: number;
@@ -3089,6 +3090,11 @@ function SettingsContent() {
                         <p className="text-white/40 text-xs mt-3">Remote unreachable ({updateInfo.fetch_error.slice(0, 80)}) - showing last known state.</p>
                       )}
                     </GlassCard>
+                  </ScrollReveal>
+
+                  {/* HomeFlix TV app builds: pull from the repo or upload an APK */}
+                  <ScrollReveal>
+                    <TVAppUpdateCard onLog={addTerminalOutput} />
                   </ScrollReveal>
 
                   {/* Legacy Maintenance Tools - Keeping them accessible below the dashboard */}

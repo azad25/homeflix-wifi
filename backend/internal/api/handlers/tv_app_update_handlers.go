@@ -1,11 +1,13 @@
 package handlers
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
 	"os"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -102,5 +104,44 @@ func RescanTVApp(u *services.TVAppUpdates) gin.HandlerFunc {
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"published": false, "dir": u.Dir})
+	}
+}
+
+// TVAppSourceStatus — GET /api/admin/app/tv/source[?refresh=1]
+// Compares the build the server publishes with the newest one in the TV app
+// repository.
+func TVAppSourceStatus(u *services.TVAppUpdates, src *services.TVAppSource) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(c.Request.Context(), 20*time.Second)
+		defer cancel()
+		local := u.Latest()
+		resp := gin.H{"local": local, "dir": u.Dir, "repo": src.Repo}
+		remote, err := src.Check(ctx, c.Query("refresh") != "")
+		if err != nil {
+			resp["error"] = err.Error()
+		} else {
+			resp["remote"] = remote
+			resp["update_available"] = remote.VersionCode > 0 && (local == nil || remote.VersionCode > local.VersionCode)
+		}
+		c.JSON(http.StatusOK, resp)
+	}
+}
+
+// FetchTVAppFromSource — POST /api/admin/app/tv/fetch
+// Downloads the newest APK from the TV app repository into the updates
+// folder and publishes it (connected TVs are told to update).
+func FetchTVAppFromSource(u *services.TVAppUpdates, src *services.TVAppSource) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(c.Request.Context(), 15*time.Minute)
+		defer cancel()
+		res, err := u.FetchLatest(ctx, src)
+		switch {
+		case errors.Is(err, services.ErrNotTVApp):
+			c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "the repository's APK is not a HomeFlix TV app build"})
+		case err != nil:
+			c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+		default:
+			c.JSON(http.StatusOK, res)
+		}
 	}
 }

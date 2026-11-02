@@ -66,3 +66,20 @@ Push to TVs (over the cast WebSocket, see `TV_CAST_PROTOCOL.md`):
   Settings → *App updates* also has **Check for updates** and **Install update**.
 - **Android 12 and newer:** once HomeFlix has installed one update itself, later
   updates skip the extra system confirmation screen.
+
+## Pull builds from the TV app repository
+
+Settings → Dashboard → **HomeFlix TV App** compares the build this server
+publishes with the newest one in the TV app repository and can download it
+into `app-updates/tv` with one click (or upload an APK by hand). The APK's own
+manifest decides the version; an older or equal build is never republished.
+Publishing a newer build tells connected TVs to update.
+
+- `GET /api/admin/app/tv/source[?refresh=1]` – `{local, remote, update_available, error}`
+- `POST /api/admin/app/tv/fetch` – download + publish the repository's newest APK
+
+Optional settings: `HOMEFLIX_TV_APP_REPO` (default `azad25/homeflix-tv-app`),
+`HOMEFLIX_TV_APP_BRANCH` (default: the repo's default branch),
+`HOMEFLIX_TV_APP_APK` (default: the `.apk` in `apk/`). Without GitHub API
+access (rate limit) the server falls back to raw files on the default branch
+and `apk/homeflix-tv-v<major>.apk`.

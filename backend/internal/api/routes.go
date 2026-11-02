@@ -314,6 +314,10 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		api.HEAD("/app/tv/download/:code", handlers.DownloadTVApp(tvUpdates))
 		api.POST("/admin/app/tv/upload", handlers.UploadTVApp(tvUpdates))
 		api.POST("/admin/app/tv/rescan", handlers.RescanTVApp(tvUpdates))
+		// Pull new builds straight from the TV app's GitHub repo
+		tvAppSource := services.NewTVAppSource()
+		api.GET("/admin/app/tv/source", handlers.TVAppSourceStatus(tvUpdates, tvAppSource))
+		api.POST("/admin/app/tv/fetch", handlers.FetchTVAppFromSource(tvUpdates, tvAppSource))
 
 		// Personalised recommendations learned from watch history
 		tasteService := services.NewTasteService(db)
