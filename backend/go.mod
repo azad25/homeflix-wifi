@@ -14,6 +14,7 @@ require (
 	github.com/h2non/filetype v1.1.3
 	github.com/joho/godotenv v1.5.1
 	github.com/mattn/go-sqlite3 v1.14.22
+	golang.org/x/sync v0.16.0
 	gorm.io/driver/postgres v1.6.0
 	gorm.io/driver/sqlite v1.5.5
 	gorm.io/gorm v1.25.10
@@ -78,7 +79,6 @@ require (
 	golang.org/x/arch v0.5.0 // indirect
 	golang.org/x/crypto v0.40.0 // indirect
 	golang.org/x/net v0.42.0 // indirect
-	golang.org/x/sync v0.16.0 // indirect
 	golang.org/x/sys v0.34.0 // indirect
 	golang.org/x/text v0.27.0 // indirect
 	google.golang.org/protobuf v1.34.1 // indirect

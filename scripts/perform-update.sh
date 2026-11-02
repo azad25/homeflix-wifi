@@ -102,7 +102,17 @@ if [[ -n "$TARGET_BRANCH" ]]; then
 fi
 
 # 1. Preflight: refuse on local modifications (tracked files only;
-#    ignored DBs/binaries/logs can never block an update)
+#    ignored DBs/binaries/logs can never block an update).
+#    Files the toolchains rewrite on their own (`go build`/`go mod tidy`,
+#    `npm install`, `next build`) are not user edits: put them back to the
+#    committed version so the pull below can update them.
+BUILD_MANAGED=(backend/go.mod backend/go.sum frontend/package-lock.json frontend/next-env.d.ts)
+for f in "${BUILD_MANAGED[@]}"; do
+  if [[ -n "$(git status --porcelain -- "$f" 2>/dev/null)" ]] && git ls-files --error-unmatch -- "$f" >/dev/null 2>&1; then
+    echo "📌 Resetting toolchain-modified $f"
+    git checkout -q -- "$f" 2>/dev/null || true
+  fi
+done
 DIRTY=$(git status --porcelain | grep -v '^??' || true)
 if [[ -n "$DIRTY" ]]; then
   echo "⚠️ Local modifications detected:"

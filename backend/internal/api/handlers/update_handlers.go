@@ -19,6 +19,17 @@ import (
 )
 
 // updateStatusFile tracks an in-progress or finished system update.
+// buildManagedFiles are tracked files the toolchains rewrite by themselves
+// (go build / go mod tidy, npm install, next build). They are not user
+// edits: perform-update.sh restores them before pulling, so they must not
+// block an update. Keep in sync with BUILD_MANAGED in perform-update.sh.
+var buildManagedFiles = map[string]bool{
+	"backend/go.mod":             true,
+	"backend/go.sum":             true,
+	"frontend/package-lock.json": true,
+	"frontend/next-env.d.ts":     true,
+}
+
 func updatePaths() (repoRoot, statusFile, logFile string, err error) {
 	out, e := exec.Command("git", "rev-parse", "--show-toplevel").Output()
 	if e != nil {
@@ -198,6 +209,9 @@ func ComputeUpdateCheck() gin.H {
 			line = strings.TrimSpace(line)
 			if line == "" || strings.HasPrefix(line, "??") {
 				continue // untracked scratch files never block updates
+			}
+			if f := strings.Fields(line); buildManagedFiles[f[len(f)-1]] {
+				continue // rewritten by go/npm; the updater resets them
 			}
 			dirtyFiles = append(dirtyFiles, line)
 		}
