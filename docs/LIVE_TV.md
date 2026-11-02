@@ -175,3 +175,25 @@ always tells you where you are.
 - Favorites live on the TV (DataStore), keyed by channel `id`.
 - Remember the last channel and the previous one (for Back).
 - Hide the adult category entirely (the server already excludes it).
+
+## TV app status (HomeFlix TV 5.13)
+
+Implemented in `azad25/homeflix-tv-app` (`app/src/main/java/com/homeflix/tv/livetv/`):
+
+| Spec item | Status |
+| --- | --- |
+| Home row "Live TV": entry tile (last channel), favorites, then recently watched; logo card, number, LIVE dot | done |
+| "Live TV" on the top menu → full screen on the last channel (or channel 1); hidden when `enabled` is false | done |
+| Video-only default; info banner ~3 s (number, logo tile, name, ● LIVE, category · quality · country, clock) | done |
+| Tuning screen (black, logo, spinner; never the old picture under the new name) | done |
+| No signal after all URLs fail or 10 s without video; no auto-skip | done |
+| Number entry `1 2 _`, tunes 1.2 s after the last digit or on OK | done |
+| Remote: ▲/CH+ previous, ▼/CH- next, OK mini guide, ◀ full guide (also GUIDE), ▶ / INFO / MENU info + favorite, 0-9, Back = last channel, Back twice = leave | done |
+| Mini guide: left 35 %, ● NOW, opens on the current channel, wraps, OK tunes, Back closes | done |
+| Full guide: groups (Favorites, All, countries with flags + counts, categories); muted preview after 600 ms in a window, using the same player | done |
+| One ExoPlayer per session; buffer 1.5 s / 3 s; live offset 12 s; 400 ms zap debounce; prefetch `/play` for neighbours; BehindLiveWindow → live edge | done |
+| HLS → next URL → `youtube_id` (embedded, D-pad keeps zapping) → "not available" | done |
+| Favorites, last and previous channel, recents in DataStore | done |
+| Volume HUD, "Start HomeFlix on Live TV" setting, audio/subtitle options | not yet |
+
+`/play` now reports the same channel `number` as `/channels`.

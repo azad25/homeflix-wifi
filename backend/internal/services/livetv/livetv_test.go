@@ -183,3 +183,26 @@ func TestOrderStreamsPrefersWorkingSmooth(t *testing.T) {
 		t.Fatalf("order %v", got)
 	}
 }
+
+func TestPlayReportsTheLineupNumber(t *testing.T) {
+	t.Setenv("HOMEFLIX_LIVETV_DIR", t.TempDir())
+	s := NewService()
+	ok := true
+	s.setCatalog(&Catalog{Channels: []*Channel{
+		{ID: "a.us", Name: "A", Country: "US", Streams: []Stream{{URL: "https://example.com/a.m3u8", OK: &ok}}},
+		{ID: "b.us", Name: "B", Country: "US", Streams: []Stream{{URL: "https://example.com/b.m3u8", OK: &ok}}},
+	}})
+	var want int
+	for _, v := range s.Channels(Filter{}) {
+		if v.ID == "b.us" {
+			want = v.Number
+		}
+	}
+	ch, urls, _, err := s.Play(context.Background(), "b.us")
+	if err != nil || len(urls) == 0 {
+		t.Fatalf("play: %v %v", urls, err)
+	}
+	if want == 0 || ch.Number != want {
+		t.Fatalf("play number = %d, lineup number = %d", ch.Number, want)
+	}
+}

@@ -231,6 +231,16 @@ func (s *Service) Channels(f Filter) []ChannelView {
 	return out
 }
 
+// numberOf is the channel's number in the full lineup (the same one Channels reports).
+func (s *Service) numberOf(id string) int {
+	for _, v := range s.Channels(Filter{}) {
+		if v.ID == id {
+			return v.Number
+		}
+	}
+	return 0
+}
+
 func contains(list []string, v string) bool {
 	for _, x := range list {
 		if strings.EqualFold(x, v) {
@@ -328,7 +338,7 @@ func (s *Service) Play(ctx context.Context, id string) (*ChannelView, []string, 
 	if len(urls) == 0 && youtubeID == "" {
 		return nil, nil, "", ErrNoStream
 	}
-	v := ChannelView{ID: c.ID, Name: c.Name, Country: c.Country, Categories: c.Categories, Logo: c.Logo, Status: c.Status(), Quality: c.Quality()}
+	v := ChannelView{ID: c.ID, Name: c.Name, Country: c.Country, Categories: c.Categories, Logo: c.Logo, Status: c.Status(), Quality: c.Quality(), Number: s.numberOf(c.ID)}
 	return &v, urls, youtubeID, nil
 }
 
