@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, ChevronUp, Heart, Search, Tv } from "lucide-react";
+import { Heart, Search, Tv } from "lucide-react";
 import Navbar from "@/components/Navbar";
 import { usePageTitle } from "@/hooks/usePageTitle";
 import { getApiUrl } from "@/lib/api";
@@ -56,8 +56,6 @@ export default function LiveTVPage() {
   const [query, setQuery] = useState("");
   const [favs, setFavs] = useState<string[]>([]);
   const [current, setCurrent] = useState<LiveChannel | null>(null);
-  const [typed, setTyped] = useState("");
-  const typedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -113,16 +111,6 @@ export default function LiveTVPage() {
     writeLS(LS_LAST, ch.id);
   }, []);
 
-  const zap = useCallback(
-    (dir: 1 | -1) => {
-      const list = visible.length ? visible : all || [];
-      if (!list.length) return;
-      const i = current ? list.findIndex((c) => c.id === current.id) : -1;
-      tune(list[(i + dir + list.length) % list.length]);
-    },
-    [visible, all, current, tune]
-  );
-
   const toggleFav = (id: string) => {
     setFavs((f) => {
       const next = f.includes(id) ? f.filter((x) => x !== id) : [...f, id];
@@ -130,31 +118,6 @@ export default function LiveTVPage() {
       return next;
     });
   };
-
-  // TV remote keys: up/down (or PageUp/PageDown) zap, digits pick a number.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.target as HTMLElement)?.closest("input,textarea,select")) return;
-      if (e.key === "PageUp" || e.key === "ChannelUp" || (e.key === "ArrowUp" && e.altKey)) {
-        e.preventDefault();
-        zap(-1);
-      } else if (e.key === "PageDown" || e.key === "ChannelDown" || (e.key === "ArrowDown" && e.altKey)) {
-        e.preventDefault();
-        zap(1);
-      } else if (/^[0-9]$/.test(e.key)) {
-        const next = (typed + e.key).slice(-4);
-        setTyped(next);
-        if (typedTimer.current) clearTimeout(typedTimer.current);
-        typedTimer.current = setTimeout(() => {
-          const ch = (all || []).find((c) => c.number === parseInt(next, 10));
-          if (ch) tune(ch);
-          setTyped("");
-        }, 1200);
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [zap, typed, all, tune]);
 
   // Keep the playing channel in view in the guide.
   useEffect(() => {
@@ -202,28 +165,16 @@ export default function LiveTVPage() {
         </div>
         <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
           <div className="min-w-0">
-            <LivePlayer channel={current} />
-            <div className="mt-3 flex items-center gap-2">
-              <button type="button" onClick={() => zap(-1)} className="tv-btn tv-btn-secondary h-10 px-4 text-[14px]" aria-label="Previous channel">
-                <ChevronUp className="h-4 w-4" /> CH
-              </button>
-              <button type="button" onClick={() => zap(1)} className="tv-btn tv-btn-secondary h-10 px-4 text-[14px]" aria-label="Next channel">
-                <ChevronDown className="h-4 w-4" /> CH
-              </button>
-              {current && (
-                <button
-                  type="button"
-                  onClick={() => toggleFav(current.id)}
-                  className="tv-btn tv-btn-secondary h-10 px-4 text-[14px]"
-                  aria-pressed={favs.includes(current.id)}
-                >
-                  <Heart className={`h-4 w-4 ${favs.includes(current.id) ? "fill-current text-[#ff453a]" : ""}`} />
-                  {favs.includes(current.id) ? "Favorite" : "Add to Favorites"}
-                </button>
-              )}
-              {typed && <span className="ml-auto rounded-lg bg-white/15 px-3 py-1.5 font-mono text-[18px] font-bold">{typed}</span>}
-              <span className="ml-auto hidden text-[12px] text-white/35 md:block">PgUp/PgDn change channel · type a number · F full screen · M mute</span>
-            </div>
+            <LivePlayer
+              channel={current}
+              channels={visible.length ? visible : all || []}
+              onTune={tune}
+              favorites={favs}
+              onToggleFavorite={toggleFav}
+            />
+            <p className="mt-3 hidden text-[12px] text-white/40 md:block">
+              Double-click or F for full screen · ▲▼ or PgUp/PgDn change channel · type a number · Enter opens the guide · Backspace returns to the last channel · +/− volume · M mute
+            </p>
           </div>
 
           <aside className="min-w-0 xl:sticky xl:top-24 xl:self-start">

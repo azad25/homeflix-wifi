@@ -87,12 +87,82 @@ player.setMediaItem(item); player.prepare(); player.play()
 - `onPlayerError` -> try the next URL. A `BehindLiveWindowException` means
   "seek to the live edge and prepare again", not "channel broken".
 
-## Suggested TV experience
+## TV app: live TV experience (spec)
 
-- A **Live TV** row on the home screen and a full-screen guide: channel
-  list on the left (number, logo, name), preview on the right.
-- D-pad up/down or **CH+/CH-** zap through the current list; digits type a
-  channel number (switch after ~1.2 s); **Back** shows the guide.
-- Show an OSD banner for ~3 s after each switch: number, logo, name, LIVE.
-- Remember the last channel and start there; keep favorites on the TV.
-- Prefer `/play` URLs over caching them: the server re-checks streams.
+The goal is to feel like a cable box, not a video app: channels start in
+about a second, the remote changes channel at any time, and the screen
+always tells you where you are.
+
+### Entry points
+
+- **Home row "Live TV"**: favorites first, then the last 10 watched; each
+  tile shows the logo on a dark card, the number and a red LIVE dot.
+- **Live TV tab** opens straight into full-screen playback of the last
+  channel (or channel 1). Optional setting: "Start HomeFlix on Live TV".
+
+### Full-screen player (default state)
+
+- Video only. Nothing else on screen while watching.
+- **Info banner** (bottom, ~3 s after every channel change or on INFO):
+  big channel number, logo on a white rounded tile, channel name,
+  `● LIVE`, category · quality · country, clock on the right. Black
+  gradient from the bottom, 48 px side margins (TV safe area).
+- **Tuning screen** while a channel loads: black, centred logo + small
+  spinner. Never show the previous channel's last frame for the new name.
+- **No signal** (all URLs failed or 10 s without video): "<Name> isn't
+  available right now" + "Press ▲ ▼ for another channel"; do NOT leave the
+  channel automatically.
+- **Number entry**: digits appear top-right (`1 2 _`), tune ~1.2 s after
+  the last digit, or immediately on OK.
+- **Volume HUD** (if the app controls volume): small pill at the top.
+
+### Remote mapping
+
+| Key | Action |
+| --- | --- |
+| D-pad ▲ / CH+ | previous channel in the current list |
+| D-pad ▼ / CH- | next channel |
+| OK / Enter | mini guide (overlay list, see below) |
+| D-pad ◀ | full guide |
+| D-pad ▶ | channel info / favorites toggle |
+| 0-9 | number entry |
+| Back | close overlay; otherwise return to the **last channel**; press Back twice quickly to leave Live TV |
+| INFO / Menu | info banner / options (favorite, audio track, subtitles if any) |
+
+### Mini guide (OK)
+
+- Left panel ~35 % width over the playing video, translucent black with
+  blur. Rows: number, logo, name, category. The highlighted row is white
+  with black text; the playing channel has `● NOW`.
+- Opens on the current channel, ▲▼ move, OK tunes and closes, Back
+  closes, wraps at both ends. Video keeps playing behind it.
+
+### Full guide (◀)
+
+- Full screen, two columns: left = groups (Favorites, All, each country
+  with flag + count, each category), right = channel list for the group.
+- Focused channel shows a live preview in a small window top-right
+  (start it after ~600 ms of focus, mute it, reuse one player).
+- `GET /api/livetv/channels` gives countries/categories with counts; use
+  `number` for display and number entry.
+
+### Zapping fast
+
+- Keep **one** ExoPlayer instance for the session; on zap call
+  `setMediaItem(...)` + `prepare()` instead of releasing/recreating.
+- Use `DefaultLoadControl` with a small start buffer for live
+  (e.g. `bufferForPlaybackMs = 1500`, `bufferForPlaybackAfterRebufferMs = 3000`).
+- Debounce: if ▲▼ is pressed repeatedly, only tune after 400 ms of no key
+  presses, but update the banner (number/name/logo) immediately on every
+  press so it feels instant.
+- Fetch `/api/livetv/channels/:id/play` for the next and previous channel
+  in the background after a tune (they're tiny), so the next zap skips a
+  round trip.
+- On a fatal error try the next URL from `/play`; after the last one show
+  No signal.
+
+### Favorites and memory
+
+- Favorites live on the TV (DataStore), keyed by channel `id`.
+- Remember the last channel and the previous one (for Back).
+- Hide the adult category entirely (the server already excludes it).
