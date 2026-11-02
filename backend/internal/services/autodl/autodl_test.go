@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -186,5 +187,97 @@ func TestSkipsWhatIsInLibrary(t *testing.T) {
 	s.Pass(context.Background())
 	if it := s.List()[0]; it.Status != StatusInLibrary || len(ft.started) != 0 {
 		t.Fatalf("%+v", it)
+	}
+}
+
+type fakeReleases struct {
+	movie   map[int]time.Time
+	seasons map[int][]int
+	season  map[[2]int]time.Time
+}
+
+func (f *fakeReleases) Movie(id int) (time.Time, string, error) {
+	return f.movie[id], "Digital release", nil
+}
+func (f *fakeReleases) Season(id, n int) (time.Time, string, error) {
+	at, ok := f.season[[2]int{id, n}]
+	if !ok {
+		return time.Time{}, "Not announced yet", nil
+	}
+	return at, "After the season finale", nil
+}
+func (f *fakeReleases) Seasons(id int) ([]int, error) { return f.seasons[id], nil }
+
+func TestScheduledUntilRelease(t *testing.T) {
+	s, ft, _ := newTestService(t, 500*GiB)
+	now := time.Date(2026, 11, 2, 12, 0, 0, 0, time.UTC)
+	s.now = func() time.Time { return now }
+	rel := &fakeReleases{movie: map[int]time.Time{1: now.AddDate(0, 3, 0)}}
+	s.SetReleases(rel)
+	ft.results = []torrent.SearchResult{r("Future.Film.2027.1080p.WEBRip", 80, 2*GiB)}
+	s.Add(AddRequest{TMDBID: 1, MediaType: "movie", Title: "Future Film", Year: 2027})
+	s.Pass(context.Background())
+	it := s.List()[0]
+	if it.Status != StatusScheduled || it.AvailableAt == nil || len(ft.started) != 0 {
+		t.Fatalf("expected scheduled: %+v", it.Item)
+	}
+	// Release day arrives -> downloads.
+	now = now.AddDate(0, 3, 1)
+	s.Pass(context.Background())
+	if it := s.List()[0]; it.Status != StatusDownloading || len(ft.started) != 1 {
+		t.Fatalf("expected download on release: %+v", it.Item)
+	}
+}
+
+func TestManualNotBefore(t *testing.T) {
+	s, ft, _ := newTestService(t, 500*GiB)
+	now := time.Date(2026, 11, 2, 12, 0, 0, 0, time.UTC)
+	s.now = func() time.Time { return now }
+	ft.results = []torrent.SearchResult{r("Heat.1995.1080p.WEBRip", 80, 2*GiB)}
+	night := now.Add(10 * time.Hour)
+	s.Add(AddRequest{TMDBID: 949, MediaType: "movie", Title: "Heat", Year: 1995, NotBefore: &night})
+	s.Pass(context.Background())
+	if it := s.List()[0]; it.Status != StatusScheduled || len(ft.started) != 0 {
+		t.Fatalf("%+v", it.Item)
+	}
+	now = night.Add(time.Minute)
+	s.Pass(context.Background())
+	if len(ft.started) != 1 {
+		t.Fatal("not started after the scheduled time")
+	}
+}
+
+func TestFollowQueuesNewSeasons(t *testing.T) {
+	s, ft, _ := newTestService(t, 500*GiB)
+	now := time.Date(2026, 11, 2, 12, 0, 0, 0, time.UTC)
+	s.now = func() time.Time { return now }
+	rel := &fakeReleases{
+		seasons: map[int][]int{7: {1}},
+		season:  map[[2]int]time.Time{{7, 1}: now.AddDate(-1, 0, 0)},
+	}
+	s.SetReleases(rel)
+	ft.results = []torrent.SearchResult{r("Show S01 1080p WEBRip", 80, 8*GiB), r("Show S02 1080p WEBRip", 80, 8*GiB)}
+	s.Add(AddRequest{TMDBID: 7, MediaType: "tv", Title: "Show", Follow: true})
+	s.Pass(context.Background())
+	if len(s.List()) != 1 || len(ft.started) != 1 {
+		t.Fatalf("season 1: %+v started=%v", s.List(), ft.started)
+	}
+	// Season 2 announced with a finale next month: queued + scheduled.
+	rel.seasons[7] = []int{1, 2}
+	rel.season[[2]int{7, 2}] = now.AddDate(0, 1, 0)
+	now = now.Add(25 * time.Hour)
+	s.Pass(context.Background())
+	var s2 *ItemView
+	for _, it := range s.List() {
+		if it.Season == 2 {
+			it := it
+			s2 = &it
+		}
+	}
+	if s2 == nil || s2.Status != StatusScheduled {
+		t.Fatalf("season 2 not scheduled: %+v", s.List())
+	}
+	if len(s.Follows()) != 1 {
+		t.Fatal("follow not stored")
 	}
 }

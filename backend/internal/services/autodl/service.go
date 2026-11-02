@@ -26,6 +26,7 @@ import (
 // Statuses
 const (
 	StatusQueued      = "queued"      // waiting for its turn
+	StatusScheduled   = "scheduled"   // not released yet / user picked a later date
 	StatusWaiting     = "waiting"     // no release / no space / no indexer yet (see Message)
 	StatusDownloading = "downloading" // torrent running
 	StatusCompleted   = "completed"   // downloaded and imported
@@ -35,31 +36,56 @@ const (
 
 // Item is one movie or TV season in the queue.
 type Item struct {
-	ID             uint       `gorm:"primaryKey" json:"id"`
-	TMDBID         int        `gorm:"index" json:"tmdb_id"`
-	MediaType      string     `json:"media_type"` // movie | tv
-	Season         int        `json:"season"`     // tv only
-	Title          string     `json:"title"`
-	Year           int        `json:"year"`
-	PosterPath     string     `json:"poster_path"`
-	Status         string     `gorm:"index" json:"status"`
-	Message        string     `json:"message"`
-	TorrentID      string     `json:"torrent_id"`
-	ReleaseName    string     `json:"release_name"`
-	ReleaseQuality string     `json:"release_quality"`
-	ReleaseSource  string     `json:"release_source"`
-	ReleaseSize    int64      `json:"release_size"`
-	ReleaseSeeders int        `json:"release_seeders"`
-	Attempts       int        `json:"attempts"`
-	NextAttemptAt  time.Time  `json:"next_attempt_at"`
-	Rejected       string     `json:"-"` // magnets that failed, one per line
-	SpaceNotified  bool       `json:"-"`
-	CreatedAt      time.Time  `json:"created_at"`
-	UpdatedAt      time.Time  `json:"updated_at"`
-	CompletedAt    *time.Time `json:"completed_at,omitempty"`
+	ID             uint      `gorm:"primaryKey" json:"id"`
+	TMDBID         int       `gorm:"index" json:"tmdb_id"`
+	MediaType      string    `json:"media_type"` // movie | tv
+	Season         int       `json:"season"`     // tv only
+	Title          string    `json:"title"`
+	Year           int       `json:"year"`
+	PosterPath     string    `json:"poster_path"`
+	Status         string    `gorm:"index" json:"status"`
+	Message        string    `json:"message"`
+	TorrentID      string    `json:"torrent_id"`
+	ReleaseName    string    `json:"release_name"`
+	ReleaseQuality string    `json:"release_quality"`
+	ReleaseSource  string    `json:"release_source"`
+	ReleaseSize    int64     `json:"release_size"`
+	ReleaseSeeders int       `json:"release_seeders"`
+	Attempts       int       `json:"attempts"`
+	NextAttemptAt  time.Time `json:"next_attempt_at"`
+	Rejected       string    `json:"-"` // magnets that failed, one per line
+	SpaceNotified  bool      `json:"-"`
+	// Scheduling: when the title can be downloaded (TMDB release / season
+	// finale), and an optional user-chosen earliest date.
+	AvailableAt      *time.Time `json:"available_at,omitempty"`
+	ReleaseLabel     string     `json:"release_label,omitempty"`
+	ReleaseCheckedAt *time.Time `json:"-"`
+	NotBefore        *time.Time `json:"not_before,omitempty"`
+	CreatedAt        time.Time  `json:"created_at"`
+	UpdatedAt        time.Time  `json:"updated_at"`
+	CompletedAt      *time.Time `json:"completed_at,omitempty"`
 }
 
 func (Item) TableName() string { return "auto_download_items" }
+
+// Follow: a show whose new seasons are queued automatically.
+type Follow struct {
+	ID         uint       `gorm:"primaryKey" json:"id"`
+	TMDBID     int        `gorm:"uniqueIndex" json:"tmdb_id"`
+	Title      string     `json:"title"`
+	PosterPath string     `json:"poster_path"`
+	CheckedAt  *time.Time `json:"checked_at,omitempty"`
+	CreatedAt  time.Time  `json:"created_at"`
+}
+
+func (Follow) TableName() string { return "auto_download_follows" }
+
+// Releases answers "when can this be downloaded?" (TMDB).
+type Releases interface {
+	Movie(tmdbID int) (at time.Time, label string, err error)
+	Season(tmdbID, season int) (at time.Time, label string, err error)
+	Seasons(tmdbID int) ([]int, error)
+}
 
 // Settings are edited in Settings > Auto Download.
 type Settings struct {
@@ -128,6 +154,8 @@ type Service struct {
 	dir      string
 	yts      func(query string) ([]torrent.SearchResult, error)
 	freeFn   func() (free int64, ok bool)
+	releases Releases
+	now      func() time.Time
 
 	mu       sync.Mutex
 	settings Settings
@@ -142,10 +170,10 @@ func NewService(db *gorm.DB, t Torrents, notify Notify) *Service {
 	if dir == "" {
 		dir = "data/autodownload"
 	}
-	if err := db.AutoMigrate(&Item{}); err != nil {
+	if err := db.AutoMigrate(&Item{}, &Follow{}); err != nil {
 		log.Printf("⬇️ Auto Download: migrate failed: %v", err)
 	}
-	s := &Service{db: db, torrents: t, notify: notify, dir: dir, yts: torrent.SearchYTSMovies, kick: make(chan struct{}, 1)}
+	s := &Service{db: db, torrents: t, notify: notify, dir: dir, yts: torrent.SearchYTSMovies, kick: make(chan struct{}, 1), now: time.Now}
 	s.settings = DefaultSettings()
 	if b, err := os.ReadFile(filepath.Join(dir, "settings.json")); err == nil {
 		_ = json.Unmarshal(b, &s.settings)
@@ -166,6 +194,9 @@ func NewService(db *gorm.DB, t Torrents, notify Notify) *Service {
 	}
 	return s
 }
+
+// SetReleases enables release-date scheduling.
+func (s *Service) SetReleases(r Releases) { s.releases = r }
 
 func (s *Service) Settings() Settings {
 	s.mu.Lock()
@@ -205,6 +236,10 @@ type AddRequest struct {
 	Year       int    `json:"year"`
 	PosterPath string `json:"poster_path"`
 	Seasons    []int  `json:"seasons"`
+	// Follow (TV): also queue future seasons when they're announced.
+	Follow bool `json:"follow"`
+	// Don't download before this time (optional).
+	NotBefore *time.Time `json:"not_before"`
 }
 
 var ErrInvalid = errors.New("tmdb_id, media_type (movie|tv) and title are required")
@@ -216,8 +251,15 @@ func (s *Service) Add(req AddRequest) ([]Item, error) {
 	seasons := []int{0}
 	if req.MediaType == "tv" {
 		seasons = req.Seasons
+		if len(seasons) == 0 && s.releases != nil {
+			seasons, _ = s.releases.Seasons(req.TMDBID)
+		}
 		if len(seasons) == 0 {
 			seasons = []int{1}
+		}
+		if req.Follow {
+			f := Follow{TMDBID: req.TMDBID, Title: strings.TrimSpace(req.Title), PosterPath: req.PosterPath}
+			s.db.Where(Follow{TMDBID: req.TMDBID}).Attrs(f).FirstOrCreate(&f)
 		}
 	}
 	var out []Item
@@ -233,7 +275,7 @@ func (s *Service) Add(req AddRequest) ([]Item, error) {
 			continue
 		}
 		it := Item{TMDBID: req.TMDBID, MediaType: req.MediaType, Season: season, Title: strings.TrimSpace(req.Title), Year: req.Year,
-			PosterPath: req.PosterPath, Status: StatusQueued}
+			PosterPath: req.PosterPath, Status: StatusQueued, NotBefore: req.NotBefore}
 		if err := s.db.Create(&it).Error; err != nil {
 			return out, err
 		}
@@ -267,6 +309,26 @@ func (s *Service) List() []ItemView {
 		out = append(out, v)
 	}
 	return out
+}
+
+// Follows lists followed shows.
+func (s *Service) Follows() []Follow {
+	var out []Follow
+	s.db.Order("created_at DESC").Find(&out)
+	return out
+}
+
+func (s *Service) Unfollow(tmdbID int) error {
+	return s.db.Where("tmdb_id = ?", tmdbID).Delete(&Follow{}).Error
+}
+
+// Schedule sets (or clears, with nil) the earliest download time.
+func (s *Service) Schedule(id uint, notBefore *time.Time) error {
+	err := s.db.Model(&Item{}).Where("id = ?", id).Updates(map[string]interface{}{
+		"not_before": notBefore, "status": StatusQueued, "message": "", "next_attempt_at": time.Time{},
+	}).Error
+	s.Kick()
+	return err
 }
 
 func (s *Service) Remove(id uint) error {
@@ -340,17 +402,109 @@ func (s *Service) Pass(ctx context.Context) {
 		return
 	}
 
-	// 2. Start new ones, oldest first.
+	// 2. Followed shows: queue newly announced seasons (once a day).
+	s.checkFollows()
+
+	// 3. Start new ones, oldest first. Scheduled items whose date came are
+	// picked up here too.
 	var next []Item
-	s.db.Where("status IN ? AND next_attempt_at <= ?", []string{StatusQueued, StatusWaiting}, time.Now()).Order("created_at ASC").Find(&next)
+	s.db.Where("status IN ? AND next_attempt_at <= ?", []string{StatusQueued, StatusWaiting, StatusScheduled}, s.now()).Order("created_at ASC").Find(&next)
 	for i := range next {
-		if running >= st.MaxConcurrent || ctx.Err() != nil {
+		if ctx.Err() != nil {
 			return
+		}
+		if s.schedule(&next[i]) {
+			continue // not available yet
+		}
+		if running >= st.MaxConcurrent {
+			continue
 		}
 		if s.process(&next[i], st) {
 			running++
 		}
 	}
+}
+
+func (s *Service) checkFollows() {
+	if s.releases == nil {
+		return
+	}
+	var follows []Follow
+	s.db.Where("checked_at IS NULL OR checked_at < ?", s.now().Add(-24*time.Hour)).Find(&follows)
+	for _, f := range follows {
+		seasons, err := s.releases.Seasons(f.TMDBID)
+		if err != nil {
+			continue
+		}
+		now := s.now()
+		f.CheckedAt = &now
+		s.db.Save(&f)
+		for _, n := range seasons {
+			var count int64
+			s.db.Model(&Item{}).Where("tmdb_id = ? AND media_type = ? AND season = ?", f.TMDBID, "tv", n).Count(&count)
+			if count == 0 {
+				s.db.Create(&Item{TMDBID: f.TMDBID, MediaType: "tv", Season: n, Title: f.Title, PosterPath: f.PosterPath, Status: StatusQueued})
+				log.Printf("⬇️ Auto Download: following %s - queued season %d", f.Title, n)
+			}
+		}
+	}
+}
+
+func fmtDate(t time.Time) string { return t.Local().Format("Jan 2, 2006") }
+
+// schedule: true if the item isn't downloadable yet (and parks it until it is).
+func (s *Service) schedule(it *Item) bool {
+	now := s.now()
+	if it.NotBefore != nil && now.Before(*it.NotBefore) {
+		it.Status, it.Message, it.NextAttemptAt = StatusScheduled, "Scheduled for "+fmtDate(*it.NotBefore), *it.NotBefore
+		s.db.Save(it)
+		return true
+	}
+	if s.releases == nil {
+		return false
+	}
+	// Look the release up (again daily while it's in the future: dates move).
+	if it.ReleaseCheckedAt == nil || (now.Sub(*it.ReleaseCheckedAt) > 24*time.Hour && (it.AvailableAt == nil || now.Before(*it.AvailableAt))) {
+		var (
+			at    time.Time
+			label string
+			err   error
+		)
+		if it.MediaType == "movie" {
+			at, label, err = s.releases.Movie(it.TMDBID)
+		} else {
+			at, label, err = s.releases.Season(it.TMDBID, it.Season)
+		}
+		if err == nil {
+			it.ReleaseCheckedAt = &now
+			it.ReleaseLabel = label
+			if !at.IsZero() {
+				it.AvailableAt = &at
+			} else {
+				it.AvailableAt = nil
+			}
+		}
+	}
+	switch {
+	case it.AvailableAt != nil && now.Before(*it.AvailableAt):
+		it.Status, it.Message = StatusScheduled, fmt.Sprintf("%s · downloads from %s", it.ReleaseLabel, fmtDate(*it.AvailableAt))
+		next := *it.AvailableAt
+		if next.Sub(now) > 24*time.Hour {
+			next = now.Add(24 * time.Hour) // re-check: release dates move
+		}
+		it.NextAttemptAt = next
+	case it.AvailableAt == nil && it.MediaType == "tv" && it.ReleaseLabel != "":
+		// Season or finale not announced yet.
+		it.Status, it.Message, it.NextAttemptAt = StatusScheduled, it.ReleaseLabel+" - checking again in a few days", now.Add(72*time.Hour)
+	default:
+		if it.Status == StatusScheduled {
+			it.Status, it.Message = StatusQueued, ""
+			s.db.Save(it)
+		}
+		return false
+	}
+	s.db.Save(it)
+	return true
 }
 
 func (it *Item) display() string {

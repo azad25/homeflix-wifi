@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Download, RefreshCw, Trash2, RotateCcw, CheckCircle2, Clock, AlertTriangle, Loader2, Library, Settings2, Plus } from "lucide-react";
+import { Download, RefreshCw, Trash2, RotateCcw, CheckCircle2, Clock, AlertTriangle, Loader2, Library, Settings2, Plus, CalendarClock, X, Bell } from "lucide-react";
 import { getApiUrl } from "@/lib/api";
 import { useNavigate } from "@/hooks/useNavigate";
 
@@ -13,7 +13,10 @@ export interface QueueItem {
   title: string;
   year: number;
   poster_path: string;
-  status: "queued" | "waiting" | "downloading" | "completed" | "in_library" | "failed";
+  status: "queued" | "scheduled" | "waiting" | "downloading" | "completed" | "in_library" | "failed";
+  available_at?: string;
+  release_label?: string;
+  not_before?: string;
   message: string;
   release_name: string;
   release_quality: string;
@@ -46,6 +49,7 @@ const gb = (b: number) => `${(b / 1024 ** 3).toFixed(1)} GB`;
 
 const STATUS: Record<QueueItem["status"], { label: string; tone: string; icon: React.ReactNode }> = {
   queued: { label: "Queued", tone: "text-white/60", icon: <Clock className="h-3.5 w-3.5" /> },
+  scheduled: { label: "Scheduled", tone: "text-[#bf9cff]", icon: <CalendarClock className="h-3.5 w-3.5" /> },
   waiting: { label: "Waiting", tone: "text-[#ffd84d]", icon: <Clock className="h-3.5 w-3.5" /> },
   downloading: { label: "Downloading", tone: "text-[#5eadff]", icon: <Loader2 className="h-3.5 w-3.5 animate-spin" /> },
   completed: { label: "Ready to watch", tone: "text-[#5be07f]", icon: <CheckCircle2 className="h-3.5 w-3.5" /> },
@@ -58,7 +62,8 @@ export default function AutoDownloadPanel({ wanted }: { wanted: Wanted[] }) {
   const [items, setItems] = useState<QueueItem[] | null>(null);
   const [settings, setSettings] = useState<any>(null);
   const [busy, setBusy] = useState<string | null>(null);
-  const [seasonPick, setSeasonPick] = useState<{ w: Wanted; seasons: number; chosen: number[] } | null>(null);
+  const [seasonPick, setSeasonPick] = useState<{ w: Wanted; seasons: number; chosen: number[]; follow: boolean } | null>(null);
+  const [follows, setFollows] = useState<{ tmdb_id: number; title: string; poster_path: string }[]>([]);
 
   const load = useCallback(async () => {
     try {
@@ -66,6 +71,7 @@ export default function AutoDownloadPanel({ wanted }: { wanted: Wanted[] }) {
       const d = await r.json();
       setItems(d.items || []);
       setSettings(d.settings);
+      setFollows(d.follows || []);
     } catch {
       setItems((i) => i || []);
     }
@@ -80,13 +86,13 @@ export default function AutoDownloadPanel({ wanted }: { wanted: Wanted[] }) {
   const queued = useMemo(() => new Set((items || []).map((i) => `${i.media_type}-${i.tmdb_id}`)), [items]);
   const notQueued = wanted.filter((w) => !queued.has(`${w.media_type}-${w.tmdb_id}`));
 
-  const add = async (w: Wanted, seasons?: number[]) => {
+  const add = async (w: Wanted, seasons?: number[], follow?: boolean) => {
     setBusy(`${w.media_type}-${w.tmdb_id}`);
     try {
       await fetch(`${getApiUrl()}/api/autodownload`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...w, seasons }),
+        body: JSON.stringify({ ...w, seasons, follow }),
       });
       await load();
     } finally {
@@ -104,8 +110,7 @@ export default function AutoDownloadPanel({ wanted }: { wanted: Wanted[] }) {
     } catch {
       /* default to one season */
     }
-    if (seasons <= 1) return add(w, [1]);
-    setSeasonPick({ w, seasons, chosen: Array.from({ length: seasons }, (_, i) => i + 1) });
+    setSeasonPick({ w, seasons, chosen: Array.from({ length: seasons }, (_, i) => i + 1), follow: true });
   };
 
   const addAll = async () => {
@@ -127,8 +132,22 @@ export default function AutoDownloadPanel({ wanted }: { wanted: Wanted[] }) {
     load();
   };
 
-  const active = (items || []).filter((i) => ["queued", "waiting", "downloading"].includes(i.status));
-  const done = (items || []).filter((i) => !["queued", "waiting", "downloading"].includes(i.status));
+  const live = ["queued", "waiting", "downloading", "scheduled"];
+  const active = (items || []).filter((i) => live.includes(i.status) && i.status !== "scheduled");
+  const scheduled = (items || []).filter((i) => i.status === "scheduled");
+  const done = (items || []).filter((i) => !live.includes(i.status));
+  const schedule = async (id: number, when: string | null) => {
+    await fetch(`${getApiUrl()}/api/autodownload/${id}/schedule`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ not_before: when ? new Date(when).toISOString() : null }),
+    }).catch(() => null);
+    load();
+  };
+  const unfollow = async (tmdbId: number) => {
+    await fetch(`${getApiUrl()}/api/autodownload/follows/${tmdbId}`, { method: "DELETE" }).catch(() => null);
+    load();
+  };
 
   return (
     <div className="space-y-10">
@@ -220,6 +239,10 @@ export default function AutoDownloadPanel({ wanted }: { wanted: Wanted[] }) {
                 );
               })}
             </div>
+            <label className="mt-4 flex items-center gap-2.5 text-[14px] text-white/80">
+              <input type="checkbox" checked={seasonPick.follow} onChange={(e) => setSeasonPick({ ...seasonPick, follow: e.target.checked })} className="h-4 w-4 accent-white" />
+              Also download new seasons when they come out
+            </label>
             <div className="mt-5 flex justify-end gap-2">
               <button type="button" onClick={() => setSeasonPick(null)} className="tv-btn tv-btn-secondary h-10 px-4 text-[14px]">
                 Cancel
@@ -228,7 +251,7 @@ export default function AutoDownloadPanel({ wanted }: { wanted: Wanted[] }) {
                 type="button"
                 disabled={!seasonPick.chosen.length}
                 onClick={() => {
-                  add(seasonPick.w, seasonPick.chosen);
+                  add(seasonPick.w, seasonPick.chosen, seasonPick.follow);
                   setSeasonPick(null);
                 }}
                 className="tv-btn tv-btn-primary h-10 px-4 text-[14px]"
@@ -250,9 +273,35 @@ export default function AutoDownloadPanel({ wanted }: { wanted: Wanted[] }) {
             Nothing waiting. Add titles from My List above, or with the download button on a movie or show.
           </div>
         ) : (
-          <QueueList items={active} onRemove={(id) => act(`/${id}`, "DELETE")} onRetry={(id) => act(`/${id}/retry`, "POST")} />
+          <QueueList items={active} onRemove={(id) => act(`/${id}`, "DELETE")} onRetry={(id) => act(`/${id}/retry`, "POST")} onSchedule={schedule} />
         )}
       </section>
+
+      {scheduled.length > 0 && (
+        <section>
+          <h2 className="mb-1 text-[19px] font-semibold text-white">Scheduled</h2>
+          <p className="mb-3 text-[13px] text-white/50">Not released yet, or set to a later date. They start automatically.</p>
+          <QueueList items={scheduled} onRemove={(id) => act(`/${id}`, "DELETE")} onRetry={(id) => act(`/${id}/retry`, "POST")} onSchedule={schedule} />
+        </section>
+      )}
+
+      {follows.length > 0 && (
+        <section>
+          <h2 className="mb-1 text-[19px] font-semibold text-white">Following</h2>
+          <p className="mb-3 text-[13px] text-white/50">New seasons of these shows are added automatically and download after their finale.</p>
+          <div className="flex flex-wrap gap-2">
+            {follows.map((f) => (
+              <span key={f.tmdb_id} className="flex items-center gap-2 rounded-full bg-white/[0.08] py-1.5 pl-3 pr-1.5 text-[13px] font-semibold text-white">
+                <Bell className="h-3.5 w-3.5 text-white/60" />
+                {f.title}
+                <button type="button" onClick={() => unfollow(f.tmdb_id)} aria-label={`Stop following ${f.title}`} className="rounded-full p-1 text-white/50 hover:bg-white/15 hover:text-white">
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </span>
+            ))}
+          </div>
+        </section>
+      )}
 
       {done.length > 0 && (
         <section>
@@ -264,7 +313,19 @@ export default function AutoDownloadPanel({ wanted }: { wanted: Wanted[] }) {
   );
 }
 
-function QueueList({ items, onRemove, onRetry }: { items: QueueItem[]; onRemove: (id: number) => void; onRetry: (id: number) => void }) {
+function QueueList({
+  items,
+  onRemove,
+  onRetry,
+  onSchedule,
+}: {
+  items: QueueItem[];
+  onRemove: (id: number) => void;
+  onRetry: (id: number) => void;
+  onSchedule?: (id: number, when: string | null) => void;
+}) {
+  const [picking, setPicking] = useState<number | null>(null);
+  const [when, setWhen] = useState("");
   return (
     <div className="divide-y divide-white/[0.07] overflow-hidden rounded-2xl bg-white/[0.045] ring-1 ring-inset ring-white/[0.07]">
       {items.map((it) => {
@@ -302,6 +363,38 @@ function QueueList({ items, onRemove, onRetry }: { items: QueueItem[]; onRemove:
               )}
             </div>
             <div className="flex shrink-0 items-center gap-1">
+              {onSchedule && ["queued", "waiting", "scheduled"].includes(it.status) && (
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPicking(picking === it.id ? null : it.id);
+                      setWhen(it.not_before ? it.not_before.slice(0, 16) : "");
+                    }}
+                    aria-label="Schedule"
+                    title="Download on a date of your choice"
+                    className="flex h-9 w-9 items-center justify-center rounded-full text-white/60 hover:bg-white/10 hover:text-white"
+                  >
+                    <CalendarClock className="h-4 w-4" />
+                  </button>
+                  {picking === it.id && (
+                    <div className="absolute right-0 top-10 z-20 w-64 rounded-xl bg-[#2c2c2e] p-3 shadow-2xl ring-1 ring-white/10">
+                      <p className="mb-2 text-[13px] font-semibold text-white">Don&apos;t download before</p>
+                      <input type="datetime-local" value={when} onChange={(e) => setWhen(e.target.value)} className="h-9 w-full rounded-lg bg-white/[0.08] px-2 text-[13px] text-white [color-scheme:dark]" />
+                      <div className="mt-3 flex justify-end gap-2">
+                        {it.not_before && (
+                          <button type="button" onClick={() => { onSchedule(it.id, null); setPicking(null); }} className="rounded-full px-3 py-1.5 text-[12px] font-semibold text-white/70 hover:bg-white/10">
+                            Clear
+                          </button>
+                        )}
+                        <button type="button" disabled={!when} onClick={() => { onSchedule(it.id, when); setPicking(null); }} className="rounded-full bg-white px-3 py-1.5 text-[12px] font-semibold text-black disabled:opacity-40">
+                          Schedule
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
               {(it.status === "failed" || it.status === "waiting") && (
                 <button type="button" onClick={() => onRetry(it.id)} aria-label="Try again now" title="Try again now" className="flex h-9 w-9 items-center justify-center rounded-full text-white/60 hover:bg-white/10 hover:text-white">
                   <RotateCcw className="h-4 w-4" />

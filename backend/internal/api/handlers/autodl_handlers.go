@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -15,7 +16,7 @@ import (
 func ListAutoDownloads(s *autodl.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.Header("Cache-Control", "no-store")
-		c.JSON(http.StatusOK, gin.H{"items": s.List(), "settings": s.Settings()})
+		c.JSON(http.StatusOK, gin.H{"items": s.List(), "settings": s.Settings(), "follows": s.Follows()})
 	}
 }
 
@@ -126,5 +127,43 @@ func UpdateNotificationPrefs() gin.HandlerFunc {
 			return
 		}
 		c.JSON(http.StatusOK, p)
+	}
+}
+
+// ScheduleAutoDownload — POST /api/autodownload/:id/schedule {"not_before": RFC3339 | null}
+func ScheduleAutoDownload(s *autodl.Service) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id, ok := idParam(c)
+		if !ok {
+			return
+		}
+		var body struct {
+			NotBefore *time.Time `json:"not_before"`
+		}
+		if err := c.ShouldBindJSON(&body); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "not_before must be an RFC3339 time or null"})
+			return
+		}
+		if err := s.Schedule(id, body.NotBefore); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+	}
+}
+
+// UnfollowShow — DELETE /api/autodownload/follows/:tmdb_id
+func UnfollowShow(s *autodl.Service) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id, err := strconv.Atoi(c.Param("tmdb_id"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+			return
+		}
+		if err := s.Unfollow(id); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"ok": true})
 	}
 }

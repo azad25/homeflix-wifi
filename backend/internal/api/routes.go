@@ -489,7 +489,12 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 			notificationService.AddEvent(services.EventNotification{Event: "download_" + kind, Title: title, Message: message,
 				Link: "/my-list?tab=downloads", TMDBID: tmdbID, MediaType: mediaType})
 		})
+		if tmdbService != nil {
+			autoDL.SetReleases(services.AutoDownloadReleases{TMDB: tmdbService})
+		}
 		go autoDL.Run(context.Background())
+		api.POST("/autodownload/:id/schedule", handlers.ScheduleAutoDownload(autoDL))
+		api.DELETE("/autodownload/follows/:tmdb_id", handlers.UnfollowShow(autoDL))
 		api.GET("/autodownload", handlers.ListAutoDownloads(autoDL))
 		api.POST("/autodownload", handlers.AddAutoDownload(autoDL))
 		api.DELETE("/autodownload/:id", handlers.RemoveAutoDownload(autoDL))

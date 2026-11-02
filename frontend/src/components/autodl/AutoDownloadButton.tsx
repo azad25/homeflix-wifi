@@ -62,6 +62,8 @@ export default function AutoDownloadButton({
           year,
           poster_path: posterPath,
           seasons: mediaType === "tv" ? Array.from({ length: Math.max(1, seasons || 1) }, (_, i) => i + 1) : undefined,
+          // Shows: keep following, so new seasons download after their finale.
+          follow: mediaType === "tv",
         }),
       });
       if (res.ok) setStatus("queued");
@@ -71,7 +73,15 @@ export default function AutoDownloadButton({
   };
 
   const label =
-    status === "downloading" ? "Downloading" : status === "completed" || status === "in_library" ? "In Library" : status ? "Queued" : "Auto Download";
+    status === "downloading"
+      ? "Downloading"
+      : status === "completed" || status === "in_library"
+        ? "In Library"
+        : status === "scheduled"
+          ? "Scheduled"
+          : status
+            ? "Queued"
+            : "Auto Download";
   const icon = busy ? (
     <Loader2 className="h-4 w-4 animate-spin" />
   ) : status === "completed" || status === "in_library" ? (
