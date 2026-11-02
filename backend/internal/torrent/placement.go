@@ -130,24 +130,157 @@ func (tc *TorrentClient) dataDirOf(id string) string {
 	return p
 }
 
-// guardFreeSpace runs from the monitor: a download whose drive is almost
-// full is moved to another drive with room and resumed.
-func (tc *TorrentClient) guardFreeSpace() {
+// driveAvailable: the folder exists and isn't an unplugged drive's empty
+// mount point (which would silently be the system disk).
+func driveAvailable(p string) bool {
+	fi, err := os.Stat(p)
+	if err != nil || !fi.IsDir() {
+		return false
+	}
+	clean := filepath.Clean(p)
+	if !strings.HasPrefix(clean, "/media/") && !strings.HasPrefix(clean, "/mnt/") && !strings.HasPrefix(clean, "/run/media/") {
+		return true
+	}
+	if !sameFilesystem(clean, "/") {
+		return true // a real mount
+	}
+	entries, err := os.ReadDir(clean)
+	return err == nil && len(entries) > 0 // a plain folder with content is fine
+}
+
+// usableStoragePaths: storage paths in priority order, unplugged drives left out.
+func (tc *TorrentClient) usableStoragePaths() []string {
+	var out []string
+	for _, p := range tc.getEffectiveStoragePaths() {
+		if driveAvailable(p) {
+			out = append(out, p)
+		} else {
+			log.Printf("⚠️ Storage %s is not available (drive unplugged?) - skipping it", p)
+		}
+	}
+	return out
+}
+
+func gb(b int64) string { return fmt.Sprintf("%.1f GB", float64(b)/(1<<30)) }
+
+// checkSpaceFor fails when no drive can take size bytes and keep its reserve.
+func (tc *TorrentClient) checkSpaceFor(size int64) error {
+	var most int64
+	for _, p := range append(tc.usableStoragePaths(), tc.downloadDir) {
+		if free, _, err := tc.getDiskFree(p); err == nil && int64(free) > most {
+			most = int64(free)
+		}
+	}
+	if most < size+MinFreeBytes {
+		return fmt.Errorf("not enough free space: this download needs %s, the drive with the most room has %s free (HomeFlix keeps %s free on every drive). Free up space or add a drive in Settings > Storage", gb(size), gb(most), gb(MinFreeBytes))
+	}
+	return nil
+}
+
+// pauseForSpace stops a download until a drive has room; the monitor
+// resumes it automatically.
+func (tc *TorrentClient) pauseForSpace(id, why string) {
 	tc.mu.Lock()
-	var full []string
+	t, ok := tc.torrents[id]
+	info := tc.downloads[id]
+	tc.mu.Unlock()
+	if !ok || info == nil {
+		return
+	}
+	_ = t.Stop()
+	tc.mu.Lock()
+	info.Status, info.ETA = "paused", why
+	tc.spaceWait[id] = why
+	tc.mu.Unlock()
+	log.Printf("⏸️ %s: %s", info.Name, why)
+}
+
+// guardFreeSpace runs from the monitor (every 30 s):
+//   - a download whose drive is almost full moves to another drive with
+//     room, or pauses when there is none (never fills a drive to zero);
+//   - a download that won't fit on its drive moves early, while there's
+//     little to copy;
+//   - downloads paused for space resume by themselves once there's room.
+func (tc *TorrentClient) guardFreeSpace() {
+	type item struct {
+		id        string
+		remaining int64
+		waiting   bool
+	}
+	tc.mu.Lock()
+	var items []item
 	for id, info := range tc.downloads {
-		if info.Status != "downloading" || tc.relocating[id] {
+		if tc.relocating[id] {
 			continue
 		}
-		free, _, err := tc.getDiskFree(tc.dataDirOf(id))
-		if err == nil && free < MinFreeBytes {
-			full = append(full, id)
+		var remaining int64
+		if info.Size > 0 {
+			remaining = info.Size - info.Downloaded
+		}
+		switch {
+		case info.Status == "downloading":
+			items = append(items, item{id, remaining, false})
+		case info.Status == "paused" && tc.spaceWait[id] != "":
+			items = append(items, item{id, remaining, true})
 		}
 	}
 	tc.mu.Unlock()
-	for _, id := range full {
-		go tc.relocate(id)
+
+	for _, it := range items {
+		dir := tc.dataDirOf(it.id)
+		f, _, err := tc.getDiskFree(dir)
+		if err != nil {
+			continue
+		}
+		free := int64(f)
+		fitsHere := it.remaining > 0 && free >= it.remaining+MinFreeBytes
+		if it.waiting {
+			if fitsHere {
+				tc.resumeAfterSpace(it.id)
+			} else if it.remaining > 0 && tc.otherDriveFits(dir, dirSize(dir)+it.remaining) {
+				go tc.relocate(it.id)
+			}
+			continue
+		}
+		switch {
+		case free < MinFreeBytes:
+			go tc.relocate(it.id) // moves, or pauses when no drive has room
+		case it.remaining > 0 && !fitsHere && tc.otherDriveFits(dir, dirSize(dir)+it.remaining):
+			log.Printf("📦 %s won't fit on its drive (%s left, %s free) - moving it now", it.id, gb(it.remaining), gb(free))
+			go tc.relocate(it.id)
+		}
 	}
+}
+
+func (tc *TorrentClient) otherDriveFits(current string, need int64) bool {
+	for _, p := range tc.usableStoragePaths() {
+		if sameFilesystem(p, current) {
+			continue
+		}
+		if free, _, err := tc.getDiskFree(p); err == nil && int64(free) >= need+MinFreeBytes {
+			return true
+		}
+	}
+	return false
+}
+
+func (tc *TorrentClient) resumeAfterSpace(id string) {
+	tc.mu.Lock()
+	t, ok := tc.torrents[id]
+	info := tc.downloads[id]
+	tc.mu.Unlock()
+	if !ok || info == nil {
+		return
+	}
+	if err := t.Start(); err != nil {
+		log.Printf("⚠️ resume after space freed: %v", err)
+		return
+	}
+	tc.mu.Lock()
+	delete(tc.spaceWait, id)
+	info.Status, info.ETA = "downloading", "Resumed - space available"
+	tc.mu.Unlock()
+	log.Printf("▶️ %s: space available again, resumed", info.Name)
 }
 
 // relocate stops a download, moves its partial data to the drive with the
@@ -162,7 +295,9 @@ func (tc *TorrentClient) relocate(id string) {
 	}
 	tc.relocating[id] = true
 	remaining := info.Size - info.Downloaded
-	info.ETA = "Drive full - moving to another drive"
+	if remaining < 0 || info.Size == 0 {
+		remaining = 0
+	}
 	tc.mu.Unlock()
 	defer func() {
 		tc.mu.Lock()
@@ -172,22 +307,23 @@ func (tc *TorrentClient) relocate(id string) {
 
 	src := tc.dataDirOf(id)
 	used := dirSize(src)
-	storage := tc.selectBestStoragePath(used + remaining + MinFreeBytes)
-	if storage == "" || sameFilesystem(storage, src) {
-		log.Printf("⚠️ %s: drive full and no other drive has room - pausing", info.Name)
-		_ = t.Stop()
-		tc.mu.Lock()
-		info.Status, info.ETA = "paused", "Paused: all drives are full"
-		tc.mu.Unlock()
+	storage := tc.selectBestStoragePath(used + remaining)
+	free := int64(0)
+	if storage != "" {
+		if f, _, err := tc.getDiskFree(storage); err == nil {
+			free = int64(f)
+		}
+	}
+	if storage == "" || sameFilesystem(storage, src) || free < used+remaining+MinFreeBytes {
+		if free, _, err := tc.getDiskFree(src); err == nil && int64(free) >= MinFreeBytes && (remaining == 0 || int64(free) >= remaining+MinFreeBytes) {
+			return // fine where it is after all
+		}
+		tc.pauseForSpace(id, fmt.Sprintf("Paused: all drives are full (needs %s more) - resumes when space frees up", gb(remaining)))
 		return
 	}
-	if free, _, err := tc.getDiskFree(storage); err != nil || int64(free) < used+remaining+MinFreeBytes {
-		_ = t.Stop()
-		tc.mu.Lock()
-		info.Status, info.ETA = "paused", "Paused: all drives are full"
-		tc.mu.Unlock()
-		return
-	}
+	tc.mu.Lock()
+	info.ETA = "Drive full - moving to another drive"
+	tc.mu.Unlock()
 
 	log.Printf("📦 %s: drive full, moving %.1f GB of partial data to %s", info.Name, float64(used)/(1<<30), storage)
 	if err := t.Stop(); err != nil {
@@ -223,7 +359,8 @@ func (tc *TorrentClient) relocate(id string) {
 		log.Printf("⚠️ relocate: restart failed: %v", err)
 	}
 	tc.mu.Lock()
-	info.ETA = "Moved to " + storage
+	delete(tc.spaceWait, id)
+	info.Status, info.ETA = "downloading", "Moved to "+storage
 	tc.mu.Unlock()
 	log.Printf("✅ %s now downloading on %s", info.Name, storage)
 }

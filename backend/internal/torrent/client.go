@@ -37,7 +37,8 @@ type StatusCallback func(torrentID string, status string, progress float64, size
 type TorrentClient struct {
 	session            *raintorrent.Session
 	downloads          map[string]*DownloadInfo
-	relocating         map[string]bool // downloads being moved to another drive
+	relocating         map[string]bool   // downloads being moved to another drive
+	spaceWait          map[string]string // paused for lack of space: reason shown as ETA
 	torrents           map[string]*raintorrent.Torrent
 	mu                 sync.RWMutex
 	downloadDir        string
@@ -158,6 +159,7 @@ func NewTorrentClient(downloadDir string, mediaScanner MediaScannerInterface, st
 		session:            session,
 		downloads:          make(map[string]*DownloadInfo),
 		relocating:         make(map[string]bool),
+		spaceWait:          make(map[string]string),
 		torrents:           make(map[string]*raintorrent.Torrent),
 		downloadDir:        downloadDir,
 		mediaScanner:       mediaScanner,
@@ -250,9 +252,8 @@ func (tc *TorrentClient) getEffectiveStoragePaths() []string {
 }
 
 func (tc *TorrentClient) getDiskFree(path string) (free uint64, total uint64, err error) {
-	if _, statErr := os.Stat(path); os.IsNotExist(statErr) {
-		_ = os.MkdirAll(path, 0755)
-	}
+	// Never create a missing folder here: for an unplugged drive that would
+	// put the folder (and then downloads) on the system disk.
 	var stat syscall.Statfs_t
 	if err = syscall.Statfs(path, &stat); err != nil {
 		return 0, 0, err
@@ -263,49 +264,43 @@ func (tc *TorrentClient) getDiskFree(path string) (free uint64, total uint64, er
 }
 
 func (tc *TorrentClient) selectBestStoragePath(requiredBytes int64) string {
-	paths := tc.getEffectiveStoragePaths()
-	// Filter to only primary paths for permanent storage (or all if none marked primary)
-	// For now use whatever is provided - caller ensures they are primary/active
+	// Paths come in priority order (highest first). A drive must keep
+	// MinFreeBytes free after the download; unplugged drives are skipped.
+	paths := tc.usableStoragePaths()
 	if len(paths) == 0 {
-		// Fallback to downloadDir's parent if no storage paths configured
 		return ""
 	}
-
-	var bestPath string
-	var bestFree uint64
-	var fallbackPath string
-	var fallbackFree uint64
-
+	var mostFree string
+	var mostFreeBytes uint64
 	for _, p := range paths {
 		free, _, err := tc.getDiskFree(p)
 		if err != nil {
-			log.Printf("⚠️ Cannot stat storage path %s: %v", p, err)
 			continue
 		}
-		if free > fallbackFree {
-			fallbackFree = free
-			fallbackPath = p
-		}
-		if requiredBytes > 0 && int64(free) < requiredBytes {
-			continue
-		}
-		if free > bestFree {
-			bestFree = free
-			bestPath = p
+		if free > mostFreeBytes {
+			mostFree, mostFreeBytes = p, free
 		}
 	}
-
-	if bestPath != "" {
-		if requiredBytes > 0 {
-			log.Printf("📁 Selected storage for %d bytes: %s (free: %.1f GB)", requiredBytes, bestPath, float64(bestFree)/(1024*1024*1024))
+	if requiredBytes > 0 {
+		// Highest-priority drive that fits it.
+		for _, p := range paths {
+			if free, _, err := tc.getDiskFree(p); err == nil && int64(free) >= requiredBytes+MinFreeBytes {
+				log.Printf("📁 Selected storage for %.1f GB: %s (free: %.1f GB)", float64(requiredBytes)/(1<<30), p, float64(free)/(1<<30))
+				return p
+			}
 		}
-		return bestPath
+		if mostFree != "" {
+			log.Printf("⚠️ No drive can fit %.1f GB, using the one with most room: %s (free: %.1f GB)", float64(requiredBytes)/(1<<30), mostFree, float64(mostFreeBytes)/(1<<30))
+		}
+		return mostFree
 	}
-	if fallbackPath != "" {
-		log.Printf("⚠️ No storage can fit %d bytes, using largest: %s (free: %.1f GB)", requiredBytes, fallbackPath, float64(fallbackFree)/(1024*1024*1024))
-		return fallbackPath
+	// Size unknown: highest-priority drive with comfortable room, else most free.
+	for _, p := range paths {
+		if free, _, err := tc.getDiskFree(p); err == nil && int64(free) >= 4*MinFreeBytes {
+			return p
+		}
 	}
-	return ""
+	return mostFree
 }
 
 func extractInfoHashFromMagnet(magnetURI string) string {
@@ -1135,6 +1130,13 @@ func (tc *TorrentClient) AddMagnetSized(magnetURI string, sizeHint int64) (*Down
 		return nil, fmt.Errorf("maximum active downloads reached (%d/%d). Please wait for some downloads to complete or pause/remove existing downloads", activeCount, tc.maxDownloads)
 	}
 
+	// Refuse up front when no drive can hold it.
+	if sizeHint > 0 {
+		if err := tc.checkSpaceFor(sizeHint); err != nil {
+			return nil, err
+		}
+	}
+
 	// Add stopped, choose the drive, then start (nothing is written before).
 	t, err := tc.session.AddURI(magnetURI, &raintorrent.AddTorrentOptions{Stopped: true})
 	if err != nil {
@@ -1408,6 +1410,7 @@ func (tc *TorrentClient) ResumeDownload(id string) error {
 	}
 
 	// Set downloading state
+	delete(tc.spaceWait, id)
 	download.Status = "downloading"
 	download.ETA = "Resuming..."
 
@@ -1544,6 +1547,9 @@ func (tc *TorrentClient) updateDownloadStats() {
 				downloadInfo.Seeders = 0
 				downloadInfo.Peers = 0
 				downloadInfo.ETA = "Paused"
+				if why := tc.spaceWait[downloadID]; why != "" {
+					downloadInfo.ETA = why
+				}
 
 				// Debug logging for paused torrents
 				log.Printf("⏸️ Paused torrent %s: %.1f%% complete",

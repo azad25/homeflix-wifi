@@ -82,3 +82,46 @@ func TestCopyTree(t *testing.T) {
 		t.Fatalf("size %d", dirSize(dst))
 	}
 }
+
+func TestStorageSelectionHonoursPriorityAndSkipsMissingDrives(t *testing.T) {
+	a, b := t.TempDir(), otherDrive(t)
+	missing := "/mnt/hfx-unplugged-drive-test"
+	tc := &TorrentClient{downloadDir: a, storagePaths: []string{missing, b, a}}
+	if _, err := os.Stat(missing); err == nil {
+		t.Skip("test mount point exists")
+	}
+	got := tc.selectBestStoragePath(1 << 20)
+	if got == missing {
+		t.Fatal("picked an unplugged drive")
+	}
+	if _, err := os.Stat(missing); err == nil {
+		t.Fatal("created a folder for a missing drive")
+	}
+	// b comes first (higher priority): chosen whenever it has room.
+	want := a
+	if free, _, _ := tc.getDiskFree(b); int64(free) >= 1<<20+MinFreeBytes {
+		want = b
+	}
+	if got != want {
+		t.Fatalf("picked %s, want %s", got, want)
+	}
+}
+
+func TestCheckSpaceRefusesWhatFitsNowhere(t *testing.T) {
+	tc := &TorrentClient{downloadDir: t.TempDir()}
+	if err := tc.checkSpaceFor(1 << 50); err == nil {
+		t.Fatal("1 PB download accepted")
+	}
+	if err := tc.checkSpaceFor(1 << 20); err != nil {
+		t.Fatalf("1 MB refused: %v", err)
+	}
+}
+
+func TestDriveAvailable(t *testing.T) {
+	if driveAvailable("/mnt/hfx-unplugged-drive-test") {
+		t.Fatal("missing drive reported available")
+	}
+	if !driveAvailable(t.TempDir()) {
+		t.Fatal("temp dir reported unavailable")
+	}
+}
