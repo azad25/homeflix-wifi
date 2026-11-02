@@ -32,7 +32,7 @@ func Gzip() gin.HandlerFunc {
 			r.Header.Get("Range") != "" ||
 			strings.EqualFold(r.Header.Get("Connection"), "upgrade") || r.Header.Get("Upgrade") != "" ||
 			strings.HasPrefix(r.URL.Path, "/api/stream/") || strings.HasPrefix(r.URL.Path, "/api/hls/") ||
-			strings.HasPrefix(r.URL.Path, "/api/livetv/p/") {
+			strings.HasPrefix(r.URL.Path, "/api/livetv/p/") || r.URL.Path == "/api/buzz/stream" {
 			c.Next()
 			return
 		}

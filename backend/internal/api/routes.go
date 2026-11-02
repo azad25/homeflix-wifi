@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"homeflix-backend/internal/services/autodl"
+	"homeflix-backend/internal/services/buzz"
 	"homeflix-backend/internal/services/cloud"
 	"homeflix-backend/internal/services/livetv"
 	"log"
@@ -356,6 +357,13 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 
 		// Personalised recommendations learned from watch history
 		tasteService := services.NewTasteService(db)
+		// Entertainment news + videos personalised with the taste profile
+		buzzService := buzz.NewService()
+		go buzzService.Run(context.Background())
+		api.GET("/buzz", handlers.GetBuzz(buzzService, tasteService))
+		api.GET("/buzz/stream", handlers.BuzzStream(buzzService))
+		api.GET("/admin/buzz/health", handlers.BuzzHealth(buzzService))
+		api.POST("/admin/buzz/refresh", handlers.RefreshBuzz(buzzService))
 		api.GET("/recommendations/for-you", handlers.GetForYouRecommendations(tasteService))
 		api.GET("/recommendations/more-like/:kind/:id", handlers.GetMoreLikeThis(tasteService))
 		// Thumbs ratings (kind = movie | series) that steer the recommendations above.

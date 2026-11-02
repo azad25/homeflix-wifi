@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:media="http://search.yahoo.com/mrss/">
+<channel><title>Variety</title>
+<item>
+  <title>Tom Hardy Joins &#8216;Mad Max&#8217; Prequel Sequel</title>
+  <link>https://variety.com/2026/film/news/tom-hardy-mad-max-1/</link>
+  <guid isPermaLink="false">https://variety.com/?p=1</guid>
+  <pubDate>Mon, 02 Nov 2026 10:00:00 +0000</pubDate>
+  <description><![CDATA[<p>The actor returns to the <b>wasteland</b>.</p>]]></description>
+  <media:content url="https://variety.com/img/hardy.jpg" medium="image" />
+</item>
+<item>
+  <title>Box office: a quiet weekend</title>
+  <link>https://variety.com/2026/film/box-office/weekend/</link>
+  <pubDate>Sun, 01 Nov 2026 18:00:00 +0000</pubDate>
+  <description>Nothing big opened.</description>
+  <content:encoded><![CDATA[<img src="https://variety.com/img/bo.jpg" /> More text]]></content:encoded>
+</item>
+<item>
+  <title>Tom Cruise talks stunts</title>
+  <link>https://variety.com/2026/film/news/cruise/</link>
+  <pubDate>Sun, 01 Nov 2026 12:00:00 +0000</pubDate>
+  <description>Unrelated to anyone you watch.</description>
+</item>
+</channel></rss>

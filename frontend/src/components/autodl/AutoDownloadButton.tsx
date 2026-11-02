@@ -5,6 +5,15 @@ import { CheckCircle2, Clock, Loader2, Sparkles } from "lucide-react";
 import { getApiUrl } from "@/lib/api";
 import { useNavigate } from "@/hooks/useNavigate";
 
+// One shared request for every button on the page (e.g. a Coming Soon shelf).
+let snapshot: { at: number; p: Promise<any> } | null = null;
+const queueSnapshot = () => {
+  if (!snapshot || Date.now() - snapshot.at > 5000) {
+    snapshot = { at: Date.now(), p: fetch(`${getApiUrl()}/api/autodownload`, { cache: "no-store" }).then((r) => r.json()) };
+  }
+  return snapshot.p;
+};
+
 /** Queue a title for Auto Download (finds a release matching the quality profile). */
 export default function AutoDownloadButton({
   tmdbId,
@@ -29,8 +38,7 @@ export default function AutoDownloadButton({
 
   useEffect(() => {
     let alive = true;
-    fetch(`${getApiUrl()}/api/autodownload`, { cache: "no-store" })
-      .then((r) => r.json())
+    queueSnapshot()
       .then((d) => {
         if (!alive) return;
         const mine = (d.items || []).filter((i: any) => i.tmdb_id === tmdbId && i.media_type === mediaType);
@@ -66,7 +74,10 @@ export default function AutoDownloadButton({
           follow: mediaType === "tv",
         }),
       });
-      if (res.ok) setStatus("queued");
+      if (res.ok) {
+        setStatus("queued");
+        snapshot = null;
+      }
     } finally {
       setBusy(false);
     }

@@ -7,6 +7,7 @@ import { Notification } from '@/types/notifications';
 import NotificationTile from '@/components/notifications/NotificationTile';
 import { useRouter } from 'next/navigation';
 import EventsPanel, { EventNotification, isEventNotification } from '@/components/notifications/EventsPanel';
+import BuzzHub from '@/components/buzz/BuzzHub';
 import Navbar from '@/components/Navbar';
 import '@/styles/notifications.css';
 
@@ -312,12 +313,9 @@ const NotificationsPage: React.FC = () => {
       fetchNotifications();
     }, 120000); // 2 minutes
 
-    // Prevent body scroll
-    document.body.style.overflow = 'hidden';
-
+    // The page scrolls now: live mosaic on top, news and videos below.
     return () => {
       mountedRef.current = false;
-      document.body.style.overflow = '';
       clearInterval(refreshInterval);
     };
   }, [fetchNotifications, loadCachedNotifications]);
@@ -942,10 +940,14 @@ const NotificationsPage: React.FC = () => {
   }, []);
 
   return (
-    <div className="fixed inset-0 bg-black overflow-hidden">
+    <div className="min-h-screen bg-black">
       <Navbar />
-      <div className="absolute inset-0 overflow-hidden bg-black" style={{ top: '64px' }}>
-        {/* Solid black background */}
+      {/* Live mosaic: tiles keep morphing and playing trailers */}
+      <section
+        className={`relative overflow-hidden bg-black transition-[height] duration-500 ${notifications.length === 0 && feedLoaded ? 'h-[240px]' : 'h-[68vh] min-h-[440px]'}`}
+        style={{ marginTop: '64px' }}
+        aria-label="Live activity"
+      >
         <div className="absolute inset-0 bg-black" />
 
         <EventsPanel events={events} />
@@ -1018,8 +1020,20 @@ const NotificationsPage: React.FC = () => {
           </AnimatePresence>
         </div>
 
+        {/* Title over a fade into the page below */}
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-40 h-40 bg-gradient-to-t from-black via-black/70 to-transparent" />
+        <div className="pointer-events-none absolute bottom-6 left-0 z-40 tv-gutter">
+          <h1 className="flex items-center gap-3 text-[34px] font-bold tracking-[-0.03em] text-white md:text-5xl">
+            What&apos;s New
+            <span className="flex items-center gap-1.5 rounded-full bg-[#ff453a]/15 px-2.5 py-1 text-[12px] font-bold tracking-normal text-[#ff6961]">
+              <span className="h-2 w-2 animate-pulse rounded-full bg-[#ff453a]" /> LIVE
+            </span>
+          </h1>
+          <p className="mt-1 text-[15px] text-white/60">Your library, trailers, news about the stars you watch and server updates.</p>
+        </div>
+
         {/* Empty state */}
-        {notifications.length === 0 && (
+        {notifications.length === 0 && !feedLoaded && (
           <div className="absolute inset-0 flex items-center justify-center z-30">
             <div className="text-center">
               {feedLoaded ? (
@@ -1037,7 +1051,9 @@ const NotificationsPage: React.FC = () => {
             </div>
           </div>
         )}
-      </div>
+      </section>
+
+      <BuzzHub />
     </div>
   );
 };

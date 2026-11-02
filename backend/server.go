@@ -276,7 +276,8 @@ func main() {
 		if strings.HasPrefix(c.Request.URL.Path, "/api/stream/") || strings.HasPrefix(c.Request.URL.Path, "/api/cast/") ||
 			strings.HasPrefix(c.Request.URL.Path, "/api/app/tv/download/") || c.Request.URL.Path == "/api/admin/app/tv/upload" ||
 			c.Request.URL.Path == "/api/admin/app/tv/fetch" ||
-			strings.HasPrefix(c.Request.URL.Path, "/api/livetv/p/") {
+			strings.HasPrefix(c.Request.URL.Path, "/api/livetv/p/") ||
+			c.Request.URL.Path == "/api/buzz/stream" {
 			c.Next()
 			return
 		}

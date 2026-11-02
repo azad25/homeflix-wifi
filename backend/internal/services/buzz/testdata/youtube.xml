@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns:yt="http://www.youtube.com/xml/schemas/2015" xmlns:media="http://search.yahoo.com/mrss/" xmlns="http://www.w3.org/2005/Atom">
+ <title>Rotten Tomatoes Trailers</title>
+ <entry>
+  <id>yt:video:abcDEF12345</id>
+  <yt:videoId>abcDEF12345</yt:videoId>
+  <title>Venom 4 - Official Trailer (2027) Tom Hardy</title>
+  <link rel="alternate" href="https://www.youtube.com/watch?v=abcDEF12345"/>
+  <published>2026-11-02T08:00:00+00:00</published>
+  <media:group>
+   <media:title>Venom 4 - Official Trailer</media:title>
+   <media:thumbnail url="https://i2.ytimg.com/vi/abcDEF12345/hqdefault.jpg" width="480" height="360"/>
+   <media:description>Check out the trailer.</media:description>
+  </media:group>
+ </entry>
+</feed>
