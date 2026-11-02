@@ -19,6 +19,8 @@ type SearchResult struct {
 	Source    string `json:"source"`
 	Category  string `json:"category"`
 	Verified  bool   `json:"verified"`
+	// Exact size when the source reports it (Jackett); 0 otherwise.
+	SizeBytes int64 `json:"size_bytes,omitempty"`
 }
 
 type JackettResult struct {
@@ -193,6 +195,7 @@ func (ts *TorrentSearcher) searchJackett(query string) ([]SearchResult, error) {
 			Source:    jr.Tracker,
 			Category:  jr.CategoryDesc,
 			Verified:  jr.Seeders > 10, // Lower threshold for verified
+			SizeBytes: jr.Size,
 		}
 		results = append(results, result)
 	}

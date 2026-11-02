@@ -6,6 +6,7 @@ import { getApiUrl } from '@/lib/api';
 import { Notification } from '@/types/notifications';
 import NotificationTile from '@/components/notifications/NotificationTile';
 import { useRouter } from 'next/navigation';
+import EventsPanel, { EventNotification, isEventNotification } from '@/components/notifications/EventsPanel';
 import Navbar from '@/components/Navbar';
 import '@/styles/notifications.css';
 
@@ -33,6 +34,8 @@ interface TileConfig {
 const NotificationsPage: React.FC = () => {
   const router = useRouter();
   const [notifications, setNotifications] = useState<Notification[]>([]);
+  // Server/download events: listed in a panel, not as artwork tiles.
+  const [events, setEvents] = useState<EventNotification[]>([]);
   // Distinguishes "still loading" from "loaded, nothing to show" (the empty
   // state used to say "Loading" forever when there were no notifications).
   const [feedLoaded, setFeedLoaded] = useState(false);
@@ -227,7 +230,9 @@ const NotificationsPage: React.FC = () => {
       if (response.ok) {
         const data = await response.json();
         if (mountedRef.current) {
-          const rawNotifications = data.notifications || [];
+          const all = data.notifications || [];
+          setEvents(all.filter(isEventNotification));
+          const rawNotifications = all.filter((n: any) => !isEventNotification(n));
 
           console.log('📥 Fetched', rawNotifications.length, 'notifications');
 
@@ -942,6 +947,8 @@ const NotificationsPage: React.FC = () => {
       <div className="absolute inset-0 overflow-hidden bg-black" style={{ top: '64px' }}>
         {/* Solid black background */}
         <div className="absolute inset-0 bg-black" />
+
+        <EventsPanel events={events} />
 
         {/* Notification Tiles - Fill entire viewport */}
         <div className="absolute inset-0 z-20">

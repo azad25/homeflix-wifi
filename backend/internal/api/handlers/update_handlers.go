@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"sync"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -153,17 +154,21 @@ func newerRelease(current string, branches []string) string {
 // CheckUpdate compares the local checkout with the remote branch.
 // Auto-discovers the current branch and its origin counterpart.
 func CheckUpdate() gin.HandlerFunc {
-	return func(c *gin.Context) {
+	return func(c *gin.Context) { c.JSON(http.StatusOK, ComputeUpdateCheck()) }
+}
+
+// ComputeUpdateCheck fetches the remote and reports what an update would
+// do (also used by the background update notifier).
+func ComputeUpdateCheck() gin.H {
+	{
 		repoRoot, _, _, err := updatePaths()
 		if err != nil {
-			c.JSON(http.StatusOK, gin.H{"ok": false, "error": err.Error()})
-			return
+			return gin.H{"ok": false, "error": err.Error()}
 		}
 
 		branch, err := runGitCmd(repoRoot, 10*time.Second, "rev-parse", "--abbrev-ref", "HEAD")
 		if err != nil || branch == "" || branch == "HEAD" {
-			c.JSON(http.StatusOK, gin.H{"ok": false, "error": "detached HEAD or unknown branch; update requires a tracking branch"})
-			return
+			return gin.H{"ok": false, "error": "detached HEAD or unknown branch; update requires a tracking branch"}
 		}
 
 		// Refresh remote refs (tolerate offline: fall back to last fetched state).
@@ -175,8 +180,7 @@ func CheckUpdate() gin.HandlerFunc {
 
 		remoteRef := "origin/" + branch
 		if _, err := runGitCmd(repoRoot, 10*time.Second, "rev-parse", "--verify", remoteRef); err != nil {
-			c.JSON(http.StatusOK, gin.H{"ok": false, "error": fmt.Sprintf("no remote branch %s (fetch error: %s)", remoteRef, fetchErr)})
-			return
+			return gin.H{"ok": false, "error": fmt.Sprintf("no remote branch %s (fetch error: %s)", remoteRef, fetchErr)}
 		}
 
 		behind := 0
@@ -214,7 +218,7 @@ func CheckUpdate() gin.HandlerFunc {
 			}
 		}
 
-		c.JSON(http.StatusOK, gin.H{
+		return gin.H{
 			"ok":               true,
 			"branch":           branch,
 			"releases":         releases,
@@ -227,7 +231,7 @@ func CheckUpdate() gin.HandlerFunc {
 			"dirty":            len(dirtyFiles) > 0,
 			"dirty_files":      dirtyFiles,
 			"fetch_error":      fetchErr,
-		})
+		}
 	}
 }
 
@@ -370,6 +374,21 @@ func FinalizeUpdateAfterRestart() {
 	finalizeUpdateStatusFile(statusFile)
 }
 
+var (
+	finalizedMu      sync.Mutex
+	finalizedMessage string
+)
+
+// TakeFinalizedUpdate returns (once) what the update that just finished
+// installed, e.g. "12 commit(s) pulled on release/v5.5 abc123 ...".
+func TakeFinalizedUpdate() (string, bool) {
+	finalizedMu.Lock()
+	defer finalizedMu.Unlock()
+	m := finalizedMessage
+	finalizedMessage = ""
+	return m, m != ""
+}
+
 func finalizeUpdateStatusFile(statusFile string) {
 	data, err := os.ReadFile(statusFile)
 	if err != nil {
@@ -390,6 +409,9 @@ func finalizeUpdateStatusFile(statusFile string) {
 	st["phase"] = "done"
 	st["message"] = done
 	writeUpdateStatus(statusFile, st)
+	finalizedMu.Lock()
+	finalizedMessage = msg
+	finalizedMu.Unlock()
 	log.Printf("✅ Update finalized after restart: %s", done)
 }
 

@@ -160,6 +160,12 @@ func NewTorrentHandler(db *gorm.DB, mediaScanner MediaScannerInterface, notifica
 					}
 				}()
 				
+				// Auto Download reports its own downloads ("... is ready to watch").
+				var auto int64
+				if db.Table("auto_download_items").Where("torrent_id = ?", id).Count(&auto).Error == nil && auto > 0 {
+					return
+				}
+
 				// Try to find the media ID from database
 				var media struct {
 					ID uint
@@ -437,39 +443,53 @@ func (h *TorrentHandler) StartDownload(c *gin.Context) {
 	
 	log.Printf("📥 Download request: Title=%s, Type=%s, Quality=%s", req.Title, req.MediaType, req.Quality)
 
-	// Start download
-	downloadInfo, err := h.client.AddMagnet(req.MagnetURI)
+	downloadInfo, err := h.Enqueue(req.MagnetURI, req.Title, req.MediaType, req.TMDBId, req.Quality)
 	if err != nil {
-		log.Printf("❌ Failed to add magnet: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	
-	log.Printf("✅ Magnet added successfully: %s", downloadInfo.ID)
+	c.JSON(http.StatusOK, downloadInfo)
+}
 
-	// Save to database
-	torrentDownload := models.TorrentDownload{
-		TorrentID: downloadInfo.ID,
-		Name:      req.Title,
-		MagnetURI: req.MagnetURI,
-		Status:    downloadInfo.Status,
-		Progress:  downloadInfo.Progress,
-		Size:      downloadInfo.Size,
-		Downloaded: downloadInfo.Downloaded,
-		SavePath:  downloadInfo.SavePath,
-		MediaType: req.MediaType,
-		TMDBId:    req.TMDBId,
-		Quality:   req.Quality,
+// Enqueue starts a torrent and records it (used by the API and by
+// Auto Download). Returns the started download.
+func (h *TorrentHandler) Enqueue(magnet, title, mediaType string, tmdbID int, quality string) (*torrent.DownloadInfo, error) {
+	if h == nil || h.client == nil || h.db == nil {
+		return nil, fmt.Errorf("torrent client not initialized")
 	}
-
+	downloadInfo, err := h.client.AddMagnet(magnet)
+	if err != nil {
+		log.Printf("❌ Failed to add magnet: %v", err)
+		return nil, err
+	}
+	torrentDownload := models.TorrentDownload{
+		TorrentID:  downloadInfo.ID,
+		Name:       title,
+		MagnetURI:  magnet,
+		Status:     downloadInfo.Status,
+		Progress:   downloadInfo.Progress,
+		Size:       downloadInfo.Size,
+		Downloaded: downloadInfo.Downloaded,
+		SavePath:   downloadInfo.SavePath,
+		MediaType:  mediaType,
+		TMDBId:     tmdbID,
+		Quality:    quality,
+	}
 	if err := h.db.Create(&torrentDownload).Error; err != nil {
 		log.Printf("❌ Failed to save to database: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save download info"})
-		return
+		return nil, fmt.Errorf("failed to save download info")
 	}
-	
-	log.Printf("✅ Download saved to database successfully")
-	c.JSON(http.StatusOK, downloadInfo)
+	log.Printf("✅ Download started: %s (%s)", title, downloadInfo.ID)
+	return downloadInfo, nil
+}
+
+// SearchReal searches the configured indexer without demo fallbacks.
+func (h *TorrentHandler) SearchReal(query string) ([]torrent.SearchResult, error) {
+	var cfg models.TorrentConfig
+	if err := h.db.First(&cfg).Error; err != nil {
+		return nil, torrent.ErrNoIndexer
+	}
+	return torrent.NewTorrentSearcher(cfg.JackettURL, cfg.JackettAPIKey, cfg.MinSeeders).SearchReal(query)
 }
 
 // Get all downloads with pagination and search

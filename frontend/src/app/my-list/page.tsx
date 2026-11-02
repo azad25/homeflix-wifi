@@ -1,6 +1,7 @@
 "use client";
 
 import { TVPageHeader, TVPageShell, TVSegmented, TVGridSkeleton } from '@/components/tv/TVPage';
+import AutoDownloadPanel, { Wanted } from '@/components/autodl/AutoDownloadPanel';
 import React, { useState, useEffect } from "react";
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { Play, Info, Trash2, Heart, Film, Tv, Download, CheckCircle, Pause, AlertCircle, FolderOpen, Plus, Grid3X3, Edit, X, RotateCcw } from 'lucide-react';
@@ -99,6 +100,11 @@ export default function MyListPage() {
   const navigate = useNavigate();
   
   const [activeTab, setActiveTab] = useState<TabType>('watchlist');
+  // Deep links from notifications: /my-list?tab=downloads
+  useEffect(() => {
+    const t = new URLSearchParams(window.location.search).get('tab');
+    if (t === 'downloads' || t === 'collections' || t === 'watchlist') setActiveTab(t);
+  }, []);
   const [watchlist, setWatchlist] = useState<Media[]>([]);
   const [filteredList, setFilteredList] = useState<Media[]>([]);
   const [filterType, setFilterType] = useState<string>("all");
@@ -690,6 +696,17 @@ export default function MyListPage() {
     }
   };
 
+  // My List titles that aren't in the library (stored as "9" + TMDB id).
+  const wantedFromList: Wanted[] = watchlist
+    .filter((m: any) => m.tmdb_id && String(m.id).startsWith('9') && !m.file_path)
+    .map((m: any) => ({
+      tmdb_id: m.tmdb_id,
+      media_type: m.media_type === 'tv' || m.type === 'episode' || m.type === 'tv' ? 'tv' : 'movie',
+      title: m.title,
+      year: typeof m.year === 'number' ? m.year : undefined,
+      poster_path: m.poster_path || undefined,
+    }));
+
   const DownloadingMediaCard: React.FC<{ media: DownloadingMedia }> = ({ media }) => {
     const { downloadInfo } = media;
     const progress = downloadInfo.progress || 0;
@@ -977,27 +994,15 @@ export default function MyListPage() {
 
         {activeTab === 'downloads' && (
           <>
+            <AutoDownloadPanel wanted={wantedFromList} />
+            {downloadingMedia.length > 0 && <h2 className="mb-3 mt-10 text-[19px] font-semibold text-white">Active Torrents</h2>}
             {downloadingMedia.length > 0 ? (
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-8 gap-4">
                 {downloadingMedia.map((media) => (
                   <DownloadingMediaCard key={`download-${media.id}`} media={media} />
                 ))}
               </div>
-            ) : (
-              <div className="text-center py-16">
-                <Download className="w-16 h-16 text-gray-600 mx-auto mb-4" />
-                <h3 className="text-xl text-white mb-2">No active downloads</h3>
-                <p className="text-gray-400 mb-6">
-                  Your downloads will appear here when you start downloading content
-                </p>
-                <MagneticButton
-                  onClick={() => router.push('/browse')}
-                  className="bg-[#f5f5f7] hover:bg-white text-black px-6 py-3 rounded-lg font-semibold"
-                >
-                  Browse Content
-                </MagneticButton>
-              </div>
-            )}
+            ) : null}
           </>
         )}
 

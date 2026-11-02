@@ -7,6 +7,7 @@ export type SectionId =
   | "library"
   | "subtitles"
   | "downloads"
+  | "autodownload"
   | "maintenance"
   | "storage"
   | "updates"
@@ -15,6 +16,7 @@ export type SectionId =
   | "pages"
   | "playback"
   | "security"
+  | "notifications"
   | "about";
 
 /** Old ?tab= values keep working. */

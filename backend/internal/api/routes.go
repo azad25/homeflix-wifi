@@ -2,6 +2,8 @@ package api
 
 import (
 	"context"
+	"fmt"
+	"homeflix-backend/internal/services/autodl"
 	"homeflix-backend/internal/services/livetv"
 	"log"
 	"time"
@@ -308,6 +310,8 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 				"type": "update_available", "version_code": rel.VersionCode, "version_name": rel.VersionName,
 			})
 			log.Printf("📦 TV update %s announced to %d TV(s)", rel.VersionName, n)
+			notificationService.AddEvent(services.EventNotification{Event: "tvapp_published", Title: "TV app " + rel.VersionName + " published",
+				Message: fmt.Sprintf("Your TVs are updating (%d connected).", n), Link: "/settings?tab=updates"})
 		}
 		go tvUpdates.Watch(context.Background(), time.Minute)
 		api.GET("/app/tv/latest", handlers.GetTVAppLatest(tvUpdates))
@@ -319,6 +323,9 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		tvAppSource := services.NewTVAppSource()
 		api.GET("/admin/app/tv/source", handlers.TVAppSourceStatus(tvUpdates, tvAppSource))
 		api.POST("/admin/app/tv/fetch", handlers.FetchTVAppFromSource(tvUpdates, tvAppSource))
+		startEventWatchers(context.Background(), db, notificationService, tvAppSource, tvUpdates)
+		api.GET("/notifications/settings", handlers.GetNotificationPrefs())
+		api.PUT("/notifications/settings", handlers.UpdateNotificationPrefs())
 
 		// Live TV from public free-to-air listings (see docs/LIVE_TV.md)
 		liveTV := livetv.NewService()
@@ -476,6 +483,21 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		}
 
 		// Torrent download endpoints
+		// Auto Download: titles added to the download list are fetched in the
+		// background with the quality profile from Settings > Auto Download.
+		autoDL := autodl.NewService(db, torrentHandler, func(kind, title, message string, tmdbID int, mediaType string) {
+			notificationService.AddEvent(services.EventNotification{Event: "download_" + kind, Title: title, Message: message,
+				Link: "/my-list?tab=downloads", TMDBID: tmdbID, MediaType: mediaType})
+		})
+		go autoDL.Run(context.Background())
+		api.GET("/autodownload", handlers.ListAutoDownloads(autoDL))
+		api.POST("/autodownload", handlers.AddAutoDownload(autoDL))
+		api.DELETE("/autodownload/:id", handlers.RemoveAutoDownload(autoDL))
+		api.POST("/autodownload/:id/retry", handlers.RetryAutoDownload(autoDL))
+		api.POST("/autodownload/run", handlers.RunAutoDownloads(autoDL))
+		api.GET("/autodownload/settings", handlers.GetAutoDownloadSettings(autoDL))
+		api.PUT("/autodownload/settings", handlers.UpdateAutoDownloadSettings(autoDL))
+
 		api.GET("/torrents/search", torrentHandler.SearchTorrents)
 		api.GET("/torrents/files/preview", torrentHandler.PreviewTorrentFiles)
 		api.POST("/torrents/download", torrentHandler.StartDownload)

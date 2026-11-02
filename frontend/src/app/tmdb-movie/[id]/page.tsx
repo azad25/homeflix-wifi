@@ -55,6 +55,7 @@ import Navbar from '@/components/Navbar';
 import RedLoader from '@/components/RedLoader';
 import UpcomingMovies from '@/components/UpcomingMovies';
 import UpcomingTVSeries from '@/components/UpcomingTVSeries';
+import AutoDownloadButton from '@/components/autodl/AutoDownloadButton';
 import { useMyList } from '@/hooks/useMyList';
 import MyListTooltip from '@/components/ui/MyListTooltip';
 import { GradientBackground } from '@/components/scrollx';
@@ -1720,6 +1721,17 @@ const TMDBMoviePage: React.FC = () => {
                     </>
                   )}
                 </button>
+
+                {mediaDetails?.id && (
+                  <AutoDownloadButton
+                    tmdbId={mediaDetails.id}
+                    mediaType={(mediaDetails as any).media_type === 'tv' || (mediaDetails as any).first_air_date ? 'tv' : 'movie'}
+                    title={(mediaDetails as any).title || (mediaDetails as any).name || ''}
+                    year={(() => { const d = (mediaDetails as any).release_date || (mediaDetails as any).first_air_date; const y = d ? new Date(d).getFullYear() : NaN; return Number.isFinite(y) ? y : undefined; })()}
+                    posterPath={(mediaDetails as any).poster_path || undefined}
+                    seasons={(mediaDetails as any).number_of_seasons}
+                  />
+                )}
 
                 <MyListTooltip
                   media={mediaDetails}

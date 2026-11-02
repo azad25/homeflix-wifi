@@ -79,6 +79,10 @@ type Notification struct {
 	DaysUntil      int     `json:"days_until,omitempty"` // For coming soon
 	GenreHighlight string  `json:"genre_highlight,omitempty"`
 	Year           int     `json:"year,omitempty"` // For local content year display
+
+	// Server / download events (see notification_events.go)
+	Event string `json:"event,omitempty"`
+	Link  string `json:"link,omitempty"`
 }
 
 // NotificationMedia represents individual media items in notifications
@@ -1932,9 +1936,12 @@ func (ns *NotificationService) GetNotifications(limit int) ([]Notification, erro
 		return nil, fmt.Errorf("failed to fetch notifications from Redis: %w", err)
 	}
 
-	// Categorize notifications into local and TMDB
+	// Categorize notifications into local and TMDB; server/download events
+	// are pinned first. Preferences hide categories the user turned off.
+	prefs := GetNotificationPrefs()
 	var localNotifications []Notification
 	var tmdbNotifications []Notification
+	var events []Notification
 
 	for _, result := range results {
 		var notification Notification
@@ -1946,6 +1953,15 @@ func (ns *NotificationService) GetNotifications(limit int) ([]Notification, erro
 		// Notifications are already enhanced when created, no need to enhance again
 		// This significantly improves API response time
 
+		if isEventNotification(notification.Type) {
+			if len(events) < limit {
+				events = append(events, notification)
+			}
+			continue
+		}
+		if !prefs.allowsContent(notification.Type) {
+			continue
+		}
 		if ns.isLocalNotification(notification.Type) {
 			localNotifications = append(localNotifications, notification)
 		} else {
@@ -1958,6 +1974,7 @@ func (ns *NotificationService) GetNotifications(limit int) ([]Notification, erro
 
 	// Build balanced result by interleaving local and TMDB notifications (50/50)
 	balanced := make([]Notification, 0, limit)
+	balanced = append(balanced, events...)
 	localIdx, tmdbIdx := 0, 0
 	useLocal := true // Start with local
 
@@ -2096,7 +2113,9 @@ func (ns *NotificationService) CreateDownloadCompleteNotification(title string, 
 	// Skip creating notification if mediaID is 0 (media not scanned yet)
 	// This prevents showing invalid/broken links in the notification dropdown
 	if mediaID == 0 {
-		log.Printf("⚠️ Skipping download notification for %s - media not scanned yet (ID: 0)", title)
+		// Not imported yet (the import runs after completion): still tell
+		// the user, without a link to a library item.
+		ns.AddEvent(EventNotification{Event: "download_completed", Title: "Download finished", Message: title + " finished downloading and is being added to your library.", Link: "/settings?tab=downloads"})
 		return nil
 	}
 

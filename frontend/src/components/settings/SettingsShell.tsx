@@ -22,6 +22,8 @@ import {
   ListChecks,
   ChevronLeft,
   Radio,
+  Sparkles,
+  Bell,
 } from "lucide-react";
 import { getApiUrl } from "@/lib/api";
 import { usePageTitle } from "@/hooks/usePageTitle";
@@ -39,6 +41,8 @@ const SECTIONS: Record<SectionId, React.ComponentType<any>> = {
   library: LibraryWorkspace,
   subtitles: LibraryWorkspace,
   downloads: dynamic(() => import("./sections/DownloadsSection"), { loading }),
+  autodownload: dynamic(() => import("./sections/AutoDownloadSection"), { loading }),
+  notifications: dynamic(() => import("./sections/NotificationsSection"), { loading }),
   maintenance: dynamic(() => import("./sections/MaintenanceSection"), { loading }),
   storage: dynamic(() => import("./sections/StorageSection"), { loading }),
   updates: dynamic(() => import("./sections/UpdatesSection"), { loading }),
@@ -64,6 +68,7 @@ const NAV: { title?: string; items: NavItem[] }[] = [
       { id: "library", label: "Library Manager", icon: <Library /> },
       { id: "subtitles", label: "Subtitles", icon: <Captions /> },
       { id: "downloads", label: "Downloads", icon: <Download /> },
+      { id: "autodownload", label: "Auto Download", icon: <Sparkles /> },
       { id: "maintenance", label: "Maintenance", icon: <Wrench /> },
     ],
   },
@@ -81,6 +86,7 @@ const NAV: { title?: string; items: NavItem[] }[] = [
     title: "Preferences",
     items: [
       { id: "playback", label: "Playback", icon: <PlayCircle /> },
+      { id: "notifications", label: "Notifications", icon: <Bell /> },
       { id: "security", label: "Security", icon: <Lock /> },
       { id: "about", label: "About", icon: <Info /> },
     ],
