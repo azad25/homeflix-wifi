@@ -5,6 +5,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { ArrowUp, CalendarDays, ExternalLink, Newspaper, Play, Sparkles, User, X } from "lucide-react";
 import { getApiUrl } from "@/lib/api";
 import AutoDownloadButton from "@/components/autodl/AutoDownloadButton";
+import { muteAllTrailers } from "@/lib/youtube";
 
 export interface BuzzItem {
   id: string;
@@ -153,7 +154,10 @@ export default function BuzzHub() {
   const empty = feed && !forYou.length && !videos.length && !latest.length;
 
   const open = (it: BuzzItem) => {
-    if (it.youtube_id) setPlaying(it);
+    if (it.youtube_id) {
+      muteAllTrailers(); // the live mosaic's trailers go quiet
+      setPlaying(it);
+    }
     else window.open(it.url, "_blank", "noopener,noreferrer");
   };
 

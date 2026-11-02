@@ -17,7 +17,7 @@ import {
 } from "lucide-react";
 import Navbar from "@/components/Navbar";
 import { getApiUrl } from "@/lib/api";
-import { loadYouTubeAPI, YT_STATE, extractYouTubeKey } from "@/lib/youtube";
+import { loadYouTubeAPI, YT_STATE, extractYouTubeKey, muteAllTrailers } from "@/lib/youtube";
 import { useRouter } from "next/navigation";
 
 const TMDB_GENRES: Record<number, string> = {
@@ -374,7 +374,10 @@ export default function TrailersPage() {
   // ---------- modal ----------
   const openPlayer = (movie: TrailerMovie, videoKey?: string) => {
     const key = videoKey || movie.videos[0]?.key;
-    if (key) setModal({ movie, videoKey: key });
+    if (key) {
+      muteAllTrailers(); // the page hero goes quiet while the pop-up plays
+      setModal({ movie, videoKey: key });
+    }
   };
 
   useEffect(() => {

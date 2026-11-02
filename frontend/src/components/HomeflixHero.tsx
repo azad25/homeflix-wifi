@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import HeroThumbStrip from '@/components/tv/HeroThumbStrip';
 import { Splide, SplideSlide } from "@splidejs/react-splide";
 import "@splidejs/react-splide/css";
 import { motion, AnimatePresence } from "framer-motion";
@@ -61,9 +62,13 @@ const HomeflixHero: React.FC<HomeflixHeroProps> = ({
     }, [toggleMyListHook]);
 
     const mainSliderRef = useRef<Splide>(null);
-    const thumbsSliderRef = useRef<Splide>(null);
     const videoRef = useRef<HTMLVideoElement>(null);
     const ytPlayerRef = useRef<any>(null); // YouTube player reference
+    const ytMutedRef = useRef(false); // isMuted, read when a player is created
+    const playCountRef = useRef(0); // currentPlayCount, read inside player callbacks
+    const ytEndCheckRef = useRef<ReturnType<typeof setInterval> | null>(null);
+    ytMutedRef.current = isMuted;
+    playCountRef.current = currentPlayCount;
     const videoLoadTimeoutRef = useRef<NodeJS.Timeout | null>(null); // Timeout for video loading
     const preloadedVideos = useRef<Map<number, HTMLVideoElement>>(new Map());
     const preloadedUrls = useRef<Map<number, string>>(new Map());
@@ -609,7 +614,8 @@ const HomeflixHero: React.FC<HomeflixHeroProps> = ({
 
         if (!videoKey) return;
 
-        // Destroy previous player
+        // Destroy previous player (and its end-of-trailer timer)
+        if (ytEndCheckRef.current) clearInterval(ytEndCheckRef.current);
         if (ytPlayerRef.current) {
             try {
                 ytPlayerRef.current.destroy();
@@ -630,7 +636,7 @@ const HomeflixHero: React.FC<HomeflixHeroProps> = ({
                 videoId: videoKey,
                 playerVars: {
                     autoplay: 1,
-                    mute: isMuted ? 1 : 0,
+                    mute: ytMutedRef.current ? 1 : 0,
                     controls: 0,
                     showinfo: 0,
                     rel: 0,
@@ -653,12 +659,13 @@ const HomeflixHero: React.FC<HomeflixHeroProps> = ({
                         } else if (event.data === 0) {
                             // Video ended
                             setYtVideoReady(false);
-                            const newPlayCount = currentPlayCount + 1;
+                            const newPlayCount = playCountRef.current + 1;
                             console.log(`📺 YouTube video ended. Play count: ${newPlayCount}/${playCountPerSlide}`);
                             if (newPlayCount >= playCountPerSlide) {
                                 goToNextSlide();
                             } else {
-                                setCurrentPlayCount(newPlayCount);
+                                playCountRef.current = newPlayCount;
+                                        setCurrentPlayCount(newPlayCount);
                                 event.target.seekTo(10); // Seek to 10 seconds for replay
                                 event.target.playVideo();
                             }
@@ -669,13 +676,14 @@ const HomeflixHero: React.FC<HomeflixHeroProps> = ({
                         if (iframe) {
                             iframe.referrerPolicy = "strict-origin-when-cross-origin";
                         }
-                        if (!isMuted) {
+                        if (!ytMutedRef.current) {
                             event.target.unMute();
                         }
                         event.target.seekTo(10, true); // Explicitly seek to 10s with allowSeekAhead
                         event.target.playVideo();
 
                         // Set up interval to end video 3 seconds early
+                        if (ytEndCheckRef.current) clearInterval(ytEndCheckRef.current);
                         const checkEndTime = setInterval(() => {
                             try {
                                 const player = event.target;
@@ -685,10 +693,11 @@ const HomeflixHero: React.FC<HomeflixHeroProps> = ({
                                 // End 10 seconds before actual end
                                 if (duration > 0 && currentTime >= duration - 15) {
                                     clearInterval(checkEndTime);
-                                    const newPlayCount = currentPlayCount + 1;
+                                    const newPlayCount = playCountRef.current + 1;
                                     if (newPlayCount >= playCountPerSlide) {
                                         goToNextSlide();
                                     } else {
+                                        playCountRef.current = newPlayCount;
                                         setCurrentPlayCount(newPlayCount);
                                         player.seekTo(15);
                                         player.playVideo();
@@ -700,8 +709,7 @@ const HomeflixHero: React.FC<HomeflixHeroProps> = ({
                             }
                         }, 500);
 
-                        // Store interval ref for cleanup
-                        (event.target as any)._endCheckInterval = checkEndTime;
+                        ytEndCheckRef.current = checkEndTime;
                     },
                     onError: (event: any) => {
                         console.error('YouTube player error:', event.data);
@@ -715,14 +723,10 @@ const HomeflixHero: React.FC<HomeflixHeroProps> = ({
         return () => {
             clearTimeout(timer);
         };
-    }, [useYouTubeFallback, ytReady, activeSlideIndex, movies, isMuted, extractYouTubeKey, currentPlayCount, playCountPerSlide, goToNextSlide]);
+        // Mute toggles and replays don't rebuild the player (they read refs);
+        // rebuilding restarted the trailer and could briefly run two players.
+    }, [useYouTubeFallback, ytReady, activeSlideIndex, movies, extractYouTubeKey, playCountPerSlide, goToNextSlide]);
 
-    // Sync thumbnail slider with main slider
-    useEffect(() => {
-        if (thumbsSliderRef.current?.splide && movies.length > 0) {
-            thumbsSliderRef.current.splide.go(activeSlideIndex);
-        }
-    }, [activeSlideIndex, movies.length]);
 
     const handleSlideChange = (splide: any) => {
         setActiveSlideIndex(splide.index);
@@ -982,7 +986,7 @@ const HomeflixHero: React.FC<HomeflixHeroProps> = ({
                                         onCollectionCreated={fetchCollections}
                                         onDataRefresh={fetchCollections}
                                     >
-                                        <button className="p-3 rounded-full border border-white/30 bg-black/30 backdrop-blur-sm hover:bg-white/10 transition-colors">
+                                        <button className="tv-btn tv-btn-secondary tv-btn-icon">
                                             {isInMyList(movie.tmdb_id ? parseInt(`9${movie.tmdb_id}`) : movie.id) ? (
                                                 <Check className="w-5 h-5" />
                                             ) : (
@@ -992,7 +996,7 @@ const HomeflixHero: React.FC<HomeflixHeroProps> = ({
                                     </MyListTooltip>
                                     <button
                                         onClick={toggleMute}
-                                        className="p-3 rounded-full border border-white/30 bg-black/30 backdrop-blur-sm hover:bg-white/10 transition-colors"
+                                        className="tv-btn tv-btn-secondary tv-btn-icon"
                                     >
                                         {isMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
                                     </button>
@@ -1011,74 +1015,13 @@ const HomeflixHero: React.FC<HomeflixHeroProps> = ({
                 </div>
             )}
 
-            {/* Thumbnail Navigation */}
-            <div className="absolute bottom-8 left-0 right-0 z-30 px-4 md:px-16 overflow-visible py-12 pointer-events-none">
-                <style>{`
-                    .thumbnail-slider,
-                    .thumbnail-slider .splide__track,
-                    .thumbnail-slider .splide__list,
-                    .thumbnail-slider .splide__slide {
-                        overflow: visible !important;
-                    }
-                    .thumbnail-slider .splide__slide.is-active {
-                        border: 2px solid rgba(255,255,255,0.9) !important;
-                        border-radius: 0.25rem !important;
-                    }
-                `}</style>
-                <Splide
-                    ref={thumbsSliderRef}
-                    options={{
-                        fixedWidth: 90,
-                        fixedHeight: 135,
-                        isNavigation: true,
-                        gap: 10,
-                        focus: 'center',
-                        pagination: false,
-                        cover: false,
-                        arrows: true,
-                        rewind: false,
-                        drag: false,
-                        breakpoints: {
-                            600: {
-                                fixedWidth: 56,
-                                fixedHeight: 84,
-                            },
-                        },
-                    }}
-                    onMoved={(splide: any) => {
-                        if (mainSliderRef.current?.splide) {
-                            mainSliderRef.current.splide.go(splide.index);
-                        }
-                    }}
-                    onClick={(_splide: any, slide: any) => {
-                        const index = slide.index;
-                        if (mainSliderRef.current?.splide) {
-                            mainSliderRef.current.splide.go(index);
-                        }
-                    }}
-                    className="thumbnail-slider pointer-events-auto"
-                >
-
-                    {movies.map((movie) => (
-                        <SplideSlide
-                            key={movie.id}
-                            className="cursor-pointer opacity-50 hover:opacity-100 transition-all duration-300 [&.is-active]:opacity-100 [&.is-active]:scale-[1.4] [&.is-active]:z-10 rounded"
-                        >
-                            <img
-                                src={getPosterUrl(movie)}
-                                alt={movie.title}
-                                className="w-full h-full object-cover rounded"
-                                onError={(e) => {
-                                    // Replace broken image with black background
-                                    e.currentTarget.style.display = 'none';
-                                    e.currentTarget.parentElement!.style.backgroundColor = '#000';
-                                }}
-                            />
-                            <div className="absolute inset-0 bg-black/20 rounded" />
-                        </SplideSlide>
-                    ))}
-                </Splide>
-            </div>
+            {/* Poster strip: where you are + jump to a title */}
+            <HeroThumbStrip
+                items={movies.map((m) => ({ id: m.id, title: m.title }))}
+                active={activeSlideIndex}
+                poster={(i) => getPosterUrl(movies[i])}
+                onSelect={(i) => mainSliderRef.current?.splide?.go(i)}
+            />
         </div>
     );
 };

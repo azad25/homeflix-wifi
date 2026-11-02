@@ -1,29 +1,10 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { Media } from '@/types/media';
 import { getApiUrl } from '@/lib/api';
+import { loadYouTubeAPI } from '@/lib/youtube';
 
-// Module-level YouTube API loader — shared across all hook instances, loads only once
-let ytApiPromise: Promise<void> | null = null;
-function ensureYouTubeAPI(): Promise<void> {
-  if ((window as any).YT?.Player) return Promise.resolve();
-  if (ytApiPromise) return ytApiPromise;
-
-  ytApiPromise = new Promise<void>((resolve) => {
-    const prev = (window as any).onYouTubeIframeAPIReady;
-    (window as any).onYouTubeIframeAPIReady = () => {
-      try { prev?.(); } catch {}
-      resolve();
-    };
-    if (!document.querySelector('script[src*="youtube.com/iframe_api"]')) {
-      const tag = document.createElement('script');
-      tag.src = 'https://www.youtube.com/iframe_api';
-      document.head.appendChild(tag);
-    }
-    // Safety: if API already loaded between check and script add
-    if ((window as any).YT?.Player) resolve();
-  });
-  return ytApiPromise;
-}
+// Shared loader (one script, and the one-audible-trailer rule in lib/youtube).
+const ensureYouTubeAPI = (): Promise<void> => loadYouTubeAPI().then(() => undefined);
 
 // Module-level cache for fetched trailer keys (avoid re-fetching)
 const trailerKeyCache = new Map<number, string | null>();

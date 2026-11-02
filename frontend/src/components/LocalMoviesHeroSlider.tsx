@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
+import HeroThumbStrip from '@/components/tv/HeroThumbStrip';
 import { Splide, SplideSlide } from "@splidejs/react-splide";
 import "@splidejs/react-splide/css";
 import { motion, AnimatePresence } from "framer-motion";
@@ -69,8 +70,24 @@ const LocalMoviesHeroSlider: React.FC<LocalMoviesHeroSliderProps> = ({
     const [ytReady, setYtReady] = useState(false);
     const [videoReady, setVideoReady] = useState(false); // Track when video is actually playing
     const mainSliderRef = useRef<Splide>(null);
-    const thumbsSliderRef = useRef<Splide>(null);
     const playerRef = useRef<any>(null);
+    // Read at player creation without making mute toggles rebuild the player
+    // (that restarted the trailer and briefly ran two players).
+    const mutedRef = useRef(false);
+    const endCheckRef = useRef<ReturnType<typeof setInterval> | null>(null);
+    const destroyPlayer = useCallback(() => {
+        if (endCheckRef.current) clearInterval(endCheckRef.current);
+        endCheckRef.current = null;
+        if (playerRef.current) {
+            try {
+                playerRef.current.destroy();
+            } catch {
+                /* already gone */
+            }
+            playerRef.current = null;
+        }
+    }, []);
+    useEffect(() => destroyPlayer, [destroyPlayer]); // stop the trailer when leaving the page
     const apiUrl = getApiUrl();
 
     // Use the new backend-connected My List hook
@@ -198,15 +215,8 @@ const LocalMoviesHeroSlider: React.FC<LocalMoviesHeroSliderProps> = ({
 
         if (!videoKey) return;
 
-        // Destroy previous player
-        if (playerRef.current) {
-            try {
-                playerRef.current.destroy();
-            } catch (e) {
-                // Ignore
-            }
-            playerRef.current = null;
-        }
+        // Destroy previous player (and its end-of-trailer timer)
+        destroyPlayer();
 
         const timer = setTimeout(() => {
             const containerId = `yt-player-local-${currentMovie.id}`;
@@ -217,7 +227,7 @@ const LocalMoviesHeroSlider: React.FC<LocalMoviesHeroSliderProps> = ({
                 videoId: videoKey,
                 playerVars: {
                     autoplay: 1,
-                    mute: isMuted ? 1 : 0,
+                    mute: mutedRef.current ? 1 : 0,
                     controls: 0,
                     showinfo: 0,
                     rel: 0,
@@ -249,13 +259,14 @@ const LocalMoviesHeroSlider: React.FC<LocalMoviesHeroSliderProps> = ({
                         if (iframe) {
                             iframe.referrerPolicy = "strict-origin-when-cross-origin";
                         }
-                        if (!isMuted) {
+                        if (!mutedRef.current) {
                             event.target.unMute();
                         }
                         event.target.seekTo(10, true); // Explicitly seek to 10s with allowSeekAhead
                         event.target.playVideo();
 
                         // Set up interval to end video 3 seconds early
+                        if (endCheckRef.current) clearInterval(endCheckRef.current);
                         const checkEndTime = setInterval(() => {
                             try {
                                 const player = event.target;
@@ -273,8 +284,7 @@ const LocalMoviesHeroSlider: React.FC<LocalMoviesHeroSliderProps> = ({
                             }
                         }, 500);
 
-                        // Store interval ref for cleanup
-                        (event.target as any)._endCheckInterval = checkEndTime;
+                        endCheckRef.current = checkEndTime;
                     },
                 },
             });
@@ -283,10 +293,11 @@ const LocalMoviesHeroSlider: React.FC<LocalMoviesHeroSliderProps> = ({
         return () => {
             clearTimeout(timer);
         };
-    }, [ytReady, activeSlideIndex, movies, isMuted, goToNextSlide]);
+    }, [ytReady, activeSlideIndex, movies, goToNextSlide, destroyPlayer]);
 
     // Handle mute toggle
     useEffect(() => {
+        mutedRef.current = isMuted;
         if (playerRef.current && playerRef.current.isMuted) {
             try {
                 if (isMuted) {
@@ -300,12 +311,6 @@ const LocalMoviesHeroSlider: React.FC<LocalMoviesHeroSliderProps> = ({
         }
     }, [isMuted]);
 
-    // Sync thumbnail slider with main slider
-    useEffect(() => {
-        if (thumbsSliderRef.current?.splide && movies.length > 0) {
-            thumbsSliderRef.current.splide.go(activeSlideIndex);
-        }
-    }, [activeSlideIndex, movies.length]);
 
     const handleSlideChange = (splide: any) => {
         setActiveSlideIndex(splide.index);
@@ -525,76 +530,13 @@ const LocalMoviesHeroSlider: React.FC<LocalMoviesHeroSliderProps> = ({
                 })}
             </Splide>
 
-            {/* Thumbnail Navigation */}
-            <div className="absolute bottom-8 left-0 right-0 z-30 px-4 md:px-16 overflow-visible py-12">
-                <style>{`
-                    .thumbnail-slider,
-                    .thumbnail-slider .splide__track,
-                    .thumbnail-slider .splide__list,
-                    .thumbnail-slider .splide__slide {
-                        overflow: visible !important;
-                    }
-                    .thumbnail-slider .splide__slide {
-                        border-radius: 10px !important;
-                    }
-                    .thumbnail-slider .splide__slide.is-active {
-                        border: 2px solid rgba(255,255,255,0.9) !important;
-                        border-radius: 10px !important;
-                        box-shadow: 0 12px 28px -8px rgba(0,0,0,0.8);
-                    }
-                `}</style>
-                <Splide
-                    ref={thumbsSliderRef}
-                    options={{
-                        fixedWidth: 90,
-                        fixedHeight: 135,
-                        isNavigation: true,
-                        gap: 10,
-                        focus: 'center',
-                        pagination: false,
-                        cover: false,
-                        arrows: true,
-                        rewind: false,
-                        breakpoints: {
-                            600: {
-                                fixedWidth: 56,
-                                fixedHeight: 84,
-                            },
-                        },
-                    }}
-                    onMoved={(splide: any) => {
-                        if (mainSliderRef.current?.splide) {
-                            mainSliderRef.current.splide.go(splide.index);
-                        }
-                    }}
-                    onClick={(_splide: any, slide: any) => {
-                        const index = slide.index;
-                        if (mainSliderRef.current?.splide) {
-                            mainSliderRef.current.splide.go(index);
-                        }
-                    }}
-                    className="thumbnail-slider pointer-events-auto"
-                >
-                    {movies.map((movie) => (
-                        <SplideSlide
-                            key={movie.id}
-                            className="cursor-pointer opacity-50 hover:opacity-100 transition-all duration-300 [&.is-active]:opacity-100 [&.is-active]:scale-[1.4] [&.is-active]:z-10 rounded"
-                        >
-                            <img
-                                src={getPosterUrl(movie)}
-                                alt={movie.title}
-                                className="w-full h-full object-cover rounded-[9px]"
-                                onError={(e) => {
-                                    // Replace broken image with black background
-                                    e.currentTarget.style.display = 'none';
-                                    e.currentTarget.parentElement!.style.backgroundColor = '#000';
-                                }}
-                            />
-                            <div className="absolute inset-0 bg-black/20 rounded-[9px]" />
-                        </SplideSlide>
-                    ))}
-                </Splide>
-            </div>
+            {/* Poster strip: where you are + jump to a title */}
+            <HeroThumbStrip
+                items={movies.map((m) => ({ id: m.id, title: m.title }))}
+                active={activeSlideIndex}
+                poster={(i) => getPosterUrl(movies[i])}
+                onSelect={(i) => mainSliderRef.current?.splide?.go(i)}
+            />
         </div>
     );
 };

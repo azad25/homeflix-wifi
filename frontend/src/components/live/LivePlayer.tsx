@@ -19,6 +19,7 @@ import {
   X,
 } from "lucide-react";
 import { getApiUrl } from "@/lib/api";
+import { muteAllTrailers } from "@/lib/youtube";
 
 export interface LiveChannel {
   id: string;
@@ -140,6 +141,7 @@ export default function LivePlayer({
       if (idx >= sources.length) {
         if (youtubeId) {
           video.removeAttribute("src");
+          muteAllTrailers();
           setYoutube(youtubeId);
           return;
         }
