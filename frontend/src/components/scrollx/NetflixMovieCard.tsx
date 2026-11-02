@@ -50,7 +50,7 @@ const NetflixMovieCard: React.FC<NetflixMovieCardProps> = ({
 
   const getPreviewUrl = () => {
     // Always use preview clips for hover previews - they're optimized for quick loading
-    return `${apiUrl}/api/preview-clips/${media.id}`;
+    return `${apiUrl}/api/preview-clips/${media.id}?wait=10`;
   };
 
   const sizeClasses = {

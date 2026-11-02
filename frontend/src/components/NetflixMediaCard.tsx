@@ -56,13 +56,18 @@ const NetflixMediaCard: React.FC<NetflixMediaCardProps> = ({
   const [cardRef, near] = useNearViewport<HTMLDivElement>(priority === 'high');
   const imgRef = useRef<HTMLImageElement | null>(null);
 
+  const retryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => {
     if (dwellRef.current) clearTimeout(dwellRef.current);
+    if (retryRef.current) clearTimeout(retryRef.current);
   }, []);
 
   const previewsOn = usePreference('autoplayPreviews');
   const canPreview = previewsOn && showPreviewOnHover && !disableHover && !previewFailed && hasLocalPreview(media);
-  const previewUrl = `${getApiUrl()}/api/preview-clips/${media.id}`;
+  // A title without a clip yet gets one made at hover priority; ?wait lets
+  // the server hold the request until it's ready (a few seconds) so the
+  // preview still starts while the viewer is on the card.
+  const previewUrl = `${getApiUrl()}/api/preview-clips/${media.id}?wait=10`;
 
   const startDwell = () => {
     if (!canPreview) return;
@@ -145,6 +150,9 @@ const NetflixMediaCard: React.FC<NetflixMediaCardProps> = ({
               onError={() => {
                 setPreviewFailed(true);
                 setPreviewOn(false);
+                // Usually "still being made": try again on a later hover.
+                if (retryRef.current) clearTimeout(retryRef.current);
+                retryRef.current = setTimeout(() => setPreviewFailed(false), 20000);
               }}
             />
           )}

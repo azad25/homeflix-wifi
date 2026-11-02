@@ -49,7 +49,7 @@ const NetflixCard: React.FC<NetflixCardProps> = ({
     if (media.trailer_path) {
       return `${apiUrl}/api/admin/assets/${media.trailer_path.split('/').pop()}`;
     }
-    return `${apiUrl}/api/preview-clips/${media.id}`;
+    return `${apiUrl}/api/preview-clips/${media.id}?wait=10`;
   };
 
   useEffect(() => {

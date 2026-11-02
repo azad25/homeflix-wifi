@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"homeflix-backend/internal/interfaces"
+	"homeflix-backend/internal/services/previews"
 	"homeflix-backend/internal/utils"
 )
 
@@ -30,6 +31,17 @@ type ThumbnailService struct {
 	activeJobs      map[string]*JobStatus
 	alacService     *ALACAudioService                // Reference to ALAC service for preview clips with audio
 	mediaService    interfaces.MediaServiceInterface // Reference to media service for database queries
+	previews        *previews.Engine                 // preview clips (dedup, priority lanes, storage budget)
+}
+
+// SetPreviewEngine routes all preview-clip work through the preview engine.
+func (s *ThumbnailService) SetPreviewEngine(e *previews.Engine) { s.previews = e }
+
+// PreviewEngine returns the preview engine (nil if not set).
+func (s *ThumbnailService) PreviewEngine() *previews.Engine { return s.previews }
+
+func (s *ThumbnailService) enginePreview(videoPath string, mediaID uint, title string, season, episode *int, interactive, force bool) (string, error) {
+	return s.previews.Generate(context.Background(), previews.Source{ID: mediaID, FilePath: videoPath, Title: title, Season: season, Episode: episode}, interactive, force)
 }
 
 type ProcessingTask struct {
@@ -1362,6 +1374,9 @@ func (s *ThumbnailService) GeneratePreviewClip(videoPath string, mediaID uint, t
 
 // GeneratePreviewClipWithEpisodeInfo generates preview clip with season/episode info for proper naming
 func (s *ThumbnailService) GeneratePreviewClipWithEpisodeInfo(videoPath string, mediaID uint, title string, season *int, episode *int) (string, error) {
+	if s.previews != nil {
+		return s.enginePreview(videoPath, mediaID, title, season, episode, false, false)
+	}
 	// Check if preview already exists using unique naming
 	filename := generateUniqueFilename(mediaID, title, season, episode, "preview", ".mp4")
 
@@ -1387,6 +1402,9 @@ func (s *ThumbnailService) GeneratePreviewClipAsync(videoPath string, mediaID ui
 
 // GeneratePreviewClipAsyncWithEpisodeInfo generates preview clip asynchronously with callback and season/episode info
 func (s *ThumbnailService) GeneratePreviewClipAsyncWithEpisodeInfo(videoPath string, mediaID uint, title string, season *int, episode *int) (string, error) {
+	if s.previews != nil {
+		return s.enginePreview(videoPath, mediaID, title, season, episode, false, false)
+	}
 	taskID := fmt.Sprintf("preview_%d_%d", mediaID, time.Now().Unix())
 
 	// Create job status
@@ -1521,6 +1539,9 @@ func (s *ThumbnailService) RegeneratePreviewClipAsync(videoPath string, mediaID 
 
 // RegeneratePreviewClipAsyncWithEpisodeInfo forces preview clip regeneration with timestamped filename and episode info
 func (s *ThumbnailService) RegeneratePreviewClipAsyncWithEpisodeInfo(videoPath string, mediaID uint, title string, season *int, episode *int) (string, error) {
+	if s.previews != nil {
+		return s.enginePreview(videoPath, mediaID, title, season, episode, true, true)
+	}
 	taskID := fmt.Sprintf("regen_preview_%d_%d", mediaID, time.Now().Unix())
 
 	// Create job status
@@ -2417,6 +2438,9 @@ func (s *ThumbnailService) StartPeriodicMaintenance() {
 
 // GeneratePreviewClipUnlimited generates preview clip without timeout constraints
 func (s *ThumbnailService) GeneratePreviewClipUnlimited(ctx context.Context, videoPath string, mediaID uint, title string) (string, error) {
+	if s.previews != nil {
+		return s.previews.Generate(ctx, previews.Source{ID: mediaID, FilePath: videoPath, Title: title}, false, false)
+	}
 	taskID := fmt.Sprintf("preview_unlimited_%d_%d", mediaID, time.Now().Unix())
 
 	// Create job status

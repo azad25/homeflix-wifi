@@ -44,7 +44,7 @@ const NetflixCard: React.FC<NetflixCardProps> = ({
       return null;
     }
     const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8252';
-    return `${apiUrl}/api/preview-clips/${media.id}`;
+    return `${apiUrl}/api/preview-clips/${media.id}?wait=10`;
   };
 
   // Handle mouse enter with delay for preview

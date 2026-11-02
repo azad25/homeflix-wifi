@@ -113,8 +113,15 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		api.POST("/stream/:id/hls/release", handlers.ReleaseHLSSession(hlsService))
 		api.POST("/admin/stream-profiles/backfill", handlers.BackfillStreamProfiles(streamProfileService))
 
-		// Preview clips serving - Redis-cached for instant loading
-		if redisAssetHandlers != nil {
+		// Preview clips: served from disk; missing ones are made at hover priority
+		previewEngine := thumbnailService.PreviewEngine()
+		if previewEngine != nil {
+			api.GET("/preview-clips/:id", handlers.ServePreviewClip(previewEngine))
+			api.GET("/admin/storage/assets", handlers.GetAssetStorage(previewEngine))
+			api.PUT("/admin/storage/assets/settings", handlers.UpdateAssetStorageSettings(previewEngine))
+			api.POST("/admin/storage/assets/cleanup", handlers.CleanupAssetStorage(previewEngine))
+			api.POST("/admin/storage/assets/generate-missing", handlers.GenerateMissingPreviews(previewEngine))
+		} else if redisAssetHandlers != nil {
 			api.GET("/preview-clips/:id", redisAssetHandlers.GetPreviewCachedWithFallback(mediaService, thumbnailService))
 		} else {
 			api.GET("/preview-clips/:id", handlers.StreamPreviewClip(streamService, mediaService))
@@ -125,29 +132,35 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 
 		// Additional ALAC Audio endpoints (moved above)
 
+		previewRoute := func(fallback gin.HandlerFunc) gin.HandlerFunc {
+			if previewEngine != nil {
+				return handlers.ServePreviewClip(previewEngine)
+			}
+			return fallback
+		}
 		// Asset serving endpoints - Redis-cached for instant loading with enhanced fallback
 		if redisAssetHandlers != nil {
 			// Redis-cached asset serving for instant loading
 			api.GET("/thumbnails/:id", redisAssetHandlers.GetThumbnailCachedWithFallback(mediaService, thumbnailService))
-			api.GET("/previews/:id", redisAssetHandlers.GetPreviewCachedWithFallback(mediaService, thumbnailService))
+			api.GET("/previews/:id", previewRoute(redisAssetHandlers.GetPreviewCachedWithFallback(mediaService, thumbnailService)))
 			api.GET("/posters/:id", redisAssetHandlers.GetPosterCachedWithFallback(mediaService))
 			api.GET("/backdrops/:id", handlers.GetBackdropWithAutoDownload(mediaService, tmdbService))
 
 			// Alternative asset serving endpoints (Redis-cached)
 			api.GET("/assets/thumbnails/:id", redisAssetHandlers.GetThumbnailCachedWithFallback(mediaService, thumbnailService))
-			api.GET("/assets/previews/:id", redisAssetHandlers.GetPreviewCachedWithFallback(mediaService, thumbnailService))
+			api.GET("/assets/previews/:id", previewRoute(redisAssetHandlers.GetPreviewCachedWithFallback(mediaService, thumbnailService)))
 			api.GET("/assets/posters/:id", redisAssetHandlers.GetPosterCachedWithFallback(mediaService))
 			api.GET("/assets/backdrops/:id", handlers.GetBackdropWithAutoDownload(mediaService, tmdbService))
 		} else {
 			// Fallback to enhanced handlers when Redis is not available
 			api.GET("/thumbnails/:id", handlers.GetThumbnailEnhanced(mediaService, thumbnailService))
-			api.GET("/previews/:id", handlers.GetPreviewEnhanced(mediaService, thumbnailService))
+			api.GET("/previews/:id", previewRoute(handlers.GetPreviewEnhanced(mediaService, thumbnailService)))
 			api.GET("/posters/:id", handlers.GetPosterWithAutoDownload(mediaService, posterService))
 			api.GET("/backdrops/:id", handlers.GetBackdropWithAutoDownload(mediaService, tmdbService))
 
 			// Alternative asset serving endpoints (enhanced handlers)
 			api.GET("/assets/thumbnails/:id", handlers.GetThumbnailEnhanced(mediaService, thumbnailService))
-			api.GET("/assets/previews/:id", handlers.GetPreviewEnhanced(mediaService, thumbnailService))
+			api.GET("/assets/previews/:id", previewRoute(handlers.GetPreviewEnhanced(mediaService, thumbnailService)))
 			api.GET("/assets/posters/:id", handlers.GetPosterWithAutoDownload(mediaService, posterService))
 			api.GET("/assets/backdrops/:id", handlers.GetBackdropWithAutoDownload(mediaService, tmdbService))
 		}

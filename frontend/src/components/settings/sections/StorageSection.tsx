@@ -7,6 +7,7 @@ import { getApiUrl } from "@/lib/api";
 import { useDialog } from "@/hooks/useDialog";
 import { useLog } from "../activity";
 import CloudStorage from "./CloudStorage";
+import PreviewStorage from "./PreviewStorage";
 import { Badge, Button, EmptyState, Field, Group, SectionHeader, Toggle, inputClass } from "../ui";
 
 interface MediaPath {
@@ -245,6 +246,8 @@ export default function StorageSection() {
           })
         )}
       </Group>
+
+      <PreviewStorage />
 
       <CloudStorage />
     </div>

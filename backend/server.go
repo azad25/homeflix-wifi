@@ -17,6 +17,7 @@ import (
 	"homeflix-backend/internal/music"
 	"homeflix-backend/internal/scanner"
 	"homeflix-backend/internal/services"
+	"homeflix-backend/internal/services/previews"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
@@ -119,6 +120,15 @@ func main() {
 
 	// Integrate ALAC service with thumbnail service for preview clips with ALAC audio
 	thumbnailService.SetALACService(alacService)
+
+	// Preview clips: one job per title, hovers first, smart storage + budget
+	thumbDir := os.Getenv("THUMBNAIL_PATH")
+	if thumbDir == "" {
+		thumbDir = "./thumbnails"
+	}
+	previewEngine := previews.New(db, thumbDir, "./backend/previews")
+	previewEngine.Start(context.Background())
+	thumbnailService.SetPreviewEngine(previewEngine)
 
 	// Create service adapters to resolve interface compatibility
 	mediaServiceAdapter := adapters.NewMediaServiceAdapter(mediaService)

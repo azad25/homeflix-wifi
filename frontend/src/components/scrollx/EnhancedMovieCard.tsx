@@ -46,7 +46,7 @@ const EnhancedMovieCard: React.FC<EnhancedMovieCardProps> = ({
   const apiUrl = getApiUrl();
 
   const getPreviewUrl = () => {
-    return `${apiUrl}/api/preview-clips/${media.id}`;
+    return `${apiUrl}/api/preview-clips/${media.id}?wait=10`;
   };
 
   const sizeClasses = {
