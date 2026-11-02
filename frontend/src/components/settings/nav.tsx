@@ -11,6 +11,7 @@ export type SectionId =
   | "storage"
   | "updates"
   | "server"
+  | "livetv"
   | "pages"
   | "playback"
   | "security"

@@ -320,6 +320,7 @@ const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
     { name: "Home", href: "/" },
     { name: "Movies", href: "/movies" },
     { name: "TV Shows", href: "/tv-shows" },
+    { name: "Live TV", href: "/live" },
     { name: "Channels", href: "/providers" },
     { name: "Trailers", href: "/trailers" },
     { name: "My List", href: "/my-list" },

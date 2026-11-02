@@ -1,4 +1,6 @@
 alac_audio
 previews 
 subtitles
-*homeflix-backendapp-updates
+*homeflix-backend
+app-updates/
+data/

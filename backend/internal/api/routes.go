@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"homeflix-backend/internal/services/livetv"
 	"log"
 	"time"
 
@@ -318,6 +319,17 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		tvAppSource := services.NewTVAppSource()
 		api.GET("/admin/app/tv/source", handlers.TVAppSourceStatus(tvUpdates, tvAppSource))
 		api.POST("/admin/app/tv/fetch", handlers.FetchTVAppFromSource(tvUpdates, tvAppSource))
+
+		// Live TV from public free-to-air listings (see docs/LIVE_TV.md)
+		liveTV := livetv.NewService()
+		go liveTV.Run(context.Background())
+		api.GET("/livetv/channels", handlers.ListLiveTVChannels(liveTV))
+		api.GET("/livetv/channels/:id/play", handlers.PlayLiveTVChannel(liveTV))
+		api.GET("/livetv/p/*path", handlers.LiveTVProxy(liveTV))
+		api.GET("/admin/livetv", handlers.GetLiveTVAdmin(liveTV))
+		api.PUT("/admin/livetv/settings", handlers.UpdateLiveTVSettings(liveTV))
+		api.POST("/admin/livetv/refresh", handlers.RefreshLiveTV(liveTV))
+		api.POST("/admin/livetv/check", handlers.CheckLiveTV(liveTV))
 
 		// Personalised recommendations learned from watch history
 		tasteService := services.NewTasteService(db)

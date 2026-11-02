@@ -275,7 +275,8 @@ func main() {
 		// TV app update downloads/uploads can be slow on weak Wi-Fi.
 		if strings.HasPrefix(c.Request.URL.Path, "/api/stream/") || strings.HasPrefix(c.Request.URL.Path, "/api/cast/") ||
 			strings.HasPrefix(c.Request.URL.Path, "/api/app/tv/download/") || c.Request.URL.Path == "/api/admin/app/tv/upload" ||
-			c.Request.URL.Path == "/api/admin/app/tv/fetch" {
+			c.Request.URL.Path == "/api/admin/app/tv/fetch" ||
+			strings.HasPrefix(c.Request.URL.Path, "/api/livetv/p/") {
 			c.Next()
 			return
 		}

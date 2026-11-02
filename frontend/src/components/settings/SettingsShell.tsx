@@ -21,6 +21,7 @@ import {
   X,
   ListChecks,
   ChevronLeft,
+  Radio,
 } from "lucide-react";
 import { getApiUrl } from "@/lib/api";
 import { usePageTitle } from "@/hooks/usePageTitle";
@@ -42,6 +43,7 @@ const SECTIONS: Record<SectionId, React.ComponentType<any>> = {
   storage: dynamic(() => import("./sections/StorageSection"), { loading }),
   updates: dynamic(() => import("./sections/UpdatesSection"), { loading }),
   server: dynamic(() => import("./sections/ServerSection"), { loading }),
+  livetv: dynamic(() => import("./sections/LiveTVSection"), { loading }),
   pages: dynamic(() => import("./sections/PagesSection"), { loading }),
   playback: dynamic(() => import("./sections/PlaybackSection"), { loading }),
   security: dynamic(() => import("./sections/SecuritySection"), { loading }),
@@ -70,6 +72,7 @@ const NAV: { title?: string; items: NavItem[] }[] = [
     items: [
       { id: "storage", label: "Storage", icon: <HardDrive /> },
       { id: "updates", label: "Software Update", icon: <ArrowUpCircle /> },
+      { id: "livetv", label: "Live TV", icon: <Radio /> },
       { id: "server", label: "Server Monitor", icon: <Server /> },
       { id: "pages", label: "Pages", icon: <PanelsTopLeft /> },
     ],
