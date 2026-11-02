@@ -93,7 +93,7 @@ func (f *fakeTorrents) SearchReal(q string) ([]torrent.SearchResult, error) {
 	return f.results, nil
 }
 
-func (f *fakeTorrents) Enqueue(magnet, title, mediaType string, tmdbID int, quality string) (*torrent.DownloadInfo, error) {
+func (f *fakeTorrents) Enqueue(magnet, title, mediaType string, tmdbID int, quality string, _ int64) (*torrent.DownloadInfo, error) {
 	id := fmt.Sprintf("t%d", len(f.started)+1)
 	f.started = append(f.started, title)
 	f.db.Create(&models.TorrentDownload{TorrentID: id, Name: title, MagnetURI: magnet, Status: "downloading"})

@@ -105,6 +105,14 @@ interface TorrentDashboardProps {
   mediaInfo?: MediaInfo;
 }
 
+// "1.97 GB" -> bytes (0 if unknown)
+const parseSizeBytes = (s?: string): number => {
+  const m = s?.match(/([\d.,]+)\s*(TB|TiB|GB|GiB|MB|MiB|KB|KiB)/i);
+  if (!m) return 0;
+  const mult: Record<string, number> = { kb: 1024, kib: 1024, mb: 1024 ** 2, mib: 1024 ** 2, gb: 1024 ** 3, gib: 1024 ** 3, tb: 1024 ** 4, tib: 1024 ** 4 };
+  return Math.round(parseFloat(m[1].replace(/,/g, '')) * (mult[m[2].toLowerCase()] || 0));
+};
+
 const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
   const [activeTab, setActiveTab] = useState<'search' | 'downloads' | 'config'>('search');
   const [searchResults, setSearchResults] = useState<TorrentResult[]>([]);
@@ -287,7 +295,9 @@ const TorrentDashboard: React.FC<TorrentDashboardProps> = ({ mediaInfo }) => {
           tmdb_id: mediaInfo?.tmdb_id,
           media_type: mediaInfo?.media_type || 'movie',
           title: result.title,
-          quality: result.quality
+          quality: result.quality,
+          // Lets the server put the download on a drive that has room for it
+          size_bytes: (result as any).size_bytes || parseSizeBytes(result.size)
         })
       });
 

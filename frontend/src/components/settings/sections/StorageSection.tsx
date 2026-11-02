@@ -6,6 +6,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { getApiUrl } from "@/lib/api";
 import { useDialog } from "@/hooks/useDialog";
 import { useLog } from "../activity";
+import CloudStorage from "./CloudStorage";
 import { Badge, Button, EmptyState, Field, Group, SectionHeader, Toggle, inputClass } from "../ui";
 
 interface MediaPath {
@@ -29,7 +30,7 @@ interface StorageInfo {
 }
 
 const GB = 1024 ** 3;
-const TYPE_LABEL: Record<string, string> = { primary: "Primary", torrent: "Downloads", external: "External drive" };
+const TYPE_LABEL: Record<string, string> = { primary: "Primary", torrent: "Downloads", external: "External drive", cloud: "Cloud" };
 const EMPTY = { path: "", name: "", description: "", path_type: "external", priority: 0 };
 
 export default function StorageSection() {
@@ -114,7 +115,7 @@ export default function StorageSection() {
     <div className="space-y-10">
       <SectionHeader
         title="Storage"
-        description="Folders HomeFlix scans for movies and shows. New downloads go to the folder with the most free space."
+        description="Folders HomeFlix scans for movies and shows. Downloads are written straight to the drive with the most room; if a drive fills up mid-download it moves to another one."
         actions={
           <>
             <Button size="sm" icon={<Search />} onClick={scanAll} loading={scanning}>
@@ -189,7 +190,7 @@ export default function StorageSection() {
             Refresh
           </Button>
         }
-        footer="Turning a folder off hides it from scans without removing anything."
+        footer="Turning a folder off hides it from scans without removing anything. Primary and Downloads folders receive new downloads; cloud drives are filled only by moving titles."
       >
         {paths === null ? (
           <EmptyState title="Loading…" />
@@ -244,6 +245,8 @@ export default function StorageSection() {
           })
         )}
       </Group>
+
+      <CloudStorage />
     </div>
   );
 }

@@ -433,6 +433,8 @@ func (h *TorrentHandler) StartDownload(c *gin.Context) {
 		MediaType string `json:"media_type"`
 		Title     string `json:"title"`
 		Quality   string `json:"quality"`
+		// Optional: lets the server pick a drive that fits before starting.
+		SizeBytes int64 `json:"size_bytes"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -443,7 +445,7 @@ func (h *TorrentHandler) StartDownload(c *gin.Context) {
 	
 	log.Printf("📥 Download request: Title=%s, Type=%s, Quality=%s", req.Title, req.MediaType, req.Quality)
 
-	downloadInfo, err := h.Enqueue(req.MagnetURI, req.Title, req.MediaType, req.TMDBId, req.Quality)
+	downloadInfo, err := h.Enqueue(req.MagnetURI, req.Title, req.MediaType, req.TMDBId, req.Quality, req.SizeBytes)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -453,11 +455,11 @@ func (h *TorrentHandler) StartDownload(c *gin.Context) {
 
 // Enqueue starts a torrent and records it (used by the API and by
 // Auto Download). Returns the started download.
-func (h *TorrentHandler) Enqueue(magnet, title, mediaType string, tmdbID int, quality string) (*torrent.DownloadInfo, error) {
+func (h *TorrentHandler) Enqueue(magnet, title, mediaType string, tmdbID int, quality string, sizeHint int64) (*torrent.DownloadInfo, error) {
 	if h == nil || h.client == nil || h.db == nil {
 		return nil, fmt.Errorf("torrent client not initialized")
 	}
-	downloadInfo, err := h.client.AddMagnet(magnet)
+	downloadInfo, err := h.client.AddMagnetSized(magnet, sizeHint)
 	if err != nil {
 		log.Printf("❌ Failed to add magnet: %v", err)
 		return nil, err

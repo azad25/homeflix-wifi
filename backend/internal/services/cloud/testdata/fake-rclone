@@ -1,0 +1,14 @@
+#!/bin/sh
+# Stand-in for rclone in tests: remotes live in $FAKE_RCLONE_STATE.
+state="${FAKE_RCLONE_STATE:?}"
+echo "$*" >> "$state.log"
+case "$1" in
+  version) echo "rclone v1.68.2-fake" ;;
+  listremotes) [ -f "$state" ] && cat "$state" ;;
+  config)
+    case "$2" in
+      create) echo "$3: $4" >> "$state" ;;
+      delete) grep -v "^$3:" "$state" > "$state.tmp" 2>/dev/null; mv "$state.tmp" "$state" ;;
+    esac ;;
+  *) echo "unsupported: $*" >&2; exit 1 ;;
+esac

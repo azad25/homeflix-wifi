@@ -37,6 +37,7 @@ type StatusCallback func(torrentID string, status string, progress float64, size
 type TorrentClient struct {
 	session            *raintorrent.Session
 	downloads          map[string]*DownloadInfo
+	relocating         map[string]bool // downloads being moved to another drive
 	torrents           map[string]*raintorrent.Torrent
 	mu                 sync.RWMutex
 	downloadDir        string
@@ -156,6 +157,7 @@ func NewTorrentClient(downloadDir string, mediaScanner MediaScannerInterface, st
 	tc := &TorrentClient{
 		session:            session,
 		downloads:          make(map[string]*DownloadInfo),
+		relocating:         make(map[string]bool),
 		torrents:           make(map[string]*raintorrent.Torrent),
 		downloadDir:        downloadDir,
 		mediaScanner:       mediaScanner,
@@ -487,6 +489,7 @@ func (tc *TorrentClient) safelyMoveAndRemoveTorrent(torrentID string, torrent *r
 	}
 
 	// Now safely remove from Rain session to free the port
+	defer tc.cleanupIncoming(torrent.ID())
 	if err := tc.session.RemoveTorrent(torrent.ID()); err != nil {
 		log.Printf("⚠️ Failed to remove torrent from session %s: %v", name, err)
 	} else {
@@ -704,8 +707,14 @@ func (tc *TorrentClient) moveToStorage(sourcePath, name string) (string, error) 
 		}
 	}
 
-	// Select best storage path with free space check - auto failover
-	storagePath := tc.selectBestStoragePath(requiredBytes)
+	// Prefer the drive the download was written to (a rename, no copy);
+	// otherwise select the best storage with free space - auto failover.
+	storagePath := tc.incomingStorageRoot(firstPart)
+	if storagePath == "" {
+		storagePath = tc.selectBestStoragePath(requiredBytes)
+	} else {
+		requiredBytes = 0 // already on this drive
+	}
 	if storagePath == "" {
 		// Fallback: try to use download dir's sibling or error
 		storagePaths := tc.getEffectiveStoragePaths()
@@ -1104,6 +1113,12 @@ func (tc *TorrentClient) cleanupOldCompletedTorrents() {
 }
 
 func (tc *TorrentClient) AddMagnet(magnetURI string) (*DownloadInfo, error) {
+	return tc.AddMagnetSized(magnetURI, 0)
+}
+
+// AddMagnetSized adds a magnet and writes its data to the drive best suited
+// for sizeHint bytes (0 = unknown: the drive with the most free space).
+func (tc *TorrentClient) AddMagnetSized(magnetURI string, sizeHint int64) (*DownloadInfo, error) {
 	tc.mu.Lock()
 	defer tc.mu.Unlock()
 
@@ -1120,14 +1135,15 @@ func (tc *TorrentClient) AddMagnet(magnetURI string) (*DownloadInfo, error) {
 		return nil, fmt.Errorf("maximum active downloads reached (%d/%d). Please wait for some downloads to complete or pause/remove existing downloads", activeCount, tc.maxDownloads)
 	}
 
-	// Add torrent to session
-	t, err := tc.session.AddURI(magnetURI, nil)
+	// Add stopped, choose the drive, then start (nothing is written before).
+	t, err := tc.session.AddURI(magnetURI, &raintorrent.AddTorrentOptions{Stopped: true})
 	if err != nil {
 		return nil, fmt.Errorf("failed to add magnet: %v", err)
 	}
 
 	// Generate download ID from torrent ID
 	downloadID := t.ID()
+	dataDir := tc.placeIncoming(downloadID, sizeHint)
 
 	// Extract torrent name from magnet URI as fallback
 	torrentName := "Unknown Torrent"
@@ -1150,7 +1166,7 @@ func (tc *TorrentClient) AddMagnet(magnetURI string) (*DownloadInfo, error) {
 		Size:         0, // Will be updated when torrent info is available
 		Downloaded:   0,
 		AddedAt:      time.Now(),
-		SavePath:     tc.downloadDir,
+		SavePath:     dataDir,
 		Seeders:      0,
 		Peers:        0,
 		DownloadRate: 0,
@@ -1474,8 +1490,12 @@ func (tc *TorrentClient) monitorDownloads() {
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 
+	n := 0
 	for range ticker.C {
 		tc.updateDownloadStats()
+		if n++; n%15 == 0 { // every 30s: don't let a drive fill up mid-download
+			tc.guardFreeSpace()
+		}
 	}
 }
 
@@ -1512,7 +1532,7 @@ func (tc *TorrentClient) updateDownloadStats() {
 			// Update name from torrent info if available
 			if stats.Name != "" && stats.Name != downloadInfo.Name {
 				downloadInfo.Name = stats.Name
-				downloadInfo.SavePath = filepath.Join(tc.downloadDir, stats.Name)
+				downloadInfo.SavePath = filepath.Join(tc.dataDirOf(downloadID), stats.Name)
 				log.Printf("📝 Updated torrent name: %s", stats.Name)
 			}
 

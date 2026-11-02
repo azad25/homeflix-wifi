@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"homeflix-backend/internal/services/autodl"
+	"homeflix-backend/internal/services/cloud"
 	"homeflix-backend/internal/services/livetv"
 	"log"
 	"time"
@@ -326,6 +327,21 @@ func SetupRoutes(r *gin.Engine, mediaService *services.MediaService, streamServi
 		startEventWatchers(context.Background(), db, notificationService, tvAppSource, tvUpdates)
 		api.GET("/notifications/settings", handlers.GetNotificationPrefs())
 		api.PUT("/notifications/settings", handlers.UpdateNotificationPrefs())
+
+		// Cloud drives via rclone (mounted as library folders, offload target)
+		cloudSvc := cloud.NewService(db)
+		cloudSvc.Notify = func(title, message string) {
+			notificationService.AddEvent(services.EventNotification{Event: "low_storage", Title: title, Message: message, Link: "/settings?tab=storage"})
+		}
+		go cloudSvc.Run(context.Background())
+		api.GET("/admin/cloud", handlers.GetCloud(cloudSvc))
+		api.POST("/admin/cloud/remotes", handlers.CreateCloudRemote(cloudSvc))
+		api.DELETE("/admin/cloud/remotes/:name", handlers.DeleteCloudRemote(cloudSvc))
+		api.POST("/admin/cloud/mounts", handlers.AddCloudMount(cloudSvc))
+		api.PATCH("/admin/cloud/mounts/:remote", handlers.UpdateCloudMount(cloudSvc))
+		api.DELETE("/admin/cloud/mounts/:remote", handlers.DeleteCloudMount(cloudSvc))
+		api.PUT("/admin/cloud/settings", handlers.UpdateCloudSettings(cloudSvc))
+		api.POST("/admin/cloud/offload", handlers.RunCloudOffload(cloudSvc))
 
 		// Live TV from public free-to-air listings (see docs/LIVE_TV.md)
 		liveTV := livetv.NewService()

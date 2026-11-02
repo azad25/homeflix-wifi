@@ -140,7 +140,7 @@ func applyProfile(s Settings) Settings {
 // Torrents is what the service needs from the torrent system.
 type Torrents interface {
 	SearchReal(query string) ([]torrent.SearchResult, error)
-	Enqueue(magnet, title, mediaType string, tmdbID int, quality string) (*torrent.DownloadInfo, error)
+	Enqueue(magnet, title, mediaType string, tmdbID int, quality string, sizeHint int64) (*torrent.DownloadInfo, error)
 }
 
 // Notify sends a user-visible notification (kind: queued, started,
@@ -603,7 +603,7 @@ func (s *Service) process(it *Item, st Settings) bool {
 		}
 	}
 
-	info, err := s.torrents.Enqueue(c.Result.MagnetURI, it.display(), it.MediaType, it.TMDBID, c.Quality)
+	info, err := s.torrents.Enqueue(c.Result.MagnetURI, it.display(), it.MediaType, it.TMDBID, c.Quality, c.Bytes)
 	if err != nil {
 		s.retryLater(it, "Couldn't start the download: "+err.Error(), 15*time.Minute)
 		return false
