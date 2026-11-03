@@ -176,7 +176,7 @@ always tells you where you are.
 - Remember the last channel and the previous one (for Back).
 - Hide the adult category entirely (the server already excludes it).
 
-## TV app status (HomeFlix TV 5.13.1)
+## TV app status (HomeFlix TV 5.13.2)
 
 Implemented in `azad25/homeflix-tv-app` (`app/src/main/java/com/homeflix/tv/livetv/`):
 
@@ -192,8 +192,9 @@ Implemented in `azad25/homeflix-tv-app` (`app/src/main/java/com/homeflix/tv/live
 | Mini guide: left 35 %, ● NOW, opens on the current channel, wraps, OK tunes, Back closes | done |
 | Full guide: groups (Favorites, All, countries with flags + counts, categories); muted preview after 600 ms in a window, using the same player | done |
 | One ExoPlayer per session; buffer 1.5 s / 3 s; live offset 12 s; 400 ms zap debounce; prefetch `/play` for neighbours; BehindLiveWindow → live edge | done |
-| HLS → next URL → `youtube_id` (embedded, D-pad keeps zapping) → "not available" | done |
-| YouTube: IFrame-API embed reports playing/errors; if embedding is blocked or nothing plays in 12 s, OK hands off to the YouTube app (`ACTION_VIEW`, TV edition first); info ▶ hands off on any YouTube channel | done |
+| HLS → next URL → "not available" | done |
+| YouTube channels | **not used on the TV** (they didn't play reliably): the TV hides `quality: "YouTube"` channels and ignores `youtube_id`; offline channels are hidden too. Turn off "Official YouTube" in Settings → Live TV to drop them everywhere. |
+| Light on 2 GB TVs: 6–15 s / 12 MB buffers, 1080p cap, SurfaceView, lineup cached 10 min | done |
 | Favorites, last and previous channel, recents in DataStore | done |
 | Volume HUD, "Start HomeFlix on Live TV" setting, audio/subtitle options | not yet |
 
