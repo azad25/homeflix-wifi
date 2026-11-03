@@ -149,3 +149,20 @@ download has already started, and unfollows a show.
 - **Status:** show `notify.status` (`scheduled`, `queued`, `downloading`,
   `completed`). Once completed, the title is in the library and "Play" can
   open it.
+
+## TV app status (HomeFlix TV 5.14.0)
+
+Implemented in `azad25/homeflix-tv-app` (`app/src/main/java/com/homeflix/tv/comingsoon/`):
+
+| Item | Status |
+| --- | --- |
+| Home rows "Coming Soon: Movies" / "Coming Soon: Series": backdrop cards in rank order, date line (In N days ≤ 45, else "Dec 18" / "Feb 2027"), Season / New Series chip, bell when `notify.on` | done |
+| Focus a card ~700 ms → trailer muted inside the card (shared preview player, one instance; stops when focus leaves; big MP4s are not prefetched) | done |
+| Full-screen Coming Soon (from a card or Profile → Coming Soon): trailer with sound, backdrop until the first frame, next title when a trailer ends; one ExoPlayer (`setMediaItem` + `prepare`) | done |
+| Info overlay (lower third, fades after ~4 s, back on any key): label, title, full date + countdown, studio · genres, Starring, overview; Notify Me / We'll Notify You ✓ + status; Details (expands the overview and cast); strip of titles | done |
+| Remote: ◀ ▶ title, ▲ ▼ buttons ↔ strip, OK press, Play/Pause, Back = overlay then screen | done |
+| Title pages: `GET /api/comingsoon/title/...` → "Season 3 · In 20 days Trailer" + Notify Me buttons (in practice: shows in the library with a new season coming) | done |
+| Notify Me: optimistic, rolled back on failure, then `/title` refresh for `notify.status` | done |
+| Hide the rows and the menu entry when both lists are empty or the request fails | done |
+| `youtube_id` fallback | **not used on the TV**: YouTube embeds didn't play reliably on the TV (removed for Live TV too). Titles without a ready MP4 show their backdrop for 10 s, then the next title comes. |
+| "Details" → TMDB detail screen | the TV app has no TMDB detail screen (its title pages are for library items), so Details expands the overlay instead |
